@@ -12,20 +12,21 @@ import (
 )
 
 var (
-	backend        string
-	awsProfile     string
-	awsEndpointURL string
-	vmDriver       string
-	cpu            int
-	disk           int
-	memory         int
-	arch           string
-	docker         bool
-	gitLivereload  bool
-	blueprint      string
-	toolsManager   string
-	platform       string
-	endpoint       string
+	initBackend        string
+	initAwsProfile     string
+	initAwsEndpointURL string
+	initVmDriver       string
+	initCpu            int
+	initDisk           int
+	initMemory         int
+	initArch           string
+	initDocker         bool
+	initGitLivereload  bool
+	initBlueprint      string
+	initToolsManager   string
+	initPlatform       string
+	initEndpoint       string
+	initSetFlags       []string
 )
 
 var initCmd = &cobra.Command{
@@ -73,7 +74,7 @@ var initCmd = &cobra.Command{
 		}
 
 		// Determine the default vm driver to use if not set
-		vmDriverConfig := vmDriver
+		vmDriverConfig := initVmDriver
 		if vmDriverConfig == "" {
 			vmDriverConfig = configHandler.GetString("vm.driver")
 			if vmDriverConfig == "" && (contextName == "local" || strings.HasPrefix(contextName, "local-")) {
@@ -97,32 +98,25 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("Error setting default config: %w", err)
 		}
 
-		// Set the vm driver only if it's configured
-		if vmDriverConfig != "" {
-			if err := configHandler.SetContextValue("vm.driver", vmDriverConfig); err != nil {
-				return fmt.Errorf("Error setting vm driver: %w", err)
-			}
-		}
-
 		// Create the flag to config path mapping and set the configurations
 		configurations := []struct {
 			flagName   string
 			configPath string
 			value      any
 		}{
-			{"aws-endpoint-url", "aws.aws_endpoint_url", awsEndpointURL},
-			{"aws-profile", "aws.aws_profile", awsProfile},
-			{"docker", "docker.enabled", docker},
-			{"backend", "terraform.backend", backend},
-			{"vm-cpu", "vm.cpu", cpu},
-			{"vm-disk", "vm.disk", disk},
-			{"vm-memory", "vm.memory", memory},
-			{"vm-arch", "vm.arch", arch},
-			{"tools-manager", "toolsManager", toolsManager},
-			{"git-livereload", "git.livereload.enabled", gitLivereload},
-			{"blueprint", "blueprint", blueprint},
-			{"endpoint", "cluster.endpoint", endpoint},
-			{"platform", "cluster.platform", platform},
+			{"aws-endpoint-url", "aws.aws_endpoint_url", initAwsEndpointURL},
+			{"aws-profile", "aws.aws_profile", initAwsProfile},
+			{"docker", "docker.enabled", initDocker},
+			{"backend", "terraform.backend", initBackend},
+			{"vm-cpu", "vm.cpu", initCpu},
+			{"vm-disk", "vm.disk", initDisk},
+			{"vm-memory", "vm.memory", initMemory},
+			{"vm-arch", "vm.arch", initArch},
+			{"tools-manager", "toolsManager", initToolsManager},
+			{"git-livereload", "git.livereload.enabled", initGitLivereload},
+			{"blueprint", "blueprint", initBlueprint},
+			{"endpoint", "cluster.endpoint", initEndpoint},
+			{"platform", "cluster.platform", initPlatform},
 		}
 
 		for _, config := range configurations {
@@ -131,6 +125,25 @@ var initCmd = &cobra.Command{
 				if err != nil {
 					return fmt.Errorf("Error setting %s configuration: %w", config.flagName, err)
 				}
+			}
+		}
+
+		// Process all set flags after other flags
+		for _, setFlag := range initSetFlags {
+			parts := strings.SplitN(setFlag, "=", 2)
+			if len(parts) != 2 {
+				return fmt.Errorf("Invalid format for --set flag. Expected key=value")
+			}
+			key, value := parts[0], parts[1]
+			if err := configHandler.SetContextValue(key, value); err != nil {
+				return fmt.Errorf("Error setting config override %s: %w", key, err)
+			}
+		}
+
+		// Set the vm driver only if it's configured and not overridden by --set flag
+		if vmDriverConfig != "" && configHandler.GetString("vm.driver") == "" {
+			if err := configHandler.SetContextValue("vm.driver", vmDriverConfig); err != nil {
+				return fmt.Errorf("Error setting vm driver: %w", err)
 			}
 		}
 
@@ -191,18 +204,19 @@ var initCmd = &cobra.Command{
 }
 
 func init() {
-	initCmd.Flags().StringVar(&backend, "backend", "", "Specify the terraform backend to use")
-	initCmd.Flags().StringVar(&awsProfile, "aws-profile", "", "Specify the AWS profile to use")
-	initCmd.Flags().StringVar(&awsEndpointURL, "aws-endpoint-url", "", "Specify the AWS endpoint URL to use")
-	initCmd.Flags().StringVar(&vmDriver, "vm-driver", "", "Specify the VM driver. Only Colima is supported for now.")
-	initCmd.Flags().IntVar(&cpu, "vm-cpu", 0, "Specify the number of CPUs for Colima")
-	initCmd.Flags().IntVar(&disk, "vm-disk", 0, "Specify the disk size for Colima")
-	initCmd.Flags().IntVar(&memory, "vm-memory", 0, "Specify the memory size for Colima")
-	initCmd.Flags().StringVar(&arch, "vm-arch", "", "Specify the architecture for Colima")
-	initCmd.Flags().BoolVar(&docker, "docker", false, "Enable Docker")
-	initCmd.Flags().BoolVar(&gitLivereload, "git-livereload", false, "Enable Git Livereload")
-	initCmd.Flags().StringVar(&platform, "platform", "", "Specify the platform to use [local|metal]")
-	initCmd.Flags().StringVar(&blueprint, "blueprint", "", "Specify the blueprint to use")
-	initCmd.Flags().StringVar(&endpoint, "endpoint", "", "Specify the kubernetes API endpoint")
+	initCmd.Flags().StringVar(&initBackend, "backend", "", "Specify the terraform backend to use")
+	initCmd.Flags().StringVar(&initAwsProfile, "aws-profile", "", "Specify the AWS profile to use")
+	initCmd.Flags().StringVar(&initAwsEndpointURL, "aws-endpoint-url", "", "Specify the AWS endpoint URL to use")
+	initCmd.Flags().StringVar(&initVmDriver, "vm-driver", "", "Specify the VM driver. Only Colima is supported for now.")
+	initCmd.Flags().IntVar(&initCpu, "vm-cpu", 0, "Specify the number of CPUs for Colima")
+	initCmd.Flags().IntVar(&initDisk, "vm-disk", 0, "Specify the disk size for Colima")
+	initCmd.Flags().IntVar(&initMemory, "vm-memory", 0, "Specify the memory size for Colima")
+	initCmd.Flags().StringVar(&initArch, "vm-arch", "", "Specify the architecture for Colima")
+	initCmd.Flags().BoolVar(&initDocker, "docker", false, "Enable Docker")
+	initCmd.Flags().BoolVar(&initGitLivereload, "git-livereload", false, "Enable Git Livereload")
+	initCmd.Flags().StringVar(&initPlatform, "platform", "", "Specify the platform to use [local|metal]")
+	initCmd.Flags().StringVar(&initBlueprint, "blueprint", "", "Specify the blueprint to use")
+	initCmd.Flags().StringVar(&initEndpoint, "endpoint", "", "Specify the kubernetes API endpoint")
+	initCmd.Flags().StringSliceVar(&initSetFlags, "set", []string{}, "Override configuration values. Example: --set dns.enabled=false --set cluster.endpoint=https://localhost:6443")
 	rootCmd.AddCommand(initCmd)
 }

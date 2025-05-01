@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
@@ -224,7 +225,25 @@ func (y *YamlConfigHandler) Set(path string, value any) error {
 	if path == "" {
 		return nil
 	}
+
 	pathKeys := parsePath(path)
+	if len(pathKeys) == 0 {
+		return fmt.Errorf("invalid path: %s", path)
+	}
+
+	// If the value is a string, try to convert it based on the target type
+	if strValue, ok := value.(string); ok {
+		currentValue := y.Get(path)
+		if currentValue != nil {
+			targetType := reflect.TypeOf(currentValue)
+			convertedValue, err := convertValue(strValue, targetType)
+			if err != nil {
+				return fmt.Errorf("error converting value for %s: %w", path, err)
+			}
+			value = convertedValue
+		}
+	}
+
 	configValue := reflect.ValueOf(&y.config)
 	return setValueByPath(configValue, pathKeys, value, path)
 }
@@ -235,10 +254,19 @@ func (y *YamlConfigHandler) SetContextValue(path string, value any) error {
 		return fmt.Errorf("path cannot be empty")
 	}
 
-	// Ensure we have a current context
-	currentContext := y.GetContext()
+	// Initialize contexts map if it doesn't exist
+	if y.config.Contexts == nil {
+		y.config.Contexts = make(map[string]*v1alpha1.Context)
+	}
 
-	fullPath := fmt.Sprintf("contexts.%s.%s", currentContext, path)
+	// Get or create the current context
+	contextName := y.GetContext()
+	if y.config.Contexts[contextName] == nil {
+		y.config.Contexts[contextName] = &v1alpha1.Context{}
+	}
+
+	// Use the generic Set method with the full context path
+	fullPath := fmt.Sprintf("contexts.%s.%s", contextName, path)
 	return y.Set(fullPath, value)
 }
 
@@ -324,7 +352,7 @@ func getValueByPath(current any, pathKeys []string) any {
 // getFieldByYamlTag retrieves a field from a struct by its YAML tag.
 func getFieldByYamlTag(v reflect.Value, tag string) reflect.Value {
 	t := v.Type()
-	for i := 0; i < v.NumField(); i++ {
+	for i := range make([]struct{}, v.NumField()) {
 		field := t.Field(i)
 		yamlTag := strings.Split(field.Tag.Get("yaml"), ",")[0]
 		if yamlTag == tag {
@@ -353,6 +381,9 @@ func setValueByPath(currValue reflect.Value, pathKeys []string, value any, fullP
 	switch currValue.Kind() {
 	case reflect.Struct:
 		fieldValue := getFieldByYamlTag(currValue, key)
+		if !fieldValue.IsValid() {
+			return fmt.Errorf("field not found: %s", key)
+		}
 
 		if fieldValue.Kind() == reflect.Ptr && fieldValue.IsNil() {
 			fieldValue.Set(reflect.New(fieldValue.Type().Elem()))
@@ -434,6 +465,12 @@ func assignValue(fieldValue reflect.Value, value any) (reflect.Value, error) {
 		newValue := reflect.New(elemType)
 		val := reflect.ValueOf(value)
 
+		// If the value is already a pointer of the correct type, use it directly
+		if valueType.AssignableTo(fieldType) {
+			return val, nil
+		}
+
+		// If the value is convertible to the element type, convert and wrap in pointer
 		if val.Type().ConvertibleTo(elemType) {
 			val = val.Convert(elemType)
 			newValue.Elem().Set(val)
@@ -443,14 +480,13 @@ func assignValue(fieldValue reflect.Value, value any) (reflect.Value, error) {
 		return reflect.Value{}, fmt.Errorf("cannot assign value of type %s to field of type %s", valueType, fieldType)
 	}
 
+	val := reflect.ValueOf(value)
 	if valueType.AssignableTo(fieldType) {
-		val := reflect.ValueOf(value)
 		return val, nil
 	}
 
 	if valueType.ConvertibleTo(fieldType) {
-		val := reflect.ValueOf(value).Convert(fieldType)
-		return val, nil
+		return val.Convert(fieldType), nil
 	}
 
 	return reflect.Value{}, fmt.Errorf("cannot assign value of type %s to field of type %s", valueType, fieldType)
@@ -458,6 +494,9 @@ func assignValue(fieldValue reflect.Value, value any) (reflect.Value, error) {
 
 // makeAddressable ensures a value is addressable by creating a new pointer if necessary.
 func makeAddressable(v reflect.Value) reflect.Value {
+	if !v.IsValid() {
+		return v
+	}
 	if v.CanAddr() {
 		return v
 	}
@@ -501,4 +540,80 @@ func parsePath(path string) []string {
 	}
 
 	return keys
+}
+
+// convertValue attempts to convert a string value to the appropriate type based on the target field's type
+func convertValue(value string, targetType reflect.Type) (any, error) {
+	isPointer := targetType.Kind() == reflect.Ptr
+	if isPointer {
+		targetType = targetType.Elem()
+	}
+
+	var convertedValue any
+	var err error
+
+	switch targetType.Kind() {
+	case reflect.Bool:
+		convertedValue, err = strconv.ParseBool(value)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		var v int64
+		v, err = strconv.ParseInt(value, 10, 64)
+		if err == nil {
+			switch targetType.Kind() {
+			case reflect.Int:
+				convertedValue = int(v)
+			case reflect.Int8:
+				convertedValue = int8(v)
+			case reflect.Int16:
+				convertedValue = int16(v)
+			case reflect.Int32:
+				convertedValue = int32(v)
+			case reflect.Int64:
+				convertedValue = v
+			}
+		}
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		var v uint64
+		v, err = strconv.ParseUint(value, 10, 64)
+		if err == nil {
+			switch targetType.Kind() {
+			case reflect.Uint:
+				convertedValue = uint(v)
+			case reflect.Uint8:
+				convertedValue = uint8(v)
+			case reflect.Uint16:
+				convertedValue = uint16(v)
+			case reflect.Uint32:
+				convertedValue = uint32(v)
+			case reflect.Uint64:
+				convertedValue = v
+			}
+		}
+	case reflect.Float32, reflect.Float64:
+		var v float64
+		v, err = strconv.ParseFloat(value, 64)
+		if err == nil {
+			if targetType.Kind() == reflect.Float32 {
+				convertedValue = float32(v)
+			} else {
+				convertedValue = v
+			}
+		}
+	case reflect.String:
+		convertedValue = value
+	default:
+		return nil, fmt.Errorf("unsupported type conversion from string to %v", targetType)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if isPointer {
+		ptr := reflect.New(targetType)
+		ptr.Elem().Set(reflect.ValueOf(convertedValue))
+		return ptr.Interface(), nil
+	}
+
+	return convertedValue, nil
 }

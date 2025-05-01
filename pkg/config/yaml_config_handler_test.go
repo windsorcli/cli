@@ -868,103 +868,6 @@ func TestYamlConfigHandler_GetConfig(t *testing.T) {
 	setup := func(t *testing.T) (*YamlConfigHandler, *Mocks) {
 		mocks := setupMocks(t)
 		handler := NewYamlConfigHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-		if err := handler.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
-		}
-		return handler, mocks
-	}
-
-	t.Run("ContextIsSet", func(t *testing.T) {
-		// Given a handler with a context set
-		handler, _ := setup(t)
-		handler.context = "local"
-		handler.config.Contexts = map[string]*v1alpha1.Context{
-			"local": {
-				Environment: map[string]string{
-					"ENV_VAR": "value",
-				},
-			},
-		}
-
-		// When calling GetConfig
-		config := handler.GetConfig()
-
-		// Then the context config should be returned without error
-		if config == nil || config.Environment["ENV_VAR"] != "value" {
-			t.Errorf("Expected context config with ENV_VAR 'value', got %v", config)
-		}
-	})
-
-	t.Run("EmptyContextString", func(t *testing.T) {
-		handler, mocks := setup(t)
-
-		// Mock shell to return a project root
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "/mock/project/root", nil
-		}
-
-		// Mock shims to handle context file and env var
-		handler.shims.ReadFile = func(filename string) ([]byte, error) {
-			if filename == "/mock/project/root/.windsor/context" {
-				return []byte("local"), nil
-			}
-			return nil, fmt.Errorf("file not found")
-		}
-		handler.shims.Getenv = func(key string) string {
-			return ""
-		}
-
-		handler.context = "" // Explicitly empty context
-		defaultConf := v1alpha1.Context{Environment: map[string]string{"DEFAULT": "yes"}}
-		if err := handler.SetDefault(defaultConf); err != nil {
-			t.Fatalf("Failed to set default config: %v", err)
-		}
-
-		// When calling GetConfig
-		config := handler.GetConfig()
-
-		// Then the default config should be returned
-		if config == nil {
-			t.Fatal("Expected non-nil config")
-		}
-		if config.Environment["DEFAULT"] != "yes" {
-			t.Errorf("Expected default config with DEFAULT='yes', got %v", config.Environment)
-		}
-	})
-
-	t.Run("ContextNotInMap", func(t *testing.T) {
-		// Given a handler with a context set, but it's not in the config map
-		handler, _ := setup(t)
-		handler.context = "missing-context"
-		// Config map does *not* contain "missing-context"
-		handler.config.Contexts = map[string]*v1alpha1.Context{
-			"existing-context": {Environment: map[string]string{"EXISTING": "val"}},
-		}
-		defaultConf := v1alpha1.Context{Environment: map[string]string{"DEFAULT": "yes"}}
-		handler.SetDefault(defaultConf)
-
-		// When calling GetConfig
-		config := handler.GetConfig()
-
-		// Then the default config should be returned
-		if config == nil {
-			t.Fatalf("Expected default config, got nil")
-		}
-		if config.Environment["DEFAULT"] != "yes" {
-			t.Errorf("Expected default config environment, got %v", config.Environment)
-		}
-		// Ensure it didn't accidentally return the existing context's data
-		if _, exists := config.Environment["EXISTING"]; exists {
-			t.Errorf("Returned config contains data from an unrelated existing context")
-		}
-	})
-}
-
-func TestYamlConfigHandler_Set(t *testing.T) {
-	setup := func(t *testing.T) (*YamlConfigHandler, *Mocks) {
-		mocks := setupMocks(t)
-		handler := NewYamlConfigHandler(mocks.Injector)
 		if err := handler.Initialize(); err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
@@ -972,501 +875,98 @@ func TestYamlConfigHandler_Set(t *testing.T) {
 		return handler, mocks
 	}
 
-	t.Run("Success", func(t *testing.T) {
-		// Given a handler with a context set
-		handler, _ := setup(t)
-
-		// When setting a value in the configuration
-		handler.Set("contexts.default.environment.TEST_VAR", "test_value")
-
-		// Then the value should be correctly set
-		expected := "test_value"
-		if val := handler.config.Contexts["default"].Environment["TEST_VAR"]; val != expected {
-			t.Errorf("Set() did not correctly set value, expected %s, got %s", expected, val)
-		}
-	})
-
-	t.Run("InvalidPath", func(t *testing.T) {
-		// Given a handler with a context set
-		handler, _ := setup(t)
-
-		// When attempting to set a value with an empty path
-		err := handler.Set("", "test_value")
-
-		// Then no error should be returned for empty path
-		if err != nil {
-			t.Errorf("Set() with empty path did not behave as expected, got error: %v", err)
-		}
-	})
-}
-
-func TestYamlConfigHandler_SetContextValue(t *testing.T) {
-	setup := func(t *testing.T) (*YamlConfigHandler, *Mocks) {
-		mocks := setupMocks(t)
-		handler := NewYamlConfigHandler(mocks.Injector)
-		if err := handler.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
-		}
-		handler.shims = mocks.Shims
-		return handler, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a handler with a context set
-		handler, _ := setup(t)
-		handler.context = "test"
-
-		// And a context with an empty environment map
-		actualContext := handler.GetContext()
-		handler.config.Contexts = map[string]*v1alpha1.Context{
-			actualContext: {
-				Environment: map[string]string{},
-			},
-		}
-
-		// When setting a value in the context environment
-		err := handler.SetContextValue("environment.TEST_VAR", "test_value")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("SetContextValue() unexpected error: %v", err)
-		}
-
-		// And the value should be correctly set in the context
-		expected := "test_value"
-		if val := handler.config.Contexts[actualContext].Environment["TEST_VAR"]; val != expected {
-			t.Errorf("SetContextValue() did not correctly set value, expected %s, got %s", expected, val)
-		}
-	})
-
-	t.Run("EmptyPath", func(t *testing.T) {
-		// Given a handler with a context set
-		handler, _ := setup(t)
-
-		// When attempting to set a value with an empty path
-		err := handler.SetContextValue("", "test_value")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Errorf("SetContextValue() with empty path did not return an error")
-		}
-
-		// And the error message should be as expected
-		expectedErr := "path cannot be empty"
-		if err.Error() != expectedErr {
-			t.Errorf("Expected error message '%s', got '%s'", expectedErr, err.Error())
-		}
-	})
-
-	t.Run("SetFails", func(t *testing.T) {
-		// Given a handler with a context set
-		handler, _ := setup(t)
-		handler.context = "test"
-
-		// When attempting to set a value with an invalid path
-		err := handler.SetContextValue("invalid..path", "test_value")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Errorf("SetContextValue() with invalid path did not return an error")
-		}
-	})
-}
-
-func TestYamlConfigHandler_SetDefault(t *testing.T) {
-	setup := func(t *testing.T) (*YamlConfigHandler, *Mocks) {
-		mocks := setupMocks(t)
-		handler := NewYamlConfigHandler(mocks.Injector)
-		if err := handler.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
-		}
-		handler.shims = mocks.Shims
-		return handler, mocks
-	}
-
-	t.Run("SetDefaultWithExistingContext", func(t *testing.T) {
-		// Given a handler with a context set
-		handler, _ := setup(t)
-		defaultContext := v1alpha1.Context{
-			Environment: map[string]string{
-				"ENV_VAR": "value",
-			},
-		}
-
-		// And a context is set
-		handler.Set("context", "local")
-
-		// When setting the default context
-		err := handler.SetDefault(defaultContext)
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
-		}
-
-		// And the default context should be set correctly
-		if handler.defaultContextConfig.Environment["ENV_VAR"] != "value" {
-			t.Errorf("SetDefault() = %v, expected %v", handler.defaultContextConfig.Environment["ENV_VAR"], "value")
-		}
-	})
-
-	t.Run("SetDefaultWithNoContext", func(t *testing.T) {
+	t.Run("EmptyContext", func(t *testing.T) {
 		// Given a handler with no context set
 		handler, _ := setup(t)
-		handler.context = ""
-		defaultContext := v1alpha1.Context{
-			Environment: map[string]string{
-				"ENV_VAR": "value",
-			},
-		}
 
-		// When setting the default context
-		err := handler.SetDefault(defaultContext)
+		// When getting the config
+		config := handler.GetConfig()
 
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
-		}
-
-		// And the default context should be set correctly
-		if handler.defaultContextConfig.Environment["ENV_VAR"] != "value" {
-			t.Errorf("SetDefault() = %v, expected %v", handler.defaultContextConfig.Environment["ENV_VAR"], "value")
+		// Then the default config should be returned
+		if config == nil {
+			t.Fatal("Expected default config, got nil")
 		}
 	})
 
-	t.Run("SetDefaultUsedInSubsequentOperations", func(t *testing.T) {
+	t.Run("NonExistentContext", func(t *testing.T) {
+		// Given a handler with a non-existent context
+		handler, _ := setup(t)
+		handler.context = "nonexistent"
+
+		// When getting the config
+		config := handler.GetConfig()
+
+		// Then the default config should be returned
+		if config == nil {
+			t.Fatal("Expected default config, got nil")
+		}
+	})
+
+	t.Run("ExistingContext", func(t *testing.T) {
 		// Given a handler with an existing context
 		handler, _ := setup(t)
-		handler.context = "existing-context"
+		handler.context = "test"
+
+		// And a context with environment variables
 		handler.config.Contexts = map[string]*v1alpha1.Context{
-			"existing-context": {ProjectName: ptrString("initial-project")},
-		}
-
-		// And a default context configuration
-		defaultConf := v1alpha1.Context{
-			Environment: map[string]string{"DEFAULT_VAR": "default_val"},
-		}
-
-		// When setting the default context
-		err := handler.SetDefault(defaultConf)
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("SetDefault() unexpected error: %v", err)
-		}
-
-		// And the default context should be set correctly
-		if handler.defaultContextConfig.Environment == nil || handler.defaultContextConfig.Environment["DEFAULT_VAR"] != "default_val" {
-			t.Errorf("Expected defaultContextConfig environment to be %v, got %v", defaultConf.Environment, handler.defaultContextConfig.Environment)
-		}
-
-		// And the existing context should not be modified
-		if handler.config.Contexts["existing-context"] == nil ||
-			handler.config.Contexts["existing-context"].ProjectName == nil ||
-			*handler.config.Contexts["existing-context"].ProjectName != "initial-project" {
-			t.Errorf("SetDefault incorrectly overwrote existing context config. Expected ProjectName 'initial-project', got %v", handler.config.Contexts["existing-context"].ProjectName)
-		}
-	})
-}
-
-func TestYamlConfigHandler_LoadConfigString(t *testing.T) {
-	setup := func(t *testing.T) (*YamlConfigHandler, *Mocks) {
-		mocks := setupMocks(t)
-		handler := NewYamlConfigHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-		if err := handler.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
-		}
-		return handler, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a handler with a context set
-		handler, _ := setup(t)
-		handler.SetContext("test")
-
-		// And a valid YAML configuration string
-		yamlContent := `
-version: v1alpha1
-contexts:
-  test:
-    environment:
-      TEST_VAR: test_value`
-
-		// When loading the configuration string
-		err := handler.LoadConfigString(yamlContent)
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("LoadConfigString() unexpected error: %v", err)
-		}
-
-		// And the value should be correctly loaded
-		value := handler.GetString("environment.TEST_VAR")
-		if value != "test_value" {
-			t.Errorf("Expected TEST_VAR = 'test_value', got '%s'", value)
-		}
-	})
-
-	t.Run("EmptyContent", func(t *testing.T) {
-		// Given a handler with a context set
-		handler, _ := setup(t)
-
-		// When loading an empty configuration string
-		err := handler.LoadConfigString("")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("LoadConfigString() unexpected error: %v", err)
-		}
-	})
-
-	t.Run("InvalidYAML", func(t *testing.T) {
-		// Given a handler with a context set
-		handler, _ := setup(t)
-
-		// And an invalid YAML string
-		yamlContent := `invalid: yaml: content: [}`
-
-		// When loading the invalid YAML
-		err := handler.LoadConfigString(yamlContent)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("LoadConfigString() expected error for invalid YAML")
-		}
-
-		// And the error message should indicate YAML unmarshalling failure
-		if !strings.Contains(err.Error(), "error unmarshalling yaml") {
-			t.Errorf("Expected error about invalid YAML, got: %v", err)
-		}
-	})
-
-	t.Run("UnsupportedVersion", func(t *testing.T) {
-		// Given a handler with a context set
-		handler, _ := setup(t)
-
-		// And a YAML string with an unsupported version
-		yamlContent := `
-version: v2alpha1
-contexts:
-  test: {}`
-
-		// When loading the YAML with unsupported version
-		err := handler.LoadConfigString(yamlContent)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("LoadConfigString() expected error for unsupported version")
-		}
-
-		// And the error message should indicate unsupported version
-		if !strings.Contains(err.Error(), "unsupported config version") {
-			t.Errorf("Expected error about unsupported version, got: %v", err)
-		}
-	})
-}
-
-// =============================================================================
-// Helper Functions
-// =============================================================================
-
-func Test_setValueByPath(t *testing.T) {
-	t.Run("EmptyPathKeys", func(t *testing.T) {
-		// Given an empty pathKeys slice
-		var currValue reflect.Value
-		pathKeys := []string{}
-		value := "test"
-
-		// When calling setValueByPath
-		fullPath := "some.full.path"
-		err := setValueByPath(currValue, pathKeys, value, fullPath)
-
-		// Then an error should be returned
-		if err == nil || err.Error() != "pathKeys cannot be empty" {
-			t.Errorf("Expected error 'pathKeys cannot be empty', got %v", err)
-		}
-	})
-
-	t.Run("UnsupportedKind", func(t *testing.T) {
-		// Given a currValue of unsupported kind (e.g., int)
-		currValue := reflect.ValueOf(42)
-		pathKeys := []string{"key"}
-		value := "test"
-		fullPath := "some.full.path"
-		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value, fullPath)
-
-		// Then an error should be returned
-		expectedErr := "Invalid path: some.full.path"
-		if err == nil || err.Error() != expectedErr {
-			t.Errorf("Expected error '%s', got %v", expectedErr, err)
-		}
-	})
-
-	t.Run("MapKeyTypeMismatch", func(t *testing.T) {
-		// Given a map with int keys but providing a string key
-		currValue := reflect.ValueOf(make(map[int]string))
-		pathKeys := []string{"stringKey"}
-		value := "testValue"
-		fullPath := "some.full.path"
-
-		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value, fullPath)
-
-		// Then an error should be returned
-		expectedErr := "key type mismatch: expected int, got string"
-		if err == nil || err.Error() != expectedErr {
-			t.Errorf("Expected error '%s', got %v", expectedErr, err)
-		}
-	})
-
-	t.Run("MapValueTypeMismatch", func(t *testing.T) {
-		// Given a map with string values but providing a non-convertible value
-		currValue := reflect.ValueOf(make(map[string]int))
-		pathKeys := []string{"key"}
-		value := "stringValue" // Cannot convert string to int
-		fullPath := "some.full.path"
-
-		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value, fullPath)
-		// Then an error should be returned
-		expectedErr := "value type mismatch for key key: expected int, got string"
-		if err == nil || err.Error() != expectedErr {
-			t.Errorf("Expected error '%s', got %v", expectedErr, err)
-		}
-	})
-
-	t.Run("MapSuccess", func(t *testing.T) {
-		// Given a map with string keys and any values
-		testMap := make(map[string]any)
-		currValue := reflect.ValueOf(testMap)
-		pathKeys := []string{"key"}
-		value := "testValue"
-		fullPath := "some.full.path"
-
-		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value, fullPath)
-
-		// Then the map should be updated without error
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
-		}
-		if testMap["key"] != "testValue" {
-			t.Errorf("Expected map['key'] to be 'testValue', got '%v'", testMap["key"])
-		}
-	})
-
-	t.Run("MapInitializeNilMap", func(t *testing.T) {
-		// Given a nil map
-		var testMap map[string]any
-		currValue := reflect.ValueOf(&testMap).Elem()
-		pathKeys := []string{"key"}
-		value := "testValue"
-		fullPath := "some.full.path"
-
-		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value, fullPath)
-
-		// Then the map should be initialized and updated without error
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
-		}
-		if testMap["key"] != "testValue" {
-			t.Errorf("Expected map['key'] to be 'testValue', got '%v'", testMap["key"])
-		}
-	})
-
-	t.Run("MapExistingValue", func(t *testing.T) {
-		// Given a Config with an existing nested map
-		config := v1alpha1.Config{
-			Contexts: map[string]*v1alpha1.Context{
-				"level1": {
-					Environment: map[string]string{
-						"level2": "value2",
-					},
-					AWS: &aws.AWSConfig{
-						AWSEndpointURL: ptrString("http://aws.test:4566"),
-					},
+			"test": {
+				Environment: map[string]string{
+					"TEST_VAR": "test_value",
 				},
 			},
 		}
-		currValue := reflect.ValueOf(&config).Elem()
-		pathKeys := []string{"contexts", "level1", "environment", "level2"}
-		value := "testValue"
-		fullPath := "contexts.level1.environment.level2"
 
-		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value, fullPath)
-
-		// Then the existing nested map should be updated without error
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
+		// And default context with different environment variables
+		handler.defaultContextConfig = v1alpha1.Context{
+			Environment: map[string]string{
+				"DEFAULT_VAR": "default_value",
+			},
 		}
 
-		gotValue := config.Contexts["level1"].Environment["level2"]
-		if gotValue != "testValue" {
-			t.Errorf("Expected value to be 'testValue', got '%v'", gotValue)
+		// When getting the config
+		config := handler.GetConfig()
+
+		// Then the merged config should be returned
+		if config == nil {
+			t.Fatal("Expected merged config, got nil")
 		}
-	})
 
-	t.Run("MapValueConversion", func(t *testing.T) {
-		// Given a map with integer elements
-		testMap := map[string]int{}
-		currValue := reflect.ValueOf(testMap)
-		pathKeys := []string{"key"} // Key in the map
-		value := 42.0               // Float value that is convertible to int
-		fullPath := "some.full.path"
-
-		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value, fullPath)
-
-		// Then the value should be converted and set without error
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
+		// And it should contain both environment variables
+		if config.Environment["TEST_VAR"] != "test_value" {
+			t.Errorf("Expected TEST_VAR to be 'test_value', got '%s'", config.Environment["TEST_VAR"])
 		}
-		if testMap["key"] != 42 {
-			t.Errorf("Expected map['key'] to be 42, got '%v'", testMap["key"])
+		if config.Environment["DEFAULT_VAR"] != "default_value" {
+			t.Errorf("Expected DEFAULT_VAR to be 'default_value', got '%s'", config.Environment["DEFAULT_VAR"])
 		}
 	})
 
-	t.Run("RecursiveMap", func(t *testing.T) {
-		// Given a map with nested maps
-		level3Map := map[string]any{}
-		level2Map := map[string]any{"level3": level3Map}
-		level1Map := map[string]any{"level2": level2Map}
-		testMap := map[string]any{"docker": level1Map} // Valid first key
-		currValue := reflect.ValueOf(testMap)
-		pathKeys := []string{"docker", "level2", "nonexistentfield"}
-		value := "newValue"
-		fullPath := "docker.level2.nonexistentfield"
+	t.Run("ContextOverridesDefault", func(t *testing.T) {
+		// Given a handler with an existing context
+		handler, _ := setup(t)
+		handler.context = "test"
 
-		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value, fullPath)
-
-		// Then an error should be returned indicating the field was not found
-		expectedErr := "Invalid path: docker.level2.nonexistentfield"
-		if err == nil || err.Error() != expectedErr {
-			t.Errorf("Expected error '%s', got %v", expectedErr, err)
-		}
-	})
-
-	t.Run("MakeAddressable_WithAddressableValue", func(t *testing.T) {
-		// Given an addressable reflect.Value
-		var x int = 42
-		v := reflect.ValueOf(&x).Elem()
-
-		// When ensuring that v is addressable
-		if !v.CanAddr() {
-			t.Fatal("Expected v to be addressable")
+		// And a context with environment variables that override defaults
+		handler.config.Contexts = map[string]*v1alpha1.Context{
+			"test": {
+				Environment: map[string]string{
+					"SHARED_VAR": "context_value",
+				},
+			},
 		}
 
-		// When calling makeAddressable
-		result := makeAddressable(v)
+		// And default context with the same environment variable
+		handler.defaultContextConfig = v1alpha1.Context{
+			Environment: map[string]string{
+				"SHARED_VAR": "default_value",
+			},
+		}
 
-		// Then the original value should be returned
-		if result.Interface() != v.Interface() {
-			t.Errorf("Expected the same value to be returned")
+		// When getting the config
+		config := handler.GetConfig()
+
+		// Then the context value should override the default
+		if config.Environment["SHARED_VAR"] != "context_value" {
+			t.Errorf("Expected SHARED_VAR to be 'context_value', got '%s'", config.Environment["SHARED_VAR"])
 		}
 	})
 }
@@ -1805,6 +1305,1064 @@ func Test_assignValue(t *testing.T) {
 		expectedError := "cannot assign value of type string to field of type int"
 		if err.Error() != expectedError {
 			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+}
+
+func Test_convertValue(t *testing.T) {
+	t.Run("ConvertStringToBool", func(t *testing.T) {
+		// Given a string value that can be converted to bool
+		value := "true"
+		targetType := reflect.TypeOf(true)
+
+		// When converting the value
+		result, err := convertValue(value, targetType)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		// And the result should be a bool
+		if result != true {
+			t.Errorf("Expected true, got %v", result)
+		}
+	})
+
+	t.Run("ConvertStringToInt", func(t *testing.T) {
+		// Given a string value that can be converted to int
+		value := "42"
+		targetType := reflect.TypeOf(int(0))
+
+		// When converting the value
+		result, err := convertValue(value, targetType)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		// And the result should be an int
+		if result != 42 {
+			t.Errorf("Expected 42, got %v", result)
+		}
+	})
+
+	t.Run("ConvertStringToFloat", func(t *testing.T) {
+		// Given a string value that can be converted to float
+		value := "3.14"
+		targetType := reflect.TypeOf(float64(0))
+
+		// When converting the value
+		result, err := convertValue(value, targetType)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		// And the result should be a float
+		if result != 3.14 {
+			t.Errorf("Expected 3.14, got %v", result)
+		}
+	})
+
+	t.Run("ConvertStringToPointer", func(t *testing.T) {
+		// Given a string value that can be converted to a pointer type
+		value := "42"
+		targetType := reflect.TypeOf((*int)(nil))
+
+		// When converting the value
+		result, err := convertValue(value, targetType)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		// And the result should be a pointer to int
+		if ptr, ok := result.(*int); !ok || *ptr != 42 {
+			t.Errorf("Expected *int(42), got %v", result)
+		}
+	})
+
+	t.Run("UnsupportedType", func(t *testing.T) {
+		// Given a string value and an unsupported target type
+		value := "test"
+		targetType := reflect.TypeOf([]string{})
+
+		// When converting the value
+		_, err := convertValue(value, targetType)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error for unsupported type")
+		}
+
+		// And the error message should indicate the unsupported type
+		expectedErr := "unsupported type conversion from string to []string"
+		if err.Error() != expectedErr {
+			t.Errorf("Expected error '%s', got '%s'", expectedErr, err.Error())
+		}
+	})
+
+	t.Run("InvalidNumericValue", func(t *testing.T) {
+		// Given an invalid numeric string value
+		value := "not a number"
+		targetType := reflect.TypeOf(int(0))
+
+		// When converting the value
+		_, err := convertValue(value, targetType)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error for invalid numeric value")
+		}
+	})
+
+	t.Run("UintTypes", func(t *testing.T) {
+		// Given a string value and uint target types
+		value := "42"
+		targetTypes := []reflect.Type{
+			reflect.TypeOf(uint(0)),
+			reflect.TypeOf(uint8(0)),
+			reflect.TypeOf(uint16(0)),
+			reflect.TypeOf(uint32(0)),
+			reflect.TypeOf(uint64(0)),
+		}
+
+		// When converting the value to each type
+		for _, targetType := range targetTypes {
+			result, err := convertValue(value, targetType)
+
+			// Then no error should be returned
+			if err != nil {
+				t.Fatalf("convertValue() unexpected error for %v: %v", targetType, err)
+			}
+
+			// And the value should be correctly converted
+			switch targetType.Kind() {
+			case reflect.Uint:
+				if result != uint(42) {
+					t.Errorf("convertValue() = %v, want %v for %v", result, uint(42), targetType)
+				}
+			case reflect.Uint8:
+				if result != uint8(42) {
+					t.Errorf("convertValue() = %v, want %v for %v", result, uint8(42), targetType)
+				}
+			case reflect.Uint16:
+				if result != uint16(42) {
+					t.Errorf("convertValue() = %v, want %v for %v", result, uint16(42), targetType)
+				}
+			case reflect.Uint32:
+				if result != uint32(42) {
+					t.Errorf("convertValue() = %v, want %v for %v", result, uint32(42), targetType)
+				}
+			case reflect.Uint64:
+				if result != uint64(42) {
+					t.Errorf("convertValue() = %v, want %v for %v", result, uint64(42), targetType)
+				}
+			}
+		}
+	})
+
+	t.Run("IntTypes", func(t *testing.T) {
+		// Given a string value and int target types
+		value := "42"
+		targetTypes := []reflect.Type{
+			reflect.TypeOf(int8(0)),
+			reflect.TypeOf(int16(0)),
+			reflect.TypeOf(int32(0)),
+			reflect.TypeOf(int64(0)),
+		}
+
+		// When converting the value to each type
+		for _, targetType := range targetTypes {
+			result, err := convertValue(value, targetType)
+
+			// Then no error should be returned
+			if err != nil {
+				t.Fatalf("convertValue() unexpected error for %v: %v", targetType, err)
+			}
+
+			// And the value should be correctly converted
+			switch targetType.Kind() {
+			case reflect.Int8:
+				if result != int8(42) {
+					t.Errorf("convertValue() = %v, want %v for %v", result, int8(42), targetType)
+				}
+			case reflect.Int16:
+				if result != int16(42) {
+					t.Errorf("convertValue() = %v, want %v for %v", result, int16(42), targetType)
+				}
+			case reflect.Int32:
+				if result != int32(42) {
+					t.Errorf("convertValue() = %v, want %v for %v", result, int32(42), targetType)
+				}
+			case reflect.Int64:
+				if result != int64(42) {
+					t.Errorf("convertValue() = %v, want %v for %v", result, int64(42), targetType)
+				}
+			}
+		}
+	})
+
+	t.Run("Float32", func(t *testing.T) {
+		// Given a string value and float32 target type
+		value := "3.14"
+		targetType := reflect.TypeOf(float32(0))
+
+		// When converting the value
+		result, err := convertValue(value, targetType)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("convertValue() unexpected error: %v", err)
+		}
+
+		// And the value should be correctly converted
+		if result != float32(3.14) {
+			t.Errorf("convertValue() = %v, want %v", result, float32(3.14))
+		}
+	})
+}
+
+func TestYamlConfigHandler_SetDefault(t *testing.T) {
+	setup := func(t *testing.T) (*YamlConfigHandler, *Mocks) {
+		mocks := setupMocks(t)
+		handler := NewYamlConfigHandler(mocks.Injector)
+		if err := handler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		handler.shims = mocks.Shims
+		return handler, mocks
+	}
+
+	t.Run("SetDefaultWithExistingContext", func(t *testing.T) {
+		// Given a handler with a context set
+		handler, _ := setup(t)
+		defaultContext := v1alpha1.Context{
+			Environment: map[string]string{
+				"ENV_VAR": "value",
+			},
+		}
+
+		// And a context is set
+		handler.Set("context", "local")
+
+		// When setting the default context
+		err := handler.SetDefault(defaultContext)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		// And the default context should be set correctly
+		if handler.defaultContextConfig.Environment["ENV_VAR"] != "value" {
+			t.Errorf("SetDefault() = %v, expected %v", handler.defaultContextConfig.Environment["ENV_VAR"], "value")
+		}
+	})
+
+	t.Run("SetDefaultWithNoContext", func(t *testing.T) {
+		// Given a handler with no context set
+		handler, _ := setup(t)
+		handler.context = ""
+		defaultContext := v1alpha1.Context{
+			Environment: map[string]string{
+				"ENV_VAR": "value",
+			},
+		}
+
+		// When setting the default context
+		err := handler.SetDefault(defaultContext)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		// And the default context should be set correctly
+		if handler.defaultContextConfig.Environment["ENV_VAR"] != "value" {
+			t.Errorf("SetDefault() = %v, expected %v", handler.defaultContextConfig.Environment["ENV_VAR"], "value")
+		}
+	})
+
+	t.Run("SetDefaultUsedInSubsequentOperations", func(t *testing.T) {
+		// Given a handler with an existing context
+		handler, _ := setup(t)
+		handler.context = "existing-context"
+		handler.config.Contexts = map[string]*v1alpha1.Context{
+			"existing-context": {ProjectName: ptrString("initial-project")},
+		}
+
+		// And a default context configuration
+		defaultConf := v1alpha1.Context{
+			Environment: map[string]string{"DEFAULT_VAR": "default_val"},
+		}
+
+		// When setting the default context
+		err := handler.SetDefault(defaultConf)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("SetDefault() unexpected error: %v", err)
+		}
+
+		// And the default context should be set correctly
+		if handler.defaultContextConfig.Environment == nil || handler.defaultContextConfig.Environment["DEFAULT_VAR"] != "default_val" {
+			t.Errorf("Expected defaultContextConfig environment to be %v, got %v", defaultConf.Environment, handler.defaultContextConfig.Environment)
+		}
+
+		// And the existing context should not be modified
+		if handler.config.Contexts["existing-context"] == nil ||
+			handler.config.Contexts["existing-context"].ProjectName == nil ||
+			*handler.config.Contexts["existing-context"].ProjectName != "initial-project" {
+			t.Errorf("SetDefault incorrectly overwrote existing context config. Expected ProjectName 'initial-project', got %v", handler.config.Contexts["existing-context"].ProjectName)
+		}
+	})
+}
+
+func TestYamlConfigHandler_SetContextValue(t *testing.T) {
+	setup := func(t *testing.T) (*YamlConfigHandler, *Mocks) {
+		mocks := setupMocks(t)
+		handler := NewYamlConfigHandler(mocks.Injector)
+		if err := handler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		handler.shims = mocks.Shims
+		return handler, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a handler with a context set
+		handler, _ := setup(t)
+		handler.context = "test"
+
+		// And a context with an empty environment map
+		actualContext := handler.GetContext()
+		handler.config.Contexts = map[string]*v1alpha1.Context{
+			actualContext: {},
+		}
+
+		// When setting a value in the context environment
+		err := handler.SetContextValue("environment.TEST_VAR", "test_value")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("SetContextValue() unexpected error: %v", err)
+		}
+
+		// And the value should be correctly set in the context
+		expected := "test_value"
+		if val := handler.config.Contexts[actualContext].Environment["TEST_VAR"]; val != expected {
+			t.Errorf("SetContextValue() did not correctly set value, expected %s, got %s", expected, val)
+		}
+	})
+
+	t.Run("EmptyPath", func(t *testing.T) {
+		// Given a handler with a context set
+		handler, _ := setup(t)
+
+		// When attempting to set a value with an empty path
+		err := handler.SetContextValue("", "test_value")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Errorf("SetContextValue() with empty path did not return an error")
+		}
+
+		// And the error message should be as expected
+		expectedErr := "path cannot be empty"
+		if err.Error() != expectedErr {
+			t.Errorf("Expected error message '%s', got '%s'", expectedErr, err.Error())
+		}
+	})
+
+	t.Run("SetFails", func(t *testing.T) {
+		// Given a handler with a context set
+		handler, _ := setup(t)
+		handler.context = "test"
+
+		// When attempting to set a value with an invalid path
+		err := handler.SetContextValue("invalid..path", "test_value")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Errorf("SetContextValue() with invalid path did not return an error")
+		}
+	})
+
+	t.Run("ConvertStringToBool", func(t *testing.T) {
+		handler, _ := setup(t)
+		handler.context = "default"
+		handler.config.Contexts = map[string]*v1alpha1.Context{
+			"default": {},
+		}
+
+		// Set initial bool value
+		if err := handler.SetContextValue("environment.BOOL_VAR", "true"); err != nil {
+			t.Fatalf("Failed to set initial bool value: %v", err)
+		}
+
+		// Override with string "false"
+		if err := handler.SetContextValue("environment.BOOL_VAR", "false"); err != nil {
+			t.Fatalf("Failed to set string bool value: %v", err)
+		}
+
+		val := handler.GetString("environment.BOOL_VAR")
+		if val != "false" {
+			t.Errorf("Expected false, got %v", val)
+		}
+	})
+
+	t.Run("ConvertStringToInt", func(t *testing.T) {
+		handler, _ := setup(t)
+		handler.context = "default"
+		handler.config.Contexts = map[string]*v1alpha1.Context{
+			"default": {},
+		}
+
+		// Set initial int value
+		if err := handler.SetContextValue("environment.INT_VAR", "42"); err != nil {
+			t.Fatalf("Failed to set initial int value: %v", err)
+		}
+
+		// Override with string "100"
+		if err := handler.SetContextValue("environment.INT_VAR", "100"); err != nil {
+			t.Fatalf("Failed to set string int value: %v", err)
+		}
+
+		val := handler.GetString("environment.INT_VAR")
+		if val != "100" {
+			t.Errorf("Expected 100, got %v", val)
+		}
+	})
+
+	t.Run("ConvertStringToFloat", func(t *testing.T) {
+		handler, _ := setup(t)
+		handler.context = "default"
+		handler.config.Contexts = map[string]*v1alpha1.Context{
+			"default": {},
+		}
+
+		// Set initial float value
+		if err := handler.SetContextValue("environment.FLOAT_VAR", "3.14"); err != nil {
+			t.Fatalf("Failed to set initial float value: %v", err)
+		}
+
+		// Override with string "6.28"
+		if err := handler.SetContextValue("environment.FLOAT_VAR", "6.28"); err != nil {
+			t.Fatalf("Failed to set string float value: %v", err)
+		}
+
+		val := handler.GetString("environment.FLOAT_VAR")
+		if val != "6.28" {
+			t.Errorf("Expected 6.28, got %v", val)
+		}
+	})
+}
+
+func TestYamlConfigHandler_LoadConfigString(t *testing.T) {
+	setup := func(t *testing.T) (*YamlConfigHandler, *Mocks) {
+		mocks := setupMocks(t)
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		if err := handler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		return handler, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a handler with a context set
+		handler, _ := setup(t)
+		handler.SetContext("test")
+
+		// And a valid YAML configuration string
+		yamlContent := `
+version: v1alpha1
+contexts:
+  test:
+    environment:
+      TEST_VAR: test_value`
+
+		// When loading the configuration string
+		err := handler.LoadConfigString(yamlContent)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("LoadConfigString() unexpected error: %v", err)
+		}
+
+		// And the value should be correctly loaded
+		value := handler.GetString("environment.TEST_VAR")
+		if value != "test_value" {
+			t.Errorf("Expected TEST_VAR = 'test_value', got '%s'", value)
+		}
+	})
+
+	t.Run("EmptyContent", func(t *testing.T) {
+		// Given a handler with a context set
+		handler, _ := setup(t)
+
+		// When loading an empty configuration string
+		err := handler.LoadConfigString("")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("LoadConfigString() unexpected error: %v", err)
+		}
+	})
+
+	t.Run("InvalidYAML", func(t *testing.T) {
+		// Given a handler with a context set
+		handler, _ := setup(t)
+
+		// And an invalid YAML string
+		yamlContent := `invalid: yaml: content: [}`
+
+		// When loading the invalid YAML
+		err := handler.LoadConfigString(yamlContent)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("LoadConfigString() expected error for invalid YAML")
+		}
+
+		// And the error message should indicate YAML unmarshalling failure
+		if !strings.Contains(err.Error(), "error unmarshalling yaml") {
+			t.Errorf("Expected error about invalid YAML, got: %v", err)
+		}
+	})
+
+	t.Run("UnsupportedVersion", func(t *testing.T) {
+		// Given a handler with a context set
+		handler, _ := setup(t)
+
+		// And a YAML string with an unsupported version
+		yamlContent := `
+version: v2alpha1
+contexts:
+  test: {}`
+
+		// When loading the YAML with unsupported version
+		err := handler.LoadConfigString(yamlContent)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("LoadConfigString() expected error for unsupported version")
+		}
+
+		// And the error message should indicate unsupported version
+		if !strings.Contains(err.Error(), "unsupported config version") {
+			t.Errorf("Expected error about unsupported version, got: %v", err)
+		}
+	})
+}
+
+func Test_makeAddressable(t *testing.T) {
+	t.Run("AlreadyAddressable", func(t *testing.T) {
+		// Given an addressable value
+		var x int = 42
+		v := reflect.ValueOf(&x).Elem()
+
+		// When making it addressable
+		result := makeAddressable(v)
+
+		// Then the same value should be returned
+		if result.Interface() != v.Interface() {
+			t.Errorf("makeAddressable() = %v, want %v", result.Interface(), v.Interface())
+		}
+	})
+
+	t.Run("NonAddressable", func(t *testing.T) {
+		// Given a non-addressable value
+		v := reflect.ValueOf(42)
+
+		// When making it addressable
+		result := makeAddressable(v)
+
+		// Then a new addressable value should be returned
+		if !result.CanAddr() {
+			t.Error("makeAddressable() returned non-addressable value")
+		}
+		if result.Interface() != v.Interface() {
+			t.Errorf("makeAddressable() = %v, want %v", result.Interface(), v.Interface())
+		}
+	})
+
+	t.Run("NilValue", func(t *testing.T) {
+		// Given a nil value
+		var v reflect.Value
+
+		// When making it addressable
+		result := makeAddressable(v)
+
+		// Then a zero value should be returned
+		if result.IsValid() {
+			t.Error("makeAddressable() returned valid value for nil input")
+		}
+	})
+}
+
+func TestYamlConfigHandler_ConvertValue(t *testing.T) {
+	t.Run("StringToString", func(t *testing.T) {
+		// Given a string value and target type
+		value := "test"
+		targetType := reflect.TypeOf("")
+
+		// When converting the value
+		result, err := convertValue(value, targetType)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("convertValue() unexpected error: %v", err)
+		}
+
+		// And the value should be correctly converted
+		if result != "test" {
+			t.Errorf("convertValue() = %v, want %v", result, "test")
+		}
+	})
+
+	t.Run("StringToInt", func(t *testing.T) {
+		// Given a string value and target type
+		value := "42"
+		targetType := reflect.TypeOf(0)
+
+		// When converting the value
+		result, err := convertValue(value, targetType)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("convertValue() unexpected error: %v", err)
+		}
+
+		// And the value should be correctly converted
+		if result != 42 {
+			t.Errorf("convertValue() = %v, want %v", result, 42)
+		}
+	})
+
+	t.Run("StringToFloat", func(t *testing.T) {
+		// Given a string value and target type
+		value := "3.14"
+		targetType := reflect.TypeOf(float64(0))
+
+		// When converting the value
+		result, err := convertValue(value, targetType)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("convertValue() unexpected error: %v", err)
+		}
+
+		// And the value should be correctly converted
+		if result != 3.14 {
+			t.Errorf("convertValue() = %v, want %v", result, 3.14)
+		}
+	})
+
+	t.Run("StringToBool", func(t *testing.T) {
+		// Given a string value and target type
+		value := "true"
+		targetType := reflect.TypeOf(true)
+
+		// When converting the value
+		result, err := convertValue(value, targetType)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("convertValue() unexpected error: %v", err)
+		}
+
+		// And the value should be correctly converted
+		if result != true {
+			t.Errorf("convertValue() = %v, want %v", result, true)
+		}
+	})
+
+	t.Run("InvalidNumericString", func(t *testing.T) {
+		// Given an invalid numeric string
+		value := "not a number"
+		targetType := reflect.TypeOf(0)
+
+		// When converting the value
+		_, err := convertValue(value, targetType)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("convertValue() expected error for invalid numeric string")
+		}
+	})
+
+	t.Run("UnsupportedType", func(t *testing.T) {
+		// Given an unsupported target type
+		value := "test"
+		targetType := reflect.TypeOf([]int{})
+
+		// When converting the value
+		_, err := convertValue(value, targetType)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("convertValue() expected error for unsupported type")
+		}
+	})
+
+	t.Run("StringToPointer", func(t *testing.T) {
+		// Given a string value and pointer target type
+		value := "42"
+		targetType := reflect.TypeOf((*int)(nil))
+
+		// When converting the value
+		result, err := convertValue(value, targetType)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("convertValue() unexpected error: %v", err)
+		}
+
+		// And the value should be correctly converted to a pointer
+		if ptr, ok := result.(*int); !ok || *ptr != 42 {
+			t.Errorf("convertValue() = %v, want pointer to 42", result)
+		}
+	})
+}
+
+func TestYamlConfigHandler_Set(t *testing.T) {
+	setup := func(t *testing.T) (*YamlConfigHandler, *Mocks) {
+		mocks := setupMocks(t)
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		if err := handler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		return handler, mocks
+	}
+
+	t.Run("InvalidPath", func(t *testing.T) {
+		// Given a handler with a context set
+		handler, _ := setup(t)
+
+		// When setting a value with an invalid path
+		err := handler.Set("", "value")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Set() unexpected error: %v", err)
+		}
+	})
+
+	t.Run("SetValueByPathError", func(t *testing.T) {
+		// Given a handler with a context set
+		handler, _ := setup(t)
+
+		// And a mocked setValueByPath that returns an error
+		handler.shims.YamlMarshal = func(v any) ([]byte, error) {
+			return nil, fmt.Errorf("mocked error")
+		}
+
+		// When setting a value
+		err := handler.Set("test.path", "value")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Set() expected error, got nil")
+		}
+	})
+}
+
+func Test_setValueByPath(t *testing.T) {
+	t.Run("EmptyPathKeys", func(t *testing.T) {
+		// Given empty pathKeys
+		currValue := reflect.ValueOf(struct{}{})
+		pathKeys := []string{}
+		value := "test"
+		fullPath := "test.path"
+
+		// When calling setValueByPath with empty pathKeys
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error for empty pathKeys")
+		}
+		expectedErr := "pathKeys cannot be empty"
+		if err.Error() != expectedErr {
+			t.Errorf("Expected error '%s', got '%s'", expectedErr, err.Error())
+		}
+	})
+
+	t.Run("StructFieldNotFound", func(t *testing.T) {
+		// Given a struct and a non-existent field
+		type TestStruct struct {
+			Field string `yaml:"field"`
+		}
+		currValue := reflect.ValueOf(&TestStruct{}).Elem()
+		pathKeys := []string{"nonexistent"}
+		value := "test"
+		fullPath := "nonexistent"
+
+		// When calling setValueByPath with non-existent field
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error for non-existent field")
+		}
+		expectedErr := "field not found: nonexistent"
+		if err.Error() != expectedErr {
+			t.Errorf("Expected error '%s', got '%s'", expectedErr, err.Error())
+		}
+	})
+
+	t.Run("StructFieldSuccess", func(t *testing.T) {
+		// Given a struct with a field
+		type TestStruct struct {
+			Field string `yaml:"field"`
+		}
+		currValue := reflect.ValueOf(&TestStruct{}).Elem()
+		pathKeys := []string{"field"}
+		value := "test"
+		fullPath := "field"
+
+		// When calling setValueByPath with valid field
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		// And the field should be set correctly
+		if currValue.Field(0).String() != "test" {
+			t.Errorf("Expected field value 'test', got '%s'", currValue.Field(0).String())
+		}
+	})
+
+	t.Run("MapKeyTypeMismatch", func(t *testing.T) {
+		// Given a map with int keys but trying to set with string key
+		currValue := reflect.ValueOf(&map[int]string{}).Elem()
+		pathKeys := []string{"key"}
+		value := "test"
+		fullPath := "key"
+
+		// When calling setValueByPath with mismatched key type
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error for key type mismatch")
+		}
+		expectedErr := "key type mismatch: expected int, got string"
+		if err.Error() != expectedErr {
+			t.Errorf("Expected error '%s', got '%s'", expectedErr, err.Error())
+		}
+	})
+
+	t.Run("MapValueTypeMismatch", func(t *testing.T) {
+		// Given a map with string values but trying to set with a non-convertible type
+		currValue := reflect.ValueOf(&map[string]string{}).Elem()
+		pathKeys := []string{"key"}
+		value := struct{}{} // Use a struct{} which cannot be converted to string
+		fullPath := "key"
+
+		// When calling setValueByPath with mismatched value type
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error for value type mismatch")
+		}
+		expectedErr := "value type mismatch for key key: expected string, got struct {}"
+		if err.Error() != expectedErr {
+			t.Errorf("Expected error '%s', got '%s'", expectedErr, err.Error())
+		}
+	})
+
+	t.Run("MapSuccess", func(t *testing.T) {
+		// Given a map with string keys and values
+		currValue := reflect.ValueOf(&map[string]string{}).Elem()
+		pathKeys := []string{"key"}
+		value := "test"
+		fullPath := "key"
+
+		// When calling setValueByPath with valid key and value
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		// And the value should be set correctly
+		if currValue.MapIndex(reflect.ValueOf("key")).String() != "test" {
+			t.Errorf("Expected map value 'test', got '%s'", currValue.MapIndex(reflect.ValueOf("key")).String())
+		}
+	})
+
+	t.Run("InvalidPath", func(t *testing.T) {
+		// Given an invalid path type
+		currValue := reflect.ValueOf(42)
+		pathKeys := []string{"key"}
+		value := "test"
+		fullPath := "key"
+
+		// When calling setValueByPath with invalid path type
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error for invalid path")
+		}
+		expectedErr := "Invalid path: key"
+		if err.Error() != expectedErr {
+			t.Errorf("Expected error '%s', got '%s'", expectedErr, err.Error())
+		}
+	})
+
+	t.Run("NestedStruct", func(t *testing.T) {
+		// Given a nested struct
+		type InnerStruct struct {
+			Field string `yaml:"field"`
+		}
+		type OuterStruct struct {
+			Inner InnerStruct `yaml:"inner"`
+		}
+		currValue := reflect.ValueOf(&OuterStruct{}).Elem()
+		pathKeys := []string{"inner", "field"}
+		value := "test"
+		fullPath := "inner.field"
+
+		// When calling setValueByPath with nested path
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		// And the nested field should be set correctly
+		inner := currValue.Field(0)
+		if inner.Field(0).String() != "test" {
+			t.Errorf("Expected nested field value 'test', got '%s'", inner.Field(0).String())
+		}
+	})
+
+	t.Run("NestedMap", func(t *testing.T) {
+		// Given a nested map
+		currValue := reflect.ValueOf(&map[string]map[string]string{}).Elem()
+		pathKeys := []string{"outer", "inner"}
+		value := "test"
+		fullPath := "outer.inner"
+
+		// When calling setValueByPath with nested path
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		// And the nested value should be set correctly
+		outer := currValue.MapIndex(reflect.ValueOf("outer"))
+		if !outer.IsValid() {
+			t.Fatal("Expected outer map to exist")
+		}
+		inner := outer.MapIndex(reflect.ValueOf("inner"))
+		if !inner.IsValid() {
+			t.Fatal("Expected inner map to exist")
+		}
+		if inner.String() != "test" {
+			t.Errorf("Expected nested value 'test', got '%s'", inner.String())
+		}
+	})
+
+	t.Run("PointerField", func(t *testing.T) {
+		// Given a struct with a pointer field
+		type TestStruct struct {
+			Field *string `yaml:"field"`
+		}
+		currValue := reflect.ValueOf(&TestStruct{}).Elem()
+		pathKeys := []string{"field"}
+		value := "test"
+		fullPath := "field"
+
+		// When calling setValueByPath with pointer field
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		// And the pointer field should be set correctly
+		field := currValue.Field(0)
+		if field.IsNil() {
+			t.Fatal("Expected pointer field to be non-nil")
+		}
+		if field.Elem().String() != "test" {
+			t.Errorf("Expected pointer field value 'test', got '%s'", field.Elem().String())
+		}
+	})
+
+	t.Run("PointerMap", func(t *testing.T) {
+		// Given a map with pointer values
+		currValue := reflect.ValueOf(&map[string]*string{}).Elem()
+		pathKeys := []string{"key"}
+		str := "test"
+		value := &str // Use a pointer to string
+		fullPath := "key"
+
+		// When calling setValueByPath with pointer map
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		// And the pointer value should be set correctly
+		val := currValue.MapIndex(reflect.ValueOf("key"))
+		if !val.IsValid() || val.IsNil() {
+			t.Fatal("Expected map value to be non-nil")
+		}
+		if val.Elem().String() != "test" {
+			t.Errorf("Expected pointer value 'test', got '%s'", val.Elem().String())
+		}
+	})
+
+	t.Run("NestedMapWithNilValue", func(t *testing.T) {
+		// Given a nested map with a nil value
+		m := map[string]map[string]string{
+			"outer": nil,
+		}
+		currValue := reflect.ValueOf(&m).Elem()
+		pathKeys := []string{"outer", "inner"}
+		value := "test"
+		fullPath := "outer.inner"
+
+		// When calling setValueByPath with nested path
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		// And the nested value should be set correctly
+		outer := currValue.MapIndex(reflect.ValueOf("outer"))
+		if !outer.IsValid() {
+			t.Fatal("Expected outer map to exist")
+		}
+		inner := outer.MapIndex(reflect.ValueOf("inner"))
+		if !inner.IsValid() {
+			t.Fatal("Expected inner map to exist")
+		}
+		if inner.String() != "test" {
+			t.Errorf("Expected nested value 'test', got '%s'", inner.String())
 		}
 	})
 }

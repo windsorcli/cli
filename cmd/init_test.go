@@ -41,6 +41,9 @@ func setupInitMocks(t *testing.T, opts *SetupOptions) *Mocks {
 	mocks.Controller.ResolveShellFunc = func() shell.Shell {
 		return mockShell
 	}
+	mocks.Controller.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+		return mocks.ConfigHandler
+	}
 	mocks.Controller.SetEnvironmentVariablesFunc = func() error {
 		return nil
 	}
@@ -197,7 +200,7 @@ func TestInitCmd(t *testing.T) {
 		mockConfigHandler.SetDefaultFunc = func(config v1alpha1.Context) error {
 			return nil
 		}
-		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			return nil
 		}
 		mockConfigHandler.SaveConfigFunc = func(path string) error {
@@ -244,7 +247,7 @@ func TestInitCmd(t *testing.T) {
 		mockConfigHandler.SetDefaultFunc = func(config v1alpha1.Context) error {
 			return nil
 		}
-		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			return nil
 		}
 		mockConfigHandler.SaveConfigFunc = func(path string) error {
@@ -516,6 +519,7 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("SetVMDriverError", func(t *testing.T) {
+		// Create a mock config handler that returns an error for vm.driver
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
 			if key == "vm.driver" {
@@ -523,19 +527,36 @@ func TestInitCmd(t *testing.T) {
 			}
 			return nil
 		}
-		opts := &SetupOptions{
-			ConfigHandler: mockConfigHandler,
+		mockConfigHandler.GetContextFunc = func() string {
+			return "local"
 		}
-		mocks := setupInitMocks(t, opts)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+		mockConfigHandler.SetDefaultFunc = func(config v1alpha1.Context) error {
+			return nil
+		}
 
+		// Given a set of mocks with the error-returning config handler
+		mocks := setupInitMocks(t, &SetupOptions{
+			ConfigHandler: mockConfigHandler,
+		})
+
+		// Set up command arguments
 		rootCmd.SetArgs([]string{"init", "--vm-driver", "docker-desktop"})
+
+		// When executing the command
 		err := Execute(mocks.Controller)
 
+		// Then error should occur
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if err != nil && !strings.Contains(err.Error(), "failed to set vm driver") {
-			t.Errorf("Expected error containing 'failed to set vm driver', got: %v", err)
+
+		// And error should contain vm driver error message
+		expectedError := "Error setting vm driver: failed to set vm driver"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
@@ -614,6 +635,171 @@ func TestInitCmd(t *testing.T) {
 		vmDriver := mocks.ConfigHandler.GetString("vm.driver")
 		if vmDriver != "" {
 			t.Errorf("Expected VM driver to be empty, got '%s'", vmDriver)
+		}
+	})
+
+	t.Run("SetFlagSuccess", func(t *testing.T) {
+		// Given a set of mocks with proper configuration
+		mocks := setupInitMocks(t, nil)
+
+		// Set up command arguments with multiple --set flags
+		rootCmd.SetArgs([]string{"init", "--set", "dns.enabled=false", "--set", "cluster.endpoint=https://localhost:6443"})
+
+		// When executing the command
+		err := Execute(mocks.Controller)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+
+		// And values should be set correctly
+		expectedValues := map[string]any{
+			"dns.enabled":      "false",
+			"cluster.endpoint": "https://localhost:6443",
+		}
+		for key, expected := range expectedValues {
+			actual := mocks.ConfigHandler.GetString(key)
+			if actual != expected {
+				t.Errorf("Expected %s=%v, got %v", key, expected, actual)
+			}
+		}
+	})
+
+	t.Run("SetFlagInvalidFormat", func(t *testing.T) {
+		// Given a set of mocks with proper configuration
+		mocks := setupInitMocks(t, nil)
+
+		// Set up command arguments with invalid --set flag format
+		rootCmd.SetArgs([]string{"init", "--set", "invalid-format"})
+
+		// When executing the command
+		err := Execute(mocks.Controller)
+
+		// Then error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+
+		// And error should contain invalid format message
+		expectedError := "Invalid format for --set flag. Expected key=value"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("Expected error containing %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("SetFlagError", func(t *testing.T) {
+		// Create a mock config handler that returns an error
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+			return fmt.Errorf("failed to set config value for %s", key)
+		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "local"
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+		mockConfigHandler.SetDefaultFunc = func(config v1alpha1.Context) error {
+			return nil
+		}
+
+		// Given a set of mocks with the error-returning config handler
+		mocks := setupInitMocks(t, &SetupOptions{
+			ConfigHandler: mockConfigHandler,
+		})
+
+		// Reset and reinitialize flags
+		rootCmd.ResetFlags()
+		initCmd.ResetFlags()
+		initCmd.Flags().StringSliceVar(&initSetFlags, "set", []string{}, "Override configuration values")
+		initCmd.Flags().StringVar(&initVmDriver, "vm-driver", "", "Specify the VM driver")
+
+		// Set up command arguments
+		rootCmd.SetArgs([]string{"init", "--set", "test.key=value"})
+
+		// When executing the command
+		err := Execute(mocks.Controller)
+
+		// Then error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+
+		// And error should contain set error message
+		expectedError := "Error setting config override test.key: failed to set config value for test.key"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("VMDriverSelectionWithSetFlag", func(t *testing.T) {
+		// Given a set of mocks with proper configuration
+		mocks := setupInitMocks(t, nil)
+
+		// Reset and reinitialize flags
+		rootCmd.ResetFlags()
+		initCmd.ResetFlags()
+		initCmd.Flags().StringSliceVar(&initSetFlags, "set", []string{}, "Override configuration values")
+		initCmd.Flags().StringVar(&initVmDriver, "vm-driver", "", "Specify the VM driver")
+
+		// Set up command arguments to override vm.driver
+		rootCmd.SetArgs([]string{"init", "--set", "vm.driver=custom-driver"})
+
+		// When executing the command
+		err := Execute(mocks.Controller)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+
+		// And vm.driver should be set to custom value
+		actual := mocks.ConfigHandler.GetString("vm.driver")
+		if actual != "custom-driver" {
+			t.Errorf("Expected vm.driver=custom-driver, got %v", actual)
+		}
+	})
+
+	t.Run("SetFlagWithExistingConfig", func(t *testing.T) {
+		// Create a mock config handler with proper context
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextFunc = func() string {
+			return "local"
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "new.key" {
+				return "new-value"
+			}
+			return ""
+		}
+
+		// Given a set of mocks with the mock config handler
+		mocks := setupInitMocks(t, &SetupOptions{
+			ConfigHandler: mockConfigHandler,
+		})
+
+		// Reset and reinitialize flags
+		rootCmd.ResetFlags()
+		initCmd.ResetFlags()
+		initCmd.Flags().StringSliceVar(&initSetFlags, "set", []string{}, "Override configuration values")
+		initCmd.Flags().StringVar(&initVmDriver, "vm-driver", "", "Specify the VM driver")
+
+		// Set up command arguments
+		rootCmd.SetArgs([]string{"init", "--set", "new.key=new-value"})
+
+		// When executing the command
+		err := Execute(mocks.Controller)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+
+		// And new value should be set correctly
+		actual := mockConfigHandler.GetString("new.key")
+		if actual != "new-value" {
+			t.Errorf("Expected new.key=new-value, got %v", actual)
 		}
 	})
 }

@@ -288,10 +288,19 @@ func TestUpCmd(t *testing.T) {
 			return fmt.Errorf("test error")
 		}
 
+		// Enable DNS in config
+		if err := mocks.ConfigHandler.SetContextValue("dns.enabled", true); err != nil {
+			t.Fatalf("Failed to set dns.enabled: %v", err)
+		}
+
 		rootCmd.SetArgs([]string{"up"})
 		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Error("Expected error, got nil")
+		}
+		expectedError := "Error configuring DNS: test error"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
@@ -342,11 +351,10 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorNilNetworkManager", func(t *testing.T) {
 		mocks := setupUpMocks(t)
-		vmDriver = "colima"
-		defer func() { vmDriver = "" }()
 		mocks.Controller.ResolveNetworkManagerFunc = func() network.NetworkManager {
 			return nil
 		}
+		mocks.ConfigHandler.SetContextValue("vm.driver", "colima")
 
 		rootCmd.SetArgs([]string{"up"})
 		err := Execute(mocks.Controller)

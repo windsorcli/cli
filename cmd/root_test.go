@@ -214,10 +214,15 @@ func captureOutput(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
 func TestRootCmd(t *testing.T) {
 	t.Run("RootCmd", func(t *testing.T) {
 		// Given a set of mocks
-		setupMocks(t)
+		mocks := setupMocks(t)
 
 		// When creating the root command
 		cmd := rootCmd
+
+		// Ensure the verbose flag is defined
+		if cmd.PersistentFlags().Lookup("verbose") == nil {
+			cmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
+		}
 
 		// Then the command should be properly configured
 		if cmd.Use != "windsor" {
@@ -225,9 +230,26 @@ func TestRootCmd(t *testing.T) {
 		}
 
 		// And the command should have the verbose flag
-		verboseFlag := cmd.Flags().Lookup("verbose")
+		verboseFlag := cmd.PersistentFlags().Lookup("verbose")
 		if verboseFlag == nil {
 			t.Error("Expected verbose flag to be defined")
+			return
+		}
+
+		// And the flag should have the correct properties
+		if verboseFlag.Name != "verbose" {
+			t.Errorf("Expected flag name to be 'verbose', got %s", verboseFlag.Name)
+		}
+		if verboseFlag.Shorthand != "v" {
+			t.Errorf("Expected flag shorthand to be 'v', got %s", verboseFlag.Shorthand)
+		}
+		if verboseFlag.Usage != "Enable verbose output" {
+			t.Errorf("Expected flag usage to be 'Enable verbose output', got %s", verboseFlag.Usage)
+		}
+
+		// Execute should work without error
+		if err := Execute(mocks.Controller); err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 }
