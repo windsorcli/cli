@@ -97,15 +97,18 @@ jobs:
     needs: [build-artifacts]
 
     steps:
+      - name: Checkout current repository
+        uses: actions/checkout@v4
+        
+      - name: Install Tools
+        uses: ./.github/actions/install-tools
+  
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: ${{ inputs.repo_owner }}/${{ inputs.repo_name }}
           token: ${{ inputs.token != '' && inputs.token || secrets.WINDSORCLI_RELEASE_TOKEN }}
 
-      - name: Install Tools
-        uses: ./.github/actions/install-tools
-  
       - name: Cache Go Modules
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
