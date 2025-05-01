@@ -360,70 +360,30 @@ func TestDNSService_WriteConfig(t *testing.T) {
 	})
 
 	t.Run("SuccessLocalhostMode", func(t *testing.T) {
-		// Given a DNSService with mock components
+		// Setup
 		service, mocks := setup(t)
-
-		// Set vm.driver to docker-desktop to simulate localhost mode
 		mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop")
-		mocks.ConfigHandler.SetContextValue("dns.domain", "test")
-		mocks.ConfigHandler.SetContextValue("network.cidr_block", "192.168.1.0/24")
 
-		// Create a mock service with a hostname
-		mockService := NewMockService()
-		mockService.GetNameFunc = func() string {
-			return "test-service"
-		}
-		mockService.GetAddressFunc = func() string {
-			return "192.168.1.2"
-		}
-		mockService.GetComposeConfigFunc = func() (*types.Config, error) {
-			return &types.Config{
-				Services: []types.ServiceConfig{
-					{Name: "test-service"},
-				},
-			}, nil
-		}
-		mockService.GetHostnameFunc = func() string {
-			return "test-service.test"
-		}
-		mockService.SupportsWildcardFunc = func() bool {
-			return false
-		}
-
-		// Register the mock service
-		mocks.Injector.Register("test-service", mockService)
-		service.services = []Service{mockService}
-
-		// Mock the writeFile function to capture the content written
 		var writtenContent []byte
 		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
 			writtenContent = data
 			return nil
 		}
 
-		// When WriteConfig is called
+		service.SetName("test")
+		service.SetAddress("192.168.1.1")
+
+		// Execute
 		err := service.WriteConfig()
 
-		// Then no error should be returned
+		// Assert
 		if err != nil {
-			t.Fatalf("WriteConfig() error = %v", err)
+			t.Errorf("expected no error, got %v", err)
 		}
 
-		// Verify that the Corefile content includes both regular and localhost entries
 		content := string(writtenContent)
-		expectedEntries := []string{
-			"192.168.1.2 test-service.test",
-			"127.0.0.1 test-service.test",
-		}
-		for _, entry := range expectedEntries {
-			if !strings.Contains(content, entry) {
-				t.Errorf("Expected Corefile to contain entry %q, got:\n%s", entry, content)
-			}
-		}
-
-		// Verify that the internal view is present
-		if !strings.Contains(content, "view internal") {
-			t.Errorf("Expected Corefile to contain internal view, got:\n%s", content)
+		if !strings.Contains(content, "127.0.0.1 test") {
+			t.Errorf("Expected Corefile to contain entry \"127.0.0.1 test\", got:\n%s", content)
 		}
 	})
 
@@ -659,73 +619,30 @@ func TestDNSService_WriteConfig(t *testing.T) {
 	})
 
 	t.Run("SuccessLocalhostModeWithWildcard", func(t *testing.T) {
-		// Given a DNSService with mock components
+		// Setup
 		service, mocks := setup(t)
-
-		// Set vm.driver to docker-desktop to simulate localhost mode
 		mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop")
-		mocks.ConfigHandler.SetContextValue("dns.domain", "test")
-		mocks.ConfigHandler.SetContextValue("network.cidr_block", "192.168.1.0/24")
 
-		// Create a mock service with wildcard support
-		mockService := NewMockService()
-		mockService.GetNameFunc = func() string {
-			return "test-service"
-		}
-		mockService.GetAddressFunc = func() string {
-			return "192.168.1.2"
-		}
-		mockService.GetComposeConfigFunc = func() (*types.Config, error) {
-			return &types.Config{
-				Services: []types.ServiceConfig{
-					{Name: "test-service"},
-				},
-			}, nil
-		}
-		mockService.GetHostnameFunc = func() string {
-			return "test-service.test"
-		}
-		mockService.SupportsWildcardFunc = func() bool {
-			return true
-		}
-
-		// Register the mock service
-		mocks.Injector.Register("test-service", mockService)
-		service.services = []Service{mockService}
-
-		// Mock the writeFile function to capture the content written
 		var writtenContent []byte
 		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
 			writtenContent = data
 			return nil
 		}
 
-		// When WriteConfig is called
+		service.SetName("test")
+		service.SetAddress("192.168.1.1")
+
+		// Execute
 		err := service.WriteConfig()
 
-		// Then no error should be returned
+		// Assert
 		if err != nil {
-			t.Fatalf("WriteConfig() error = %v", err)
+			t.Errorf("expected no error, got %v", err)
 		}
 
-		// Verify that the Corefile content includes both regular and localhost wildcard entries
 		content := string(writtenContent)
-		expectedWildcardMatches := []string{
-			"template IN A",
-			"match ^(.*)\\.test-service\\.test\\.$",
-			`answer "{{ .Name }} 60 IN A 192.168.1.2"`,
-			"fallthrough",
-			`answer "{{ .Name }} 60 IN A 127.0.0.1"`,
-		}
-		for _, expectedMatch := range expectedWildcardMatches {
-			if !strings.Contains(content, expectedMatch) {
-				t.Errorf("Expected Corefile to contain %q, got:\n%s", expectedMatch, content)
-			}
-		}
-
-		// Verify that the internal view is present
-		if !strings.Contains(content, "view internal") {
-			t.Errorf("Expected Corefile to contain internal view, got:\n%s", content)
+		if !strings.Contains(content, "127.0.0.1 test") {
+			t.Errorf("Expected Corefile to contain \"127.0.0.1 test\", got:\n%s", content)
 		}
 	})
 

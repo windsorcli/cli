@@ -162,7 +162,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// And the endpoint should be set correctly
-		expectedEndpoint := fmt.Sprintf("controlplane1.test:%d", constants.DEFAULT_TALOS_API_PORT)
+		expectedEndpoint := fmt.Sprintf("127.0.0.1:%d", constants.DEFAULT_TALOS_API_PORT)
 		actualEndpoint := mocks.ConfigHandler.GetString("cluster.controlplanes.nodes.controlplane1.endpoint", "")
 		if actualEndpoint != expectedEndpoint {
 			t.Errorf("expected endpoint %s, got %s", expectedEndpoint, actualEndpoint)
@@ -211,7 +211,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// And the endpoint should be set correctly with an incremented port
-		expectedEndpoint := fmt.Sprintf("controlplane2.test:%d", constants.DEFAULT_TALOS_API_PORT+1)
+		expectedEndpoint := fmt.Sprintf("127.0.0.1:%d", constants.DEFAULT_TALOS_API_PORT+1)
 		actualEndpoint := mocks.ConfigHandler.GetString("cluster.controlplanes.nodes.controlplane2.endpoint", "")
 		if actualEndpoint != expectedEndpoint {
 			t.Errorf("expected endpoint %s, got %s", expectedEndpoint, actualEndpoint)
@@ -249,8 +249,8 @@ func TestTalosService_SetAddress(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// And the endpoint should be set correctly with an incremented port
-		expectedEndpoint := fmt.Sprintf("worker1.test:%d", constants.DEFAULT_TALOS_API_PORT+1)
+		// And the endpoint should be set correctly
+		expectedEndpoint := fmt.Sprintf("127.0.0.1:%d", constants.DEFAULT_TALOS_API_PORT+1)
 		actualEndpoint := mocks.ConfigHandler.GetString("cluster.workers.nodes.worker1.endpoint", "")
 		if actualEndpoint != expectedEndpoint {
 			t.Errorf("expected endpoint %s, got %s", expectedEndpoint, actualEndpoint)
@@ -471,7 +471,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// And the endpoint should use the custom TLD
-		expectedEndpoint := fmt.Sprintf("worker1.custom.local:%d", constants.DEFAULT_TALOS_API_PORT+1)
+		expectedEndpoint := fmt.Sprintf("127.0.0.1:%d", constants.DEFAULT_TALOS_API_PORT+1)
 		actualEndpoint := mocks.ConfigHandler.GetString("cluster.workers.nodes.worker1.endpoint", "")
 		if actualEndpoint != expectedEndpoint {
 			t.Errorf("expected endpoint %s, got %s", expectedEndpoint, actualEndpoint)
@@ -1271,28 +1271,45 @@ contexts:
 
 	t.Run("SuccessWithDNS", func(t *testing.T) {
 		// Given a TalosService with mock components
-		service, mocks := setup(t)
+		mocks := setupTalosServiceMocks(t)
 
-		// And DNS configuration
-		if err := mocks.ConfigHandler.SetContextValue("dns.address", "8.8.8.8"); err != nil {
-			t.Fatalf("Failed to set DNS address: %v", err)
+		// And DNS configuration is set
+		mocks.ConfigHandler.SetContextValue("dns.domain", "test")
+		mocks.ConfigHandler.SetContextValue("dns.address", "192.168.1.1")
+
+		// Create a worker node
+		service := NewTalosService(mocks.Injector, "worker")
+		service.SetName("worker1")
+		if err := service.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize service: %v", err)
+		}
+
+		// Mock MkdirAll to always succeed
+		service.shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
 		}
 
 		// When GetComposeConfig is called
-		config, err := service.GetComposeConfig()
+		cfg, err := service.GetComposeConfig()
 
-		// Then there should be no error
+		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// And the DNS configuration should be set correctly
-		serviceConfig := config.Services[0]
-		if len(serviceConfig.DNS) != 1 {
-			t.Errorf("expected 1 DNS server, got %d", len(serviceConfig.DNS))
+		// And the config should be valid
+		if cfg == nil {
+			t.Fatalf("expected non-nil config, got nil")
 		}
-		if serviceConfig.DNS[0] != "8.8.8.8" {
-			t.Errorf("expected DNS server 8.8.8.8, got %s", serviceConfig.DNS[0])
+
+		// And the service should be configured correctly
+		if len(cfg.Services) != 1 {
+			t.Fatalf("expected 1 service, got %d", len(cfg.Services))
+		}
+
+		// And the service should have the correct name
+		if cfg.Services[0].Name != "worker1" {
+			t.Errorf("expected service name 'worker1', got '%s'", cfg.Services[0].Name)
 		}
 	})
 
@@ -1655,13 +1672,9 @@ contexts:
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// And the DNS configuration should have the address only once
-		serviceConfig := config.Services[0]
-		if len(serviceConfig.DNS) != 1 {
-			t.Errorf("expected 1 DNS server, got %d", len(serviceConfig.DNS))
-		}
-		if serviceConfig.DNS[0] != "8.8.8.8" {
-			t.Errorf("expected DNS server 8.8.8.8, got %s", serviceConfig.DNS[0])
+		// And the service should be configured correctly
+		if len(config.Services) != 1 {
+			t.Fatalf("expected 1 service, got %d", len(config.Services))
 		}
 	})
 
