@@ -62,7 +62,7 @@ signs:
 brews:
   - name: windsor
     directory: Formula
-    skip_upload: false
+    skip_upload: true
     repository:
       owner: windsorcli
       name: homebrew-cli

@@ -21,8 +21,8 @@ runs:
   using: 'composite'
 
   steps:      
-      - name: Install Aqua
-        if: runner.os != 'windows-latest'
+      - name: Install Aqua on Linux/macOS
+        if: ${{ !startsWith(github.job, 'windows') && !contains(github.workspace, ':\\') }}
         env: 
           AQUA_DISABLE_COSIGN: ${{ inputs.AQUA_DISABLE_COSIGN }}
           AQUA_DISABLE_SLSA: ${{ inputs.AQUA_DISABLE_SLSA }}
@@ -32,7 +32,7 @@ runs:
           aqua_version: v2.43.1
 
       - name: Install Aqua on Windows
-        if: runner.os == 'windows-latest'
+        if: ${{ startsWith(github.job, 'windows') || contains(github.workspace, ':\\') }}
         run: |
           $url = "https://github.com/aquaproj/aqua/releases/download/v2.48.2-0/aqua_windows_amd64.zip"
           $output = "aqua_windows_amd64.zip"
@@ -68,7 +68,7 @@ runs:
         shell: powershell
   
       - name: Install YQ on Windows
-        if: runner.os == 'windows-latest'
+        if: ${{ startsWith(github.job, 'windows') || contains(github.workspace, ':\\') }}
         run: |
           Write-Host "Installing yq on Windows..."
           $yqVersion = "v4.35.1"
