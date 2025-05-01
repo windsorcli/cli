@@ -396,3 +396,7 @@ Windsor environment set up successfully.
 [Container] 2025/04/21 14:16:38.814434 Phase complete: UPLOAD_ARTIFACTS State: SUCCEEDED
 [Container] 2025/04/21 14:16:38.814441 Phase context status code:  Message: 
 ```
+
+# Azure Pipeline
+
+https://dev.azure.com/windsor-bootstrapper
