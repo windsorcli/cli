@@ -38,7 +38,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Tools
-        uses: ./release/.github/actions/install-tools
+        uses: ./.github/actions/install-tools
         with:
           AQUA_DISABLE_COSIGN: true
           AQUA_DISABLE_SLSA: true
