@@ -118,8 +118,10 @@ var upCmd = &cobra.Command{
 			}
 
 			// Configure DNS settings
-			if err := networkManager.ConfigureDNS(); err != nil {
-				return fmt.Errorf("Error configuring DNS: %w", err)
+			if dnsEnabled := configHandler.GetBool("dns.enabled"); dnsEnabled {
+				if err := networkManager.ConfigureDNS(); err != nil {
+					return fmt.Errorf("Error configuring DNS: %w", err)
+				}
 			}
 		}
 
