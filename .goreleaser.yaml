@@ -63,7 +63,6 @@ brews:
   - name: windsor
     directory: Formula
     skip_upload: false
-    skip: "{{ .Release.Draft }} || {{ .Release.Prerelease }}"
     repository:
       owner: windsorcli
       name: homebrew-cli
