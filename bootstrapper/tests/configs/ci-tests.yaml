@@ -1,0 +1,59 @@
+runners:
+  - os: ubuntu-latest
+    label: github-hosted
+    arch: X64
+    docker_host: unix:///var/run/docker.sock
+  - os: macos-latest
+    label: github-hosted
+    arch: X64
+  - os: windows-latest
+    label: github-hosted
+    arch: X64
+  
+tests-list:
+
+  # First run the Ubuntu-specific minimal test
+  - path: tests/shell/ubuntu-test.sh
+    type: shell
+    shell: bash
+    os: [linux]
+
+  # shell tests for bash and zsh on Linux and macOS
+  - path: tests/shell/sample-test.sh
+    type: shell
+    shell: bash
+    os: [linux, darwin]
+  - path: tests/shell/ensure-exit-code.sh
+    type: shell
+    shell: bash
+    os: [linux, darwin]
+  - path: tests/shell/linux-debug.sh
+    type: shell
+    shell: bash
+    os: [linux]
+  - path: tests/shell/sample-test.sh
+    type: shell
+    shell: zsh
+    os: [linux, darwin]
+
+  # bats tests for all shells on Linux and macOS
+  - path: tests/bats
+    type: bats
+    shell: bash
+    os: [linux, darwin]
+  - path: tests/bats
+    type: bats
+    shell: zsh
+    os: [linux, darwin]
+  - path: tests/bats
+    type: bats
+    shell: fish
+    os: [linux, darwin]
+  - path: tests/bats
+    type: bats
+    shell: tcsh
+    os: [linux, darwin]
+  - path: tests/bats
+    type: bats
+    shell: elvish
+    os: [linux, darwin]

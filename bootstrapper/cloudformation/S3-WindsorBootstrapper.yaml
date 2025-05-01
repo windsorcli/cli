@@ -1,0 +1,86 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CodeBuild Project for Windsor Bootstrapper
+
+Parameters:
+  Repository:
+    Type: String
+    Default: https://github.com/tvangundy/bootstrapper.git
+  BuildSpec:
+    Type: String
+    Default: cloudformation/buildspec.yml
+  BucketName:
+    Type: String
+    Default: bootstrapper-bucket
+    Description: The name of the S3 bucket to use
+  ProjectName:
+    Type: String
+    Default: WindsorBootstrapper
+    Description: The name of the CloudFormation stack to create
+  SourceVersion:
+    Type: String
+    Default: main
+    Description: The version of the source code to use
+Resources:
+  S3CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub "${ProjectName}"
+      Description: Build project for compiling and testing code
+      Source:
+        Type: S3
+        Location: !Sub ${BucketName}/bootstrapper.zip
+        BuildSpec: !Ref BuildSpec
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:5.0
+      Artifacts:
+        Type: NO_ARTIFACTS
+      ServiceRole: !GetAtt S3CodeBuildServiceRole.Arn
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName: !Sub "/aws/codebuild/${ProjectName}"
+          
+  S3CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCodeBuildDeveloperAccess
+      Policies:
+        - PolicyName: CodeBuildLogsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${ProjectName}:*"
+        - PolicyName: CodeBuildS3AccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${BucketName}/bootstrapper.zip"
+        - PolicyName: S3AccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:*
+                Resource:
+                  - "*"

@@ -1,0 +1,46 @@
+trigger:
+- azure
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  OS: 'linux'
+  ARCH: 'amd64'
+  WINDSOR_VERSION: '0.5.6'
+  AQUA_VERSION: '2.49.0-0'
+  ACTION: 'up'
+
+steps:
+- script: |
+    export HOME=$(pwd)
+    export DOCKER_HOST=unix:///var/run/docker.sock
+    export WINDSOR_PROJECT_ROOT=$(pwd)
+    curl -L -o windsor_${WINDSOR_VERSION}_${OS}_${ARCH}.tar.gz https://github.com/windsorcli/cli/releases/download/v${WINDSOR_VERSION}/windsor_${WINDSOR_VERSION}_${OS}_${ARCH}.tar.gz
+    sudo tar -xzf windsor_${WINDSOR_VERSION}_${OS}_${ARCH}.tar.gz -C /usr/local/bin
+    sudo chmod +x /usr/local/bin/windsor
+    curl -L -o aqua_${OS}_${ARCH}.tar.gz https://github.com/aquaproj/aqua/releases/download/v${AQUA_VERSION}/aqua_${OS}_${ARCH}.tar.gz
+    mkdir -p aqua
+    tar -xzf aqua_${OS}_${ARCH}.tar.gz -C aqua
+    export PATH=$(pwd)/aqua:$PATH
+    aqua install
+    export PATH=${AQUA_ROOT_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/aquaproj-aqua}/bin:$PATH
+  displayName: 'Install dependencies'
+
+- script: |
+    windsor version
+    terraform version
+    windsor init aws
+  displayName: 'Pre-build commands'
+
+- script: |
+    echo "Executing windsor action ${ACTION}"
+    if [ "${ACTION}" = "down" ]; then
+      windsor down
+      az storage account delete --name windsorbootstrappertest --yes
+    else
+      windsor up
+    fi
+    az storage account list
+  displayName: 'Build commands'
+  
