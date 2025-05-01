@@ -47,7 +47,7 @@ jobs:
           echo "Release: ${{ inputs.release }}"
       
       - name: Install Tools
-        uses: ./.github/actions/install-tools
+        uses: windsorcli/release/.github/actions/install-tools@main
         with:
           AQUA_DISABLE_COSIGN: true
           AQUA_DISABLE_SLSA: true
