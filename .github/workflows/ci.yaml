@@ -117,16 +117,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
+      - name: Install Tools
+        uses: ./.github/actions/install-tools
+        with:
+          AQUA_DISABLE_COSIGN: true
+          AQUA_DISABLE_SLSA: true
+          AQUA_LOG_LEVEL: debug
+        env:
+          GITHUB_TOKEN: ${{ inputs.token != '' && inputs.token || secrets.WINDSORCLI_RELEASE_TOKEN }}  
+
+      - name: Install Dependencies
+        run: go install ./...
+  
       - name: Install GPG
         run: sudo apt-get update && sudo apt-get install -y gnupg
-
-      - name: Install Aqua
-        uses: aquaproj/aqua-installer@5e54e5cee8a95ee2ce7c04cb993da6dfad13e59c # v3.1.2
-        with:
-          aqua_version: v2.50.0
-
-      - name: Install tools
-        run: aqua install
 
       - name: Cache Go Modules
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -136,10 +140,7 @@ jobs:
             ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-go-
-  
-      - name: Install Dependencies
-        run: go install ./...
+            ${{ runner.os }}-go-  
 
       - name: Import GPG key
         id: import_gpg
