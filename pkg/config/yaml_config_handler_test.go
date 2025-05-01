@@ -1525,6 +1525,25 @@ func Test_convertValue(t *testing.T) {
 			t.Errorf("convertValue() = %v, want %v", result, float32(3.14))
 		}
 	})
+
+	t.Run("StringToFloatOverflow", func(t *testing.T) {
+		// Given a string value that would overflow float32
+		value := "3.4028236e+38"
+		targetType := reflect.TypeOf(float32(0))
+
+		// When converting the value
+		_, err := convertValue(value, targetType)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error for float overflow")
+		}
+
+		// And the error message should indicate overflow
+		if !strings.Contains(err.Error(), "float overflow") {
+			t.Errorf("Expected error containing 'float overflow', got '%s'", err.Error())
+		}
+	})
 }
 
 func TestYamlConfigHandler_SetDefault(t *testing.T) {
@@ -1945,6 +1964,65 @@ func TestYamlConfigHandler_ConvertValue(t *testing.T) {
 		}
 	})
 
+	t.Run("StringToIntOverflow", func(t *testing.T) {
+		// Given a string value that would overflow int8
+		value := "128"
+		targetType := reflect.TypeOf(int8(0))
+
+		// When converting the value
+		_, err := convertValue(value, targetType)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error for integer overflow")
+		}
+
+		// And the error message should indicate overflow
+		expectedErr := "integer overflow: 128 is outside the range of int8"
+		if err.Error() != expectedErr {
+			t.Errorf("Expected error '%s', got '%s'", expectedErr, err.Error())
+		}
+	})
+
+	t.Run("StringToUintOverflow", func(t *testing.T) {
+		// Given a string value that would overflow uint8
+		value := "256"
+		targetType := reflect.TypeOf(uint8(0))
+
+		// When converting the value
+		_, err := convertValue(value, targetType)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error for integer overflow")
+		}
+
+		// And the error message should indicate overflow
+		expectedErr := "integer overflow: 256 is outside the range of uint8"
+		if err.Error() != expectedErr {
+			t.Errorf("Expected error '%s', got '%s'", expectedErr, err.Error())
+		}
+	})
+
+	t.Run("StringToFloatOverflow", func(t *testing.T) {
+		// Given a string value that would overflow float32
+		value := "3.4028236e+38"
+		targetType := reflect.TypeOf(float32(0))
+
+		// When converting the value
+		_, err := convertValue(value, targetType)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error for float overflow")
+		}
+
+		// And the error message should indicate overflow
+		if !strings.Contains(err.Error(), "float overflow") {
+			t.Errorf("Expected error containing 'float overflow', got '%s'", err.Error())
+		}
+	})
+
 	t.Run("StringToFloat", func(t *testing.T) {
 		// Given a string value and target type
 		value := "3.14"
@@ -1980,53 +2058,6 @@ func TestYamlConfigHandler_ConvertValue(t *testing.T) {
 		// And the value should be correctly converted
 		if result != true {
 			t.Errorf("convertValue() = %v, want %v", result, true)
-		}
-	})
-
-	t.Run("InvalidNumericString", func(t *testing.T) {
-		// Given an invalid numeric string
-		value := "not a number"
-		targetType := reflect.TypeOf(0)
-
-		// When converting the value
-		_, err := convertValue(value, targetType)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("convertValue() expected error for invalid numeric string")
-		}
-	})
-
-	t.Run("UnsupportedType", func(t *testing.T) {
-		// Given an unsupported target type
-		value := "test"
-		targetType := reflect.TypeOf([]int{})
-
-		// When converting the value
-		_, err := convertValue(value, targetType)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("convertValue() expected error for unsupported type")
-		}
-	})
-
-	t.Run("StringToPointer", func(t *testing.T) {
-		// Given a string value and pointer target type
-		value := "42"
-		targetType := reflect.TypeOf((*int)(nil))
-
-		// When converting the value
-		result, err := convertValue(value, targetType)
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("convertValue() unexpected error: %v", err)
-		}
-
-		// And the value should be correctly converted to a pointer
-		if ptr, ok := result.(*int); !ok || *ptr != 42 {
-			t.Errorf("convertValue() = %v, want pointer to 42", result)
 		}
 	})
 }

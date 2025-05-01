@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -561,12 +562,24 @@ func convertValue(value string, targetType reflect.Type) (any, error) {
 		if err == nil {
 			switch targetType.Kind() {
 			case reflect.Int:
+				if v < math.MinInt || v > math.MaxInt {
+					return nil, fmt.Errorf("integer overflow: %d is outside the range of int", v)
+				}
 				convertedValue = int(v)
 			case reflect.Int8:
+				if v < math.MinInt8 || v > math.MaxInt8 {
+					return nil, fmt.Errorf("integer overflow: %d is outside the range of int8", v)
+				}
 				convertedValue = int8(v)
 			case reflect.Int16:
+				if v < math.MinInt16 || v > math.MaxInt16 {
+					return nil, fmt.Errorf("integer overflow: %d is outside the range of int16", v)
+				}
 				convertedValue = int16(v)
 			case reflect.Int32:
+				if v < math.MinInt32 || v > math.MaxInt32 {
+					return nil, fmt.Errorf("integer overflow: %d is outside the range of int32", v)
+				}
 				convertedValue = int32(v)
 			case reflect.Int64:
 				convertedValue = v
@@ -578,12 +591,24 @@ func convertValue(value string, targetType reflect.Type) (any, error) {
 		if err == nil {
 			switch targetType.Kind() {
 			case reflect.Uint:
+				if v > math.MaxUint {
+					return nil, fmt.Errorf("integer overflow: %d is outside the range of uint", v)
+				}
 				convertedValue = uint(v)
 			case reflect.Uint8:
+				if v > math.MaxUint8 {
+					return nil, fmt.Errorf("integer overflow: %d is outside the range of uint8", v)
+				}
 				convertedValue = uint8(v)
 			case reflect.Uint16:
+				if v > math.MaxUint16 {
+					return nil, fmt.Errorf("integer overflow: %d is outside the range of uint16", v)
+				}
 				convertedValue = uint16(v)
 			case reflect.Uint32:
+				if v > math.MaxUint32 {
+					return nil, fmt.Errorf("integer overflow: %d is outside the range of uint32", v)
+				}
 				convertedValue = uint32(v)
 			case reflect.Uint64:
 				convertedValue = v
@@ -594,6 +619,9 @@ func convertValue(value string, targetType reflect.Type) (any, error) {
 		v, err = strconv.ParseFloat(value, 64)
 		if err == nil {
 			if targetType.Kind() == reflect.Float32 {
+				if v < -math.MaxFloat32 || v > math.MaxFloat32 {
+					return nil, fmt.Errorf("float overflow: %f is outside the range of float32", v)
+				}
 				convertedValue = float32(v)
 			} else {
 				convertedValue = v
