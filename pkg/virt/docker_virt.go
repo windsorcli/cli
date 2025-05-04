@@ -118,16 +118,25 @@ func (v *DockerVirt) Up() error {
 		for i := range make([]struct{}, retries) {
 			args := []string{"up", "--detach", "--remove-orphans"}
 			message := "📦 Running docker compose up"
+			fmt.Printf("Debug: Using compose command: %s\n", v.composeCommand)
 
 			if i == 0 {
-				output, err := v.shell.ExecProgress(message, v.composeCommand, args...)
+				// Split the command if it contains spaces
+				cmdParts := strings.Split(v.composeCommand, " ")
+				cmd := cmdParts[0]
+				cmdArgs := append(cmdParts[1:], args...)
+				output, err := v.shell.ExecProgress(message, cmd, cmdArgs...)
 				if err == nil {
 					return nil
 				}
 				lastErr = err
 				lastOutput = output
 			} else {
-				output, err := v.shell.ExecSilent(v.composeCommand, args...)
+				// Split the command if it contains spaces
+				cmdParts := strings.Split(v.composeCommand, " ")
+				cmd := cmdParts[0]
+				cmdArgs := append(cmdParts[1:], args...)
+				output, err := v.shell.ExecSilent(cmd, cmdArgs...)
 				if err == nil {
 					return nil
 				}
@@ -165,7 +174,12 @@ func (v *DockerVirt) Down() error {
 			return fmt.Errorf("error setting COMPOSE_FILE environment variable: %w", err)
 		}
 
-		output, err := v.shell.ExecProgress("📦 Running docker compose down", v.composeCommand, "down", "--remove-orphans", "--volumes")
+		fmt.Printf("Debug: Using compose command: %s\n", v.composeCommand)
+		// Split the command if it contains spaces
+		cmdParts := strings.Split(v.composeCommand, " ")
+		cmd := cmdParts[0]
+		cmdArgs := append(cmdParts[1:], "down", "--remove-orphans", "--volumes")
+		output, err := v.shell.ExecProgress("📦 Running docker compose down", cmd, cmdArgs...)
 		if err != nil {
 			return fmt.Errorf("Error executing command %s down: %w\n%s", v.composeCommand, err, output)
 		}

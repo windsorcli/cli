@@ -90,7 +90,7 @@ func (t *BaseToolsManager) Check() error {
 	defer spin.Stop()
 
 	if t.configHandler.GetBool("docker.enabled") {
-		if err := t.checkDocker(); err != nil {
+		if _, err := t.checkDocker(); err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
 			return fmt.Errorf("docker check failed: %v", err)
@@ -161,23 +161,7 @@ func CheckExistingToolsManager(projectRoot string) (string, error) {
 // It checks for 'docker compose', 'docker-compose', or 'docker-cli-plugin-docker-compose'.
 // Returns the command string if found, else an error indicating no Docker Compose implementation was found.
 func (t *BaseToolsManager) GetDockerComposeCommand() (string, error) {
-	// First check if Docker has compose subcommand (most reliable on modern systems)
-	if _, err := t.shell.ExecSilent("docker", "compose", "version"); err == nil {
-		return "docker compose", nil
-	}
-
-	// Check for standalone docker-compose binary
-	if _, err := execLookPath("docker-compose"); err == nil {
-		return "docker-compose", nil
-	}
-
-	// Check for Docker CLI plugin
-	if _, err := execLookPath("docker-cli-plugin-docker-compose"); err == nil {
-		return "docker-cli-plugin-docker-compose", nil
-	}
-
-	// If we get here, we couldn't find any compose command
-	return "", fmt.Errorf("no Docker Compose implementation found")
+	return t.checkDocker()
 }
 
 // =============================================================================
@@ -186,16 +170,16 @@ func (t *BaseToolsManager) GetDockerComposeCommand() (string, error) {
 
 // checkDocker ensures Docker and Docker Compose are available in the system's PATH using execLookPath and shell.ExecSilent.
 // It checks for 'docker', 'docker-compose', 'docker-cli-plugin-docker-compose', or 'docker compose'.
-// Returns nil if any are found, else an error indicating Docker Compose is not available in the PATH.
-func (t *BaseToolsManager) checkDocker() error {
+// Returns the compose command if found and versions are valid, else an error indicating what is missing or outdated.
+func (t *BaseToolsManager) checkDocker() (string, error) {
 	if _, err := execLookPath("docker"); err != nil {
-		return fmt.Errorf("docker is not available in the PATH")
+		return "", fmt.Errorf("docker is not available in the PATH")
 	}
 
 	output, _ := t.shell.ExecSilent("docker", "version", "--format", "{{.Client.Version}}")
 	dockerVersion := extractVersion(output)
 	if dockerVersion != "" && compareVersion(dockerVersion, constants.MINIMUM_VERSION_DOCKER) < 0 {
-		return fmt.Errorf("docker version %s is below the minimum required version %s", dockerVersion, constants.MINIMUM_VERSION_DOCKER)
+		return "", fmt.Errorf("docker version %s is below the minimum required version %s", dockerVersion, constants.MINIMUM_VERSION_DOCKER)
 	}
 
 	var dockerComposeVersion string
@@ -203,27 +187,31 @@ func (t *BaseToolsManager) checkDocker() error {
 	// Try to get docker-compose version using different methods
 	output, _ = t.shell.ExecSilent("docker", "compose", "version", "--short")
 	dockerComposeVersion = extractVersion(output)
-
-	if dockerComposeVersion == "" {
-		if _, err := execLookPath("docker-compose"); err == nil {
-			output, _ = t.shell.ExecSilent("docker-compose", "version", "--short")
-			dockerComposeVersion = extractVersion(output)
-		}
-	}
-
-	// Validate the collected docker-compose version
 	if dockerComposeVersion != "" {
 		if compareVersion(dockerComposeVersion, constants.MINIMUM_VERSION_DOCKER_COMPOSE) >= 0 {
-			return nil
+			return "docker compose", nil
 		}
-		return fmt.Errorf("docker-compose version %s is below the minimum required version %s", dockerComposeVersion, constants.MINIMUM_VERSION_DOCKER_COMPOSE)
+		return "", fmt.Errorf("docker compose version %s is below the minimum required version %s", dockerComposeVersion, constants.MINIMUM_VERSION_DOCKER_COMPOSE)
 	}
 
+	// Try standalone docker-compose
+	if _, err := execLookPath("docker-compose"); err == nil {
+		output, _ = t.shell.ExecSilent("docker-compose", "version", "--short")
+		dockerComposeVersion = extractVersion(output)
+		if dockerComposeVersion != "" {
+			if compareVersion(dockerComposeVersion, constants.MINIMUM_VERSION_DOCKER_COMPOSE) >= 0 {
+				return "docker-compose", nil
+			}
+			return "", fmt.Errorf("docker-compose version %s is below the minimum required version %s", dockerComposeVersion, constants.MINIMUM_VERSION_DOCKER_COMPOSE)
+		}
+	}
+
+	// Try Docker CLI plugin
 	if _, err := execLookPath("docker-cli-plugin-docker-compose"); err == nil {
-		return nil
+		return "docker-cli-plugin-docker-compose", nil
 	}
 
-	return fmt.Errorf("docker-compose is not available in the PATH")
+	return "", fmt.Errorf("docker-compose is not available in the PATH")
 }
 
 // checkColima ensures Colima and Limactl are available in the system's PATH using execLookPath.
