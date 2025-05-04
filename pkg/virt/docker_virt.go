@@ -120,11 +120,12 @@ func (v *DockerVirt) Up() error {
 			message := "📦 Running docker compose up"
 			fmt.Printf("Debug: Using compose command: %s\n", v.composeCommand)
 
+			// Split the command if it contains spaces
+			cmdParts := strings.Split(v.composeCommand, " ")
+			cmd := cmdParts[0]
+			cmdArgs := append(cmdParts[1:], args...)
+
 			if i == 0 {
-				// Split the command if it contains spaces
-				cmdParts := strings.Split(v.composeCommand, " ")
-				cmd := cmdParts[0]
-				cmdArgs := append(cmdParts[1:], args...)
 				output, err := v.shell.ExecProgress(message, cmd, cmdArgs...)
 				if err == nil {
 					return nil
@@ -132,10 +133,6 @@ func (v *DockerVirt) Up() error {
 				lastErr = err
 				lastOutput = output
 			} else {
-				// Split the command if it contains spaces
-				cmdParts := strings.Split(v.composeCommand, " ")
-				cmd := cmdParts[0]
-				cmdArgs := append(cmdParts[1:], args...)
 				output, err := v.shell.ExecSilent(cmd, cmdArgs...)
 				if err == nil {
 					return nil

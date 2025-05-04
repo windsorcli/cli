@@ -15,6 +15,7 @@ import (
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/services"
+	"github.com/windsorcli/cli/pkg/tools"
 )
 
 // =============================================================================
@@ -59,14 +60,24 @@ contexts:
 
 	mocks.ConfigHandler.SetContext("mock-context")
 
+	// Set up mock tools manager
+	toolsManager := tools.NewMockToolsManager()
+	toolsManager.GetDockerComposeCommandFunc = func() (string, error) {
+		return "docker compose", nil
+	}
+	toolsManager.InitializeFunc = func() error {
+		return nil
+	}
+	mocks.Injector.Register("toolsManager", toolsManager)
+
 	// Set up mock shell for Docker commands
 	mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 		if command == "docker" && len(args) > 0 {
 			switch args[0] {
-			case "compose":
-				return "Docker Compose version 2.0.0", nil
 			case "info":
 				return "Docker info output", nil
+			case "compose":
+				return "Docker Compose version 2.0.0", nil
 			case "ps":
 				var hasManagedBy, hasContext, hasFormat bool
 				for i := 0; i < len(args); i++ {
@@ -256,18 +267,28 @@ func TestDockerVirt_Initialize(t *testing.T) {
 	t.Run("ErrorDeterminingComposeCommand", func(t *testing.T) {
 		// Given a docker virt instance with failing compose command detection
 		dockerVirt, mocks := setup(t)
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "compose" {
-				return "", fmt.Errorf("error determining compose command")
-			}
-			if command == "docker-compose" {
-				return "", fmt.Errorf("error determining compose command")
-			}
-			if command == "docker-cli-plugin-docker-compose" {
-				return "", fmt.Errorf("error determining compose command")
-			}
-			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		toolsManager := tools.NewMockToolsManager()
+		toolsManager.GetDockerComposeCommandFunc = func() (string, error) {
+			return "", fmt.Errorf("error determining compose command")
 		}
+		mocks.Injector.Register("toolsManager", toolsManager)
+
+		// When initializing
+		err := dockerVirt.Initialize()
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("expected error, got none")
+		}
+		if !strings.Contains(err.Error(), "error determining docker compose command") {
+			t.Errorf("expected error about determining compose command, got %v", err)
+		}
+	})
+
+	t.Run("SkipNilService", func(t *testing.T) {
+		// Given a docker virt instance with nil service
+		dockerVirt, mocks := setup(t)
+		mocks.Injector.Register("nilService", nil)
 
 		// When initializing
 		err := dockerVirt.Initialize()
@@ -277,28 +298,9 @@ func TestDockerVirt_Initialize(t *testing.T) {
 			t.Errorf("expected no error, got %v", err)
 		}
 
-		// And the compose command should be empty
-		if dockerVirt.composeCommand != "" {
-			t.Errorf("expected compose command to be empty, got %q", dockerVirt.composeCommand)
-		}
-	})
-
-	t.Run("NilServiceInSlice", func(t *testing.T) {
-		// Given a docker virt instance with a nil service
-		dockerVirt, mocks := setup(t)
-		mocks.Injector.Register("nilService", nil)
-
-		// When initializing
-		err := dockerVirt.Initialize()
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
 		// And services slice should only contain the default service
 		if len(dockerVirt.services) != 2 {
-			t.Errorf("Expected 2 services (default + nil), got %d", len(dockerVirt.services))
+			t.Errorf("expected 2 services (default + nil), got %d", len(dockerVirt.services))
 		}
 	})
 
@@ -342,29 +344,6 @@ func TestDockerVirt_Initialize(t *testing.T) {
 			}
 		}
 	})
-
-	t.Run("SkipNilService", func(t *testing.T) {
-		// Given a docker virt instance with nil service
-		dockerVirt, mocks := setup(t)
-
-		// Create new mock injector with base dependencies
-		mockInjector := di.NewMockInjector()
-		mockInjector.Register("shell", mocks.Shell)
-		mockInjector.Register("configHandler", mocks.ConfigHandler)
-		mockInjector.Register("nilService", nil)
-
-		// Replace injector and recreate dockerVirt
-		dockerVirt = NewDockerVirt(mockInjector)
-		dockerVirt.shims = mocks.Shims
-
-		// When initializing
-		err := dockerVirt.Initialize()
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
 }
 
 // TestDockerVirt_Up tests the Up method of the DockerVirt component.
@@ -399,8 +378,23 @@ func TestDockerVirt_Up(t *testing.T) {
 
 		// Mock command execution to fail
 		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			if command == dockerVirt.composeCommand && args[0] == "up" {
+			if command == "docker" && len(args) > 0 && args[0] == "compose" && args[1] == "up" {
 				return "", fmt.Errorf("mock docker-compose up error")
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" {
+				switch args[0] {
+				case "info":
+					return "Docker info output", nil
+				case "compose":
+					if args[1] == "up" {
+						return "", fmt.Errorf("mock docker-compose up error")
+					}
+					return "Docker Compose version 2.0.0", nil
+				}
 			}
 			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
@@ -414,7 +408,7 @@ func TestDockerVirt_Up(t *testing.T) {
 		}
 
 		// And the error should contain the expected message
-		expectedErrorMsg := "executing command"
+		expectedErrorMsg := "Error executing command"
 		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
 			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
 		}
@@ -512,55 +506,52 @@ func TestDockerVirt_Up(t *testing.T) {
 	})
 
 	t.Run("RetryDockerComposeUp", func(t *testing.T) {
-		// Given a docker virt instance with failing compose up
+		// Given a DockerVirt with mock components
 		dockerVirt, mocks := setup(t)
 
-		// Track command execution count
-		execCount := 0
+		// Track number of retries
+		retryCount := 0
+		maxRetries := 3
 
-		// Mock command execution to fail twice then succeed
+		// Mock command execution to fail initially but succeed on last retry
 		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			if command == dockerVirt.composeCommand && args[0] == "up" {
-				execCount++
-				if execCount < 3 {
-					return "", fmt.Errorf("temporary error")
-				}
-				return "success", nil
+			if command == "docker" && len(args) > 0 && args[0] == "compose" && args[1] == "up" {
+				retryCount++
+				return "", fmt.Errorf("mock docker-compose up error")
 			}
 			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
 
-		// And ExecSilent for retries also fails twice then succeeds
-		oldExecSilent := mocks.Shell.ExecSilentFunc
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			// Keep original behavior for commands used in setup
-			if command == "docker" && (len(args) > 0 && args[0] == "compose" || len(args) > 0 && args[0] == "info") {
-				return oldExecSilent(command, args...)
-			}
-
-			// Handle compose up retry attempts
-			if command == dockerVirt.composeCommand && len(args) > 0 && args[0] == "up" {
-				execCount++
-				if execCount < 3 {
-					return "", fmt.Errorf("temporary error")
+			if command == "docker" {
+				switch args[0] {
+				case "info":
+					return "Docker info output", nil
+				case "compose":
+					if args[1] == "up" {
+						retryCount++
+						if retryCount < maxRetries {
+							return "", fmt.Errorf("mock docker-compose up error")
+						}
+						return "", nil
+					}
+					return "Docker Compose version 2.0.0", nil
 				}
-				return "success", nil
 			}
-
 			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
 
 		// When calling Up
 		err := dockerVirt.Up()
 
-		// Then no error should occur after retries
+		// Then no error should occur
 		if err != nil {
-			t.Errorf("expected no error after retries, got %v", err)
+			t.Errorf("expected no error, got %v", err)
 		}
 
-		// And the command should be called 3 times
-		if execCount != 3 {
-			t.Errorf("expected command to be called 3 times, got %d", execCount)
+		// And the command should have been retried the expected number of times
+		if retryCount != maxRetries {
+			t.Errorf("expected %d retries, got %d", maxRetries, retryCount)
 		}
 	})
 }
@@ -700,7 +691,7 @@ func TestDockerVirt_Down(t *testing.T) {
 		// Given a docker virt instance with failing compose down
 		dockerVirt, mocks := setup(t)
 		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			if command == dockerVirt.composeCommand && args[0] == "down" {
+			if command == "docker" && len(args) > 0 && args[0] == "compose" && args[1] == "down" {
 				return "mock error output", fmt.Errorf("mock error executing down command")
 			}
 			return "", fmt.Errorf("unexpected command: %s %v", command, args)
@@ -1156,12 +1147,11 @@ func TestDockerVirt_DetermineComposeCommand(t *testing.T) {
 		dockerVirt, mocks := setup(t)
 
 		// And docker-compose is available
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker-compose" && len(args) > 0 && args[0] == "--version" {
-				return "docker-compose version 1.29.2", nil
-			}
-			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		toolsManager := tools.NewMockToolsManager()
+		toolsManager.GetDockerComposeCommandFunc = func() (string, error) {
+			return "docker-compose", nil
 		}
+		mocks.Injector.Register("toolsManager", toolsManager)
 
 		// When initializing
 		err := dockerVirt.Initialize()
@@ -1182,15 +1172,11 @@ func TestDockerVirt_DetermineComposeCommand(t *testing.T) {
 		dockerVirt, mocks := setup(t)
 
 		// And docker-compose is not available but docker-cli-plugin is
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker-compose" {
-				return "", fmt.Errorf("docker-compose not found")
-			}
-			if command == "docker-cli-plugin-docker-compose" {
-				return "docker-cli-plugin-docker-compose version 1.0.0", nil
-			}
-			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		toolsManager := tools.NewMockToolsManager()
+		toolsManager.GetDockerComposeCommandFunc = func() (string, error) {
+			return "docker-cli-plugin-docker-compose", nil
 		}
+		mocks.Injector.Register("toolsManager", toolsManager)
 
 		// When initializing
 		err := dockerVirt.Initialize()
@@ -1211,18 +1197,11 @@ func TestDockerVirt_DetermineComposeCommand(t *testing.T) {
 		dockerVirt, mocks := setup(t)
 
 		// And only docker compose v2 is available
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker-compose" {
-				return "", fmt.Errorf("docker-compose not found")
-			}
-			if command == "docker-cli-plugin-docker-compose" {
-				return "", fmt.Errorf("docker-cli-plugin-docker-compose not found")
-			}
-			if command == "docker compose" {
-				return "Docker Compose version 2.0.0", nil
-			}
-			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		toolsManager := tools.NewMockToolsManager()
+		toolsManager.GetDockerComposeCommandFunc = func() (string, error) {
+			return "docker compose", nil
 		}
+		mocks.Injector.Register("toolsManager", toolsManager)
 
 		// When initializing
 		err := dockerVirt.Initialize()
@@ -1243,30 +1222,23 @@ func TestDockerVirt_DetermineComposeCommand(t *testing.T) {
 		dockerVirt, mocks := setup(t)
 
 		// And no compose command is available
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "compose" {
-				return "", fmt.Errorf("docker compose not found")
-			}
-			if command == "docker-compose" {
-				return "", fmt.Errorf("docker-compose not found")
-			}
-			if command == "docker-cli-plugin-docker-compose" {
-				return "", fmt.Errorf("docker-cli-plugin-docker-compose not found")
-			}
-			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		toolsManager := tools.NewMockToolsManager()
+		toolsManager.GetDockerComposeCommandFunc = func() (string, error) {
+			return "", fmt.Errorf("no compose command available")
 		}
+		mocks.Injector.Register("toolsManager", toolsManager)
 
 		// When initializing
 		err := dockerVirt.Initialize()
 
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("expected error, got none")
 		}
 
-		// And the compose command should be empty
-		if dockerVirt.composeCommand != "" {
-			t.Errorf("expected compose command to be empty, got %q", dockerVirt.composeCommand)
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "error determining docker compose command") {
+			t.Errorf("expected error about determining compose command, got %v", err)
 		}
 	})
 }

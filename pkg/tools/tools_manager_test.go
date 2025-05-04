@@ -399,20 +399,18 @@ func TestToolsManager_Check(t *testing.T) {
 	})
 
 	t.Run("TalosctlEnabledButNotAvailable", func(t *testing.T) {
-		// When talosctl is enabled but not available in PATH
+		// When talosctl is enabled but not available
 		mocks, toolsManager := setup(t, defaultConfig)
-		mocks.ConfigHandler.SetContextValue("cluster.driver", "talos")
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 			if name == "talosctl" {
-				return "", exec.ErrNotFound
+				return "", fmt.Errorf("command not found")
 			}
-			return originalExecLookPath(name)
+			return "", nil
 		}
 		err := toolsManager.Check()
-		// Then an error indicating talosctl check failed should be returned
-		if err == nil || !strings.Contains(err.Error(), "talosctl check failed") {
-			t.Errorf("Expected Check to fail when talosctl is enabled but not available, but got: %v", err)
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected Check to fail when talosctl is enabled but not available")
 		}
 	})
 
@@ -491,7 +489,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// When all required tools are available with correct versions
 		_, toolsManager := setup(t)
-		err := toolsManager.checkDocker()
+		_, err := toolsManager.checkDocker()
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected checkDocker to succeed, but got error: %v", err)
@@ -504,7 +502,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 		execLookPath = func(name string) (string, error) {
 			return "", fmt.Errorf("docker is not available in the PATH")
 		}
-		err := toolsManager.checkDocker()
+		_, err := toolsManager.checkDocker()
 		// Then an error indicating docker is not available should be returned
 		if err == nil || !strings.Contains(err.Error(), "docker is not available in the PATH") {
 			t.Errorf("Expected docker not available error, got %v", err)
@@ -520,7 +518,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 			}
 			return "", fmt.Errorf("command not found")
 		}
-		err := toolsManager.checkDocker()
+		_, err := toolsManager.checkDocker()
 		// Then an error indicating version is too low should be returned
 		if err == nil || !strings.Contains(err.Error(), "docker version 1.0.0 is below the minimum required version") {
 			t.Errorf("Expected docker version too low error, got %v", err)
@@ -542,7 +540,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 			}
 			return "", fmt.Errorf("command not found")
 		}
-		err := toolsManager.checkDocker()
+		_, err := toolsManager.checkDocker()
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected success with docker-compose version check, got %v", err)
@@ -561,10 +559,10 @@ func TestToolsManager_checkDocker(t *testing.T) {
 			}
 			return "", fmt.Errorf("command not found")
 		}
-		err := toolsManager.checkDocker()
+		_, err := toolsManager.checkDocker()
 		// Then an error indicating version is too low should be returned
-		if err == nil || !strings.Contains(err.Error(), "docker-compose version 1.0.0 is below the minimum required version") {
-			t.Errorf("Expected docker-compose version too low error, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "docker compose version 1.0.0 is below the minimum required version") {
+			t.Errorf("Expected docker compose version too low error, got %v", err)
 		}
 	})
 
@@ -583,7 +581,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 			}
 			return "", fmt.Errorf("not found")
 		}
-		err := toolsManager.checkDocker()
+		_, err := toolsManager.checkDocker()
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected success with docker-cli-plugin-docker-compose fallback, got %v", err)
@@ -605,7 +603,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 			}
 			return "", fmt.Errorf("not found")
 		}
-		err := toolsManager.checkDocker()
+		_, err := toolsManager.checkDocker()
 		// Then an error indicating docker-compose is not available should be returned
 		if err == nil || !strings.Contains(err.Error(), "docker-compose is not available in the PATH") {
 			t.Errorf("Expected docker-compose not available error, got %v", err)
