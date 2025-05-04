@@ -17,6 +17,7 @@ import (
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/services"
+	"github.com/windsorcli/cli/pkg/tools"
 )
 
 // =============================================================================
@@ -27,6 +28,7 @@ import (
 type DockerVirt struct {
 	BaseVirt
 	services       []services.Service
+	toolsManager   tools.ToolsManager
 	composeCommand string
 }
 
@@ -75,9 +77,18 @@ func (v *DockerVirt) Initialize() error {
 
 	v.services = serviceSlice
 
-	if err := v.determineComposeCommand(); err != nil {
+	// Initialize tools manager and get compose command
+	toolsManager := v.injector.Resolve("toolsManager").(tools.ToolsManager)
+	if err := toolsManager.Initialize(); err != nil {
+		return fmt.Errorf("error initializing tools manager: %w", err)
+	}
+	v.toolsManager = toolsManager
+
+	command, err := toolsManager.GetDockerComposeCommand()
+	if err != nil {
 		return fmt.Errorf("error determining docker compose command: %w", err)
 	}
+	v.composeCommand = command
 
 	return nil
 }
@@ -297,20 +308,6 @@ var _ ContainerRuntime = (*DockerVirt)(nil)
 // =============================================================================
 // Private Methods
 // =============================================================================
-
-// determineComposeCommand checks for available docker compose commands in order of
-// preference: docker-compose, docker-cli-plugin-docker-compose, and docker compose.
-// It sets the first available command for later use in Docker operations.
-func (v *DockerVirt) determineComposeCommand() error {
-	commands := []string{"docker-compose", "docker-cli-plugin-docker-compose", "docker compose"}
-	for _, cmd := range commands {
-		if _, err := v.shell.ExecSilent(cmd, "--version"); err == nil {
-			v.composeCommand = cmd
-			return nil
-		}
-	}
-	return nil
-}
 
 // checkDockerDaemon verifies that the Docker daemon is running and accessible by
 // executing the 'docker info' command. It returns an error if the daemon cannot

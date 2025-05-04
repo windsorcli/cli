@@ -24,6 +24,7 @@ var downCmd = &cobra.Command{
 		// Initialize with requirements
 		if err := controller.InitializeWithRequirements(ctrl.Requirements{
 			ConfigLoaded: true,
+			Tools:        true,
 			Trust:        true,
 			Env:          true,
 			VM:           true,

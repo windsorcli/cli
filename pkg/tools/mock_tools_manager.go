@@ -2,10 +2,11 @@ package tools
 
 // MockToolsManager is a mock implementation of the ToolsManager interface for testing purposes.
 type MockToolsManager struct {
-	InitializeFunc    func() error
-	WriteManifestFunc func() error
-	InstallFunc       func() error
-	CheckFunc         func() error
+	InitializeFunc              func() error
+	WriteManifestFunc           func() error
+	InstallFunc                 func() error
+	CheckFunc                   func() error
+	GetDockerComposeCommandFunc func() (string, error)
 }
 
 // =============================================================================
@@ -51,6 +52,14 @@ func (m *MockToolsManager) Check() error {
 		return m.CheckFunc()
 	}
 	return nil
+}
+
+// GetDockerComposeCommand calls the mock GetDockerComposeCommandFunc if set, otherwise returns an empty string and nil error.
+func (m *MockToolsManager) GetDockerComposeCommand() (string, error) {
+	if m.GetDockerComposeCommandFunc != nil {
+		return m.GetDockerComposeCommandFunc()
+	}
+	return "", nil
 }
 
 // Ensure MockToolsManager implements ToolsManager.

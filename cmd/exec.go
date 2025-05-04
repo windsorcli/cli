@@ -23,6 +23,7 @@ var execCmd = &cobra.Command{
 		// Initialize with requirements
 		if err := controller.InitializeWithRequirements(ctrl.Requirements{
 			ConfigLoaded: true,
+			Tools:        true,
 			Env:          true,
 			Secrets:      true,
 			VM:           true,

@@ -31,6 +31,7 @@ type ToolsManager interface {
 	WriteManifest() error
 	Install() error
 	Check() error
+	GetDockerComposeCommand() (string, error)
 }
 
 // BaseToolsManager is the base implementation of the ToolsManager interface.
@@ -154,6 +155,29 @@ func CheckExistingToolsManager(projectRoot string) (string, error) {
 	}
 
 	return "", nil
+}
+
+// GetDockerComposeCommand determines the appropriate Docker Compose command to use.
+// It checks for 'docker compose', 'docker-compose', or 'docker-cli-plugin-docker-compose'.
+// Returns the command string if found, else an error indicating no Docker Compose implementation was found.
+func (t *BaseToolsManager) GetDockerComposeCommand() (string, error) {
+	// First check if Docker has compose subcommand (most reliable on modern systems)
+	if _, err := t.shell.ExecSilent("docker", "compose", "version"); err == nil {
+		return "docker compose", nil
+	}
+
+	// Check for standalone docker-compose binary
+	if _, err := execLookPath("docker-compose"); err == nil {
+		return "docker-compose", nil
+	}
+
+	// Check for Docker CLI plugin
+	if _, err := execLookPath("docker-cli-plugin-docker-compose"); err == nil {
+		return "docker-cli-plugin-docker-compose", nil
+	}
+
+	// If we get here, we couldn't find any compose command
+	return "", fmt.Errorf("no Docker Compose implementation found")
 }
 
 // =============================================================================

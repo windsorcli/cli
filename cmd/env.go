@@ -68,6 +68,7 @@ var envCmd = &cobra.Command{
 			Trust:        true,
 			ConfigLoaded: !hook, // Don't check if config is loaded when executed by the hook
 			Env:          true,
+			Tools:        true,
 			Secrets:      true,
 			VM:           true,
 			Containers:   true,

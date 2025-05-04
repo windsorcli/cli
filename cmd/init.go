@@ -172,6 +172,7 @@ var initCmd = &cobra.Command{
 		// Initialize with requirements
 		if err := controller.InitializeWithRequirements(ctrl.Requirements{
 			Env:         true,
+			Tools:       true,
 			VM:          true,
 			Containers:  true,
 			Services:    true,
