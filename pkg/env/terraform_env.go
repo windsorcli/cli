@@ -6,6 +6,7 @@
 package env
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,6 +25,16 @@ import (
 type TerraformEnvPrinter struct {
 	BaseEnvPrinter
 }
+
+// TerraformOutput a struct that mimics the terraform output JSON
+type TerraformOutput struct {
+	Value     interface{} `json:"value"`
+	Type      interface{} `json:"type"`
+	Sensitive bool        `json:"sensitive"`
+}
+
+// TerraformOutputs a map of output names to TerraformOutput
+type TerraformOutputs map[string]TerraformOutput
 
 // =============================================================================
 // Constructor
@@ -127,6 +138,15 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 		envVars["TF_VAR_os_type"] = "unix"
 	}
 
+	outputVars, err := e.getTerraformOutputs(projectPath)
+	if err != nil {
+		return nil, fmt.Errorf("error deriving output vars: %w", err)
+	}
+
+	for k, v := range outputVars {
+		envVars[k] = v
+	}
+
 	return envVars, nil
 }
 
@@ -147,6 +167,53 @@ func (e *TerraformEnvPrinter) Print() error {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// getTerraformOutputs retrieves Terraform outputs from the specified project path.
+// It executes 'terraform output -json' and converts the outputs into environment variables.
+// Each output is prefixed with 'TF_VAR_' to make it available as a Terraform variable.
+// Returns a map of environment variable names to their formatted values, or an error if the command fails.
+func (e *TerraformEnvPrinter) getTerraformOutputs(projectPath string) (map[string]string, error) {
+	cmd := e.shims.Command("terraform", "-chdir="+projectPath, "output", "-json")
+	outputJSON, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to run terraform output: %w", err)
+	}
+	var outputs TerraformOutputs
+	if err := json.Unmarshal(outputJSON, &outputs); err != nil {
+		return nil, fmt.Errorf("failed to parse terraform output: %w", err)
+	}
+
+	envVars := make(map[string]string)
+	for name, output := range outputs {
+		envVars["TF_VAR_"+name] = formatTerraformValue(output.Value)
+	}
+	return envVars, nil
+}
+
+// formatTerraformValue converts a Terraform output value to a string representation.
+// It handles different value types:
+// - Strings are returned as-is
+// - Numbers and booleans are converted to strings
+// - Lists are joined with commas
+// - Complex types are JSON marshaled
+// Returns a string representation of the value suitable for environment variables.
+func formatTerraformValue(val interface{}) string {
+	switch v := val.(type) {
+	case string:
+		return v
+	case float64, int, bool:
+		return fmt.Sprintf("%v", v)
+	case []interface{}:
+		parts := make([]string, len(v))
+		for i, elem := range v {
+			parts[i] = fmt.Sprintf("%v", elem)
+		}
+		return strings.Join(parts, ",")
+	default:
+		b, _ := json.Marshal(v)
+		return string(b)
+	}
+}
 
 // generateBackendOverrideTf creates the backend_override.tf file for the project by determining
 // the backend type and writing the appropriate configuration to the file.

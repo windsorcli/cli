@@ -3,6 +3,7 @@ package env
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -1125,4 +1126,158 @@ func TestTerraformEnv_processBackendConfig(t *testing.T) {
 			t.Errorf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
+}
+
+func TestTerraformEnv_getTerraformOutputs(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformEnvPrinter, *Mocks) {
+		t.Helper()
+		mocks := setupTerraformEnvMocks(t)
+		printer := NewTerraformEnvPrinter(mocks.Injector)
+		printer.shims = mocks.Shims
+		if err := printer.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize printer: %v", err)
+		}
+		return printer, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with mock terraform output
+		printer, mocks := setup(t)
+		projectPath := "project/path"
+
+		// Mock terraform output command
+		mocks.Shims.Command = func(name string, arg ...string) *exec.Cmd {
+			cmd := exec.Command("echo", `{
+				"instance_id": {"value": "i-123456", "type": "string"},
+				"port": {"value": 8080, "type": "number"},
+				"tags": {"value": ["prod", "web"], "type": "list"}
+			}`)
+			return cmd
+		}
+
+		// When getTerraformOutputs is called
+		outputs, err := printer.getTerraformOutputs(projectPath)
+
+		// Then no error should occur and outputs should be correctly formatted
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		expectedOutputs := map[string]string{
+			"TF_VAR_instance_id": "i-123456",
+			"TF_VAR_port":        "8080",
+			"TF_VAR_tags":        "prod,web",
+		}
+
+		if !reflect.DeepEqual(outputs, expectedOutputs) {
+			t.Errorf("Expected outputs %v, got %v", expectedOutputs, outputs)
+		}
+	})
+
+	t.Run("CommandError", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with failing terraform command
+		printer, mocks := setup(t)
+		projectPath := "project/path"
+
+		// Mock failing terraform command
+		mocks.Shims.Command = func(name string, arg ...string) *exec.Cmd {
+			cmd := exec.Command("false")
+			return cmd
+		}
+
+		// When getTerraformOutputs is called
+		_, err := printer.getTerraformOutputs(projectPath)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Errorf("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to run terraform output") {
+			t.Errorf("Expected error message to contain 'failed to run terraform output', got %v", err)
+		}
+	})
+
+	t.Run("InvalidJSON", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with invalid JSON output
+		printer, mocks := setup(t)
+		projectPath := "project/path"
+
+		// Mock terraform command with invalid JSON
+		mocks.Shims.Command = func(name string, arg ...string) *exec.Cmd {
+			cmd := exec.Command("echo", `invalid json`)
+			return cmd
+		}
+
+		// When getTerraformOutputs is called
+		_, err := printer.getTerraformOutputs(projectPath)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Errorf("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to parse terraform output") {
+			t.Errorf("Expected error message to contain 'failed to parse terraform output', got %v", err)
+		}
+	})
+}
+
+func TestTerraformEnv_formatTerraformValue(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    interface{}
+		expected string
+	}{
+		{
+			name:     "String value",
+			input:    "test-string",
+			expected: "test-string",
+		},
+		{
+			name:     "Integer value",
+			input:    42,
+			expected: "42",
+		},
+		{
+			name:     "Float value",
+			input:    3.14,
+			expected: "3.14",
+		},
+		{
+			name:     "Boolean value",
+			input:    true,
+			expected: "true",
+		},
+		{
+			name:     "String array",
+			input:    []interface{}{"item1", "item2", "item3"},
+			expected: "item1,item2,item3",
+		},
+		{
+			name:     "Mixed array",
+			input:    []interface{}{"item1", 42, true},
+			expected: "item1,42,true",
+		},
+		{
+			name:     "Map value",
+			input:    map[string]interface{}{"key": "value"},
+			expected: `{"key":"value"}`,
+		},
+		{
+			name:     "Nil value",
+			input:    nil,
+			expected: "null",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// When formatTerraformValue is called
+			result := formatTerraformValue(tt.input)
+
+			// Then the result should match the expected output
+			if result != tt.expected {
+				t.Errorf("Expected %q, got %q", tt.expected, result)
+			}
+		})
+	}
 }
