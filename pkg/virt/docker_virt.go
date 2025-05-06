@@ -129,6 +129,9 @@ func (v *DockerVirt) Up() error {
 			cmd := parts[0]
 			args := append(parts[1:], "up", "--detach", "--remove-orphans")
 
+			fmt.Printf("Debug: Executing command: %s\n", cmd)
+			fmt.Printf("Debug: With args: %v\n", args)
+
 			if i == 0 {
 				output, err := v.shell.ExecProgress(message, cmd, args...)
 				if err == nil {
@@ -185,6 +188,9 @@ func (v *DockerVirt) Down() error {
 		// First part is the command, rest are initial args
 		cmd := parts[0]
 		args := append(parts[1:], "down", "--remove-orphans", "--volumes")
+
+		fmt.Printf("Debug: Executing command: %s\n", cmd)
+		fmt.Printf("Debug: With args: %v\n", args)
 
 		output, err := v.shell.ExecProgress("📦 Running docker compose down", cmd, args...)
 		if err != nil {
