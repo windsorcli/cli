@@ -117,7 +117,6 @@ func (v *DockerVirt) Up() error {
 		var lastOutput string
 		for i := range make([]struct{}, retries) {
 			message := "📦 Running docker compose up"
-			fmt.Printf("Debug: Using compose command: %s\n", v.composeCommand)
 
 			// Split the compose command into parts
 			parts := strings.Fields(v.composeCommand)
@@ -129,9 +128,6 @@ func (v *DockerVirt) Up() error {
 			cmd := parts[0]
 			args := parts[1:]
 			args = append(args, "up", "--detach", "--remove-orphans")
-
-			fmt.Printf("Debug: Executing command: %s\n", cmd)
-			fmt.Printf("Debug: With args: %v\n", args)
 
 			if i == 0 {
 				output, err := v.shell.ExecProgress(message, cmd, args...)
