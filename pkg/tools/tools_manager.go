@@ -184,31 +184,40 @@ func (t *BaseToolsManager) checkDocker() (string, error) {
 
 	var dockerComposeVersion string
 
-	// Try to get docker-compose version using different methods
-	output, _ = t.shell.ExecSilent("docker", "compose", "version", "--short")
-	dockerComposeVersion = extractVersion(output)
-	if dockerComposeVersion != "" {
-		if compareVersion(dockerComposeVersion, constants.MINIMUM_VERSION_DOCKER_COMPOSE) >= 0 {
-			return "docker compose", nil
-		}
-		return "", fmt.Errorf("docker compose version %s is below the minimum required version %s", dockerComposeVersion, constants.MINIMUM_VERSION_DOCKER_COMPOSE)
-	}
-
-	// Try standalone docker-compose
+	// Try standalone docker-compose first
 	if _, err := execLookPath("docker-compose"); err == nil {
-		output, _ = t.shell.ExecSilent("docker-compose", "version", "--short")
+		output, _ = t.shell.ExecSilent("docker-compose", "version")
 		dockerComposeVersion = extractVersion(output)
 		if dockerComposeVersion != "" {
 			if compareVersion(dockerComposeVersion, constants.MINIMUM_VERSION_DOCKER_COMPOSE) >= 0 {
-				return "docker-compose", nil
+				// Verify the command actually works by trying a simple command
+				if _, err := t.shell.ExecSilent("docker-compose", "ps"); err == nil {
+					return "docker-compose", nil
+				}
 			}
 			return "", fmt.Errorf("docker-compose version %s is below the minimum required version %s", dockerComposeVersion, constants.MINIMUM_VERSION_DOCKER_COMPOSE)
 		}
 	}
 
-	// Try Docker CLI plugin
+	// Try Docker CLI plugin next
 	if _, err := execLookPath("docker-cli-plugin-docker-compose"); err == nil {
-		return "docker-cli-plugin-docker-compose", nil
+		// Verify the command actually works by trying a simple command
+		if _, err := t.shell.ExecSilent("docker-cli-plugin-docker-compose", "ps"); err == nil {
+			return "docker-cli-plugin-docker-compose", nil
+		}
+	}
+
+	// Try docker compose last
+	output, _ = t.shell.ExecSilent("docker", "compose", "version")
+	dockerComposeVersion = extractVersion(output)
+	if dockerComposeVersion != "" {
+		if compareVersion(dockerComposeVersion, constants.MINIMUM_VERSION_DOCKER_COMPOSE) >= 0 {
+			// Verify the command actually works by trying a simple command
+			if _, err := t.shell.ExecSilent("docker", "compose", "ps"); err == nil {
+				return "docker compose", nil
+			}
+		}
+		return "", fmt.Errorf("docker compose version %s is below the minimum required version %s", dockerComposeVersion, constants.MINIMUM_VERSION_DOCKER_COMPOSE)
 	}
 
 	return "", fmt.Errorf("docker-compose is not available in the PATH")
