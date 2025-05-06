@@ -120,10 +120,10 @@ func (v *DockerVirt) Up() error {
 			message := "📦 Running docker compose up"
 			fmt.Printf("Debug: Using compose command: %s\n", v.composeCommand)
 
-			// Split the command if it contains spaces
-			cmdParts := strings.Split(v.composeCommand, " ")
-			cmd := cmdParts[0]
-			cmdArgs := append(cmdParts[1:], args...)
+			// Split the command into command and args
+			parts := strings.Fields(v.composeCommand)
+			cmd := parts[0]
+			cmdArgs := append(parts[1:], args...)
 
 			if i == 0 {
 				output, err := v.shell.ExecProgress(message, cmd, cmdArgs...)
@@ -172,10 +172,11 @@ func (v *DockerVirt) Down() error {
 		}
 
 		fmt.Printf("Debug: Using compose command: %s\n", v.composeCommand)
-		// Split the command if it contains spaces
-		cmdParts := strings.Split(v.composeCommand, " ")
-		cmd := cmdParts[0]
-		cmdArgs := append(cmdParts[1:], "down", "--remove-orphans", "--volumes")
+		// Split the command into command and args
+		parts := strings.Fields(v.composeCommand)
+		cmd := parts[0]
+		cmdArgs := append(parts[1:], "down", "--remove-orphans", "--volumes")
+
 		output, err := v.shell.ExecProgress("📦 Running docker compose down", cmd, cmdArgs...)
 		if err != nil {
 			return fmt.Errorf("Error executing command %s down: %w\n%s", v.composeCommand, err, output)
