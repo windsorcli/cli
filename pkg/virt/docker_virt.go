@@ -127,7 +127,8 @@ func (v *DockerVirt) Up() error {
 
 			// First part is the command, rest are initial args
 			cmd := parts[0]
-			args := append(parts[1:], "up", "--detach", "--remove-orphans")
+			args := parts[1:]
+			args = append(args, "up", "--detach", "--remove-orphans")
 
 			fmt.Printf("Debug: Executing command: %s\n", cmd)
 			fmt.Printf("Debug: With args: %v\n", args)
@@ -187,7 +188,8 @@ func (v *DockerVirt) Down() error {
 
 		// First part is the command, rest are initial args
 		cmd := parts[0]
-		args := append(parts[1:], "down", "--remove-orphans", "--volumes")
+		args := parts[1:]
+		args = append(args, "down", "--remove-orphans", "--volumes")
 
 		fmt.Printf("Debug: Executing command: %s\n", cmd)
 		fmt.Printf("Debug: With args: %v\n", args)
