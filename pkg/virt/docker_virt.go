@@ -116,24 +116,28 @@ func (v *DockerVirt) Up() error {
 		var lastErr error
 		var lastOutput string
 		for i := range make([]struct{}, retries) {
-			args := []string{"up", "--detach", "--remove-orphans"}
 			message := "📦 Running docker compose up"
 			fmt.Printf("Debug: Using compose command: %s\n", v.composeCommand)
 
-			// Split the command into command and args
+			// Split the compose command into parts
 			parts := strings.Fields(v.composeCommand)
+			if len(parts) == 0 {
+				return fmt.Errorf("invalid compose command: %s", v.composeCommand)
+			}
+
+			// First part is the command, rest are initial args
 			cmd := parts[0]
-			cmdArgs := append(parts[1:], args...)
+			args := append(parts[1:], "up", "--detach", "--remove-orphans")
 
 			if i == 0 {
-				output, err := v.shell.ExecProgress(message, cmd, cmdArgs...)
+				output, err := v.shell.ExecProgress(message, cmd, args...)
 				if err == nil {
 					return nil
 				}
 				lastErr = err
 				lastOutput = output
 			} else {
-				output, err := v.shell.ExecSilent(cmd, cmdArgs...)
+				output, err := v.shell.ExecSilent(cmd, args...)
 				if err == nil {
 					return nil
 				}
@@ -172,12 +176,17 @@ func (v *DockerVirt) Down() error {
 		}
 
 		fmt.Printf("Debug: Using compose command: %s\n", v.composeCommand)
-		// Split the command into command and args
+		// Split the compose command into parts
 		parts := strings.Fields(v.composeCommand)
-		cmd := parts[0]
-		cmdArgs := append(parts[1:], "down", "--remove-orphans", "--volumes")
+		if len(parts) == 0 {
+			return fmt.Errorf("invalid compose command: %s", v.composeCommand)
+		}
 
-		output, err := v.shell.ExecProgress("📦 Running docker compose down", cmd, cmdArgs...)
+		// First part is the command, rest are initial args
+		cmd := parts[0]
+		args := append(parts[1:], "down", "--remove-orphans", "--volumes")
+
+		output, err := v.shell.ExecProgress("📦 Running docker compose down", cmd, args...)
 		if err != nil {
 			return fmt.Errorf("Error executing command %s down: %w\n%s", v.composeCommand, err, output)
 		}
