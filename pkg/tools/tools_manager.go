@@ -112,14 +112,6 @@ func (t *BaseToolsManager) Check() error {
 		}
 	}
 
-	if t.configHandler.GetString("cluster.driver") == "talos" {
-		if err := t.checkTalosctl(); err != nil {
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
-			return fmt.Errorf("talosctl check failed: %v", err)
-		}
-	}
-
 	if t.configHandler.GetString("vm.driver") == "colima" {
 		if err := t.checkColima(); err != nil {
 			spin.Stop()
@@ -255,25 +247,6 @@ func (t *BaseToolsManager) checkKubectl() error {
 	}
 	if compareVersion(kubectlVersion, constants.MINIMUM_VERSION_KUBECTL) < 0 {
 		return fmt.Errorf("kubectl version %s is below the minimum required version %s", kubectlVersion, constants.MINIMUM_VERSION_KUBECTL)
-	}
-
-	return nil
-}
-
-// checkTalosctl ensures Talosctl is available in the system's PATH using execLookPath.
-// It checks for 'talosctl' in the system's PATH and verifies its version.
-// Returns nil if found and meets the minimum version requirement, else an error indicating it is not available or outdated.
-func (t *BaseToolsManager) checkTalosctl() error {
-	if _, err := execLookPath("talosctl"); err != nil {
-		return fmt.Errorf("talosctl is not available in the PATH")
-	}
-	output, _ := t.shell.ExecSilent("talosctl", "version", "--client", "--short")
-	talosctlVersion := extractVersion(output)
-	if talosctlVersion == "" {
-		return fmt.Errorf("failed to extract talosctl version")
-	}
-	if compareVersion(talosctlVersion, constants.MINIMUM_VERSION_TALOSCTL) < 0 {
-		return fmt.Errorf("talosctl version %s is below the minimum required version %s", talosctlVersion, constants.MINIMUM_VERSION_TALOSCTL)
 	}
 
 	return nil
