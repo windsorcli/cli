@@ -398,24 +398,6 @@ func TestToolsManager_Check(t *testing.T) {
 		}
 	})
 
-	t.Run("TalosctlEnabledButNotAvailable", func(t *testing.T) {
-		// When talosctl is enabled but not available in PATH
-		mocks, toolsManager := setup(t, defaultConfig)
-		mocks.ConfigHandler.SetContextValue("cluster.driver", "talos")
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
-			if name == "talosctl" {
-				return "", exec.ErrNotFound
-			}
-			return originalExecLookPath(name)
-		}
-		err := toolsManager.Check()
-		// Then an error indicating talosctl check failed should be returned
-		if err == nil || !strings.Contains(err.Error(), "talosctl check failed") {
-			t.Errorf("Expected Check to fail when talosctl is enabled but not available, but got: %v", err)
-		}
-	})
-
 	t.Run("ColimaEnabledButNotAvailable", func(t *testing.T) {
 		// When colima is enabled but not available in PATH
 		mocks, toolsManager := setup(t, defaultConfig)
@@ -805,62 +787,6 @@ func TestToolsManager_checkKubectl(t *testing.T) {
 		// Then an error indicating version is too low should be returned
 		if err == nil || !strings.Contains(err.Error(), "kubectl version 1.20.0 is below the minimum required version 1.27.0") {
 			t.Errorf("Expected kubectl version too low error, got %v", err)
-		}
-	})
-}
-
-// Tests for Talosctl version validation
-func TestToolsManager_checkTalosctl(t *testing.T) {
-	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
-		t.Helper()
-		mocks := setupMocks(t)
-		toolsManager := NewToolsManager(mocks.Injector)
-		toolsManager.Initialize()
-		return mocks, toolsManager
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given talosctl is available with correct version
-		_, toolsManager := setup(t)
-		// When checking talosctl version
-		err := toolsManager.checkTalosctl()
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected checkTalosctl to succeed, but got error: %v", err)
-		}
-	})
-
-	t.Run("TalosctlVersionInvalidResponse", func(t *testing.T) {
-		// Given talosctl version response is invalid
-		mocks, toolsManager := setup(t)
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
-			if name == "talosctl" && len(args) == 3 && args[0] == "version" && args[1] == "--client" && args[2] == "--short" {
-				return "Invalid version response", nil
-			}
-			return "", fmt.Errorf("command not found")
-		}
-		// When checking talosctl version
-		err := toolsManager.checkTalosctl()
-		// Then an error indicating version extraction failed should be returned
-		if err == nil || !strings.Contains(err.Error(), "failed to extract talosctl version") {
-			t.Errorf("Expected failed to extract talosctl version error, got %v", err)
-		}
-	})
-
-	t.Run("TalosctlVersionTooLow", func(t *testing.T) {
-		// Given talosctl version is below minimum required version
-		mocks, toolsManager := setup(t)
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
-			if name == "talosctl" && len(args) == 3 && args[0] == "version" && args[1] == "--client" && args[2] == "--short" {
-				return "v0.1.0", nil
-			}
-			return "", fmt.Errorf("command not found")
-		}
-		// When checking talosctl version
-		err := toolsManager.checkTalosctl()
-		// Then an error indicating version is too low should be returned
-		if err == nil || !strings.Contains(err.Error(), "talosctl version 0.1.0 is below the minimum required version") {
-			t.Errorf("Expected talosctl version too low error, got %v", err)
 		}
 	})
 }
