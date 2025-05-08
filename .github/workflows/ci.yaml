@@ -9,7 +9,7 @@ on:
       - 'v[0-9]+.[0-9]+.[0-9]+-*'
       
 permissions:
-  contents: write  # Allows creating releases
+  contents: write
   issues: read
   pull-requests: read  
 jobs:
@@ -117,24 +117,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-
-      - name: Set pre-release flag
-        id: prerelease
-        run: |
-          echo "Tag: ${{ github.ref }}"
-          if [[ "${{ github.ref }}" =~ -[a-zA-Z0-9]+$ ]]; then
-            echo "Matched prerelease pattern"
-            echo "prerelease=true" >> $GITHUB_OUTPUT
-            echo "Set prerelease to: true"
-          else
-            echo "Did not match prerelease pattern"
-            echo "prerelease=false" >> $GITHUB_OUTPUT
-            echo "Set prerelease to: false"
-          fi
-
-      - name: Debug prerelease value
-        run: |
-          echo "Prerelease value: ${{ steps.prerelease.outputs.prerelease }}"
 
       - name: Install GPG
         run: sudo apt-get update && sudo apt-get install -y gnupg
