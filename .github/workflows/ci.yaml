@@ -171,11 +171,10 @@ jobs:
         uses: goreleaser/goreleaser-action@9c156ee8a17a598857849441385a2041ef570552 # v6.3.0
         with:
           version: "~> v2"
-          args: release --clean --debug
+          args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GPG_FINGERPRINT: ${{ env.GPG_FINGERPRINT }}
           HOMEBREW_CLI_WRITE_PAT: ${{ secrets.HOMEBREW_CLI_WRITE_PAT }}
           GITHUB_SHA: ${{ github.sha }}
-          PRERELEASE: ${{ steps.prerelease.outputs.prerelease == 'true' }}
           SKIP_HOMEBREW: ${{ steps.prerelease.outputs.prerelease == 'true' }}
