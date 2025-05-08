@@ -117,10 +117,5 @@ func (j *realJsonnetVM) EvaluateAnonymousSnippet(filename, snippet string) (stri
 // Helper Functions
 // =============================================================================
 
-// Helper functions to create pointers for basic types
-func ptrString(s string) *string {
-	return &s
-}
-
 // metav1Duration is a shim for metav1.Duration
 type metav1Duration = metav1.Duration

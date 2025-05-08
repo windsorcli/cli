@@ -223,63 +223,6 @@ local terraformConfig = if platform == "local" || platform == "metal" then [
       else
         "",
     },
-    variables: {
-      context_path: {
-        type: "string",
-        description: "Where kubeconfig and talosconfig are stored",
-        default: "",
-      },
-      os_type: {
-        type: "string",
-        description: "Must be 'unix' or 'windows'",
-        default: "unix",
-      },
-      kubernetes_version: {
-        type: "string",
-        description: "Kubernetes version to deploy",
-        default: "1.31.4",
-      },
-      talos_version: {
-        type: "string",
-        description: "The Talos version to deploy",
-        default: "1.8.4",
-      },
-      cluster_name: {
-        type: "string",
-        description: "The name of the cluster",
-        default: "talos",
-      },
-      cluster_endpoint: {
-        type: "string",
-        description: "The external controlplane API endpoint of the kubernetes API",
-        default: "https://localhost:6443",
-      },
-      controlplanes: {
-        type: "list(any)",
-        description: "Machine config details for control planes",
-        default: [],
-      },
-      workers: {
-        type: "list(any)",
-        description: "Machine config details for workers",
-        default: [],
-      },
-      common_config_patches: {
-        type: "string",
-        description: "A YAML string of common config patches to apply",
-        default: "",
-      },
-      controlplane_config_patches: {
-        type: "string",
-        description: "A YAML string of controlplane config patches to apply",
-        default: "",
-      },
-      worker_config_patches: {
-        type: "string",
-        description: "A YAML string of worker config patches to apply",
-        default: "",
-      },
-    }
   },
   {
     path: "gitops/flux",
@@ -289,63 +232,6 @@ local terraformConfig = if platform == "local" || platform == "metal" then [
       git_password: "local",
       webhook_token: "abcdef123456",
     } else {},
-    variables: {
-      flux_namespace: {
-        description: "The namespace in which Flux will be installed",
-        type: "string",
-        default: "system-gitops",
-      },
-      flux_helm_version: {
-        description: "The version of Flux Helm chart to install",
-        type: "string",
-        default: "2.14.0",
-      },
-      flux_version: {
-        description: "The version of Flux to install",
-        type: "string",
-        default: "2.4.0",
-      },
-      ssh_private_key: {
-        description: "The private key to use for SSH authentication",
-        type: "string",
-        default: "",
-        sensitive: true,
-      },
-      ssh_public_key: {
-        description: "The public key to use for SSH authentication",
-        type: "string",
-        default: "",
-        sensitive: true,
-      },
-      ssh_known_hosts: {
-        description: "The known hosts to use for SSH authentication",
-        type: "string",
-        default: "",
-        sensitive: true,
-      },
-      git_auth_secret: {
-        description: "The name of the secret to store the git authentication details",
-        type: "string",
-        default: "flux-system",
-      },
-      git_username: {
-        description: "The git user to use to authenticate with the git provider",
-        type: "string",
-        default: "git",
-      },
-      git_password: {
-        description: "The git password or PAT used to authenticate with the git provider",
-        type: "string",
-        default: "",
-        sensitive: true,
-      },
-      webhook_token: {
-        description: "The token to use for the webhook",
-        type: "string",
-        default: "",
-        sensitive: true,
-      },
-    }
   }
 ] else [];
 

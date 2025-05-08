@@ -36,11 +36,8 @@ func TestBlueprint_Merge(t *testing.T) {
 			},
 			TerraformComponents: []TerraformComponent{
 				{
-					Source: "source1",
-					Path:   "module/path1",
-					Variables: map[string]TerraformVariable{
-						"var1": {Default: "default1"},
-					},
+					Source:   "source1",
+					Path:     "module/path1",
 					Values:   map[string]any{"key1": "value1"},
 					FullPath: "original/full/path",
 				},
@@ -84,20 +81,14 @@ func TestBlueprint_Merge(t *testing.T) {
 			},
 			TerraformComponents: []TerraformComponent{
 				{
-					Source: "source1",
-					Path:   "module/path1",
-					Variables: map[string]TerraformVariable{
-						"var2": {Default: "default2"},
-					},
+					Source:   "source1",
+					Path:     "module/path1",
 					Values:   map[string]any{"key2": "value2"},
 					FullPath: "updated/full/path",
 				},
 				{
-					Source: "source2",
-					Path:   "module/path2",
-					Variables: map[string]TerraformVariable{
-						"var3": {Default: "default3"},
-					},
+					Source:   "source2",
+					Path:     "module/path2",
 					Values:   map[string]any{"key3": "value3"},
 					FullPath: "new/full/path",
 				},
@@ -172,9 +163,6 @@ func TestBlueprint_Merge(t *testing.T) {
 		})
 
 		component1 := dst.TerraformComponents[0]
-		if len(component1.Variables) != 2 || component1.Variables["var1"].Default != "default1" || component1.Variables["var2"].Default != "default2" {
-			t.Errorf("Expected Variables to contain ['var1', 'var2'], but got %v", component1.Variables)
-		}
 		if component1.Values == nil || len(component1.Values) != 2 || component1.Values["key1"] != "value1" || component1.Values["key2"] != "value2" {
 			t.Errorf("Expected Values to contain both 'key1' and 'key2', but got %v", component1.Values)
 		}
@@ -182,9 +170,6 @@ func TestBlueprint_Merge(t *testing.T) {
 			t.Errorf("Expected FullPath to be 'updated/full/path', but got '%s'", component1.FullPath)
 		}
 		component2 := dst.TerraformComponents[1]
-		if len(component2.Variables) != 1 || component2.Variables["var3"].Default != "default3" {
-			t.Errorf("Expected Variables to be ['var3'], but got %v", component2.Variables)
-		}
 		if component2.Values == nil || len(component2.Values) != 1 || component2.Values["key3"] != "value3" {
 			t.Errorf("Expected Values to contain 'key3', but got %v", component2.Values)
 		}
@@ -223,11 +208,10 @@ func TestBlueprint_Merge(t *testing.T) {
 			ApiVersion: "v1alpha1",
 			TerraformComponents: []TerraformComponent{
 				{
-					Source:    "source1",
-					Path:      "module/path1",
-					Variables: nil, // Initialize with nil
-					Values:    nil, // Initialize with nil
-					FullPath:  "original/full/path",
+					Source:   "source1",
+					Path:     "module/path1",
+					Values:   nil, // Initialize with nil
+					FullPath: "original/full/path",
 				},
 			},
 		}
@@ -237,9 +221,6 @@ func TestBlueprint_Merge(t *testing.T) {
 				{
 					Source: "source1",
 					Path:   "module/path1",
-					Variables: map[string]TerraformVariable{
-						"var1": {Default: "default1"},
-					},
 					Values: map[string]any{
 						"key1": "value1",
 					},
@@ -255,9 +236,6 @@ func TestBlueprint_Merge(t *testing.T) {
 		}
 
 		component := dst.TerraformComponents[0]
-		if len(component.Variables) != 1 || component.Variables["var1"].Default != "default1" {
-			t.Errorf("Expected Variables to contain ['var1'], but got %v", component.Variables)
-		}
 		if component.Values == nil || len(component.Values) != 1 || component.Values["key1"] != "value1" {
 			t.Errorf("Expected Values to contain 'key1', but got %v", component.Values)
 		}
@@ -287,11 +265,8 @@ func TestBlueprint_Merge(t *testing.T) {
 			},
 			TerraformComponents: []TerraformComponent{
 				{
-					Source: "source1",
-					Path:   "path1",
-					Variables: map[string]TerraformVariable{
-						"var1": {Default: "default1"},
-					},
+					Source:   "source1",
+					Path:     "path1",
 					Values:   nil,
 					FullPath: "original/full/path",
 				},
@@ -337,9 +312,6 @@ func TestBlueprint_Merge(t *testing.T) {
 				{
 					Source: "source1",
 					Path:   "module/path1",
-					Variables: map[string]TerraformVariable{
-						"var1": {Default: "default1"},
-					},
 					Values: map[string]any{
 						"key1": "value1",
 					},
@@ -353,9 +325,6 @@ func TestBlueprint_Merge(t *testing.T) {
 				{
 					Source: "source2",      // Different source
 					Path:   "module/path1", // Same path
-					Variables: map[string]TerraformVariable{
-						"var2": {Default: "default2"},
-					},
 					Values: map[string]any{
 						"key2": "value2",
 					},
@@ -374,9 +343,6 @@ func TestBlueprint_Merge(t *testing.T) {
 		if component.Source != "source2" {
 			t.Errorf("Expected Source to be 'source2', but got '%s'", component.Source)
 		}
-		if len(component.Variables) != 1 || component.Variables["var2"].Default != "default2" {
-			t.Errorf("Expected Variables to be ['var2'], but got %v", component.Variables)
-		}
 		if component.Values == nil || len(component.Values) != 1 || component.Values["key2"] != "value2" {
 			t.Errorf("Expected Values to contain 'key2', but got %v", component.Values)
 		}
@@ -393,9 +359,6 @@ func TestBlueprint_Merge(t *testing.T) {
 				{
 					Source: "source1",
 					Path:   "module/path1",
-					Variables: map[string]TerraformVariable{
-						"var1": {Default: "default1"},
-					},
 					Values: map[string]any{
 						"key1": "value1",
 					},
@@ -417,9 +380,6 @@ func TestBlueprint_Merge(t *testing.T) {
 		component := dst.TerraformComponents[0]
 		if component.Source != "source1" {
 			t.Errorf("Expected Source to be 'source1', but got '%s'", component.Source)
-		}
-		if len(component.Variables) != 1 || component.Variables["var1"].Default != "default1" {
-			t.Errorf("Expected Variables to be ['var1'], but got %v", component.Variables)
 		}
 		if component.Values == nil || len(component.Values) != 1 || component.Values["key1"] != "value1" {
 			t.Errorf("Expected Values to contain 'key1', but got %v", component.Values)
@@ -441,9 +401,6 @@ func TestBlueprint_Merge(t *testing.T) {
 				{
 					Source: "source1",
 					Path:   "module/path1",
-					Variables: map[string]TerraformVariable{
-						"var1": {Default: "default1"},
-					},
 					Values: map[string]any{
 						"key1": "value1",
 					},
@@ -461,9 +418,6 @@ func TestBlueprint_Merge(t *testing.T) {
 		component := dst.TerraformComponents[0]
 		if component.Source != "source1" {
 			t.Errorf("Expected Source to be 'source1', but got '%s'", component.Source)
-		}
-		if len(component.Variables) != 1 || component.Variables["var1"].Default != "default1" {
-			t.Errorf("Expected Variables to be ['var1'], but got %v", component.Variables)
 		}
 		if component.Values == nil || len(component.Values) != 1 || component.Values["key1"] != "value1" {
 			t.Errorf("Expected Values to contain 'key1', but got %v", component.Values)
@@ -562,9 +516,6 @@ func TestBlueprint_Merge(t *testing.T) {
 				{
 					Source: "source1",
 					Path:   "module/path1",
-					Variables: map[string]TerraformVariable{
-						"var1": {Default: "default1"},
-					},
 					Values: map[string]any{
 						"key1": "value1",
 					},
@@ -578,9 +529,6 @@ func TestBlueprint_Merge(t *testing.T) {
 				{
 					Source: "source1",
 					Path:   "module/path1",
-					Variables: map[string]TerraformVariable{
-						"var2": {Default: "default2"},
-					},
 					Values: map[string]any{
 						"key2": "value2",
 					},
@@ -589,9 +537,6 @@ func TestBlueprint_Merge(t *testing.T) {
 				{
 					Source: "source2",
 					Path:   "module/path2",
-					Variables: map[string]TerraformVariable{
-						"var3": {Default: "default3"},
-					},
 					Values: map[string]any{
 						"key3": "value3",
 					},
@@ -607,9 +552,6 @@ func TestBlueprint_Merge(t *testing.T) {
 		}
 
 		component1 := dst.TerraformComponents[0]
-		if len(component1.Variables) != 2 || component1.Variables["var1"].Default != "default1" || component1.Variables["var2"].Default != "default2" {
-			t.Errorf("Expected Variables to contain ['var1', 'var2'], but got %v", component1.Variables)
-		}
 		if component1.Values == nil || len(component1.Values) != 2 || component1.Values["key1"] != "value1" || component1.Values["key2"] != "value2" {
 			t.Errorf("Expected Values to contain both 'key1' and 'key2', but got %v", component1.Values)
 		}
@@ -618,9 +560,6 @@ func TestBlueprint_Merge(t *testing.T) {
 		}
 
 		component2 := dst.TerraformComponents[1]
-		if len(component2.Variables) != 1 || component2.Variables["var3"].Default != "default3" {
-			t.Errorf("Expected Variables to be ['var3'], but got %v", component2.Variables)
-		}
 		if component2.Values == nil || len(component2.Values) != 1 || component2.Values["key3"] != "value3" {
 			t.Errorf("Expected Values to contain 'key3', but got %v", component2.Values)
 		}
@@ -918,13 +857,6 @@ func TestBlueprint_DeepCopy(t *testing.T) {
 				{
 					Source: "source1",
 					Path:   "module/path1",
-					Variables: map[string]TerraformVariable{
-						"var1": {
-							Type:        "string",
-							Default:     "default1",
-							Description: "A test variable",
-						},
-					},
 					Values: map[string]any{
 						"key1": "value1",
 					},
@@ -959,9 +891,6 @@ func TestBlueprint_DeepCopy(t *testing.T) {
 		if copy.TerraformComponents[0].Path != "module/path1" {
 			t.Errorf("Expected copy to have terraform component path %v, but got %v", "module/path1", copy.TerraformComponents[0].Path)
 		}
-		if len(copy.TerraformComponents[0].Variables) != 1 || copy.TerraformComponents[0].Variables["var1"].Default != "default1" {
-			t.Errorf("Expected copy to have terraform component variable 'var1' with default 'default1', but got %v", copy.TerraformComponents[0].Variables)
-		}
 		if len(copy.TerraformComponents[0].Values) != 1 || copy.TerraformComponents[0].Values["key1"] != "value1" {
 			t.Errorf("Expected copy to have terraform component value 'key1' with value 'value1', but got %v", copy.TerraformComponents[0].Values)
 		}
@@ -986,18 +915,4 @@ func TestBlueprint_DeepCopy(t *testing.T) {
 			t.Errorf("Expected copy to be nil, but got non-nil")
 		}
 	})
-}
-
-// Helper functions to check if all elements are present
-func containsAll(slice []string, elements []string) bool {
-	elementMap := make(map[string]bool)
-	for _, el := range slice {
-		elementMap[el] = true
-	}
-	for _, el := range elements {
-		if !elementMap[el] {
-			return false
-		}
-	}
-	return true
 }

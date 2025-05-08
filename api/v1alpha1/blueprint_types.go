@@ -3,6 +3,9 @@
 package v1alpha1
 
 import (
+	"maps"
+	"slices"
+
 	"github.com/fluxcd/pkg/apis/kustomize"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -114,24 +117,6 @@ type TerraformComponent struct {
 
 	// Values are configuration values for the module.
 	Values map[string]any `yaml:"values,omitempty"`
-
-	// Variables are input variables for the module.
-	Variables map[string]TerraformVariable `yaml:"variables,omitempty"`
-}
-
-// TerraformVariable describes a variable in a Terraform component.
-type TerraformVariable struct {
-	// Type of the variable.
-	Type string `yaml:"type,omitempty"`
-
-	// Default value for the variable.
-	Default any `yaml:"default,omitempty"`
-
-	// Description of the variable's purpose.
-	Description string `yaml:"description,omitempty"`
-
-	// Sensitive indicates if the variable is sensitive.
-	Sensitive bool `yaml:"sensitive,omitempty"`
 }
 
 // Kustomization defines a kustomization config in a blueprint.
@@ -237,27 +222,14 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 
 	terraformComponentsCopy := make([]TerraformComponent, len(b.TerraformComponents))
 	for i, component := range b.TerraformComponents {
-		variablesCopy := make(map[string]TerraformVariable, len(component.Variables))
-		for key, variable := range component.Variables {
-			variablesCopy[key] = TerraformVariable{
-				Type:        variable.Type,
-				Default:     variable.Default,
-				Description: variable.Description,
-				Sensitive:   variable.Sensitive,
-			}
-		}
-
 		valuesCopy := make(map[string]any, len(component.Values))
-		for key, value := range component.Values {
-			valuesCopy[key] = value
-		}
+		maps.Copy(valuesCopy, component.Values)
 
 		terraformComponentsCopy[i] = TerraformComponent{
-			Source:    component.Source,
-			Path:      component.Path,
-			FullPath:  component.FullPath,
-			Values:    valuesCopy,
-			Variables: variablesCopy,
+			Source:   component.Source,
+			Path:     component.Path,
+			FullPath: component.FullPath,
+			Values:   valuesCopy,
 		}
 	}
 
@@ -283,14 +255,14 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 			Name:          kustomization.Name,
 			Path:          kustomization.Path,
 			Source:        kustomization.Source,
-			DependsOn:     append([]string{}, kustomization.DependsOn...),
+			DependsOn:     slices.Clone(kustomization.DependsOn),
 			Interval:      kustomization.Interval,
 			RetryInterval: kustomization.RetryInterval,
 			Timeout:       kustomization.Timeout,
-			Patches:       append([]kustomize.Patch{}, kustomization.Patches...),
+			Patches:       slices.Clone(kustomization.Patches),
 			Wait:          kustomization.Wait,
 			Force:         kustomization.Force,
-			Components:    append([]string{}, kustomization.Components...),
+			Components:    slices.Clone(kustomization.Components),
 			PostBuild:     postBuildCopy,
 		}
 	}
@@ -383,13 +355,6 @@ func (b *Blueprint) Merge(overlay *Blueprint) {
 					}
 					for k, v := range overlayComponent.Values {
 						mergedComponent.Values[k] = v
-					}
-
-					if mergedComponent.Variables == nil {
-						mergedComponent.Variables = make(map[string]TerraformVariable)
-					}
-					for k, v := range overlayComponent.Variables {
-						mergedComponent.Variables[k] = v
 					}
 
 					if overlayComponent.FullPath != "" {
