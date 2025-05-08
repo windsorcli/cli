@@ -13,7 +13,9 @@ categories:
   - title: 'Maintenance'
     label: 'chore'
   - title: 'Dependencies'
-    label: 'dependencies'
+    collapse-after: 3
+    labels:
+      - 'dependencies'
 change-template: '- $TITLE @$AUTHOR (#$NUMBER)'
 change-title-escapes: '\<*_&'
 version-resolver:
