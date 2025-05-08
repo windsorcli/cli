@@ -177,5 +177,5 @@ jobs:
           GPG_FINGERPRINT: ${{ env.GPG_FINGERPRINT }}
           HOMEBREW_CLI_WRITE_PAT: ${{ secrets.HOMEBREW_CLI_WRITE_PAT }}
           GITHUB_SHA: ${{ github.sha }}
-          PRERELEASE: ${{ steps.prerelease.outputs.prerelease }}
+          PRERELEASE: ${{ steps.prerelease.outputs.prerelease == 'true' }}
           SKIP_HOMEBREW: ${{ steps.prerelease.outputs.prerelease == 'true' }}
