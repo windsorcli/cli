@@ -3,6 +3,8 @@ package generators
 import (
 	"io/fs"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -67,7 +69,10 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	// Create a new config handler
 	var configHandler config.ConfigHandler
 	if options.ConfigHandler == nil {
-		configHandler = config.NewYamlConfigHandler(injector)
+		configHandler = config.NewMockConfigHandler()
+		configHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return filepath.Join(tmpDir, "contexts", "default"), nil
+		}
 	} else {
 		configHandler = options.ConfigHandler
 	}
@@ -76,7 +81,13 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	// Create a new mock shell
 	mockShell := shell.NewMockShell()
 	mockShell.GetProjectRootFunc = func() (string, error) {
-		return "/mock/project/root", nil
+		return tmpDir, nil
+	}
+	mockShell.ExecSilentFunc = func(cmd string, args ...string) (string, error) {
+		if cmd == "terraform" && len(args) > 0 && args[0] == "init" {
+			return "Initializing modules...\n- main in /path/to/module", nil
+		}
+		return "", nil
 	}
 	injector.Register("shell", mockShell)
 
@@ -88,16 +99,18 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	mockBlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
 		// Common components setup
 		remoteComponent := blueprintv1alpha1.TerraformComponent{
-			Source: "git::https://github.com/terraform-aws-modules/terraform-aws-vpc.git//terraform/remote/path@v1.0.0",
-			Path:   "/mock/project/root/.windsor/.tf_modules/remote/path",
+			Source:   "git::https://github.com/terraform-aws-modules/terraform-aws-vpc.git//terraform/remote/path@v1.0.0",
+			Path:     "remote/path",
+			FullPath: filepath.Join(tmpDir, ".windsor", ".tf_modules", "remote/path"),
 			Values: map[string]any{
 				"remote_variable1": "default_value",
 			},
 		}
 
 		localComponent := blueprintv1alpha1.TerraformComponent{
-			Source: "local/path",
-			Path:   "/mock/project/root/terraform/local/path",
+			Source:   "local/path",
+			Path:     "local/path",
+			FullPath: filepath.Join(tmpDir, ".windsor", ".tf_modules", "local/path"),
 			Values: map[string]any{
 				"local_variable1": "default_value",
 			},
@@ -119,11 +132,68 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 
 	// Create shims with mock implementations
 	shims := NewShims()
-	shims.WriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
-		return nil
+	shims.WriteFile = func(path string, data []byte, perm fs.FileMode) error {
+		dir := filepath.Dir(path)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
+		return os.WriteFile(path, data, perm)
 	}
-	shims.MkdirAll = func(_ string, _ fs.FileMode) error {
-		return nil
+	shims.MkdirAll = func(path string, perm fs.FileMode) error {
+		return os.MkdirAll(path, perm)
+	}
+	shims.TempDir = func(_, _ string) (string, error) {
+		return t.TempDir(), nil
+	}
+	shims.RemoveAll = func(path string) error {
+		return os.RemoveAll(path)
+	}
+	shims.Chdir = func(path string) error {
+		return os.Chdir(path)
+	}
+	shims.Stat = func(path string) (fs.FileInfo, error) {
+		return os.Stat(path)
+	}
+	shims.Setenv = func(key, value string) error {
+		return os.Setenv(key, value)
+	}
+	shims.ReadFile = func(path string) ([]byte, error) {
+		// Handle variables.tf
+		if strings.HasSuffix(path, "variables.tf") {
+			return []byte(`variable "remote_variable1" {
+  description = "Remote variable 1"
+  type        = string
+  default     = "default_value"
+}
+
+variable "local_variable1" {
+  description = "Local variable 1"
+  type        = string
+  default     = "default_value"
+}`), nil
+		}
+
+		// Handle tfvars files
+		if strings.HasSuffix(path, ".tfvars") {
+			return []byte(`# Managed by Windsor CLI
+remote_variable1 = "default_value"
+local_variable1 = "default_value"`), nil
+		}
+
+		// Handle outputs.tf
+		if strings.HasSuffix(path, "outputs.tf") {
+			return []byte(`output "remote_output1" {
+  value       = "remote_value1"
+  description = "Remote output 1"
+}
+
+output "local_output1" {
+  value       = "local_value1"
+  description = "Local output 1"
+}`), nil
+		}
+
+		return []byte{}, nil
 	}
 
 	configHandler.Initialize()

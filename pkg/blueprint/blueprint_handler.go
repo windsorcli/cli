@@ -217,7 +217,6 @@ func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 	fullBlueprint := b.blueprint.DeepCopy()
 
 	for i := range fullBlueprint.TerraformComponents {
-		fullBlueprint.TerraformComponents[i].Variables = nil
 		fullBlueprint.TerraformComponents[i].Values = nil
 	}
 

@@ -1373,10 +1373,6 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 			{
 				Source: "source1",
 				Path:   "path/to/code",
-				Variables: map[string]blueprintv1alpha1.TerraformVariable{
-					"var1": {Type: "string", Default: "value1", Description: "Test variable 1"},
-					"var2": {Type: "number", Default: 42, Description: "Test variable 2"},
-				},
 				Values: map[string]any{
 					"key1": "val1",
 					"key2": true,
@@ -1414,9 +1410,6 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 
 		// And variables and values should be cleared
 		component := capturedBlueprint.TerraformComponents[0]
-		if component.Variables != nil {
-			t.Error("Expected Variables to be nil after write")
-		}
 		if component.Values != nil {
 			t.Error("Expected Values to be nil after write")
 		}
@@ -2167,10 +2160,6 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 				FullPath: filepath.Join(projectRoot, "terraform", "path/to/code"),
 				Values: map[string]any{
 					"key1": "value1",
-				},
-				Variables: map[string]blueprintv1alpha1.TerraformVariable{
-					"var1": {Type: "string", Default: "value1", Description: "Test variable 1"},
-					"var2": {Type: "number", Default: 42, Description: "Test variable 2"},
 				},
 			},
 		}
