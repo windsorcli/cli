@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -12,7 +13,7 @@ import (
 // =============================================================================
 
 const (
-	gitGenTestMockGitignorePath = "/mock/project/root/.gitignore"
+	gitGenTestMockGitignorePath = "mock/project/root/.gitignore"
 	gitGenTestExistingContent   = "existing content\n"
 	gitGenTestExpectedContent   = `existing content
 
@@ -79,12 +80,13 @@ func TestGitGenerator_Write(t *testing.T) {
 
 		// And GetProjectRoot is mocked to return a specific path
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "/mock/project/root", nil
+			return filepath.Join("mock", "project", "root"), nil
 		}
 
 		// And ReadFile is mocked to return existing content
 		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if path == "/mock/project/root/.gitignore" {
+			expectedPath := filepath.Join("mock", "project", "root", ".gitignore")
+			if path == expectedPath {
 				return []byte(gitGenTestExistingContent), nil
 			}
 			return nil, fmt.Errorf("unexpected file read: %s", path)
@@ -108,7 +110,7 @@ func TestGitGenerator_Write(t *testing.T) {
 		}
 
 		// And the file should be written to the correct path
-		expectedPath := "/mock/project/root/.gitignore"
+		expectedPath := filepath.Join("mock", "project", "root", ".gitignore")
 		if writtenPath != expectedPath {
 			t.Errorf("expected filename %s, got %s", expectedPath, writtenPath)
 		}
