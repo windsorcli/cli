@@ -9,7 +9,7 @@ on:
       - 'v[0-9]+.[0-9]+.[0-9]+-*'
       
 permissions:
-  contents: write  # Allows creating releases
+  contents: write
   issues: read
   pull-requests: read  
 jobs:
@@ -118,15 +118,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Set pre-release flag
-        id: prerelease
-        run: |
-          if [[ "${{ github.ref }}" =~ -[a-zA-Z0-9]+$ ]]; then
-            echo "prerelease=true" >> $GITHUB_OUTPUT
-          else
-            echo "prerelease=false" >> $GITHUB_OUTPUT
-          fi
-
       - name: Install GPG
         run: sudo apt-get update && sudo apt-get install -y gnupg
 
@@ -168,5 +159,4 @@ jobs:
           GPG_FINGERPRINT: ${{ env.GPG_FINGERPRINT }}
           HOMEBREW_CLI_WRITE_PAT: ${{ secrets.HOMEBREW_CLI_WRITE_PAT }}
           GITHUB_SHA: ${{ github.sha }}
-          PRERELEASE: ${{ steps.prerelease.outputs.prerelease }}
           SKIP_HOMEBREW: ${{ steps.prerelease.outputs.prerelease == 'true' }}
