@@ -121,11 +121,15 @@ jobs:
       - name: Set pre-release flag
         id: prerelease
         run: |
+          echo "Tag: ${{ github.ref }}"
           if [[ "${{ github.ref }}" =~ -[a-zA-Z0-9]+$ ]]; then
+            echo "Matched prerelease pattern"
             echo "prerelease=true" >> $GITHUB_OUTPUT
           else
+            echo "Did not match prerelease pattern"
             echo "prerelease=false" >> $GITHUB_OUTPUT
           fi
+          echo "Set prerelease to: ${{ steps.prerelease.outputs.prerelease }}"
 
       - name: Install GPG
         run: sudo apt-get update && sudo apt-get install -y gnupg
