@@ -44,7 +44,7 @@ release:
     owner: windsorcli
     name: cli
   draft: false
-  prerelease: "{{ eq .Env.PRERELEASE \"true\" }}"
+  prerelease: auto
 
 binary_signs:
   - cmd: gpg
