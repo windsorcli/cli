@@ -29,7 +29,11 @@ builds:
 # Archive configuration
 archives:
   - id: windsor
-    formats: ["tar.gz"]
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
 
 changelog:
   sort: asc
@@ -116,4 +120,4 @@ chocolateys:
     release_notes: "https://github.com/windsorcli/cli/releases/tag/v{{ .Version }}"
     api_key: "{{ .Env.CHOCOLATEY_API_KEY }}"
     source_repo: "https://push.chocolatey.org/"
-    url_template: "https://github.com/windsorcli/cli/releases/download/v{{ .Version }}/windsor_{{ .Version }}_windows_amd64.tar.gz"
+    url_template: "https://github.com/windsorcli/cli/releases/download/v{{ .Version }}/windsor_{{ .Version }}_windows_amd64.zip"
