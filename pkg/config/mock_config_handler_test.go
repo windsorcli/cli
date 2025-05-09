@@ -705,3 +705,33 @@ func TestMockConfigHandler_SetSecretsProvider(t *testing.T) {
 		handler.SetSecretsProvider(mockProvider)
 	})
 }
+
+func TestMockConfigHandler_GenerateContextID(t *testing.T) {
+	t.Run("WithMockFunction", func(t *testing.T) {
+		// Given a mock config handler with GenerateContextIDFunc set
+		handler := NewMockConfigHandler()
+		mockErr := fmt.Errorf("mock generate context ID error")
+		handler.GenerateContextIDFunc = func() error { return mockErr }
+
+		// When GenerateContextID is called
+		err := handler.GenerateContextID()
+
+		// Then the error should match the expected mock error
+		if err != mockErr {
+			t.Errorf("Expected error = %v, got = %v", mockErr, err)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a mock config handler without GenerateContextIDFunc set
+		handler := NewMockConfigHandler()
+
+		// When GenerateContextID is called
+		err := handler.GenerateContextID()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+	})
+}

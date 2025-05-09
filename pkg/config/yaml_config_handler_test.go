@@ -1650,6 +1650,7 @@ func TestYamlConfigHandler_SetContextValue(t *testing.T) {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
 		handler.shims = mocks.Shims
+		handler.path = filepath.Join(t.TempDir(), "config.yaml")
 		return handler, mocks
 	}
 
@@ -1991,7 +1992,6 @@ func TestYamlConfigHandler_ConvertValue(t *testing.T) {
 
 		// When converting the value
 		_, err := convertValue(value, targetType)
-
 		// Then an error should be returned
 		if err == nil {
 			t.Fatal("Expected error for integer overflow")
@@ -2394,6 +2394,88 @@ func Test_setValueByPath(t *testing.T) {
 		}
 		if inner.String() != "test" {
 			t.Errorf("Expected nested value 'test', got '%s'", inner.String())
+		}
+	})
+}
+
+func TestYamlConfigHandler_GenerateContextID(t *testing.T) {
+	setup := func(t *testing.T) (*YamlConfigHandler, *Mocks) {
+		mocks := setupMocks(t)
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		if err := handler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		return handler, mocks
+	}
+
+	t.Run("WhenContextIDExists", func(t *testing.T) {
+		// Given a set of safe mocks and a YamlConfigHandler
+		handler, _ := setup(t)
+
+		// And an existing context ID
+		existingID := "w1234567"
+		handler.SetContextValue("id", existingID)
+
+		// When GenerateContextID is called
+		err := handler.GenerateContextID()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("GenerateContextID() unexpected error: %v", err)
+		}
+
+		// And the existing ID should remain unchanged
+		if got := handler.GetString("id"); got != existingID {
+			t.Errorf("Expected ID = %v, got = %v", existingID, got)
+		}
+	})
+
+	t.Run("WhenContextIDDoesNotExist", func(t *testing.T) {
+		// Given a set of safe mocks and a YamlConfigHandler
+		handler, _ := setup(t)
+
+		// When GenerateContextID is called
+		err := handler.GenerateContextID()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("GenerateContextID() unexpected error: %v", err)
+		}
+
+		// And a new ID should be generated
+		id := handler.GetString("id")
+		if id == "" {
+			t.Fatal("Expected non-empty ID")
+		}
+
+		// And the ID should start with 'w' and be 8 characters long
+		if len(id) != 8 || !strings.HasPrefix(id, "w") {
+			t.Errorf("Expected ID to start with 'w' and be 8 characters long, got: %s", id)
+		}
+	})
+
+	t.Run("WhenRandomGenerationFails", func(t *testing.T) {
+		// Given a set of safe mocks and a YamlConfigHandler
+		handler, _ := setup(t)
+
+		// And a mocked crypto/rand that fails
+		handler.shims.CryptoRandRead = func([]byte) (int, error) {
+			return 0, fmt.Errorf("mocked crypto/rand error")
+		}
+
+		// When GenerateContextID is called
+		err := handler.GenerateContextID()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+
+		// And the error message should be as expected
+		expectedError := "failed to generate random context ID: mocked crypto/rand error"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error = %v, got = %v", expectedError, err)
 		}
 	})
 }
