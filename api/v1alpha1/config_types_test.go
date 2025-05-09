@@ -309,6 +309,22 @@ func TestConfig_Merge(t *testing.T) {
 			t.Errorf("ProjectName mismatch: expected 'OverlayProject', got '%s'", *base.ProjectName)
 		}
 	})
+
+	t.Run("MergeWithID", func(t *testing.T) {
+		base := &Context{
+			ID: ptrString("base-id"),
+		}
+
+		overlay := &Context{
+			ID: ptrString("overlay-id"),
+		}
+
+		base.Merge(overlay)
+
+		if base.ID == nil || *base.ID != "overlay-id" {
+			t.Errorf("ID mismatch: expected 'overlay-id', got '%s'", *base.ID)
+		}
+	})
 }
 
 func TestConfig_Copy(t *testing.T) {

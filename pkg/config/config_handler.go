@@ -38,6 +38,7 @@ type ConfigHandler interface {
 	Clean() error
 	IsLoaded() bool
 	SetSecretsProvider(provider secrets.SecretsProvider)
+	GenerateContextID() error
 }
 
 const (
