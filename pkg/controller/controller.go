@@ -411,6 +411,7 @@ func (c *BaseController) InitializeWithRequirements(req Requirements) error {
 	if err := c.CreateComponents(); err != nil {
 		return fmt.Errorf("failed to create components: %w", err)
 	}
+
 	if err := c.InitializeComponents(); err != nil {
 		return fmt.Errorf("failed to initialize components: %w", err)
 	}
@@ -746,6 +747,11 @@ func (c *BaseController) createConfigComponent(req Requirements) error {
 	if req.ConfigLoaded && !configHandler.IsLoaded() {
 		fmt.Fprintln(os.Stderr, "Cannot execute commands. Please run 'windsor init' to set up your project first.")
 		return nil
+	}
+
+	// Generate context ID
+	if err := configHandler.GenerateContextID(); err != nil {
+		return fmt.Errorf("failed to generate context ID: %w", err)
 	}
 
 	return nil

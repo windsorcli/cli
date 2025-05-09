@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/rand"
 	"os"
 
 	"github.com/goccy/go-yaml"
@@ -12,29 +13,31 @@ import (
 
 // Shims provides mockable wrappers around system and runtime functions
 type Shims struct {
-	ReadFile      func(string) ([]byte, error)
-	WriteFile     func(string, []byte, os.FileMode) error
-	RemoveAll     func(string) error
-	Getenv        func(string) string
-	Setenv        func(string, string) error
-	Stat          func(string) (os.FileInfo, error)
-	MkdirAll      func(string, os.FileMode) error
-	YamlMarshal   func(any) ([]byte, error)
-	YamlUnmarshal func([]byte, any) error
+	ReadFile       func(string) ([]byte, error)
+	WriteFile      func(string, []byte, os.FileMode) error
+	RemoveAll      func(string) error
+	Getenv         func(string) string
+	Setenv         func(string, string) error
+	Stat           func(string) (os.FileInfo, error)
+	MkdirAll       func(string, os.FileMode) error
+	YamlMarshal    func(any) ([]byte, error)
+	YamlUnmarshal  func([]byte, any) error
+	CryptoRandRead func([]byte) (int, error)
 }
 
 // NewShims creates a new Shims instance with default implementations
 func NewShims() *Shims {
 	return &Shims{
-		ReadFile:      os.ReadFile,
-		WriteFile:     os.WriteFile,
-		RemoveAll:     os.RemoveAll,
-		Getenv:        os.Getenv,
-		Setenv:        os.Setenv,
-		Stat:          os.Stat,
-		MkdirAll:      os.MkdirAll,
-		YamlMarshal:   yaml.Marshal,
-		YamlUnmarshal: yaml.Unmarshal,
+		ReadFile:       os.ReadFile,
+		WriteFile:      os.WriteFile,
+		RemoveAll:      os.RemoveAll,
+		Getenv:         os.Getenv,
+		Setenv:         os.Setenv,
+		Stat:           os.Stat,
+		MkdirAll:       os.MkdirAll,
+		YamlMarshal:    yaml.Marshal,
+		YamlUnmarshal:  yaml.Unmarshal,
+		CryptoRandRead: func(b []byte) (int, error) { return rand.Read(b) },
 	}
 }
 

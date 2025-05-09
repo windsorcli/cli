@@ -44,7 +44,7 @@ release:
     owner: windsorcli
     name: cli
   draft: false
-  prerelease: false
+  prerelease: auto
 
 binary_signs:
   - cmd: gpg
@@ -62,7 +62,7 @@ signs:
 brews:
   - name: windsor
     directory: Formula
-    skip_upload: false
+    skip_upload: "{{ eq .Env.SKIP_HOMEBREW \"true\" }}"
     repository:
       owner: windsorcli
       name: homebrew-cli
