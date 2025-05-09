@@ -83,8 +83,8 @@
   "customManagers": [
     {
       "customType": "regex",
-      "fileMatch": [
-        "^pkg/constants/constants.go$"
+      "managerFilePatterns": [
+        "/^pkg/constants/constants.go$/"
       ],
       "matchStrings": [
         "// renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\n\\s*const\\s+\\S+\\s*=\\s*\"(?<currentValue>[^\"]+)\""
@@ -94,8 +94,8 @@
     },
     {
       "customType": "regex",
-      "fileMatch": [
-        "^Taskfile.yaml$"
+      "managerFilePatterns": [
+        "/^Taskfile.yaml$/"
       ],
       "matchStrings": [
         "go install (?<depName>\\S+)@(?<currentValue>\\S+)"
@@ -105,8 +105,8 @@
     },
     {
       "customType": "regex",
-      "fileMatch": [
-        "^Taskfile.yaml$"
+      "managerFilePatterns": [
+        "/^Taskfile.yaml$/"
       ],
       "matchStrings": [
         "choco install (?<depName>\\S+) --version=(?<currentValue>\\S+)"
