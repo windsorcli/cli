@@ -61,16 +61,29 @@ signs:
 
 # brews:
 #   - name: windsor
-#     directory: Formula
 #     repository:
 #       owner: windsorcli
 #       name: homebrew-cli
 #       branch: main
 #       token: "{{ .Env.HOMEBREW_CLI_WRITE_PAT }}"
-#     homepage: "https://windsorcli.github.io"      
+#     commit_author:
+#       name: goreleaserbot
+#       email: bot@goreleaser.com
+#     homepage: "https://windsorcli.github.io"
 #     description: "The Windsor Command Line Interface"
-#     ids:
-#       - windsor
+#     license: "MIT"
+#     skip_upload: auto
+#     download_strategy: GithubPrivateRepositoryReleaseDownloadStrategy
+#     custom_require: "lib/custom_download_strategy"
+#     install: |
+#       bin.install "windsor"
+#       # Install shell completions
+#       output = Utils.safe_popen_read("#{bin}/windsor", "completion", "bash")
+#       (bash_completion/"windsor").write output
+#       output = Utils.safe_popen_read("#{bin}/windsor", "completion", "zsh")
+#       (zsh_completion/"_windsor").write output
+#       output = Utils.safe_popen_read("#{bin}/windsor", "completion", "fish")
+#       (fish_completion/"windsor.fish").write output
 
 chocolateys:
   - name: windsor
@@ -101,6 +114,6 @@ chocolateys:
       
       Your PowerShell profile is located at: $PROFILE
     release_notes: "https://github.com/windsorcli/cli/releases/tag/v{{ .Version }}"
-    skip_publish: false
     api_key: "{{ .Env.CHOCOLATEY_API_KEY }}"
     source_repo: "https://push.chocolatey.org/"
+    url_template: "https://github.com/windsorcli/cli/releases/download/v{{ .Version }}/windsor_{{ .Version }}_windows_amd64.tar.gz"
