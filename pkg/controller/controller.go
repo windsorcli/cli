@@ -749,6 +749,11 @@ func (c *BaseController) createConfigComponent(req Requirements) error {
 		return nil
 	}
 
+	// Generate context ID
+	if err := configHandler.GenerateContextID(); err != nil {
+		return fmt.Errorf("failed to generate context ID: %w", err)
+	}
+
 	return nil
 }
 
