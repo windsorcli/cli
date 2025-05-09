@@ -27,6 +27,7 @@ type MockConfigHandler struct {
 	GetConfigRootFunc      func() (string, error)
 	CleanFunc              func() error
 	SetSecretsProviderFunc func(provider secrets.SecretsProvider)
+	GenerateContextIDFunc  func() error
 }
 
 // =============================================================================
@@ -214,6 +215,14 @@ func (m *MockConfigHandler) SetSecretsProvider(provider secrets.SecretsProvider)
 	if m.SetSecretsProviderFunc != nil {
 		m.SetSecretsProviderFunc(provider)
 	}
+}
+
+// GenerateContextID calls the mock GenerateContextIDFunc if set, otherwise returns nil
+func (m *MockConfigHandler) GenerateContextID() error {
+	if m.GenerateContextIDFunc != nil {
+		return m.GenerateContextIDFunc()
+	}
+	return nil
 }
 
 // Ensure MockConfigHandler implements ConfigHandler
