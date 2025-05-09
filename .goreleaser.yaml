@@ -81,8 +81,8 @@ chocolateys:
     title: Windsor CLI
     authors: Windsor CLI Team
     project_url: https://windsorcli.github.io
-    # icon_url: https://windsorcli.github.io/icon.png
-    copyright: "{{ .Year }} Windsor CLI Team"
+    icon_url: https://windsorcli.github.io/icon.png
+    copyright: "2025 Windsor CLI Team"
     license_url: https://github.com/windsorcli/cli/blob/main/LICENSE
     require_license_acceptance: false
     project_source_url: https://github.com/windsorcli/cli
