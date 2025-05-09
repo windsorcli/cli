@@ -15,11 +15,11 @@ builds:
       - CGO_ENABLED=0
     main: ./cmd/windsor
     goos:
-      # - darwin
-      # - linux
+      - darwin
+      - linux
       - windows
     goarch:
-      # - arm64
+      - arm64
       - amd64
     ldflags:
       - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.version={{ .Version }}'"
@@ -63,31 +63,31 @@ binary_signs:
 signs:
   - artifacts: checksum
 
-# brews:
-#   - name: windsor
-#     repository:
-#       owner: windsorcli
-#       name: homebrew-cli
-#       branch: main
-#       token: "{{ .Env.HOMEBREW_CLI_WRITE_PAT }}"
-#     commit_author:
-#       name: goreleaserbot
-#       email: bot@goreleaser.com
-#     homepage: "https://windsorcli.github.io"
-#     description: "The Windsor Command Line Interface"
-#     license: "MIT"
-#     skip_upload: auto
-#     download_strategy: GithubPrivateRepositoryReleaseDownloadStrategy
-#     custom_require: "lib/custom_download_strategy"
-#     install: |
-#       bin.install "windsor"
-#       # Install shell completions
-#       output = Utils.safe_popen_read("#{bin}/windsor", "completion", "bash")
-#       (bash_completion/"windsor").write output
-#       output = Utils.safe_popen_read("#{bin}/windsor", "completion", "zsh")
-#       (zsh_completion/"_windsor").write output
-#       output = Utils.safe_popen_read("#{bin}/windsor", "completion", "fish")
-#       (fish_completion/"windsor.fish").write output
+brews:
+  - name: windsor
+    repository:
+      owner: windsorcli
+      name: homebrew-cli
+      branch: main
+      token: "{{ .Env.HOMEBREW_CLI_WRITE_PAT }}"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    homepage: "https://windsorcli.github.io"
+    description: "The Windsor Command Line Interface"
+    license: "MPL-2.0"
+    skip_upload: auto
+    download_strategy: GithubPrivateRepositoryReleaseDownloadStrategy
+    custom_require: "lib/custom_download_strategy"
+    install: |
+      bin.install "windsor"
+      # Install shell completions
+      output = Utils.safe_popen_read("#{bin}/windsor", "completion", "bash")
+      (bash_completion/"windsor").write output
+      output = Utils.safe_popen_read("#{bin}/windsor", "completion", "zsh")
+      (zsh_completion/"_windsor").write output
+      output = Utils.safe_popen_read("#{bin}/windsor", "completion", "fish")
+      (fish_completion/"windsor.fish").write output
 
 chocolateys:
   - name: windsor

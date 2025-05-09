@@ -13,104 +13,105 @@ permissions:
   issues: read
   pull-requests: read  
 jobs:
-  # build-and-test:
-  #   strategy:
-  #     matrix:
-  #       os: [ubuntu-latest, windows-latest, macos-latest]
-  #       arch: [amd64, arm64]
-  #       exclude:
-  #         - os: windows-latest
-  #           arch: arm64
-  #   runs-on: ${{ matrix.os }}
+  build-and-test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        arch: [amd64, arm64]
+        exclude:
+          - os: windows-latest
+            arch: arm64
+    runs-on: ${{ matrix.os }}
 
-  #   steps:
-  #     - name: Checkout code
-  #       uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-  #     - name: Install Aqua
-  #       uses: aquaproj/aqua-installer@5e54e5cee8a95ee2ce7c04cb993da6dfad13e59c # v3.1.2
-  #       with:
-  #         aqua_version: v2.51.1
+      - name: Install Aqua
+        uses: aquaproj/aqua-installer@5e54e5cee8a95ee2ce7c04cb993da6dfad13e59c # v3.1.2
+        with:
+          aqua_version: v2.51.1
 
-  #     - name: Install tools
-  #       run: aqua install
+      - name: Install tools
+        run: aqua install
 
-  #     - name: Cache Go Modules
-  #       uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-  #       with:
-  #         path: |
-  #           ~/.cache/go-build
-  #           ~/go/pkg/mod
-  #         key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-  #         restore-keys: |
-  #           ${{ runner.os }}-go-
+      - name: Cache Go Modules
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
   
-  #     - name: Install Dependencies
-  #       run: go install ./...
+      - name: Install Dependencies
+        run: go install ./...
           
-  #     - name: Run tests
-  #       run: task test
+      - name: Run tests
+        run: task test
 
-  #     - name: Test Build Windsor CLI on macOS/Linux
-  #       if: ${{ matrix.os != 'windows-latest' }}
-  #       run: |
-  #         VERSION=$(echo "${GITHUB_REF}" | sed 's/refs\/heads\///' | sed 's/refs\/tags\///')
-  #         echo "Testing build for version: $VERSION"
-  #         COMMIT_SHA=${{ github.sha }}
-  #         if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
-  #           GOOS=linux GOARCH=${{ matrix.arch }} go build -ldflags "-X 'github.com/${{ github.repository }}/cmd.version=$VERSION' -X 'github.com/${{ github.repository }}/cmd.commitSHA=$COMMIT_SHA'" -o /dev/null cmd/windsor/main.go
-  #         elif [ "${{ matrix.os }}" == "macos-latest" ]; then
-  #           GOOS=darwin GOARCH=${{ matrix.arch }} go build -ldflags "-X 'github.com/${{ github.repository }}/cmd.version=$VERSION' -X 'github.com/${{ github.repository }}/cmd.commitSHA=$COMMIT_SHA'" -o /dev/null cmd/windsor/main.go
-  #         fi
+      - name: Test Build Windsor CLI on macOS/Linux
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: |
+          VERSION=$(echo "${GITHUB_REF}" | sed 's/refs\/heads\///' | sed 's/refs\/tags\///')
+          echo "Testing build for version: $VERSION"
+          COMMIT_SHA=${{ github.sha }}
+          if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
+            GOOS=linux GOARCH=${{ matrix.arch }} go build -ldflags "-X 'github.com/${{ github.repository }}/cmd.version=$VERSION' -X 'github.com/${{ github.repository }}/cmd.commitSHA=$COMMIT_SHA'" -o /dev/null cmd/windsor/main.go
+          elif [ "${{ matrix.os }}" == "macos-latest" ]; then
+            GOOS=darwin GOARCH=${{ matrix.arch }} go build -ldflags "-X 'github.com/${{ github.repository }}/cmd.version=$VERSION' -X 'github.com/${{ github.repository }}/cmd.commitSHA=$COMMIT_SHA'" -o /dev/null cmd/windsor/main.go
+          fi
 
-  #     - name: Test Build Windsor CLI on Windows
-  #       if: ${{ matrix.os == 'windows-latest' }}
-  #       run: |
-  #         $env:VERSION = $env:GITHUB_REF -replace 'refs/heads/', '' -replace 'refs/tags/', ''
-  #         echo "Testing build for version: $env:VERSION"
-  #         $env:COMMIT_SHA = "${{ github.sha }}"
-  #         $env:GOOS = "windows"
-  #         $env:GOARCH = "${{ matrix.arch }}"
-  #         go build -ldflags "-X 'github.com/${{ github.repository }}/cmd.version=$env:VERSION' -X 'github.com/${{ github.repository }}/cmd.commitSHA=$env:COMMIT_SHA'" -o NUL cmd\windsor\main.go
-  #       shell: pwsh
+      - name: Test Build Windsor CLI on Windows
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: |
+          $env:VERSION = $env:GITHUB_REF -replace 'refs/heads/', '' -replace 'refs/tags/', ''
+          echo "Testing build for version: $env:VERSION"
+          $env:COMMIT_SHA = "${{ github.sha }}"
+          $env:GOOS = "windows"
+          $env:GOARCH = "${{ matrix.arch }}"
+          go build -ldflags "-X 'github.com/${{ github.repository }}/cmd.version=$env:VERSION' -X 'github.com/${{ github.repository }}/cmd.commitSHA=$env:COMMIT_SHA'" -o NUL cmd\windsor\main.go
+        shell: pwsh
 
-  # sast-scan:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Checkout code
-  #       uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+  sast-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-  #     - name: Install Aqua
-  #       uses: aquaproj/aqua-installer@5e54e5cee8a95ee2ce7c04cb993da6dfad13e59c # v3.1.2
-  #       with:
-  #         aqua_version: v2.51.1
+      - name: Install Aqua
+        uses: aquaproj/aqua-installer@5e54e5cee8a95ee2ce7c04cb993da6dfad13e59c # v3.1.2
+        with:
+          aqua_version: v2.51.1
 
-  #     - name: Install tools
-  #       run: aqua install
+      - name: Install tools
+        run: aqua install
 
-  #     - name: Cache Go Modules
-  #       uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-  #       with:
-  #         path: |
-  #           ~/.cache/go-build
-  #           ~/go/pkg/mod
-  #         key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-  #         restore-keys: |
-  #           ${{ runner.os }}-go-
+      - name: Cache Go Modules
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
   
-  #     - name: Install Dependencies
-  #       run: go install ./...
+      - name: Install Dependencies
+        run: go install ./...
 
-  #     - name: Run Gosec Security Scanner
-  #       uses: securego/gosec@955a68d0d19f4afb7503068f95059f7d0c529017 # v2.22.3
-  #       with:
-  #         args: ./...
-  #       env:
-  #         GOTOOLCHAIN: 'local'
-  #         GOFLAGS: '-buildvcs=false'
+      - name: Run Gosec Security Scanner
+        uses: securego/gosec@955a68d0d19f4afb7503068f95059f7d0c529017 # v2.22.3
+        with:
+          args: ./...
+        env:
+          GOTOOLCHAIN: 'local'
+          GOFLAGS: '-buildvcs=false'
 
   release:
     runs-on: windows-latest
+    needs: [build-and-test, sast-scan]
     if: startsWith(github.ref, 'refs/tags/')
 
     steps:
