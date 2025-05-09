@@ -10,35 +10,21 @@ before:
     - go generate ./...
 
 builds:
-  - id: windows
+  - id: windsor
     env:
       - CGO_ENABLED=0
     main: ./cmd/windsor
     goos:
+      # - darwin
+      # - linux
       - windows
     goarch:
+      # - arm64
       - amd64
-    binary: windsor.exe
     ldflags:
       - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.version={{ .Version }}'"
       - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/pkg/secrets.version={{ .Version }}'"
       - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.commitSHA={{ .Env.GITHUB_SHA }}'"
-
-#  - id: unix
-#    env:
-#      - CGO_ENABLED=0
-#    main: ./cmd/windsor
-#    goos:
-#      - darwin
-#      - linux
-#    goarch:
-#      - amd64
-#      - arm64
-#    binary: windsor
-#    ldflags:
-#      - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.version={{ .Version }}'"
-#      - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/pkg/secrets.version={{ .Version }}'"
-#      - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.commitSHA={{ .Env.GITHUB_SHA }}'"
 
 # Archive configuration
 archives:
@@ -89,7 +75,7 @@ signs:
 chocolateys:
   - name: windsor
     ids:
-      - windows
+      - windsor
     package_source_url: https://github.com/windsorcli/cli
     owners: Windsor CLI
     title: Windsor CLI
