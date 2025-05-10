@@ -2238,16 +2238,19 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 		// Clear any existing config handler
 		mocks.Injector.Register("configHandler", nil)
 
-		// Set environment variable to force config load
-		oldEnv := os.Getenv("WINDSORCONFIG")
-		os.Setenv("WINDSORCONFIG", "test.yaml")
-		defer func() {
-			if oldEnv != "" {
-				os.Setenv("WINDSORCONFIG", oldEnv)
-			} else {
-				os.Unsetenv("WINDSORCONFIG")
-			}
-		}()
+		// Create temporary project directory
+		projectRoot := t.TempDir()
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+		mocks.Injector.Register("shell", mockShell)
+
+		// Create config file
+		configPath := filepath.Join(projectRoot, "windsor.yaml")
+		if err := os.WriteFile(configPath, []byte("test"), 0644); err != nil {
+			t.Fatalf("Failed to create test config file: %v", err)
+		}
 
 		// When creating the config component
 		err := controller.createConfigComponent(Requirements{})
@@ -2283,6 +2286,57 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("CreatesConfigComponent", func(t *testing.T) {
+		// Given a controller with a config handler
+		controller, mocks := setup(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		controller.constructors.NewConfigHandler = func(di.Injector) config.ConfigHandler {
+			return mockConfigHandler
+		}
+
+		// Clear any existing config handler
+		mocks.Injector.Register("configHandler", nil)
+
+		// When creating the config component
+		err := controller.createConfigComponent(Requirements{})
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And the config handler should be registered
+		if mocks.Injector.Resolve("configHandler") != mockConfigHandler {
+			t.Error("Expected config handler to be registered")
+		}
+	})
+
+	t.Run("HandlesConfigHandlerError", func(t *testing.T) {
+		// Given a controller with a failing config handler
+		controller, mocks := setup(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.InitializeFunc = func() error {
+			return fmt.Errorf("config handler error")
+		}
+		controller.constructors.NewConfigHandler = func(di.Injector) config.ConfigHandler {
+			return mockConfigHandler
+		}
+
+		// Clear any existing config handler
+		mocks.Injector.Register("configHandler", nil)
+
+		// When creating the config component
+		err := controller.createConfigComponent(Requirements{})
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "config handler error") {
+			t.Errorf("Expected error about config handler, got: %v", err)
 		}
 	})
 }
