@@ -2285,6 +2285,60 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
+
+	t.Run("GeneratesContextID", func(t *testing.T) {
+		// Given a controller with a config handler
+		controller, mocks := setup(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		var generateCalled bool
+		mockConfigHandler.GenerateContextIDFunc = func() error {
+			generateCalled = true
+			return nil
+		}
+		controller.constructors.NewConfigHandler = func(di.Injector) config.ConfigHandler {
+			return mockConfigHandler
+		}
+
+		// Clear any existing config handler
+		mocks.Injector.Register("configHandler", nil)
+
+		// When creating the config component
+		err := controller.createConfigComponent(Requirements{})
+
+		// Then context ID should be generated
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if !generateCalled {
+			t.Error("Expected GenerateContextID to be called")
+		}
+	})
+
+	t.Run("HandlesGenerateContextIDError", func(t *testing.T) {
+		// Given a controller with a failing config handler
+		controller, mocks := setup(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GenerateContextIDFunc = func() error {
+			return fmt.Errorf("failed to generate context ID")
+		}
+		controller.constructors.NewConfigHandler = func(di.Injector) config.ConfigHandler {
+			return mockConfigHandler
+		}
+
+		// Clear any existing config handler
+		mocks.Injector.Register("configHandler", nil)
+
+		// When creating the config component
+		err := controller.createConfigComponent(Requirements{})
+
+		// Then the error should be propagated
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to generate context ID") {
+			t.Errorf("Expected error about context ID generation, got: %v", err)
+		}
+	})
 }
 
 func TestBaseController_createSecretsComponents(t *testing.T) {

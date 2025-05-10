@@ -486,6 +486,7 @@ func TestTerraformEnv_Print(t *testing.T) {
 				filepath.Join(configRoot, "terraform/project/path.tfvars"),
 				filepath.Join(configRoot, "terraform/project/path.tfvars.json")),
 			"TF_VAR_context_path": configRoot,
+			"TF_VAR_context_id":   "",
 			"TF_VAR_os_type":      expectedOSType,
 		}
 

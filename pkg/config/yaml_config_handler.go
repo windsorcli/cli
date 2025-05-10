@@ -645,3 +645,23 @@ func convertValue(value string, targetType reflect.Type) (any, error) {
 
 	return convertedValue, nil
 }
+
+// GenerateContextID generates a random context ID if one doesn't exist
+func (y *YamlConfigHandler) GenerateContextID() error {
+	if y.GetString("id") != "" {
+		return nil
+	}
+
+	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
+	b := make([]byte, 7)
+	if _, err := y.shims.CryptoRandRead(b); err != nil {
+		return fmt.Errorf("failed to generate random context ID: %w", err)
+	}
+
+	for i := range b {
+		b[i] = charset[int(b[i])%len(charset)]
+	}
+
+	id := "w" + string(b)
+	return y.SetContextValue("id", id)
+}
