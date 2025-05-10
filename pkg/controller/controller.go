@@ -411,6 +411,7 @@ func (c *BaseController) InitializeWithRequirements(req Requirements) error {
 	if err := c.CreateComponents(); err != nil {
 		return fmt.Errorf("failed to create components: %w", err)
 	}
+
 	if err := c.InitializeComponents(); err != nil {
 		return fmt.Errorf("failed to initialize components: %w", err)
 	}
