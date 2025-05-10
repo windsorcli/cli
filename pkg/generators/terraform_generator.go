@@ -1,6 +1,7 @@
 package generators
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -35,6 +36,15 @@ type VariableInfo struct {
 	Description string
 	Default     any
 	Sensitive   bool
+}
+
+// TerraformInitOutput represents the JSON output from terraform init
+type TerraformInitOutput struct {
+	Level     string `json:"@level"`
+	Message   string `json:"@message"`
+	Module    string `json:"@module"`
+	Timestamp string `json:"@timestamp"`
+	Type      string `json:"type"`
 }
 
 // =============================================================================
@@ -98,14 +108,16 @@ func (g *TerraformGenerator) Write() error {
 
 // generateModuleShim creates a local reference to a remote Terraform module.
 // Algorithm:
-//  1. Create module directory in .tf_modules/<component.Path>/
+//  1. Create module directory in the component's path (component.FullPath)
 //  2. Generate main.tf with module reference to original source
-//  3. Run 'terraform init' to download the module
-//  4. Locate the downloaded module in .terraform directory
-//  5. Extract variable definitions from the original module
-//  6. Create variables.tf with all variables from original module
-//  7. Extract and map outputs from the original module to outputs.tf
-//  8. This creates a local reference that maintains all variable definitions
+//  3. Set TF_DATA_DIR to store Terraform state in context-specific location
+//  4. Run 'terraform init' to download the module
+//  5. Parse the init output to locate the downloaded module
+//  6. Extract variable definitions from the original module
+//  7. Create variables.tf with all variables from original module
+//  8. Generate outputs.tf to expose all outputs from the original module
+//  9. Create a local tfvars template with default values and comments
+//  10. This creates a local reference that maintains all variable definitions
 //     while allowing Windsor to manage the module configuration
 func (g *TerraformGenerator) generateModuleShim(component blueprintv1alpha1.TerraformComponent) error {
 	moduleDir := component.FullPath
@@ -135,67 +147,89 @@ func (g *TerraformGenerator) generateModuleShim(component blueprintv1alpha1.Terr
 		return fmt.Errorf("failed to set TF_DATA_DIR: %w", err)
 	}
 
-	output, err := g.shell.ExecSilent("terraform", "init", "-migrate-state", "-upgrade")
+	output, err := g.shell.ExecProgress(fmt.Sprintf("📥 Loading component %s", component.Path), "terraform", "init", "--backend=false", "-input=false", "-json")
 	if err != nil {
 		return fmt.Errorf("failed to initialize terraform: %w", err)
 	}
 
-	modulePath := ""
+	detectedPath := ""
 	lines := strings.Split(output, "\n")
 	for _, line := range lines {
-		if strings.Contains(line, "- main in") {
-			parts := strings.Split(line, "- main in ")
-			if len(parts) == 2 {
-				modulePath = strings.TrimSpace(parts[1])
+		if line == "" {
+			continue
+		}
+		var initOutput TerraformInitOutput
+		if err := json.Unmarshal([]byte(line), &initOutput); err != nil {
+			continue
+		}
+		if initOutput.Type == "log" {
+			msg := initOutput.Message
+			startIdx := strings.Index(msg, "- main in")
+			if startIdx == -1 {
+				continue
+			}
+
+			pathStart := startIdx + len("- main in")
+			if pathStart >= len(msg) {
+				continue
+			}
+
+			path := strings.TrimSpace(msg[pathStart:])
+
+			if path == "" {
+				continue
+			}
+
+			if _, err := g.shims.Stat(path); err == nil {
+				detectedPath = path
 				break
 			}
 		}
 	}
 
-	if modulePath == "" {
-		tfModulesPath := filepath.Join(moduleDir, ".tf_modules")
-		variablesPath := filepath.Join(tfModulesPath, "variables.tf")
-		if _, err := g.shims.Stat(variablesPath); err == nil {
-			modulePath = tfModulesPath
-		} else {
-			return fmt.Errorf("failed to find module path in terraform init output")
+	// Use detected path if found, otherwise fall back to standard path
+	modulePath := filepath.Join(contextPath, ".terraform", component.Path, "modules", "main", "terraform", component.Path)
+	if detectedPath != "" {
+		if detectedPath != modulePath {
+			fmt.Printf("\033[33mWarning: Using detected module path %s instead of standard path %s\033[0m\n", detectedPath, modulePath)
 		}
+		modulePath = detectedPath
 	}
 
 	variablesPath := filepath.Join(modulePath, "variables.tf")
 	variablesContent, err := g.shims.ReadFile(variablesPath)
-	if err != nil {
-		return fmt.Errorf("failed to read variables.tf: %w", err)
-	}
+	if err == nil {
+		variablesFile, diags := hclwrite.ParseConfig(variablesContent, variablesPath, hcl.Pos{Line: 1, Column: 1})
+		if diags.HasErrors() {
+			return fmt.Errorf("failed to parse variables.tf: %w", diags)
+		}
 
-	variablesFile, diags := hclwrite.ParseConfig(variablesContent, variablesPath, hcl.Pos{Line: 1, Column: 1})
-	if diags.HasErrors() {
-		return fmt.Errorf("failed to parse variables.tf: %w", diags)
-	}
+		shimMainContent := hclwrite.NewEmptyFile()
+		shimBlock := shimMainContent.Body().AppendNewBlock("module", []string{"main"})
+		shimBody := shimBlock.Body()
+		shimBody.SetAttributeValue("source", cty.StringVal(component.Source))
 
-	shimMainContent := hclwrite.NewEmptyFile()
-	shimBlock := shimMainContent.Body().AppendNewBlock("module", []string{"main"})
-	shimBody := shimBlock.Body()
-	shimBody.SetAttributeValue("source", cty.StringVal(component.Source))
-
-	for _, block := range variablesFile.Body().Blocks() {
-		if block.Type() == "variable" {
-			labels := block.Labels()
-			if len(labels) > 0 {
-				shimBody.SetAttributeTraversal(labels[0], hcl.Traversal{
-					hcl.TraverseRoot{Name: "var"},
-					hcl.TraverseAttr{Name: labels[0]},
-				})
+		for _, block := range variablesFile.Body().Blocks() {
+			if block.Type() == "variable" {
+				labels := block.Labels()
+				if len(labels) > 0 {
+					shimBody.SetAttributeTraversal(labels[0], hcl.Traversal{
+						hcl.TraverseRoot{Name: "var"},
+						hcl.TraverseAttr{Name: labels[0]},
+					})
+				}
 			}
 		}
-	}
 
-	if err := g.shims.WriteFile(filepath.Join(moduleDir, "main.tf"), shimMainContent.Bytes(), 0644); err != nil {
-		return fmt.Errorf("failed to write shim main.tf: %w", err)
-	}
+		if err := g.shims.WriteFile(filepath.Join(moduleDir, "main.tf"), shimMainContent.Bytes(), 0644); err != nil {
+			return fmt.Errorf("failed to write shim main.tf: %w", err)
+		}
 
-	if err := g.shims.WriteFile(filepath.Join(moduleDir, "variables.tf"), variablesContent, 0644); err != nil {
-		return fmt.Errorf("failed to write shim variables.tf: %w", err)
+		if err := g.shims.WriteFile(filepath.Join(moduleDir, "variables.tf"), variablesContent, 0644); err != nil {
+			return fmt.Errorf("failed to write shim variables.tf: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to read variables.tf: %w", err)
 	}
 
 	outputsPath := filepath.Join(modulePath, "outputs.tf")
