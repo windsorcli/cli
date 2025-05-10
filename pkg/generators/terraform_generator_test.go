@@ -796,7 +796,8 @@ func TestTerraformGenerator_Write(t *testing.T) {
 
 		// And ExecSilent is mocked to return output with module path
 		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
-			return "Initializing modules...\n- main in /path/to/module", nil
+			return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-05-09T16:25:03Z","message_code":"initializing_modules_message","type":"init_output"}
+{"@level":"info","@message":"- main in /path/to/module","@module":"terraform.ui","@timestamp":"2025-05-09T12:25:04.557548-04:00","type":"log"}`, nil
 		}
 
 		// And ReadFile is mocked to return content for variables.tf
@@ -916,7 +917,16 @@ func TestTerraformGenerator_generateModuleShim(t *testing.T) {
 
 		// And ExecSilent is mocked to return output with module path
 		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
-			return "Initializing modules...\n- main in /path/to/module", nil
+			return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-05-09T16:25:03Z","message_code":"initializing_modules_message","type":"init_output"}
+{"@level":"info","@message":"- main in /path/to/module","@module":"terraform.ui","@timestamp":"2025-05-09T12:25:04.557548-04:00","type":"log"}`, nil
+		}
+
+		// And Stat is mocked to return success for the module path
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			if path == "/path/to/module" {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
 		}
 
 		// And ReadFile is mocked to return content for variables.tf
@@ -1043,8 +1053,8 @@ func TestTerraformGenerator_generateModuleShim(t *testing.T) {
 			FullPath: "original/full/path",
 		}
 
-		// And ExecSilent is mocked to return an error
-		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
+		// And ExecProgress is mocked to return an error
+		mocks.Shell.ExecProgressFunc = func(msg string, cmd string, args ...string) (string, error) {
 			return "", fmt.Errorf("mock error running terraform init")
 		}
 
@@ -1107,7 +1117,16 @@ func TestTerraformGenerator_generateModuleShim(t *testing.T) {
 
 		// And ExecSilent is mocked to return output with module path
 		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
-			return "Initializing modules...\n- main in /path/to/module", nil
+			return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-05-09T16:25:03Z","message_code":"initializing_modules_message","type":"init_output"}
+{"@level":"info","@message":"- main in /path/to/module","@module":"terraform.ui","@timestamp":"2025-05-09T12:25:04.557548-04:00","type":"log"}`, nil
+		}
+
+		// And Stat is mocked to return success for the module path
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			if path == "/path/to/module" {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
 		}
 
 		// And ReadFile is mocked to return an error for variables.tf
@@ -1146,7 +1165,16 @@ func TestTerraformGenerator_generateModuleShim(t *testing.T) {
 
 		// And ExecSilent is mocked to return output with module path
 		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
-			return "Initializing modules...\n- main in /path/to/module", nil
+			return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-05-09T16:25:03Z","message_code":"initializing_modules_message","type":"init_output"}
+{"@level":"info","@message":"- main in /path/to/module","@module":"terraform.ui","@timestamp":"2025-05-09T12:25:04.557548-04:00","type":"log"}`, nil
+		}
+
+		// And Stat is mocked to return success for the module path
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			if path == "/path/to/module" {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
 		}
 
 		// And ReadFile is mocked to return content for variables.tf
@@ -1196,7 +1224,16 @@ func TestTerraformGenerator_generateModuleShim(t *testing.T) {
 
 		// And ExecSilent is mocked to return output with module path
 		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
-			return "Initializing modules...\n- main in /path/to/module", nil
+			return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-05-09T16:25:03Z","message_code":"initializing_modules_message","type":"init_output"}
+{"@level":"info","@message":"- main in /path/to/module","@module":"terraform.ui","@timestamp":"2025-05-09T12:25:04.557548-04:00","type":"log"}`, nil
+		}
+
+		// And Stat is mocked to return success for the module path
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			if path == "/path/to/module" {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
 		}
 
 		// And ReadFile is mocked to return content for variables.tf
@@ -1246,7 +1283,16 @@ func TestTerraformGenerator_generateModuleShim(t *testing.T) {
 
 		// And ExecSilent is mocked to return output with module path
 		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
-			return "Initializing modules...\n- main in /path/to/module", nil
+			return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-05-09T16:25:03Z","message_code":"initializing_modules_message","type":"init_output"}
+{"@level":"info","@message":"- main in /path/to/module","@module":"terraform.ui","@timestamp":"2025-05-09T12:25:04.557548-04:00","type":"log"}`, nil
+		}
+
+		// And Stat is mocked to return success for the module path and outputs.tf
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			if path == "/path/to/module" || strings.HasSuffix(path, "outputs.tf") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
 		}
 
 		// And ReadFile is mocked to return content for variables.tf and outputs.tf
@@ -1263,14 +1309,6 @@ func TestTerraformGenerator_generateModuleShim(t *testing.T) {
 }`), nil
 			}
 			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// And Stat is mocked to return success for outputs.tf
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			if strings.HasSuffix(path, "outputs.tf") {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
 		}
 
 		// And WriteFile is mocked to return an error for outputs.tf
@@ -1309,7 +1347,7 @@ func TestTerraformGenerator_generateModuleShim(t *testing.T) {
 
 		// And ExecSilent is mocked to return output without module path
 		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
-			return "Initializing modules...", nil
+			return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-05-09T16:25:03Z","message_code":"initializing_modules_message","type":"init_output"}`, nil
 		}
 
 		// And Stat is mocked to return success for .tf_modules/variables.tf
@@ -1357,15 +1395,64 @@ func TestTerraformGenerator_generateModuleShim(t *testing.T) {
 
 		// And ExecSilent is mocked to return output without module path
 		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
-			return "Initializing modules...", nil
+			return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-05-09T16:25:03Z","message_code":"initializing_modules_message","type":"init_output"}`, nil
 		}
 
-		// And Stat is mocked to return error for .tf_modules/variables.tf
+		// And Stat is mocked to return success for the standard path
 		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			if strings.HasSuffix(path, ".tf_modules/variables.tf") {
-				return nil, os.ErrNotExist
+			if strings.HasSuffix(path, "variables.tf") {
+				return nil, nil
 			}
 			return nil, os.ErrNotExist
+		}
+
+		// And ReadFile is mocked to return content for variables.tf
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			if strings.HasSuffix(path, "variables.tf") {
+				return []byte(`variable "test" {
+  description = "Test variable"
+  type        = string
+}`), nil
+			}
+			return nil, fmt.Errorf("unexpected file read: %s", path)
+		}
+
+		// When generateModuleShim is called
+		err := generator.generateModuleShim(component)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorInTerraformInit", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And a component with source
+		component := blueprintv1alpha1.TerraformComponent{
+			Source:   "fake-source",
+			Path:     "module/path1",
+			FullPath: filepath.Join(t.TempDir(), "module/path1"),
+		}
+
+		// Mock the WriteFile method to succeed
+		originalWriteFile := generator.shims.WriteFile
+		generator.shims.WriteFile = func(path string, data []byte, perm fs.FileMode) error {
+			return nil
+		}
+		// Restore original WriteFile after test
+		defer func() {
+			generator.shims.WriteFile = originalWriteFile
+		}()
+
+		// And ExecProgress is mocked to return an error
+		mocks.Shell.ExecProgressFunc = func(msg string, cmd string, args ...string) (string, error) {
+			if cmd == "terraform" && len(args) > 0 && args[0] == "init" {
+				return "", fmt.Errorf("terraform init failed")
+			}
+			return "", nil
 		}
 
 		// When generateModuleShim is called
@@ -1376,10 +1463,57 @@ func TestTerraformGenerator_generateModuleShim(t *testing.T) {
 			t.Fatalf("expected an error, got nil")
 		}
 
-		// And the error should match the expected error
-		expectedError := "failed to find module path in terraform init output"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %s, got %s", expectedError, err.Error())
+		// And the error should indicate terraform init failure
+		expectedError := "failed to initialize terraform"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("expected error containing %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("NoValidModulePath", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And a component with source
+		component := blueprintv1alpha1.TerraformComponent{
+			Source:   "fake-source",
+			Path:     "module/path1",
+			FullPath: filepath.Join(t.TempDir(), "module/path1"),
+		}
+
+		// Mock WriteFile to succeed
+		originalWriteFile := generator.shims.WriteFile
+		generator.shims.WriteFile = func(path string, data []byte, perm fs.FileMode) error {
+			return nil
+		}
+		defer func() {
+			generator.shims.WriteFile = originalWriteFile
+		}()
+
+		// Mock ExecProgress to return output without a valid module path
+		mocks.Shell.ExecProgressFunc = func(msg string, cmd string, args ...string) (string, error) {
+			if cmd == "terraform" && len(args) > 0 && args[0] == "init" {
+				return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-05-09T16:25:03Z"}
+{"@level":"info","@message":"No modules to initialize","@module":"terraform.ui","@timestamp":"2025-05-09T12:25:04.557548-04:00","type":"log"}`, nil
+			}
+			return "", nil
+		}
+
+		// And mock Stat to return not exist for all paths
+		originalStat := generator.shims.Stat
+		generator.shims.Stat = func(path string) (fs.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		defer func() {
+			generator.shims.Stat = originalStat
+		}()
+
+		// When generateModuleShim is called
+		err := generator.generateModuleShim(component)
+
+		// Then no error should be returned because the function handles missing files
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
 		}
 	})
 }

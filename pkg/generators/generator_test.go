@@ -83,9 +83,10 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	mockShell.GetProjectRootFunc = func() (string, error) {
 		return tmpDir, nil
 	}
-	mockShell.ExecSilentFunc = func(cmd string, args ...string) (string, error) {
+	mockShell.ExecProgressFunc = func(msg string, cmd string, args ...string) (string, error) {
 		if cmd == "terraform" && len(args) > 0 && args[0] == "init" {
-			return "Initializing modules...\n- main in /path/to/module", nil
+			return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-05-09T16:25:03Z","message_code":"initializing_modules_message","type":"init_output"}
+{"@level":"info","@message":"- main in /path/to/module","@module":"terraform.ui","@timestamp":"2025-05-09T12:25:04.557548-04:00","type":"log"}`, nil
 		}
 		return "", nil
 	}
