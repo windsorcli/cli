@@ -805,6 +805,112 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
+
+	t.Run("NoneBackend", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with "none" backend configuration
+		printer, mocks := setup(t)
+		mocks.ConfigHandler.SetContextValue("terraform.backend.type", "none")
+
+		// Mock Stat and Remove to verify file deletion
+		fileExists := true
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "backend_override.tf") {
+				if fileExists {
+					return nil, nil
+				}
+				return nil, os.ErrNotExist
+			}
+			return nil, os.ErrNotExist
+		}
+
+		var fileRemoved bool
+		mocks.Shims.Remove = func(name string) error {
+			if strings.Contains(name, "backend_override.tf") {
+				fileRemoved = true
+				fileExists = false
+				return nil
+			}
+			return nil
+		}
+
+		// When generateBackendOverrideTf is called
+		err := printer.generateBackendOverrideTf()
+
+		// Then no error should occur and the file should be removed
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !fileRemoved {
+			t.Error("Expected backend_override.tf to be removed")
+		}
+	})
+
+	t.Run("NoneBackendFileNotExists", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with "none" backend configuration and no existing file
+		printer, mocks := setup(t)
+		mocks.ConfigHandler.SetContextValue("terraform.backend.type", "none")
+
+		// Mock Stat to return file not exists
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "backend_override.tf") {
+				return nil, os.ErrNotExist
+			}
+			return nil, os.ErrNotExist
+		}
+
+		var fileRemoved bool
+		mocks.Shims.Remove = func(name string) error {
+			if strings.Contains(name, "backend_override.tf") {
+				fileRemoved = true
+				return nil
+			}
+			return nil
+		}
+
+		// When generateBackendOverrideTf is called
+		err := printer.generateBackendOverrideTf()
+
+		// Then no error should occur and Remove should not be called
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if fileRemoved {
+			t.Error("Expected Remove to not be called when file doesn't exist")
+		}
+	})
+
+	t.Run("NoneBackendRemoveError", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with "none" backend configuration and failing Remove
+		printer, mocks := setup(t)
+		mocks.ConfigHandler.SetContextValue("terraform.backend.type", "none")
+
+		// Mock Stat to return file exists
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "backend_override.tf") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock Remove to return error
+		mocks.Shims.Remove = func(name string) error {
+			if strings.Contains(name, "backend_override.tf") {
+				return fmt.Errorf("mock error removing file")
+			}
+			return nil
+		}
+
+		// When generateBackendOverrideTf is called
+		err := printer.generateBackendOverrideTf()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error removing backend_override.tf") {
+			t.Errorf("Expected error message to contain 'error removing backend_override.tf', got %v", err)
+		}
+	})
 }
 
 func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
