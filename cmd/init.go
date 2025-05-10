@@ -164,6 +164,11 @@ var initCmd = &cobra.Command{
 			cliConfigPath = yamlPath
 		}
 
+		// Set the context ID
+		if err := configHandler.GenerateContextID(); err != nil {
+			return fmt.Errorf("failed to generate context ID: %w", err)
+		}
+
 		// Save the cli configuration
 		if err := configHandler.SaveConfig(cliConfigPath); err != nil {
 			return fmt.Errorf("Error saving config file: %w", err)
