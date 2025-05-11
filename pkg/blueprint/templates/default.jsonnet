@@ -10,7 +10,8 @@ local context = std.extVar("context");
   repository: {
     url: "",
     ref: {
-      branch: "main",
+      // renovate: datasource=github-branches depName=windsorcli/core
+      tag: "v0.4.0",
     },
     secretName: "flux-system",
   },
