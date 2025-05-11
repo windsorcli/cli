@@ -191,6 +191,10 @@ func (e *TerraformEnvPrinter) generateBackendOverrideTf() error {
 		backendConfig = fmt.Sprintf(`terraform {
   backend "kubernetes" {}
 }`)
+	case "azurerm":
+		backendConfig = fmt.Sprintf(`terraform {
+  backend "azurerm" {}
+}`)
 	default:
 		return fmt.Errorf("unsupported backend: %s", backend)
 	}
@@ -253,6 +257,14 @@ func (e *TerraformEnvPrinter) generateBackendConfigArgs(projectPath, configRoot 
 		if backend := e.configHandler.GetConfig().Terraform.Backend.Kubernetes; backend != nil {
 			if err := e.processBackendConfig(backend, addBackendConfigArg); err != nil {
 				return nil, fmt.Errorf("error processing Kubernetes backend config: %w", err)
+			}
+		}
+	case "azurerm":
+		keyPath := fmt.Sprintf("%s%s", prefix, filepath.ToSlash(filepath.Join(projectPath, "terraform.tfstate")))
+		addBackendConfigArg("key", keyPath)
+		if backend := e.configHandler.GetConfig().Terraform.Backend.AzureRM; backend != nil {
+			if err := e.processBackendConfig(backend, addBackendConfigArg); err != nil {
+				return nil, fmt.Errorf("error processing AzureRM backend config: %w", err)
 			}
 		}
 	default:

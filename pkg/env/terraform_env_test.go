@@ -773,6 +773,33 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 		}
 	})
 
+	t.Run("AzureRMBackend", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with AzureRM backend configuration
+		printer, mocks := setup(t)
+		mocks.ConfigHandler.SetContextValue("terraform.backend.type", "azurerm")
+
+		var writtenData []byte
+		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
+			writtenData = data
+			return nil
+		}
+
+		// When generateBackendOverrideTf is called
+		err := printer.generateBackendOverrideTf()
+
+		// Then no error should occur and the expected backend config should be written
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		expectedContent := `terraform {
+  backend "azurerm" {}
+}`
+		if string(writtenData) != expectedContent {
+			t.Errorf("Expected backend config %q, got %q", expectedContent, string(writtenData))
+		}
+	})
+
 	t.Run("UnsupportedBackend", func(t *testing.T) {
 		// Given a TerraformEnvPrinter with unsupported backend configuration
 		printer, mocks := setup(t)
@@ -1115,6 +1142,37 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 
 		expectedArgs := []string{
 			`-backend-config="path=/mock/config/root/.tfstate/project/path/terraform.tfstate"`,
+		}
+
+		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
+			t.Errorf("expected %v, got %v", expectedArgs, backendConfigArgs)
+		}
+	})
+
+	t.Run("AzureRMBackendWithPrefix", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with AzureRM backend and prefix configuration
+		printer, mocks := setup(t)
+		mocks.ConfigHandler.SetContextValue("terraform.backend.type", "azurerm")
+		mocks.ConfigHandler.SetContextValue("terraform.backend.prefix", "mock-prefix/")
+		mocks.ConfigHandler.SetContextValue("terraform.backend.azurerm.storage_account_name", "mock-storage")
+		mocks.ConfigHandler.SetContextValue("terraform.backend.azurerm.container_name", "mock-container")
+		mocks.ConfigHandler.SetContextValue("terraform.backend.azurerm.use_azuread", true)
+		projectPath := "project/path"
+		configRoot := "/mock/config/root"
+
+		// When generateBackendConfigArgs is called
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+
+		// Then no error should occur and the expected arguments should be returned
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		expectedArgs := []string{
+			`-backend-config="key=mock-prefix/project/path/terraform.tfstate"`,
+			`-backend-config="container_name=mock-container"`,
+			`-backend-config="storage_account_name=mock-storage"`,
+			`-backend-config="use_azuread=true"`,
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
