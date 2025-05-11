@@ -103,6 +103,9 @@ func NewMockConstructors() ComponentConstructors {
 		NewAwsEnvPrinter: func(injector di.Injector) env.EnvPrinter {
 			return env.NewMockEnvPrinter()
 		},
+		NewAzureEnvPrinter: func(injector di.Injector) env.EnvPrinter {
+			return env.NewMockEnvPrinter()
+		},
 		NewDockerEnvPrinter: func(injector di.Injector) env.EnvPrinter {
 			return env.NewMockEnvPrinter()
 		},
