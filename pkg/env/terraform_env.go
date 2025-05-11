@@ -169,10 +169,16 @@ func (e *TerraformEnvPrinter) generateBackendOverrideTf() error {
 
 	backend := e.configHandler.GetString("terraform.backend.type", "local")
 
-	backendOverridePath := filepath.Join(currentPath, "backend_override.tf")
 	var backendConfig string
-
 	switch backend {
+	case "none":
+		backendOverridePath := filepath.Join(currentPath, "backend_override.tf")
+		if _, err := e.shims.Stat(backendOverridePath); err == nil {
+			if err := e.shims.Remove(backendOverridePath); err != nil {
+				return fmt.Errorf("error removing backend_override.tf: %w", err)
+			}
+		}
+		return nil
 	case "local":
 		backendConfig = fmt.Sprintf(`terraform {
   backend "local" {}
@@ -189,6 +195,7 @@ func (e *TerraformEnvPrinter) generateBackendOverrideTf() error {
 		return fmt.Errorf("unsupported backend: %s", backend)
 	}
 
+	backendOverridePath := filepath.Join(currentPath, "backend_override.tf")
 	err = e.shims.WriteFile(backendOverridePath, []byte(backendConfig), os.ModePerm)
 	if err != nil {
 		return fmt.Errorf("error writing backend_override.tf: %w", err)
