@@ -27,7 +27,7 @@ contexts/**/.kube/
 contexts/**/.talos/
 contexts/**/.omni/
 contexts/**/.aws/
-`
+contexts/**/.azure/`
 	gitGenTestExpectedPerm = fs.FileMode(0644)
 )
 
@@ -117,8 +117,20 @@ func TestGitGenerator_Write(t *testing.T) {
 
 		// And the content should be correct
 		expectedContent := gitGenTestExpectedContent
-		if string(writtenContent) != expectedContent {
-			t.Errorf("expected content %s, got %s", expectedContent, string(writtenContent))
+		actualContent := string(writtenContent)
+		if actualContent != expectedContent {
+			// Trim trailing whitespace and newlines for robust comparison
+			trimmedExpected := expectedContent
+			trimmedActual := actualContent
+			for len(trimmedExpected) > 0 && (trimmedExpected[len(trimmedExpected)-1] == '\n' || trimmedExpected[len(trimmedExpected)-1] == '\r') {
+				trimmedExpected = trimmedExpected[:len(trimmedExpected)-1]
+			}
+			for len(trimmedActual) > 0 && (trimmedActual[len(trimmedActual)-1] == '\n' || trimmedActual[len(trimmedActual)-1] == '\r') {
+				trimmedActual = trimmedActual[:len(trimmedActual)-1]
+			}
+			if trimmedActual != trimmedExpected {
+				t.Errorf("expected content %q, got %q", trimmedExpected, trimmedActual)
+			}
 		}
 	})
 

@@ -30,6 +30,7 @@ var gitIgnoreLines = []string{
 	"contexts/**/.talos/",
 	"contexts/**/.omni/",
 	"contexts/**/.aws/",
+	"contexts/**/.azure/",
 }
 
 // =============================================================================

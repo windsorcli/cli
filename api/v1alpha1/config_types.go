@@ -2,6 +2,7 @@ package v1alpha1
 
 import (
 	"github.com/windsorcli/cli/api/v1alpha1/aws"
+	"github.com/windsorcli/cli/api/v1alpha1/azure"
 	"github.com/windsorcli/cli/api/v1alpha1/cluster"
 	"github.com/windsorcli/cli/api/v1alpha1/dns"
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
@@ -27,6 +28,7 @@ type Context struct {
 	Environment map[string]string          `yaml:"environment,omitempty"`
 	Secrets     *secrets.SecretsConfig     `yaml:"secrets,omitempty"`
 	AWS         *aws.AWSConfig             `yaml:"aws,omitempty"`
+	Azure       *azure.AzureConfig         `yaml:"azure,omitempty"`
 	Docker      *docker.DockerConfig       `yaml:"docker,omitempty"`
 	Git         *git.GitConfig             `yaml:"git,omitempty"`
 	Terraform   *terraform.TerraformConfig `yaml:"terraform,omitempty"`
@@ -66,6 +68,12 @@ func (base *Context) Merge(overlay *Context) {
 			base.AWS = &aws.AWSConfig{}
 		}
 		base.AWS.Merge(overlay.AWS)
+	}
+	if overlay.Azure != nil {
+		if base.Azure == nil {
+			base.Azure = &azure.AzureConfig{}
+		}
+		base.Azure.Merge(overlay.Azure)
 	}
 	if overlay.Docker != nil {
 		if base.Docker == nil {
@@ -133,6 +141,7 @@ func (c *Context) DeepCopy() *Context {
 		Environment: environmentCopy,
 		Secrets:     c.Secrets.Copy(),
 		AWS:         c.AWS.Copy(),
+		Azure:       c.Azure.Copy(),
 		Docker:      c.Docker.Copy(),
 		Git:         c.Git.Copy(),
 		Terraform:   c.Terraform.Copy(),
