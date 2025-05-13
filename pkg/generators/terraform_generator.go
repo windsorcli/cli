@@ -107,49 +107,80 @@ func (g *TerraformGenerator) Write() error {
 // =============================================================================
 
 // generateModuleShim creates a local reference to a remote Terraform module.
-// Algorithm:
-//  1. Create module directory in the component's path (component.FullPath)
-//  2. Generate main.tf with module reference to original source
-//  3. Set TF_DATA_DIR to store Terraform state in context-specific location
-//  4. Run 'terraform init' to download the module
-//  5. Parse the init output to locate the downloaded module
-//  6. Extract variable definitions from the original module
-//  7. Create variables.tf with all variables from original module
-//  8. Generate outputs.tf to expose all outputs from the original module
-//  9. Create a local tfvars template with default values and comments
-//  10. This creates a local reference that maintains all variable definitions
-//     while allowing Windsor to manage the module configuration
+// It provides a shim layer that maintains module configuration while allowing Windsor to manage it.
+// The function orchestrates the creation of main.tf, variables.tf, and outputs.tf files.
+// It ensures proper module initialization and state management.
 func (g *TerraformGenerator) generateModuleShim(component blueprintv1alpha1.TerraformComponent) error {
 	moduleDir := component.FullPath
 	if err := g.shims.MkdirAll(moduleDir, 0755); err != nil {
 		return fmt.Errorf("failed to create module directory: %w", err)
 	}
 
-	mainContent := hclwrite.NewEmptyFile()
-	block := mainContent.Body().AppendNewBlock("module", []string{"main"})
-	body := block.Body()
-	body.SetAttributeValue("source", cty.StringVal(component.Source))
-
-	if err := g.shims.WriteFile(filepath.Join(moduleDir, "main.tf"), mainContent.Bytes(), 0644); err != nil {
-		return fmt.Errorf("failed to write main.tf: %w", err)
+	if err := g.writeShimMainTf(moduleDir, component.Source); err != nil {
+		return err
 	}
 
 	if err := g.shims.Chdir(moduleDir); err != nil {
 		return fmt.Errorf("failed to change to module directory: %w", err)
 	}
 
-	contextPath, err := g.configHandler.GetConfigRoot()
+	modulePath, err := g.initializeTerraformModule(component)
 	if err != nil {
-		return fmt.Errorf("failed to get config root: %w", err)
-	}
-	tfDataDir := filepath.Join(contextPath, ".terraform", component.Path)
-	if err := g.shims.Setenv("TF_DATA_DIR", tfDataDir); err != nil {
-		return fmt.Errorf("failed to set TF_DATA_DIR: %w", err)
+		return err
 	}
 
-	output, err := g.shell.ExecProgress(fmt.Sprintf("📥 Loading component %s", component.Path), "terraform", "init", "--backend=false", "-input=false", "-json")
+	if err := g.writeShimVariablesTf(moduleDir, modulePath, component.Source); err != nil {
+		return err
+	}
+
+	if err := g.writeShimOutputsTf(moduleDir, modulePath); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// writeShimMainTf creates the main.tf file for the shim module.
+// It provides the initial module configuration with source reference.
+// The function ensures proper HCL syntax and maintains consistent module structure.
+// It handles file writing with appropriate permissions and error handling.
+func (g *TerraformGenerator) writeShimMainTf(moduleDir, source string) error {
+	mainContent := hclwrite.NewEmptyFile()
+	block := mainContent.Body().AppendNewBlock("module", []string{"main"})
+	body := block.Body()
+	body.SetAttributeValue("source", cty.StringVal(source))
+
+	if err := g.shims.WriteFile(filepath.Join(moduleDir, "main.tf"), mainContent.Bytes(), 0644); err != nil {
+		return fmt.Errorf("failed to write main.tf: %w", err)
+	}
+	return nil
+}
+
+// initializeTerraformModule initializes the Terraform module and returns its path.
+// It provides module initialization, path resolution, and environment setup.
+// The function handles terraform init execution and module path detection.
+// It ensures proper state directory configuration and error handling.
+func (g *TerraformGenerator) initializeTerraformModule(component blueprintv1alpha1.TerraformComponent) (string, error) {
+	contextPath, err := g.configHandler.GetConfigRoot()
 	if err != nil {
-		return fmt.Errorf("failed to initialize terraform: %w", err)
+		return "", fmt.Errorf("failed to get config root: %w", err)
+	}
+
+	tfDataDir := filepath.Join(contextPath, ".terraform", component.Path)
+	if err := g.shims.Setenv("TF_DATA_DIR", tfDataDir); err != nil {
+		return "", fmt.Errorf("failed to set TF_DATA_DIR: %w", err)
+	}
+
+	output, err := g.shell.ExecProgress(
+		fmt.Sprintf("📥 Loading component %s", component.Path),
+		"terraform",
+		"init",
+		"--backend=false",
+		"-input=false",
+		"-json",
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to initialize terraform: %w", err)
 	}
 
 	detectedPath := ""
@@ -175,7 +206,6 @@ func (g *TerraformGenerator) generateModuleShim(component blueprintv1alpha1.Terr
 			}
 
 			path := strings.TrimSpace(msg[pathStart:])
-
 			if path == "" {
 				continue
 			}
@@ -187,7 +217,6 @@ func (g *TerraformGenerator) generateModuleShim(component blueprintv1alpha1.Terr
 		}
 	}
 
-	// Use detected path if found, otherwise fall back to standard path
 	modulePath := filepath.Join(contextPath, ".terraform", component.Path, "modules", "main", "terraform", component.Path)
 	if detectedPath != "" {
 		if detectedPath != modulePath {
@@ -196,6 +225,19 @@ func (g *TerraformGenerator) generateModuleShim(component blueprintv1alpha1.Terr
 		modulePath = detectedPath
 	}
 
+	return modulePath, nil
+}
+
+// writeShimVariablesTf creates the variables.tf file for the shim module.
+// It provides variable definition extraction and shim generation.
+// The function maintains variable references in main.tf and preserves descriptions.
+// It handles file reading, parsing, and writing with proper error handling.
+func (g *TerraformGenerator) writeShimVariablesTf(moduleDir, modulePath, source string) error {
+	shimMainContent := hclwrite.NewEmptyFile()
+	shimBlock := shimMainContent.Body().AppendNewBlock("module", []string{"main"})
+	shimBody := shimBlock.Body()
+	shimBody.SetAttributeRaw("source", hclwrite.TokensForValue(cty.StringVal(source)))
+
 	variablesPath := filepath.Join(modulePath, "variables.tf")
 	variablesContent, err := g.shims.ReadFile(variablesPath)
 	if err == nil {
@@ -203,11 +245,6 @@ func (g *TerraformGenerator) generateModuleShim(component blueprintv1alpha1.Terr
 		if diags.HasErrors() {
 			return fmt.Errorf("failed to parse variables.tf: %w", diags)
 		}
-
-		shimMainContent := hclwrite.NewEmptyFile()
-		shimBlock := shimMainContent.Body().AppendNewBlock("module", []string{"main"})
-		shimBody := shimBlock.Body()
-		shimBody.SetAttributeValue("source", cty.StringVal(component.Source))
 
 		for _, block := range variablesFile.Body().Blocks() {
 			if block.Type() == "variable" {
@@ -221,17 +258,27 @@ func (g *TerraformGenerator) generateModuleShim(component blueprintv1alpha1.Terr
 			}
 		}
 
-		if err := g.shims.WriteFile(filepath.Join(moduleDir, "main.tf"), shimMainContent.Bytes(), 0644); err != nil {
-			return fmt.Errorf("failed to write shim main.tf: %w", err)
-		}
-
-		if err := g.shims.WriteFile(filepath.Join(moduleDir, "variables.tf"), variablesContent, 0644); err != nil {
+		// Write variables.tf to shim dir
+		shimVariablesPath := filepath.Join(moduleDir, "variables.tf")
+		if err := g.shims.WriteFile(shimVariablesPath, variablesContent, 0644); err != nil {
 			return fmt.Errorf("failed to write shim variables.tf: %w", err)
 		}
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("failed to read variables.tf: %w", err)
 	}
 
+	if err := g.shims.WriteFile(filepath.Join(moduleDir, "main.tf"), shimMainContent.Bytes(), 0644); err != nil {
+		return fmt.Errorf("failed to write shim main.tf: %w", err)
+	}
+
+	return nil
+}
+
+// writeShimOutputsTf creates the outputs.tf file for the shim module.
+// It provides output definition extraction and shim generation.
+// The function creates references to module.main outputs while preserving descriptions.
+// It handles file reading, parsing, and writing with proper error handling.
+func (g *TerraformGenerator) writeShimOutputsTf(moduleDir, modulePath string) error {
 	outputsPath := filepath.Join(modulePath, "outputs.tf")
 	if _, err := g.shims.Stat(outputsPath); err == nil {
 		outputsContent, err := g.shims.ReadFile(outputsPath)
@@ -239,11 +286,41 @@ func (g *TerraformGenerator) generateModuleShim(component blueprintv1alpha1.Terr
 			return fmt.Errorf("failed to read outputs.tf: %w", err)
 		}
 
-		if err := g.shims.WriteFile(filepath.Join(moduleDir, "outputs.tf"), outputsContent, 0644); err != nil {
+		outputsFile, diags := hclwrite.ParseConfig(outputsContent, outputsPath, hcl.Pos{Line: 1, Column: 1})
+		if diags.HasErrors() {
+			return fmt.Errorf("failed to parse outputs.tf: %w", diags)
+		}
+
+		shimOutputsContent := hclwrite.NewEmptyFile()
+		shimBody := shimOutputsContent.Body()
+
+		for _, block := range outputsFile.Body().Blocks() {
+			if block.Type() == "output" {
+				labels := block.Labels()
+				if len(labels) > 0 {
+					outputName := labels[0]
+					shimBlock := shimBody.AppendNewBlock("output", []string{outputName})
+					shimBlockBody := shimBlock.Body()
+
+					// Copy description if present
+					if attr := block.Body().GetAttribute("description"); attr != nil {
+						shimBlockBody.SetAttributeRaw("description", attr.Expr().BuildTokens(nil))
+					}
+
+					// Set value to reference module.main output
+					shimBlockBody.SetAttributeTraversal("value", hcl.Traversal{
+						hcl.TraverseRoot{Name: "module"},
+						hcl.TraverseAttr{Name: "main"},
+						hcl.TraverseAttr{Name: outputName},
+					})
+				}
+			}
+		}
+
+		if err := g.shims.WriteFile(filepath.Join(moduleDir, "outputs.tf"), shimOutputsContent.Bytes(), 0644); err != nil {
 			return fmt.Errorf("failed to write shim outputs.tf: %w", err)
 		}
 	}
-
 	return nil
 }
 
