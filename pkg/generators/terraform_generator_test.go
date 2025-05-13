@@ -2194,3 +2194,210 @@ func verifyMapContents(t *testing.T, m map[string]any, output string) {
 		}
 	}
 }
+
+func TestTerraformGenerator_writeShimOutputsTf(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
+		mocks := setupMocks(t)
+		generator := NewTerraformGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
+		if err := generator.Initialize(); err != nil {
+			t.Fatalf("failed to initialize TerraformGenerator: %v", err)
+		}
+		return generator, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And Stat is mocked to return success for outputs.tf
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			if strings.HasSuffix(path, "outputs.tf") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// And ReadFile is mocked to return content for outputs.tf
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			if strings.HasSuffix(path, "outputs.tf") {
+				return []byte(`output "test" {
+  description = "Test output"
+  value       = "test"
+}`), nil
+			}
+			return nil, fmt.Errorf("unexpected file read: %s", path)
+		}
+
+		// When writeShimOutputsTf is called
+		err := generator.writeShimOutputsTf("test_dir", "test_path")
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("OutputsFileDoesNotExist", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And Stat is mocked to return not exist for outputs.tf
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		// When writeShimOutputsTf is called
+		err := generator.writeShimOutputsTf("test_dir", "test_path")
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorReadingOutputs", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And Stat is mocked to return success for outputs.tf
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			if strings.HasSuffix(path, "outputs.tf") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// And ReadFile is mocked to return an error for outputs.tf
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			if strings.HasSuffix(path, "outputs.tf") {
+				return nil, fmt.Errorf("mock error reading outputs.tf")
+			}
+			return nil, fmt.Errorf("unexpected file read: %s", path)
+		}
+
+		// When writeShimOutputsTf is called
+		err := generator.writeShimOutputsTf("test_dir", "test_path")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should match the expected error
+		expectedError := "failed to read outputs.tf: mock error reading outputs.tf"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %s, got %s", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorParsingOutputs", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And Stat is mocked to return success for outputs.tf
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			if strings.HasSuffix(path, "outputs.tf") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// And ReadFile is mocked to return invalid HCL for outputs.tf
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			if strings.HasSuffix(path, "outputs.tf") {
+				return []byte(`invalid hcl`), nil
+			}
+			return nil, fmt.Errorf("unexpected file read: %s", path)
+		}
+
+		// When writeShimOutputsTf is called
+		err := generator.writeShimOutputsTf("test_dir", "test_path")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should indicate parsing failure
+		expectedError := "failed to parse outputs.tf"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("expected error containing %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorWritingOutputs", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And Stat is mocked to return success for outputs.tf
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			if strings.HasSuffix(path, "outputs.tf") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// And ReadFile is mocked to return content for outputs.tf
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			if strings.HasSuffix(path, "outputs.tf") {
+				return []byte(`output "test" {
+  description = "Test output"
+  value       = "test"
+}`), nil
+			}
+			return nil, fmt.Errorf("unexpected file read: %s", path)
+		}
+
+		// And WriteFile is mocked to return an error for outputs.tf
+		mocks.Shims.WriteFile = func(path string, _ []byte, _ fs.FileMode) error {
+			if strings.HasSuffix(path, "outputs.tf") {
+				return fmt.Errorf("mock error writing outputs.tf")
+			}
+			return nil
+		}
+
+		// When writeShimOutputsTf is called
+		err := generator.writeShimOutputsTf("test_dir", "test_path")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should match the expected error
+		expectedError := "failed to write shim outputs.tf: mock error writing outputs.tf"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %s, got %s", expectedError, err.Error())
+		}
+	})
+
+	t.Run("NoValidOutputBlocks", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And Stat is mocked to return success for outputs.tf
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			if strings.HasSuffix(path, "outputs.tf") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// And ReadFile is mocked to return content with no valid output blocks
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			if strings.HasSuffix(path, "outputs.tf") {
+				return []byte(`# No output blocks here`), nil
+			}
+			return nil, fmt.Errorf("unexpected file read: %s", path)
+		}
+
+		// When writeShimOutputsTf is called
+		err := generator.writeShimOutputsTf("test_dir", "test_path")
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+}
