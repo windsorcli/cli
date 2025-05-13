@@ -1,0 +1,98 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CodeBuild Project 
+
+Parameters:
+  Repository:
+    Type: String
+    Default: https://github.com/tvangundy/bootstrapper.git
+  BuildSpec:
+    Type: String
+    Default: cloudformation/buildspec.yml
+  BucketName:
+    Type: String
+    Default: bootstrapper-bucket
+    Description: The name of the S3 bucket to use
+  ProjectName:
+    Type: String
+    Default: WindsorBootstrapper
+    Description: The name of the CloudFormation stack to create
+  SourceVersion:
+    Type: String
+    Default: main
+    Description: The version of the source code to use
+Resources:
+  GitHubCodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub "${ProjectName}"
+      Description: Build project for compiling and testing code
+      Source:
+        Type: GITHUB
+        Location: !Ref Repository
+        BuildSpec: !Ref BuildSpec
+        Auth:
+          Type: OAUTH
+          Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:GitHubAccess-JKiZjD"
+      SourceVersion: !Ref SourceVersion
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:5.0
+        EnvironmentVariables:
+          - Name: ENV
+            Value: production
+            Type: PLAINTEXT
+          - Name: GITHUB_TOKEN
+            Value: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:GitHubAccess-JKiZjD"
+            Type: SECRETS_MANAGER
+          - Name: BUCKET_NAME
+            Value: !Ref BucketName
+            Type: PLAINTEXT
+      Artifacts:
+        Type: NO_ARTIFACTS
+      ServiceRole: !GetAtt GitHubCodeBuildServiceRole.Arn
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName: !Sub "/aws/codebuild/${ProjectName}"
+
+  GitHubCodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCodeBuildDeveloperAccess
+      Policies:
+        - PolicyName: CodeBuildLogsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${ProjectName}:*"
+        - PolicyName: SecretsManagerAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:GitHubAccess-JKiZjD"
+        - PolicyName: S3AccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:*
+                Resource:
+                  - "*"

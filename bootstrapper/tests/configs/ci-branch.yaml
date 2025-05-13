@@ -1,0 +1,51 @@
+runners:
+  - os: macOS
+    label: bare-metal
+    arch: ARM64
+    docker_host: unix:///var/run/docker.sock
+  - os: Linux
+    label: bare-metal
+    arch: X64
+    docker_host: unix:///var/run/docker.sock
+  - os: Windows
+    label: bare-metal
+    arch: X64
+    docker_host: tcp://127.0.0.1:2375
+  
+tests-list:
+
+  # shell tests for bash and zsh on Linux and macOS
+  - path: tests/shell/sample-test.sh
+    type: shell
+    os: [linux, darwin]
+    shell: bash
+  - path: tests/shell/sample-test.sh
+    type: shell
+    os: [linux, darwin]
+    shell: zsh
+
+  # bats tests for all shells on Linux and macOS
+  - path: tests/bats
+    type: bats
+    os: [linux, darwin]
+    shell: bash
+
+  - path: tests/bats
+    type: bats
+    os: [linux, darwin]
+    shell: zsh
+
+  - path: tests/bats
+    type: bats
+    os: [linux, darwin]
+    shell: fish
+
+  - path: tests/bats
+    type: bats
+    os: [linux, darwin]
+    shell: tcsh
+
+  - path: tests/bats
+    type: bats
+    os: [linux, darwin]
+    shell: elvish
