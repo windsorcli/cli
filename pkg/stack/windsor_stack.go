@@ -87,7 +87,7 @@ func (s *WindsorStack) Up() error {
 		}
 
 		// Execute 'terraform init' in the dirPath
-		_, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Initializing Terraform in %s", component.Path), "terraform", "init", "-migrate-state", "-upgrade")
+		_, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Initializing Terraform in %s", component.Path), "terraform", "init", "-migrate-state", "-upgrade", "-force-copy")
 		if err != nil {
 			return fmt.Errorf("error initializing Terraform in %s: %w", component.FullPath, err)
 		}
