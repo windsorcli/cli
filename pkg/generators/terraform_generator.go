@@ -229,9 +229,11 @@ func (g *TerraformGenerator) initializeTerraformModule(component blueprintv1alph
 }
 
 // writeShimVariablesTf creates the variables.tf file for the shim module.
-// It provides variable definition extraction and shim generation.
-// The function maintains variable references in main.tf and preserves descriptions.
-// It handles file reading, parsing, and writing with proper error handling.
+// It extracts variable definitions from the source module's variables.tf file and generates
+// a shim module that references these variables. The function reads the source variables.tf,
+// creates a main.tf file with the module source reference, and generates a variables.tf file
+// that preserves all variable attributes (description, type, default, sensitive) from the
+// original module. This creates a transparent wrapper around the source module.
 func (g *TerraformGenerator) writeShimVariablesTf(moduleDir, modulePath, source string) error {
 	shimMainContent := hclwrite.NewEmptyFile()
 	shimBlock := shimMainContent.Body().AppendNewBlock("module", []string{"main"})
@@ -240,31 +242,53 @@ func (g *TerraformGenerator) writeShimVariablesTf(moduleDir, modulePath, source 
 
 	variablesPath := filepath.Join(modulePath, "variables.tf")
 	variablesContent, err := g.shims.ReadFile(variablesPath)
-	if err == nil {
-		variablesFile, diags := hclwrite.ParseConfig(variablesContent, variablesPath, hcl.Pos{Line: 1, Column: 1})
-		if diags.HasErrors() {
-			return fmt.Errorf("failed to parse variables.tf: %w", diags)
-		}
+	if err != nil {
+		return fmt.Errorf("failed to read variables.tf: %w", err)
+	}
 
-		for _, block := range variablesFile.Body().Blocks() {
-			if block.Type() == "variable" {
-				labels := block.Labels()
-				if len(labels) > 0 {
-					shimBody.SetAttributeTraversal(labels[0], hcl.Traversal{
-						hcl.TraverseRoot{Name: "var"},
-						hcl.TraverseAttr{Name: labels[0]},
-					})
+	variablesFile, diags := hclwrite.ParseConfig(variablesContent, variablesPath, hcl.Pos{Line: 1, Column: 1})
+	if diags.HasErrors() {
+		return fmt.Errorf("failed to parse variables.tf: %w", diags)
+	}
+
+	shimVariablesContent := hclwrite.NewEmptyFile()
+	shimVariablesBody := shimVariablesContent.Body()
+
+	for _, block := range variablesFile.Body().Blocks() {
+		if block.Type() == "variable" {
+			labels := block.Labels()
+			if len(labels) > 0 {
+				variableName := labels[0]
+
+				shimBody.SetAttributeTraversal(variableName, hcl.Traversal{
+					hcl.TraverseRoot{Name: "var"},
+					hcl.TraverseAttr{Name: variableName},
+				})
+
+				shimBlock := shimVariablesBody.AppendNewBlock("variable", []string{variableName})
+				shimBlockBody := shimBlock.Body()
+
+				if attr := block.Body().GetAttribute("description"); attr != nil {
+					shimBlockBody.SetAttributeRaw("description", attr.Expr().BuildTokens(nil))
+				}
+
+				if attr := block.Body().GetAttribute("type"); attr != nil {
+					shimBlockBody.SetAttributeRaw("type", attr.Expr().BuildTokens(nil))
+				}
+
+				if attr := block.Body().GetAttribute("default"); attr != nil {
+					shimBlockBody.SetAttributeRaw("default", attr.Expr().BuildTokens(nil))
+				}
+
+				if attr := block.Body().GetAttribute("sensitive"); attr != nil {
+					shimBlockBody.SetAttributeRaw("sensitive", attr.Expr().BuildTokens(nil))
 				}
 			}
 		}
+	}
 
-		// Write variables.tf to shim dir
-		shimVariablesPath := filepath.Join(moduleDir, "variables.tf")
-		if err := g.shims.WriteFile(shimVariablesPath, variablesContent, 0644); err != nil {
-			return fmt.Errorf("failed to write shim variables.tf: %w", err)
-		}
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("failed to read variables.tf: %w", err)
+	if err := g.shims.WriteFile(filepath.Join(moduleDir, "variables.tf"), shimVariablesContent.Bytes(), 0644); err != nil {
+		return fmt.Errorf("failed to write shim variables.tf: %w", err)
 	}
 
 	if err := g.shims.WriteFile(filepath.Join(moduleDir, "main.tf"), shimMainContent.Bytes(), 0644); err != nil {
@@ -507,6 +531,21 @@ func (g *TerraformGenerator) parseVariablesFile(variablesTfPath string, protecte
 // Helper Functions
 // =============================================================================
 
+// addTfvarsHeader adds a header comment to the tfvars file indicating Windsor CLI management.
+// It includes the module source if provided.
+func addTfvarsHeader(body *hclwrite.Body, source string) {
+	windsorHeaderToken := "Managed by Windsor CLI:"
+	headerComment := fmt.Sprintf("# %s This file is partially managed by the windsor CLI. Your changes will not be overwritten.", windsorHeaderToken)
+	body.AppendUnstructuredTokens(hclwrite.Tokens{
+		{Type: hclsyntax.TokenComment, Bytes: []byte(headerComment + "\n")},
+	})
+	if source != "" {
+		body.AppendUnstructuredTokens(hclwrite.Tokens{
+			{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("# Module source: %s\n", source))},
+		})
+	}
+}
+
 // writeComponentValues writes component-provided values to the tfvars file.
 // It processes all variables in the order they appear in variables.tf.
 func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedValues map[string]bool, variables []VariableInfo) {
@@ -520,7 +559,7 @@ func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedV
 		// Write description if available
 		if info.Description != "" {
 			body.AppendUnstructuredTokens(hclwrite.Tokens{
-				{Type: hclsyntax.TokenComment, Bytes: []byte("// " + info.Description)},
+				{Type: hclsyntax.TokenComment, Bytes: []byte("# " + info.Description)},
 			})
 			body.AppendNewline()
 		}
@@ -534,7 +573,7 @@ func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedV
 		// For sensitive values, write them as commented sensitive
 		if info.Sensitive {
 			body.AppendUnstructuredTokens(hclwrite.Tokens{
-				{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("// %s = \"(sensitive)\"", info.Name))},
+				{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("# %s = \"(sensitive)\"", info.Name))},
 			})
 			body.AppendNewline()
 			continue
@@ -548,13 +587,13 @@ func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedV
 				if defaultVal.Type().IsObjectType() || defaultVal.Type().IsMapType() {
 					// For objects/maps, format with proper indentation and comment each line
 					var mapStr strings.Builder
-					mapStr.WriteString(fmt.Sprintf("// %s = {\n", info.Name))
+					mapStr.WriteString(fmt.Sprintf("# %s = {\n", info.Name))
 					it := defaultVal.ElementIterator()
 					for it.Next() {
 						k, v := it.Element()
-						mapStr.WriteString(fmt.Sprintf("//   %s = %s\n", k.AsString(), formatValue(convertFromCtyValue(v))))
+						mapStr.WriteString(fmt.Sprintf("#   %s = %s\n", k.AsString(), formatValue(convertFromCtyValue(v))))
 					}
-					mapStr.WriteString("// }")
+					mapStr.WriteString("# }")
 					body.AppendUnstructuredTokens(hclwrite.Tokens{
 						{Type: hclsyntax.TokenComment, Bytes: []byte(mapStr.String())},
 					})
@@ -566,7 +605,7 @@ func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedV
 			}
 		}
 		body.AppendUnstructuredTokens(hclwrite.Tokens{
-			{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("// %s = %s", info.Name, defaultStr))},
+			{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("# %s = %s", info.Name, defaultStr))},
 		})
 		body.AppendNewline()
 	}
@@ -605,7 +644,7 @@ func writeVariable(body *hclwrite.Body, name string, value any, variables []Vari
 	// Write description if available
 	if info != nil && info.Description != "" {
 		body.AppendUnstructuredTokens(hclwrite.Tokens{
-			{Type: hclsyntax.TokenComment, Bytes: []byte("// " + info.Description)},
+			{Type: hclsyntax.TokenComment, Bytes: []byte("# " + info.Description)},
 		})
 		body.AppendNewline()
 	}
@@ -613,7 +652,7 @@ func writeVariable(body *hclwrite.Body, name string, value any, variables []Vari
 	// Handle sensitive variables
 	if info != nil && info.Sensitive {
 		body.AppendUnstructuredTokens(hclwrite.Tokens{
-			{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("// %s = \"(sensitive)\"", name))},
+			{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("# %s = \"(sensitive)\"", name))},
 		})
 		body.AppendNewline()
 		return
@@ -661,21 +700,6 @@ func formatValue(value any) string {
 		return fmt.Sprintf("{\n    %s\n  }", strings.Join(pairs, "\n    "))
 	default:
 		return fmt.Sprintf("%v", v)
-	}
-}
-
-// addTfvarsHeader adds a header comment to the tfvars file indicating Windsor CLI management.
-// It includes the module source if provided.
-func addTfvarsHeader(body *hclwrite.Body, source string) {
-	windsorHeaderToken := "Managed by Windsor CLI:"
-	headerComment := fmt.Sprintf("// %s This file is partially managed by the windsor CLI. Your changes will not be overwritten.", windsorHeaderToken)
-	body.AppendUnstructuredTokens(hclwrite.Tokens{
-		{Type: hclsyntax.TokenComment, Bytes: []byte(headerComment + "\n")},
-	})
-	if source != "" {
-		body.AppendUnstructuredTokens(hclwrite.Tokens{
-			{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("// Module source: %s\n", source))},
-		})
 	}
 }
 
