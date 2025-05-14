@@ -175,11 +175,11 @@ func TestWriteVariableSensitive(t *testing.T) {
 	}
 
 	// When writeVariable is called
-	writeVariable(body, "test_var", "secret", variables)
+	writeVariable(body, "test_var", "value", variables)
 
 	// Then the variable should be commented out with (sensitive)
-	expected := `// Test variable
-// test_var = "(sensitive)"
+	expected := `# Test variable
+# test_var = "(sensitive)"
 `
 	if string(file.Bytes()) != expected {
 		t.Errorf("expected %q, got %q", expected, string(file.Bytes()))
@@ -202,7 +202,7 @@ func TestWriteVariableNonSensitive(t *testing.T) {
 	writeVariable(body, "test_var", "value", variables)
 
 	// Then the variable should be written with its value
-	expected := `// Test variable
+	expected := `# Test variable
 test_var = "value"
 `
 	if string(file.Bytes()) != expected {
@@ -225,7 +225,7 @@ func TestWriteVariableWithComment(t *testing.T) {
 	writeVariable(body, "test_var", "value", variables)
 
 	// Then the variable should be written with its comment
-	expected := `// Test variable description
+	expected := `# Test variable description
 test_var = "value"
 `
 	if string(file.Bytes()) != expected {
@@ -266,14 +266,14 @@ func TestWriteComponentValues(t *testing.T) {
 
 	// Then the variables should be written in order with proper handling of sensitive values
 	expected := `
-// Variable 1
-// var1 = "(sensitive)"
+# Variable 1
+# var1 = "(sensitive)"
 
-// Variable 2
+# Variable 2
 var2 = "pinned_value"
 
-// Variable 3
-// var3 = "default3"
+# Variable 3
+# var3 = "default3"
 `
 	if string(file.Bytes()) != expected {
 		t.Errorf("expected %q, got %q", expected, string(file.Bytes()))
@@ -309,14 +309,14 @@ func TestWriteDefaultValues(t *testing.T) {
 
 	// Then the variables should be written in order with proper handling of sensitive values
 	expected := `
-// Variable 1
-// var1 = "(sensitive)"
+# Variable 1
+# var1 = "(sensitive)"
 
-// Variable 2
-// var2 = "default2"
+# Variable 2
+# var2 = "default2"
 
-// Variable 3
-// var3 = "default3"
+# Variable 3
+# var3 = "default3"
 `
 	if string(file.Bytes()) != expected {
 		t.Errorf("expected %q, got %q", expected, string(file.Bytes()))
@@ -395,7 +395,7 @@ func TestWriteVariableYAML(t *testing.T) {
 	}
 
 	// Verify the comment and heredoc syntax
-	if !strings.Contains(actual, "// Worker configuration patches") {
+	if !strings.Contains(actual, "# Worker configuration patches") {
 		t.Error("missing description comment")
 	}
 	if !strings.Contains(actual, "worker_config_patches = <<EOF") {
@@ -2016,8 +2016,8 @@ func TestTerraformGenerator_addTfvarsHeader(t *testing.T) {
 		addTfvarsHeader(body, source)
 
 		// Then the header should be written with source
-		expected := `// Managed by Windsor CLI: This file is partially managed by the windsor CLI. Your changes will not be overwritten.
-// Module source: fake-source
+		expected := `# Managed by Windsor CLI: This file is partially managed by the windsor CLI. Your changes will not be overwritten.
+# Module source: fake-source
 `
 		if string(file.Bytes()) != expected {
 			t.Errorf("expected %q, got %q", expected, string(file.Bytes()))
@@ -2033,7 +2033,7 @@ func TestTerraformGenerator_addTfvarsHeader(t *testing.T) {
 		addTfvarsHeader(body, "")
 
 		// Then the header should be written without source
-		expected := `// Managed by Windsor CLI: This file is partially managed by the windsor CLI. Your changes will not be overwritten.
+		expected := `# Managed by Windsor CLI: This file is partially managed by the windsor CLI. Your changes will not be overwritten.
 `
 		if string(file.Bytes()) != expected {
 			t.Errorf("expected %q, got %q", expected, string(file.Bytes()))
@@ -2127,12 +2127,12 @@ func TestWriteComponentValuesWithObjectDefault(t *testing.T) {
 			output := string(file.Bytes())
 
 			// Verify description comment
-			if !strings.Contains(output, "// "+tt.variable.Description) {
+			if !strings.Contains(output, "# "+tt.variable.Description) {
 				t.Errorf("missing description comment: %s", tt.variable.Description)
 			}
 
 			// Verify variable name
-			if !strings.Contains(output, "// "+tt.variable.Name+" = {") {
+			if !strings.Contains(output, "# "+tt.variable.Name+" = {") {
 				t.Errorf("missing variable name: %s", tt.variable.Name)
 			}
 
