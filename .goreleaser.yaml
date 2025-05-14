@@ -65,6 +65,10 @@ signs:
 
 brews:
   - name: windsor
+    ids:
+      - windsor
+    directory: Formula
+    skip_upload: auto
     repository:
       owner: windsorcli
       name: homebrew-cli
@@ -76,18 +80,6 @@ brews:
     homepage: "https://windsorcli.github.io"
     description: "The Windsor Command Line Interface"
     license: "MPL-2.0"
-    skip_upload: auto
-    download_strategy: GithubPrivateRepositoryReleaseDownloadStrategy
-    custom_require: "lib/custom_download_strategy"
-    install: |
-      bin.install "windsor"
-      # Install shell completions
-      output = Utils.safe_popen_read("#{bin}/windsor", "completion", "bash")
-      (bash_completion/"windsor").write output
-      output = Utils.safe_popen_read("#{bin}/windsor", "completion", "zsh")
-      (zsh_completion/"_windsor").write output
-      output = Utils.safe_popen_read("#{bin}/windsor", "completion", "fish")
-      (fish_completion/"windsor.fish").write output
 
 chocolateys:
   - name: windsor
