@@ -77,3 +77,36 @@ func TestMockStack_Up(t *testing.T) {
 		}
 	})
 }
+
+func TestMockStack_Down(t *testing.T) {
+	mockDownErr := fmt.Errorf("mock down error")
+
+	t.Run("WithFuncSet", func(t *testing.T) {
+		// Given a new MockStack with a custom DownFunc that returns an error
+		mock := NewMockStack(nil)
+		mock.DownFunc = func() error {
+			return mockDownErr
+		}
+
+		// When Down is called
+		err := mock.Down()
+
+		// Then the custom error should be returned
+		if err != mockDownErr {
+			t.Errorf("Expected error = %v, got = %v", mockDownErr, err)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a new MockStack without a custom DownFunc
+		mock := NewMockStack(nil)
+
+		// When Down is called
+		err := mock.Down()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+	})
+}
