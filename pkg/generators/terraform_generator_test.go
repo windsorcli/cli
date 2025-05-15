@@ -446,12 +446,12 @@ last line`,
 				},
 			},
 			expected: `{
-  string = "value"
-  number = 42
   bool = true
   nested = {
     key = "value"
   }
+  number = 42
+  string = "value"
 }`,
 			checkMap: true,
 		},
@@ -462,70 +462,38 @@ last line`,
 			file := hclwrite.NewEmptyFile()
 			writeVariable(file.Body(), "test_var", tt.value, nil)
 
-			// Extract the heredoc content
 			content := string(file.Bytes())
-			lines := strings.Split(content, "\n")
-			var actualLines []string
-			inHeredoc := false
-			for _, line := range lines {
-				if strings.Contains(line, "<<EOF") {
-					inHeredoc = true
-					continue
-				}
-				if strings.Contains(line, "EOF") {
-					break
-				}
-				if inHeredoc {
-					actualLines = append(actualLines, line)
-				}
-			}
-			actual := strings.Join(actualLines, "\n")
 
 			if tt.checkMap {
-				// For maps, verify each key-value pair exists regardless of order
-				expectedLines := strings.Split(tt.expected, "\n")
-				actualLines := strings.Split(actual, "\n")
-
-				// Skip first and last lines (curly braces)
-				expectedLines = expectedLines[1 : len(expectedLines)-1]
-				actualLines = actualLines[1 : len(actualLines)-1]
-
-				// Create maps of key-value pairs
-				expectedPairs := make(map[string]string)
-				actualPairs := make(map[string]string)
-
-				for _, line := range expectedLines {
-					line = strings.TrimSpace(line)
-					if line == "" {
-						continue
-					}
-					parts := strings.SplitN(line, "=", 2)
-					if len(parts) == 2 {
-						key := strings.TrimSpace(parts[0])
-						value := strings.TrimSpace(parts[1])
-						expectedPairs[key] = value
-					}
+				// For maps, extract the assignment (not heredoc)
+				assignmentPrefix := "test_var = "
+				idx := strings.Index(content, assignmentPrefix)
+				if idx == -1 {
+					t.Fatalf("assignment not found in output: %q", content)
 				}
-
-				for _, line := range actualLines {
-					line = strings.TrimSpace(line)
-					if line == "" {
-						continue
-					}
-					parts := strings.SplitN(line, "=", 2)
-					if len(parts) == 2 {
-						key := strings.TrimSpace(parts[0])
-						value := strings.TrimSpace(parts[1])
-						actualPairs[key] = value
-					}
-				}
-
-				// Compare the maps
-				if !reflect.DeepEqual(expectedPairs, actualPairs) {
+				actual := strings.TrimSpace(content[idx+len(assignmentPrefix):])
+				// Compare the formatted object string
+				if actual != tt.expected {
 					t.Errorf("map content does not match.\nExpected:\n%s\nGot:\n%s", tt.expected, actual)
 				}
 			} else {
-				// For non-map values, compare exact strings
+				// For heredoc, extract the heredoc content
+				lines := strings.Split(content, "\n")
+				var actualLines []string
+				inHeredoc := false
+				for _, line := range lines {
+					if strings.Contains(line, "<<EOF") {
+						inHeredoc = true
+						continue
+					}
+					if strings.Contains(line, "EOF") {
+						break
+					}
+					if inHeredoc {
+						actualLines = append(actualLines, line)
+					}
+				}
+				actual := strings.Join(actualLines, "\n")
 				if actual != tt.expected {
 					t.Errorf("content does not match.\nExpected:\n%s\nGot:\n%s", tt.expected, actual)
 				}
