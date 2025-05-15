@@ -227,6 +227,7 @@ local terraformConfig = if platform == "local" || platform == "metal" then [
   {
     path: "gitops/flux",
     source: "core",
+    destroy: false,
     values: if platform == "local" then {
       git_username: "local",
       git_password: "local",
