@@ -342,6 +342,18 @@ func TestWindsorStack_Down(t *testing.T) {
 		if err := stack.Initialize(); err != nil {
 			t.Fatalf("Expected no error during initialization, got %v", err)
 		}
+
+		// Set up default components for the blueprint handler
+		mocks.Blueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Source:   "source1",
+					Path:     "module/path1",
+					FullPath: filepath.Join(os.Getenv("WINDSOR_PROJECT_ROOT"), ".windsor", ".tf_modules", "remote", "path"),
+				},
+			}
+		}
+
 		return stack, mocks
 	}
 

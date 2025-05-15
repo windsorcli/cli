@@ -164,7 +164,7 @@ func (s *WindsorStack) Down() error {
 			return fmt.Errorf("error planning Terraform destruction in %s: %w", component.FullPath, err)
 		}
 
-		_, err = s.shell.ExecProgress(fmt.Sprintf("🗑️ Destroying Terraform resources in %s", component.Path), "terraform", "apply")
+		_, err = s.shell.ExecProgress(fmt.Sprintf("🗑️ Destroying Terraform resources in %s", component.Path), "terraform", "destroy", "-auto-approve")
 		if err != nil {
 			return fmt.Errorf("error destroying Terraform resources in %s: %w", component.FullPath, err)
 		}
