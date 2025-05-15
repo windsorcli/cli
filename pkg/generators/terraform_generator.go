@@ -531,8 +531,8 @@ func (g *TerraformGenerator) parseVariablesFile(variablesTfPath string, protecte
 // Helper Functions
 // =============================================================================
 
-// addTfvarsHeader adds a header comment to the tfvars file indicating Windsor CLI management.
-// It includes the module source if provided.
+// addTfvarsHeader adds a Windsor CLI management header to the tfvars file body.
+// It includes a module source comment if provided, ensuring users are aware of CLI management and module provenance.
 func addTfvarsHeader(body *hclwrite.Body, source string) {
 	windsorHeaderToken := "Managed by Windsor CLI:"
 	headerComment := fmt.Sprintf("# %s This file is partially managed by the windsor CLI. Your changes will not be overwritten.", windsorHeaderToken)
@@ -546,8 +546,9 @@ func addTfvarsHeader(body *hclwrite.Body, source string) {
 	}
 }
 
-// writeComponentValues writes component-provided values to the tfvars file.
-// It processes all variables in the order they appear in variables.tf.
+// writeComponentValues writes all component-provided or default variable values to the tfvars file body.
+// It comments out default values and descriptions for unset variables, and writes explicit values for set variables.
+// Handles sensitive variables and preserves variable order from variables.tf.
 func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedValues map[string]bool, variables []VariableInfo) {
 	for _, info := range variables {
 		if protectedValues[info.Name] {
@@ -556,7 +557,6 @@ func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedV
 
 		body.AppendNewline()
 
-		// Write description if available
 		if info.Description != "" {
 			body.AppendUnstructuredTokens(hclwrite.Tokens{
 				{Type: hclsyntax.TokenComment, Bytes: []byte("# " + info.Description)},
@@ -564,13 +564,11 @@ func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedV
 			body.AppendNewline()
 		}
 
-		// If value is provided in component values, use it
 		if val, exists := values[info.Name]; exists {
-			writeVariable(body, info.Name, val, []VariableInfo{}) // Pass empty variables to avoid duplicate description
+			writeVariable(body, info.Name, val, []VariableInfo{})
 			continue
 		}
 
-		// For sensitive values, write them as commented sensitive
 		if info.Sensitive {
 			body.AppendUnstructuredTokens(hclwrite.Tokens{
 				{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("# %s = \"(sensitive)\"", info.Name))},
@@ -579,45 +577,42 @@ func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedV
 			continue
 		}
 
-		// Comment out the default value or null
-		defaultStr := "null"
 		if info.Default != nil {
 			defaultVal := convertToCtyValue(info.Default)
 			if !defaultVal.IsNull() {
+				var rendered string
 				if defaultVal.Type().IsObjectType() || defaultVal.Type().IsMapType() {
-					// For objects/maps, format with proper indentation and comment each line
 					var mapStr strings.Builder
-					mapStr.WriteString(fmt.Sprintf("# %s = {\n", info.Name))
-					it := defaultVal.ElementIterator()
-					for it.Next() {
-						k, v := it.Element()
-						mapStr.WriteString(fmt.Sprintf("#   %s = %s\n", k.AsString(), formatValue(convertFromCtyValue(v))))
-					}
-					mapStr.WriteString("# }")
+					mapStr.WriteString(fmt.Sprintf("%s = %s", info.Name, formatValue(convertFromCtyValue(defaultVal))))
+					rendered = mapStr.String()
+				} else {
+					rendered = fmt.Sprintf("%s = %s", info.Name, string(hclwrite.TokensForValue(defaultVal).Bytes()))
+				}
+				for _, line := range strings.Split(rendered, "\n") {
 					body.AppendUnstructuredTokens(hclwrite.Tokens{
-						{Type: hclsyntax.TokenComment, Bytes: []byte(mapStr.String())},
+						{Type: hclsyntax.TokenComment, Bytes: []byte("# " + line)},
 					})
 					body.AppendNewline()
-					continue
-				} else {
-					defaultStr = string(hclwrite.TokensForValue(defaultVal).Bytes())
 				}
+				continue
 			}
 		}
+		// If no default, just comment null
 		body.AppendUnstructuredTokens(hclwrite.Tokens{
-			{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("# %s = %s", info.Name, defaultStr))},
+			{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("# %s = null", info.Name))},
 		})
 		body.AppendNewline()
 	}
 }
 
-// writeDefaultValues writes default values from variables.tf to the tfvars file.
-// This is now just an alias for writeComponentValues with empty values
+// writeDefaultValues writes only the default values from variables.tf to the tfvars file body.
+// This is an alias for writeComponentValues with no explicit values, ensuring all defaults are commented.
 func writeDefaultValues(body *hclwrite.Body, variables []VariableInfo, componentValues map[string]any) {
 	writeComponentValues(body, componentValues, map[string]bool{}, variables)
 }
 
-// writeHeredoc writes a variable value as a heredoc.
+// writeHeredoc writes a multi-line string value as a heredoc assignment in the tfvars file body.
+// Used for YAML or other multi-line string values to preserve formatting.
 func writeHeredoc(body *hclwrite.Body, name string, content string) {
 	tokens := hclwrite.Tokens{
 		{Type: hclsyntax.TokenOHeredoc, Bytes: []byte("<<EOF")},
@@ -630,7 +625,9 @@ func writeHeredoc(body *hclwrite.Body, name string, content string) {
 	body.AppendNewline()
 }
 
-// writeVariable writes a single variable to the tfvars file.
+// writeVariable writes a single variable assignment to the tfvars file body.
+// Handles descriptions, sensitive flags, multi-line strings, and object/map formatting.
+// Ensures correct HCL syntax for all supported value types.
 func writeVariable(body *hclwrite.Body, name string, value any, variables []VariableInfo) {
 	// Find variable info
 	var info *VariableInfo
@@ -658,7 +655,6 @@ func writeVariable(body *hclwrite.Body, name string, value any, variables []Vari
 		return
 	}
 
-	// Handle multiline strings and maps with heredoc
 	switch v := value.(type) {
 	case string:
 		if strings.Contains(v, "\n") {
@@ -666,14 +662,13 @@ func writeVariable(body *hclwrite.Body, name string, value any, variables []Vari
 			return
 		}
 	case map[string]any:
-		// Convert map to HCL format string
-		var mapStr strings.Builder
-		mapStr.WriteString("{\n")
-		for k, val := range v {
-			mapStr.WriteString(fmt.Sprintf("  %s = %s\n", k, formatValue(val)))
-		}
-		mapStr.WriteString("}")
-		writeHeredoc(body, name, mapStr.String())
+		// Render as HCL object assignment, not heredoc
+		rendered := formatValue(v)
+		assignment := fmt.Sprintf("%s = %s", name, rendered)
+		body.AppendUnstructuredTokens(hclwrite.Tokens{
+			{Type: hclsyntax.TokenIdent, Bytes: []byte(assignment)},
+		})
+		body.AppendNewline()
 		return
 	}
 
@@ -681,30 +676,55 @@ func writeVariable(body *hclwrite.Body, name string, value any, variables []Vari
 	body.SetAttributeValue(name, convertToCtyValue(value))
 }
 
-// formatValue formats a value for HCL output
+// formatValue formats a Go value as a valid HCL literal string for tfvars output.
+// Handles strings, lists, maps, nested objects, and nil values with proper indentation and quoting.
 func formatValue(value any) string {
 	switch v := value.(type) {
 	case string:
 		return fmt.Sprintf("%q", v)
 	case []any:
+		if len(v) == 0 {
+			return "[]"
+		}
 		var items []string
 		for _, item := range v {
 			items = append(items, formatValue(item))
 		}
 		return fmt.Sprintf("[%s]", strings.Join(items, ", "))
 	case map[string]any:
-		var pairs []string
-		for k, val := range v {
-			pairs = append(pairs, fmt.Sprintf("%s = %s", k, formatValue(val)))
+		if len(v) == 0 {
+			return "{}"
 		}
-		return fmt.Sprintf("{\n    %s\n  }", strings.Join(pairs, "\n    "))
+		var pairs []string
+		keys := make([]string, 0, len(v))
+		for k := range v {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			val := v[k]
+			formattedVal := formatValue(val)
+			if formattedVal == "{}" || formattedVal == "[]" {
+				pairs = append(pairs, fmt.Sprintf("%s = %s", k, formattedVal))
+			} else {
+				if strings.HasPrefix(formattedVal, "{") {
+					indented := strings.ReplaceAll(formattedVal, "\n", "\n  ")
+					pairs = append(pairs, fmt.Sprintf("%s = %s", k, indented))
+				} else {
+					pairs = append(pairs, fmt.Sprintf("%s = %s", k, formattedVal))
+				}
+			}
+		}
+		return fmt.Sprintf("{\n  %s\n}", strings.Join(pairs, "\n  "))
+	case nil:
+		return "null"
 	default:
 		return fmt.Sprintf("%v", v)
 	}
 }
 
-// convertToCtyValue converts various Go types to their corresponding cty.Value representation.
-// It handles strings, numbers, booleans, lists, and maps, returning a NilVal for unsupported types.
+// convertToCtyValue converts a Go value to a cty.Value for HCL serialization.
+// Supports strings, numbers, booleans, lists, and maps; returns NilVal for unsupported types.
 func convertToCtyValue(value any) cty.Value {
 	switch v := value.(type) {
 	case string:
@@ -735,8 +755,8 @@ func convertToCtyValue(value any) cty.Value {
 	}
 }
 
-// convertFromCtyValue converts a cty.Value to its corresponding Go value.
-// This is the inverse of convertToCtyValue and is used when reading values from HCL.
+// convertFromCtyValue converts a cty.Value to its Go representation for use in tfvars generation.
+// Handles all supported HCL types, including lists, maps, objects, and primitives.
 func convertFromCtyValue(val cty.Value) any {
 	if !val.IsKnown() || val.IsNull() {
 		return nil
