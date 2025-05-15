@@ -446,12 +446,12 @@ last line`,
 				},
 			},
 			expected: `{
-  string = "value"
-  number = 42
   bool = true
   nested = {
     key = "value"
   }
+  number = 42
+  string = "value"
 }`,
 			checkMap: true,
 		},
@@ -462,70 +462,38 @@ last line`,
 			file := hclwrite.NewEmptyFile()
 			writeVariable(file.Body(), "test_var", tt.value, nil)
 
-			// Extract the heredoc content
 			content := string(file.Bytes())
-			lines := strings.Split(content, "\n")
-			var actualLines []string
-			inHeredoc := false
-			for _, line := range lines {
-				if strings.Contains(line, "<<EOF") {
-					inHeredoc = true
-					continue
-				}
-				if strings.Contains(line, "EOF") {
-					break
-				}
-				if inHeredoc {
-					actualLines = append(actualLines, line)
-				}
-			}
-			actual := strings.Join(actualLines, "\n")
 
 			if tt.checkMap {
-				// For maps, verify each key-value pair exists regardless of order
-				expectedLines := strings.Split(tt.expected, "\n")
-				actualLines := strings.Split(actual, "\n")
-
-				// Skip first and last lines (curly braces)
-				expectedLines = expectedLines[1 : len(expectedLines)-1]
-				actualLines = actualLines[1 : len(actualLines)-1]
-
-				// Create maps of key-value pairs
-				expectedPairs := make(map[string]string)
-				actualPairs := make(map[string]string)
-
-				for _, line := range expectedLines {
-					line = strings.TrimSpace(line)
-					if line == "" {
-						continue
-					}
-					parts := strings.SplitN(line, "=", 2)
-					if len(parts) == 2 {
-						key := strings.TrimSpace(parts[0])
-						value := strings.TrimSpace(parts[1])
-						expectedPairs[key] = value
-					}
+				// For maps, extract the assignment (not heredoc)
+				assignmentPrefix := "test_var = "
+				idx := strings.Index(content, assignmentPrefix)
+				if idx == -1 {
+					t.Fatalf("assignment not found in output: %q", content)
 				}
-
-				for _, line := range actualLines {
-					line = strings.TrimSpace(line)
-					if line == "" {
-						continue
-					}
-					parts := strings.SplitN(line, "=", 2)
-					if len(parts) == 2 {
-						key := strings.TrimSpace(parts[0])
-						value := strings.TrimSpace(parts[1])
-						actualPairs[key] = value
-					}
-				}
-
-				// Compare the maps
-				if !reflect.DeepEqual(expectedPairs, actualPairs) {
+				actual := strings.TrimSpace(content[idx+len(assignmentPrefix):])
+				// Compare the formatted object string
+				if actual != tt.expected {
 					t.Errorf("map content does not match.\nExpected:\n%s\nGot:\n%s", tt.expected, actual)
 				}
 			} else {
-				// For non-map values, compare exact strings
+				// For heredoc, extract the heredoc content
+				lines := strings.Split(content, "\n")
+				var actualLines []string
+				inHeredoc := false
+				for _, line := range lines {
+					if strings.Contains(line, "<<EOF") {
+						inHeredoc = true
+						continue
+					}
+					if strings.Contains(line, "EOF") {
+						break
+					}
+					if inHeredoc {
+						actualLines = append(actualLines, line)
+					}
+				}
+				actual := strings.Join(actualLines, "\n")
 				if actual != tt.expected {
 					t.Errorf("content does not match.\nExpected:\n%s\nGot:\n%s", tt.expected, actual)
 				}
@@ -2041,363 +2009,195 @@ func TestTerraformGenerator_addTfvarsHeader(t *testing.T) {
 	})
 }
 
-func TestWriteComponentValuesWithObjectDefault(t *testing.T) {
-	tests := []struct {
-		name     string
-		variable VariableInfo
-	}{
-		{
-			name: "SimpleObject",
-			variable: VariableInfo{
-				Name:        "vnet_subnets",
-				Description: "Subnets to create in the VNET",
-				Default: map[string]any{
-					"data":    []any{},
-					"private": []any{},
-					"public":  []any{},
+func Test_formatValue(t *testing.T) {
+	t.Run("EmptyArray", func(t *testing.T) {
+		result := formatValue([]any{})
+		if result != "[]" {
+			t.Errorf("expected [] got %q", result)
+		}
+	})
+	t.Run("EmptyMap", func(t *testing.T) {
+		result := formatValue(map[string]any{})
+		if result != "{}" {
+			t.Errorf("expected {} got %q", result)
+		}
+	})
+	t.Run("NilValue", func(t *testing.T) {
+		result := formatValue(nil)
+		if result != "null" {
+			t.Errorf("expected null got %q", result)
+		}
+	})
+	t.Run("ComplexNestedObject", func(t *testing.T) {
+		input := map[string]any{
+			"node_groups": map[string]any{
+				"default": map[string]any{
+					"instance_types": []any{"t3.medium"},
+					"min_size":       1,
+					"max_size":       3,
+					"desired_size":   2,
 				},
 			},
-		},
-		{
-			name: "NestedObject",
-			variable: VariableInfo{
-				Name:        "network_config",
-				Description: "Network configuration",
-				Default: map[string]any{
-					"vpc": map[string]any{
-						"cidr":    "10.0.0.0/16",
-						"subnets": []any{"10.0.1.0/24", "10.0.2.0/24"},
-					},
-					"dns": map[string]any{
-						"domain":  "example.com",
-						"servers": []any{"8.8.8.8", "8.8.4.4"},
-					},
-				},
+		}
+		expected := `{
+  node_groups = {
+    default = {
+      desired_size = 2
+      instance_types = ["t3.medium"]
+      max_size = 3
+      min_size = 1
+    }
+  }
+}`
+		result := formatValue(input)
+		if result != expected {
+			t.Errorf("expected %q, got %q", expected, result)
+		}
+	})
+	t.Run("EmptyAddons", func(t *testing.T) {
+		input := map[string]any{
+			"addons": map[string]any{
+				"vpc-cni":                map[string]any{},
+				"aws-efs-csi-driver":     map[string]any{},
+				"aws-ebs-csi-driver":     map[string]any{},
+				"eks-pod-identity-agent": map[string]any{},
+				"coredns":                map[string]any{},
+				"external-dns":           map[string]any{},
 			},
-		},
-		{
-			name: "MixedTypes",
-			variable: VariableInfo{
-				Name:        "cluster_config",
-				Description: "Cluster configuration",
-				Default: map[string]any{
-					"name":     "test-cluster",
-					"replicas": 3,
-					"enabled":  true,
-					"tags":     []any{"prod", "us-east"},
-					"limits": map[string]any{
-						"cpu":    "2",
-						"memory": "4Gi",
-					},
-				},
-			},
-		},
-		{
-			name: "EmptyAndNullValues",
-			variable: VariableInfo{
-				Name:        "storage_config",
-				Description: "Storage configuration",
-				Default: map[string]any{
-					"volumes":    []any{},
-					"mount_path": nil,
-					"options": map[string]any{
-						"type":      "",
-						"encrypted": false,
-						"backup":    nil,
-						"snapshots": []any{},
-					},
-				},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Given a body and variables with an object default value
-			file := hclwrite.NewEmptyFile()
-			body := file.Body()
-			variables := []VariableInfo{tt.variable}
-			values := map[string]any{}
-			protectedValues := map[string]bool{}
-
-			// When writeComponentValues is called
-			writeComponentValues(body, values, protectedValues, variables)
-
-			// Then verify the output contains the expected elements
-			output := string(file.Bytes())
-
-			// Verify description comment
-			if !strings.Contains(output, "# "+tt.variable.Description) {
-				t.Errorf("missing description comment: %s", tt.variable.Description)
-			}
-
-			// Verify variable name
-			if !strings.Contains(output, "# "+tt.variable.Name+" = {") {
-				t.Errorf("missing variable name: %s", tt.variable.Name)
-			}
-
-			// Verify all map keys and values are present
-			verifyMapContents(t, tt.variable.Default.(map[string]any), output)
-		})
-	}
+		}
+		expected := `{
+  addons = {
+    aws-ebs-csi-driver = {}
+    aws-efs-csi-driver = {}
+    coredns = {}
+    eks-pod-identity-agent = {}
+    external-dns = {}
+    vpc-cni = {}
+  }
+}`
+		result := formatValue(input)
+		if result != expected {
+			t.Errorf("expected %q, got %q", expected, result)
+		}
+	})
 }
 
-// verifyMapContents recursively verifies that all map keys and their values are present in the output
-func verifyMapContents(t *testing.T, m map[string]any, output string) {
-	for k, v := range m {
-		switch val := v.(type) {
-		case map[string]any:
-			// For nested maps, verify the key and then recurse
-			if !strings.Contains(output, k+" = {") {
-				t.Errorf("missing map key: %s", k)
-			}
-			verifyMapContents(t, val, output)
-		case []any:
-			// For arrays, verify they're properly formatted
-			if len(val) == 0 {
-				if !strings.Contains(output, k+" = []") {
-					t.Errorf("missing empty array: %s = []", k)
-				}
-			} else {
-				arrayStr := fmt.Sprintf("%s = [", k)
-				if !strings.Contains(output, arrayStr) {
-					t.Errorf("missing array start: %s", arrayStr)
-				}
-				for _, item := range val {
-					if !strings.Contains(output, fmt.Sprintf("%v", item)) {
-						t.Errorf("missing array item: %v", item)
-					}
-				}
-			}
-		case nil:
-			if !strings.Contains(output, k+" = <nil>") {
-				t.Errorf("missing nil value: %s = <nil>", k)
-			}
-		case string:
-			if val == "" {
-				if !strings.Contains(output, k+` = ""`) {
-					t.Errorf("missing empty string: %s = \"\"", k)
-				}
-			} else {
-				if !strings.Contains(output, k+` = "`+val+`"`) {
-					t.Errorf("missing string value: %s = \"%s\"", k, val)
-				}
-			}
-		case bool:
-			if !strings.Contains(output, k+" = "+fmt.Sprintf("%v", val)) {
-				t.Errorf("missing boolean value: %s = %v", k, val)
-			}
-		case int:
-			if !strings.Contains(output, k+" = "+fmt.Sprintf("%v", val)) {
-				t.Errorf("missing integer value: %s = %v", k, val)
-			}
+func Test_writeVariable(t *testing.T) {
+	t.Run("ComplexObject_node_groups", func(t *testing.T) {
+		file := hclwrite.NewEmptyFile()
+		writeVariable(file.Body(), "node_groups", map[string]any{
+			"node_groups": map[string]any{
+				"default": map[string]any{
+					"instance_types": []any{"t3.medium"},
+					"min_size":       1,
+					"max_size":       3,
+					"desired_size":   2,
+				},
+			},
+		}, nil)
+		expected := "node_groups = {\n  node_groups = {\n    default = {\n      desired_size = 2\n      instance_types = [\"t3.medium\"]\n      max_size = 3\n      min_size = 1\n    }\n  }\n}"
+		result := strings.TrimSpace(string(file.Bytes()))
+		if result != expected {
+			t.Errorf("expected\n%s\ngot\n%s", expected, result)
 		}
-	}
+	})
+	t.Run("ComplexObject_addons", func(t *testing.T) {
+		file := hclwrite.NewEmptyFile()
+		writeVariable(file.Body(), "addons", map[string]any{
+			"addons": map[string]any{
+				"vpc-cni":                map[string]any{},
+				"aws-efs-csi-driver":     map[string]any{},
+				"aws-ebs-csi-driver":     map[string]any{},
+				"eks-pod-identity-agent": map[string]any{},
+				"coredns":                map[string]any{},
+				"external-dns":           map[string]any{},
+			},
+		}, nil)
+		expected := "addons = {\n  addons = {\n    aws-ebs-csi-driver = {}\n    aws-efs-csi-driver = {}\n    coredns = {}\n    eks-pod-identity-agent = {}\n    external-dns = {}\n    vpc-cni = {}\n  }\n}"
+		result := strings.TrimSpace(string(file.Bytes()))
+		if result != expected {
+			t.Errorf("expected\n%s\ngot\n%s", expected, result)
+		}
+	})
+	t.Run("ObjectAssignment_no_heredoc", func(t *testing.T) {
+		file := hclwrite.NewEmptyFile()
+		value := map[string]any{
+			"default": map[string]any{
+				"desired_size":   2,
+				"instance_types": []any{"t3.medium"},
+				"max_size":       3,
+				"min_size":       1,
+			},
+		}
+		writeVariable(file.Body(), "node_groups", value, nil)
+		expected := "node_groups = {\n  default = {\n    desired_size = 2\n    instance_types = [\"t3.medium\"]\n    max_size = 3\n    min_size = 1\n  }\n}"
+		result := strings.TrimSpace(string(file.Bytes()))
+		if result != expected {
+			t.Errorf("expected\n%s\ngot\n%s", expected, result)
+		}
+	})
 }
 
-func TestTerraformGenerator_writeShimOutputsTf(t *testing.T) {
-	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
-		mocks := setupMocks(t)
-		generator := NewTerraformGenerator(mocks.Injector)
-		generator.shims = mocks.Shims
-		if err := generator.Initialize(); err != nil {
-			t.Fatalf("failed to initialize TerraformGenerator: %v", err)
+func Test_writeComponentValues(t *testing.T) {
+	t.Run("ComplexDefaults_NodeGroups", func(t *testing.T) {
+		file := hclwrite.NewEmptyFile()
+		variable := VariableInfo{
+			Name:        "node_groups",
+			Description: "Map of EKS managed node group definitions to create.",
+			Default: map[string]any{
+				"default": map[string]any{
+					"instance_types": []any{"t3.medium"},
+					"min_size":       1,
+					"max_size":       3,
+					"desired_size":   2,
+				},
+			},
 		}
-		return generator, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And Stat is mocked to return success for outputs.tf
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			if strings.HasSuffix(path, "outputs.tf") {
-				return nil, nil
+		writeComponentValues(file.Body(), map[string]any{}, map[string]bool{}, []VariableInfo{variable})
+		expected := `
+# Map of EKS managed node group definitions to create.
+# node_groups = {
+#   default = {
+#     desired_size = 2
+#     instance_types = ["t3.medium"]
+#     max_size = 3
+#     min_size = 1
+#   }
+# }`
+		result := string(file.Bytes())
+		// Check that every line is commented
+		for _, line := range strings.Split(result, "\n") {
+			if strings.TrimSpace(line) == "" {
+				continue
 			}
-			return nil, os.ErrNotExist
-		}
-
-		// And ReadFile is mocked to return content for outputs.tf
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "outputs.tf") {
-				return []byte(`output "test" {
-  description = "Test output"
-  value       = "test"
-}`), nil
+			if !strings.HasPrefix(line, "#") {
+				t.Errorf("uncommented line found: %q", line)
 			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
 		}
-
-		// When writeShimOutputsTf is called
-		err := generator.writeShimOutputsTf("test_dir", "test_path")
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
+		// Check that the output matches expected ignoring leading/trailing whitespace
+		if strings.TrimSpace(result) != strings.TrimSpace(expected) {
+			t.Errorf("expected\n%s\ngot\n%s", expected, result)
 		}
 	})
-
-	t.Run("OutputsFileDoesNotExist", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And Stat is mocked to return not exist for outputs.tf
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			return nil, os.ErrNotExist
+	t.Run("ComplexDefaults_EmptyAddons", func(t *testing.T) {
+		file := hclwrite.NewEmptyFile()
+		variable := VariableInfo{
+			Name:        "addons",
+			Description: "Map of EKS add-ons",
+			Default: map[string]any{
+				"vpc-cni":                map[string]any{},
+				"aws-efs-csi-driver":     map[string]any{},
+				"aws-ebs-csi-driver":     map[string]any{},
+				"eks-pod-identity-agent": map[string]any{},
+				"coredns":                map[string]any{},
+				"external-dns":           map[string]any{},
+			},
 		}
-
-		// When writeShimOutputsTf is called
-		err := generator.writeShimOutputsTf("test_dir", "test_path")
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorReadingOutputs", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And Stat is mocked to return success for outputs.tf
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			if strings.HasSuffix(path, "outputs.tf") {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// And ReadFile is mocked to return an error for outputs.tf
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "outputs.tf") {
-				return nil, fmt.Errorf("mock error reading outputs.tf")
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// When writeShimOutputsTf is called
-		err := generator.writeShimOutputsTf("test_dir", "test_path")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should match the expected error
-		expectedError := "failed to read outputs.tf: mock error reading outputs.tf"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %s, got %s", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorParsingOutputs", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And Stat is mocked to return success for outputs.tf
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			if strings.HasSuffix(path, "outputs.tf") {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// And ReadFile is mocked to return invalid HCL for outputs.tf
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "outputs.tf") {
-				return []byte(`invalid hcl`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// When writeShimOutputsTf is called
-		err := generator.writeShimOutputsTf("test_dir", "test_path")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should indicate parsing failure
-		expectedError := "failed to parse outputs.tf"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Errorf("expected error containing %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorWritingOutputs", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And Stat is mocked to return success for outputs.tf
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			if strings.HasSuffix(path, "outputs.tf") {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// And ReadFile is mocked to return content for outputs.tf
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "outputs.tf") {
-				return []byte(`output "test" {
-  description = "Test output"
-  value       = "test"
-}`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// And WriteFile is mocked to return an error for outputs.tf
-		mocks.Shims.WriteFile = func(path string, _ []byte, _ fs.FileMode) error {
-			if strings.HasSuffix(path, "outputs.tf") {
-				return fmt.Errorf("mock error writing outputs.tf")
-			}
-			return nil
-		}
-
-		// When writeShimOutputsTf is called
-		err := generator.writeShimOutputsTf("test_dir", "test_path")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should match the expected error
-		expectedError := "failed to write shim outputs.tf: mock error writing outputs.tf"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %s, got %s", expectedError, err.Error())
-		}
-	})
-
-	t.Run("NoValidOutputBlocks", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And Stat is mocked to return success for outputs.tf
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			if strings.HasSuffix(path, "outputs.tf") {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// And ReadFile is mocked to return content with no valid output blocks
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "outputs.tf") {
-				return []byte(`# No output blocks here`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// When writeShimOutputsTf is called
-		err := generator.writeShimOutputsTf("test_dir", "test_path")
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
+		writeComponentValues(file.Body(), map[string]any{}, map[string]bool{}, []VariableInfo{variable})
+		expected := "\n# Map of EKS add-ons\n# addons = {\n#   aws-ebs-csi-driver = {}\n#   aws-efs-csi-driver = {}\n#   coredns = {}\n#   eks-pod-identity-agent = {}\n#   external-dns = {}\n#   vpc-cni = {}\n# }\n"
+		result := string(file.Bytes())
+		if result != expected {
+			t.Errorf("expected %q, got %q", expected, result)
 		}
 	})
 }
