@@ -29,6 +29,8 @@ var downCmd = &cobra.Command{
 			VM:           true,
 			Containers:   true,
 			Network:      true,
+			Blueprint:    true,
+			Stack:        true,
 			CommandName:  cmd.Name(),
 			Flags: map[string]bool{
 				"verbose": verbose,
@@ -45,6 +47,15 @@ var downCmd = &cobra.Command{
 		// Resolve components
 		shell := controller.ResolveShell()
 		configHandler := controller.ResolveConfigHandler()
+
+		// Tear down the stack components
+		stack := controller.ResolveStack()
+		if stack == nil {
+			return fmt.Errorf("No stack found")
+		}
+		if err := stack.Down(); err != nil {
+			return fmt.Errorf("Error running stack Down command: %w", err)
+		}
 
 		// Determine if the container runtime is enabled
 		containerRuntimeEnabled := configHandler.GetBool("docker.enabled")

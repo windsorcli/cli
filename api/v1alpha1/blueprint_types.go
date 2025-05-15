@@ -117,6 +117,10 @@ type TerraformComponent struct {
 
 	// Values are configuration values for the module.
 	Values map[string]any `yaml:"values,omitempty"`
+
+	// Destroy determines if the component should be destroyed during down operations.
+	// Defaults to true if not specified.
+	Destroy *bool `yaml:"destroy,omitempty"`
 }
 
 // Kustomization defines a kustomization config in a blueprint.
@@ -230,6 +234,7 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 			Path:     component.Path,
 			FullPath: component.FullPath,
 			Values:   valuesCopy,
+			Destroy:  component.Destroy,
 		}
 	}
 
@@ -360,6 +365,11 @@ func (b *Blueprint) Merge(overlay *Blueprint) {
 					if overlayComponent.FullPath != "" {
 						mergedComponent.FullPath = overlayComponent.FullPath
 					}
+
+					if overlayComponent.Destroy != nil {
+						mergedComponent.Destroy = overlayComponent.Destroy
+					}
+
 					b.TerraformComponents = append(b.TerraformComponents, mergedComponent)
 				} else {
 					b.TerraformComponents = append(b.TerraformComponents, overlayComponent)

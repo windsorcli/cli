@@ -15,6 +15,7 @@ import "github.com/windsorcli/cli/pkg/di"
 type MockStack struct {
 	InitializeFunc func() error
 	UpFunc         func() error
+	DownFunc       func() error
 }
 
 // =============================================================================
@@ -42,6 +43,14 @@ func (m *MockStack) Initialize() error {
 func (m *MockStack) Up() error {
 	if m.UpFunc != nil {
 		return m.UpFunc()
+	}
+	return nil
+}
+
+// Down is a mock implementation of the Down method.
+func (m *MockStack) Down() error {
+	if m.DownFunc != nil {
+		return m.DownFunc()
 	}
 	return nil
 }

@@ -23,6 +23,7 @@ import (
 type Stack interface {
 	Initialize() error
 	Up() error
+	Down() error
 }
 
 // =============================================================================
@@ -86,6 +87,11 @@ func (s *BaseStack) Initialize() error {
 
 // Up creates a new stack of components.
 func (s *BaseStack) Up() error {
+	return nil
+}
+
+// Down destroys a stack of components.
+func (s *BaseStack) Down() error {
 	return nil
 }
 
