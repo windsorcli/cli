@@ -89,7 +89,7 @@ local sourceConfig = [
     url: "github.com/windsorcli/core",
     ref: {
       // renovate: datasource=github-branches depName=windsorcli/core
-      branch: "main",
+      branch: "aws-eks",
     },
   },
 ];
@@ -236,6 +236,19 @@ local terraformConfig = if platform == "local" || platform == "metal" then [
       webhook_token: "abcdef123456",
     } else {},
   }
+] else if platform == "aws" then [
+  {
+    path: "network/aws-vpc",
+    source: "core",
+  },
+  {
+    path: "cluster/aws-eks",
+    source: "core",
+  },
+  {
+    path: "gitops/flux",
+    source: "core",
+  }
 ] else [];
 
 // Determine the blueprint, defaulting to an empty string if not defined
@@ -294,7 +307,7 @@ local kustomizeConfig = if blueprint == "full" then [
       "openebs/dynamic-localpv",
     ],
   },
-] + (if vmDriver != "docker-desktop" then [
+] + (if platform == "metal" || (platform == "local" && vmDriver != "docker-desktop") then [
   {
     name: "lb-base",
     source: "core",
@@ -328,7 +341,11 @@ local kustomizeConfig = if blueprint == "full" then [
       "pki-resources"
     ],
     force: true,
-    components: if vmDriver == "docker-desktop" then [
+    components: if platform == "aws" then [
+      "nginx",
+      "nginx/flux-webhook",
+      "nginx/web"
+    ] else if vmDriver == "docker-desktop" then [
       "nginx",
       "nginx/nodeport",
       "nginx/coredns",
@@ -401,6 +418,22 @@ local kustomizeConfig = if blueprint == "full" then [
     force: true,
     components: [
       "webhook"
+    ],
+  },
+  {
+    name: "observability",
+    source: "core",
+    path: "observability",
+    dependsOn: [
+      "ingress-base"
+    ],
+    components: [
+      "grafana",
+      "grafana/ingress",
+      "grafana/prometheus",
+      "grafana/node",
+      "grafana/kubernetes",
+      "grafana/flux"
     ],
   }
 ] else [];
