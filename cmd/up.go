@@ -10,6 +10,7 @@ import (
 
 var (
 	installFlag bool // Declare the install flag
+	waitFlag    bool // Declare the wait flag
 )
 
 var upCmd = &cobra.Command{
@@ -143,6 +144,12 @@ var upCmd = &cobra.Command{
 			if err := blueprintHandler.Install(); err != nil {
 				return fmt.Errorf("Error installing blueprint: %w", err)
 			}
+			// If wait flag is set, poll for kustomization readiness
+			if waitFlag {
+				if err := blueprintHandler.WaitForKustomizations(); err != nil {
+					return fmt.Errorf("Error waiting for kustomizations: %w", err)
+				}
+			}
 		}
 
 		// Indicate successful setup of the Windsor environment.
@@ -154,5 +161,6 @@ var upCmd = &cobra.Command{
 
 func init() {
 	upCmd.Flags().BoolVar(&installFlag, "install", false, "Install the blueprint after setting up the environment")
+	upCmd.Flags().BoolVar(&waitFlag, "wait", false, "Wait for kustomization resources to be ready")
 	rootCmd.AddCommand(upCmd)
 }

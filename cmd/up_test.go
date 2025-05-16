@@ -397,4 +397,29 @@ func TestUpCmd(t *testing.T) {
 			t.Errorf("Expected 'No blueprint handler found', got '%v'", err)
 		}
 	})
+
+	t.Run("WaitFlag_CallsWaitForKustomizations", func(t *testing.T) {
+		mocks := setupUpMocks(t)
+		installFlag = true
+		waitFlag = true
+		defer func() { installFlag = false; waitFlag = false }()
+
+		called := false
+		mocks.BlueprintHandler.WaitForKustomizationsFunc = func() error {
+			called = true
+			return nil
+		}
+		mocks.BlueprintHandler.InstallFunc = func() error {
+			return nil
+		}
+
+		rootCmd.SetArgs([]string{"up", "--install", "--wait"})
+		err := Execute(mocks.Controller)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !called {
+			t.Error("Expected WaitForKustomizations to be called, but it was not")
+		}
+	})
 }
