@@ -442,7 +442,135 @@ func TestBlueprint_Merge(t *testing.T) {
 		}
 	})
 
-	t.Run("OverlayRepositoryRefFields", func(t *testing.T) {
+	t.Run("OverlayRepositoryRefFirstNonEmptyField", func(t *testing.T) {
+		cases := []struct {
+			name  string
+			ref   Reference
+			check func(t *testing.T, ref Reference)
+		}{
+			{
+				name: "Commit",
+				ref:  Reference{Commit: "abc123", Name: "v1", SemVer: "1.0.0", Tag: "v1.0.0", Branch: "develop"},
+				check: func(t *testing.T, ref Reference) {
+					if ref.Commit != "abc123" {
+						t.Errorf("Commit not set")
+					}
+					if ref.Name != "" {
+						t.Errorf("Name should be empty")
+					}
+					if ref.SemVer != "" {
+						t.Errorf("SemVer should be empty")
+					}
+					if ref.Tag != "" {
+						t.Errorf("Tag should be empty")
+					}
+					if ref.Branch != "main" {
+						t.Errorf("Branch should remain 'main'")
+					}
+				},
+			},
+			{
+				name: "Name",
+				ref:  Reference{Name: "v1", SemVer: "1.0.0", Tag: "v1.0.0", Branch: "develop"},
+				check: func(t *testing.T, ref Reference) {
+					if ref.Commit != "" {
+						t.Errorf("Commit should be empty")
+					}
+					if ref.Name != "v1" {
+						t.Errorf("Name not set")
+					}
+					if ref.SemVer != "" {
+						t.Errorf("SemVer should be empty")
+					}
+					if ref.Tag != "" {
+						t.Errorf("Tag should be empty")
+					}
+					if ref.Branch != "main" {
+						t.Errorf("Branch should remain 'main'")
+					}
+				},
+			},
+			{
+				name: "SemVer",
+				ref:  Reference{SemVer: "1.0.0", Tag: "v1.0.0", Branch: "develop"},
+				check: func(t *testing.T, ref Reference) {
+					if ref.Commit != "" {
+						t.Errorf("Commit should be empty")
+					}
+					if ref.Name != "" {
+						t.Errorf("Name should be empty")
+					}
+					if ref.SemVer != "1.0.0" {
+						t.Errorf("SemVer not set")
+					}
+					if ref.Tag != "" {
+						t.Errorf("Tag should be empty")
+					}
+					if ref.Branch != "main" {
+						t.Errorf("Branch should remain 'main'")
+					}
+				},
+			},
+			{
+				name: "Tag",
+				ref:  Reference{Tag: "v1.0.0", Branch: "develop"},
+				check: func(t *testing.T, ref Reference) {
+					if ref.Commit != "" {
+						t.Errorf("Commit should be empty")
+					}
+					if ref.Name != "" {
+						t.Errorf("Name should be empty")
+					}
+					if ref.SemVer != "" {
+						t.Errorf("SemVer should be empty")
+					}
+					if ref.Tag != "v1.0.0" {
+						t.Errorf("Tag not set")
+					}
+					if ref.Branch != "main" {
+						t.Errorf("Branch should remain 'main'")
+					}
+				},
+			},
+			{
+				name: "Branch",
+				ref:  Reference{Branch: "develop"},
+				check: func(t *testing.T, ref Reference) {
+					if ref.Commit != "" {
+						t.Errorf("Commit should be empty")
+					}
+					if ref.Name != "" {
+						t.Errorf("Name should be empty")
+					}
+					if ref.SemVer != "" {
+						t.Errorf("SemVer should be empty")
+					}
+					if ref.Tag != "" {
+						t.Errorf("Tag should be empty")
+					}
+					if ref.Branch != "develop" {
+						t.Errorf("Branch not set")
+					}
+				},
+			},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				base := &Blueprint{
+					Repository: Repository{
+						Ref: Reference{Branch: "main"},
+					},
+				}
+				overlay := &Blueprint{
+					Repository: Repository{Ref: tc.ref},
+				}
+				base.Merge(overlay)
+				tc.check(t, base.Repository.Ref)
+			})
+		}
+	})
+
+	t.Run("OverlayWithRepositoryRefFields", func(t *testing.T) {
 		base := &Blueprint{
 			Repository: Repository{
 				Ref: Reference{
@@ -453,7 +581,6 @@ func TestBlueprint_Merge(t *testing.T) {
 		overlay := &Blueprint{
 			Repository: Repository{
 				Ref: Reference{
-					Commit: "abc123",
 					Name:   "v1",
 					SemVer: "1.0.0",
 					Tag:    "v1.0.0",
@@ -462,24 +589,24 @@ func TestBlueprint_Merge(t *testing.T) {
 			},
 		}
 		base.Merge(overlay)
-		if base.Repository.Ref.Commit != "abc123" {
-			t.Errorf("Expected Repository.Ref.Commit to be 'abc123', but got '%s'", base.Repository.Ref.Commit)
+		if base.Repository.Ref.Commit != "" {
+			t.Errorf("Expected Repository.Ref.Commit to be '', but got '%s'", base.Repository.Ref.Commit)
 		}
 		if base.Repository.Ref.Name != "v1" {
 			t.Errorf("Expected Repository.Ref.Name to be 'v1', but got '%s'", base.Repository.Ref.Name)
 		}
-		if base.Repository.Ref.SemVer != "1.0.0" {
-			t.Errorf("Expected Repository.Ref.SemVer to be '1.0.0', but got '%s'", base.Repository.Ref.SemVer)
+		if base.Repository.Ref.SemVer != "" {
+			t.Errorf("Expected Repository.Ref.SemVer to be '', but got '%s'", base.Repository.Ref.SemVer)
 		}
-		if base.Repository.Ref.Tag != "v1.0.0" {
-			t.Errorf("Expected Repository.Ref.Tag to be 'v1.0.0', but got '%s'", base.Repository.Ref.Tag)
+		if base.Repository.Ref.Tag != "" {
+			t.Errorf("Expected Repository.Ref.Tag to be '', but got '%s'", base.Repository.Ref.Tag)
 		}
-		if base.Repository.Ref.Branch != "develop" {
-			t.Errorf("Expected Repository.Ref.Branch to be 'develop', but got '%s'", base.Repository.Ref.Branch)
+		if base.Repository.Ref.Branch != "main" {
+			t.Errorf("Expected Repository.Ref.Branch to remain 'main', but got '%s'", base.Repository.Ref.Branch)
 		}
 	})
 
-	t.Run("OverlayNonEmptyKustomizations", func(t *testing.T) {
+	t.Run("OverlayWithEmptyKustomizations", func(t *testing.T) {
 		base := &Blueprint{
 			Kustomizations: []Kustomization{{Name: "A"}},
 		}
@@ -656,17 +783,17 @@ func TestBlueprint_Merge(t *testing.T) {
 		if base.Repository.Ref.Commit != "abc123" {
 			t.Errorf("Expected Repository.Ref.Commit to be 'abc123', but got '%s'", base.Repository.Ref.Commit)
 		}
-		if base.Repository.Ref.Name != "v1" {
-			t.Errorf("Expected Repository.Ref.Name to be 'v1', but got '%s'", base.Repository.Ref.Name)
+		if base.Repository.Ref.Name != "" {
+			t.Errorf("Expected Repository.Ref.Name to be '', but got '%s'", base.Repository.Ref.Name)
 		}
-		if base.Repository.Ref.SemVer != "1.0.0" {
-			t.Errorf("Expected Repository.Ref.SemVer to be '1.0.0', but got '%s'", base.Repository.Ref.SemVer)
+		if base.Repository.Ref.SemVer != "" {
+			t.Errorf("Expected Repository.Ref.SemVer to be '', but got '%s'", base.Repository.Ref.SemVer)
 		}
-		if base.Repository.Ref.Tag != "v1.0.0" {
-			t.Errorf("Expected Repository.Ref.Tag to be 'v1.0.0', but got '%s'", base.Repository.Ref.Tag)
+		if base.Repository.Ref.Tag != "" {
+			t.Errorf("Expected Repository.Ref.Tag to be '', but got '%s'", base.Repository.Ref.Tag)
 		}
-		if base.Repository.Ref.Branch != "develop" {
-			t.Errorf("Expected Repository.Ref.Branch to be 'develop', but got '%s'", base.Repository.Ref.Branch)
+		if base.Repository.Ref.Branch != "main" {
+			t.Errorf("Expected Repository.Ref.Branch to remain 'main', but got '%s'", base.Repository.Ref.Branch)
 		}
 	})
 
