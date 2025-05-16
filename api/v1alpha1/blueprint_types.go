@@ -313,13 +313,17 @@ func (b *Blueprint) Merge(overlay *Blueprint) {
 	// Merge the Reference type inline, prioritizing the first non-empty field
 	if overlay.Repository.Ref.Commit != "" {
 		b.Repository.Ref.Commit = overlay.Repository.Ref.Commit
-	} else if overlay.Repository.Ref.Name != "" {
+	}
+	if overlay.Repository.Ref.Name != "" {
 		b.Repository.Ref.Name = overlay.Repository.Ref.Name
-	} else if overlay.Repository.Ref.SemVer != "" {
+	}
+	if overlay.Repository.Ref.SemVer != "" {
 		b.Repository.Ref.SemVer = overlay.Repository.Ref.SemVer
-	} else if overlay.Repository.Ref.Tag != "" {
+	}
+	if overlay.Repository.Ref.Tag != "" {
 		b.Repository.Ref.Tag = overlay.Repository.Ref.Tag
-	} else if overlay.Repository.Ref.Branch != "" {
+	}
+	if overlay.Repository.Ref.Branch != "" {
 		b.Repository.Ref.Branch = overlay.Repository.Ref.Branch
 	}
 
