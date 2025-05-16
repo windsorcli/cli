@@ -12,7 +12,7 @@ registries:
     ref: v4.367.0 # renovate: depName=aquaproj/aqua-registry
 packages:
 - name: hashicorp/terraform@v1.12.0
-- name: siderolabs/talos@v1.10.1
+- name: siderolabs/talos@v1.10.2
 - name: siderolabs/omni/omnictl@v0.49.1
 - name: siderolabs/omni/omni@v0.49.1
 - name: kubernetes/kubectl@v1.33.1
