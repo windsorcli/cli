@@ -440,3 +440,51 @@ func TestBaseService_SupportsWildcard(t *testing.T) {
 		}
 	})
 }
+
+func TestBaseService_GetContainerName(t *testing.T) {
+	setup := func(t *testing.T) (*BaseService, *Mocks) {
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.domain" {
+				return "test"
+			}
+			return defaultValue[0]
+		}
+		mocks := setupMocks(t, &SetupOptions{
+			ConfigHandler: mockConfigHandler,
+		})
+		service := NewBaseService(mocks.Injector)
+		service.shims = mocks.Shims
+		service.Initialize()
+		return service, mocks
+	}
+
+	t.Run("SimpleName", func(t *testing.T) {
+		// Given a service with a simple name
+		service, _ := setup(t)
+		service.SetName("dns")
+
+		// When getting the container name
+		name := service.GetContainerName()
+
+		// Then it should return the name with the TLD
+		expected := "dns.test"
+		if name != expected {
+			t.Errorf("expected container name %q, got %q", expected, name)
+		}
+	})
+
+	t.Run("EmptyName", func(t *testing.T) {
+		// Given a service with no name
+		service, _ := setup(t)
+		service.SetName("")
+
+		// When getting the container name
+		name := service.GetContainerName()
+
+		// Then it should return an empty string
+		if name != "" {
+			t.Errorf("expected empty container name, got %q", name)
+		}
+	})
+}

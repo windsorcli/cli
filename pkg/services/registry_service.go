@@ -113,12 +113,6 @@ func (s *RegistryService) SetAddress(address string) error {
 	return nil
 }
 
-// GetHostname returns the hostname for the registry service, removing the last domain part
-func (s *RegistryService) GetHostname() string {
-	tld := s.configHandler.GetString("dns.domain", "test")
-	return getBasename(s.GetName()) + "." + tld
-}
-
 // =============================================================================
 // Private Methods
 // =============================================================================

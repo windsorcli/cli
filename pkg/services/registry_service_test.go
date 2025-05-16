@@ -24,7 +24,6 @@ func TestRegistryService_NewRegistryService(t *testing.T) {
 		service := NewRegistryService(mocks.Injector)
 		service.shims = mocks.Shims
 		service.Initialize()
-
 		return service, mocks
 	}
 
@@ -56,7 +55,6 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 		service.shims = mocks.Shims
 		service.Initialize()
 		service.SetName("registry")
-
 		return service, mocks
 	}
 
@@ -199,7 +197,6 @@ func TestRegistryService_SetAddress(t *testing.T) {
 	setup := func(t *testing.T) (*RegistryService, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-
 		// Load initial config
 		configYAML := `
 apiVersion: v1alpha1
@@ -216,16 +213,13 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configYAML); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
-
 		service := NewRegistryService(mocks.Injector)
 		service.shims = mocks.Shims
 		service.Initialize()
 		service.SetName("registry")
-
 		// Reset package-level variables
 		registryNextPort = constants.REGISTRY_DEFAULT_HOST_PORT + 1
 		localRegistry = nil
-
 		return service, mocks
 	}
 
@@ -542,42 +536,110 @@ contexts:
 
 func TestRegistryService_GetHostname(t *testing.T) {
 	setup := func(t *testing.T) (*RegistryService, *Mocks) {
-		t.Helper()
-		mocks := setupMocks(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.domain" {
+				return "test"
+			}
+			return defaultValue[0]
+		}
+		mocks := setupMocks(t, &SetupOptions{
+			ConfigHandler: mockConfigHandler,
+		})
 		service := NewRegistryService(mocks.Injector)
-		service.shims = mocks.Shims
 		service.Initialize()
-
 		return service, mocks
 	}
 
-	t.Run("Success", func(t *testing.T) {
+	t.Run("SimpleName", func(t *testing.T) {
+		// Given a registry service with a simple name
 		service, _ := setup(t)
-		service.SetName("test-registry")
+		service.SetName("registry")
 
-		hostname := service.GetHostname()
-		if hostname != "test-registry.test" {
-			t.Errorf("GetHostname() = %v, want %v", hostname, "test-registry.test")
+		// When getting the hostname
+		name := service.GetHostname()
+
+		// Then it should return the name with the TLD
+		expected := "registry.test"
+		if name != expected {
+			t.Errorf("expected hostname %q, got %q", expected, name)
 		}
 	})
 
-	t.Run("LocalRegistry", func(t *testing.T) {
+	t.Run("DomainName", func(t *testing.T) {
+		// Given a registry service with a domain name
 		service, _ := setup(t)
-		service.SetName("local-registry")
+		service.SetName("gcr.io")
 
-		hostname := service.GetHostname()
-		if hostname != "local-registry.test" {
-			t.Errorf("GetHostname() = %v, want %v", hostname, "local-registry.test")
+		// When getting the hostname
+		name := service.GetHostname()
+
+		// Then it should return the name with the last part replaced by TLD
+		expected := "gcr.test"
+		if name != expected {
+			t.Errorf("expected hostname %q, got %q", expected, name)
 		}
 	})
 
-	t.Run("RemoteRegistry", func(t *testing.T) {
+	t.Run("MultiPartDomain", func(t *testing.T) {
+		// Given a registry service with a multi-part domain name
 		service, _ := setup(t)
-		service.SetName("remote-registry")
+		service.SetName("registry.k8s.io")
 
-		hostname := service.GetHostname()
-		if hostname != "remote-registry.test" {
-			t.Errorf("GetHostname() = %v, want %v", hostname, "remote-registry.test")
+		// When getting the hostname
+		name := service.GetHostname()
+
+		// Then it should return the name with the last part replaced by TLD
+		expected := "registry.k8s.test"
+		if name != expected {
+			t.Errorf("expected hostname %q, got %q", expected, name)
+		}
+	})
+
+	t.Run("EmptyName", func(t *testing.T) {
+		// Given a registry service with no name
+		service, _ := setup(t)
+		service.SetName("")
+
+		// When getting the hostname
+		name := service.GetHostname()
+
+		// Then it should return an empty string
+		if name != "" {
+			t.Errorf("expected empty hostname, got %q", name)
+		}
+	})
+}
+
+func TestRegistryService_GetContainerName(t *testing.T) {
+	setup := func(t *testing.T) (*RegistryService, *Mocks) {
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.domain" {
+				return "test"
+			}
+			return defaultValue[0]
+		}
+		mocks := setupMocks(t, &SetupOptions{
+			ConfigHandler: mockConfigHandler,
+		})
+		service := NewRegistryService(mocks.Injector)
+		service.Initialize()
+		return service, mocks
+	}
+
+	t.Run("DomainName", func(t *testing.T) {
+		// Given a registry service with a domain name
+		service, _ := setup(t)
+		service.SetName("gcr.io")
+
+		// When getting the container name
+		name := service.GetContainerName()
+
+		// Then it should return the name with the last part replaced by TLD
+		expected := "gcr.test"
+		if name != expected {
+			t.Errorf("expected container name %q, got %q", expected, name)
 		}
 	})
 }
@@ -590,7 +652,6 @@ func TestRegistryService_GetName(t *testing.T) {
 		service.shims = mocks.Shims
 		service.Initialize()
 		service.SetName("registry")
-
 		return service, mocks
 	}
 
@@ -612,7 +673,6 @@ func TestRegistryService_SupportsWildcard(t *testing.T) {
 		service.shims = mocks.Shims
 		service.Initialize()
 		service.SetName("registry")
-
 		return service, mocks
 	}
 
