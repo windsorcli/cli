@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsorcli/cli/pkg/config"
@@ -110,10 +111,9 @@ func (s *BaseService) GetName() string {
 	return s.name
 }
 
-// GetContainerName returns the container name with the "windsor-" prefix and without the DNS domain
+// GetContainerName returns the container name with the DNS domain
 func (s *BaseService) GetContainerName() string {
-	contextName := s.configHandler.GetContext()
-	return fmt.Sprintf("windsor-%s-%s", contextName, s.name)
+	return s.GetHostname()
 }
 
 // =============================================================================
@@ -131,11 +131,17 @@ func (s *BaseService) SupportsWildcard() bool {
 	return false
 }
 
-// GetHostname returns the hostname for the service with the configured TLD
+// GetHostname returns the hostname for the service, handling domain names specially
 func (s *BaseService) GetHostname() string {
 	if s.name == "" {
 		return ""
 	}
 	tld := s.configHandler.GetString("dns.domain", "test")
+
+	if strings.Contains(s.name, ".") {
+		parts := strings.Split(s.name, ".")
+		return strings.Join(parts[:len(parts)-1], ".") + "." + tld
+	}
+
 	return s.name + "." + tld
 }
