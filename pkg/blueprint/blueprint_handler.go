@@ -267,6 +267,7 @@ func (b *BaseBlueprintHandler) WaitForKustomizations() error {
 		names[i] = k.Name
 	}
 
+	consecutiveFailures := 0
 	for {
 		select {
 		case <-timeout:
@@ -276,15 +277,23 @@ func (b *BaseBlueprintHandler) WaitForKustomizations() error {
 		case <-ticker.C:
 			kubeconfig := os.Getenv("KUBECONFIG")
 			if err := checkGitRepositoryStatus(kubeconfig); err != nil {
-				spin.Stop()
-				fmt.Fprintf(os.Stderr, "\033[31m✗\033[0m %s - \033[31mFailed\033[0m\n", message)
-				return fmt.Errorf("git repository error: %w", err)
+				consecutiveFailures++
+				if consecutiveFailures >= constants.DEFAULT_KUSTOMIZATION_WAIT_MAX_FAILURES {
+					spin.Stop()
+					fmt.Fprintf(os.Stderr, "\033[31m✗\033[0m %s - \033[31mFailed\033[0m\n", message)
+					return fmt.Errorf("git repository error after %d consecutive failures: %w", consecutiveFailures, err)
+				}
+				continue
 			}
 			status, err := checkKustomizationStatus(kubeconfig, names)
 			if err != nil {
-				spin.Stop()
-				fmt.Fprintf(os.Stderr, "\033[31m✗\033[0m %s - \033[31mFailed\033[0m\n", message)
-				return fmt.Errorf("kustomization error: %w", err)
+				consecutiveFailures++
+				if consecutiveFailures >= constants.DEFAULT_KUSTOMIZATION_WAIT_MAX_FAILURES {
+					spin.Stop()
+					fmt.Fprintf(os.Stderr, "\033[31m✗\033[0m %s - \033[31mFailed\033[0m\n", message)
+					return fmt.Errorf("kustomization error after %d consecutive failures: %w", consecutiveFailures, err)
+				}
+				continue
 			}
 
 			allReady := true
@@ -300,6 +309,9 @@ func (b *BaseBlueprintHandler) WaitForKustomizations() error {
 				fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
 				return nil
 			}
+
+			// Reset failure counter on successful check
+			consecutiveFailures = 0
 		}
 	}
 }

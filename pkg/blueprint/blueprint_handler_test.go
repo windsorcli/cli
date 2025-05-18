@@ -3946,4 +3946,146 @@ func TestBaseBlueprintHandler_WaitForKustomizations(t *testing.T) {
 			t.Errorf("expected kustomization error, got %v", err)
 		}
 	})
+
+	t.Run("RecoverFromGitRepositoryError", func(t *testing.T) {
+		// Given a blueprint handler with a kustomization
+		handler := &BaseBlueprintHandler{
+			blueprint: blueprintv1alpha1.Blueprint{
+				Kustomizations: []blueprintv1alpha1.Kustomization{
+					{Name: "k1", Timeout: &metav1.Duration{Duration: 100 * time.Millisecond}},
+				},
+			},
+		}
+		handler.kustomizationWaitPollInterval = 10 * time.Millisecond
+
+		// And a Git repository status check that fails twice then succeeds
+		failCount := 0
+		origCheckGit := checkGitRepositoryStatus
+		origCheckKustom := checkKustomizationStatus
+		defer func() {
+			checkGitRepositoryStatus = origCheckGit
+			checkKustomizationStatus = origCheckKustom
+		}()
+		checkGitRepositoryStatus = func(string) error {
+			if failCount < 2 {
+				failCount++
+				return fmt.Errorf("git repo error")
+			}
+			return nil
+		}
+		checkKustomizationStatus = func(string, []string) (map[string]bool, error) {
+			return map[string]bool{"k1": true}, nil
+		}
+
+		// When waiting for kustomizations to be ready
+		err := handler.WaitForKustomizations()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("RecoverFromKustomizationError", func(t *testing.T) {
+		// Given a blueprint handler with a kustomization
+		handler := &BaseBlueprintHandler{
+			blueprint: blueprintv1alpha1.Blueprint{
+				Kustomizations: []blueprintv1alpha1.Kustomization{
+					{Name: "k1", Timeout: &metav1.Duration{Duration: 100 * time.Millisecond}},
+				},
+			},
+		}
+		handler.kustomizationWaitPollInterval = 10 * time.Millisecond
+
+		// And a kustomization status check that fails twice then succeeds
+		failCount := 0
+		origCheckGit := checkGitRepositoryStatus
+		origCheckKustom := checkKustomizationStatus
+		defer func() {
+			checkGitRepositoryStatus = origCheckGit
+			checkKustomizationStatus = origCheckKustom
+		}()
+		checkGitRepositoryStatus = func(string) error { return nil }
+		checkKustomizationStatus = func(string, []string) (map[string]bool, error) {
+			if failCount < 2 {
+				failCount++
+				return nil, fmt.Errorf("kustomization error")
+			}
+			return map[string]bool{"k1": true}, nil
+		}
+
+		// When waiting for kustomizations to be ready
+		err := handler.WaitForKustomizations()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("MaxGitRepositoryFailures", func(t *testing.T) {
+		// Given a blueprint handler with a kustomization
+		handler := &BaseBlueprintHandler{
+			blueprint: blueprintv1alpha1.Blueprint{
+				Kustomizations: []blueprintv1alpha1.Kustomization{
+					{Name: "k1", Timeout: &metav1.Duration{Duration: 100 * time.Millisecond}},
+				},
+			},
+		}
+		handler.kustomizationWaitPollInterval = 10 * time.Millisecond
+
+		// And a Git repository status check that always fails
+		origCheckGit := checkGitRepositoryStatus
+		origCheckKustom := checkKustomizationStatus
+		defer func() {
+			checkGitRepositoryStatus = origCheckGit
+			checkKustomizationStatus = origCheckKustom
+		}()
+		checkGitRepositoryStatus = func(string) error { return fmt.Errorf("git repo error") }
+		checkKustomizationStatus = func(string, []string) (map[string]bool, error) {
+			return map[string]bool{"k1": true}, nil
+		}
+
+		// When waiting for kustomizations to be ready
+		err := handler.WaitForKustomizations()
+
+		// Then a Git repository error should be returned with failure count
+		expectedMsg := fmt.Sprintf("after %d consecutive failures", constants.DEFAULT_KUSTOMIZATION_WAIT_MAX_FAILURES)
+		if err == nil || !strings.Contains(err.Error(), expectedMsg) {
+			t.Errorf("expected error with failure count, got %v", err)
+		}
+	})
+
+	t.Run("MaxKustomizationFailures", func(t *testing.T) {
+		// Given a blueprint handler with a kustomization
+		handler := &BaseBlueprintHandler{
+			blueprint: blueprintv1alpha1.Blueprint{
+				Kustomizations: []blueprintv1alpha1.Kustomization{
+					{Name: "k1", Timeout: &metav1.Duration{Duration: 100 * time.Millisecond}},
+				},
+			},
+		}
+		handler.kustomizationWaitPollInterval = 10 * time.Millisecond
+
+		// And a kustomization status check that always fails
+		origCheckGit := checkGitRepositoryStatus
+		origCheckKustom := checkKustomizationStatus
+		defer func() {
+			checkGitRepositoryStatus = origCheckGit
+			checkKustomizationStatus = origCheckKustom
+		}()
+		checkGitRepositoryStatus = func(string) error { return nil }
+		checkKustomizationStatus = func(string, []string) (map[string]bool, error) {
+			return nil, fmt.Errorf("kustomization error")
+		}
+
+		// When waiting for kustomizations to be ready
+		err := handler.WaitForKustomizations()
+
+		// Then a kustomization error should be returned with failure count
+		expectedMsg := fmt.Sprintf("after %d consecutive failures", constants.DEFAULT_KUSTOMIZATION_WAIT_MAX_FAILURES)
+		if err == nil || !strings.Contains(err.Error(), expectedMsg) {
+			t.Errorf("expected error with failure count, got %v", err)
+		}
+	})
 }

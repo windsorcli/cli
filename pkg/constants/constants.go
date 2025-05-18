@@ -41,6 +41,8 @@ const (
 	DEFAULT_KUSTOMIZATION_WAIT_TOTAL_TIMEOUT = 10 * time.Minute
 	// Poll interval for CLI WaitForKustomizations
 	DEFAULT_KUSTOMIZATION_WAIT_POLL_INTERVAL = 5 * time.Second
+	// Maximum number of consecutive failures before giving up
+	DEFAULT_KUSTOMIZATION_WAIT_MAX_FAILURES = 5
 )
 
 // Default AWS settings
