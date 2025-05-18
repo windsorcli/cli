@@ -4050,7 +4050,8 @@ func TestBaseBlueprintHandler_WaitForKustomizations(t *testing.T) {
 		err := handler.WaitForKustomizations()
 
 		// Then a Git repository error should be returned with failure count
-		if err == nil || !strings.Contains(err.Error(), "after 3 consecutive failures") {
+		expectedMsg := fmt.Sprintf("after %d consecutive failures", constants.DEFAULT_KUSTOMIZATION_WAIT_MAX_FAILURES)
+		if err == nil || !strings.Contains(err.Error(), expectedMsg) {
 			t.Errorf("expected error with failure count, got %v", err)
 		}
 	})
@@ -4082,7 +4083,8 @@ func TestBaseBlueprintHandler_WaitForKustomizations(t *testing.T) {
 		err := handler.WaitForKustomizations()
 
 		// Then a kustomization error should be returned with failure count
-		if err == nil || !strings.Contains(err.Error(), "after 3 consecutive failures") {
+		expectedMsg := fmt.Sprintf("after %d consecutive failures", constants.DEFAULT_KUSTOMIZATION_WAIT_MAX_FAILURES)
+		if err == nil || !strings.Contains(err.Error(), expectedMsg) {
 			t.Errorf("expected error with failure count, got %v", err)
 		}
 	})
