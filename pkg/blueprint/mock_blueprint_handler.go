@@ -21,6 +21,7 @@ type MockBlueprintHandler struct {
 	InstallFunc                func() error
 	GetRepositoryFunc          func() blueprintv1alpha1.Repository
 	SetRepositoryFunc          func(repository blueprintv1alpha1.Repository) error
+	WaitForKustomizationsFunc  func() error
 }
 
 // =============================================================================
@@ -148,6 +149,14 @@ func (m *MockBlueprintHandler) GetRepository() blueprintv1alpha1.Repository {
 func (m *MockBlueprintHandler) SetRepository(repository blueprintv1alpha1.Repository) error {
 	if m.SetRepositoryFunc != nil {
 		return m.SetRepositoryFunc(repository)
+	}
+	return nil
+}
+
+// WaitForKustomizations calls the mock WaitForKustomizationsFunc if set, otherwise returns nil
+func (m *MockBlueprintHandler) WaitForKustomizations() error {
+	if m.WaitForKustomizationsFunc != nil {
+		return m.WaitForKustomizationsFunc()
 	}
 	return nil
 }

@@ -487,6 +487,7 @@ func TestTerraformEnv_Print(t *testing.T) {
 				filepath.Join(configRoot, "terraform/project/path.tfvars"),
 				filepath.Join(configRoot, "terraform/project/path.tfvars.json")),
 			"TF_VAR_context_path": configRoot,
+			"TF_VAR_context_id":   "",
 			"TF_VAR_os_type":      expectedOSType,
 		}
 
@@ -773,6 +774,33 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 		}
 	})
 
+	t.Run("AzureRMBackend", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with AzureRM backend configuration
+		printer, mocks := setup(t)
+		mocks.ConfigHandler.SetContextValue("terraform.backend.type", "azurerm")
+
+		var writtenData []byte
+		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
+			writtenData = data
+			return nil
+		}
+
+		// When generateBackendOverrideTf is called
+		err := printer.generateBackendOverrideTf()
+
+		// Then no error should occur and the expected backend config should be written
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		expectedContent := `terraform {
+  backend "azurerm" {}
+}`
+		if string(writtenData) != expectedContent {
+			t.Errorf("Expected backend config %q, got %q", expectedContent, string(writtenData))
+		}
+	})
+
 	t.Run("UnsupportedBackend", func(t *testing.T) {
 		// Given a TerraformEnvPrinter with unsupported backend configuration
 		printer, mocks := setup(t)
@@ -803,6 +831,112 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 		// Then no error should occur
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("NoneBackend", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with "none" backend configuration
+		printer, mocks := setup(t)
+		mocks.ConfigHandler.SetContextValue("terraform.backend.type", "none")
+
+		// Mock Stat and Remove to verify file deletion
+		fileExists := true
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "backend_override.tf") {
+				if fileExists {
+					return nil, nil
+				}
+				return nil, os.ErrNotExist
+			}
+			return nil, os.ErrNotExist
+		}
+
+		var fileRemoved bool
+		mocks.Shims.Remove = func(name string) error {
+			if strings.Contains(name, "backend_override.tf") {
+				fileRemoved = true
+				fileExists = false
+				return nil
+			}
+			return nil
+		}
+
+		// When generateBackendOverrideTf is called
+		err := printer.generateBackendOverrideTf()
+
+		// Then no error should occur and the file should be removed
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !fileRemoved {
+			t.Error("Expected backend_override.tf to be removed")
+		}
+	})
+
+	t.Run("NoneBackendFileNotExists", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with "none" backend configuration and no existing file
+		printer, mocks := setup(t)
+		mocks.ConfigHandler.SetContextValue("terraform.backend.type", "none")
+
+		// Mock Stat to return file not exists
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "backend_override.tf") {
+				return nil, os.ErrNotExist
+			}
+			return nil, os.ErrNotExist
+		}
+
+		var fileRemoved bool
+		mocks.Shims.Remove = func(name string) error {
+			if strings.Contains(name, "backend_override.tf") {
+				fileRemoved = true
+				return nil
+			}
+			return nil
+		}
+
+		// When generateBackendOverrideTf is called
+		err := printer.generateBackendOverrideTf()
+
+		// Then no error should occur and Remove should not be called
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if fileRemoved {
+			t.Error("Expected Remove to not be called when file doesn't exist")
+		}
+	})
+
+	t.Run("NoneBackendRemoveError", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with "none" backend configuration and failing Remove
+		printer, mocks := setup(t)
+		mocks.ConfigHandler.SetContextValue("terraform.backend.type", "none")
+
+		// Mock Stat to return file exists
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "backend_override.tf") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock Remove to return error
+		mocks.Shims.Remove = func(name string) error {
+			if strings.Contains(name, "backend_override.tf") {
+				return fmt.Errorf("mock error removing file")
+			}
+			return nil
+		}
+
+		// When generateBackendOverrideTf is called
+		err := printer.generateBackendOverrideTf()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error removing backend_override.tf") {
+			t.Errorf("Expected error message to contain 'error removing backend_override.tf', got %v", err)
 		}
 	})
 }
@@ -1009,6 +1143,37 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 
 		expectedArgs := []string{
 			`-backend-config="path=/mock/config/root/.tfstate/project/path/terraform.tfstate"`,
+		}
+
+		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
+			t.Errorf("expected %v, got %v", expectedArgs, backendConfigArgs)
+		}
+	})
+
+	t.Run("AzureRMBackendWithPrefix", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with AzureRM backend and prefix configuration
+		printer, mocks := setup(t)
+		mocks.ConfigHandler.SetContextValue("terraform.backend.type", "azurerm")
+		mocks.ConfigHandler.SetContextValue("terraform.backend.prefix", "mock-prefix/")
+		mocks.ConfigHandler.SetContextValue("terraform.backend.azurerm.storage_account_name", "mock-storage")
+		mocks.ConfigHandler.SetContextValue("terraform.backend.azurerm.container_name", "mock-container")
+		mocks.ConfigHandler.SetContextValue("terraform.backend.azurerm.use_azuread", true)
+		projectPath := "project/path"
+		configRoot := "/mock/config/root"
+
+		// When generateBackendConfigArgs is called
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+
+		// Then no error should occur and the expected arguments should be returned
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		expectedArgs := []string{
+			`-backend-config="key=mock-prefix/project/path/terraform.tfstate"`,
+			`-backend-config="container_name=mock-container"`,
+			`-backend-config="storage_account_name=mock-storage"`,
+			`-backend-config="use_azuread=true"`,
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {

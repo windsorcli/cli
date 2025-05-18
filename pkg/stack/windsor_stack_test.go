@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 )
@@ -330,4 +331,228 @@ func TestWindsorStack_Up(t *testing.T) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
 		}
 	})
+}
+
+func TestWindsorStack_Down(t *testing.T) {
+	setup := func(t *testing.T) (*WindsorStack, *Mocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewWindsorStack(mocks.Injector)
+		stack.shims = mocks.Shims
+		if err := stack.Initialize(); err != nil {
+			t.Fatalf("Expected no error during initialization, got %v", err)
+		}
+
+		// Set up default components for the blueprint handler
+		mocks.Blueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Source:   "source1",
+					Path:     "module/path1",
+					FullPath: filepath.Join(os.Getenv("WINDSOR_PROJECT_ROOT"), ".windsor", ".tf_modules", "remote", "path"),
+				},
+			}
+		}
+
+		return stack, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		stack, _ := setup(t)
+
+		// And when the stack is brought down
+		if err := stack.Down(); err != nil {
+			// Then no error should occur
+			t.Errorf("Expected Down to return nil, got %v", err)
+		}
+	})
+
+	t.Run("ErrorGettingCurrentDirectory", func(t *testing.T) {
+		stack, mocks := setup(t)
+		mocks.Shims.Getwd = func() (string, error) {
+			return "", fmt.Errorf("mock error getting current directory")
+		}
+
+		// And when Down is called
+		err := stack.Down()
+		// Then the expected error is contained in err
+		expectedError := "error getting current directory"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorCheckingDirectoryExists", func(t *testing.T) {
+		stack, mocks := setup(t)
+		mocks.Shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		// And when Down is called
+		err := stack.Down()
+		if err == nil {
+			t.Fatalf("Expected an error, but got nil")
+		}
+
+		// Then the expected error is contained in err
+		expectedError := "directory"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorChangingDirectory", func(t *testing.T) {
+		stack, mocks := setup(t)
+		mocks.Shims.Chdir = func(_ string) error {
+			return fmt.Errorf("mock error changing directory")
+		}
+
+		// And when Down is called
+		err := stack.Down()
+		// Then the expected error is contained in err
+		expectedError := "error changing to directory"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorGettingEnvVars", func(t *testing.T) {
+		stack, mocks := setup(t)
+		mocks.EnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return nil, fmt.Errorf("mock error getting environment variables")
+		}
+
+		// And when Down is called
+		err := stack.Down()
+		// Then the expected error is contained in err
+		expectedError := "error getting environment variables"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorSettingEnvVars", func(t *testing.T) {
+		stack, mocks := setup(t)
+		mocks.Shims.Setenv = func(_ string, _ string) error {
+			return fmt.Errorf("mock error setting environment variable")
+		}
+
+		// And when Down is called
+		err := stack.Down()
+		// Then the expected error is contained in err
+		expectedError := "error setting environment variable"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorRunningPostEnvHook", func(t *testing.T) {
+		stack, mocks := setup(t)
+		mocks.EnvPrinter.PostEnvHookFunc = func() error {
+			return fmt.Errorf("mock error running post environment hook")
+		}
+
+		// And when Down is called
+		err := stack.Down()
+		// Then the expected error is contained in err
+		expectedError := "error running post environment hook"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorRunningTerraformInit", func(t *testing.T) {
+		stack, mocks := setup(t)
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 0 && args[0] == "init" {
+				return "", fmt.Errorf("mock error running terraform init")
+			}
+			return "", nil
+		}
+
+		// And when Down is called
+		err := stack.Down()
+		// Then the expected error is contained in err
+		expectedError := "error initializing Terraform"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorRunningTerraformPlanDestroy", func(t *testing.T) {
+		stack, mocks := setup(t)
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 0 && args[0] == "plan" && len(args) > 1 && args[1] == "-destroy" {
+				return "", fmt.Errorf("mock error running terraform plan -destroy")
+			}
+			return "", nil
+		}
+
+		// And when Down is called
+		err := stack.Down()
+		// Then the expected error is contained in err
+		expectedError := "error planning Terraform destruction"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorRunningTerraformDestroy", func(t *testing.T) {
+		stack, mocks := setup(t)
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 0 && args[0] == "destroy" {
+				return "", fmt.Errorf("mock error running terraform destroy")
+			}
+			return "", nil
+		}
+
+		// And when Down is called
+		err := stack.Down()
+		// Then the expected error is contained in err
+		expectedError := "error destroying Terraform resources"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorRemovingBackendOverride", func(t *testing.T) {
+		stack, mocks := setup(t)
+		mocks.Shims.Remove = func(_ string) error {
+			return fmt.Errorf("mock error removing backend override")
+		}
+
+		// And when Down is called
+		err := stack.Down()
+		// Then the expected error is contained in err
+		expectedError := "error removing backend_override.tf"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("SkipComponentWithDestroyFalse", func(t *testing.T) {
+		stack, mocks := setup(t)
+		mocks.Blueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Source:   "source1",
+					Path:     "module/path1",
+					FullPath: filepath.Join(os.Getenv("WINDSOR_PROJECT_ROOT"), ".windsor", ".tf_modules", "remote", "path"),
+					Destroy:  ptrBool(false),
+				},
+			}
+		}
+
+		// And when Down is called
+		err := stack.Down()
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected Down to return nil, got %v", err)
+		}
+	})
+}
+
+// Helper functions to create pointers for basic types
+func ptrBool(b bool) *bool {
+	return &b
 }

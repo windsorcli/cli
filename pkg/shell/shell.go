@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"time"
 
@@ -261,12 +262,15 @@ func (s *DefaultShell) ExecProgress(message string, command string, args ...stri
 
 	var stdoutBuf, stderrBuf bytes.Buffer
 	errChan := make(chan error, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
 
 	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
 	spin.Suffix = " " + message
 	spin.Start()
 
 	go func() {
+		defer wg.Done()
 		scanner := s.shims.NewScanner(stdoutPipe)
 		if scanner == nil {
 			errChan <- fmt.Errorf("failed to create stdout scanner")
@@ -278,7 +282,7 @@ func (s *DefaultShell) ExecProgress(message string, command string, args ...stri
 				stdoutBuf.WriteString(line + "\n")
 			}
 		}
-		if err := s.shims.ScannerErr(scanner); err != nil {
+		if err := s.shims.ScannerErr(scanner); err != nil && err != io.EOF && !isClosedPipe(err) {
 			errChan <- fmt.Errorf("error reading stdout: %w", err)
 			return
 		}
@@ -286,6 +290,7 @@ func (s *DefaultShell) ExecProgress(message string, command string, args ...stri
 	}()
 
 	go func() {
+		defer wg.Done()
 		scanner := s.shims.NewScanner(stderrPipe)
 		if scanner == nil {
 			errChan <- fmt.Errorf("failed to create stderr scanner")
@@ -297,27 +302,32 @@ func (s *DefaultShell) ExecProgress(message string, command string, args ...stri
 				stderrBuf.WriteString(line + "\n")
 			}
 		}
-		if err := s.shims.ScannerErr(scanner); err != nil {
+		if err := s.shims.ScannerErr(scanner); err != nil && err != io.EOF && !isClosedPipe(err) {
 			errChan <- fmt.Errorf("error reading stderr: %w", err)
 			return
 		}
 		errChan <- nil
 	}()
 
-	cmdErr := s.shims.CmdWait(cmd)
+	wg.Wait()
+	spin.Stop()
 
-	for range make([]int, 2) {
-		if err := <-errChan; err != nil {
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n%s", message, stderrBuf.String())
-			return stdoutBuf.String(), err
+	var firstErr error
+	for range [2]struct{}{} {
+		err := <-errChan
+		if err != nil && firstErr == nil {
+			firstErr = err
 		}
 	}
 
-	spin.Stop()
-	if cmdErr != nil {
-		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n%s", message, stderrBuf.String())
-		return stdoutBuf.String(), fmt.Errorf("command execution failed: %w", cmdErr)
+	cmdErr := s.shims.CmdWait(cmd)
+
+	if firstErr != nil || cmdErr != nil {
+		fmt.Fprintf(os.Stderr, "\n[ExecProgress ERROR]\nCommand: %s %v\nStdout:\n%s\nStderr:\n%s\nError: %v\n", command, args, stdoutBuf.String(), stderrBuf.String(), firstErr)
+		if cmdErr != nil {
+			return stdoutBuf.String(), fmt.Errorf("command execution failed: %w", cmdErr)
+		}
+		return stdoutBuf.String(), firstErr
 	}
 
 	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
@@ -605,3 +615,12 @@ func (s *DefaultShell) ResetSessionToken() {
 
 // Ensure DefaultShell implements the Shell interface
 var _ Shell = (*DefaultShell)(nil)
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+// isClosedPipe returns true if the error is an io.ErrClosedPipe or equivalent
+func isClosedPipe(err error) bool {
+	return err != nil && (err == io.ErrClosedPipe || strings.Contains(err.Error(), "file already closed") || strings.Contains(err.Error(), "use of closed file"))
+}

@@ -2,6 +2,7 @@ package v1alpha1
 
 import (
 	"github.com/windsorcli/cli/api/v1alpha1/aws"
+	"github.com/windsorcli/cli/api/v1alpha1/azure"
 	"github.com/windsorcli/cli/api/v1alpha1/cluster"
 	"github.com/windsorcli/cli/api/v1alpha1/dns"
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
@@ -21,11 +22,13 @@ type Config struct {
 
 // Context represents the context configuration
 type Context struct {
+	ID          *string                    `yaml:"id,omitempty"`
 	ProjectName *string                    `yaml:"projectName,omitempty"`
 	Blueprint   *string                    `yaml:"blueprint,omitempty"`
 	Environment map[string]string          `yaml:"environment,omitempty"`
 	Secrets     *secrets.SecretsConfig     `yaml:"secrets,omitempty"`
 	AWS         *aws.AWSConfig             `yaml:"aws,omitempty"`
+	Azure       *azure.AzureConfig         `yaml:"azure,omitempty"`
 	Docker      *docker.DockerConfig       `yaml:"docker,omitempty"`
 	Git         *git.GitConfig             `yaml:"git,omitempty"`
 	Terraform   *terraform.TerraformConfig `yaml:"terraform,omitempty"`
@@ -39,6 +42,9 @@ type Context struct {
 func (base *Context) Merge(overlay *Context) {
 	if overlay == nil {
 		return
+	}
+	if overlay.ID != nil {
+		base.ID = overlay.ID
 	}
 	if overlay.ProjectName != nil {
 		base.ProjectName = overlay.ProjectName
@@ -62,6 +68,12 @@ func (base *Context) Merge(overlay *Context) {
 			base.AWS = &aws.AWSConfig{}
 		}
 		base.AWS.Merge(overlay.AWS)
+	}
+	if overlay.Azure != nil {
+		if base.Azure == nil {
+			base.Azure = &azure.AzureConfig{}
+		}
+		base.Azure.Merge(overlay.Azure)
 	}
 	if overlay.Docker != nil {
 		if base.Docker == nil {
@@ -123,11 +135,13 @@ func (c *Context) DeepCopy() *Context {
 		}
 	}
 	return &Context{
+		ID:          c.ID,
 		ProjectName: c.ProjectName,
 		Blueprint:   c.Blueprint,
 		Environment: environmentCopy,
 		Secrets:     c.Secrets.Copy(),
 		AWS:         c.AWS.Copy(),
+		Azure:       c.Azure.Copy(),
 		Docker:      c.Docker.Copy(),
 		Git:         c.Git.Copy(),
 		Terraform:   c.Terraform.Copy(),

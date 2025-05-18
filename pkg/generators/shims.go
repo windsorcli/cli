@@ -22,6 +22,11 @@ type Shims struct {
 	MkdirAll    func(path string, perm os.FileMode) error
 	Stat        func(name string) (os.FileInfo, error)
 	MarshalYAML func(v any) ([]byte, error)
+	TempDir     func(dir, pattern string) (string, error)
+	RemoveAll   func(path string) error
+	Chdir       func(dir string) error
+	ReadDir     func(name string) ([]os.DirEntry, error)
+	Setenv      func(key, value string) error
 }
 
 // =============================================================================
@@ -36,5 +41,10 @@ func NewShims() *Shims {
 		MkdirAll:    os.MkdirAll,
 		Stat:        os.Stat,
 		MarshalYAML: yaml.Marshal,
+		TempDir:     os.MkdirTemp,
+		RemoveAll:   os.RemoveAll,
+		Chdir:       os.Chdir,
+		ReadDir:     os.ReadDir,
+		Setenv:      os.Setenv,
 	}
 }

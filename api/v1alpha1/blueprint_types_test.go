@@ -4,8 +4,6 @@ import (
 	"reflect"
 	"sort"
 	"testing"
-
-	"github.com/fluxcd/pkg/apis/kustomize"
 )
 
 func TestBlueprint_Merge(t *testing.T) {
@@ -36,13 +34,11 @@ func TestBlueprint_Merge(t *testing.T) {
 			},
 			TerraformComponents: []TerraformComponent{
 				{
-					Source: "source1",
-					Path:   "module/path1",
-					Variables: map[string]TerraformVariable{
-						"var1": {Default: "default1"},
-					},
+					Source:   "source1",
+					Path:     "module/path1",
 					Values:   map[string]any{"key1": "value1"},
 					FullPath: "original/full/path",
+					Destroy:  ptrBool(true),
 				},
 			},
 			Kustomizations: []Kustomization{
@@ -84,22 +80,18 @@ func TestBlueprint_Merge(t *testing.T) {
 			},
 			TerraformComponents: []TerraformComponent{
 				{
-					Source: "source1",
-					Path:   "module/path1",
-					Variables: map[string]TerraformVariable{
-						"var2": {Default: "default2"},
-					},
+					Source:   "source1",
+					Path:     "module/path1",
 					Values:   map[string]any{"key2": "value2"},
 					FullPath: "updated/full/path",
+					Destroy:  ptrBool(false),
 				},
 				{
-					Source: "source2",
-					Path:   "module/path2",
-					Variables: map[string]TerraformVariable{
-						"var3": {Default: "default3"},
-					},
+					Source:   "source2",
+					Path:     "module/path2",
 					Values:   map[string]any{"key3": "value3"},
 					FullPath: "new/full/path",
+					Destroy:  ptrBool(true),
 				},
 			},
 			Kustomizations: []Kustomization{
@@ -172,24 +164,25 @@ func TestBlueprint_Merge(t *testing.T) {
 		})
 
 		component1 := dst.TerraformComponents[0]
-		if len(component1.Variables) != 2 || component1.Variables["var1"].Default != "default1" || component1.Variables["var2"].Default != "default2" {
-			t.Errorf("Expected Variables to contain ['var1', 'var2'], but got %v", component1.Variables)
-		}
 		if component1.Values == nil || len(component1.Values) != 2 || component1.Values["key1"] != "value1" || component1.Values["key2"] != "value2" {
 			t.Errorf("Expected Values to contain both 'key1' and 'key2', but got %v", component1.Values)
 		}
 		if component1.FullPath != "updated/full/path" {
 			t.Errorf("Expected FullPath to be 'updated/full/path', but got '%s'", component1.FullPath)
 		}
-		component2 := dst.TerraformComponents[1]
-		if len(component2.Variables) != 1 || component2.Variables["var3"].Default != "default3" {
-			t.Errorf("Expected Variables to be ['var3'], but got %v", component2.Variables)
+		if component1.Destroy == nil || *component1.Destroy != false {
+			t.Errorf("Expected Destroy to be false, but got %v", component1.Destroy)
 		}
+
+		component2 := dst.TerraformComponents[1]
 		if component2.Values == nil || len(component2.Values) != 1 || component2.Values["key3"] != "value3" {
 			t.Errorf("Expected Values to contain 'key3', but got %v", component2.Values)
 		}
 		if component2.FullPath != "new/full/path" {
 			t.Errorf("Expected FullPath to be 'new/full/path', but got '%s'", component2.FullPath)
+		}
+		if component2.Destroy == nil || *component2.Destroy != true {
+			t.Errorf("Expected Destroy to be true, but got %v", component2.Destroy)
 		}
 
 		if len(dst.Kustomizations) != 1 {
@@ -223,11 +216,11 @@ func TestBlueprint_Merge(t *testing.T) {
 			ApiVersion: "v1alpha1",
 			TerraformComponents: []TerraformComponent{
 				{
-					Source:    "source1",
-					Path:      "module/path1",
-					Variables: nil, // Initialize with nil
-					Values:    nil, // Initialize with nil
-					FullPath:  "original/full/path",
+					Source:   "source1",
+					Path:     "module/path1",
+					Values:   nil, // Initialize with nil
+					FullPath: "original/full/path",
+					Destroy:  ptrBool(true),
 				},
 			},
 		}
@@ -237,13 +230,11 @@ func TestBlueprint_Merge(t *testing.T) {
 				{
 					Source: "source1",
 					Path:   "module/path1",
-					Variables: map[string]TerraformVariable{
-						"var1": {Default: "default1"},
-					},
 					Values: map[string]any{
 						"key1": "value1",
 					},
 					FullPath: "overlay/full/path",
+					Destroy:  ptrBool(false),
 				},
 			},
 		}
@@ -255,14 +246,14 @@ func TestBlueprint_Merge(t *testing.T) {
 		}
 
 		component := dst.TerraformComponents[0]
-		if len(component.Variables) != 1 || component.Variables["var1"].Default != "default1" {
-			t.Errorf("Expected Variables to contain ['var1'], but got %v", component.Variables)
-		}
 		if component.Values == nil || len(component.Values) != 1 || component.Values["key1"] != "value1" {
 			t.Errorf("Expected Values to contain 'key1', but got %v", component.Values)
 		}
 		if component.FullPath != "overlay/full/path" {
 			t.Errorf("Expected FullPath to be 'overlay/full/path', but got '%s'", component.FullPath)
+		}
+		if component.Destroy == nil || *component.Destroy != false {
+			t.Errorf("Expected Destroy to be false, but got %v", component.Destroy)
 		}
 	})
 
@@ -270,10 +261,378 @@ func TestBlueprint_Merge(t *testing.T) {
 		dst := &Blueprint{
 			Kind:       "Blueprint",
 			ApiVersion: "v1alpha1",
+			TerraformComponents: []TerraformComponent{
+				{
+					Source:   "source1",
+					Path:     "module/path1",
+					Values:   map[string]any{"key1": "value1"},
+					FullPath: "original/full/path",
+					Destroy:  ptrBool(true),
+				},
+			},
+		}
+
+		dst.Merge(nil)
+
+		if len(dst.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 TerraformComponent, but got %d", len(dst.TerraformComponents))
+		}
+
+		component := dst.TerraformComponents[0]
+		if component.Values == nil || len(component.Values) != 1 || component.Values["key1"] != "value1" {
+			t.Errorf("Expected Values to contain 'key1', but got %v", component.Values)
+		}
+		if component.FullPath != "original/full/path" {
+			t.Errorf("Expected FullPath to be 'original/full/path', but got '%s'", component.FullPath)
+		}
+		if component.Destroy == nil || *component.Destroy != true {
+			t.Errorf("Expected Destroy to be true, but got %v", component.Destroy)
+		}
+	})
+
+	t.Run("DestroyFieldMerge", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			dst      *bool
+			overlay  *bool
+			expected *bool
+		}{
+			{
+				name:     "BothNil",
+				dst:      nil,
+				overlay:  nil,
+				expected: nil,
+			},
+			{
+				name:     "DstNilOverlayTrue",
+				dst:      nil,
+				overlay:  ptrBool(true),
+				expected: ptrBool(true),
+			},
+			{
+				name:     "DstNilOverlayFalse",
+				dst:      nil,
+				overlay:  ptrBool(false),
+				expected: ptrBool(false),
+			},
+			{
+				name:     "DstTrueOverlayNil",
+				dst:      ptrBool(true),
+				overlay:  nil,
+				expected: ptrBool(true),
+			},
+			{
+				name:     "DstFalseOverlayNil",
+				dst:      ptrBool(false),
+				overlay:  nil,
+				expected: ptrBool(false),
+			},
+			{
+				name:     "DstTrueOverlayTrue",
+				dst:      ptrBool(true),
+				overlay:  ptrBool(true),
+				expected: ptrBool(true),
+			},
+			{
+				name:     "DstTrueOverlayFalse",
+				dst:      ptrBool(true),
+				overlay:  ptrBool(false),
+				expected: ptrBool(false),
+			},
+			{
+				name:     "DstFalseOverlayTrue",
+				dst:      ptrBool(false),
+				overlay:  ptrBool(true),
+				expected: ptrBool(true),
+			},
+			{
+				name:     "DstFalseOverlayFalse",
+				dst:      ptrBool(false),
+				overlay:  ptrBool(false),
+				expected: ptrBool(false),
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				dst := &Blueprint{
+					TerraformComponents: []TerraformComponent{
+						{
+							Source:  "source1",
+							Path:    "module/path1",
+							Destroy: tt.dst,
+						},
+					},
+				}
+
+				overlay := &Blueprint{
+					TerraformComponents: []TerraformComponent{
+						{
+							Source:  "source1",
+							Path:    "module/path1",
+							Destroy: tt.overlay,
+						},
+					},
+				}
+
+				dst.Merge(overlay)
+
+				if len(dst.TerraformComponents) != 1 {
+					t.Fatalf("Expected 1 TerraformComponent, but got %d", len(dst.TerraformComponents))
+				}
+
+				component := dst.TerraformComponents[0]
+				if tt.expected == nil {
+					if component.Destroy != nil {
+						t.Errorf("Expected Destroy to be nil, but got %v", component.Destroy)
+					}
+				} else {
+					if component.Destroy == nil {
+						t.Errorf("Expected Destroy to be %v, but got nil", *tt.expected)
+					} else if *component.Destroy != *tt.expected {
+						t.Errorf("Expected Destroy to be %v, but got %v", *tt.expected, *component.Destroy)
+					}
+				}
+			})
+		}
+	})
+
+	t.Run("OverlayComponentWithDifferentSource", func(t *testing.T) {
+		base := &Blueprint{
+			TerraformComponents: []TerraformComponent{{Path: "mod", Source: "A"}},
+		}
+		overlay := &Blueprint{
+			TerraformComponents: []TerraformComponent{{Path: "mod", Source: "B"}},
+		}
+		base.Merge(overlay)
+		if len(base.TerraformComponents) != 1 || base.TerraformComponents[0].Source != "B" {
+			t.Errorf("expected overlay component with Source B, got %v", base.TerraformComponents)
+		}
+	})
+
+	t.Run("OverlayComponentWithNewPath", func(t *testing.T) {
+		base := &Blueprint{
+			TerraformComponents: []TerraformComponent{{Path: "mod1", Source: "A"}},
+		}
+		overlay := &Blueprint{
+			TerraformComponents: []TerraformComponent{{Path: "mod2", Source: "B"}},
+		}
+		base.Merge(overlay)
+		if len(base.TerraformComponents) != 1 || base.TerraformComponents[0].Path != "mod2" {
+			t.Errorf("expected overlay component with Path mod2, got %v", base.TerraformComponents)
+		}
+	})
+
+	t.Run("OverlaySourceWithNewName", func(t *testing.T) {
+		base := &Blueprint{
+			Sources: []Source{{Name: "A", Url: "urlA"}},
+		}
+		overlay := &Blueprint{
+			Sources: []Source{{Name: "B", Url: "urlB"}},
+		}
+		base.Merge(overlay)
+		foundB := false
+		for _, s := range base.Sources {
+			if s.Name == "B" && s.Url == "urlB" {
+				foundB = true
+			}
+		}
+		if !foundB {
+			t.Errorf("expected overlay source with Name B, got %v", base.Sources)
+		}
+	})
+
+	t.Run("OverlayRepositoryRefFirstNonEmptyField", func(t *testing.T) {
+		cases := []struct {
+			name  string
+			ref   Reference
+			check func(t *testing.T, ref Reference)
+		}{
+			{
+				name: "Commit",
+				ref:  Reference{Commit: "abc123", Name: "v1", SemVer: "1.0.0", Tag: "v1.0.0", Branch: "develop"},
+				check: func(t *testing.T, ref Reference) {
+					if ref.Commit != "abc123" {
+						t.Errorf("Commit not set")
+					}
+					if ref.Name != "" {
+						t.Errorf("Name should be empty")
+					}
+					if ref.SemVer != "" {
+						t.Errorf("SemVer should be empty")
+					}
+					if ref.Tag != "" {
+						t.Errorf("Tag should be empty")
+					}
+					if ref.Branch != "main" {
+						t.Errorf("Branch should remain 'main'")
+					}
+				},
+			},
+			{
+				name: "Name",
+				ref:  Reference{Name: "v1", SemVer: "1.0.0", Tag: "v1.0.0", Branch: "develop"},
+				check: func(t *testing.T, ref Reference) {
+					if ref.Commit != "" {
+						t.Errorf("Commit should be empty")
+					}
+					if ref.Name != "v1" {
+						t.Errorf("Name not set")
+					}
+					if ref.SemVer != "" {
+						t.Errorf("SemVer should be empty")
+					}
+					if ref.Tag != "" {
+						t.Errorf("Tag should be empty")
+					}
+					if ref.Branch != "main" {
+						t.Errorf("Branch should remain 'main'")
+					}
+				},
+			},
+			{
+				name: "SemVer",
+				ref:  Reference{SemVer: "1.0.0", Tag: "v1.0.0", Branch: "develop"},
+				check: func(t *testing.T, ref Reference) {
+					if ref.Commit != "" {
+						t.Errorf("Commit should be empty")
+					}
+					if ref.Name != "" {
+						t.Errorf("Name should be empty")
+					}
+					if ref.SemVer != "1.0.0" {
+						t.Errorf("SemVer not set")
+					}
+					if ref.Tag != "" {
+						t.Errorf("Tag should be empty")
+					}
+					if ref.Branch != "main" {
+						t.Errorf("Branch should remain 'main'")
+					}
+				},
+			},
+			{
+				name: "Tag",
+				ref:  Reference{Tag: "v1.0.0", Branch: "develop"},
+				check: func(t *testing.T, ref Reference) {
+					if ref.Commit != "" {
+						t.Errorf("Commit should be empty")
+					}
+					if ref.Name != "" {
+						t.Errorf("Name should be empty")
+					}
+					if ref.SemVer != "" {
+						t.Errorf("SemVer should be empty")
+					}
+					if ref.Tag != "v1.0.0" {
+						t.Errorf("Tag not set")
+					}
+					if ref.Branch != "main" {
+						t.Errorf("Branch should remain 'main'")
+					}
+				},
+			},
+			{
+				name: "Branch",
+				ref:  Reference{Branch: "develop"},
+				check: func(t *testing.T, ref Reference) {
+					if ref.Commit != "" {
+						t.Errorf("Commit should be empty")
+					}
+					if ref.Name != "" {
+						t.Errorf("Name should be empty")
+					}
+					if ref.SemVer != "" {
+						t.Errorf("SemVer should be empty")
+					}
+					if ref.Tag != "" {
+						t.Errorf("Tag should be empty")
+					}
+					if ref.Branch != "develop" {
+						t.Errorf("Branch not set")
+					}
+				},
+			},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				base := &Blueprint{
+					Repository: Repository{
+						Ref: Reference{Branch: "main"},
+					},
+				}
+				overlay := &Blueprint{
+					Repository: Repository{Ref: tc.ref},
+				}
+				base.Merge(overlay)
+				tc.check(t, base.Repository.Ref)
+			})
+		}
+	})
+
+	t.Run("OverlayWithRepositoryRefFields", func(t *testing.T) {
+		base := &Blueprint{
+			Repository: Repository{
+				Ref: Reference{
+					Branch: "main",
+				},
+			},
+		}
+		overlay := &Blueprint{
+			Repository: Repository{
+				Ref: Reference{
+					Name:   "v1",
+					SemVer: "1.0.0",
+					Tag:    "v1.0.0",
+					Branch: "develop",
+				},
+			},
+		}
+		base.Merge(overlay)
+		if base.Repository.Ref.Commit != "" {
+			t.Errorf("Expected Repository.Ref.Commit to be '', but got '%s'", base.Repository.Ref.Commit)
+		}
+		if base.Repository.Ref.Name != "v1" {
+			t.Errorf("Expected Repository.Ref.Name to be 'v1', but got '%s'", base.Repository.Ref.Name)
+		}
+		if base.Repository.Ref.SemVer != "" {
+			t.Errorf("Expected Repository.Ref.SemVer to be '', but got '%s'", base.Repository.Ref.SemVer)
+		}
+		if base.Repository.Ref.Tag != "" {
+			t.Errorf("Expected Repository.Ref.Tag to be '', but got '%s'", base.Repository.Ref.Tag)
+		}
+		if base.Repository.Ref.Branch != "main" {
+			t.Errorf("Expected Repository.Ref.Branch to remain 'main', but got '%s'", base.Repository.Ref.Branch)
+		}
+	})
+
+	t.Run("OverlayWithEmptyKustomizations", func(t *testing.T) {
+		base := &Blueprint{
+			Kustomizations: []Kustomization{{Name: "A"}},
+		}
+		overlay := &Blueprint{
+			Kustomizations: []Kustomization{{Name: "B"}},
+		}
+		base.Merge(overlay)
+		if len(base.Kustomizations) != 1 || base.Kustomizations[0].Name != "B" {
+			t.Errorf("expected overlay kustomization with Name B, got %v", base.Kustomizations)
+		}
+	})
+
+	t.Run("OverlayWithEmptyFields", func(t *testing.T) {
+		base := &Blueprint{
+			Kind:       "Blueprint",
+			ApiVersion: "v1alpha1",
 			Metadata: Metadata{
 				Name:        "original",
 				Description: "original description",
 				Authors:     []string{"author1"},
+			},
+			Repository: Repository{
+				Url: "http://example.com/repo1",
+				Ref: Reference{
+					Branch: "main",
+				},
 			},
 			Sources: []Source{
 				{
@@ -287,13 +646,11 @@ func TestBlueprint_Merge(t *testing.T) {
 			},
 			TerraformComponents: []TerraformComponent{
 				{
-					Source: "source1",
-					Path:   "path1",
-					Variables: map[string]TerraformVariable{
-						"var1": {Default: "default1"},
-					},
-					Values:   nil,
+					Source:   "source1",
+					Path:     "module/path1",
+					Values:   map[string]any{"key1": "value1"},
 					FullPath: "original/full/path",
+					Destroy:  ptrBool(true),
 				},
 			},
 			Kustomizations: []Kustomization{
@@ -302,6 +659,7 @@ func TestBlueprint_Merge(t *testing.T) {
 					Path:       "kustomize/path1",
 					Components: []string{"component1"},
 					PostBuild: &PostBuild{
+						Substitute: map[string]string{"key1": "value1"},
 						SubstituteFrom: []SubstituteReference{
 							{Kind: "ConfigMap", Name: "config1"},
 						},
@@ -309,591 +667,279 @@ func TestBlueprint_Merge(t *testing.T) {
 				},
 			},
 		}
-
-		dst.Merge(nil)
-
-		if dst.Metadata.Name != "original" {
-			t.Errorf("Expected Metadata.Name to remain 'original', but got '%s'", dst.Metadata.Name)
+		overlay := &Blueprint{}
+		base.Merge(overlay)
+		if base.Kind != "Blueprint" {
+			t.Errorf("Expected Kind to be 'Blueprint', but got '%s'", base.Kind)
 		}
-		if dst.Metadata.Description != "original description" {
-			t.Errorf("Expected Metadata.Description to remain 'original description', but got '%s'", dst.Metadata.Description)
+		if base.ApiVersion != "v1alpha1" {
+			t.Errorf("Expected ApiVersion to be 'v1alpha1', but got '%s'", base.ApiVersion)
 		}
-		if len(dst.Sources) != 1 || dst.Sources[0].Name != "source1" {
-			t.Errorf("Expected Sources to remain unchanged, but got %v", dst.Sources)
+		if base.Metadata.Name != "original" {
+			t.Errorf("Expected Metadata.Name to be 'original', but got '%s'", base.Metadata.Name)
 		}
-		if len(dst.TerraformComponents) != 1 || dst.TerraformComponents[0].Source != "source1" {
-			t.Errorf("Expected TerraformComponents to remain unchanged, but got %v", dst.TerraformComponents)
+		if base.Repository.Url != "http://example.com/repo1" {
+			t.Errorf("Expected Repository.Url to be 'http://example.com/repo1', but got '%s'", base.Repository.Url)
 		}
-		if len(dst.Kustomizations) != 1 || dst.Kustomizations[0].Name != "kustomization1" {
-			t.Errorf("Expected Kustomizations to remain unchanged, but got %v", dst.Kustomizations)
+		if base.Repository.Ref.Branch != "main" {
+			t.Errorf("Expected Repository.Ref.Branch to be 'main', but got '%s'", base.Repository.Ref.Branch)
+		}
+		if len(base.Sources) != 1 || base.Sources[0].Name != "source1" {
+			t.Errorf("Expected Sources to contain 'source1', but got %v", base.Sources)
+		}
+		if len(base.TerraformComponents) != 1 || base.TerraformComponents[0].Path != "module/path1" {
+			t.Errorf("Expected TerraformComponents to contain 'module/path1', but got %v", base.TerraformComponents)
+		}
+		if len(base.Kustomizations) != 1 || base.Kustomizations[0].Name != "kustomization1" {
+			t.Errorf("Expected Kustomizations to contain 'kustomization1', but got %v", base.Kustomizations)
 		}
 	})
 
-	t.Run("MatchingPathNotSource", func(t *testing.T) {
-		dst := &Blueprint{
+	t.Run("OverlayWithEmptySlices", func(t *testing.T) {
+		base := &Blueprint{
 			Kind:       "Blueprint",
 			ApiVersion: "v1alpha1",
+			Metadata: Metadata{
+				Name:        "original",
+				Description: "original description",
+				Authors:     []string{"author1"},
+			},
+			Repository: Repository{
+				Url: "http://example.com/repo1",
+				Ref: Reference{
+					Branch: "main",
+				},
+			},
+			Sources: []Source{
+				{
+					Name:       "source1",
+					Url:        "http://example.com/source1",
+					PathPrefix: "prefix1",
+					Ref: Reference{
+						Branch: "main",
+					},
+				},
+			},
 			TerraformComponents: []TerraformComponent{
 				{
-					Source: "source1",
-					Path:   "module/path1",
-					Variables: map[string]TerraformVariable{
-						"var1": {Default: "default1"},
-					},
-					Values: map[string]any{
-						"key1": "value1",
-					},
+					Source:   "source1",
+					Path:     "module/path1",
+					Values:   map[string]any{"key1": "value1"},
 					FullPath: "original/full/path",
+					Destroy:  ptrBool(true),
 				},
 			},
-		}
-
-		overlay := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+			Kustomizations: []Kustomization{
 				{
-					Source: "source2",      // Different source
-					Path:   "module/path1", // Same path
-					Variables: map[string]TerraformVariable{
-						"var2": {Default: "default2"},
+					Name:       "kustomization1",
+					Path:       "kustomize/path1",
+					Components: []string{"component1"},
+					PostBuild: &PostBuild{
+						Substitute: map[string]string{"key1": "value1"},
+						SubstituteFrom: []SubstituteReference{
+							{Kind: "ConfigMap", Name: "config1"},
+						},
 					},
-					Values: map[string]any{
-						"key2": "value2",
-					},
-					FullPath: "updated/full/path",
 				},
 			},
 		}
-
-		dst.Merge(overlay)
-
-		if len(dst.TerraformComponents) != 1 {
-			t.Fatalf("Expected 1 TerraformComponent, but got %d", len(dst.TerraformComponents))
+		overlay := &Blueprint{
+			Sources:             []Source{},
+			TerraformComponents: []TerraformComponent{},
+			Kustomizations:      []Kustomization{},
 		}
-
-		component := dst.TerraformComponents[0]
-		if component.Source != "source2" {
-			t.Errorf("Expected Source to be 'source2', but got '%s'", component.Source)
+		base.Merge(overlay)
+		if len(base.Sources) != 1 || base.Sources[0].Name != "source1" {
+			t.Errorf("Expected Sources to contain 'source1', but got %v", base.Sources)
 		}
-		if len(component.Variables) != 1 || component.Variables["var2"].Default != "default2" {
-			t.Errorf("Expected Variables to be ['var2'], but got %v", component.Variables)
+		if len(base.TerraformComponents) != 1 || base.TerraformComponents[0].Path != "module/path1" {
+			t.Errorf("Expected TerraformComponents to contain 'module/path1', but got %v", base.TerraformComponents)
 		}
-		if component.Values == nil || len(component.Values) != 1 || component.Values["key2"] != "value2" {
-			t.Errorf("Expected Values to contain 'key2', but got %v", component.Values)
-		}
-		if component.FullPath != "updated/full/path" {
-			t.Errorf("Expected FullPath to be 'updated/full/path', but got '%s'", component.FullPath)
+		if len(base.Kustomizations) != 1 || base.Kustomizations[0].Name != "kustomization1" {
+			t.Errorf("Expected Kustomizations to contain 'kustomization1', but got %v", base.Kustomizations)
 		}
 	})
 
-	t.Run("OverlayWithoutComponents", func(t *testing.T) {
-		dst := &Blueprint{
-			Kind:       "Blueprint",
-			ApiVersion: "v1alpha1",
-			TerraformComponents: []TerraformComponent{
-				{
-					Source: "source1",
-					Path:   "module/path1",
-					Variables: map[string]TerraformVariable{
-						"var1": {Default: "default1"},
-					},
-					Values: map[string]any{
-						"key1": "value1",
-					},
-					FullPath: "original/full/path",
+	t.Run("OverlayWithRepositoryRefFields", func(t *testing.T) {
+		base := &Blueprint{
+			Repository: Repository{
+				Ref: Reference{
+					Branch: "main",
 				},
 			},
 		}
-
 		overlay := &Blueprint{
-			TerraformComponents: []TerraformComponent{},
+			Repository: Repository{
+				Ref: Reference{
+					Commit: "abc123",
+					Name:   "v1",
+					SemVer: "1.0.0",
+					Tag:    "v1.0.0",
+					Branch: "develop",
+				},
+			},
 		}
-
-		dst.Merge(overlay)
-
-		if len(dst.TerraformComponents) != 1 {
-			t.Fatalf("Expected 1 TerraformComponent, but got %d", len(dst.TerraformComponents))
+		base.Merge(overlay)
+		if base.Repository.Ref.Commit != "abc123" {
+			t.Errorf("Expected Repository.Ref.Commit to be 'abc123', but got '%s'", base.Repository.Ref.Commit)
 		}
-
-		component := dst.TerraformComponents[0]
-		if component.Source != "source1" {
-			t.Errorf("Expected Source to be 'source1', but got '%s'", component.Source)
+		if base.Repository.Ref.Name != "" {
+			t.Errorf("Expected Repository.Ref.Name to be '', but got '%s'", base.Repository.Ref.Name)
 		}
-		if len(component.Variables) != 1 || component.Variables["var1"].Default != "default1" {
-			t.Errorf("Expected Variables to be ['var1'], but got %v", component.Variables)
+		if base.Repository.Ref.SemVer != "" {
+			t.Errorf("Expected Repository.Ref.SemVer to be '', but got '%s'", base.Repository.Ref.SemVer)
 		}
-		if component.Values == nil || len(component.Values) != 1 || component.Values["key1"] != "value1" {
-			t.Errorf("Expected Values to contain 'key1', but got %v", component.Values)
+		if base.Repository.Ref.Tag != "" {
+			t.Errorf("Expected Repository.Ref.Tag to be '', but got '%s'", base.Repository.Ref.Tag)
 		}
-		if component.FullPath != "original/full/path" {
-			t.Errorf("Expected FullPath to be 'original/full/path', but got '%s'", component.FullPath)
+		if base.Repository.Ref.Branch != "main" {
+			t.Errorf("Expected Repository.Ref.Branch to remain 'main', but got '%s'", base.Repository.Ref.Branch)
 		}
 	})
 
-	t.Run("EmptyDstWithOverlayComponents", func(t *testing.T) {
-		dst := &Blueprint{
-			Kind:                "Blueprint",
-			ApiVersion:          "v1alpha1",
-			TerraformComponents: []TerraformComponent{},
+	t.Run("OverlayWithEmptyRepositorySecretName", func(t *testing.T) {
+		base := &Blueprint{
+			Repository: Repository{
+				SecretName: "base-secret",
+			},
 		}
+		overlay := &Blueprint{
+			Repository: Repository{
+				SecretName: "",
+			},
+		}
+		base.Merge(overlay)
+		if base.Repository.SecretName != "base-secret" {
+			t.Errorf("Expected Repository.SecretName to be 'base-secret', but got '%s'", base.Repository.SecretName)
+		}
+	})
 
+	t.Run("OverlayWithEmptySourceName", func(t *testing.T) {
+		base := &Blueprint{
+			Sources: []Source{
+				{
+					Name:       "source1",
+					Url:        "http://example.com/source1",
+					PathPrefix: "prefix1",
+					Ref: Reference{
+						Branch: "main",
+					},
+				},
+			},
+		}
+		overlay := &Blueprint{
+			Sources: []Source{
+				{
+					Name:       "",
+					Url:        "http://example.com/source2",
+					PathPrefix: "prefix2",
+					Ref: Reference{
+						Branch: "feature",
+					},
+				},
+			},
+		}
+		base.Merge(overlay)
+		if len(base.Sources) != 1 || base.Sources[0].Name != "source1" {
+			t.Errorf("Expected Sources to contain 'source1', but got %v", base.Sources)
+		}
+	})
+
+	t.Run("OverlayWithNoMatchingTerraformComponent", func(t *testing.T) {
+		base := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{
+					Source:   "source1",
+					Path:     "module/path1",
+					Values:   map[string]any{"key1": "value1"},
+					FullPath: "original/full/path",
+					Destroy:  ptrBool(true),
+				},
+			},
+		}
 		overlay := &Blueprint{
 			TerraformComponents: []TerraformComponent{
 				{
-					Source: "source1",
-					Path:   "module/path1",
-					Variables: map[string]TerraformVariable{
-						"var1": {Default: "default1"},
-					},
-					Values: map[string]any{
-						"key1": "value1",
-					},
+					Source:   "source2",
+					Path:     "module/path2",
+					Values:   map[string]any{"key2": "value2"},
 					FullPath: "overlay/full/path",
+					Destroy:  ptrBool(false),
 				},
 			},
 		}
-
-		dst.Merge(overlay)
-
-		if len(dst.TerraformComponents) != 1 {
-			t.Fatalf("Expected 1 TerraformComponent, but got %d", len(dst.TerraformComponents))
-		}
-
-		component := dst.TerraformComponents[0]
-		if component.Source != "source1" {
-			t.Errorf("Expected Source to be 'source1', but got '%s'", component.Source)
-		}
-		if len(component.Variables) != 1 || component.Variables["var1"].Default != "default1" {
-			t.Errorf("Expected Variables to be ['var1'], but got %v", component.Variables)
-		}
-		if component.Values == nil || len(component.Values) != 1 || component.Values["key1"] != "value1" {
-			t.Errorf("Expected Values to contain 'key1', but got %v", component.Values)
-		}
-		if component.FullPath != "overlay/full/path" {
-			t.Errorf("Expected FullPath to be 'overlay/full/path', but got '%s'", component.FullPath)
+		base.Merge(overlay)
+		if len(base.TerraformComponents) != 1 || base.TerraformComponents[0].Path != "module/path2" {
+			t.Errorf("Expected TerraformComponents to contain 'module/path2', but got %v", base.TerraformComponents)
 		}
 	})
 
-	t.Run("MergeUniqueKustomizePatches", func(t *testing.T) {
-		dst := &Blueprint{
-			Kind:       "Blueprint",
-			ApiVersion: "v1alpha1",
-			Kustomizations: []Kustomization{
-				{
-					Name:       "kustomization1",
-					Path:       "kustomize/path1",
-					Components: []string{"component1"},
-					Patches: []kustomize.Patch{
-						{Patch: "patch1", Target: &kustomize.Selector{Group: "group1", Version: "v1", Kind: "Kind1", Namespace: "namespace1", Name: "name1"}},
-					},
-					PostBuild: &PostBuild{
-						SubstituteFrom: []SubstituteReference{
-							{Kind: "ConfigMap", Name: "config1"},
-						},
-					},
-				},
-			},
-		}
-
-		overlay := &Blueprint{
-			Kustomizations: []Kustomization{
-				{
-					Name:       "kustomization1",
-					Path:       "kustomize/path1",
-					Components: []string{"component2"}, // New component
-					Patches: []kustomize.Patch{
-						{Patch: "patch2", Target: &kustomize.Selector{Group: "group2", Version: "v2", Kind: "Kind2", Namespace: "namespace2", Name: "name2"}},
-					},
-					PostBuild: &PostBuild{
-						SubstituteFrom: []SubstituteReference{
-							{Kind: "Secret", Name: "secret1"},
-						},
-					},
-				},
-				{
-					Name:       "kustomization2",
-					Path:       "kustomize/path2",
-					Components: []string{"component3"},
-					Patches: []kustomize.Patch{
-						{Patch: "patch3", Target: &kustomize.Selector{Group: "group3", Version: "v3", Kind: "Kind3", Namespace: "namespace3", Name: "name3"}},
-					},
-					PostBuild: &PostBuild{
-						SubstituteFrom: []SubstituteReference{
-							{Kind: "ConfigMap", Name: "config2"},
-						},
-					},
-				},
-			},
-		}
-
-		dst.Merge(overlay)
-
-		if len(dst.Kustomizations) != 2 {
-			t.Fatalf("Expected 2 Kustomizations, but got %d", len(dst.Kustomizations))
-		}
-
-		kustomization1 := dst.Kustomizations[0]
-		if len(kustomization1.Components) != 1 || kustomization1.Components[0] != "component2" {
-			t.Errorf("Expected Kustomization1 Components to be ['component2'], but got %v", kustomization1.Components)
-		}
-		if len(kustomization1.Patches) != 1 || kustomization1.Patches[0].Patch != "patch2" {
-			t.Errorf("Expected Kustomization1 Patches to be ['patch2'], but got %v", kustomization1.Patches)
-		}
-		if len(kustomization1.PostBuild.SubstituteFrom) != 1 || kustomization1.PostBuild.SubstituteFrom[0].Kind != "Secret" || kustomization1.PostBuild.SubstituteFrom[0].Name != "secret1" {
-			t.Errorf("Expected Kustomization1 SubstituteFrom to be ['Secret:secret1'], but got %v", kustomization1.PostBuild.SubstituteFrom)
-		}
-
-		kustomization2 := dst.Kustomizations[1]
-		if len(kustomization2.Components) != 1 || kustomization2.Components[0] != "component3" {
-			t.Errorf("Expected Kustomization2 Components to be ['component3'], but got %v", kustomization2.Components)
-		}
-		if len(kustomization2.Patches) != 1 || kustomization2.Patches[0].Patch != "patch3" {
-			t.Errorf("Expected Kustomization2 Patches to be ['patch3'], but got %v", kustomization2.Patches)
-		}
-		if len(kustomization2.PostBuild.SubstituteFrom) != 1 || kustomization2.PostBuild.SubstituteFrom[0].Kind != "ConfigMap" || kustomization2.PostBuild.SubstituteFrom[0].Name != "config2" {
-			t.Errorf("Expected Kustomization2 SubstituteFrom to be ['ConfigMap:config2'], but got %v", kustomization2.PostBuild.SubstituteFrom)
-		}
-	})
-
-	t.Run("MergeUniqueComponents", func(t *testing.T) {
-		dst := &Blueprint{
-			Kind:       "Blueprint",
-			ApiVersion: "v1alpha1",
+	t.Run("OverlayWithSamePathDifferentSource", func(t *testing.T) {
+		base := &Blueprint{
 			TerraformComponents: []TerraformComponent{
 				{
-					Source: "source1",
-					Path:   "module/path1",
-					Variables: map[string]TerraformVariable{
-						"var1": {Default: "default1"},
-					},
-					Values: map[string]any{
-						"key1": "value1",
-					},
+					Source:   "source1",
+					Path:     "module/path1",
+					Values:   map[string]any{"key1": "value1"},
 					FullPath: "original/full/path",
+					Destroy:  ptrBool(true),
 				},
 			},
 		}
-
 		overlay := &Blueprint{
 			TerraformComponents: []TerraformComponent{
 				{
-					Source: "source1",
-					Path:   "module/path1",
-					Variables: map[string]TerraformVariable{
-						"var2": {Default: "default2"},
-					},
-					Values: map[string]any{
-						"key2": "value2",
-					},
-					FullPath: "updated/full/path",
-				},
-				{
-					Source: "source2",
-					Path:   "module/path2",
-					Variables: map[string]TerraformVariable{
-						"var3": {Default: "default3"},
-					},
-					Values: map[string]any{
-						"key3": "value3",
-					},
-					FullPath: "new/full/path",
+					Source:   "source2",
+					Path:     "module/path1",
+					Values:   map[string]any{"key2": "value2"},
+					FullPath: "overlay/full/path",
+					Destroy:  ptrBool(false),
 				},
 			},
 		}
-
-		dst.Merge(overlay)
-
-		if len(dst.TerraformComponents) != 2 {
-			t.Fatalf("Expected 2 TerraformComponents, but got %d", len(dst.TerraformComponents))
-		}
-
-		component1 := dst.TerraformComponents[0]
-		if len(component1.Variables) != 2 || component1.Variables["var1"].Default != "default1" || component1.Variables["var2"].Default != "default2" {
-			t.Errorf("Expected Variables to contain ['var1', 'var2'], but got %v", component1.Variables)
-		}
-		if component1.Values == nil || len(component1.Values) != 2 || component1.Values["key1"] != "value1" || component1.Values["key2"] != "value2" {
-			t.Errorf("Expected Values to contain both 'key1' and 'key2', but got %v", component1.Values)
-		}
-		if component1.FullPath != "updated/full/path" {
-			t.Errorf("Expected FullPath to be 'updated/full/path', but got '%s'", component1.FullPath)
-		}
-
-		component2 := dst.TerraformComponents[1]
-		if len(component2.Variables) != 1 || component2.Variables["var3"].Default != "default3" {
-			t.Errorf("Expected Variables to be ['var3'], but got %v", component2.Variables)
-		}
-		if component2.Values == nil || len(component2.Values) != 1 || component2.Values["key3"] != "value3" {
-			t.Errorf("Expected Values to contain 'key3', but got %v", component2.Values)
-		}
-		if component2.FullPath != "new/full/path" {
-			t.Errorf("Expected FullPath to be 'new/full/path', but got '%s'", component2.FullPath)
+		base.Merge(overlay)
+		if len(base.TerraformComponents) != 1 || base.TerraformComponents[0].Source != "source2" {
+			t.Errorf("Expected TerraformComponents to contain 'source2', but got %v", base.TerraformComponents)
 		}
 	})
 
-	t.Run("RepositoryMerge", func(t *testing.T) {
-		tests := []struct {
-			name           string
-			dst            *Blueprint
-			overlay        *Blueprint
-			expectedCommit string
-			expectedName   string
-			expectedSemVer string
-			expectedTag    string
-			expectedBranch string
-			expectedSecret string
-		}{
-			{
-				name: "OverlayWithCommit",
-				dst: &Blueprint{
-					Repository: Repository{
-						Ref: Reference{
-							Commit: "originalCommit",
-							Name:   "originalName",
-							SemVer: "originalSemVer",
-							Tag:    "originalTag",
-							Branch: "originalBranch",
-						},
-						SecretName: "originalSecret",
-					},
-				},
-				overlay: &Blueprint{
-					Repository: Repository{
-						Ref: Reference{
-							Commit: "newCommit",
-						},
-						SecretName: "newSecret",
-					},
-				},
-				expectedCommit: "newCommit",
-				expectedName:   "originalName",
-				expectedSemVer: "originalSemVer",
-				expectedTag:    "originalTag",
-				expectedBranch: "originalBranch",
-				expectedSecret: "newSecret",
-			},
-			{
-				name: "OverlayWithName",
-				dst: &Blueprint{
-					Repository: Repository{
-						Ref: Reference{
-							Name:   "originalName",
-							SemVer: "originalSemVer",
-							Tag:    "originalTag",
-							Branch: "originalBranch",
-						},
-						SecretName: "originalSecret",
-					},
-				},
-				overlay: &Blueprint{
-					Repository: Repository{
-						Ref: Reference{
-							Name: "newName",
-						},
-						SecretName: "newSecret",
-					},
-				},
-				expectedCommit: "",
-				expectedName:   "newName",
-				expectedSemVer: "originalSemVer",
-				expectedTag:    "originalTag",
-				expectedBranch: "originalBranch",
-				expectedSecret: "newSecret",
-			},
-			{
-				name: "OverlayWithSemVer",
-				dst: &Blueprint{
-					Repository: Repository{
-						Ref: Reference{
-							SemVer: "originalSemVer",
-							Tag:    "originalTag",
-							Branch: "originalBranch",
-						},
-						SecretName: "originalSecret",
-					},
-				},
-				overlay: &Blueprint{
-					Repository: Repository{
-						Ref: Reference{
-							SemVer: "newSemVer",
-						},
-						SecretName: "newSecret",
-					},
-				},
-				expectedCommit: "",
-				expectedName:   "",
-				expectedSemVer: "newSemVer",
-				expectedTag:    "originalTag",
-				expectedBranch: "originalBranch",
-				expectedSecret: "newSecret",
-			},
-			{
-				name: "OverlayWithTag",
-				dst: &Blueprint{
-					Repository: Repository{
-						Ref: Reference{
-							Tag:    "originalTag",
-							Branch: "originalBranch",
-						},
-						SecretName: "originalSecret",
-					},
-				},
-				overlay: &Blueprint{
-					Repository: Repository{
-						Ref: Reference{
-							Tag: "newTag",
-						},
-						SecretName: "newSecret",
-					},
-				},
-				expectedCommit: "",
-				expectedName:   "",
-				expectedSemVer: "",
-				expectedTag:    "newTag",
-				expectedBranch: "originalBranch",
-				expectedSecret: "newSecret",
-			},
-			{
-				name: "OverlayWithBranch",
-				dst: &Blueprint{
-					Repository: Repository{
-						Ref: Reference{
-							Branch: "originalBranch",
-						},
-						SecretName: "originalSecret",
-					},
-				},
-				overlay: &Blueprint{
-					Repository: Repository{
-						Ref: Reference{
-							Branch: "newBranch",
-						},
-						SecretName: "newSecret",
-					},
-				},
-				expectedCommit: "",
-				expectedName:   "",
-				expectedSemVer: "",
-				expectedTag:    "",
-				expectedBranch: "newBranch",
-				expectedSecret: "newSecret",
-			},
+	t.Run("OverlayWithEmptyKustomizations", func(t *testing.T) {
+		base := &Blueprint{
+			Kustomizations: []Kustomization{{Path: "kustomize"}},
 		}
-
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				tt.dst.Merge(tt.overlay)
-
-				if tt.dst.Repository.Ref.Commit != tt.expectedCommit {
-					t.Errorf("Expected Commit to be '%s', but got '%s'", tt.expectedCommit, tt.dst.Repository.Ref.Commit)
-				}
-				if tt.dst.Repository.Ref.Name != tt.expectedName {
-					t.Errorf("Expected Name to be '%s', but got '%s'", tt.expectedName, tt.dst.Repository.Ref.Name)
-				}
-				if tt.dst.Repository.Ref.SemVer != tt.expectedSemVer {
-					t.Errorf("Expected SemVer to be '%s', but got '%s'", tt.expectedSemVer, tt.dst.Repository.Ref.SemVer)
-				}
-				if tt.dst.Repository.Ref.Tag != tt.expectedTag {
-					t.Errorf("Expected Tag to be '%s', but got '%s'", tt.expectedTag, tt.dst.Repository.Ref.Tag)
-				}
-				if tt.dst.Repository.Ref.Branch != tt.expectedBranch {
-					t.Errorf("Expected Branch to be '%s', but got '%s'", tt.expectedBranch, tt.dst.Repository.Ref.Branch)
-				}
-				if tt.dst.Repository.SecretName != tt.expectedSecret {
-					t.Errorf("Expected SecretName to be '%s', but got '%s'", tt.expectedSecret, tt.dst.Repository.SecretName)
-				}
-			})
-		}
-	})
-
-	t.Run("PostBuildMerge", func(t *testing.T) {
-		dst := &Blueprint{
-			Kind:       "Blueprint",
-			ApiVersion: "v1alpha1",
-			Kustomizations: []Kustomization{
-				{
-					Name: "kustomization1",
-					PostBuild: &PostBuild{
-						Substitute: map[string]string{
-							"key1": "value1",
-						},
-						SubstituteFrom: []SubstituteReference{
-							{Kind: "ConfigMap", Name: "config1"},
-						},
-					},
-				},
-			},
-		}
-
 		overlay := &Blueprint{
-			Kustomizations: []Kustomization{
-				{
-					Name: "kustomization1",
-					PostBuild: &PostBuild{
-						Substitute: map[string]string{
-							"key2": "value2",
-						},
-						SubstituteFrom: []SubstituteReference{
-							{Kind: "Secret", Name: "secret1"},
-						},
-					},
-				},
-			},
+			Kustomizations: []Kustomization{},
 		}
-
-		dst.Merge(overlay)
-
-		if len(dst.Kustomizations) != 1 {
-			t.Fatalf("Expected 1 Kustomization, but got %d", len(dst.Kustomizations))
-		}
-
-		postBuild := dst.Kustomizations[0].PostBuild
-		if postBuild == nil {
-			t.Fatalf("Expected PostBuild to be non-nil")
-		}
-
-		if len(postBuild.Substitute) != 1 || postBuild.Substitute["key2"] != "value2" {
-			t.Errorf("Expected Substitute to contain ['key2'], but got %v", postBuild.Substitute)
-		}
-
-		if len(postBuild.SubstituteFrom) != 1 {
-			t.Errorf("Expected SubstituteFrom to contain 1 item, but got %d", len(postBuild.SubstituteFrom))
+		base.Merge(overlay)
+		if len(base.Kustomizations) != 1 || base.Kustomizations[0].Path != "kustomize" {
+			t.Errorf("expected base kustomizations to be retained, got %v", base.Kustomizations)
 		}
 	})
 
-	t.Run("KindAndApiVersionMerge", func(t *testing.T) {
-		dst := &Blueprint{
-			Kind:       "OldKind",
-			ApiVersion: "old/v1",
+	t.Run("OverlayWithNonEmptyKind", func(t *testing.T) {
+		base := &Blueprint{Kind: "base-kind"}
+		overlay := &Blueprint{Kind: "new-kind"}
+		base.Merge(overlay)
+		if base.Kind != "new-kind" {
+			t.Errorf("expected Kind to be overwritten to 'new-kind', got %v", base.Kind)
 		}
+	})
 
-		overlay := &Blueprint{
-			Kind:       "NewKind",
-			ApiVersion: "new/v2",
+	t.Run("OverlayWithNonEmptyApiVersion", func(t *testing.T) {
+		base := &Blueprint{ApiVersion: "v1"}
+		overlay := &Blueprint{ApiVersion: "v2"}
+		base.Merge(overlay)
+		if base.ApiVersion != "v2" {
+			t.Errorf("expected ApiVersion to be overwritten to 'v2', got %v", base.ApiVersion)
 		}
+	})
 
-		dst.Merge(overlay)
-
-		if dst.Kind != "NewKind" {
-			t.Errorf("Expected Kind to be 'NewKind', but got '%s'", dst.Kind)
-		}
-
-		if dst.ApiVersion != "new/v2" {
-			t.Errorf("Expected ApiVersion to be 'new/v2', but got '%s'", dst.ApiVersion)
-		}
-
-		// Test with empty values which shouldn't override
-		emptyOverlay := &Blueprint{
-			Kind:       "",
-			ApiVersion: "",
-		}
-
-		dst.Merge(emptyOverlay)
-
-		if dst.Kind != "NewKind" {
-			t.Errorf("Expected Kind to remain 'NewKind', but got '%s'", dst.Kind)
-		}
-
-		if dst.ApiVersion != "new/v2" {
-			t.Errorf("Expected ApiVersion to remain 'new/v2', but got '%s'", dst.ApiVersion)
+	t.Run("OverlayWithNonEmptyRepositorySecretName", func(t *testing.T) {
+		base := &Blueprint{Repository: Repository{SecretName: "base-secret"}}
+		overlay := &Blueprint{Repository: Repository{SecretName: "new-secret"}}
+		base.Merge(overlay)
+		if base.Repository.SecretName != "new-secret" {
+			t.Errorf("expected Repository.SecretName to be overwritten to 'new-secret', got %v", base.Repository.SecretName)
 		}
 	})
 }
@@ -918,13 +964,6 @@ func TestBlueprint_DeepCopy(t *testing.T) {
 				{
 					Source: "source1",
 					Path:   "module/path1",
-					Variables: map[string]TerraformVariable{
-						"var1": {
-							Type:        "string",
-							Default:     "default1",
-							Description: "A test variable",
-						},
-					},
 					Values: map[string]any{
 						"key1": "value1",
 					},
@@ -959,9 +998,6 @@ func TestBlueprint_DeepCopy(t *testing.T) {
 		if copy.TerraformComponents[0].Path != "module/path1" {
 			t.Errorf("Expected copy to have terraform component path %v, but got %v", "module/path1", copy.TerraformComponents[0].Path)
 		}
-		if len(copy.TerraformComponents[0].Variables) != 1 || copy.TerraformComponents[0].Variables["var1"].Default != "default1" {
-			t.Errorf("Expected copy to have terraform component variable 'var1' with default 'default1', but got %v", copy.TerraformComponents[0].Variables)
-		}
 		if len(copy.TerraformComponents[0].Values) != 1 || copy.TerraformComponents[0].Values["key1"] != "value1" {
 			t.Errorf("Expected copy to have terraform component value 'key1' with value 'value1', but got %v", copy.TerraformComponents[0].Values)
 		}
@@ -986,18 +1022,4 @@ func TestBlueprint_DeepCopy(t *testing.T) {
 			t.Errorf("Expected copy to be nil, but got non-nil")
 		}
 	})
-}
-
-// Helper functions to check if all elements are present
-func containsAll(slice []string, elements []string) bool {
-	elementMap := make(map[string]bool)
-	for _, el := range slice {
-		elementMap[el] = true
-	}
-	for _, el := range elements {
-		if !elementMap[el] {
-			return false
-		}
-	}
-	return true
 }

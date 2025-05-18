@@ -41,35 +41,31 @@ func NewWindsorStack(injector di.Injector) *WindsorStack {
 // Public Methods
 // =============================================================================
 
-// Up creates a new stack of components.
+// Up creates a new stack of components by initializing and applying Terraform configurations.
+// It processes components in order, setting up environment variables, running Terraform init,
+// plan, and apply operations, and cleaning up backend override files.
+// The method ensures proper directory management and environment setup for each component.
 func (s *WindsorStack) Up() error {
-	// Store the current directory
 	currentDir, err := s.shims.Getwd()
 	if err != nil {
 		return fmt.Errorf("error getting current directory: %v", err)
 	}
 
-	// Ensure we change back to the original directory once the function completes
 	defer func() {
 		_ = s.shims.Chdir(currentDir)
 	}()
 
-	// Get the Terraform components from the blueprint
 	components := s.blueprintHandler.GetTerraformComponents()
 
-	// Iterate over the components
 	for _, component := range components {
-		// Ensure the directory exists
 		if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
 			return fmt.Errorf("directory %s does not exist", component.FullPath)
 		}
 
-		// Change to the component directory
 		if err := s.shims.Chdir(component.FullPath); err != nil {
 			return fmt.Errorf("error changing to directory %s: %v", component.FullPath, err)
 		}
 
-		// Iterate over all envPrinters and load the environment variables
 		for _, envPrinter := range s.envPrinters {
 			envVars, err := envPrinter.GetEnvVars()
 			if err != nil {
@@ -80,31 +76,99 @@ func (s *WindsorStack) Up() error {
 					return fmt.Errorf("error setting environment variable %s: %v", key, err)
 				}
 			}
-			// Run the post environment hook
 			if err := envPrinter.PostEnvHook(); err != nil {
 				return fmt.Errorf("error running post environment hook: %v", err)
 			}
 		}
 
-		// Execute 'terraform init' in the dirPath
-		_, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Initializing Terraform in %s", component.Path), "terraform", "init", "-migrate-state", "-upgrade")
+		_, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Initializing Terraform in %s", component.Path), "terraform", "init", "-migrate-state", "-upgrade", "-force-copy")
 		if err != nil {
 			return fmt.Errorf("error initializing Terraform in %s: %w", component.FullPath, err)
 		}
 
-		// Execute 'terraform plan' in the dirPath
 		_, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Planning Terraform changes in %s", component.Path), "terraform", "plan")
 		if err != nil {
 			return fmt.Errorf("error planning Terraform changes in %s: %w", component.FullPath, err)
 		}
 
-		// Execute 'terraform apply' in the dirPath
 		_, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Applying Terraform changes in %s", component.Path), "terraform", "apply")
 		if err != nil {
 			return fmt.Errorf("error applying Terraform changes in %s: %w", component.FullPath, err)
 		}
 
-		// Attempt to clean up 'backend_override.tf' if it exists
+		backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
+		if _, err := s.shims.Stat(backendOverridePath); err == nil {
+			if err := s.shims.Remove(backendOverridePath); err != nil {
+				return fmt.Errorf("error removing backend_override.tf in %s: %v", component.FullPath, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// Down destroys a stack of components by executing Terraform destroy operations in reverse order.
+// It processes components in reverse order, skipping any marked with destroy: false.
+// For each component, it sets up environment variables, runs Terraform init, plan -destroy,
+// and destroy operations, and cleans up backend override files.
+// The method ensures proper directory management and environment setup for each component.
+func (s *WindsorStack) Down() error {
+	currentDir, err := s.shims.Getwd()
+	if err != nil {
+		return fmt.Errorf("error getting current directory: %v", err)
+	}
+
+	defer func() {
+		_ = s.shims.Chdir(currentDir)
+	}()
+
+	components := s.blueprintHandler.GetTerraformComponents()
+
+	for i := len(components) - 1; i >= 0; i-- {
+		component := components[i]
+
+		if component.Destroy != nil && !*component.Destroy {
+			continue
+		}
+
+		if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
+			return fmt.Errorf("directory %s does not exist", component.FullPath)
+		}
+
+		if err := s.shims.Chdir(component.FullPath); err != nil {
+			return fmt.Errorf("error changing to directory %s: %v", component.FullPath, err)
+		}
+
+		for _, envPrinter := range s.envPrinters {
+			envVars, err := envPrinter.GetEnvVars()
+			if err != nil {
+				return fmt.Errorf("error getting environment variables: %v", err)
+			}
+			for key, value := range envVars {
+				if err := s.shims.Setenv(key, value); err != nil {
+					return fmt.Errorf("error setting environment variable %s: %v", key, err)
+				}
+			}
+			if err := envPrinter.PostEnvHook(); err != nil {
+				return fmt.Errorf("error running post environment hook: %v", err)
+			}
+		}
+
+		_, err = s.shell.ExecProgress(fmt.Sprintf("🗑️ Initializing Terraform in %s", component.Path), "terraform", "init", "-migrate-state", "-upgrade", "-force-copy")
+		if err != nil {
+			return fmt.Errorf("error initializing Terraform in %s: %w", component.FullPath, err)
+		}
+
+		_, err = s.shell.ExecProgress(fmt.Sprintf("🗑️ Planning Terraform destruction in %s", component.Path), "terraform", "plan", "-destroy")
+		if err != nil {
+			return fmt.Errorf("error planning Terraform destruction in %s: %w", component.FullPath, err)
+		}
+
+		_, err = s.shell.ExecProgress(fmt.Sprintf("🗑️ Destroying Terraform resources in %s", component.Path), "terraform", "destroy", "-auto-approve")
+		if err != nil {
+			return fmt.Errorf("error destroying Terraform resources in %s: %w", component.FullPath, err)
+		}
+
 		backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
 		if _, err := s.shims.Stat(backendOverridePath); err == nil {
 			if err := s.shims.Remove(backendOverridePath); err != nil {

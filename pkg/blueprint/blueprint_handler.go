@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -26,6 +27,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -54,6 +57,7 @@ type BlueprintHandler interface {
 	SetRepository(repository blueprintv1alpha1.Repository) error
 	SetTerraformComponents(terraformComponents []blueprintv1alpha1.TerraformComponent) error
 	SetKustomizations(kustomizations []blueprintv1alpha1.Kustomization) error
+	WaitForKustomizations() error
 }
 
 //go:embed templates/default.jsonnet
@@ -68,14 +72,17 @@ type BaseBlueprintHandler struct {
 	blueprint      blueprintv1alpha1.Blueprint
 	projectRoot    string
 	shims          *Shims
+
+	kustomizationWaitPollInterval time.Duration
 }
 
 // NewBlueprintHandler creates a new instance of BaseBlueprintHandler.
 // It initializes the handler with the provided dependency injector.
 func NewBlueprintHandler(injector di.Injector) *BaseBlueprintHandler {
 	return &BaseBlueprintHandler{
-		injector: injector,
-		shims:    NewShims(),
+		injector:                      injector,
+		shims:                         NewShims(),
+		kustomizationWaitPollInterval: constants.DEFAULT_KUSTOMIZATION_WAIT_POLL_INTERVAL,
 	}
 }
 
@@ -217,7 +224,6 @@ func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 	fullBlueprint := b.blueprint.DeepCopy()
 
 	for i := range fullBlueprint.TerraformComponents {
-		fullBlueprint.TerraformComponents[i].Variables = nil
 		fullBlueprint.TerraformComponents[i].Values = nil
 	}
 
@@ -239,6 +245,63 @@ func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 		return fmt.Errorf("error writing blueprint file: %w", err)
 	}
 	return nil
+}
+
+// WaitForKustomizations polls for readiness of all kustomizations with a maximum timeout.
+// It uses a spinner to show progress and checks both GitRepository and Kustomization status.
+// The timeout is calculated based on the longest dependency path through the kustomizations.
+func (b *BaseBlueprintHandler) WaitForKustomizations() error {
+	message := "⏳ Waiting for kustomizations to be ready"
+	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+	spin.Suffix = " " + message
+	spin.Start()
+	defer spin.Stop()
+
+	timeout := time.After(b.calculateMaxWaitTime())
+	ticker := time.NewTicker(b.kustomizationWaitPollInterval)
+	defer ticker.Stop()
+
+	kustomizations := b.GetKustomizations()
+	names := make([]string, len(kustomizations))
+	for i, k := range kustomizations {
+		names[i] = k.Name
+	}
+
+	for {
+		select {
+		case <-timeout:
+			spin.Stop()
+			fmt.Fprintf(os.Stderr, "\033[31m✗\033[0m %s - \033[31mTimeout\033[0m\n", message)
+			return fmt.Errorf("timeout waiting for kustomizations to be ready")
+		case <-ticker.C:
+			kubeconfig := os.Getenv("KUBECONFIG")
+			if err := checkGitRepositoryStatus(kubeconfig); err != nil {
+				spin.Stop()
+				fmt.Fprintf(os.Stderr, "\033[31m✗\033[0m %s - \033[31mFailed\033[0m\n", message)
+				return fmt.Errorf("git repository error: %w", err)
+			}
+			status, err := checkKustomizationStatus(kubeconfig, names)
+			if err != nil {
+				spin.Stop()
+				fmt.Fprintf(os.Stderr, "\033[31m✗\033[0m %s - \033[31mFailed\033[0m\n", message)
+				return fmt.Errorf("kustomization error: %w", err)
+			}
+
+			allReady := true
+			for _, ready := range status {
+				if !ready {
+					allReady = false
+					break
+				}
+			}
+
+			if allReady {
+				spin.Stop()
+				fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
+				return nil
+			}
+		}
+	}
 }
 
 // Install applies the blueprint's Kubernetes resources to the cluster. It handles GitRepositories
@@ -354,7 +417,7 @@ func (b *BaseBlueprintHandler) GetKustomizations() []blueprintv1alpha1.Kustomiza
 		if kustomizations[i].Path == "" {
 			kustomizations[i].Path = "kustomize"
 		} else {
-			kustomizations[i].Path = filepath.Join("kustomize", kustomizations[i].Path)
+			kustomizations[i].Path = "kustomize/" + strings.ReplaceAll(kustomizations[i].Path, "\\", "/")
 		}
 
 		if kustomizations[i].Interval == nil || kustomizations[i].Interval.Duration == 0 {
@@ -686,89 +749,6 @@ func (b *BaseBlueprintHandler) yamlMarshalWithDefinedPaths(v any) ([]byte, error
 	return yamlData, nil
 }
 
-// =============================================================================
-// Kubernetes Client Operations
-// =============================================================================
-
-type ResourceOperationConfig struct {
-	ApiPath              string
-	Namespace            string
-	ResourceName         string
-	ResourceInstanceName string
-	ResourceObject       runtime.Object
-	ResourceType         func() runtime.Object
-}
-
-// NOTE: This is a temporary solution until we've integrated the kube client into our DI system.
-// As such, this function is not internally covered by our tests.
-//
-// kubeClientResourceOperation is a comprehensive function that handles the entire lifecycle of creating a Kubernetes client
-// and performing a sequence of operations (Get, Post, Put) on Kubernetes resources. It takes a kubeconfig path and a
-// configuration object that specifies the parameters for the operations.
-var kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
-	var kubeConfig *rest.Config
-	var err error
-
-	if kubeconfigPath != "" {
-		kubeConfig, err = clientcmd.BuildConfigFromFlags("", kubeconfigPath)
-	} else {
-		kubeConfig, err = rest.InClusterConfig()
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to create Kubernetes config: %w", err)
-	}
-
-	clientset, err := kubernetes.NewForConfig(kubeConfig)
-	if err != nil {
-		return fmt.Errorf("failed to create Kubernetes client: %w", err)
-	}
-
-	restClient := clientset.CoreV1().RESTClient()
-	backgroundCtx := ctx.Background()
-
-	existingResource := config.ResourceType().(runtime.Object)
-	err = restClient.Get().
-		AbsPath(config.ApiPath).
-		Namespace(config.Namespace).
-		Resource(config.ResourceName).
-		Name(config.ResourceInstanceName).
-		Do(backgroundCtx).
-		Into(existingResource)
-
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			if err := restClient.Post().
-				AbsPath(config.ApiPath).
-				Namespace(config.Namespace).
-				Resource(config.ResourceName).
-				Body(config.ResourceObject).
-				Do(backgroundCtx).
-				Error(); err != nil {
-				return fmt.Errorf("failed to create resource: %w", err)
-			}
-		} else {
-			return fmt.Errorf("failed to get resource: %w", err)
-		}
-	} else {
-		// Ensure the resourceVersion is set for the update
-		config.ResourceObject.(metav1.Object).SetResourceVersion(existingResource.(metav1.Object).GetResourceVersion())
-
-		if err := restClient.Put().
-			AbsPath(config.ApiPath).
-			Namespace(config.Namespace).
-			Resource(config.ResourceName).
-			Name(config.ResourceInstanceName).
-			Body(config.ResourceObject).
-			Do(backgroundCtx).
-			Error(); err != nil {
-			return fmt.Errorf("failed to update resource: %w", err)
-		}
-	}
-
-	return nil
-}
-
 // applyGitRepository creates or updates a GitRepository resource in the cluster. It normalizes
 // the repository URL format, configures standard intervals and timeouts, and handles secret
 // references for private repositories.
@@ -949,4 +929,292 @@ func (b *BaseBlueprintHandler) applyConfigMap() error {
 
 	kubeconfig := os.Getenv("KUBECONFIG")
 	return kubeClientResourceOperation(kubeconfig, config)
+}
+
+// calculateMaxWaitTime calculates the maximum wait time needed based on kustomization dependencies.
+// It builds a dependency graph and uses DFS to find the longest path through it, accumulating
+// timeouts for each kustomization in the path. Returns the total time needed for the longest path.
+func (b *BaseBlueprintHandler) calculateMaxWaitTime() time.Duration {
+	kustomizations := b.GetKustomizations()
+	if len(kustomizations) == 0 {
+		return 0
+	}
+
+	deps := make(map[string][]string)
+	timeouts := make(map[string]time.Duration)
+	for _, k := range kustomizations {
+		deps[k.Name] = k.DependsOn
+		if k.Timeout != nil {
+			timeouts[k.Name] = k.Timeout.Duration
+		} else {
+			timeouts[k.Name] = constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT
+		}
+	}
+
+	var maxPathTime time.Duration
+	visited := make(map[string]bool)
+	path := make([]string, 0)
+
+	var dfs func(name string, currentTime time.Duration)
+	dfs = func(name string, currentTime time.Duration) {
+		visited[name] = true
+		path = append(path, name)
+		currentTime += timeouts[name]
+
+		if currentTime > maxPathTime {
+			maxPathTime = currentTime
+		}
+
+		for _, dep := range deps[name] {
+			if !visited[dep] {
+				dfs(dep, currentTime)
+			} else {
+				// For circular dependencies, we still want to consider the path
+				// but we don't want to recurse further
+				if currentTime+timeouts[dep] > maxPathTime {
+					maxPathTime = currentTime + timeouts[dep]
+				}
+			}
+		}
+
+		visited[name] = false
+		path = path[:len(path)-1]
+	}
+
+	// Start DFS from each root node (nodes with no incoming dependencies)
+	roots := []string{}
+	for _, k := range kustomizations {
+		isRoot := true
+		for _, other := range kustomizations {
+			if slices.Contains(other.DependsOn, k.Name) {
+				isRoot = false
+				break
+			}
+		}
+		if isRoot {
+			roots = append(roots, k.Name)
+		}
+	}
+	if len(roots) == 0 {
+		// No roots found (cycle or all nodes have dependencies), start from every node
+		for _, k := range kustomizations {
+			dfs(k.Name, 0)
+		}
+	} else {
+		for _, root := range roots {
+			dfs(root, 0)
+		}
+	}
+
+	return maxPathTime
+}
+
+// =============================================================================
+// Kubernetes Client Operations
+// =============================================================================
+
+type ResourceOperationConfig struct {
+	ApiPath              string
+	Namespace            string
+	ResourceName         string
+	ResourceInstanceName string
+	ResourceObject       runtime.Object
+	ResourceType         func() runtime.Object
+}
+
+// NOTE: This is a temporary solution until we've integrated the kube client into our DI system.
+// As such, this function is not internally covered by our tests.
+//
+// kubeClientResourceOperation is a comprehensive function that handles the entire lifecycle of creating a Kubernetes client
+// and performing a sequence of operations (Get, Post, Put) on Kubernetes resources. It takes a kubeconfig path and a
+// configuration object that specifies the parameters for the operations.
+var kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
+	var kubeConfig *rest.Config
+	var err error
+
+	if kubeconfigPath != "" {
+		kubeConfig, err = clientcmd.BuildConfigFromFlags("", kubeconfigPath)
+	} else {
+		kubeConfig, err = rest.InClusterConfig()
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to create Kubernetes config: %w", err)
+	}
+
+	clientset, err := kubernetes.NewForConfig(kubeConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create Kubernetes client: %w", err)
+	}
+
+	restClient := clientset.CoreV1().RESTClient()
+	backgroundCtx := ctx.Background()
+
+	existingResource := config.ResourceType().(runtime.Object)
+	err = restClient.Get().
+		AbsPath(config.ApiPath).
+		Namespace(config.Namespace).
+		Resource(config.ResourceName).
+		Name(config.ResourceInstanceName).
+		Do(backgroundCtx).
+		Into(existingResource)
+
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			if err := restClient.Post().
+				AbsPath(config.ApiPath).
+				Namespace(config.Namespace).
+				Resource(config.ResourceName).
+				Body(config.ResourceObject).
+				Do(backgroundCtx).
+				Error(); err != nil {
+				return fmt.Errorf("failed to create resource: %w", err)
+			}
+		} else {
+			return fmt.Errorf("failed to get resource: %w", err)
+		}
+	} else {
+		// Ensure the resourceVersion is set for the update
+		config.ResourceObject.(metav1.Object).SetResourceVersion(existingResource.(metav1.Object).GetResourceVersion())
+
+		if err := restClient.Put().
+			AbsPath(config.ApiPath).
+			Namespace(config.Namespace).
+			Resource(config.ResourceName).
+			Name(config.ResourceInstanceName).
+			Body(config.ResourceObject).
+			Do(backgroundCtx).
+			Error(); err != nil {
+			return fmt.Errorf("failed to update resource: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// NOTE: This is a temporary solution until we've integrated the kube client into our DI system.
+// As such, this function is not internally covered by our tests.
+//
+// checkKustomizationStatus checks the status of all kustomizations in the cluster by name.
+// It returns a map of kustomization names to their readiness (true if ready, false otherwise).
+// If any kustomization is missing or has failed, it returns an error. The function queries all
+// kustomizations in the default namespace, converts them to typed objects, and inspects their
+// status conditions for readiness or failure. It ensures all requested kustomizations are present.
+var checkKustomizationStatus = func(kubeconfigPath string, names []string) (map[string]bool, error) {
+	var kubeConfig *rest.Config
+	var err error
+
+	if kubeconfigPath != "" {
+		kubeConfig, err = clientcmd.BuildConfigFromFlags("", kubeconfigPath)
+	} else {
+		kubeConfig, err = rest.InClusterConfig()
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Kubernetes config: %w", err)
+	}
+
+	dynamicClient, err := dynamic.NewForConfig(kubeConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create dynamic client: %w", err)
+	}
+
+	gvr := schema.GroupVersionResource{
+		Group:    "kustomize.toolkit.fluxcd.io",
+		Version:  "v1",
+		Resource: "kustomizations",
+	}
+
+	objList, err := dynamicClient.Resource(gvr).Namespace(constants.DEFAULT_FLUX_SYSTEM_NAMESPACE).
+		List(ctx.Background(), metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list kustomizations: %w", err)
+	}
+
+	status := make(map[string]bool)
+	found := make(map[string]bool)
+
+	for _, obj := range objList.Items {
+		var kustomizeObj kustomizev1.Kustomization
+		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), &kustomizeObj); err != nil {
+			return nil, fmt.Errorf("failed to convert kustomization %s: %w", kustomizeObj.Name, err)
+		}
+
+		found[kustomizeObj.Name] = true
+		ready := false
+		for _, condition := range kustomizeObj.Status.Conditions {
+			if condition.Type == "Ready" {
+				if condition.Status == "True" {
+					ready = true
+				} else if condition.Status == "False" && condition.Reason == "ReconciliationFailed" {
+					return nil, fmt.Errorf("kustomization %s failed: %s", kustomizeObj.Name, condition.Message)
+				}
+				break
+			}
+		}
+		status[kustomizeObj.Name] = ready
+	}
+
+	for _, name := range names {
+		if !found[name] {
+			return nil, fmt.Errorf("kustomization %s not found", name)
+		}
+	}
+
+	return status, nil
+}
+
+// NOTE: This is a temporary solution until we've integrated the kube client into our DI system.
+// As such, this function is not internally covered by our tests.
+//
+// checkGitRepositoryStatus checks the status of all GitRepository resources in the cluster.
+// It returns an error if any repository is not ready or has failed. The function queries all
+// GitRepository resources in the default namespace, converts them to typed objects, and inspects
+// their status conditions for readiness or failure. If any repository is not ready, it returns an error
+// with the repository name and failure message.
+var checkGitRepositoryStatus = func(kubeconfigPath string) error {
+	var kubeConfig *rest.Config
+	var err error
+
+	if kubeconfigPath != "" {
+		kubeConfig, err = clientcmd.BuildConfigFromFlags("", kubeconfigPath)
+	} else {
+		kubeConfig, err = rest.InClusterConfig()
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to create Kubernetes config: %w", err)
+	}
+
+	dynamicClient, err := dynamic.NewForConfig(kubeConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create dynamic client: %w", err)
+	}
+
+	gvr := schema.GroupVersionResource{
+		Group:    "source.toolkit.fluxcd.io",
+		Version:  "v1",
+		Resource: "gitrepositories",
+	}
+
+	objList, err := dynamicClient.Resource(gvr).Namespace(constants.DEFAULT_FLUX_SYSTEM_NAMESPACE).
+		List(ctx.Background(), metav1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to list git repositories: %w", err)
+	}
+
+	for _, obj := range objList.Items {
+		var gitRepo sourcev1.GitRepository
+		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), &gitRepo); err != nil {
+			return fmt.Errorf("failed to convert git repository %s: %w", gitRepo.Name, err)
+		}
+
+		for _, condition := range gitRepo.Status.Conditions {
+			if condition.Type == "Ready" && condition.Status == "False" {
+				return fmt.Errorf("%s: %s", gitRepo.Name, condition.Message)
+			}
+		}
+	}
+
+	return nil
 }

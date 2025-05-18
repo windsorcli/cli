@@ -81,6 +81,7 @@ type ComponentConstructors struct {
 	NewToolsManager       func(di.Injector) tools.ToolsManager
 
 	NewAwsEnvPrinter       func(di.Injector) env.EnvPrinter
+	NewAzureEnvPrinter     func(di.Injector) env.EnvPrinter
 	NewDockerEnvPrinter    func(di.Injector) env.EnvPrinter
 	NewKubeEnvPrinter      func(di.Injector) env.EnvPrinter
 	NewOmniEnvPrinter      func(di.Injector) env.EnvPrinter
@@ -185,6 +186,9 @@ func NewDefaultConstructors() ComponentConstructors {
 
 		NewAwsEnvPrinter: func(injector di.Injector) env.EnvPrinter {
 			return env.NewAwsEnvPrinter(injector)
+		},
+		NewAzureEnvPrinter: func(injector di.Injector) env.EnvPrinter {
+			return env.NewAzureEnvPrinter(injector)
 		},
 		NewDockerEnvPrinter: func(injector di.Injector) env.EnvPrinter {
 			return env.NewDockerEnvPrinter(injector)
@@ -411,6 +415,7 @@ func (c *BaseController) InitializeWithRequirements(req Requirements) error {
 	if err := c.CreateComponents(); err != nil {
 		return fmt.Errorf("failed to create components: %w", err)
 	}
+
 	if err := c.InitializeComponents(); err != nil {
 		return fmt.Errorf("failed to initialize components: %w", err)
 	}
@@ -905,6 +910,7 @@ func (c *BaseController) createEnvComponents(req Requirements) error {
 
 	envPrinters := map[string]func(di.Injector) env.EnvPrinter{
 		"awsEnv":       c.constructors.NewAwsEnvPrinter,
+		"azureEnv":     c.constructors.NewAzureEnvPrinter,
 		"dockerEnv":    c.constructors.NewDockerEnvPrinter,
 		"kubeEnv":      c.constructors.NewKubeEnvPrinter,
 		"omniEnv":      c.constructors.NewOmniEnvPrinter,
@@ -915,6 +921,9 @@ func (c *BaseController) createEnvComponents(req Requirements) error {
 
 	for key, constructor := range envPrinters {
 		if key == "awsEnv" && !configHandler.GetBool("aws.enabled") {
+			continue
+		}
+		if key == "azureEnv" && !configHandler.GetBool("azure.enabled") {
 			continue
 		}
 		if key == "dockerEnv" && !configHandler.GetBool("docker.enabled") {

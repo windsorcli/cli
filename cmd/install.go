@@ -8,8 +8,9 @@ import (
 )
 
 var installCmd = &cobra.Command{
-	Use:   "install",
-	Short: "Install the blueprint's cluster-level services",
+	Use:          "install",
+	Short:        "Install the blueprint's cluster-level services",
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
@@ -59,10 +60,18 @@ var installCmd = &cobra.Command{
 			return fmt.Errorf("Error installing blueprint: %w", err)
 		}
 
+		// If wait flag is set, wait for kustomizations to be ready
+		if waitFlag {
+			if err := blueprintHandler.WaitForKustomizations(); err != nil {
+				return fmt.Errorf("failed waiting for kustomizations: %w", err)
+			}
+		}
+
 		return nil
 	},
 }
 
 func init() {
+	installCmd.Flags().BoolVar(&waitFlag, "wait", false, "Wait for kustomization resources to be ready")
 	rootCmd.AddCommand(installCmd)
 }

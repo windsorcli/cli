@@ -5,7 +5,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -14,7 +13,7 @@ import (
 // =============================================================================
 
 const (
-	gitGenTestMockGitignorePath = "/mock/project/root/.gitignore"
+	gitGenTestMockGitignorePath = "mock/project/root/.gitignore"
 	gitGenTestExistingContent   = "existing content\n"
 	gitGenTestExpectedContent   = `existing content
 
@@ -28,7 +27,7 @@ contexts/**/.kube/
 contexts/**/.talos/
 contexts/**/.omni/
 contexts/**/.aws/
-`
+contexts/**/.azure/`
 	gitGenTestExpectedPerm = fs.FileMode(0644)
 )
 
@@ -79,54 +78,59 @@ func TestGitGenerator_Write(t *testing.T) {
 		// Given a GitGenerator with mocks
 		generator, mocks := setup(t)
 
-		// And ReadFile is mocked to return predefined content
-		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
-			if filepath.ToSlash(filename) == gitGenTestMockGitignorePath {
+		// And GetProjectRoot is mocked to return a specific path
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return filepath.Join("mock", "project", "root"), nil
+		}
+
+		// And ReadFile is mocked to return existing content
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			expectedPath := filepath.Join("mock", "project", "root", ".gitignore")
+			if path == expectedPath {
 				return []byte(gitGenTestExistingContent), nil
 			}
-			return []byte{}, nil
+			return nil, fmt.Errorf("unexpected file read: %s", path)
 		}
 
-		// And MkdirAll is mocked to handle directory creation
-		mocks.Shims.MkdirAll = func(path string, perm fs.FileMode) error {
-			return nil
-		}
-
-		// And WriteFile is mocked to capture parameters
-		var capturedFilename string
-		var capturedContent []byte
-		var capturedPerm fs.FileMode
-		mocks.Shims.WriteFile = func(filename string, content []byte, perm fs.FileMode) error {
-			capturedFilename = filename
-			capturedContent = content
-			capturedPerm = perm
+		// And WriteFile is mocked to verify the content
+		var writtenPath string
+		var writtenContent []byte
+		mocks.Shims.WriteFile = func(path string, content []byte, _ fs.FileMode) error {
+			writtenPath = path
+			writtenContent = content
 			return nil
 		}
 
 		// When Write is called
 		err := generator.Write()
 
-		// Then no error should be returned
+		// Then no error should occur
 		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
+			t.Errorf("expected no error, got %v", err)
 		}
 
-		// And WriteFile should be called with the correct parameters
-		if filepath.ToSlash(capturedFilename) != gitGenTestMockGitignorePath {
-			t.Errorf("expected filename %s, got %s", gitGenTestMockGitignorePath, capturedFilename)
+		// And the file should be written to the correct path
+		expectedPath := filepath.Join("mock", "project", "root", ".gitignore")
+		if writtenPath != expectedPath {
+			t.Errorf("expected filename %s, got %s", expectedPath, writtenPath)
 		}
 
-		// Normalize line endings for cross-platform compatibility
-		normalizeLineEndings := func(content string) string {
-			return strings.ReplaceAll(strings.ReplaceAll(content, "\r\n", "\n"), "\n", "")
-		}
-
-		if normalizeLineEndings(string(capturedContent)) != normalizeLineEndings(gitGenTestExpectedContent) {
-			t.Errorf("expected content %s, got %s", gitGenTestExpectedContent, string(capturedContent))
-		}
-
-		if capturedPerm != gitGenTestExpectedPerm {
-			t.Errorf("expected permission %v, got %v", gitGenTestExpectedPerm, capturedPerm)
+		// And the content should be correct
+		expectedContent := gitGenTestExpectedContent
+		actualContent := string(writtenContent)
+		if actualContent != expectedContent {
+			// Trim trailing whitespace and newlines for robust comparison
+			trimmedExpected := expectedContent
+			trimmedActual := actualContent
+			for len(trimmedExpected) > 0 && (trimmedExpected[len(trimmedExpected)-1] == '\n' || trimmedExpected[len(trimmedExpected)-1] == '\r') {
+				trimmedExpected = trimmedExpected[:len(trimmedExpected)-1]
+			}
+			for len(trimmedActual) > 0 && (trimmedActual[len(trimmedActual)-1] == '\n' || trimmedActual[len(trimmedActual)-1] == '\r') {
+				trimmedActual = trimmedActual[:len(trimmedActual)-1]
+			}
+			if trimmedActual != trimmedExpected {
+				t.Errorf("expected content %q, got %q", trimmedExpected, trimmedActual)
+			}
 		}
 	})
 

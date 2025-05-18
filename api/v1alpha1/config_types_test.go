@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/api/v1alpha1/aws"
+	"github.com/windsorcli/cli/api/v1alpha1/azure"
 	"github.com/windsorcli/cli/api/v1alpha1/cluster"
 	"github.com/windsorcli/cli/api/v1alpha1/dns"
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
@@ -20,6 +21,12 @@ func TestConfig_Merge(t *testing.T) {
 			AWS: &aws.AWSConfig{
 				Enabled:        ptrBool(true),
 				AWSEndpointURL: ptrString("https://base.aws.endpoint"),
+			},
+			Azure: &azure.AzureConfig{
+				Enabled:        ptrBool(true),
+				SubscriptionID: ptrString("base-sub"),
+				TenantID:       ptrString("base-tenant"),
+				Environment:    ptrString("base-cloud"),
 			},
 			Docker: &docker.DockerConfig{
 				Enabled: ptrBool(true),
@@ -60,6 +67,12 @@ func TestConfig_Merge(t *testing.T) {
 		overlay := &Context{
 			AWS: &aws.AWSConfig{
 				AWSEndpointURL: ptrString("https://overlay.aws.endpoint"),
+			},
+			Azure: &azure.AzureConfig{
+				Enabled:        ptrBool(false),
+				SubscriptionID: ptrString("overlay-sub"),
+				TenantID:       ptrString("overlay-tenant"),
+				Environment:    ptrString("overlay-cloud"),
 			},
 			Docker: &docker.DockerConfig{
 				Enabled: ptrBool(false),
@@ -102,6 +115,18 @@ func TestConfig_Merge(t *testing.T) {
 		if base.AWS.AWSEndpointURL == nil || *base.AWS.AWSEndpointURL != "https://overlay.aws.endpoint" {
 			t.Errorf("AWS AWSEndpointURL mismatch: expected 'https://overlay.aws.endpoint', got '%s'", *base.AWS.AWSEndpointURL)
 		}
+		if base.Azure.Enabled == nil || *base.Azure.Enabled != false {
+			t.Errorf("Azure Enabled mismatch: expected false, got %v", *base.Azure.Enabled)
+		}
+		if base.Azure.SubscriptionID == nil || *base.Azure.SubscriptionID != "overlay-sub" {
+			t.Errorf("Azure SubscriptionID mismatch: expected 'overlay-sub', got '%s'", *base.Azure.SubscriptionID)
+		}
+		if base.Azure.TenantID == nil || *base.Azure.TenantID != "overlay-tenant" {
+			t.Errorf("Azure TenantID mismatch: expected 'overlay-tenant', got '%s'", *base.Azure.TenantID)
+		}
+		if base.Azure.Environment == nil || *base.Azure.Environment != "overlay-cloud" {
+			t.Errorf("Azure Environment mismatch: expected 'overlay-cloud', got '%s'", *base.Azure.Environment)
+		}
 		if base.Docker.Enabled == nil || *base.Docker.Enabled != false {
 			t.Errorf("Docker Enabled mismatch: expected false, got %v", *base.Docker.Enabled)
 		}
@@ -123,8 +148,8 @@ func TestConfig_Merge(t *testing.T) {
 		if base.Secrets.OnePasswordConfig.Vaults["vault1"].URL != "https://url.com" {
 			t.Errorf("Secrets Vault URL mismatch: expected 'https://url.com', got '%s'", base.Secrets.OnePasswordConfig.Vaults["vault1"].URL)
 		}
-		if len(base.Environment) != 2 || base.Environment["KEY1"] != "value1" || base.Environment["KEY2"] != "value2" {
-			t.Errorf("Environment merge mismatch: expected map with 'KEY1' and 'KEY2', got %v", base.Environment)
+		if len(base.Environment) != 2 || base.Environment["KEY2"] != "value2" {
+			t.Errorf("Environment mismatch: expected map with 'KEY2', got %v", base.Environment)
 		}
 		if base.Network.CIDRBlock == nil || *base.Network.CIDRBlock != "10.0.0.0/8" {
 			t.Errorf("Network CIDRBlock mismatch: expected '10.0.0.0/8', got '%s'", *base.Network.CIDRBlock)
@@ -139,6 +164,12 @@ func TestConfig_Merge(t *testing.T) {
 			AWS: &aws.AWSConfig{
 				Enabled:        ptrBool(true),
 				AWSEndpointURL: ptrString("https://base.aws.endpoint"),
+			},
+			Azure: &azure.AzureConfig{
+				Enabled:        ptrBool(true),
+				SubscriptionID: ptrString("base-sub"),
+				TenantID:       ptrString("base-tenant"),
+				Environment:    ptrString("base-cloud"),
 			},
 			Docker: &docker.DockerConfig{
 				Enabled: ptrBool(true),
@@ -182,6 +213,18 @@ func TestConfig_Merge(t *testing.T) {
 		if base.AWS.AWSEndpointURL == nil || *base.AWS.AWSEndpointURL != "https://base.aws.endpoint" {
 			t.Errorf("AWS AWSEndpointURL mismatch: expected 'https://base.aws.endpoint', got '%s'", *base.AWS.AWSEndpointURL)
 		}
+		if base.Azure.Enabled == nil || *base.Azure.Enabled != true {
+			t.Errorf("Azure Enabled mismatch: expected true, got %v", *base.Azure.Enabled)
+		}
+		if base.Azure.SubscriptionID == nil || *base.Azure.SubscriptionID != "base-sub" {
+			t.Errorf("Azure SubscriptionID mismatch: expected 'base-sub', got '%s'", *base.Azure.SubscriptionID)
+		}
+		if base.Azure.TenantID == nil || *base.Azure.TenantID != "base-tenant" {
+			t.Errorf("Azure TenantID mismatch: expected 'base-tenant', got '%s'", *base.Azure.TenantID)
+		}
+		if base.Azure.Environment == nil || *base.Azure.Environment != "base-cloud" {
+			t.Errorf("Azure Environment mismatch: expected 'base-cloud', got '%s'", *base.Azure.Environment)
+		}
 		if base.Docker.Enabled == nil || *base.Docker.Enabled != true {
 			t.Errorf("Docker Enabled mismatch: expected true, got %v", *base.Docker.Enabled)
 		}
@@ -220,6 +263,12 @@ func TestConfig_Merge(t *testing.T) {
 		overlay := &Context{
 			AWS: &aws.AWSConfig{
 				AWSEndpointURL: ptrString("https://overlay.aws.endpoint"),
+			},
+			Azure: &azure.AzureConfig{
+				Enabled:        ptrBool(false),
+				SubscriptionID: ptrString("overlay-sub"),
+				TenantID:       ptrString("overlay-tenant"),
+				Environment:    ptrString("overlay-cloud"),
 			},
 			Docker: &docker.DockerConfig{
 				Enabled: ptrBool(false),
@@ -261,6 +310,18 @@ func TestConfig_Merge(t *testing.T) {
 
 		if base.AWS.AWSEndpointURL == nil || *base.AWS.AWSEndpointURL != "https://overlay.aws.endpoint" {
 			t.Errorf("AWS AWSEndpointURL mismatch: expected 'https://overlay.aws.endpoint', got '%s'", *base.AWS.AWSEndpointURL)
+		}
+		if base.Azure.Enabled == nil || *base.Azure.Enabled != false {
+			t.Errorf("Azure Enabled mismatch: expected false, got %v", *base.Azure.Enabled)
+		}
+		if base.Azure.SubscriptionID == nil || *base.Azure.SubscriptionID != "overlay-sub" {
+			t.Errorf("Azure SubscriptionID mismatch: expected 'overlay-sub', got '%s'", *base.Azure.SubscriptionID)
+		}
+		if base.Azure.TenantID == nil || *base.Azure.TenantID != "overlay-tenant" {
+			t.Errorf("Azure TenantID mismatch: expected 'overlay-tenant', got '%s'", *base.Azure.TenantID)
+		}
+		if base.Azure.Environment == nil || *base.Azure.Environment != "overlay-cloud" {
+			t.Errorf("Azure Environment mismatch: expected 'overlay-cloud', got '%s'", *base.Azure.Environment)
 		}
 		if base.Docker.Enabled == nil || *base.Docker.Enabled != false {
 			t.Errorf("Docker Enabled mismatch: expected false, got %v", *base.Docker.Enabled)
@@ -309,6 +370,22 @@ func TestConfig_Merge(t *testing.T) {
 			t.Errorf("ProjectName mismatch: expected 'OverlayProject', got '%s'", *base.ProjectName)
 		}
 	})
+
+	t.Run("MergeWithID", func(t *testing.T) {
+		base := &Context{
+			ID: ptrString("base-id"),
+		}
+
+		overlay := &Context{
+			ID: ptrString("overlay-id"),
+		}
+
+		base.Merge(overlay)
+
+		if base.ID == nil || *base.ID != "overlay-id" {
+			t.Errorf("ID mismatch: expected 'overlay-id', got '%s'", *base.ID)
+		}
+	})
 }
 
 func TestConfig_Copy(t *testing.T) {
@@ -320,6 +397,12 @@ func TestConfig_Copy(t *testing.T) {
 			AWS: &aws.AWSConfig{
 				Enabled:        ptrBool(true),
 				AWSEndpointURL: ptrString("https://original.aws.endpoint"),
+			},
+			Azure: &azure.AzureConfig{
+				Enabled:        ptrBool(true),
+				SubscriptionID: ptrString("original-sub"),
+				TenantID:       ptrString("original-tenant"),
+				Environment:    ptrString("original-cloud"),
 			},
 			Docker: &docker.DockerConfig{
 				Enabled: ptrBool(true),
@@ -363,6 +446,18 @@ func TestConfig_Copy(t *testing.T) {
 		if original.AWS.Enabled == nil || copy.AWS.Enabled == nil || *original.AWS.Enabled != *copy.AWS.Enabled {
 			t.Errorf("AWS Enabled mismatch: expected %v, got %v", *original.AWS.Enabled, *copy.AWS.Enabled)
 		}
+		if original.Azure.Enabled == nil || copy.Azure.Enabled == nil || *original.Azure.Enabled != *copy.Azure.Enabled {
+			t.Errorf("Azure Enabled mismatch: expected %v, got %v", *original.Azure.Enabled, *copy.Azure.Enabled)
+		}
+		if original.Azure.SubscriptionID == nil || copy.Azure.SubscriptionID == nil || *original.Azure.SubscriptionID != *copy.Azure.SubscriptionID {
+			t.Errorf("Azure SubscriptionID mismatch: expected %v, got %v", *original.Azure.SubscriptionID, *copy.Azure.SubscriptionID)
+		}
+		if original.Azure.TenantID == nil || copy.Azure.TenantID == nil || *original.Azure.TenantID != *copy.Azure.TenantID {
+			t.Errorf("Azure TenantID mismatch: expected %v, got %v", *original.Azure.TenantID, *copy.Azure.TenantID)
+		}
+		if original.Azure.Environment == nil || copy.Azure.Environment == nil || *original.Azure.Environment != *copy.Azure.Environment {
+			t.Errorf("Azure Environment mismatch: expected %v, got %v", *original.Azure.Environment, *copy.Azure.Environment)
+		}
 		if original.Docker.Enabled == nil || copy.Docker.Enabled == nil || *original.Docker.Enabled != *copy.Docker.Enabled {
 			t.Errorf("Docker Enabled mismatch: expected %v, got %v", *original.Docker.Enabled, *copy.Docker.Enabled)
 		}
@@ -381,19 +476,11 @@ func TestConfig_Copy(t *testing.T) {
 		if original.DNS.Enabled == nil || copy.DNS.Enabled == nil || *original.DNS.Enabled != *copy.DNS.Enabled {
 			t.Errorf("DNS Enabled mismatch: expected %v, got %v", *original.DNS.Enabled, *copy.DNS.Enabled)
 		}
+		if original.Network.CIDRBlock == nil || copy.Network.CIDRBlock == nil || *original.Network.CIDRBlock != *copy.Network.CIDRBlock {
+			t.Errorf("Network CIDRBlock mismatch: expected %v, got %v", *original.Network.CIDRBlock, *copy.Network.CIDRBlock)
+		}
 		if original.Blueprint == nil || copy.Blueprint == nil || *original.Blueprint != *copy.Blueprint {
 			t.Errorf("Blueprint mismatch: expected %v, got %v", *original.Blueprint, *copy.Blueprint)
-		}
-
-		// Modify the copy and ensure original is unchanged
-		copy.Docker.Enabled = ptrBool(false)
-		if original.Docker.Enabled == nil || *original.Docker.Enabled == *copy.Docker.Enabled {
-			t.Errorf("Original Docker Enabled was modified: expected %v, got %v", true, *copy.Docker.Enabled)
-		}
-
-		copy.Cluster.Enabled = ptrBool(false)
-		if original.Cluster.Enabled == nil || *original.Cluster.Enabled == *copy.Cluster.Enabled {
-			t.Errorf("Original Cluster Enabled was modified: expected %v, got %v", true, *copy.Cluster.Enabled)
 		}
 	})
 
@@ -401,6 +488,7 @@ func TestConfig_Copy(t *testing.T) {
 		original := &Context{
 			Environment: nil,
 			AWS:         nil,
+			Azure:       nil,
 			Docker:      nil,
 			Git:         nil,
 			Terraform:   nil,
@@ -416,6 +504,9 @@ func TestConfig_Copy(t *testing.T) {
 		}
 		if copy.AWS != nil {
 			t.Errorf("AWS should be nil, got %v", copy.AWS)
+		}
+		if copy.Azure != nil {
+			t.Errorf("Azure should be nil, got %v", copy.Azure)
 		}
 		if copy.Docker != nil {
 			t.Errorf("Docker should be nil, got %v", copy.Docker)

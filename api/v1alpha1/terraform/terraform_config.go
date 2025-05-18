@@ -11,6 +11,7 @@ type BackendConfig struct {
 	S3         *S3Backend         `yaml:"s3,omitempty"`
 	Kubernetes *KubernetesBackend `yaml:"kubernetes,omitempty"`
 	Local      *LocalBackend      `yaml:"local,omitempty"`
+	AzureRM    *AzureRMBackend    `yaml:"azurerm,omitempty"`
 	Prefix     *string            `yaml:"prefix,omitempty"`
 }
 
@@ -88,6 +89,40 @@ type ExecConfig struct {
 	Command    *string            `yaml:"command,omitempty"`
 	Args       *[]string          `yaml:"args,omitempty"`
 	Env        *map[string]string `yaml:"env,omitempty"`
+}
+
+// AzureRMBackend represents the configuration for the AzureRM backend
+type AzureRMBackend struct {
+	StorageAccountName             *string `yaml:"storage_account_name,omitempty"`
+	ContainerName                  *string `yaml:"container_name,omitempty"`
+	Key                            *string `yaml:"key,omitempty"`
+	Environment                    *string `yaml:"environment,omitempty"`
+	MetadataHost                   *string `yaml:"metadata_host,omitempty"`
+	UseAzureAD                     *bool   `yaml:"use_azuread,omitempty"`
+	UseOIDC                        *bool   `yaml:"use_oidc,omitempty"`
+	UseCLI                         *bool   `yaml:"use_cli,omitempty"`
+	UseMSI                         *bool   `yaml:"use_msi,omitempty"`
+	UseAksWorkloadIdentity         *bool   `yaml:"use_aks_workload_identity,omitempty"`
+	TenantID                       *string `yaml:"tenant_id,omitempty"`
+	SubscriptionID                 *string `yaml:"subscription_id,omitempty"`
+	ClientID                       *string `yaml:"client_id,omitempty"`
+	ClientSecret                   *string `yaml:"client_secret,omitempty"`
+	ClientCertificate              *string `yaml:"client_certificate,omitempty"`
+	ClientCertPassword             *string `yaml:"client_certificate_password,omitempty"`
+	ClientCertPath                 *string `yaml:"client_certificate_path,omitempty"`
+	ClientIdFilePath               *string `yaml:"client_id_file_path,omitempty"`
+	ClientSecretFilePath           *string `yaml:"client_secret_file_path,omitempty"`
+	MSIEndpoint                    *string `yaml:"msi_endpoint,omitempty"`
+	ResourceGroupName              *string `yaml:"resource_group_name,omitempty"`
+	UseDNSZoneEndpoint             *bool   `yaml:"use_dns_zone_endpoint,omitempty"`
+	Snapshot                       *bool   `yaml:"snapshot,omitempty"`
+	AccessKey                      *string `yaml:"access_key,omitempty"`
+	SasToken                       *string `yaml:"sas_token,omitempty"`
+	AdoPipelineServiceConnectionId *string `yaml:"ado_pipeline_service_connection_id,omitempty"`
+	OidcRequestUrl                 *string `yaml:"oidc_request_url,omitempty"`
+	OidcRequestToken               *string `yaml:"oidc_request_token,omitempty"`
+	OidcToken                      *string `yaml:"oidc_token,omitempty"`
+	OidcTokenFilePath              *string `yaml:"oidc_token_file_path,omitempty"`
 }
 
 // Merge performs a simple merge of the current TerraformConfig with another TerraformConfig.

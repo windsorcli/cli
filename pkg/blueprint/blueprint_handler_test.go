@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/smithy-go/ptr"
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
@@ -1373,10 +1374,6 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 			{
 				Source: "source1",
 				Path:   "path/to/code",
-				Variables: map[string]blueprintv1alpha1.TerraformVariable{
-					"var1": {Type: "string", Default: "value1", Description: "Test variable 1"},
-					"var2": {Type: "number", Default: 42, Description: "Test variable 2"},
-				},
 				Values: map[string]any{
 					"key1": "val1",
 					"key2": true,
@@ -1414,9 +1411,6 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 
 		// And variables and values should be cleared
 		component := capturedBlueprint.TerraformComponents[0]
-		if component.Variables != nil {
-			t.Error("Expected Variables to be nil after write")
-		}
 		if component.Values != nil {
 			t.Error("Expected Values to be nil after write")
 		}
@@ -2168,10 +2162,6 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 				Values: map[string]any{
 					"key1": "value1",
 				},
-				Variables: map[string]blueprintv1alpha1.TerraformVariable{
-					"var1": {Type: "string", Default: "value1", Description: "Test variable 1"},
-					"var2": {Type: "number", Default: 42, Description: "Test variable 2"},
-				},
 			},
 		}
 		handler.SetTerraformComponents(expectedComponents)
@@ -2234,7 +2224,7 @@ func TestBlueprintHandler_GetKustomizations(t *testing.T) {
 		expectedKustomizations := []blueprintv1alpha1.Kustomization{
 			{
 				Name:          "kustomization1",
-				Path:          filepath.FromSlash("kustomize/overlays/dev"),
+				Path:          "kustomize/overlays/dev",
 				Source:        "source1",
 				Interval:      &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL},
 				RetryInterval: &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL},
@@ -3645,4 +3635,315 @@ func TestTLACode(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "blueprint has no authors") {
 		t.Errorf("expected error containing 'blueprint has no authors', got %v", err)
 	}
+}
+
+func TestBaseBlueprintHandler_calculateMaxWaitTime(t *testing.T) {
+	t.Run("EmptyKustomizations", func(t *testing.T) {
+		// Given a blueprint handler with no kustomizations
+		handler := &BaseBlueprintHandler{
+			blueprint: blueprintv1alpha1.Blueprint{
+				Kustomizations: []blueprintv1alpha1.Kustomization{},
+			},
+		}
+
+		// When calculating max wait time
+		waitTime := handler.calculateMaxWaitTime()
+
+		// Then it should return 0 since there are no kustomizations
+		if waitTime != 0 {
+			t.Errorf("expected 0 duration, got %v", waitTime)
+		}
+	})
+
+	t.Run("SingleKustomization", func(t *testing.T) {
+		// Given a blueprint handler with a single kustomization
+		customTimeout := 2 * time.Minute
+		handler := &BaseBlueprintHandler{
+			blueprint: blueprintv1alpha1.Blueprint{
+				Kustomizations: []blueprintv1alpha1.Kustomization{
+					{
+						Name: "test-kustomization",
+						Timeout: &metav1.Duration{
+							Duration: customTimeout,
+						},
+					},
+				},
+			},
+		}
+
+		// When calculating max wait time
+		waitTime := handler.calculateMaxWaitTime()
+
+		// Then it should return the kustomization's timeout
+		if waitTime != customTimeout {
+			t.Errorf("expected timeout %v, got %v", customTimeout, waitTime)
+		}
+	})
+
+	t.Run("LinearDependencies", func(t *testing.T) {
+		// Given a blueprint handler with linear dependencies
+		timeout1 := 1 * time.Minute
+		timeout2 := 2 * time.Minute
+		timeout3 := 3 * time.Minute
+		handler := &BaseBlueprintHandler{
+			blueprint: blueprintv1alpha1.Blueprint{
+				Kustomizations: []blueprintv1alpha1.Kustomization{
+					{
+						Name: "kustomization-1",
+						Timeout: &metav1.Duration{
+							Duration: timeout1,
+						},
+						DependsOn: []string{"kustomization-2"},
+					},
+					{
+						Name: "kustomization-2",
+						Timeout: &metav1.Duration{
+							Duration: timeout2,
+						},
+						DependsOn: []string{"kustomization-3"},
+					},
+					{
+						Name: "kustomization-3",
+						Timeout: &metav1.Duration{
+							Duration: timeout3,
+						},
+					},
+				},
+			},
+		}
+
+		// When calculating max wait time
+		waitTime := handler.calculateMaxWaitTime()
+
+		// Then it should return the sum of all timeouts
+		expectedTime := timeout1 + timeout2 + timeout3
+		if waitTime != expectedTime {
+			t.Errorf("expected timeout %v, got %v", expectedTime, waitTime)
+		}
+	})
+
+	t.Run("BranchingDependencies", func(t *testing.T) {
+		// Given a blueprint handler with branching dependencies
+		timeout1 := 1 * time.Minute
+		timeout2 := 2 * time.Minute
+		timeout3 := 3 * time.Minute
+		timeout4 := 4 * time.Minute
+		handler := &BaseBlueprintHandler{
+			blueprint: blueprintv1alpha1.Blueprint{
+				Kustomizations: []blueprintv1alpha1.Kustomization{
+					{
+						Name: "kustomization-1",
+						Timeout: &metav1.Duration{
+							Duration: timeout1,
+						},
+						DependsOn: []string{"kustomization-2", "kustomization-3"},
+					},
+					{
+						Name: "kustomization-2",
+						Timeout: &metav1.Duration{
+							Duration: timeout2,
+						},
+						DependsOn: []string{"kustomization-4"},
+					},
+					{
+						Name: "kustomization-3",
+						Timeout: &metav1.Duration{
+							Duration: timeout3,
+						},
+						DependsOn: []string{"kustomization-4"},
+					},
+					{
+						Name: "kustomization-4",
+						Timeout: &metav1.Duration{
+							Duration: timeout4,
+						},
+					},
+				},
+			},
+		}
+
+		// When calculating max wait time
+		waitTime := handler.calculateMaxWaitTime()
+
+		// Then it should return the longest path (1 -> 3 -> 4)
+		expectedTime := timeout1 + timeout3 + timeout4
+		if waitTime != expectedTime {
+			t.Errorf("expected timeout %v, got %v", expectedTime, waitTime)
+		}
+	})
+
+	t.Run("CircularDependencies", func(t *testing.T) {
+		// Given a blueprint handler with circular dependencies
+		timeout1 := 1 * time.Minute
+		timeout2 := 2 * time.Minute
+		timeout3 := 3 * time.Minute
+		handler := &BaseBlueprintHandler{
+			blueprint: blueprintv1alpha1.Blueprint{
+				Kustomizations: []blueprintv1alpha1.Kustomization{
+					{
+						Name: "kustomization-1",
+						Timeout: &metav1.Duration{
+							Duration: timeout1,
+						},
+						DependsOn: []string{"kustomization-2"},
+					},
+					{
+						Name: "kustomization-2",
+						Timeout: &metav1.Duration{
+							Duration: timeout2,
+						},
+						DependsOn: []string{"kustomization-3"},
+					},
+					{
+						Name: "kustomization-3",
+						Timeout: &metav1.Duration{
+							Duration: timeout3,
+						},
+						DependsOn: []string{"kustomization-1"},
+					},
+				},
+			},
+		}
+
+		// When calculating max wait time
+		waitTime := handler.calculateMaxWaitTime()
+
+		// Then it should return the sum of all timeouts in the cycle (1+2+3+3)
+		expectedTime := timeout1 + timeout2 + timeout3 + timeout3
+		if waitTime != expectedTime {
+			t.Errorf("expected timeout %v, got %v", expectedTime, waitTime)
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_WaitForKustomizations(t *testing.T) {
+	t.Run("AllKustomizationsReady", func(t *testing.T) {
+		// Given a blueprint handler with multiple kustomizations that are all ready
+		handler := &BaseBlueprintHandler{
+			blueprint: blueprintv1alpha1.Blueprint{
+				Kustomizations: []blueprintv1alpha1.Kustomization{
+					{Name: "k1", Timeout: &metav1.Duration{Duration: 100 * time.Millisecond}},
+					{Name: "k2", Timeout: &metav1.Duration{Duration: 100 * time.Millisecond}},
+				},
+			},
+		}
+		handler.kustomizationWaitPollInterval = 10 * time.Millisecond
+
+		// And Git repository and kustomization status checks that return success
+		origCheckGit := checkGitRepositoryStatus
+		origCheckKustom := checkKustomizationStatus
+		defer func() {
+			checkGitRepositoryStatus = origCheckGit
+			checkKustomizationStatus = origCheckKustom
+		}()
+		checkGitRepositoryStatus = func(string) error { return nil }
+		checkKustomizationStatus = func(string, []string) (map[string]bool, error) {
+			return map[string]bool{"k1": true, "k2": true}, nil
+		}
+
+		// When waiting for kustomizations to be ready
+		err := handler.WaitForKustomizations()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("TimeoutWaitingForKustomizations", func(t *testing.T) {
+		// Given a blueprint handler with kustomizations that never reach ready state
+		handler := &BaseBlueprintHandler{
+			blueprint: blueprintv1alpha1.Blueprint{
+				Kustomizations: []blueprintv1alpha1.Kustomization{
+					{Name: "k1", Timeout: &metav1.Duration{Duration: 200 * time.Millisecond}},
+					{Name: "k2", Timeout: &metav1.Duration{Duration: 200 * time.Millisecond}},
+				},
+			},
+		}
+		handler.kustomizationWaitPollInterval = 10 * time.Millisecond
+
+		// And status checks that always return not ready
+		origCheckGit := checkGitRepositoryStatus
+		origCheckKustom := checkKustomizationStatus
+		defer func() {
+			checkGitRepositoryStatus = origCheckGit
+			checkKustomizationStatus = origCheckKustom
+		}()
+		checkGitRepositoryStatus = func(string) error { return nil }
+		checkKustomizationStatus = func(string, []string) (map[string]bool, error) {
+			return map[string]bool{"k1": false, "k2": false}, nil
+		}
+
+		// When waiting for kustomizations to be ready
+		err := handler.WaitForKustomizations()
+
+		// Then a timeout error should be returned
+		if err == nil || !strings.Contains(err.Error(), "timeout waiting for kustomizations") {
+			t.Errorf("expected timeout error, got %v", err)
+		}
+	})
+
+	t.Run("GitRepositoryStatusError", func(t *testing.T) {
+		// Given a blueprint handler with a kustomization
+		handler := &BaseBlueprintHandler{
+			blueprint: blueprintv1alpha1.Blueprint{
+				Kustomizations: []blueprintv1alpha1.Kustomization{
+					{Name: "k1", Timeout: &metav1.Duration{Duration: 100 * time.Millisecond}},
+				},
+			},
+		}
+		handler.kustomizationWaitPollInterval = 10 * time.Millisecond
+
+		// And a Git repository status check that returns an error
+		origCheckGit := checkGitRepositoryStatus
+		origCheckKustom := checkKustomizationStatus
+		defer func() {
+			checkGitRepositoryStatus = origCheckGit
+			checkKustomizationStatus = origCheckKustom
+		}()
+		checkGitRepositoryStatus = func(string) error { return fmt.Errorf("git repo error") }
+		checkKustomizationStatus = func(string, []string) (map[string]bool, error) {
+			return map[string]bool{"k1": true}, nil
+		}
+
+		// When waiting for kustomizations to be ready
+		err := handler.WaitForKustomizations()
+
+		// Then a Git repository error should be returned
+		if err == nil || !strings.Contains(err.Error(), "git repository error") {
+			t.Errorf("expected git repository error, got %v", err)
+		}
+	})
+
+	t.Run("KustomizationStatusError", func(t *testing.T) {
+		// Given a blueprint handler with a kustomization
+		handler := &BaseBlueprintHandler{
+			blueprint: blueprintv1alpha1.Blueprint{
+				Kustomizations: []blueprintv1alpha1.Kustomization{
+					{Name: "k1", Timeout: &metav1.Duration{Duration: 100 * time.Millisecond}},
+				},
+			},
+		}
+		handler.kustomizationWaitPollInterval = 10 * time.Millisecond
+
+		// And a kustomization status check that returns an error
+		origCheckGit := checkGitRepositoryStatus
+		origCheckKustom := checkKustomizationStatus
+		defer func() {
+			checkGitRepositoryStatus = origCheckGit
+			checkKustomizationStatus = origCheckKustom
+		}()
+		checkGitRepositoryStatus = func(string) error { return nil }
+		checkKustomizationStatus = func(string, []string) (map[string]bool, error) {
+			return nil, fmt.Errorf("kustomization error")
+		}
+
+		// When waiting for kustomizations to be ready
+		err := handler.WaitForKustomizations()
+
+		// Then a kustomization error should be returned
+		if err == nil || !strings.Contains(err.Error(), "kustomization error") {
+			t.Errorf("expected kustomization error, got %v", err)
+		}
+	})
 }

@@ -338,6 +338,54 @@ func TestStack_Up(t *testing.T) {
 	})
 }
 
+func TestStack_Down(t *testing.T) {
+	setup := func(t *testing.T) (*BaseStack, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		stack := NewBaseStack(mocks.Injector)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given safe mock components
+		stack, _ := setup(t)
+
+		// When a new BaseStack is created and initialized
+		if err := stack.Initialize(); err != nil {
+			t.Fatalf("Expected no error during initialization, got %v", err)
+		}
+
+		// And when Down is called
+		if err := stack.Down(); err != nil {
+			// Then no error should occur
+			t.Errorf("Expected Down to return nil, got %v", err)
+		}
+	})
+
+	t.Run("UninitializedStack", func(t *testing.T) {
+		// Given a new BaseStack without initialization
+		stack, _ := setup(t)
+
+		// When Down is called without initializing
+		if err := stack.Down(); err != nil {
+			// Then no error should occur since base implementation is empty
+			t.Errorf("Expected Down to return nil even without initialization, got %v", err)
+		}
+	})
+
+	t.Run("NilInjector", func(t *testing.T) {
+		// Given a BaseStack with nil injector
+		stack := NewBaseStack(nil)
+
+		// When Down is called
+		if err := stack.Down(); err != nil {
+			// Then no error should occur since base implementation is empty
+			t.Errorf("Expected Down to return nil even with nil injector, got %v", err)
+		}
+	})
+}
+
 func TestStack_Interface(t *testing.T) {
 	t.Run("BaseStackImplementsStack", func(t *testing.T) {
 		// Given a type assertion for Stack interface

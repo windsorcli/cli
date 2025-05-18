@@ -7,6 +7,7 @@ import (
 
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/controller"
+	"github.com/windsorcli/cli/pkg/stack"
 	"github.com/windsorcli/cli/pkg/virt"
 )
 
@@ -18,6 +19,7 @@ import (
 type DownMocks struct {
 	*Mocks
 	ContainerRuntime *virt.MockVirt
+	Stack            *stack.MockStack
 }
 
 // =============================================================================
@@ -53,12 +55,17 @@ contexts:
 	containerRuntime.DownFunc = func() error { return nil }
 	mocks.Injector.Register("containerRuntime", containerRuntime)
 
+	mockStack := stack.NewMockStack(mocks.Injector)
+	mockStack.DownFunc = func() error { return nil }
+	mocks.Injector.Register("stack", mockStack)
+
 	mocks.Controller.SetEnvironmentVariablesFunc = func() error { return nil }
 	mocks.Controller.InitializeWithRequirementsFunc = func(req controller.Requirements) error { return nil }
 
 	return &DownMocks{
 		Mocks:            mocks,
 		ContainerRuntime: containerRuntime,
+		Stack:            mockStack,
 	}
 }
 
@@ -106,6 +113,88 @@ func TestDownCmd(t *testing.T) {
 		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Error("Expected error, got nil")
+		}
+	})
+
+	t.Run("ErrorNilStack", func(t *testing.T) {
+		mocks := setupDownMocks(t)
+		mocks.Controller.ResolveStackFunc = func() stack.Stack {
+			return nil
+		}
+
+		rootCmd.SetArgs([]string{"down"})
+		err := Execute(mocks.Controller)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != "No stack found" {
+			t.Errorf("Expected 'No stack found', got '%v'", err)
+		}
+	})
+
+	t.Run("ErrorStackDown", func(t *testing.T) {
+		mocks := setupDownMocks(t)
+		mocks.Stack.DownFunc = func() error {
+			return fmt.Errorf("test error")
+		}
+
+		rootCmd.SetArgs([]string{"down"})
+		err := Execute(mocks.Controller)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "Error running stack Down command") {
+			t.Errorf("Expected error to contain 'Error running stack Down command', got: %v", err)
+		}
+	})
+
+	t.Run("StackDownCalledWithRequirements", func(t *testing.T) {
+		mocks := setupDownMocks(t)
+		stackDownCalled := false
+		mocks.Stack.DownFunc = func() error {
+			stackDownCalled = true
+			return nil
+		}
+
+		// Verify requirements are set correctly
+		mocks.Controller.InitializeWithRequirementsFunc = func(req controller.Requirements) error {
+			if !req.ConfigLoaded {
+				t.Error("Expected ConfigLoaded to be true")
+			}
+			if !req.Trust {
+				t.Error("Expected Trust to be true")
+			}
+			if !req.Env {
+				t.Error("Expected Env to be true")
+			}
+			if !req.VM {
+				t.Error("Expected VM to be true")
+			}
+			if !req.Containers {
+				t.Error("Expected Containers to be true")
+			}
+			if !req.Network {
+				t.Error("Expected Network to be true")
+			}
+			if !req.Blueprint {
+				t.Error("Expected Blueprint to be true")
+			}
+			if !req.Stack {
+				t.Error("Expected Stack to be true")
+			}
+			if req.CommandName != "down" {
+				t.Errorf("Expected CommandName to be 'down', got %s", req.CommandName)
+			}
+			return nil
+		}
+
+		rootCmd.SetArgs([]string{"down"})
+		err := Execute(mocks.Controller)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !stackDownCalled {
+			t.Error("Expected stack.Down() to be called")
 		}
 	})
 

@@ -802,4 +802,37 @@ func TestInitCmd(t *testing.T) {
 			t.Errorf("Expected new.key=new-value, got %v", actual)
 		}
 	})
+
+	t.Run("GenerateContextIDError", func(t *testing.T) {
+		// Given a set of mocks with proper configuration
+		mocks := setupInitMocks(t, nil)
+
+		// Override config handler to return error for GenerateContextID
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextFunc = func() string { return "" }
+		mockConfigHandler.SetContextFunc = func(context string) error { return nil }
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string { return "" }
+		mockConfigHandler.SetDefaultFunc = func(config v1alpha1.Context) error { return nil }
+		mockConfigHandler.SetContextValueFunc = func(key string, value any) error { return nil }
+		mockConfigHandler.SaveConfigFunc = func(path string) error { return nil }
+		mockConfigHandler.GenerateContextIDFunc = func() error { return fmt.Errorf("generate context id error") }
+		mocks.Controller.ResolveConfigHandlerFunc = func() config.ConfigHandler { return mockConfigHandler }
+
+		// Set up command arguments
+		rootCmd.SetArgs([]string{"init"})
+
+		// When executing the command
+		err := Execute(mocks.Controller)
+
+		// Then error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+
+		// And error should contain generate context id error message
+		expectedError := "failed to generate context ID: generate context id error"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
 }

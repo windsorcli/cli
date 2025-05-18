@@ -1627,7 +1627,7 @@ contexts:
 		}
 
 		// And the container name should use the fallback name with context prefix
-		expectedContainerName := "windsor-mock-context-controlplane"
+		expectedContainerName := "controlplane.test"
 		if config.Services[0].ContainerName != expectedContainerName {
 			t.Errorf("expected container name %s, got %s", expectedContainerName, config.Services[0].ContainerName)
 		}

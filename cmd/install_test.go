@@ -190,4 +190,36 @@ func TestInstallCmd(t *testing.T) {
 			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
+
+	t.Run("WaitFlag_CallsWaitForKustomizations", func(t *testing.T) {
+		// Given a set of mocks with proper configuration
+		mocks := setupInstallMocks(t, nil)
+
+		// Set waitFlag = true
+		waitFlag = true
+		defer func() { waitFlag = false }()
+
+		// Set up a flag to check if WaitForKustomizations is called
+		called := false
+		mocks.BlueprintHandler.WaitForKustomizationsFunc = func() error {
+			called = true
+			return nil
+		}
+
+		// Set up command arguments
+		rootCmd.SetArgs([]string{"install"})
+
+		// When executing the command
+		err := Execute(mocks.Controller)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+
+		// And WaitForKustomizations should have been called
+		if !called {
+			t.Error("Expected WaitForKustomizations to be called, but it was not")
+		}
+	})
 }

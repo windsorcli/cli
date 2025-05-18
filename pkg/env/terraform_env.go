@@ -78,6 +78,7 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 			"TF_CLI_ARGS_import",
 			"TF_CLI_ARGS_destroy",
 			"TF_VAR_context_path",
+			"TF_VAR_context_id",
 			"TF_VAR_os_type",
 		}
 
@@ -130,6 +131,7 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars["TF_CLI_ARGS_import"] = strings.TrimSpace(strings.Join(varFileArgs, " "))
 	envVars["TF_CLI_ARGS_destroy"] = strings.TrimSpace(strings.Join(varFileArgs, " "))
 	envVars["TF_VAR_context_path"] = strings.TrimSpace(filepath.ToSlash(configRoot))
+	envVars["TF_VAR_context_id"] = strings.TrimSpace(e.configHandler.GetString("id", ""))
 
 	// Set os_type based on the OS
 	if e.shims.Goos() == "windows" {
@@ -234,10 +236,16 @@ func (e *TerraformEnvPrinter) generateBackendOverrideTf() error {
 
 	backend := e.configHandler.GetString("terraform.backend.type", "local")
 
-	backendOverridePath := filepath.Join(currentPath, "backend_override.tf")
 	var backendConfig string
-
 	switch backend {
+	case "none":
+		backendOverridePath := filepath.Join(currentPath, "backend_override.tf")
+		if _, err := e.shims.Stat(backendOverridePath); err == nil {
+			if err := e.shims.Remove(backendOverridePath); err != nil {
+				return fmt.Errorf("error removing backend_override.tf: %w", err)
+			}
+		}
+		return nil
 	case "local":
 		backendConfig = fmt.Sprintf(`terraform {
   backend "local" {}
@@ -250,10 +258,15 @@ func (e *TerraformEnvPrinter) generateBackendOverrideTf() error {
 		backendConfig = fmt.Sprintf(`terraform {
   backend "kubernetes" {}
 }`)
+	case "azurerm":
+		backendConfig = fmt.Sprintf(`terraform {
+  backend "azurerm" {}
+}`)
 	default:
 		return fmt.Errorf("unsupported backend: %s", backend)
 	}
 
+	backendOverridePath := filepath.Join(currentPath, "backend_override.tf")
 	err = e.shims.WriteFile(backendOverridePath, []byte(backendConfig), os.ModePerm)
 	if err != nil {
 		return fmt.Errorf("error writing backend_override.tf: %w", err)
@@ -311,6 +324,14 @@ func (e *TerraformEnvPrinter) generateBackendConfigArgs(projectPath, configRoot 
 		if backend := e.configHandler.GetConfig().Terraform.Backend.Kubernetes; backend != nil {
 			if err := e.processBackendConfig(backend, addBackendConfigArg); err != nil {
 				return nil, fmt.Errorf("error processing Kubernetes backend config: %w", err)
+			}
+		}
+	case "azurerm":
+		keyPath := fmt.Sprintf("%s%s", prefix, filepath.ToSlash(filepath.Join(projectPath, "terraform.tfstate")))
+		addBackendConfigArg("key", keyPath)
+		if backend := e.configHandler.GetConfig().Terraform.Backend.AzureRM; backend != nil {
+			if err := e.processBackendConfig(backend, addBackendConfigArg); err != nil {
+				return nil, fmt.Errorf("error processing AzureRM backend config: %w", err)
 			}
 		}
 	default:

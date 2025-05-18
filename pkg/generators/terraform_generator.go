@@ -1,10 +1,12 @@
 package generators
 
 import (
-	"bytes"
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -28,11 +30,29 @@ type TerraformGenerator struct {
 	BaseGenerator
 }
 
+// VariableInfo holds metadata for a single Terraform variable
+type VariableInfo struct {
+	Name        string
+	Description string
+	Default     any
+	Sensitive   bool
+}
+
+// TerraformInitOutput represents the JSON output from terraform init
+type TerraformInitOutput struct {
+	Level     string `json:"@level"`
+	Message   string `json:"@message"`
+	Module    string `json:"@module"`
+	Timestamp string `json:"@timestamp"`
+	Type      string `json:"type"`
+}
+
 // =============================================================================
 // Constructor
 // =============================================================================
 
-// NewTerraformGenerator creates a new TerraformGenerator
+// NewTerraformGenerator creates a new TerraformGenerator with the provided dependency injector.
+// It initializes the base generator and prepares it for Terraform file generation.
 func NewTerraformGenerator(injector di.Injector) *TerraformGenerator {
 	return &TerraformGenerator{
 		BaseGenerator: *NewGenerator(injector),
@@ -43,8 +63,12 @@ func NewTerraformGenerator(injector di.Injector) *TerraformGenerator {
 // Public Methods
 // =============================================================================
 
-// Write generates the Terraform files for all components defined in the blueprint.
-// It creates the necessary directory structure and writes module, variable, and tfvars files.
+// Write generates Terraform configuration files for all components in the blueprint.
+// It creates the necessary directory structure and writes three types of files:
+// 1. main.tf - Contains module source and variable references
+// 2. variables.tf - Defines all variables used by the module
+// 3. .tfvars - Contains actual variable values for each context
+// The function preserves existing values in .tfvars files while adding new ones.
 func (g *TerraformGenerator) Write() error {
 	components := g.blueprintHandler.GetTerraformComponents()
 
@@ -65,16 +89,8 @@ func (g *TerraformGenerator) Write() error {
 
 	for _, component := range components {
 		if component.Source != "" {
-			if err := g.shims.MkdirAll(component.FullPath, 0755); err != nil {
-				return fmt.Errorf("failed to create component directory: %w", err)
-			}
-
-			if err := g.writeModuleFile(component.FullPath, component); err != nil {
-				return fmt.Errorf("failed to write module file: %w", err)
-			}
-
-			if err := g.writeVariableFile(component.FullPath, component); err != nil {
-				return fmt.Errorf("failed to write variable file: %w", err)
+			if err := g.generateModuleShim(component); err != nil {
+				return fmt.Errorf("failed to generate module shim: %w", err)
 			}
 		}
 
@@ -90,8 +106,251 @@ func (g *TerraformGenerator) Write() error {
 // Private Methods
 // =============================================================================
 
-// writeModuleFile creates a Terraform module file that defines the module source and variables.
-// It generates a main.tf file with the module configuration and variable references.
+// generateModuleShim creates a local reference to a remote Terraform module.
+// It provides a shim layer that maintains module configuration while allowing Windsor to manage it.
+// The function orchestrates the creation of main.tf, variables.tf, and outputs.tf files.
+// It ensures proper module initialization and state management.
+func (g *TerraformGenerator) generateModuleShim(component blueprintv1alpha1.TerraformComponent) error {
+	moduleDir := component.FullPath
+	if err := g.shims.MkdirAll(moduleDir, 0755); err != nil {
+		return fmt.Errorf("failed to create module directory: %w", err)
+	}
+
+	if err := g.writeShimMainTf(moduleDir, component.Source); err != nil {
+		return err
+	}
+
+	if err := g.shims.Chdir(moduleDir); err != nil {
+		return fmt.Errorf("failed to change to module directory: %w", err)
+	}
+
+	modulePath, err := g.initializeTerraformModule(component)
+	if err != nil {
+		return err
+	}
+
+	if err := g.writeShimVariablesTf(moduleDir, modulePath, component.Source); err != nil {
+		return err
+	}
+
+	if err := g.writeShimOutputsTf(moduleDir, modulePath); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// writeShimMainTf creates the main.tf file for the shim module.
+// It provides the initial module configuration with source reference.
+// The function ensures proper HCL syntax and maintains consistent module structure.
+// It handles file writing with appropriate permissions and error handling.
+func (g *TerraformGenerator) writeShimMainTf(moduleDir, source string) error {
+	mainContent := hclwrite.NewEmptyFile()
+	block := mainContent.Body().AppendNewBlock("module", []string{"main"})
+	body := block.Body()
+	body.SetAttributeValue("source", cty.StringVal(source))
+
+	if err := g.shims.WriteFile(filepath.Join(moduleDir, "main.tf"), mainContent.Bytes(), 0644); err != nil {
+		return fmt.Errorf("failed to write main.tf: %w", err)
+	}
+	return nil
+}
+
+// initializeTerraformModule initializes the Terraform module and returns its path.
+// It provides module initialization, path resolution, and environment setup.
+// The function handles terraform init execution and module path detection.
+// It ensures proper state directory configuration and error handling.
+func (g *TerraformGenerator) initializeTerraformModule(component blueprintv1alpha1.TerraformComponent) (string, error) {
+	contextPath, err := g.configHandler.GetConfigRoot()
+	if err != nil {
+		return "", fmt.Errorf("failed to get config root: %w", err)
+	}
+
+	tfDataDir := filepath.Join(contextPath, ".terraform", component.Path)
+	if err := g.shims.Setenv("TF_DATA_DIR", tfDataDir); err != nil {
+		return "", fmt.Errorf("failed to set TF_DATA_DIR: %w", err)
+	}
+
+	output, err := g.shell.ExecProgress(
+		fmt.Sprintf("📥 Loading component %s", component.Path),
+		"terraform",
+		"init",
+		"--backend=false",
+		"-input=false",
+		"-json",
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to initialize terraform: %w", err)
+	}
+
+	detectedPath := ""
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		var initOutput TerraformInitOutput
+		if err := json.Unmarshal([]byte(line), &initOutput); err != nil {
+			continue
+		}
+		if initOutput.Type == "log" {
+			msg := initOutput.Message
+			startIdx := strings.Index(msg, "- main in")
+			if startIdx == -1 {
+				continue
+			}
+
+			pathStart := startIdx + len("- main in")
+			if pathStart >= len(msg) {
+				continue
+			}
+
+			path := strings.TrimSpace(msg[pathStart:])
+			if path == "" {
+				continue
+			}
+
+			if _, err := g.shims.Stat(path); err == nil {
+				detectedPath = path
+				break
+			}
+		}
+	}
+
+	modulePath := filepath.Join(contextPath, ".terraform", component.Path, "modules", "main", "terraform", component.Path)
+	if detectedPath != "" {
+		if detectedPath != modulePath {
+			fmt.Printf("\033[33mWarning: Using detected module path %s instead of standard path %s\033[0m\n", detectedPath, modulePath)
+		}
+		modulePath = detectedPath
+	}
+
+	return modulePath, nil
+}
+
+// writeShimVariablesTf creates the variables.tf file for the shim module.
+// It extracts variable definitions from the source module's variables.tf file and generates
+// a shim module that references these variables. The function reads the source variables.tf,
+// creates a main.tf file with the module source reference, and generates a variables.tf file
+// that preserves all variable attributes (description, type, default, sensitive) from the
+// original module. This creates a transparent wrapper around the source module.
+func (g *TerraformGenerator) writeShimVariablesTf(moduleDir, modulePath, source string) error {
+	shimMainContent := hclwrite.NewEmptyFile()
+	shimBlock := shimMainContent.Body().AppendNewBlock("module", []string{"main"})
+	shimBody := shimBlock.Body()
+	shimBody.SetAttributeRaw("source", hclwrite.TokensForValue(cty.StringVal(source)))
+
+	variablesPath := filepath.Join(modulePath, "variables.tf")
+	variablesContent, err := g.shims.ReadFile(variablesPath)
+	if err != nil {
+		return fmt.Errorf("failed to read variables.tf: %w", err)
+	}
+
+	variablesFile, diags := hclwrite.ParseConfig(variablesContent, variablesPath, hcl.Pos{Line: 1, Column: 1})
+	if diags.HasErrors() {
+		return fmt.Errorf("failed to parse variables.tf: %w", diags)
+	}
+
+	shimVariablesContent := hclwrite.NewEmptyFile()
+	shimVariablesBody := shimVariablesContent.Body()
+
+	for _, block := range variablesFile.Body().Blocks() {
+		if block.Type() == "variable" {
+			labels := block.Labels()
+			if len(labels) > 0 {
+				variableName := labels[0]
+
+				shimBody.SetAttributeTraversal(variableName, hcl.Traversal{
+					hcl.TraverseRoot{Name: "var"},
+					hcl.TraverseAttr{Name: variableName},
+				})
+
+				shimBlock := shimVariablesBody.AppendNewBlock("variable", []string{variableName})
+				shimBlockBody := shimBlock.Body()
+
+				if attr := block.Body().GetAttribute("description"); attr != nil {
+					shimBlockBody.SetAttributeRaw("description", attr.Expr().BuildTokens(nil))
+				}
+
+				if attr := block.Body().GetAttribute("type"); attr != nil {
+					shimBlockBody.SetAttributeRaw("type", attr.Expr().BuildTokens(nil))
+				}
+
+				if attr := block.Body().GetAttribute("default"); attr != nil {
+					shimBlockBody.SetAttributeRaw("default", attr.Expr().BuildTokens(nil))
+				}
+
+				if attr := block.Body().GetAttribute("sensitive"); attr != nil {
+					shimBlockBody.SetAttributeRaw("sensitive", attr.Expr().BuildTokens(nil))
+				}
+			}
+		}
+	}
+
+	if err := g.shims.WriteFile(filepath.Join(moduleDir, "variables.tf"), shimVariablesContent.Bytes(), 0644); err != nil {
+		return fmt.Errorf("failed to write shim variables.tf: %w", err)
+	}
+
+	if err := g.shims.WriteFile(filepath.Join(moduleDir, "main.tf"), shimMainContent.Bytes(), 0644); err != nil {
+		return fmt.Errorf("failed to write shim main.tf: %w", err)
+	}
+
+	return nil
+}
+
+// writeShimOutputsTf creates the outputs.tf file for the shim module.
+// It provides output definition extraction and shim generation.
+// The function creates references to module.main outputs while preserving descriptions.
+// It handles file reading, parsing, and writing with proper error handling.
+func (g *TerraformGenerator) writeShimOutputsTf(moduleDir, modulePath string) error {
+	outputsPath := filepath.Join(modulePath, "outputs.tf")
+	if _, err := g.shims.Stat(outputsPath); err == nil {
+		outputsContent, err := g.shims.ReadFile(outputsPath)
+		if err != nil {
+			return fmt.Errorf("failed to read outputs.tf: %w", err)
+		}
+
+		outputsFile, diags := hclwrite.ParseConfig(outputsContent, outputsPath, hcl.Pos{Line: 1, Column: 1})
+		if diags.HasErrors() {
+			return fmt.Errorf("failed to parse outputs.tf: %w", diags)
+		}
+
+		shimOutputsContent := hclwrite.NewEmptyFile()
+		shimBody := shimOutputsContent.Body()
+
+		for _, block := range outputsFile.Body().Blocks() {
+			if block.Type() == "output" {
+				labels := block.Labels()
+				if len(labels) > 0 {
+					outputName := labels[0]
+					shimBlock := shimBody.AppendNewBlock("output", []string{outputName})
+					shimBlockBody := shimBlock.Body()
+
+					// Copy description if present
+					if attr := block.Body().GetAttribute("description"); attr != nil {
+						shimBlockBody.SetAttributeRaw("description", attr.Expr().BuildTokens(nil))
+					}
+
+					// Set value to reference module.main output
+					shimBlockBody.SetAttributeTraversal("value", hcl.Traversal{
+						hcl.TraverseRoot{Name: "module"},
+						hcl.TraverseAttr{Name: "main"},
+						hcl.TraverseAttr{Name: outputName},
+					})
+				}
+			}
+		}
+
+		if err := g.shims.WriteFile(filepath.Join(moduleDir, "outputs.tf"), shimOutputsContent.Bytes(), 0644); err != nil {
+			return fmt.Errorf("failed to write shim outputs.tf: %w", err)
+		}
+	}
+	return nil
+}
+
+// writeModuleFile creates a main.tf file that defines the Terraform module configuration.
+// It sets up the module source and creates variable references for all defined variables.
+// The function ensures proper HCL syntax and maintains consistent module structure.
 func (g *TerraformGenerator) writeModuleFile(dirPath string, component blueprintv1alpha1.TerraformComponent) error {
 	moduleContent := hclwrite.NewEmptyFile()
 
@@ -100,13 +359,26 @@ func (g *TerraformGenerator) writeModuleFile(dirPath string, component blueprint
 
 	body.SetAttributeValue("source", cty.StringVal(component.Source))
 
-	var keys []string
-	for key := range component.Variables {
-		keys = append(keys, key)
+	variablesTfPath := filepath.Join(dirPath, "variables.tf")
+	variablesContent, err := g.shims.ReadFile(variablesTfPath)
+	if err != nil {
+		return fmt.Errorf("failed to read variables.tf: %w", err)
 	}
-	sort.Strings(keys)
 
-	for _, variableName := range keys {
+	variablesFile, diags := hclwrite.ParseConfig(variablesContent, variablesTfPath, hcl.Pos{Line: 1, Column: 1})
+	if diags.HasErrors() {
+		return fmt.Errorf("failed to parse variables.tf: %w", diags)
+	}
+
+	var variableNames []string
+	for _, block := range variablesFile.Body().Blocks() {
+		if block.Type() == "variable" && len(block.Labels()) > 0 {
+			variableNames = append(variableNames, block.Labels()[0])
+		}
+	}
+	sort.Strings(variableNames)
+
+	for _, variableName := range variableNames {
 		body.SetAttributeTraversal(variableName, hcl.Traversal{
 			hcl.TraverseRoot{Name: "var"},
 			hcl.TraverseAttr{Name: variableName},
@@ -122,168 +394,337 @@ func (g *TerraformGenerator) writeModuleFile(dirPath string, component blueprint
 	return nil
 }
 
-// writeVariableFile generates a variables.tf file that defines all variables used by the module.
-// It creates variable blocks with type, default value, description, and sensitivity settings.
-func (g *TerraformGenerator) writeVariableFile(dirPath string, component blueprintv1alpha1.TerraformComponent) error {
-	variablesContent := hclwrite.NewEmptyFile()
-	body := variablesContent.Body()
-
-	var keys []string
-	for key := range component.Variables {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-
-	for _, variableName := range keys {
-		variable := component.Variables[variableName]
-		block := body.AppendNewBlock("variable", []string{variableName})
-		blockBody := block.Body()
-
-		if variable.Type != "" {
-			blockBody.SetAttributeRaw("type", hclwrite.TokensForIdentifier(variable.Type))
-		}
-
-		if variable.Default != nil {
-			defaultValue := convertToCtyValue(variable.Default)
-			blockBody.SetAttributeValue("default", defaultValue)
-		}
-
-		if variable.Description != "" {
-			blockBody.SetAttributeValue("description", cty.StringVal(variable.Description))
-		}
-
-		if variable.Sensitive {
-			blockBody.SetAttributeValue("sensitive", cty.BoolVal(variable.Sensitive))
-		}
+// writeTfvarsFile creates or updates a .tfvars file with variable values for the Terraform module.
+// It uses variables.tf as the basis for variable definitions and allows component.Values to override specific values.
+// The function maintains a header indicating Windsor CLI management and handles module source comments.
+// If the file already exists, it will not be overwritten.
+func (g *TerraformGenerator) writeTfvarsFile(dirPath string, component blueprintv1alpha1.TerraformComponent) error {
+	protectedValues := map[string]bool{
+		"context_path": true,
+		"os_type":      true,
+		"context_id":   true,
 	}
 
-	varFilePath := filepath.Join(dirPath, "variables.tf")
+	componentPath := filepath.Join(dirPath, "terraform", component.Path)
+	tfvarsFilePath := componentPath + ".tfvars"
+	variablesTfPath := filepath.Join(component.FullPath, "variables.tf")
 
-	if err := g.shims.WriteFile(varFilePath, variablesContent.Bytes(), 0644); err != nil {
+	if err := g.checkExistingTfvarsFile(tfvarsFilePath); err != nil {
+		if err == os.ErrExist {
+			return nil
+		}
 		return err
 	}
 
-	return nil
-}
+	mergedFile := hclwrite.NewEmptyFile()
+	body := mergedFile.Body()
 
-// writeTfvarsFile creates or updates a .tfvars file with variable values for the Terraform module.
-// It preserves existing values while adding new ones, and includes descriptive comments for each variable.
-func (g *TerraformGenerator) writeTfvarsFile(dirPath string, component blueprintv1alpha1.TerraformComponent) error {
-	componentPath := filepath.Join(dirPath, "terraform", component.Path)
-	tfvarsFilePath := componentPath + ".tfvars"
+	addTfvarsHeader(body, component.Source)
+
+	variables, err := g.parseVariablesFile(variablesTfPath, protectedValues)
+	if err != nil {
+		return err
+	}
+
+	if len(component.Values) > 0 {
+		writeComponentValues(body, component.Values, protectedValues, variables)
+	} else {
+		writeDefaultValues(body, variables, component.Values)
+	}
 
 	parentDir := filepath.Dir(tfvarsFilePath)
 	if err := g.shims.MkdirAll(parentDir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	windsorHeaderToken := "Managed by Windsor CLI:"
-	headerComment := fmt.Sprintf("// %s This file is partially managed by the windsor CLI. Your changes will not be overwritten.", windsorHeaderToken)
-
-	var existingContent []byte
-	if _, err := g.shims.Stat(tfvarsFilePath); err == nil {
-		existingContent, err = g.shims.ReadFile(tfvarsFilePath)
-		if err != nil {
-			return fmt.Errorf("failed to read existing tfvars file: %w", err)
-		}
-	}
-
-	remainder := existingContent
-
-	mergedFile := hclwrite.NewEmptyFile()
-	body := mergedFile.Body()
-
-	if len(remainder) > 0 {
-		parsedFile, parseErr := hclwrite.ParseConfig(remainder, tfvarsFilePath, hcl.Pos{Line: 1, Column: 1})
-		if parseErr != nil {
-			return fmt.Errorf("failed to parse existing tfvars content: %w", parseErr)
-		}
-		mergedFile = parsedFile
-		body = mergedFile.Body()
-	}
-
-	existingComments := make(map[string]bool)
-	for _, token := range mergedFile.Body().BuildTokens(nil) {
-		if token.Type == hclsyntax.TokenComment {
-			commentLine := string(bytes.TrimSpace(token.Bytes))
-			existingComments[commentLine] = true
-		}
-	}
-
-	variableComments := make(map[string]string)
-	var keys []string
-	for key := range component.Variables {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-
-	for _, variableName := range keys {
-		if variableDef, hasVar := component.Variables[variableName]; hasVar && variableDef.Description != "" {
-			commentText := fmt.Sprintf("// %s", variableDef.Description)
-			variableComments[variableName] = commentText
-		}
-	}
-
-	keys = nil
-	for k := range component.Values {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	for _, variableName := range keys {
-		if body.GetAttribute(variableName) != nil {
-			continue
-		}
-
-		if commentText, exists := variableComments[variableName]; exists && !existingComments[commentText] {
-			body.AppendUnstructuredTokens(hclwrite.Tokens{
-				{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")},
-				{Type: hclsyntax.TokenComment, Bytes: []byte(commentText)},
-				{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")},
-			})
-			existingComments[commentText] = true
-		}
-
-		ctyVal := convertToCtyValue(component.Values[variableName])
-		body.SetAttributeValue(variableName, ctyVal)
-	}
-
-	finalOutput := mergedFile.Bytes()
-
-	if !bytes.Contains(bytes.ToLower(finalOutput), bytes.ToLower([]byte(windsorHeaderToken))) {
-		var headerBuffer bytes.Buffer
-		headerBuffer.WriteString(headerComment)
-		headerBuffer.WriteByte('\n')
-		if component.Source != "" && !bytes.Contains(bytes.ToLower(finalOutput), bytes.ToLower([]byte("// Module source:"))) {
-			headerBuffer.WriteString(fmt.Sprintf("// Module source: %s\n", component.Source))
-		}
-
-		finalOutput = append(headerBuffer.Bytes(), finalOutput...)
-	}
-
-	finalOutput = bytes.TrimRight(finalOutput, "\n")
-	finalOutput = append(finalOutput, '\n')
-
-	if err := g.shims.WriteFile(tfvarsFilePath, finalOutput, 0644); err != nil {
+	if err := g.shims.WriteFile(tfvarsFilePath, mergedFile.Bytes(), 0644); err != nil {
 		return fmt.Errorf("error writing tfvars file: %w", err)
 	}
 
 	return nil
 }
 
+// checkExistingTfvarsFile checks if a tfvars file exists and is readable.
+// Returns os.ErrExist if the file exists and is readable, or an error if the file exists but is not readable.
+func (g *TerraformGenerator) checkExistingTfvarsFile(tfvarsFilePath string) error {
+	_, err := g.shims.Stat(tfvarsFilePath)
+	if err == nil {
+		_, err := g.shims.ReadFile(tfvarsFilePath)
+		if err != nil {
+			return fmt.Errorf("failed to read existing tfvars file: %w", err)
+		}
+		return os.ErrExist
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("error checking tfvars file: %w", err)
+	}
+	return nil
+}
+
+// parseVariablesFile parses variables.tf and returns metadata about the variables.
+// It extracts variable names, descriptions, default values, and sensitivity flags.
+// Protected values are excluded from the returned metadata.
+func (g *TerraformGenerator) parseVariablesFile(variablesTfPath string, protectedValues map[string]bool) ([]VariableInfo, error) {
+	variablesContent, err := g.shims.ReadFile(variablesTfPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read variables.tf: %w", err)
+	}
+
+	variablesFile, diags := hclwrite.ParseConfig(variablesContent, variablesTfPath, hcl.Pos{Line: 1, Column: 1})
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("failed to parse variables.tf: %w", diags)
+	}
+
+	var variables []VariableInfo
+	for _, block := range variablesFile.Body().Blocks() {
+		if block.Type() == "variable" && len(block.Labels()) > 0 {
+			variableName := block.Labels()[0]
+
+			if protectedValues[variableName] {
+				continue
+			}
+
+			info := VariableInfo{
+				Name: variableName,
+			}
+
+			if attr := block.Body().GetAttribute("description"); attr != nil {
+				exprBytes := attr.Expr().BuildTokens(nil).Bytes()
+				parsedExpr, diags := hclsyntax.ParseExpression(exprBytes, "description", hcl.Pos{Line: 1, Column: 1})
+				if !diags.HasErrors() {
+					val, diags := parsedExpr.Value(nil)
+					if !diags.HasErrors() && val.Type() == cty.String {
+						info.Description = val.AsString()
+					}
+				}
+			}
+
+			if attr := block.Body().GetAttribute("sensitive"); attr != nil {
+				exprBytes := attr.Expr().BuildTokens(nil).Bytes()
+				parsedExpr, diags := hclsyntax.ParseExpression(exprBytes, "sensitive", hcl.Pos{Line: 1, Column: 1})
+				if !diags.HasErrors() {
+					val, diags := parsedExpr.Value(nil)
+					if !diags.HasErrors() && val.Type() == cty.Bool {
+						info.Sensitive = val.True()
+					}
+				}
+			}
+
+			if attr := block.Body().GetAttribute("default"); attr != nil {
+				exprBytes := attr.Expr().BuildTokens(nil).Bytes()
+				parsedExpr, diags := hclsyntax.ParseExpression(exprBytes, "default", hcl.Pos{Line: 1, Column: 1})
+				if !diags.HasErrors() {
+					val, diags := parsedExpr.Value(nil)
+					if !diags.HasErrors() {
+						info.Default = convertFromCtyValue(val)
+					}
+				}
+			}
+
+			variables = append(variables, info)
+		}
+	}
+
+	return variables, nil
+}
+
 // =============================================================================
-// Interface Compliance
+// Helper Functions
 // =============================================================================
 
-// Ensure TerraformGenerator implements Generator
-var _ Generator = (*TerraformGenerator)(nil)
+// addTfvarsHeader adds a Windsor CLI management header to the tfvars file body.
+// It includes a module source comment if provided, ensuring users are aware of CLI management and module provenance.
+func addTfvarsHeader(body *hclwrite.Body, source string) {
+	windsorHeaderToken := "Managed by Windsor CLI:"
+	headerComment := fmt.Sprintf("# %s This file is partially managed by the windsor CLI. Your changes will not be overwritten.", windsorHeaderToken)
+	body.AppendUnstructuredTokens(hclwrite.Tokens{
+		{Type: hclsyntax.TokenComment, Bytes: []byte(headerComment + "\n")},
+	})
+	if source != "" {
+		body.AppendUnstructuredTokens(hclwrite.Tokens{
+			{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("# Module source: %s\n", source))},
+		})
+	}
+}
 
-// =============================================================================
-// Helpers
-// =============================================================================
+// writeComponentValues writes all component-provided or default variable values to the tfvars file body.
+// It comments out default values and descriptions for unset variables, and writes explicit values for set variables.
+// Handles sensitive variables and preserves variable order from variables.tf.
+func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedValues map[string]bool, variables []VariableInfo) {
+	for _, info := range variables {
+		if protectedValues[info.Name] {
+			continue
+		}
 
-// convertToCtyValue converts various Go types to their corresponding cty.Value representation.
-// It handles strings, numbers, booleans, lists, and maps, returning a NilVal for unsupported types.
+		body.AppendNewline()
+
+		if info.Description != "" {
+			body.AppendUnstructuredTokens(hclwrite.Tokens{
+				{Type: hclsyntax.TokenComment, Bytes: []byte("# " + info.Description)},
+			})
+			body.AppendNewline()
+		}
+
+		if val, exists := values[info.Name]; exists {
+			writeVariable(body, info.Name, val, []VariableInfo{})
+			continue
+		}
+
+		if info.Sensitive {
+			body.AppendUnstructuredTokens(hclwrite.Tokens{
+				{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("# %s = \"(sensitive)\"", info.Name))},
+			})
+			body.AppendNewline()
+			continue
+		}
+
+		if info.Default != nil {
+			defaultVal := convertToCtyValue(info.Default)
+			if !defaultVal.IsNull() {
+				var rendered string
+				if defaultVal.Type().IsObjectType() || defaultVal.Type().IsMapType() {
+					var mapStr strings.Builder
+					mapStr.WriteString(fmt.Sprintf("%s = %s", info.Name, formatValue(convertFromCtyValue(defaultVal))))
+					rendered = mapStr.String()
+				} else {
+					rendered = fmt.Sprintf("%s = %s", info.Name, string(hclwrite.TokensForValue(defaultVal).Bytes()))
+				}
+				for _, line := range strings.Split(rendered, "\n") {
+					body.AppendUnstructuredTokens(hclwrite.Tokens{
+						{Type: hclsyntax.TokenComment, Bytes: []byte("# " + line)},
+					})
+					body.AppendNewline()
+				}
+				continue
+			}
+		}
+		// If no default, just comment null
+		body.AppendUnstructuredTokens(hclwrite.Tokens{
+			{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("# %s = null", info.Name))},
+		})
+		body.AppendNewline()
+	}
+}
+
+// writeDefaultValues writes only the default values from variables.tf to the tfvars file body.
+// This is an alias for writeComponentValues with no explicit values, ensuring all defaults are commented.
+func writeDefaultValues(body *hclwrite.Body, variables []VariableInfo, componentValues map[string]any) {
+	writeComponentValues(body, componentValues, map[string]bool{}, variables)
+}
+
+// writeHeredoc writes a multi-line string value as a heredoc assignment in the tfvars file body.
+// Used for YAML or other multi-line string values to preserve formatting.
+func writeHeredoc(body *hclwrite.Body, name string, content string) {
+	tokens := hclwrite.Tokens{
+		{Type: hclsyntax.TokenOHeredoc, Bytes: []byte("<<EOF")},
+		{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")},
+		{Type: hclsyntax.TokenStringLit, Bytes: []byte(content)},
+		{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")},
+		{Type: hclsyntax.TokenCHeredoc, Bytes: []byte("EOF")},
+	}
+	body.SetAttributeRaw(name, tokens)
+	body.AppendNewline()
+}
+
+// writeVariable writes a single variable assignment to the tfvars file body.
+// Handles descriptions, sensitive flags, multi-line strings, and object/map formatting.
+// Ensures correct HCL syntax for all supported value types.
+func writeVariable(body *hclwrite.Body, name string, value any, variables []VariableInfo) {
+	// Find variable info
+	var info *VariableInfo
+	for _, v := range variables {
+		if v.Name == name {
+			info = &v
+			break
+		}
+	}
+
+	// Write description if available
+	if info != nil && info.Description != "" {
+		body.AppendUnstructuredTokens(hclwrite.Tokens{
+			{Type: hclsyntax.TokenComment, Bytes: []byte("# " + info.Description)},
+		})
+		body.AppendNewline()
+	}
+
+	// Handle sensitive variables
+	if info != nil && info.Sensitive {
+		body.AppendUnstructuredTokens(hclwrite.Tokens{
+			{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("# %s = \"(sensitive)\"", name))},
+		})
+		body.AppendNewline()
+		return
+	}
+
+	switch v := value.(type) {
+	case string:
+		if strings.Contains(v, "\n") {
+			writeHeredoc(body, name, v)
+			return
+		}
+	case map[string]any:
+		// Render as HCL object assignment, not heredoc
+		rendered := formatValue(v)
+		assignment := fmt.Sprintf("%s = %s", name, rendered)
+		body.AppendUnstructuredTokens(hclwrite.Tokens{
+			{Type: hclsyntax.TokenIdent, Bytes: []byte(assignment)},
+		})
+		body.AppendNewline()
+		return
+	}
+
+	// Write normal variable
+	body.SetAttributeValue(name, convertToCtyValue(value))
+}
+
+// formatValue formats a Go value as a valid HCL literal string for tfvars output.
+// Handles strings, lists, maps, nested objects, and nil values with proper indentation and quoting.
+func formatValue(value any) string {
+	switch v := value.(type) {
+	case string:
+		return fmt.Sprintf("%q", v)
+	case []any:
+		if len(v) == 0 {
+			return "[]"
+		}
+		var items []string
+		for _, item := range v {
+			items = append(items, formatValue(item))
+		}
+		return fmt.Sprintf("[%s]", strings.Join(items, ", "))
+	case map[string]any:
+		if len(v) == 0 {
+			return "{}"
+		}
+		var pairs []string
+		keys := make([]string, 0, len(v))
+		for k := range v {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			val := v[k]
+			formattedVal := formatValue(val)
+			if formattedVal == "{}" || formattedVal == "[]" {
+				pairs = append(pairs, fmt.Sprintf("%s = %s", k, formattedVal))
+			} else {
+				if strings.HasPrefix(formattedVal, "{") {
+					indented := strings.ReplaceAll(formattedVal, "\n", "\n  ")
+					pairs = append(pairs, fmt.Sprintf("%s = %s", k, indented))
+				} else {
+					pairs = append(pairs, fmt.Sprintf("%s = %s", k, formattedVal))
+				}
+			}
+		}
+		return fmt.Sprintf("{\n  %s\n}", strings.Join(pairs, "\n  "))
+	case nil:
+		return "null"
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+// convertToCtyValue converts a Go value to a cty.Value for HCL serialization.
+// Supports strings, numbers, booleans, lists, and maps; returns NilVal for unsupported types.
 func convertToCtyValue(value any) cty.Value {
 	switch v := value.(type) {
 	case string:
@@ -313,3 +754,51 @@ func convertToCtyValue(value any) cty.Value {
 		return cty.NilVal
 	}
 }
+
+// convertFromCtyValue converts a cty.Value to its Go representation for use in tfvars generation.
+// Handles all supported HCL types, including lists, maps, objects, and primitives.
+func convertFromCtyValue(val cty.Value) any {
+	if !val.IsKnown() || val.IsNull() {
+		return nil
+	}
+
+	switch {
+	case val.Type() == cty.String:
+		return val.AsString()
+	case val.Type() == cty.Number:
+		bf := val.AsBigFloat()
+		if bf.IsInt() {
+			i, _ := bf.Int64()
+			return i
+		}
+		f, _ := bf.Float64()
+		return f
+	case val.Type() == cty.Bool:
+		return val.True()
+	case val.Type().IsListType() || val.Type().IsTupleType() || val.Type().IsSetType():
+		var list []any
+		it := val.ElementIterator()
+		for it.Next() {
+			_, v := it.Element()
+			list = append(list, convertFromCtyValue(v))
+		}
+		return list
+	case val.Type().IsMapType() || val.Type().IsObjectType():
+		m := make(map[string]any)
+		it := val.ElementIterator()
+		for it.Next() {
+			k, v := it.Element()
+			m[k.AsString()] = convertFromCtyValue(v)
+		}
+		return m
+	default:
+		return nil
+	}
+}
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
+// Ensure TerraformGenerator implements Generator
+var _ Generator = (*TerraformGenerator)(nil)

@@ -82,10 +82,10 @@ func (s *TalosService) SetAddress(address string) error {
 		nodeType = "controlplanes"
 	}
 
-	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.hostname", nodeType, s.name), s.name); err != nil {
+	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.hostname", nodeType, s.name), s.GetHostname()); err != nil {
 		return err
 	}
-	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.node", nodeType, s.name), s.name); err != nil {
+	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.node", nodeType, s.name), s.GetHostname()); err != nil {
 		return err
 	}
 
@@ -309,6 +309,14 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// GetHostname returns the hostname without any TLD
+func (s *TalosService) GetHostname() string {
+	if parts := strings.Split(s.name, "."); len(parts) > 1 {
+		return parts[0]
+	}
+	return s.name
+}
 
 // validateHostPort parses and validates a host port string in the format "hostPort:nodePort/protocol"
 // Returns the parsed hostPort, nodePort, and protocol, or an error if validation fails
