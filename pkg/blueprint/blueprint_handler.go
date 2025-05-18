@@ -417,7 +417,7 @@ func (b *BaseBlueprintHandler) GetKustomizations() []blueprintv1alpha1.Kustomiza
 		if kustomizations[i].Path == "" {
 			kustomizations[i].Path = "kustomize"
 		} else {
-			kustomizations[i].Path = filepath.Join("kustomize", kustomizations[i].Path)
+			kustomizations[i].Path = "kustomize/" + strings.ReplaceAll(kustomizations[i].Path, "\\", "/")
 		}
 
 		if kustomizations[i].Interval == nil || kustomizations[i].Interval.Duration == 0 {
