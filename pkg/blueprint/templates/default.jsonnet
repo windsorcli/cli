@@ -31,6 +31,14 @@ local extractBaseUrl(endpoint) =
 local endpoint = if std.objectHas(context.cluster, "endpoint") then context.cluster.endpoint else if firstNode != null then firstNode.endpoint else "";
 local baseUrl = extractBaseUrl(endpoint);
 
+// Build certSANs list
+local certSANs = ["localhost", baseUrl] + (if std.objectHas(context.cluster, "controlplanes") && std.objectHas(context.cluster.controlplanes, "nodes") && std.length(std.objectValues(context.cluster.controlplanes.nodes)) > 0 then
+  local firstNode = std.objectValues(context.cluster.controlplanes.nodes)[0];
+  local hostname = firstNode.hostname;
+  local domain = if std.objectHas(context, "dns") && std.objectHas(context.dns, "domain") then context.dns.domain else "";
+  [hostname] + (if domain != "" then [hostname + "." + domain] else [])
+else []);
+
 // Build the mirrors dynamically, only if registries are defined
 local registryMirrors = if std.objectHas(context, "docker") && std.objectHas(context.docker, "registries") then
   std.foldl(
@@ -125,10 +133,7 @@ local terraformConfig = if platform == "local" || platform == "metal" then [
         {
           cluster: {
             apiServer: {
-              certSANs: [
-                "localhost",
-                baseUrl,
-              ],
+              certSANs: certSANs,
             },
             extraManifests: [
               // renovate: datasource=github-releases depName=kubelet-serving-cert-approver package=alex1989hu/kubelet-serving-cert-approver
@@ -140,10 +145,7 @@ local terraformConfig = if platform == "local" || platform == "metal" then [
         // Merge in the base `machine` config
         {
           machine: {
-            certSANs: [
-              "localhost",
-              baseUrl,
-            ],
+            certSANs: certSANs,
             network: if vmDriver == "docker-desktop" then {
               interfaces: [
                 {
