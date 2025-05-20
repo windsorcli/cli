@@ -1115,12 +1115,15 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a blueprint handler with metadata
 		handler, mocks := setup(t)
+		// Patch Stat to simulate file does not exist
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
 		expectedMetadata := blueprintv1alpha1.Metadata{
 			Name:        "test-blueprint",
 			Description: "A test blueprint",
 			Authors:     []string{"John Doe"},
 		}
-
 		handler.SetMetadata(expectedMetadata)
 
 		// And a mock file system that captures written data
@@ -1164,6 +1167,10 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 	t.Run("WriteNoPath", func(t *testing.T) {
 		// Given a blueprint handler with metadata
 		handler, mocks := setup(t)
+		// Patch Stat to simulate file does not exist
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
 		expectedMetadata := blueprintv1alpha1.Metadata{
 			Name:        "test-blueprint",
 			Description: "A test blueprint",
@@ -1260,6 +1267,10 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 	t.Run("ErrorMarshallingYaml", func(t *testing.T) {
 		// Given a blueprint handler
 		handler, mocks := setup(t)
+		// Patch Stat to simulate file does not exist
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
 
 		// And a mock yaml marshaller that returns an error
 		mocks.Shims.YamlMarshalNonNull = func(in any) ([]byte, error) {
@@ -1281,6 +1292,10 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 	t.Run("ErrorWritingFile", func(t *testing.T) {
 		// Given a blueprint handler
 		handler, mocks := setup(t)
+		// Patch Stat to simulate file does not exist
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
 
 		// And a mock file system that fails to write files
 		mocks.Shims.WriteFile = func(name string, data []byte, perm fs.FileMode) error {
@@ -1302,6 +1317,10 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 	t.Run("CleanupEmptyPostBuild", func(t *testing.T) {
 		// Given a blueprint handler with kustomizations containing empty PostBuild
 		handler, mocks := setup(t)
+		// Patch Stat to simulate file does not exist
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
 		emptyPostBuildKustomizations := []blueprintv1alpha1.Kustomization{
 			{
 				Name: "kustomization-empty-postbuild",
@@ -1370,6 +1389,10 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 	t.Run("ClearTerraformComponentsVariablesAndValues", func(t *testing.T) {
 		// Given a blueprint handler with terraform components containing variables and values
 		handler, mocks := setup(t)
+		// Patch Stat to simulate file does not exist
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
 		terraformComponents := []blueprintv1alpha1.TerraformComponent{
 			{
 				Source: "source1",
