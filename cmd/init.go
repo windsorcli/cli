@@ -140,6 +140,34 @@ var initCmd = &cobra.Command{
 			}
 		}
 
+		// Set platform-specific configurations
+		if initPlatform != "" {
+			switch initPlatform {
+			case "aws":
+				if err := configHandler.SetContextValue("aws.enabled", true); err != nil {
+					return fmt.Errorf("Error setting aws.enabled: %w", err)
+				}
+				if err := configHandler.SetContextValue("cluster.driver", "eks"); err != nil {
+					return fmt.Errorf("Error setting cluster.driver: %w", err)
+				}
+			case "azure":
+				if err := configHandler.SetContextValue("azure.enabled", true); err != nil {
+					return fmt.Errorf("Error setting azure.enabled: %w", err)
+				}
+				if err := configHandler.SetContextValue("cluster.driver", "aks"); err != nil {
+					return fmt.Errorf("Error setting cluster.driver: %w", err)
+				}
+			case "metal":
+				if err := configHandler.SetContextValue("cluster.driver", "talos"); err != nil {
+					return fmt.Errorf("Error setting cluster.driver: %w", err)
+				}
+			case "local":
+				if err := configHandler.SetContextValue("cluster.driver", "talos"); err != nil {
+					return fmt.Errorf("Error setting cluster.driver: %w", err)
+				}
+			}
+		}
+
 		// Set the vm driver only if it's configured and not overridden by --set flag
 		if vmDriverConfig != "" && configHandler.GetString("vm.driver") == "" {
 			if err := configHandler.SetContextValue("vm.driver", vmDriverConfig); err != nil {

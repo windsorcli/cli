@@ -836,3 +836,102 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 }
+
+type platformTest struct {
+	name           string
+	flag           string
+	enabledKey     string
+	enabledValue   bool
+	driverKey      string
+	driverExpected string
+}
+
+func TestInitCmd_PlatformFlag(t *testing.T) {
+	platforms := []platformTest{
+		{
+			name:           "aws",
+			flag:           "aws",
+			enabledKey:     "aws.enabled",
+			enabledValue:   true,
+			driverKey:      "cluster.driver",
+			driverExpected: "eks",
+		},
+		{
+			name:           "azure",
+			flag:           "azure",
+			enabledKey:     "azure.enabled",
+			enabledValue:   true,
+			driverKey:      "cluster.driver",
+			driverExpected: "aks",
+		},
+		{
+			name:           "metal",
+			flag:           "metal",
+			enabledKey:     "",
+			enabledValue:   false,
+			driverKey:      "cluster.driver",
+			driverExpected: "talos",
+		},
+		{
+			name:           "local",
+			flag:           "local",
+			enabledKey:     "",
+			enabledValue:   false,
+			driverKey:      "cluster.driver",
+			driverExpected: "talos",
+		},
+	}
+
+	for _, tc := range platforms {
+		t.Run(tc.name, func(t *testing.T) {
+			// Use a real map-backed mock config handler
+			store := make(map[string]interface{})
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
+				store[key] = value
+				return nil
+			}
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+				if v, ok := store[key]; ok {
+					if s, ok := v.(string); ok {
+						return s
+					}
+				}
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return ""
+			}
+			mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+				if v, ok := store[key]; ok {
+					if b, ok := v.(bool); ok {
+						return b
+					}
+				}
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return false
+			}
+
+			mocks := setupInitMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+			rootCmd.ResetFlags()
+			initCmd.ResetFlags()
+			initCmd.Flags().StringVar(&initPlatform, "platform", "", "Specify the platform to use [local|metal]")
+
+			rootCmd.SetArgs([]string{"init", "--platform", tc.flag})
+			err := Execute(mocks.Controller)
+			if err != nil {
+				t.Fatalf("Expected success, got error: %v", err)
+			}
+			if tc.enabledKey != "" {
+				if !mockConfigHandler.GetBool(tc.enabledKey) {
+					t.Errorf("Expected %s to be true", tc.enabledKey)
+				}
+			}
+			if got := mockConfigHandler.GetString(tc.driverKey); got != tc.driverExpected {
+				t.Errorf("Expected %s to be %q, got %q", tc.driverKey, tc.driverExpected, got)
+			}
+		})
+	}
+}
