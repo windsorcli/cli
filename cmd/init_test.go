@@ -836,3 +836,73 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 }
+
+type platformTest struct {
+	name           string
+	flag           string
+	enabledKey     string
+	enabledValue   bool
+	driverKey      string
+	driverExpected string
+}
+
+func TestInitCmd_PlatformFlag(t *testing.T) {
+	platforms := []platformTest{
+		{
+			name:           "aws",
+			flag:           "aws",
+			enabledKey:     "aws.enabled",
+			enabledValue:   true,
+			driverKey:      "cluster.driver",
+			driverExpected: "eks",
+		},
+		{
+			name:           "azure",
+			flag:           "azure",
+			enabledKey:     "azure.enabled",
+			enabledValue:   true,
+			driverKey:      "cluster.driver",
+			driverExpected: "aks",
+		},
+		{
+			name:           "metal",
+			flag:           "metal",
+			enabledKey:     "",
+			enabledValue:   false,
+			driverKey:      "cluster.driver",
+			driverExpected: "talos",
+		},
+		{
+			name:           "local",
+			flag:           "local",
+			enabledKey:     "",
+			enabledValue:   false,
+			driverKey:      "cluster.driver",
+			driverExpected: "talos",
+		},
+	}
+
+	for _, tc := range platforms {
+		t.Run(tc.name, func(t *testing.T) {
+			// Reset and re-register the --platform flag before each test
+			rootCmd.ResetFlags()
+			initCmd.ResetFlags()
+			initCmd.Flags().StringVar(&initPlatform, "platform", "", "Specify the platform to use [local|metal]")
+
+			mocks := setupInitMocks(t, nil)
+			rootCmd.SetArgs([]string{"init", "--platform", tc.flag})
+			err := Execute(mocks.Controller)
+			if err != nil {
+				t.Fatalf("Expected success, got error: %v", err)
+			}
+			if tc.enabledKey != "" {
+				if !mocks.ConfigHandler.GetBool(tc.enabledKey) {
+					t.Errorf("Expected %s to be true", tc.enabledKey)
+				}
+			}
+			if got := mocks.ConfigHandler.GetString(tc.driverKey); got != tc.driverExpected {
+				t.Errorf("Expected %s to be %q, got %q", tc.driverKey, tc.driverExpected, got)
+			}
+		})
+	}
+}
