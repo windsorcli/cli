@@ -63,6 +63,18 @@ type BlueprintHandler interface {
 //go:embed templates/default.jsonnet
 var defaultJsonnetTemplate string
 
+//go:embed templates/local.jsonnet
+var localJsonnetTemplate string
+
+//go:embed templates/metal.jsonnet
+var metalJsonnetTemplate string
+
+//go:embed templates/aws.jsonnet
+var awsJsonnetTemplate string
+
+//go:embed templates/azure.jsonnet
+var azureJsonnetTemplate string
+
 type BaseBlueprintHandler struct {
 	BlueprintHandler
 	injector       di.Injector
@@ -134,13 +146,34 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 		basePath = path[0]
 	}
 
-	jsonnetData, jsonnetErr := b.loadFileData(basePath + ".jsonnet")
-	yamlData, yamlErr := b.loadFileData(basePath + ".yaml")
-	if jsonnetErr != nil {
-		return jsonnetErr
+	// Get platform from context
+	platform := ""
+	if b.configHandler.GetConfig().Cluster != nil && b.configHandler.GetConfig().Cluster.Platform != nil {
+		platform = *b.configHandler.GetConfig().Cluster.Platform
 	}
-	if yamlErr != nil && !os.IsNotExist(yamlErr) {
-		return yamlErr
+
+	// Try to load platform-specific template first
+	platformData, err := b.loadPlatformTemplate(platform)
+	if err != nil {
+		return fmt.Errorf("error loading platform template: %w", err)
+	}
+
+	var yamlData []byte
+	// If no platform template, fall back to default
+	if len(platformData) == 0 {
+		jsonnetData, jsonnetErr := b.loadFileData(basePath + ".jsonnet")
+		var yamlErr error
+		yamlData, yamlErr = b.loadFileData(basePath + ".yaml")
+		if jsonnetErr != nil {
+			return jsonnetErr
+		}
+		if yamlErr != nil && !os.IsNotExist(yamlErr) {
+			return yamlErr
+		}
+
+		if len(jsonnetData) > 0 {
+			platformData = jsonnetData
+		}
 	}
 
 	config := b.configHandler.GetConfig()
@@ -168,8 +201,8 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 	vm := b.shims.NewJsonnetVM()
 	vm.ExtCode("context", string(contextJSON))
 
-	if len(jsonnetData) > 0 {
-		evaluatedJsonnet, err = vm.EvaluateAnonymousSnippet("blueprint.jsonnet", string(jsonnetData))
+	if len(platformData) > 0 {
+		evaluatedJsonnet, err = vm.EvaluateAnonymousSnippet("blueprint.jsonnet", string(platformData))
 		if err != nil {
 			return fmt.Errorf("error generating blueprint from jsonnet: %w", err)
 		}
@@ -219,6 +252,10 @@ func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 	dir := filepath.Dir(finalPath)
 	if err := b.shims.MkdirAll(dir, os.ModePerm); err != nil {
 		return fmt.Errorf("error creating directory: %w", err)
+	}
+
+	if _, err := b.shims.Stat(finalPath); err == nil {
+		return nil
 	}
 
 	fullBlueprint := b.blueprint.DeepCopy()
@@ -641,6 +678,26 @@ func (b *BaseBlueprintHandler) loadFileData(path string) ([]byte, error) {
 		return b.shims.ReadFile(path)
 	}
 	return nil, nil
+}
+
+// loadPlatformTemplate loads a platform-specific template if one exists
+func (b *BaseBlueprintHandler) loadPlatformTemplate(platform string) ([]byte, error) {
+	if platform == "" {
+		return nil, nil
+	}
+
+	switch platform {
+	case "local":
+		return []byte(localJsonnetTemplate), nil
+	case "metal":
+		return []byte(metalJsonnetTemplate), nil
+	case "aws":
+		return []byte(awsJsonnetTemplate), nil
+	case "azure":
+		return []byte(azureJsonnetTemplate), nil
+	default:
+		return nil, nil
+	}
 }
 
 // yamlMarshalWithDefinedPaths marshals data to YAML format while ensuring all parent paths are defined.
