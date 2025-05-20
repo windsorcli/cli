@@ -884,23 +884,52 @@ func TestInitCmd_PlatformFlag(t *testing.T) {
 
 	for _, tc := range platforms {
 		t.Run(tc.name, func(t *testing.T) {
-			// Reset and re-register the --platform flag before each test
+			// Use a real map-backed mock config handler
+			store := make(map[string]interface{})
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
+				store[key] = value
+				return nil
+			}
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+				if v, ok := store[key]; ok {
+					if s, ok := v.(string); ok {
+						return s
+					}
+				}
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return ""
+			}
+			mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+				if v, ok := store[key]; ok {
+					if b, ok := v.(bool); ok {
+						return b
+					}
+				}
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return false
+			}
+
+			mocks := setupInitMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 			rootCmd.ResetFlags()
 			initCmd.ResetFlags()
 			initCmd.Flags().StringVar(&initPlatform, "platform", "", "Specify the platform to use [local|metal]")
 
-			mocks := setupInitMocks(t, nil)
 			rootCmd.SetArgs([]string{"init", "--platform", tc.flag})
 			err := Execute(mocks.Controller)
 			if err != nil {
 				t.Fatalf("Expected success, got error: %v", err)
 			}
 			if tc.enabledKey != "" {
-				if !mocks.ConfigHandler.GetBool(tc.enabledKey) {
+				if !mockConfigHandler.GetBool(tc.enabledKey) {
 					t.Errorf("Expected %s to be true", tc.enabledKey)
 				}
 			}
-			if got := mocks.ConfigHandler.GetString(tc.driverKey); got != tc.driverExpected {
+			if got := mockConfigHandler.GetString(tc.driverKey); got != tc.driverExpected {
 				t.Errorf("Expected %s to be %q, got %q", tc.driverKey, tc.driverExpected, got)
 			}
 		})
