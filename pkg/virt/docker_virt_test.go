@@ -399,7 +399,7 @@ func TestDockerVirt_Up(t *testing.T) {
 
 		// Mock command execution to fail
 		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			if command == dockerVirt.composeCommand && args[0] == "up" {
+			if command == dockerVirt.composeCommand && slices.Contains(args, "up") {
 				return "", fmt.Errorf("mock docker-compose up error")
 			}
 			return "", fmt.Errorf("unexpected command: %s %v", command, args)
@@ -520,7 +520,7 @@ func TestDockerVirt_Up(t *testing.T) {
 
 		// Mock command execution to fail twice then succeed
 		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			if command == dockerVirt.composeCommand && args[0] == "up" {
+			if command == dockerVirt.composeCommand && slices.Contains(args, "up") {
 				execCount++
 				if execCount < 3 {
 					return "", fmt.Errorf("temporary error")
@@ -539,7 +539,7 @@ func TestDockerVirt_Up(t *testing.T) {
 			}
 
 			// Handle compose up retry attempts
-			if command == dockerVirt.composeCommand && len(args) > 0 && args[0] == "up" {
+			if command == dockerVirt.composeCommand && slices.Contains(args, "up") {
 				execCount++
 				if execCount < 3 {
 					return "", fmt.Errorf("temporary error")
@@ -700,7 +700,7 @@ func TestDockerVirt_Down(t *testing.T) {
 		// Given a docker virt instance with failing compose down
 		dockerVirt, mocks := setup(t)
 		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			if command == dockerVirt.composeCommand && args[0] == "down" {
+			if command == dockerVirt.composeCommand && slices.Contains(args, "down") {
 				return "mock error output", fmt.Errorf("mock error executing down command")
 			}
 			return "", fmt.Errorf("unexpected command: %s %v", command, args)
@@ -1175,6 +1175,9 @@ func TestDockerVirt_DetermineComposeCommand(t *testing.T) {
 		if dockerVirt.composeCommand != "docker-compose" {
 			t.Errorf("expected compose command to be 'docker-compose', got %q", dockerVirt.composeCommand)
 		}
+		if len(dockerVirt.composeArgs) != 0 {
+			t.Errorf("expected compose args to be empty, got %v", dockerVirt.composeArgs)
+		}
 	})
 
 	t.Run("DockerComposeV1", func(t *testing.T) {
@@ -1204,6 +1207,9 @@ func TestDockerVirt_DetermineComposeCommand(t *testing.T) {
 		if dockerVirt.composeCommand != "docker-cli-plugin-docker-compose" {
 			t.Errorf("expected compose command to be 'docker-cli-plugin-docker-compose', got %q", dockerVirt.composeCommand)
 		}
+		if len(dockerVirt.composeArgs) != 0 {
+			t.Errorf("expected compose args to be empty, got %v", dockerVirt.composeArgs)
+		}
 	})
 
 	t.Run("DockerCliPlugin", func(t *testing.T) {
@@ -1218,7 +1224,7 @@ func TestDockerVirt_DetermineComposeCommand(t *testing.T) {
 			if command == "docker-cli-plugin-docker-compose" {
 				return "", fmt.Errorf("docker-cli-plugin-docker-compose not found")
 			}
-			if command == "docker compose" {
+			if command == "docker" && len(args) > 0 && args[0] == "compose" {
 				return "Docker Compose version 2.0.0", nil
 			}
 			return "", fmt.Errorf("unexpected command: %s %v", command, args)
@@ -1233,8 +1239,11 @@ func TestDockerVirt_DetermineComposeCommand(t *testing.T) {
 		}
 
 		// And the compose command should be set to docker compose
-		if dockerVirt.composeCommand != "docker compose" {
-			t.Errorf("expected compose command to be 'docker compose', got %q", dockerVirt.composeCommand)
+		if dockerVirt.composeCommand != "docker" {
+			t.Errorf("expected compose command to be 'docker', got %q", dockerVirt.composeCommand)
+		}
+		if len(dockerVirt.composeArgs) != 1 || dockerVirt.composeArgs[0] != "compose" {
+			t.Errorf("expected compose args to be ['compose'], got %v", dockerVirt.composeArgs)
 		}
 	})
 
@@ -1267,6 +1276,9 @@ func TestDockerVirt_DetermineComposeCommand(t *testing.T) {
 		// And the compose command should be empty
 		if dockerVirt.composeCommand != "" {
 			t.Errorf("expected compose command to be empty, got %q", dockerVirt.composeCommand)
+		}
+		if len(dockerVirt.composeArgs) != 0 {
+			t.Errorf("expected compose args to be empty, got %v", dockerVirt.composeArgs)
 		}
 	})
 }

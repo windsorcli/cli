@@ -28,6 +28,7 @@ type DockerVirt struct {
 	BaseVirt
 	services       []services.Service
 	composeCommand string
+	composeArgs    []string
 }
 
 // =============================================================================
@@ -37,7 +38,8 @@ type DockerVirt struct {
 // NewDockerVirt creates a new instance of DockerVirt using a DI injector
 func NewDockerVirt(injector di.Injector) *DockerVirt {
 	return &DockerVirt{
-		BaseVirt: *NewBaseVirt(injector),
+		BaseVirt:    *NewBaseVirt(injector),
+		composeArgs: nil,
 	}
 }
 
@@ -105,7 +107,7 @@ func (v *DockerVirt) Up() error {
 		var lastErr error
 		var lastOutput string
 		for i := range make([]struct{}, retries) {
-			args := []string{"up", "--detach", "--remove-orphans"}
+			args := append(append([]string{}, v.composeArgs...), "up", "--detach", "--remove-orphans")
 			message := "📦 Running docker compose up"
 
 			if i == 0 {
@@ -129,7 +131,7 @@ func (v *DockerVirt) Up() error {
 			}
 		}
 		if lastErr != nil {
-			return fmt.Errorf("Error executing command %s %v: %w\n%s", v.composeCommand, []string{"up", "--detach", "--remove-orphans"}, lastErr, lastOutput)
+			return fmt.Errorf("Error executing command %s %v: %w\n%s", v.composeCommand, append(v.composeArgs, "up", "--detach", "--remove-orphans"), lastErr, lastOutput)
 		}
 	}
 	return nil
@@ -154,7 +156,8 @@ func (v *DockerVirt) Down() error {
 			return fmt.Errorf("error setting COMPOSE_FILE environment variable: %w", err)
 		}
 
-		output, err := v.shell.ExecProgress("📦 Running docker compose down", v.composeCommand, "down", "--remove-orphans", "--volumes")
+		args := append(append([]string{}, v.composeArgs...), "down", "--remove-orphans", "--volumes")
+		output, err := v.shell.ExecProgress("📦 Running docker compose down", v.composeCommand, args...)
 		if err != nil {
 			return fmt.Errorf("Error executing command %s down: %w\n%s", v.composeCommand, err, output)
 		}
@@ -302,10 +305,22 @@ var _ ContainerRuntime = (*DockerVirt)(nil)
 // preference: docker-compose, docker-cli-plugin-docker-compose, and docker compose.
 // It sets the first available command for later use in Docker operations.
 func (v *DockerVirt) determineComposeCommand() error {
-	commands := []string{"docker-compose", "docker-cli-plugin-docker-compose", "docker compose"}
-	for _, cmd := range commands {
-		if _, err := v.shell.ExecSilent(cmd, "--version"); err == nil {
-			v.composeCommand = cmd
+	type candidate struct {
+		command string
+		args    []string
+	}
+
+	commands := []candidate{
+		{command: "docker-compose"},
+		{command: "docker-cli-plugin-docker-compose"},
+		{command: "docker", args: []string{"compose"}},
+	}
+
+	for _, c := range commands {
+		args := append(append([]string{}, c.args...), "--version")
+		if _, err := v.shell.ExecSilent(c.command, args...); err == nil {
+			v.composeCommand = c.command
+			v.composeArgs = c.args
 			return nil
 		}
 	}
