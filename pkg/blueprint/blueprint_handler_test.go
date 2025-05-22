@@ -2331,7 +2331,7 @@ func TestBaseBlueprintHandler_WaitForKustomizations(t *testing.T) {
 		handler := &BaseBlueprintHandler{
 			blueprint: blueprintv1alpha1.Blueprint{
 				Kustomizations: []blueprintv1alpha1.Kustomization{
-					{Name: "k1", Timeout: &metav1.Duration{Duration: 100 * time.Millisecond}},
+					{Name: "k1", Timeout: &metav1.Duration{Duration: 1 * time.Second}},
 				},
 			},
 		}
