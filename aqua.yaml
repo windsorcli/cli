@@ -20,7 +20,7 @@ packages:
 - name: golang/go@go1.24.3
 - name: getsops/sops@v3.9.0
 - name: abiosoft/colima@v0.8.1
-- name: lima-vm/lima@v1.0.7
+- name: lima-vm/lima@v1.1.1
 - name: docker/cli@v27.4.1
 - name: securego/gosec@v2.22.4
 - name: docker/compose@v2.36.0
