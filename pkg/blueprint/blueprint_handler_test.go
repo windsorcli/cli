@@ -291,9 +291,14 @@ contexts:
 	kubeClient = func(string, KubeRequestConfig) error { return nil }
 	origKubeClientResourceOperation := kubeClientResourceOperation
 	kubeClientResourceOperation = func(string, ResourceOperationConfig) error { return nil }
+
+	origCheckGitRepositoryStatus := checkGitRepositoryStatus
+	checkGitRepositoryStatus = func(_ string) error { return nil }
+
 	t.Cleanup(func() {
 		kubeClient = origKubeClient
 		kubeClientResourceOperation = origKubeClientResourceOperation
+		checkGitRepositoryStatus = origCheckGitRepositoryStatus
 		os.Unsetenv("WINDSOR_PROJECT_ROOT")
 		os.Unsetenv("WINDSOR_CONTEXT")
 		if err := os.Chdir(origDir); err != nil {
