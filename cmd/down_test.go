@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/stack"
@@ -295,6 +296,57 @@ contexts:
 		}
 		if !strings.Contains(err.Error(), "Error deleting .volumes folder") {
 			t.Errorf("Expected error to contain 'Error deleting .volumes folder', got: %v", err)
+		}
+	})
+
+	t.Run("CleanupCalledBeforeStackDown", func(t *testing.T) {
+		mocks := setupDownMocks(t)
+		callOrder := []string{}
+		mocks.BlueprintHandler.DownFunc = func() error {
+			callOrder = append(callOrder, "cleanup")
+			return nil
+		}
+		mocks.Stack.DownFunc = func() error {
+			callOrder = append(callOrder, "stackdown")
+			return nil
+		}
+		rootCmd.SetArgs([]string{"down"})
+		err := Execute(mocks.Controller)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(callOrder) != 2 || callOrder[0] != "cleanup" || callOrder[1] != "stackdown" {
+			t.Errorf("Expected Cleanup before stack.Down, got call order: %v", callOrder)
+		}
+	})
+
+	t.Run("ErrorNilBlueprintHandler", func(t *testing.T) {
+		mocks := setupDownMocks(t)
+		mocks.Controller.ResolveBlueprintHandlerFunc = func() blueprint.BlueprintHandler {
+			return nil
+		}
+		rootCmd.SetArgs([]string{"down"})
+		err := Execute(mocks.Controller)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err == nil || err.Error() != "No blueprint handler found" {
+			t.Errorf("Expected 'No blueprint handler found', got %v", err)
+		}
+	})
+
+	t.Run("ErrorCleanup", func(t *testing.T) {
+		mocks := setupDownMocks(t)
+		mocks.BlueprintHandler.DownFunc = func() error {
+			return fmt.Errorf("cleanup failed")
+		}
+		rootCmd.SetArgs([]string{"down"})
+		err := Execute(mocks.Controller)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err == nil || !strings.Contains(err.Error(), "Error running blueprint down: cleanup failed") {
+			t.Errorf("Expected error containing 'Error running blueprint down: cleanup failed', got %v", err)
 		}
 	})
 }

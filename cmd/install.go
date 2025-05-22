@@ -62,7 +62,7 @@ var installCmd = &cobra.Command{
 
 		// If wait flag is set, wait for kustomizations to be ready
 		if waitFlag {
-			if err := blueprintHandler.WaitForKustomizations(); err != nil {
+			if err := blueprintHandler.WaitForKustomizations("⏳ Waiting for kustomizations to be ready"); err != nil {
 				return fmt.Errorf("failed waiting for kustomizations: %w", err)
 			}
 		}
