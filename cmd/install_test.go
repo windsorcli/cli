@@ -201,7 +201,7 @@ func TestInstallCmd(t *testing.T) {
 
 		// Set up a flag to check if WaitForKustomizations is called
 		called := false
-		mocks.BlueprintHandler.WaitForKustomizationsFunc = func() error {
+		mocks.BlueprintHandler.WaitForKustomizationsFunc = func(message string, names ...string) error {
 			called = true
 			return nil
 		}

@@ -146,7 +146,7 @@ var upCmd = &cobra.Command{
 			}
 			// If wait flag is set, poll for kustomization readiness
 			if waitFlag {
-				if err := blueprintHandler.WaitForKustomizations(); err != nil {
+				if err := blueprintHandler.WaitForKustomizations("⏳ Waiting for kustomizations to be ready"); err != nil {
 					return fmt.Errorf("Error waiting for kustomizations: %w", err)
 				}
 			}

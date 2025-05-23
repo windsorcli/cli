@@ -21,7 +21,8 @@ type MockBlueprintHandler struct {
 	InstallFunc                func() error
 	GetRepositoryFunc          func() blueprintv1alpha1.Repository
 	SetRepositoryFunc          func(repository blueprintv1alpha1.Repository) error
-	WaitForKustomizationsFunc  func() error
+	WaitForKustomizationsFunc  func(message string, names ...string) error
+	DownFunc                   func() error
 }
 
 // =============================================================================
@@ -153,10 +154,18 @@ func (m *MockBlueprintHandler) SetRepository(repository blueprintv1alpha1.Reposi
 	return nil
 }
 
-// WaitForKustomizations calls the mock WaitForKustomizationsFunc if set, otherwise returns nil
-func (m *MockBlueprintHandler) WaitForKustomizations() error {
+// WaitForKustomizations mocks the WaitForKustomizations method.
+func (m *MockBlueprintHandler) WaitForKustomizations(message string, names ...string) error {
 	if m.WaitForKustomizationsFunc != nil {
-		return m.WaitForKustomizationsFunc()
+		return m.WaitForKustomizationsFunc(message, names...)
+	}
+	return nil
+}
+
+// Down mocks the Down method.
+func (m *MockBlueprintHandler) Down() error {
+	if m.DownFunc != nil {
+		return m.DownFunc()
 	}
 	return nil
 }

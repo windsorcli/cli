@@ -36,6 +36,7 @@ const (
 	DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT        = 5 * time.Minute
 	DEFAULT_FLUX_SOURCE_INTERVAL              = 1 * time.Minute
 	DEFAULT_FLUX_SOURCE_TIMEOUT               = 2 * time.Minute
+	DEFAULT_FLUX_CLEANUP_TIMEOUT              = 30 * time.Minute
 
 	// Used for aggregate CLI wait (not per-resource)
 	DEFAULT_KUSTOMIZATION_WAIT_TOTAL_TIMEOUT = 10 * time.Minute
