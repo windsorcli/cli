@@ -2092,17 +2092,20 @@ func TestBlueprintHandler_SetRepository(t *testing.T) {
 }
 
 func TestBaseBlueprintHandler_WaitForKustomizations(t *testing.T) {
+	const pollInterval = 50 * time.Millisecond
+	const kustomTimeout = 300 * time.Millisecond
+
 	t.Run("AllKustomizationsReady", func(t *testing.T) {
 		// Given a blueprint handler with multiple kustomizations that are all ready
 		handler := &BaseBlueprintHandler{
 			blueprint: blueprintv1alpha1.Blueprint{
 				Kustomizations: []blueprintv1alpha1.Kustomization{
-					{Name: "k1", Timeout: &metav1.Duration{Duration: 100 * time.Millisecond}},
-					{Name: "k2", Timeout: &metav1.Duration{Duration: 100 * time.Millisecond}},
+					{Name: "k1", Timeout: &metav1.Duration{Duration: kustomTimeout}},
+					{Name: "k2", Timeout: &metav1.Duration{Duration: kustomTimeout}},
 				},
 			},
 		}
-		handler.kustomizationWaitPollInterval = 10 * time.Millisecond
+		handler.kustomizationWaitPollInterval = pollInterval
 
 		// And Git repository and kustomization status checks that return success
 		origCheckGit := checkGitRepositoryStatus
@@ -2130,12 +2133,12 @@ func TestBaseBlueprintHandler_WaitForKustomizations(t *testing.T) {
 		handler := &BaseBlueprintHandler{
 			blueprint: blueprintv1alpha1.Blueprint{
 				Kustomizations: []blueprintv1alpha1.Kustomization{
-					{Name: "k1", Timeout: &metav1.Duration{Duration: 200 * time.Millisecond}},
-					{Name: "k2", Timeout: &metav1.Duration{Duration: 200 * time.Millisecond}},
+					{Name: "k1", Timeout: &metav1.Duration{Duration: kustomTimeout}},
+					{Name: "k2", Timeout: &metav1.Duration{Duration: kustomTimeout}},
 				},
 			},
 		}
-		handler.kustomizationWaitPollInterval = 10 * time.Millisecond
+		handler.kustomizationWaitPollInterval = pollInterval
 
 		// And status checks that always return not ready
 		origCheckGit := checkGitRepositoryStatus
@@ -2163,11 +2166,11 @@ func TestBaseBlueprintHandler_WaitForKustomizations(t *testing.T) {
 		handler := &BaseBlueprintHandler{
 			blueprint: blueprintv1alpha1.Blueprint{
 				Kustomizations: []blueprintv1alpha1.Kustomization{
-					{Name: "k1", Timeout: &metav1.Duration{Duration: 100 * time.Millisecond}},
+					{Name: "k1", Timeout: &metav1.Duration{Duration: kustomTimeout}},
 				},
 			},
 		}
-		handler.kustomizationWaitPollInterval = 10 * time.Millisecond
+		handler.kustomizationWaitPollInterval = pollInterval
 
 		// And a Git repository status check that returns an error
 		origCheckGit := checkGitRepositoryStatus
@@ -2195,11 +2198,11 @@ func TestBaseBlueprintHandler_WaitForKustomizations(t *testing.T) {
 		handler := &BaseBlueprintHandler{
 			blueprint: blueprintv1alpha1.Blueprint{
 				Kustomizations: []blueprintv1alpha1.Kustomization{
-					{Name: "k1", Timeout: &metav1.Duration{Duration: 100 * time.Millisecond}},
+					{Name: "k1", Timeout: &metav1.Duration{Duration: kustomTimeout}},
 				},
 			},
 		}
-		handler.kustomizationWaitPollInterval = 10 * time.Millisecond
+		handler.kustomizationWaitPollInterval = pollInterval
 
 		// And a kustomization status check that returns an error
 		origCheckGit := checkGitRepositoryStatus
@@ -2227,11 +2230,11 @@ func TestBaseBlueprintHandler_WaitForKustomizations(t *testing.T) {
 		handler := &BaseBlueprintHandler{
 			blueprint: blueprintv1alpha1.Blueprint{
 				Kustomizations: []blueprintv1alpha1.Kustomization{
-					{Name: "k1", Timeout: &metav1.Duration{Duration: 100 * time.Millisecond}},
+					{Name: "k1", Timeout: &metav1.Duration{Duration: kustomTimeout}},
 				},
 			},
 		}
-		handler.kustomizationWaitPollInterval = 10 * time.Millisecond
+		handler.kustomizationWaitPollInterval = pollInterval
 
 		// And a Git repository status check that fails twice then succeeds
 		failCount := 0
@@ -2266,11 +2269,11 @@ func TestBaseBlueprintHandler_WaitForKustomizations(t *testing.T) {
 		handler := &BaseBlueprintHandler{
 			blueprint: blueprintv1alpha1.Blueprint{
 				Kustomizations: []blueprintv1alpha1.Kustomization{
-					{Name: "k1", Timeout: &metav1.Duration{Duration: 100 * time.Millisecond}},
+					{Name: "k1", Timeout: &metav1.Duration{Duration: kustomTimeout}},
 				},
 			},
 		}
-		handler.kustomizationWaitPollInterval = 10 * time.Millisecond
+		handler.kustomizationWaitPollInterval = pollInterval
 
 		// And a kustomization status check that fails twice then succeeds
 		failCount := 0
@@ -2303,11 +2306,11 @@ func TestBaseBlueprintHandler_WaitForKustomizations(t *testing.T) {
 		handler := &BaseBlueprintHandler{
 			blueprint: blueprintv1alpha1.Blueprint{
 				Kustomizations: []blueprintv1alpha1.Kustomization{
-					{Name: "k1", Timeout: &metav1.Duration{Duration: 100 * time.Millisecond}},
+					{Name: "k1", Timeout: &metav1.Duration{Duration: kustomTimeout}},
 				},
 			},
 		}
-		handler.kustomizationWaitPollInterval = 10 * time.Millisecond
+		handler.kustomizationWaitPollInterval = pollInterval
 
 		// And a Git repository status check that always fails
 		origCheckGit := checkGitRepositoryStatus
@@ -2336,11 +2339,11 @@ func TestBaseBlueprintHandler_WaitForKustomizations(t *testing.T) {
 		handler := &BaseBlueprintHandler{
 			blueprint: blueprintv1alpha1.Blueprint{
 				Kustomizations: []blueprintv1alpha1.Kustomization{
-					{Name: "k1", Timeout: &metav1.Duration{Duration: 1 * time.Second}},
+					{Name: "k1", Timeout: &metav1.Duration{Duration: kustomTimeout}},
 				},
 			},
 		}
-		handler.kustomizationWaitPollInterval = 10 * time.Millisecond
+		handler.kustomizationWaitPollInterval = pollInterval
 
 		// And a kustomization status check that always fails
 		origCheckGit := checkGitRepositoryStatus
