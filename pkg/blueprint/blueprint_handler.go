@@ -57,7 +57,8 @@ type BlueprintHandler interface {
 	SetRepository(repository blueprintv1alpha1.Repository) error
 	SetTerraformComponents(terraformComponents []blueprintv1alpha1.TerraformComponent) error
 	SetKustomizations(kustomizations []blueprintv1alpha1.Kustomization) error
-	WaitForKustomizations() error
+	WaitForKustomizations(message string, names ...string) error
+	Down() error
 }
 
 //go:embed templates/default.jsonnet
@@ -146,61 +147,84 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 		basePath = path[0]
 	}
 
-	// Get platform from context
+	yamlPath := basePath + ".yaml"
+	jsonnetPath := basePath + ".jsonnet"
+
+	// 1. blueprint.yaml
+	if _, err := b.shims.Stat(yamlPath); err == nil {
+		yamlData, err := b.shims.ReadFile(yamlPath)
+		if err != nil {
+			return err
+		}
+		if err := b.processBlueprintData(yamlData, &b.blueprint); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	// 2. blueprint.jsonnet
+	if _, err := b.shims.Stat(jsonnetPath); err == nil {
+		jsonnetData, err := b.shims.ReadFile(jsonnetPath)
+		if err != nil {
+			return err
+		}
+		config := b.configHandler.GetConfig()
+		contextYAML, err := b.yamlMarshalWithDefinedPaths(config)
+		if err != nil {
+			return fmt.Errorf("error marshalling context to YAML: %w", err)
+		}
+		var contextMap map[string]any = make(map[string]any)
+		if err := b.shims.YamlUnmarshal(contextYAML, &contextMap); err != nil {
+			return fmt.Errorf("error unmarshalling context YAML: %w", err)
+		}
+		context := b.configHandler.GetContext()
+		contextMap["name"] = context
+		contextJSON, err := b.shims.JsonMarshal(contextMap)
+		if err != nil {
+			return fmt.Errorf("error marshalling context map to JSON: %w", err)
+		}
+		vm := b.shims.NewJsonnetVM()
+		vm.ExtCode("context", string(contextJSON))
+		evaluatedJsonnet, err := vm.EvaluateAnonymousSnippet("blueprint.jsonnet", string(jsonnetData))
+		if err != nil {
+			return fmt.Errorf("error generating blueprint from jsonnet: %w", err)
+		}
+		if err := b.processBlueprintData([]byte(evaluatedJsonnet), &b.blueprint); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	// 3. internal default (platform-specific if available, else global default)
 	platform := ""
 	if b.configHandler.GetConfig().Cluster != nil && b.configHandler.GetConfig().Cluster.Platform != nil {
 		platform = *b.configHandler.GetConfig().Cluster.Platform
 	}
-
-	// Try to load platform-specific template first
-	platformData, err := b.loadPlatformTemplate(platform)
-	if err != nil {
-		return fmt.Errorf("error loading platform template: %w", err)
-	}
-
-	var yamlData []byte
-	// If no platform template, fall back to default
-	if len(platformData) == 0 {
-		jsonnetData, jsonnetErr := b.loadFileData(basePath + ".jsonnet")
-		var yamlErr error
-		yamlData, yamlErr = b.loadFileData(basePath + ".yaml")
-		if jsonnetErr != nil {
-			return jsonnetErr
-		}
-		if yamlErr != nil && !os.IsNotExist(yamlErr) {
-			return yamlErr
-		}
-
-		if len(jsonnetData) > 0 {
-			platformData = jsonnetData
+	var platformData []byte
+	if platform != "" {
+		platformData, err = b.loadPlatformTemplate(platform)
+		if err != nil {
+			return fmt.Errorf("error loading platform template: %w", err)
 		}
 	}
-
+	var evaluatedJsonnet string
 	config := b.configHandler.GetConfig()
 	contextYAML, err := b.yamlMarshalWithDefinedPaths(config)
 	if err != nil {
 		return fmt.Errorf("error marshalling context to YAML: %w", err)
 	}
-
 	var contextMap map[string]any = make(map[string]any)
 	if err := b.shims.YamlUnmarshal(contextYAML, &contextMap); err != nil {
 		return fmt.Errorf("error unmarshalling context YAML: %w", err)
 	}
-
-	// Add "name" to the context map
 	context := b.configHandler.GetContext()
 	contextMap["name"] = context
-
 	contextJSON, err := b.shims.JsonMarshal(contextMap)
 	if err != nil {
 		return fmt.Errorf("error marshalling context map to JSON: %w", err)
 	}
-
-	var evaluatedJsonnet string
-
 	vm := b.shims.NewJsonnetVM()
 	vm.ExtCode("context", string(contextJSON))
-
 	if len(platformData) > 0 {
 		evaluatedJsonnet, err = vm.EvaluateAnonymousSnippet("blueprint.jsonnet", string(platformData))
 		if err != nil {
@@ -212,7 +236,6 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 			return fmt.Errorf("error generating blueprint from default jsonnet: %w", err)
 		}
 	}
-
 	if evaluatedJsonnet == "" {
 		b.blueprint = *DefaultBlueprint.DeepCopy()
 		b.blueprint.Metadata.Name = context
@@ -222,15 +245,6 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 			return err
 		}
 	}
-
-	if len(yamlData) > 0 {
-		if err := b.processBlueprintData(yamlData, &b.localBlueprint); err != nil {
-			return err
-		}
-	}
-
-	b.blueprint.Merge(&b.localBlueprint)
-
 	return nil
 }
 
@@ -287,8 +301,7 @@ func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 // WaitForKustomizations polls for readiness of all kustomizations with a maximum timeout.
 // It uses a spinner to show progress and checks both GitRepository and Kustomization status.
 // The timeout is calculated based on the longest dependency path through the kustomizations.
-func (b *BaseBlueprintHandler) WaitForKustomizations() error {
-	message := "⏳ Waiting for kustomizations to be ready"
+func (b *BaseBlueprintHandler) WaitForKustomizations(message string, names ...string) error {
 	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
 	spin.Suffix = " " + message
 	spin.Start()
@@ -298,36 +311,37 @@ func (b *BaseBlueprintHandler) WaitForKustomizations() error {
 	ticker := time.NewTicker(b.kustomizationWaitPollInterval)
 	defer ticker.Stop()
 
-	kustomizations := b.GetKustomizations()
-	names := make([]string, len(kustomizations))
-	for i, k := range kustomizations {
-		names[i] = k.Name
+	var kustomizationNames []string
+	if len(names) > 0 && len(names[0]) > 0 {
+		kustomizationNames = names
+	} else {
+		kustomizations := b.GetKustomizations()
+		kustomizationNames = make([]string, len(kustomizations))
+		for i, k := range kustomizations {
+			kustomizationNames[i] = k.Name
+		}
 	}
 
 	consecutiveFailures := 0
 	for {
 		select {
-		case <-timeout:
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "\033[31m✗\033[0m %s - \033[31mTimeout\033[0m\n", message)
-			return fmt.Errorf("timeout waiting for kustomizations to be ready")
 		case <-ticker.C:
 			kubeconfig := os.Getenv("KUBECONFIG")
 			if err := checkGitRepositoryStatus(kubeconfig); err != nil {
 				consecutiveFailures++
 				if consecutiveFailures >= constants.DEFAULT_KUSTOMIZATION_WAIT_MAX_FAILURES {
 					spin.Stop()
-					fmt.Fprintf(os.Stderr, "\033[31m✗\033[0m %s - \033[31mFailed\033[0m\n", message)
+					fmt.Fprintf(os.Stderr, "\033[31m✗ %s - \033[31mFailed\033[0m\n", message)
 					return fmt.Errorf("git repository error after %d consecutive failures: %w", consecutiveFailures, err)
 				}
 				continue
 			}
-			status, err := checkKustomizationStatus(kubeconfig, names)
+			status, err := checkKustomizationStatus(kubeconfig, kustomizationNames)
 			if err != nil {
 				consecutiveFailures++
 				if consecutiveFailures >= constants.DEFAULT_KUSTOMIZATION_WAIT_MAX_FAILURES {
 					spin.Stop()
-					fmt.Fprintf(os.Stderr, "\033[31m✗\033[0m %s - \033[31mFailed\033[0m\n", message)
+					fmt.Fprintf(os.Stderr, "\033[31m✗ %s - \033[31mFailed\033[0m\n", message)
 					return fmt.Errorf("kustomization error after %d consecutive failures: %w", consecutiveFailures, err)
 				}
 				continue
@@ -347,8 +361,12 @@ func (b *BaseBlueprintHandler) WaitForKustomizations() error {
 				return nil
 			}
 
-			// Reset failure counter on successful check
+			// Reset consecutive failures on successful check
 			consecutiveFailures = 0
+		case <-timeout:
+			spin.Stop()
+			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - \033[31mTimeout\033[0m\n", message)
+			return fmt.Errorf("timeout waiting for kustomizations to be ready")
 		}
 	}
 }
@@ -394,7 +412,7 @@ func (b *BaseBlueprintHandler) Install() error {
 	}
 
 	for _, kustomization := range b.GetKustomizations() {
-		if err := b.applyKustomization(kustomization); err != nil {
+		if err := b.applyKustomization(kustomization, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
 			return fmt.Errorf("failed to apply Kustomization: %w", err)
@@ -538,9 +556,207 @@ func (b *BaseBlueprintHandler) SetKustomizations(kustomizations []blueprintv1alp
 	return nil
 }
 
+// Down tears down all kustomizations in the correct order, running cleanup kustomizations if defined.
+func (b *BaseBlueprintHandler) Down() error {
+	kustomizations := b.GetKustomizations()
+	if len(kustomizations) == 0 {
+		return nil
+	}
+
+	// Build dependency graph
+	deps := make(map[string][]string)
+	for _, k := range kustomizations {
+		deps[k.Name] = k.DependsOn
+	}
+
+	// Topological sort (reverse order)
+	var sorted []string
+	visited := make(map[string]bool)
+	var visit func(string)
+	visit = func(n string) {
+		if visited[n] {
+			return
+		}
+		visited[n] = true
+		for _, dep := range deps[n] {
+			visit(dep)
+		}
+		sorted = append(sorted, n)
+	}
+	for _, k := range kustomizations {
+		visit(k.Name)
+	}
+	// Reverse for teardown order
+	for i, j := 0, len(sorted)-1; i < j; i, j = i+1, j-1 {
+		sorted[i], sorted[j] = sorted[j], sorted[i]
+	}
+
+	nameToK := make(map[string]blueprintv1alpha1.Kustomization)
+	for _, k := range kustomizations {
+		nameToK[k.Name] = k
+	}
+
+	// Check if we need cleanup namespace
+	needsCleanupNamespace := false
+	for _, k := range kustomizations {
+		if len(k.Cleanup) > 0 {
+			needsCleanupNamespace = true
+			break
+		}
+	}
+
+	// Create cleanup namespace if needed
+	if needsCleanupNamespace {
+		if err := b.createManagedNamespace("system-cleanup"); err != nil {
+			return fmt.Errorf("failed to create system-cleanup namespace: %w", err)
+		}
+	}
+
+	var cleanupNames []string
+	for _, name := range sorted {
+		k := nameToK[name]
+		if len(k.Cleanup) > 0 {
+			cleanupKustomization := &blueprintv1alpha1.Kustomization{
+				Name:          k.Name + "-cleanup",
+				Path:          filepath.Join(k.Path, "cleanup"),
+				Source:        k.Source,
+				Components:    k.Cleanup,
+				Timeout:       &metav1.Duration{Duration: 30 * time.Minute},
+				Interval:      &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL},
+				RetryInterval: &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL},
+				Wait:          func() *bool { b := true; return &b }(),
+				PostBuild: &blueprintv1alpha1.PostBuild{
+					SubstituteFrom: []blueprintv1alpha1.SubstituteReference{},
+				},
+			}
+			if err := b.applyKustomization(*cleanupKustomization, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+				return fmt.Errorf("failed to apply cleanup kustomization for %s: %w", k.Name, err)
+			}
+			cleanupNames = append(cleanupNames, cleanupKustomization.Name)
+		}
+		// Delete the main kustomization
+		if err := b.deleteKustomization(k.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+			return fmt.Errorf("failed to delete kustomization %s: %w", k.Name, err)
+		}
+	}
+
+	if len(cleanupNames) > 0 {
+		if err := b.WaitForKustomizations("📐 Deploying cleanup kustomizations", cleanupNames...); err != nil {
+			return fmt.Errorf("failed waiting for cleanup kustomizations: %w", err)
+		}
+
+		// Delete cleanup kustomizations
+		for _, cname := range cleanupNames {
+			if err := b.deleteKustomization(cname, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+				return fmt.Errorf("failed to delete cleanup kustomization %s: %w", cname, err)
+			}
+		}
+
+		// Delete the cleanup namespace
+		if err := b.deleteNamespace("system-cleanup"); err != nil {
+			return fmt.Errorf("failed to delete system-cleanup namespace: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// applyKustomization creates or updates a Kustomization resource in the cluster.
+func (b *BaseBlueprintHandler) applyKustomization(kustomization blueprintv1alpha1.Kustomization, namespace string) error {
+	if kustomization.Source == "" {
+		context := b.configHandler.GetContext()
+		kustomization.Source = context
+	}
+
+	kustomizeObj := &kustomizev1.Kustomization{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "kustomize.toolkit.fluxcd.io/v1",
+			Kind:       "Kustomization",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      kustomization.Name,
+			Namespace: namespace,
+		},
+		Spec: kustomizev1.KustomizationSpec{
+			Interval:      *kustomization.Interval,
+			Timeout:       kustomization.Timeout,
+			RetryInterval: kustomization.RetryInterval,
+			Path:          kustomization.Path,
+			Prune:         constants.DEFAULT_FLUX_KUSTOMIZATION_PRUNE,
+			Wait:          constants.DEFAULT_FLUX_KUSTOMIZATION_WAIT,
+			DependsOn: func() []meta.NamespacedObjectReference {
+				dependsOn := make([]meta.NamespacedObjectReference, len(kustomization.DependsOn))
+				for i, dep := range kustomization.DependsOn {
+					dependsOn[i] = meta.NamespacedObjectReference{Name: dep}
+				}
+				return dependsOn
+			}(),
+			SourceRef: kustomizev1.CrossNamespaceSourceReference{
+				Kind:      "GitRepository",
+				Name:      kustomization.Source,
+				Namespace: constants.DEFAULT_FLUX_SYSTEM_NAMESPACE,
+			},
+			Patches:    kustomization.Patches,
+			Components: kustomization.Components,
+			PostBuild: &kustomizev1.PostBuild{
+				SubstituteFrom: func() []kustomizev1.SubstituteReference {
+					substituteFrom := make([]kustomizev1.SubstituteReference, len(kustomization.PostBuild.SubstituteFrom))
+					for i, sub := range kustomization.PostBuild.SubstituteFrom {
+						substituteFrom[i] = kustomizev1.SubstituteReference{
+							Kind: sub.Kind,
+							Name: sub.Name,
+						}
+					}
+					return substituteFrom
+				}(),
+			},
+		},
+	}
+
+	// Ensure the status field is not included in the request body, it breaks the request
+	kustomizeObj.Status = kustomizev1.KustomizationStatus{}
+
+	config := ResourceOperationConfig{
+		ApiPath:              "/apis/kustomize.toolkit.fluxcd.io/v1",
+		Namespace:            namespace,
+		ResourceName:         "kustomizations",
+		ResourceInstanceName: kustomizeObj.Name,
+		ResourceObject:       kustomizeObj,
+		ResourceType:         func() runtime.Object { return &kustomizev1.Kustomization{} },
+	}
+
+	kubeconfig := os.Getenv("KUBECONFIG")
+	return kubeClientResourceOperation(kubeconfig, config)
+}
+
+// deleteKustomization deletes a Kustomization resource from the cluster.
+func (b *BaseBlueprintHandler) deleteKustomization(name string, namespace string) error {
+	kubeconfig := os.Getenv("KUBECONFIG")
+	config := ResourceOperationConfig{
+		ApiPath:              "/apis/kustomize.toolkit.fluxcd.io/v1",
+		Namespace:            namespace,
+		ResourceName:         "kustomizations",
+		ResourceInstanceName: name,
+		ResourceObject:       nil,
+		ResourceType:         func() runtime.Object { return &kustomizev1.Kustomization{} },
+	}
+	return b.deleteResource(kubeconfig, config)
+}
+
+// deleteResource deletes a resource from the cluster using the REST client.
+func (b *BaseBlueprintHandler) deleteResource(kubeconfigPath string, config ResourceOperationConfig) error {
+	return kubeClient(kubeconfigPath, KubeRequestConfig{
+		Method:    "DELETE",
+		ApiPath:   config.ApiPath,
+		Namespace: config.Namespace,
+		Resource:  config.ResourceName,
+		Name:      config.ResourceInstanceName,
+	})
+}
 
 // resolveComponentSources processes each Terraform component's source field, expanding it into a full
 // URL with path prefix and reference information based on the associated source configuration.
@@ -669,15 +885,6 @@ func (b *BaseBlueprintHandler) isValidTerraformRemoteSource(source string) bool 
 	}
 
 	return false
-}
-
-// loadFileData loads the file data from the specified path.
-// It checks if the file exists and reads its content, returning the data as a byte slice.
-func (b *BaseBlueprintHandler) loadFileData(path string) ([]byte, error) {
-	if _, err := b.shims.Stat(path); err == nil {
-		return b.shims.ReadFile(path)
-	}
-	return nil, nil
 }
 
 // loadPlatformTemplate loads a platform-specific template if one exists
@@ -818,6 +1025,38 @@ func (b *BaseBlueprintHandler) yamlMarshalWithDefinedPaths(v any) ([]byte, error
 	return yamlData, nil
 }
 
+func (b *BaseBlueprintHandler) createManagedNamespace(name string) error {
+	kubeconfig := os.Getenv("KUBECONFIG")
+	ns := &corev1.Namespace{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Namespace",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "windsor-cli",
+			},
+		},
+	}
+	return kubeClient(kubeconfig, KubeRequestConfig{
+		Method:   "POST",
+		ApiPath:  "/api/v1",
+		Resource: "namespaces",
+		Body:     ns,
+	})
+}
+
+func (b *BaseBlueprintHandler) deleteNamespace(name string) error {
+	kubeconfig := os.Getenv("KUBECONFIG")
+	return kubeClient(kubeconfig, KubeRequestConfig{
+		Method:   "DELETE",
+		ApiPath:  "/api/v1",
+		Resource: "namespaces",
+		Name:     name,
+	})
+}
+
 // applyGitRepository creates or updates a GitRepository resource in the cluster. It normalizes
 // the repository URL format, configures standard intervals and timeouts, and handles secret
 // references for private repositories.
@@ -869,76 +1108,6 @@ func (b *BaseBlueprintHandler) applyGitRepository(source blueprintv1alpha1.Sourc
 		ResourceInstanceName: gitRepository.Name,
 		ResourceObject:       gitRepository,
 		ResourceType:         func() runtime.Object { return &sourcev1.GitRepository{} },
-	}
-
-	kubeconfig := os.Getenv("KUBECONFIG")
-	return kubeClientResourceOperation(kubeconfig, config)
-}
-
-// applyKustomization creates or updates a Kustomization resource in the cluster. It configures
-// dependencies, source references, and PostBuild substitutions while applying standard defaults
-// for intervals and operational parameters.
-func (b *BaseBlueprintHandler) applyKustomization(kustomization blueprintv1alpha1.Kustomization) error {
-	if kustomization.Source == "" {
-		context := b.configHandler.GetContext()
-		kustomization.Source = context
-	}
-
-	kustomizeObj := &kustomizev1.Kustomization{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "kustomize.toolkit.fluxcd.io/v1",
-			Kind:       "Kustomization",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      kustomization.Name,
-			Namespace: constants.DEFAULT_FLUX_SYSTEM_NAMESPACE,
-		},
-		Spec: kustomizev1.KustomizationSpec{
-			Interval:      *kustomization.Interval,
-			Timeout:       kustomization.Timeout,
-			RetryInterval: kustomization.RetryInterval,
-			Path:          kustomization.Path,
-			Prune:         constants.DEFAULT_FLUX_KUSTOMIZATION_PRUNE,
-			Wait:          constants.DEFAULT_FLUX_KUSTOMIZATION_WAIT,
-			DependsOn: func() []meta.NamespacedObjectReference {
-				dependsOn := make([]meta.NamespacedObjectReference, len(kustomization.DependsOn))
-				for i, dep := range kustomization.DependsOn {
-					dependsOn[i] = meta.NamespacedObjectReference{Name: dep}
-				}
-				return dependsOn
-			}(),
-			SourceRef: kustomizev1.CrossNamespaceSourceReference{
-				Kind:      "GitRepository",
-				Name:      kustomization.Source,
-				Namespace: constants.DEFAULT_FLUX_SYSTEM_NAMESPACE,
-			},
-			Patches:    kustomization.Patches,
-			Components: kustomization.Components,
-			PostBuild: &kustomizev1.PostBuild{
-				SubstituteFrom: func() []kustomizev1.SubstituteReference {
-					substituteFrom := make([]kustomizev1.SubstituteReference, len(kustomization.PostBuild.SubstituteFrom))
-					for i, sub := range kustomization.PostBuild.SubstituteFrom {
-						substituteFrom[i] = kustomizev1.SubstituteReference{
-							Kind: sub.Kind,
-							Name: sub.Name,
-						}
-					}
-					return substituteFrom
-				}(),
-			},
-		},
-	}
-
-	// Ensure the status field is not included in the request body, it breaks the request
-	kustomizeObj.Status = kustomizev1.KustomizationStatus{}
-
-	config := ResourceOperationConfig{
-		ApiPath:              "/apis/kustomize.toolkit.fluxcd.io/v1",
-		Namespace:            kustomizeObj.Namespace,
-		ResourceName:         "kustomizations",
-		ResourceInstanceName: kustomizeObj.Name,
-		ResourceObject:       kustomizeObj,
-		ResourceType:         func() runtime.Object { return &kustomizev1.Kustomization{} },
 	}
 
 	kubeconfig := os.Getenv("KUBECONFIG")
@@ -1091,13 +1260,16 @@ type ResourceOperationConfig struct {
 	ResourceType         func() runtime.Object
 }
 
-// NOTE: This is a temporary solution until we've integrated the kube client into our DI system.
-// As such, this function is not internally covered by our tests.
-//
-// kubeClientResourceOperation is a comprehensive function that handles the entire lifecycle of creating a Kubernetes client
-// and performing a sequence of operations (Get, Post, Put) on Kubernetes resources. It takes a kubeconfig path and a
-// configuration object that specifies the parameters for the operations.
-var kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
+type KubeRequestConfig struct {
+	Method    string
+	ApiPath   string
+	Namespace string
+	Resource  string
+	Name      string
+	Body      interface{}
+}
+
+var kubeClient = func(kubeconfigPath string, config KubeRequestConfig) error {
 	var kubeConfig *rest.Config
 	var err error
 
@@ -1119,46 +1291,57 @@ var kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOpe
 	restClient := clientset.CoreV1().RESTClient()
 	backgroundCtx := ctx.Background()
 
-	existingResource := config.ResourceType().(runtime.Object)
-	err = restClient.Get().
+	req := restClient.Verb(config.Method).
 		AbsPath(config.ApiPath).
-		Namespace(config.Namespace).
-		Resource(config.ResourceName).
-		Name(config.ResourceInstanceName).
-		Do(backgroundCtx).
-		Into(existingResource)
+		Resource(config.Resource)
 
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			if err := restClient.Post().
-				AbsPath(config.ApiPath).
-				Namespace(config.Namespace).
-				Resource(config.ResourceName).
-				Body(config.ResourceObject).
-				Do(backgroundCtx).
-				Error(); err != nil {
-				return fmt.Errorf("failed to create resource: %w", err)
-			}
-		} else {
-			return fmt.Errorf("failed to get resource: %w", err)
-		}
-	} else {
-		// Ensure the resourceVersion is set for the update
-		config.ResourceObject.(metav1.Object).SetResourceVersion(existingResource.(metav1.Object).GetResourceVersion())
-
-		if err := restClient.Put().
-			AbsPath(config.ApiPath).
-			Namespace(config.Namespace).
-			Resource(config.ResourceName).
-			Name(config.ResourceInstanceName).
-			Body(config.ResourceObject).
-			Do(backgroundCtx).
-			Error(); err != nil {
-			return fmt.Errorf("failed to update resource: %w", err)
-		}
+	if config.Namespace != "" {
+		req = req.Namespace(config.Namespace)
 	}
 
-	return nil
+	if config.Name != "" {
+		req = req.Name(config.Name)
+	}
+
+	if config.Body != nil {
+		req = req.Body(config.Body)
+	}
+
+	return req.Do(backgroundCtx).Error()
+}
+
+var kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
+	// First try to get the resource
+	err := kubeClient(kubeconfigPath, KubeRequestConfig{
+		Method:    "GET",
+		ApiPath:   config.ApiPath,
+		Namespace: config.Namespace,
+		Resource:  config.ResourceName,
+		Name:      config.ResourceInstanceName,
+	})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// Create if not found
+			return kubeClient(kubeconfigPath, KubeRequestConfig{
+				Method:    "POST",
+				ApiPath:   config.ApiPath,
+				Namespace: config.Namespace,
+				Resource:  config.ResourceName,
+				Body:      config.ResourceObject,
+			})
+		}
+		return fmt.Errorf("failed to get resource: %w", err)
+	}
+
+	// Update if found
+	return kubeClient(kubeconfigPath, KubeRequestConfig{
+		Method:    "PUT",
+		ApiPath:   config.ApiPath,
+		Namespace: config.Namespace,
+		Resource:  config.ResourceName,
+		Name:      config.ResourceInstanceName,
+		Body:      config.ResourceObject,
+	})
 }
 
 // NOTE: This is a temporary solution until we've integrated the kube client into our DI system.
@@ -1226,7 +1409,8 @@ var checkKustomizationStatus = func(kubeconfigPath string, names []string) (map[
 
 	for _, name := range names {
 		if !found[name] {
-			return nil, fmt.Errorf("kustomization %s not found", name)
+			status[name] = false
+			continue
 		}
 	}
 

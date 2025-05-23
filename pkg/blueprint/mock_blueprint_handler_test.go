@@ -522,3 +522,30 @@ func TestMockBlueprintHandler_SetRepository(t *testing.T) {
 		}
 	})
 }
+
+func TestMockBlueprintHandler_WaitForKustomizations(t *testing.T) {
+	t.Run("DefaultReturnsNil", func(t *testing.T) {
+		mock := &MockBlueprintHandler{}
+		err := mock.WaitForKustomizations("⏳ Waiting for kustomizations to be ready", "a", "b")
+		if err != nil {
+			t.Errorf("expected nil, got %v", err)
+		}
+	})
+
+	t.Run("CustomFuncIsCalled", func(t *testing.T) {
+		called := false
+		mock := &MockBlueprintHandler{
+			WaitForKustomizationsFunc: func(message string, names ...string) error {
+				called = true
+				return nil
+			},
+		}
+		err := mock.WaitForKustomizations("⏳ Waiting for kustomizations to be ready", "x", "y")
+		if !called {
+			t.Error("expected custom func to be called")
+		}
+		if err != nil {
+			t.Errorf("expected error nil, got %v", err)
+		}
+	})
+}

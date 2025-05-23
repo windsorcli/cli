@@ -405,7 +405,7 @@ func TestUpCmd(t *testing.T) {
 		defer func() { installFlag = false; waitFlag = false }()
 
 		called := false
-		mocks.BlueprintHandler.WaitForKustomizationsFunc = func() error {
+		mocks.BlueprintHandler.WaitForKustomizationsFunc = func(message string, names ...string) error {
 			called = true
 			return nil
 		}

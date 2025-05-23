@@ -10,7 +10,8 @@ import (
 )
 
 var (
-	cleanFlag bool
+	cleanFlag   bool
+	skipK8sFlag bool
 )
 
 var downCmd = &cobra.Command{
@@ -47,6 +48,22 @@ var downCmd = &cobra.Command{
 		// Resolve components
 		shell := controller.ResolveShell()
 		configHandler := controller.ResolveConfigHandler()
+
+		// Run blueprint cleanup before stack down
+		blueprintHandler := controller.ResolveBlueprintHandler()
+		if blueprintHandler == nil {
+			return fmt.Errorf("No blueprint handler found")
+		}
+		if err := blueprintHandler.LoadConfig(); err != nil {
+			return fmt.Errorf("Error loading blueprint config: %w", err)
+		}
+		if !skipK8sFlag {
+			if err := blueprintHandler.Down(); err != nil {
+				return fmt.Errorf("Error running blueprint down: %w", err)
+			}
+		} else {
+			fmt.Fprintln(os.Stderr, "Skipping Kubernetes cleanup (--skip-k8s set)")
+		}
 
 		// Tear down the stack components
 		stack := controller.ResolveStack()
@@ -100,5 +117,6 @@ var downCmd = &cobra.Command{
 
 func init() {
 	downCmd.Flags().BoolVar(&cleanFlag, "clean", false, "Clean up context specific artifacts")
+	downCmd.Flags().BoolVar(&skipK8sFlag, "skip-k8s", false, "Skip Kubernetes cleanup (blueprint cleanup)")
 	rootCmd.AddCommand(downCmd)
 }

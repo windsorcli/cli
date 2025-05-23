@@ -158,6 +158,9 @@ type Kustomization struct {
 	// Components to include in the kustomization.
 	Components []string `yaml:"components,omitempty"`
 
+	// Cleanup lists resources to clean up after the kustomization is applied.
+	Cleanup []string `yaml:"cleanup,omitempty"`
+
 	// PostBuild is a post-build step to run after the kustomization is applied.
 	PostBuild *PostBuild `yaml:"postBuild,omitempty"`
 }
@@ -268,6 +271,7 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 			Wait:          kustomization.Wait,
 			Force:         kustomization.Force,
 			Components:    slices.Clone(kustomization.Components),
+			Cleanup:       slices.Clone(kustomization.Cleanup),
 			PostBuild:     postBuildCopy,
 		}
 	}
@@ -383,5 +387,39 @@ func (b *Blueprint) Merge(overlay *Blueprint) {
 	// Always prefer the overlay's entire kustomizations if it's not empty
 	if len(overlay.Kustomizations) > 0 {
 		b.Kustomizations = overlay.Kustomizations
+	}
+}
+
+// DeepCopy creates a deep copy of the Kustomization object.
+func (k *Kustomization) DeepCopy() *Kustomization {
+	if k == nil {
+		return nil
+	}
+
+	var postBuildCopy *PostBuild
+	if k.PostBuild != nil {
+		postBuildCopy = &PostBuild{
+			Substitute:     make(map[string]string),
+			SubstituteFrom: slices.Clone(k.PostBuild.SubstituteFrom),
+		}
+		for key, value := range k.PostBuild.Substitute {
+			postBuildCopy.Substitute[key] = value
+		}
+	}
+
+	return &Kustomization{
+		Name:          k.Name,
+		Path:          k.Path,
+		Source:        k.Source,
+		DependsOn:     slices.Clone(k.DependsOn),
+		Interval:      k.Interval,
+		RetryInterval: k.RetryInterval,
+		Timeout:       k.Timeout,
+		Patches:       slices.Clone(k.Patches),
+		Wait:          k.Wait,
+		Force:         k.Force,
+		Components:    slices.Clone(k.Components),
+		Cleanup:       slices.Clone(k.Cleanup),
+		PostBuild:     postBuildCopy,
 	}
 }
