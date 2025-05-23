@@ -218,14 +218,14 @@ func (e *TerraformEnvPrinter) generateBackendConfigArgs(projectPath, configRoot 
 
 	addBackendConfigArg := func(key, value string) {
 		if value != "" {
-			backendConfigArgs = append(backendConfigArgs, fmt.Sprintf("-backend-config=\"%s=%s\"", key, filepath.ToSlash(value)))
+			backendConfigArgs = append(backendConfigArgs, fmt.Sprintf("-backend-config=%s=%s", key, filepath.ToSlash(value)))
 		}
 	}
 
 	if context := e.configHandler.GetContext(); context != "" {
 		backendTfvarsPath := filepath.Join(configRoot, "terraform", "backend.tfvars")
 		if _, err := e.shims.Stat(backendTfvarsPath); err == nil {
-			backendConfigArgs = append(backendConfigArgs, fmt.Sprintf("-backend-config=\"%s\"", filepath.ToSlash(backendTfvarsPath)))
+			backendConfigArgs = append(backendConfigArgs, fmt.Sprintf("-backend-config=%s", filepath.ToSlash(backendTfvarsPath)))
 		}
 	}
 
