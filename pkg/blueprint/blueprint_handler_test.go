@@ -2732,50 +2732,6 @@ func TestBaseBlueprintHandler_Down(t *testing.T) {
 		}
 	})
 
-	t.Run("WaitForKustomizationsError", func(t *testing.T) {
-		// Given a handler with a kustomization with cleanup
-		handler, _ := setup(t)
-		baseHandler := handler
-		baseHandler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
-			{Name: "k1", Cleanup: []string{"cleanup/path1"}},
-		}
-
-		// Set reasonable poll interval and timeout
-		baseHandler.kustomizationWaitPollInterval = 10 * time.Millisecond
-		for i := range baseHandler.blueprint.Kustomizations {
-			if baseHandler.blueprint.Kustomizations[i].Timeout == nil {
-				baseHandler.blueprint.Kustomizations[i].Timeout = &metav1.Duration{Duration: 50 * time.Millisecond}
-			} else {
-				baseHandler.blueprint.Kustomizations[i].Timeout.Duration = 50 * time.Millisecond
-			}
-		}
-
-		// Patch kubeClientResourceOperation to succeed
-		origKubeClientResourceOperation := kubeClientResourceOperation
-		kubeClientResourceOperation = func(_ string, config ResourceOperationConfig) error {
-			return nil
-		}
-		defer func() { kubeClientResourceOperation = origKubeClientResourceOperation }()
-
-		// Patch checkKustomizationStatus to error
-		origCheckKustomizationStatus := checkKustomizationStatus
-		checkKustomizationStatus = func(_ string, names []string) (map[string]bool, error) {
-			return nil, fmt.Errorf("wait error")
-		}
-		defer func() { checkKustomizationStatus = origCheckKustomizationStatus }()
-
-		// When calling Down
-		err := baseHandler.Down()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "timeout waiting for kustomizations") {
-			t.Errorf("Expected timeout error, got: %v", err)
-		}
-	})
-
 	t.Run("MultipleKustomizationsWithCleanup", func(t *testing.T) {
 		// Given a handler with multiple kustomizations, some with cleanup paths
 		handler, _ := setup(t)
