@@ -44,8 +44,8 @@ import (
 
 type BlueprintHandler interface {
 	Initialize() error
-	LoadConfig(path ...string) error
-	WriteConfig(path ...string) error
+	LoadConfig(reset ...bool) error
+	WriteConfig(overwrite ...bool) error
 	Install() error
 	GetMetadata() blueprintv1alpha1.Metadata
 	GetSources() []blueprintv1alpha1.Source
@@ -133,33 +133,37 @@ func (b *BaseBlueprintHandler) Initialize() error {
 	return nil
 }
 
-// LoadConfig reads and processes blueprint configuration from either a specified path or the default location.
-// It supports both Jsonnet and YAML formats, evaluates any Jsonnet templates with the current context,
-// and merges local blueprint data. The function handles default blueprints when no config exists.
-func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
+// LoadConfig reads blueprint configuration from specified path or default location.
+// Priority: blueprint.yaml (if !reset), blueprint.jsonnet, platform template, default.
+// Processes Jsonnet templates with context data injection for dynamic configuration.
+// Falls back to embedded defaults if no configuration files exist.
+func (b *BaseBlueprintHandler) LoadConfig(reset ...bool) error {
+	shouldReset := false
+	if len(reset) > 0 {
+		shouldReset = reset[0]
+	}
+
 	configRoot, err := b.configHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("error getting config root: %w", err)
 	}
 
 	basePath := filepath.Join(configRoot, "blueprint")
-	if len(path) > 0 && path[0] != "" {
-		basePath = path[0]
-	}
-
 	yamlPath := basePath + ".yaml"
 	jsonnetPath := basePath + ".jsonnet"
 
-	// 1. blueprint.yaml
-	if _, err := b.shims.Stat(yamlPath); err == nil {
-		yamlData, err := b.shims.ReadFile(yamlPath)
-		if err != nil {
-			return err
+	if !shouldReset {
+		// 1. blueprint.yaml
+		if _, err := b.shims.Stat(yamlPath); err == nil {
+			yamlData, err := b.shims.ReadFile(yamlPath)
+			if err != nil {
+				return err
+			}
+			if err := b.processBlueprintData(yamlData, &b.blueprint); err != nil {
+				return err
+			}
+			return nil
 		}
-		if err := b.processBlueprintData(yamlData, &b.blueprint); err != nil {
-			return err
-		}
-		return nil
 	}
 
 	// 2. blueprint.jsonnet
@@ -251,47 +255,44 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 // WriteConfig persists the current blueprint configuration to disk. It handles path resolution,
 // directory creation, and writes the blueprint in YAML format. The function cleans sensitive or
 // redundant data before writing, such as Terraform component variables/values and empty PostBuild configs.
-func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
-	finalPath := ""
-	if len(path) > 0 && path[0] != "" {
-		finalPath = path[0]
-	} else {
-		configRoot, err := b.configHandler.GetConfigRoot()
-		if err != nil {
-			return fmt.Errorf("error getting config root: %w", err)
-		}
-		finalPath = filepath.Join(configRoot, "blueprint.yaml")
+func (b *BaseBlueprintHandler) WriteConfig(overwrite ...bool) error {
+	shouldOverwrite := false
+	if len(overwrite) > 0 {
+		shouldOverwrite = overwrite[0]
 	}
 
+	configRoot, err := b.configHandler.GetConfigRoot()
+	if err != nil {
+		return fmt.Errorf("error getting config root: %w", err)
+	}
+
+	finalPath := filepath.Join(configRoot, "blueprint.yaml")
 	dir := filepath.Dir(finalPath)
-	if err := b.shims.MkdirAll(dir, os.ModePerm); err != nil {
+	if err := b.shims.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("error creating directory: %w", err)
 	}
 
-	if _, err := b.shims.Stat(finalPath); err == nil {
-		return nil
+	if !shouldOverwrite {
+		if _, err := b.shims.Stat(finalPath); err == nil {
+			return nil
+		}
 	}
 
 	fullBlueprint := b.blueprint.DeepCopy()
-
 	for i := range fullBlueprint.TerraformComponents {
 		fullBlueprint.TerraformComponents[i].Values = nil
 	}
-
 	for i := range fullBlueprint.Kustomizations {
 		postBuild := fullBlueprint.Kustomizations[i].PostBuild
 		if postBuild != nil && len(postBuild.Substitute) == 0 && len(postBuild.SubstituteFrom) == 0 {
 			fullBlueprint.Kustomizations[i].PostBuild = nil
 		}
 	}
-
 	fullBlueprint.Merge(&b.localBlueprint)
-
 	data, err := b.shims.YamlMarshalNonNull(fullBlueprint)
 	if err != nil {
 		return fmt.Errorf("error marshalling yaml: %w", err)
 	}
-
 	if err := b.shims.WriteFile(finalPath, data, 0644); err != nil {
 		return fmt.Errorf("error writing blueprint file: %w", err)
 	}

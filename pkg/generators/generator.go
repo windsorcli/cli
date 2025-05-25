@@ -18,10 +18,12 @@ import (
 // Interfaces
 // =============================================================================
 
-// Generator is the interface that wraps the Write method
+// Generator is the interface for all code generators
+// It defines methods for initialization and file generation
+// All generators must implement this interface
 type Generator interface {
 	Initialize() error
-	Write() error
+	Write(overwrite ...bool) error
 }
 
 // =============================================================================
@@ -79,6 +81,6 @@ func (g *BaseGenerator) Initialize() error {
 
 // Write is a placeholder implementation of the Write method.
 // Concrete implementations should override this method to provide specific generation logic.
-func (g *BaseGenerator) Write() error {
+func (g *BaseGenerator) Write(overwrite ...bool) error {
 	return nil
 }

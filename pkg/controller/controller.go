@@ -139,6 +139,7 @@ type Requirements struct {
 	// Command info for context-specific decisions
 	CommandName string          // Name of the command
 	Flags       map[string]bool // Important flags that affect initialization
+	Reset       bool            // Whether to reset/overwrite existing files
 }
 
 // =============================================================================
@@ -384,7 +385,7 @@ func (c *BaseController) InitializeComponents() error {
 		if err := blueprintHandler.Initialize(); err != nil {
 			return fmt.Errorf("error initializing blueprint handler: %w", err)
 		}
-		if err := blueprintHandler.LoadConfig(); err != nil {
+		if err := blueprintHandler.LoadConfig(c.requirements.Reset); err != nil {
 			return fmt.Errorf("error loading blueprint config: %w", err)
 		}
 	}
@@ -439,7 +440,7 @@ func (c *BaseController) WriteConfigurationFiles() error {
 	if req.Blueprint {
 		blueprintHandler := c.ResolveBlueprintHandler()
 		if blueprintHandler != nil {
-			if err := blueprintHandler.WriteConfig(); err != nil {
+			if err := blueprintHandler.WriteConfig(req.Reset); err != nil {
 				return fmt.Errorf("error writing blueprint config: %w", err)
 			}
 		}
@@ -482,7 +483,7 @@ func (c *BaseController) WriteConfigurationFiles() error {
 		generators := c.ResolveAllGenerators()
 		for _, generator := range generators {
 			if generator != nil {
-				if err := generator.Write(); err != nil {
+				if err := generator.Write(req.Reset); err != nil {
 					return fmt.Errorf("error writing generator config: %w", err)
 				}
 			}

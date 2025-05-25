@@ -12,7 +12,7 @@ package generators
 // MockGenerator is a mock implementation of the Generator interface for testing purposes
 type MockGenerator struct {
 	InitializeFunc func() error
-	WriteFunc      func() error
+	WriteFunc      func(overwrite ...bool) error
 }
 
 // =============================================================================
@@ -37,9 +37,9 @@ func (m *MockGenerator) Initialize() error {
 }
 
 // Write calls the mock WriteFunc if set, otherwise returns nil
-func (m *MockGenerator) Write() error {
+func (m *MockGenerator) Write(overwrite ...bool) error {
 	if m.WriteFunc != nil {
-		return m.WriteFunc()
+		return m.WriteFunc(overwrite...)
 	}
 	return nil
 }

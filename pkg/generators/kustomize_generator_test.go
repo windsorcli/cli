@@ -83,8 +83,8 @@ func TestKustomizeGenerator_Write(t *testing.T) {
 			if filename != expectedPath {
 				t.Errorf("expected filename %s, got %s", expectedPath, filename)
 			}
-			expectedContent := []byte("resources: []\n")
-			if string(data) != string(expectedContent) {
+			expectedContent := "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: []\n"
+			if string(data) != expectedContent {
 				t.Errorf("expected content %s, got %s", expectedContent, string(data))
 			}
 			return nil

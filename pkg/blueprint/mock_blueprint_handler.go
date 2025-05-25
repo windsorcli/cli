@@ -8,7 +8,7 @@ import (
 // MockBlueprintHandler is a mock implementation of BlueprintHandler interface for testing
 type MockBlueprintHandler struct {
 	InitializeFunc             func() error
-	LoadConfigFunc             func(path ...string) error
+	LoadConfigFunc             func(reset ...bool) error
 	GetMetadataFunc            func() blueprintv1alpha1.Metadata
 	GetSourcesFunc             func() []blueprintv1alpha1.Source
 	GetTerraformComponentsFunc func() []blueprintv1alpha1.TerraformComponent
@@ -17,7 +17,7 @@ type MockBlueprintHandler struct {
 	SetSourcesFunc             func(sources []blueprintv1alpha1.Source) error
 	SetTerraformComponentsFunc func(terraformComponents []blueprintv1alpha1.TerraformComponent) error
 	SetKustomizationsFunc      func(kustomizations []blueprintv1alpha1.Kustomization) error
-	WriteConfigFunc            func(path ...string) error
+	WriteConfigFunc            func(overwrite ...bool) error
 	InstallFunc                func() error
 	GetRepositoryFunc          func() blueprintv1alpha1.Repository
 	SetRepositoryFunc          func(repository blueprintv1alpha1.Repository) error
@@ -47,9 +47,9 @@ func (m *MockBlueprintHandler) Initialize() error {
 }
 
 // LoadConfig calls the mock LoadConfigFunc if set, otherwise returns nil
-func (m *MockBlueprintHandler) LoadConfig(path ...string) error {
+func (m *MockBlueprintHandler) LoadConfig(reset ...bool) error {
 	if m.LoadConfigFunc != nil {
-		return m.LoadConfigFunc(path...)
+		return m.LoadConfigFunc(reset...)
 	}
 	return nil
 }
@@ -123,9 +123,9 @@ func (m *MockBlueprintHandler) SetKustomizations(kustomizations []blueprintv1alp
 }
 
 // WriteConfig calls the mock WriteConfigFunc if set, otherwise returns nil
-func (m *MockBlueprintHandler) WriteConfig(path ...string) error {
+func (m *MockBlueprintHandler) WriteConfig(overwrite ...bool) error {
 	if m.WriteConfigFunc != nil {
-		return m.WriteConfigFunc(path...)
+		return m.WriteConfigFunc(overwrite...)
 	}
 	return nil
 }

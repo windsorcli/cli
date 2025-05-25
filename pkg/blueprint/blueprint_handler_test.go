@@ -569,9 +569,8 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		// When loading config with a custom path
-		customPath := "/custom/path/blueprint"
-		err := handler.LoadConfig(customPath)
+		// When loading config
+		err := handler.LoadConfig()
 
 		// Then no error should be returned
 		if err != nil {
@@ -580,12 +579,12 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 
 		// And only yaml path should be checked since it exists
 		expectedPaths := []string{
-			customPath + ".yaml",
+			"blueprint.yaml",
 		}
 		for _, expected := range expectedPaths {
 			found := false
 			for _, checked := range checkedPaths {
-				if checked == expected {
+				if strings.HasSuffix(checked, expected) {
 					found = true
 					break
 				}
