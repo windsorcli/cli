@@ -114,7 +114,7 @@ local kustomizeConfig = if blueprint == "full" then [
     source: "core",
     path: "observability",
     dependsOn: [
-      "ingress-base"
+      "ingress"
     ],
     components: [
       "grafana",

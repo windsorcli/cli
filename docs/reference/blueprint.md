@@ -203,7 +203,7 @@ kustomize:
   components:
   - openebs
   - openebs/dynamic-localpv
-- name: ingress-base
+- name: ingress
   path: ingress/base
   dependsOn:
   - pki-resources
@@ -233,7 +233,7 @@ kustomize:
 - name: dns
   path: dns
   dependsOn:
-  - ingress-base
+  - ingress
   - pki-base
   force: true
   components:
@@ -246,14 +246,14 @@ kustomize:
 - name: gitops
   path: gitops/flux
   dependsOn:
-  - ingress-base
+  - ingress
   force: true
   components:
   - webhook
 - name: demo
   path: demo
   dependsOn:
-  - ingress-base
+  - ingress
   force: true
   components:
   - bookinfo

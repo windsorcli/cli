@@ -126,7 +126,7 @@ local kustomizeConfig = if blueprint == "full" then [
     source: "core",
     path: "gitops/flux",
     dependsOn: [
-      "ingress-base"
+      "ingress"
     ],
     force: true,
     components: [
@@ -138,7 +138,7 @@ local kustomizeConfig = if blueprint == "full" then [
     source: "core",
     path: "observability",
     dependsOn: [
-      "ingress-base"
+      "ingress"
     ],
     components: [
       "grafana",

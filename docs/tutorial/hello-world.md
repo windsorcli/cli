@@ -109,7 +109,7 @@ kustomize:
 - name: demo
   path: demo
   dependsOn:
-  - ingress-base
+  - ingress
   force: true
   components:
   - bookinfo
