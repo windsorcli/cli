@@ -2091,8 +2091,8 @@ func TestBlueprintHandler_SetRepository(t *testing.T) {
 }
 
 func TestBaseBlueprintHandler_WaitForKustomizations(t *testing.T) {
-	const pollInterval = 50 * time.Millisecond
-	const kustomTimeout = 300 * time.Millisecond
+	const pollInterval = 45 * time.Millisecond
+	const kustomTimeout = 235 * time.Millisecond
 
 	t.Run("AllKustomizationsReady", func(t *testing.T) {
 		// Given a blueprint handler with multiple kustomizations that are all ready
