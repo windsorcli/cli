@@ -30,3 +30,4 @@ packages:
 - name: helm/helm@v3.18.0
 - name: 1password/cli@v2.30.3
 - name: fluxcd/flux2@v2.5.1
+- name: aws/aws-cli@2.27.22
