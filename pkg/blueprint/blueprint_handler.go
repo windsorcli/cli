@@ -1147,6 +1147,7 @@ func (b *BaseBlueprintHandler) applyConfigMap() error {
 		Data: map[string]string{
 			"DOMAIN":                domain,
 			"CONTEXT":               context,
+			"CONTEXT_ID":            b.configHandler.GetString("id"),
 			"LOADBALANCER_IP_RANGE": loadBalancerIPRange,
 			"LOADBALANCER_IP_START": lbStart,
 			"LOADBALANCER_IP_END":   lbEnd,
