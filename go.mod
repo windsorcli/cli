@@ -8,6 +8,7 @@ require (
 	github.com/aws/smithy-go v1.22.3
 	github.com/briandowns/spinner v1.23.2
 	github.com/compose-spec/compose-go v1.20.2
+	github.com/compose-spec/compose-go/v2 v2.6.4
 	github.com/fluxcd/kustomize-controller/api v1.5.1
 	github.com/fluxcd/pkg/apis/kustomize v1.9.0
 	github.com/fluxcd/pkg/apis/meta v1.10.0
