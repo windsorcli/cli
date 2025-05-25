@@ -1269,8 +1269,12 @@ type KubeRequestConfig struct {
 	Resource  string
 	Name      string
 	Body      interface{}
+	Response  runtime.Object
 }
 
+// kubeClient performs a Kubernetes API request using the provided configuration.
+// It handles authentication, request construction, and response processing.
+// The function supports GET, POST, PUT, and DELETE operations with optional response handling.
 var kubeClient = func(kubeconfigPath string, config KubeRequestConfig) error {
 	var kubeConfig *rest.Config
 	var err error
@@ -1309,21 +1313,33 @@ var kubeClient = func(kubeconfigPath string, config KubeRequestConfig) error {
 		req = req.Body(config.Body)
 	}
 
-	return req.Do(backgroundCtx).Error()
+	result := req.Do(backgroundCtx)
+	if err := result.Error(); err != nil {
+		return err
+	}
+
+	if config.Response != nil {
+		return result.Into(config.Response)
+	}
+
+	return nil
 }
 
+// kubeClientResourceOperation manages the lifecycle of a Kubernetes resource.
+// It implements a get-then-create-or-update pattern, ensuring proper resource versioning.
+// The function handles resource creation for new resources and updates for existing ones.
 var kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
-	// First try to get the resource
+	existingObj := config.ResourceType()
 	err := kubeClient(kubeconfigPath, KubeRequestConfig{
 		Method:    "GET",
 		ApiPath:   config.ApiPath,
 		Namespace: config.Namespace,
 		Resource:  config.ResourceName,
 		Name:      config.ResourceInstanceName,
+		Response:  existingObj,
 	})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			// Create if not found
 			return kubeClient(kubeconfigPath, KubeRequestConfig{
 				Method:    "POST",
 				ApiPath:   config.ApiPath,
@@ -1335,7 +1351,17 @@ var kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOpe
 		return fmt.Errorf("failed to get resource: %w", err)
 	}
 
-	// Update if found
+	metaObj, ok := existingObj.(metav1.Object)
+	if !ok {
+		return fmt.Errorf("existing object does not implement metav1.Object")
+	}
+
+	newMetaObj, ok := config.ResourceObject.(metav1.Object)
+	if !ok {
+		return fmt.Errorf("new object does not implement metav1.Object")
+	}
+	newMetaObj.SetResourceVersion(metaObj.GetResourceVersion())
+
 	return kubeClient(kubeconfigPath, KubeRequestConfig{
 		Method:    "PUT",
 		ApiPath:   config.ApiPath,
