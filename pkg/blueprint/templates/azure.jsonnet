@@ -69,9 +69,9 @@ local kustomizeConfig = if blueprint == "full" then [
     ],
   },
   {
-    name: "ingress-base",
+    name: "ingress",
     source: "core",
-    path: "ingress/base",
+    path: "ingress",
     dependsOn: [
       "pki-resources"
     ],
