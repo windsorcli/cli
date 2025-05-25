@@ -10,6 +10,7 @@ import (
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/config"
+	corev1 "k8s.io/api/core/v1"
 )
 
 // =============================================================================
@@ -641,7 +642,12 @@ func TestBaseBlueprintHandler_applyConfigMap(t *testing.T) {
 		os.Setenv("KUBECONFIG", "test-kubeconfig")
 
 		mockConfigHandler := &config.MockConfigHandler{
-			GetStringFunc:      func(key string, _ ...string) string { return "foo" },
+			GetStringFunc: func(key string, _ ...string) string {
+				if key == "id" {
+					return "w1234567"
+				}
+				return "foo"
+			},
 			GetStringSliceFunc: func(key string, _ ...[]string) []string { return []string{"/tmp:/var/local"} },
 			GetContextFunc:     func() string { return "mock-context" },
 		}
@@ -660,6 +666,45 @@ func TestBaseBlueprintHandler_applyConfigMap(t *testing.T) {
 		}
 		if err != errExpected {
 			t.Errorf("expected error %v, got %v", errExpected, err)
+		}
+	})
+
+	t.Run("Success", func(t *testing.T) {
+		baseHandler := &BaseBlueprintHandler{}
+		os.Setenv("KUBECONFIG", "test-kubeconfig")
+
+		mockConfigHandler := &config.MockConfigHandler{
+			GetStringFunc: func(key string, _ ...string) string {
+				if key == "id" {
+					return "w1234567"
+				}
+				return "foo"
+			},
+			GetStringSliceFunc: func(key string, _ ...[]string) []string { return []string{"/tmp:/var/local"} },
+			GetContextFunc:     func() string { return "mock-context" },
+		}
+		baseHandler.configHandler = mockConfigHandler
+
+		var capturedConfig ResourceOperationConfig
+		origKubeClientResourceOperation := kubeClientResourceOperation
+		kubeClientResourceOperation = func(_ string, config ResourceOperationConfig) error {
+			capturedConfig = config
+			return nil
+		}
+		defer func() { kubeClientResourceOperation = origKubeClientResourceOperation }()
+
+		err := baseHandler.applyConfigMap()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		configMap, ok := capturedConfig.ResourceObject.(*corev1.ConfigMap)
+		if !ok {
+			t.Fatal("expected ConfigMap resource object")
+		}
+
+		if configMap.Data["CONTEXT_ID"] != "w1234567" {
+			t.Errorf("expected CONTEXT_ID to be 'w1234567', got '%s'", configMap.Data["CONTEXT_ID"])
 		}
 	})
 }
