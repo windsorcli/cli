@@ -27,6 +27,7 @@ var (
 	initPlatform       string
 	initEndpoint       string
 	initSetFlags       []string
+	reset              bool
 )
 
 var initCmd = &cobra.Command{
@@ -212,6 +213,7 @@ var initCmd = &cobra.Command{
 			Blueprint:   true,
 			Generators:  true,
 			Stack:       true,
+			Reset:       reset,
 			CommandName: cmd.Name(),
 			Flags: map[string]bool{
 				"verbose": verbose,
@@ -251,5 +253,6 @@ func init() {
 	initCmd.Flags().StringVar(&initBlueprint, "blueprint", "", "Specify the blueprint to use")
 	initCmd.Flags().StringVar(&initEndpoint, "endpoint", "", "Specify the kubernetes API endpoint")
 	initCmd.Flags().StringSliceVar(&initSetFlags, "set", []string{}, "Override configuration values. Example: --set dns.enabled=false --set cluster.endpoint=https://localhost:6443")
+	initCmd.Flags().BoolVar(&reset, "reset", false, "Reset/overwrite existing files and clean .terraform directory")
 	rootCmd.AddCommand(initCmd)
 }

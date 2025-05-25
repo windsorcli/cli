@@ -57,14 +57,14 @@ func TestMockBlueprintHandler_LoadConfig(t *testing.T) {
 
 	mockLoadErr := fmt.Errorf("mock load config error")
 
-	t.Run("WithPath", func(t *testing.T) {
+	t.Run("WithReset", func(t *testing.T) {
 		// Given a mock handler with load config function
 		handler := setup(t)
-		handler.LoadConfigFunc = func(path ...string) error {
+		handler.LoadConfigFunc = func(reset ...bool) error {
 			return mockLoadErr
 		}
-		// When loading config with path
-		err := handler.LoadConfig("some/path")
+		// When loading config with reset
+		err := handler.LoadConfig(true)
 		// Then expected error should be returned
 		if err != mockLoadErr {
 			t.Errorf("Expected error = %v, got = %v", mockLoadErr, err)
@@ -75,7 +75,7 @@ func TestMockBlueprintHandler_LoadConfig(t *testing.T) {
 		// Given a mock handler without load config function
 		handler := setup(t)
 		// When loading config
-		err := handler.LoadConfig("some/path")
+		err := handler.LoadConfig()
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected error = %v, got = %v", nil, err)
@@ -380,11 +380,11 @@ func TestMockBlueprintHandler_WriteConfig(t *testing.T) {
 	t.Run("WithFuncSet", func(t *testing.T) {
 		// Given a mock handler with write config function
 		handler := setup(t)
-		handler.WriteConfigFunc = func(path ...string) error {
+		handler.WriteConfigFunc = func(overwrite ...bool) error {
 			return mockWriteErr
 		}
 		// When writing config
-		err := handler.WriteConfig("some/path")
+		err := handler.WriteConfig()
 		// Then expected error should be returned
 		if err != mockWriteErr {
 			t.Errorf("Expected error = %v, got = %v", mockWriteErr, err)
@@ -395,7 +395,7 @@ func TestMockBlueprintHandler_WriteConfig(t *testing.T) {
 		// Given a mock handler without write config function
 		handler := setup(t)
 		// When writing config
-		err := handler.WriteConfig("some/path")
+		err := handler.WriteConfig()
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected error = %v, got = %v", nil, err)

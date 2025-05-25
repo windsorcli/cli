@@ -800,7 +800,7 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 		mockBlueprint.InitializeFunc = func() error {
 			return nil
 		}
-		mockBlueprint.LoadConfigFunc = func(path ...string) error {
+		mockBlueprint.LoadConfigFunc = func(reset ...bool) error {
 			return fmt.Errorf("blueprint config loading failed")
 		}
 		mocks.Injector.Register("blueprintHandler", mockBlueprint)
@@ -955,7 +955,7 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 			return nil
 		}
 
-		mockBlueprint.LoadConfigFunc = func(path ...string) error {
+		mockBlueprint.LoadConfigFunc = func(reset ...bool) error {
 			initialized["blueprintHandlerLoadConfig"] = true
 			return nil
 		}
@@ -1053,7 +1053,7 @@ func TestBaseController_WriteConfigurationFiles(t *testing.T) {
 
 		// Mock blueprint handler
 		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(mocks.Injector)
-		mockBlueprintHandler.WriteConfigFunc = func(path ...string) error {
+		mockBlueprintHandler.WriteConfigFunc = func(overwrite ...bool) error {
 			return nil
 		}
 		mocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
@@ -1081,7 +1081,7 @@ func TestBaseController_WriteConfigurationFiles(t *testing.T) {
 
 		// Mock generators
 		mockGenerator := generators.NewMockGenerator()
-		mockGenerator.WriteFunc = func() error {
+		mockGenerator.WriteFunc = func(overwrite ...bool) error {
 			return nil
 		}
 		mocks.Injector.Register("generator", mockGenerator)
@@ -1166,7 +1166,7 @@ func TestBaseController_WriteConfigurationFiles(t *testing.T) {
 
 		// And a blueprint handler that fails to write config
 		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(mocks.Injector)
-		mockBlueprintHandler.WriteConfigFunc = func(path ...string) error {
+		mockBlueprintHandler.WriteConfigFunc = func(overwrite ...bool) error {
 			return fmt.Errorf("blueprint config write failed")
 		}
 		mocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
@@ -1290,7 +1290,7 @@ func TestBaseController_WriteConfigurationFiles(t *testing.T) {
 
 		// And a generator that fails to write config
 		mockGenerator := generators.NewMockGenerator()
-		mockGenerator.WriteFunc = func() error {
+		mockGenerator.WriteFunc = func(overwrite ...bool) error {
 			return fmt.Errorf("generator config write failed")
 		}
 		mocks.Injector.Register("generator", mockGenerator)
@@ -3876,4 +3876,17 @@ func TestBaseController_createVirtualizationComponents(t *testing.T) {
 			t.Errorf("Expected error about nil runtime, got %v", err)
 		}
 	})
+}
+
+// Helper: BlueprintHandlerMock implements blueprint.BlueprintHandler
+// (wraps the generated mock and adapts LoadConfig signature)
+type BlueprintHandlerMock struct {
+	*blueprint.MockBlueprintHandler
+}
+
+func (m *BlueprintHandlerMock) LoadConfig(reset ...bool) error {
+	if m.LoadConfigFunc != nil {
+		return m.LoadConfigFunc(reset...)
+	}
+	return nil
 }
