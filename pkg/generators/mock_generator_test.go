@@ -51,7 +51,7 @@ func TestMockGenerator_Write(t *testing.T) {
 		mock := NewMockGenerator()
 
 		// And the WriteFunc is set to return a mock error
-		mock.WriteFunc = func() error {
+		mock.WriteFunc = func(overwrite ...bool) error {
 			return mockWriteErr
 		}
 

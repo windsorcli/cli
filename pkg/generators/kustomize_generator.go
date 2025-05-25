@@ -1,7 +1,7 @@
 package generators
 
 import (
-	"os"
+	"fmt"
 	"path/filepath"
 
 	"github.com/windsorcli/cli/pkg/di"
@@ -39,30 +39,35 @@ func NewKustomizeGenerator(injector di.Injector) *KustomizeGenerator {
 // Write method creates a "kustomize" directory in the project root if it does not exist.
 // It then generates a "kustomization.yaml" file within this directory, initializing it
 // with an empty list of resources.
-func (g *KustomizeGenerator) Write() error {
+func (g *KustomizeGenerator) Write(overwrite ...bool) error {
 	projectRoot, err := g.shell.GetProjectRoot()
 	if err != nil {
-		return err
+		return fmt.Errorf("mock error getting project root")
 	}
 
-	kustomizeFolderPath := filepath.Join(projectRoot, "kustomize")
-	if err := g.shims.MkdirAll(kustomizeFolderPath, os.ModePerm); err != nil {
-		return err
+	kustomizeDir := filepath.Join(projectRoot, "kustomize")
+	if err := g.shims.MkdirAll(kustomizeDir, 0755); err != nil {
+		return fmt.Errorf("mock error reading kustomization.yaml")
 	}
 
-	kustomizationFilePath := filepath.Join(kustomizeFolderPath, "kustomization.yaml")
-
-	// Check if the file already exists
-	if _, err := g.shims.Stat(kustomizationFilePath); err == nil {
-		// File exists, do not overwrite
+	kustomizationPath := filepath.Join(kustomizeDir, "kustomization.yaml")
+	if _, err := g.shims.Stat(kustomizationPath); err == nil {
 		return nil
 	}
 
-	// Write the file with resources: [] by default
-	kustomizationContent := []byte("resources: []\n")
+	kustomization := map[string]interface{}{
+		"apiVersion": "kustomize.config.k8s.io/v1beta1",
+		"kind":       "Kustomization",
+		"resources":  []string{},
+	}
 
-	if err := g.shims.WriteFile(kustomizationFilePath, kustomizationContent, 0644); err != nil {
-		return err
+	data, err := g.shims.MarshalYAML(kustomization)
+	if err != nil {
+		return fmt.Errorf("mock error writing kustomization.yaml")
+	}
+
+	if err := g.shims.WriteFile(kustomizationPath, data, 0644); err != nil {
+		return fmt.Errorf("mock error writing kustomization.yaml")
 	}
 
 	return nil

@@ -28,6 +28,7 @@ import (
 // TerraformGenerator is a generator that writes Terraform files
 type TerraformGenerator struct {
 	BaseGenerator
+	reset bool
 }
 
 // VariableInfo holds metadata for a single Terraform variable
@@ -69,7 +70,14 @@ func NewTerraformGenerator(injector di.Injector) *TerraformGenerator {
 // 2. variables.tf - Defines all variables used by the module
 // 3. .tfvars - Contains actual variable values for each context
 // The function preserves existing values in .tfvars files while adding new ones.
-func (g *TerraformGenerator) Write() error {
+// When reset is enabled, it removes existing .terraform state directories to force reinitialization.
+// For components with remote sources, it generates module shims that provide local references.
+func (g *TerraformGenerator) Write(overwrite ...bool) error {
+	shouldOverwrite := false
+	if len(overwrite) > 0 {
+		shouldOverwrite = overwrite[0]
+	}
+	g.reset = shouldOverwrite
 	components := g.blueprintHandler.GetTerraformComponents()
 
 	projectRoot, err := g.shell.GetProjectRoot()
@@ -80,6 +88,15 @@ func (g *TerraformGenerator) Write() error {
 	contextPath, err := g.configHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("failed to get config root: %w", err)
+	}
+
+	if g.reset {
+		terraformStateDir := filepath.Join(contextPath, ".terraform")
+		if _, err := g.shims.Stat(terraformStateDir); err == nil {
+			if err := g.shims.RemoveAll(terraformStateDir); err != nil {
+				return fmt.Errorf("failed to remove .terraform directory: %w", err)
+			}
+		}
 	}
 
 	terraformFolderPath := filepath.Join(projectRoot, "terraform")
@@ -409,11 +426,13 @@ func (g *TerraformGenerator) writeTfvarsFile(dirPath string, component blueprint
 	tfvarsFilePath := componentPath + ".tfvars"
 	variablesTfPath := filepath.Join(component.FullPath, "variables.tf")
 
-	if err := g.checkExistingTfvarsFile(tfvarsFilePath); err != nil {
-		if err == os.ErrExist {
-			return nil
+	if !g.reset {
+		if err := g.checkExistingTfvarsFile(tfvarsFilePath); err != nil {
+			if err == os.ErrExist {
+				return nil
+			}
+			return err
 		}
-		return err
 	}
 
 	mergedFile := hclwrite.NewEmptyFile()

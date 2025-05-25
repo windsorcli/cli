@@ -59,7 +59,7 @@ func NewGitGenerator(injector di.Injector) *GitGenerator {
 
 // Write generates the Git configuration files by creating or updating the .gitignore file.
 // It ensures that Windsor-specific entries are added while preserving any existing user-defined entries.
-func (g *GitGenerator) Write() error {
+func (g *GitGenerator) Write(overwrite ...bool) error {
 	projectRoot, err := g.shell.GetProjectRoot()
 	if err != nil {
 		return fmt.Errorf("failed to get project root: %w", err)
