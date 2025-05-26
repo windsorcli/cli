@@ -51,7 +51,10 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 			t.Fatalf("expected non-nil composeConfig with services, got %v", composeConfig)
 		}
 
-		composeService := composeConfig.Services[0]
+		composeService, exists := composeConfig.Services["aws"]
+		if !exists {
+			t.Fatalf("expected service 'aws' to exist in compose config")
+		}
 		if composeService.Name != "aws" {
 			t.Errorf("expected service name 'aws', got %v", composeService.Name)
 		}
@@ -93,7 +96,10 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 			t.Fatalf("expected non-nil composeConfig with services, got %v", composeConfig)
 		}
 
-		composeService := composeConfig.Services[0]
+		composeService, exists := composeConfig.Services["aws"]
+		if !exists {
+			t.Fatalf("expected service 'aws' to exist in compose config")
+		}
 		if len(composeService.Secrets) == 0 || composeService.Secrets[0].Source != "LOCALSTACK_AUTH_TOKEN" {
 			t.Errorf("expected service to have LOCALSTACK_AUTH_TOKEN secret, got %v", composeService.Secrets)
 		}

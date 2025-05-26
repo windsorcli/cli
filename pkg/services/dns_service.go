@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/compose-spec/compose-go/types"
+	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 )
@@ -102,7 +102,9 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 		}
 	}
 
-	services := []types.ServiceConfig{corednsConfig}
+	services := types.Services{
+		serviceName: corednsConfig,
+	}
 
 	return &types.Config{Services: services}, nil
 }

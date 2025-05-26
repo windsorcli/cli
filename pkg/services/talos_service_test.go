@@ -965,7 +965,10 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		}
 
 		// And the service should have the correct configuration
-		serviceConfig := config.Services[0]
+		serviceConfig, exists := config.Services["controlplane1"]
+		if !exists {
+			t.Fatalf("expected service 'controlplane1' to exist in compose config")
+		}
 		if serviceConfig.Name != "controlplane1" {
 			t.Errorf("expected service name controlplane1, got %s", serviceConfig.Name)
 		}
@@ -1034,7 +1037,10 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		}
 
 		// And the service should have the correct configuration
-		serviceConfig := config.Services[0]
+		serviceConfig, exists := config.Services["worker1"]
+		if !exists {
+			t.Fatalf("expected service 'worker1' to exist in compose config")
+		}
 		if serviceConfig.Name != "worker1" {
 			t.Errorf("expected service name worker1, got %s", serviceConfig.Name)
 		}
@@ -1072,8 +1078,12 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		}
 
 		// And the config should use the custom image
-		if config.Services[0].Image != customImage {
-			t.Errorf("expected image %s, got %s", customImage, config.Services[0].Image)
+		serviceConfig, exists := config.Services["controlplane1"]
+		if !exists {
+			t.Fatalf("expected service 'controlplane1' to exist in compose config")
+		}
+		if serviceConfig.Image != customImage {
+			t.Errorf("expected image %s, got %s", customImage, serviceConfig.Image)
 		}
 	})
 
@@ -1099,7 +1109,10 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		}
 
 		// And the config should have the custom volumes
-		serviceConfig := config.Services[0]
+		serviceConfig, exists := config.Services["controlplane1"]
+		if !exists {
+			t.Fatalf("expected service 'controlplane1' to exist in compose config")
+		}
 		for _, expectedVolume := range volumes {
 			found := false
 			for _, volume := range serviceConfig.Volumes {
@@ -1206,8 +1219,12 @@ contexts:
 		}
 
 		// And the node-specific image should be used
-		if config.Services[0].Image != "node-specific:latest" {
-			t.Errorf("expected node-specific image, got %s", config.Services[0].Image)
+		serviceConfig, exists := config.Services["controlplane1"]
+		if !exists {
+			t.Fatalf("expected service 'controlplane1' to exist in compose config")
+		}
+		if serviceConfig.Image != "node-specific:latest" {
+			t.Errorf("expected node-specific image, got %s", serviceConfig.Image)
 		}
 	})
 
@@ -1233,7 +1250,10 @@ contexts:
 		}
 
 		// And the custom volumes should be included
-		serviceConfig := config.Services[0]
+		serviceConfig, exists := config.Services["controlplane1"]
+		if !exists {
+			t.Fatalf("expected service 'controlplane1' to exist in compose config")
+		}
 		for _, expectedVolume := range customVolumes {
 			found := false
 			for _, volume := range serviceConfig.Volumes {
@@ -1308,8 +1328,12 @@ contexts:
 		}
 
 		// And the service should have the correct name
-		if cfg.Services[0].Name != "worker1" {
-			t.Errorf("expected service name 'worker1', got '%s'", cfg.Services[0].Name)
+		serviceConfig, exists := cfg.Services["worker1"]
+		if !exists {
+			t.Fatalf("expected service 'worker1' to exist in compose config")
+		}
+		if serviceConfig.Name != "worker1" {
+			t.Errorf("expected service name 'worker1', got '%s'", serviceConfig.Name)
 		}
 	})
 
@@ -1340,7 +1364,10 @@ contexts:
 		}
 
 		// And the ports should be configured correctly
-		serviceConfig := config.Services[0]
+		serviceConfig, exists := config.Services["controlplane1"]
+		if !exists {
+			t.Fatalf("expected service 'controlplane1' to exist in compose config")
+		}
 		if len(serviceConfig.Ports) != 4 { // 2 custom ports + default API port + kubernetes port
 			t.Errorf("expected 4 ports, got %d", len(serviceConfig.Ports))
 		}
@@ -1497,7 +1524,10 @@ contexts:
 		}
 
 		// And the volume config should use the original paths with variables
-		serviceConfig := config.Services[0]
+		serviceConfig, exists := config.Services["controlplane1"]
+		if !exists {
+			t.Fatalf("expected service 'controlplane1' to exist in compose config")
+		}
 		for _, expectedVolume := range volumes {
 			found := false
 			for _, volume := range serviceConfig.Volumes {
@@ -1538,7 +1568,10 @@ contexts:
 		}
 
 		// And the control plane should have the custom CPU and RAM settings
-		serviceConfig := config.Services[0]
+		serviceConfig, exists := config.Services["controlplane1"]
+		if !exists {
+			t.Fatalf("expected service 'controlplane1' to exist in compose config")
+		}
 		expectedSKU := fmt.Sprintf("%dCPU-%dRAM", customCPU, customRAM*1024)
 		if serviceConfig.Environment["TALOSSKU"] == nil {
 			t.Error("expected TALOSSKU environment variable")
@@ -1568,7 +1601,10 @@ contexts:
 		}
 
 		// And the worker should have the custom CPU and RAM settings
-		serviceConfig = config.Services[0]
+		serviceConfig, exists = config.Services["worker1"]
+		if !exists {
+			t.Fatalf("expected service 'worker1' to exist in compose config")
+		}
 		expectedSKU = fmt.Sprintf("%dCPU-%dRAM", customWorkerCPU, customWorkerRAM*1024)
 		if serviceConfig.Environment["TALOSSKU"] == nil {
 			t.Error("expected TALOSSKU environment variable")
@@ -1622,20 +1658,24 @@ contexts:
 		}
 
 		// And the service name should fall back to "controlplane"
-		if config.Services[0].Name != "controlplane" {
-			t.Errorf("expected service name 'controlplane', got %s", config.Services[0].Name)
+		serviceConfig, exists := config.Services["controlplane"]
+		if !exists {
+			t.Fatalf("expected service 'controlplane' to exist in compose config")
+		}
+		if serviceConfig.Name != "controlplane" {
+			t.Errorf("expected service name 'controlplane', got %s", serviceConfig.Name)
 		}
 
 		// And the container name should use the fallback name with context prefix
 		expectedContainerName := "controlplane.test"
-		if config.Services[0].ContainerName != expectedContainerName {
-			t.Errorf("expected container name %s, got %s", expectedContainerName, config.Services[0].ContainerName)
+		if serviceConfig.ContainerName != expectedContainerName {
+			t.Errorf("expected container name %s, got %s", expectedContainerName, serviceConfig.ContainerName)
 		}
 
 		// And the volumes should use the fallback name
 		expectedVolumeName := "controlplane_system_state"
 		found := false
-		for _, volume := range config.Services[0].Volumes {
+		for _, volume := range serviceConfig.Volumes {
 			if volume.Source == expectedVolumeName {
 				found = true
 				break

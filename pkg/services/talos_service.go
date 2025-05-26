@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/compose-spec/compose-go/types"
+	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 )
@@ -148,7 +148,7 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 	config := s.configHandler.GetConfig()
 	if config.Cluster == nil {
 		return &types.Config{
-			Services: []types.ServiceConfig{},
+			Services: types.Services{},
 			Volumes:  map[string]types.VolumeConfig{},
 		}, nil
 	}
@@ -300,8 +300,12 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 		strings.ReplaceAll(nodeName+"_opt", "-", "_"):                    {},
 	}
 
+	services := types.Services{
+		nodeName: serviceConfig,
+	}
+
 	return &types.Config{
-		Services: []types.ServiceConfig{serviceConfig},
+		Services: services,
 		Volumes:  volumesMap,
 	}, nil
 }

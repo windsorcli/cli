@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/compose-spec/compose-go/types"
+	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/services"
 )
@@ -334,10 +334,11 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 		return nil, fmt.Errorf("Docker configuration is not defined")
 	}
 
-	var combinedServices []types.ServiceConfig
+	var combinedServices types.Services
 	var combinedVolumes map[string]types.VolumeConfig
 	var combinedNetworks map[string]types.NetworkConfig
 
+	combinedServices = make(types.Services)
 	combinedVolumes = make(map[string]types.VolumeConfig)
 	combinedNetworks = make(map[string]types.NetworkConfig)
 
@@ -375,7 +376,7 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 			}
 
 			if containerConfigs.Services != nil {
-				for _, containerConfig := range containerConfigs.Services {
+				for serviceName, containerConfig := range containerConfigs.Services {
 					ipAddress := serviceInstance.GetAddress()
 
 					containerConfig.Networks = map[string]*types.ServiceNetworkConfig{
@@ -387,7 +388,7 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 						containerConfig.Networks[networkName].Ipv4Address = ipAddress
 					}
 
-					combinedServices = append(combinedServices, containerConfig)
+					combinedServices[serviceName] = containerConfig
 				}
 			}
 

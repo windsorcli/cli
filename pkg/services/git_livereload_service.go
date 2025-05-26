@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/compose-spec/compose-go/types"
+	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 )
@@ -43,9 +43,6 @@ func (s *GitLivereloadService) GetComposeConfig() (*types.Config, error) {
 	// Get the context name
 	contextName := s.configHandler.GetContext()
 
-	// Prepare the services slice for docker-compose
-	var services []types.ServiceConfig
-
 	// Retrieve environment variables from config with defaults using Get* functions
 	rsyncExclude := s.configHandler.GetString("git.livereload.rsync_exclude", constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE)
 	rsyncProtect := s.configHandler.GetString("git.livereload.rsync_protect", constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_PROTECT)
@@ -78,9 +75,12 @@ func (s *GitLivereloadService) GetComposeConfig() (*types.Config, error) {
 	// Get the git folder name
 	gitFolderName := filepath.Base(projectRoot)
 
-	// Add the git-livereload service
-	services = append(services, types.ServiceConfig{
-		Name:          s.name,
+	// Get the service name
+	serviceName := s.name
+
+	// Create the service config
+	serviceConfig := types.ServiceConfig{
+		Name:          serviceName,
 		ContainerName: s.GetContainerName(),
 		Image:         image,
 		Restart:       "always",
@@ -97,7 +97,11 @@ func (s *GitLivereloadService) GetComposeConfig() (*types.Config, error) {
 				Target: fmt.Sprintf("/repos/mount/%s", gitFolderName),
 			},
 		},
-	})
+	}
+
+	services := types.Services{
+		serviceName: serviceConfig,
+	}
 
 	return &types.Config{
 		Services: services,
