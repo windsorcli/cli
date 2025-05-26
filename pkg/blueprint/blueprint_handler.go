@@ -557,20 +557,28 @@ func (b *BaseBlueprintHandler) SetKustomizations(kustomizations []blueprintv1alp
 	return nil
 }
 
-// Down tears down all kustomizations in the correct order, running cleanup kustomizations if defined.
+// Down orchestrates the controlled teardown of all kustomizations and their associated resources.
+// It follows a specific sequence to ensure safe deletion:
+// 1. Suspends all kustomizations and their associated helmreleases to prevent reconciliation
+// 2. Applies cleanup kustomizations if defined, which handle resource cleanup tasks
+// 3. Waits for cleanup kustomizations to complete their operations
+// 4. Deletes main kustomizations in reverse dependency order
+// 5. Deletes cleanup kustomizations and their namespace
+//
+// The function handles dependency resolution through topological sorting to ensure
+// resources are deleted in the correct order. It also manages a dedicated cleanup
+// namespace for cleanup kustomizations when needed.
 func (b *BaseBlueprintHandler) Down() error {
 	kustomizations := b.GetKustomizations()
 	if len(kustomizations) == 0 {
 		return nil
 	}
 
-	// Build dependency graph
 	deps := make(map[string][]string)
 	for _, k := range kustomizations {
 		deps[k.Name] = k.DependsOn
 	}
 
-	// Topological sort (reverse order)
 	var sorted []string
 	visited := make(map[string]bool)
 	var visit func(string)
@@ -587,7 +595,6 @@ func (b *BaseBlueprintHandler) Down() error {
 	for _, k := range kustomizations {
 		visit(k.Name)
 	}
-	// Reverse for teardown order
 	for i, j := 0, len(sorted)-1; i < j; i, j = i+1, j-1 {
 		sorted[i], sorted[j] = sorted[j], sorted[i]
 	}
@@ -597,7 +604,6 @@ func (b *BaseBlueprintHandler) Down() error {
 		nameToK[k.Name] = k
 	}
 
-	// Check if we need cleanup namespace
 	needsCleanupNamespace := false
 	for _, k := range kustomizations {
 		if len(k.Cleanup) > 0 {
@@ -606,10 +612,28 @@ func (b *BaseBlueprintHandler) Down() error {
 		}
 	}
 
-	// Create cleanup namespace if needed
 	if needsCleanupNamespace {
 		if err := b.createManagedNamespace("system-cleanup"); err != nil {
 			return fmt.Errorf("failed to create system-cleanup namespace: %w", err)
+		}
+	}
+
+	for _, name := range sorted {
+		k := nameToK[name]
+
+		if err := b.suspendKustomization(k.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+			return fmt.Errorf("failed to suspend kustomization %s: %w", k.Name, err)
+		}
+
+		helmReleases, err := b.getHelmReleasesForKustomization(k.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)
+		if err != nil {
+			return fmt.Errorf("failed to get helmreleases for kustomization %s: %w", k.Name, err)
+		}
+
+		for _, hr := range helmReleases {
+			if err := b.suspendHelmRelease(hr.Name, hr.Namespace); err != nil {
+				return fmt.Errorf("failed to suspend helmrelease %s in namespace %s: %w", hr.Name, hr.Namespace, err)
+			}
 		}
 	}
 
@@ -635,25 +659,28 @@ func (b *BaseBlueprintHandler) Down() error {
 			}
 			cleanupNames = append(cleanupNames, cleanupKustomization.Name)
 		}
-		// Delete the main kustomization
-		if err := b.deleteKustomization(k.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
-			return fmt.Errorf("failed to delete kustomization %s: %w", k.Name, err)
-		}
 	}
 
 	if len(cleanupNames) > 0 {
 		if err := b.WaitForKustomizations("📐 Deploying cleanup kustomizations", cleanupNames...); err != nil {
 			return fmt.Errorf("failed waiting for cleanup kustomizations: %w", err)
 		}
+	}
 
-		// Delete cleanup kustomizations
+	for _, name := range sorted {
+		k := nameToK[name]
+		if err := b.deleteKustomization(k.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+			return fmt.Errorf("failed to delete kustomization %s: %w", k.Name, err)
+		}
+	}
+
+	if len(cleanupNames) > 0 {
 		for _, cname := range cleanupNames {
 			if err := b.deleteKustomization(cname, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
 				return fmt.Errorf("failed to delete cleanup kustomization %s: %w", cname, err)
 			}
 		}
 
-		// Delete the cleanup namespace
 		if err := b.deleteNamespace("system-cleanup"); err != nil {
 			return fmt.Errorf("failed to delete system-cleanup namespace: %w", err)
 		}
@@ -666,7 +693,11 @@ func (b *BaseBlueprintHandler) Down() error {
 // Private Methods
 // =============================================================================
 
-// applyKustomization creates or updates a Kustomization resource in the cluster.
+// applyKustomization creates or updates a Kustomization resource in the cluster. The function
+// handles source resolution, default value population, and proper API object construction.
+// It ensures all required fields are set, including intervals, timeouts, and post-build
+// configurations. The function uses a get-then-create-or-update pattern to handle both
+// new and existing kustomizations.
 func (b *BaseBlueprintHandler) applyKustomization(kustomization blueprintv1alpha1.Kustomization, namespace string) error {
 	if kustomization.Source == "" {
 		context := b.configHandler.GetContext()
@@ -734,7 +765,8 @@ func (b *BaseBlueprintHandler) applyKustomization(kustomization blueprintv1alpha
 	return kubeClientResourceOperation(kubeconfig, config)
 }
 
-// deleteKustomization deletes a Kustomization resource from the cluster.
+// deleteKustomization deletes a Kustomization resource from the cluster. The function
+// sends a DELETE request to remove the kustomization and its associated resources.
 func (b *BaseBlueprintHandler) deleteKustomization(name string, namespace string) error {
 	kubeconfig := os.Getenv("KUBECONFIG")
 	config := ResourceOperationConfig{
@@ -748,7 +780,8 @@ func (b *BaseBlueprintHandler) deleteKustomization(name string, namespace string
 	return b.deleteResource(kubeconfig, config)
 }
 
-// deleteResource deletes a resource from the cluster using the REST client.
+// deleteResource deletes a resource from the cluster using the REST client. The function
+// sends a DELETE request to the specified API path and resource.
 func (b *BaseBlueprintHandler) deleteResource(kubeconfigPath string, config ResourceOperationConfig) error {
 	return kubeClient(kubeconfigPath, KubeRequestConfig{
 		Method:    "DELETE",
@@ -856,6 +889,95 @@ func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *blue
 
 	blueprint.Merge(completeBlueprint)
 	return nil
+}
+
+// suspendKustomization suspends a Flux Kustomization by setting its suspend field to true.
+// This prevents the kustomization from reconciling during teardown. The function sends a PATCH
+// request to update the kustomization's spec.suspend field.
+func (b *BaseBlueprintHandler) suspendKustomization(name, namespace string) error {
+	patch := map[string]any{
+		"spec": map[string]any{
+			"suspend": true,
+		},
+	}
+	patchBytes, err := b.shims.JsonMarshal(patch)
+	if err != nil {
+		return fmt.Errorf("failed to marshal patch: %w", err)
+	}
+	return kubeClient(os.Getenv("KUBECONFIG"), KubeRequestConfig{
+		Method:    "PATCH",
+		ApiPath:   "/apis/kustomize.toolkit.fluxcd.io/v1",
+		Namespace: namespace,
+		Resource:  "kustomizations",
+		Name:      name,
+		Body:      patchBytes,
+		Headers: map[string]string{
+			"Content-Type": "application/merge-patch+json",
+		},
+	})
+}
+
+// suspendHelmRelease suspends a Flux HelmRelease by setting its suspend field to true.
+// This prevents the helmrelease from reconciling during teardown. The function sends a PATCH
+// request to update the helmrelease's spec.suspend field.
+func (b *BaseBlueprintHandler) suspendHelmRelease(name, namespace string) error {
+	patch := map[string]any{
+		"spec": map[string]any{
+			"suspend": true,
+		},
+	}
+	patchBytes, err := b.shims.JsonMarshal(patch)
+	if err != nil {
+		return fmt.Errorf("failed to marshal patch: %w", err)
+	}
+
+	return kubeClient(os.Getenv("KUBECONFIG"), KubeRequestConfig{
+		Method:    "PATCH",
+		ApiPath:   "/apis/helm.toolkit.fluxcd.io/v2",
+		Namespace: namespace,
+		Resource:  "helmreleases",
+		Name:      name,
+		Body:      patchBytes,
+		Headers: map[string]string{
+			"Content-Type": "application/merge-patch+json",
+		},
+	})
+}
+
+// getHelmReleasesForKustomization retrieves all HelmReleases associated with a Kustomization
+// by parsing its inventory entries. The function extracts entries matching the pattern
+// {namespace}_{name}_{group}_{kind} to identify helmreleases. Returns a list of helmrelease
+// names and their namespaces.
+func (b *BaseBlueprintHandler) getHelmReleasesForKustomization(kustomizationName, namespace string) ([]struct{ Name, Namespace string }, error) {
+	var kustomization kustomizev1.Kustomization
+
+	err := kubeClient(os.Getenv("KUBECONFIG"), KubeRequestConfig{
+		Method:    "GET",
+		ApiPath:   "/apis/kustomize.toolkit.fluxcd.io/v1",
+		Namespace: namespace,
+		Resource:  "kustomizations",
+		Name:      kustomizationName,
+		Response:  &kustomization,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get kustomization: %w", err)
+	}
+
+	var helmReleases []struct{ Name, Namespace string }
+	if kustomization.Status.Inventory == nil {
+		return helmReleases, nil
+	}
+	for _, entry := range kustomization.Status.Inventory.Entries {
+		parts := strings.Split(entry.ID, "_")
+		if len(parts) >= 4 && parts[2] == "helm.toolkit.fluxcd.io" && parts[3] == "HelmRelease" {
+			helmReleases = append(helmReleases, struct{ Name, Namespace string }{
+				Name:      parts[1],
+				Namespace: parts[0],
+			})
+		}
+	}
+
+	return helmReleases, nil
 }
 
 // =============================================================================
@@ -1040,12 +1162,19 @@ func (b *BaseBlueprintHandler) createManagedNamespace(name string) error {
 			},
 		},
 	}
-	return kubeClient(kubeconfig, KubeRequestConfig{
+	err := kubeClient(kubeconfig, KubeRequestConfig{
 		Method:   "POST",
 		ApiPath:  "/api/v1",
 		Resource: "namespaces",
 		Body:     ns,
 	})
+	if err != nil {
+		if strings.Contains(err.Error(), "already exists") {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func (b *BaseBlueprintHandler) deleteNamespace(name string) error {
@@ -1268,8 +1397,9 @@ type KubeRequestConfig struct {
 	Namespace string
 	Resource  string
 	Name      string
-	Body      interface{}
+	Body      any
 	Response  runtime.Object
+	Headers   map[string]string
 }
 
 // kubeClient performs a Kubernetes API request using the provided configuration.
@@ -1311,6 +1441,12 @@ var kubeClient = func(kubeconfigPath string, config KubeRequestConfig) error {
 
 	if config.Body != nil {
 		req = req.Body(config.Body)
+	}
+
+	if config.Headers != nil {
+		for key, value := range config.Headers {
+			req = req.SetHeader(key, value)
+		}
 	}
 
 	result := req.Do(backgroundCtx)
