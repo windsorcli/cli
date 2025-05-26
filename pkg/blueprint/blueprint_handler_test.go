@@ -2982,8 +2982,8 @@ func TestBaseBlueprintHandler_SuspendHelmRelease(t *testing.T) {
 		if capturedConfig.Method != "PATCH" {
 			t.Errorf("expected Method 'PATCH', got '%s'", capturedConfig.Method)
 		}
-		if capturedConfig.ApiPath != "/apis/helm.toolkit.fluxcd.io/v2beta1" {
-			t.Errorf("expected ApiPath '/apis/helm.toolkit.fluxcd.io/v2beta1', got '%s'", capturedConfig.ApiPath)
+		if capturedConfig.ApiPath != "/apis/helm.toolkit.fluxcd.io/v2" {
+			t.Errorf("expected ApiPath '/apis/helm.toolkit.fluxcd.io/v2', got '%s'", capturedConfig.ApiPath)
 		}
 		if capturedConfig.Namespace != "test-namespace" {
 			t.Errorf("expected Namespace 'test-namespace', got '%s'", capturedConfig.Namespace)
