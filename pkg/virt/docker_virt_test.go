@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/compose-spec/compose-go/types"
+	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/services"
 )
@@ -111,8 +111,8 @@ contexts:
 	// Set up mock service config
 	mocks.Service.GetComposeConfigFunc = func() (*types.Config, error) {
 		return &types.Config{
-			Services: []types.ServiceConfig{
-				{
+			Services: types.Services{
+				"service1": {
 					Name: "service1",
 					Labels: map[string]string{
 						"role":                       "test",
@@ -124,7 +124,7 @@ contexts:
 						},
 					},
 				},
-				{
+				"service2": {
 					Name: "service2",
 					Labels: map[string]string{
 						"role":                       "test",

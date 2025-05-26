@@ -1,7 +1,7 @@
 package services
 
 import (
-	"github.com/compose-spec/compose-go/types"
+	"github.com/compose-spec/compose-go/v2/types"
 )
 
 // The MockService is a test implementation of the Service interface

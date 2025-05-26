@@ -3,7 +3,7 @@ package services
 import (
 	"testing"
 
-	"github.com/compose-spec/compose-go/types"
+	"github.com/compose-spec/compose-go/v2/types"
 )
 
 // The MockServiceTest provides test coverage for the MockService implementation.

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/compose-spec/compose-go/types"
+	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
@@ -60,7 +60,8 @@ func (s *RegistryService) GetComposeConfig() (*types.Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate registry service: %w", err)
 		}
-		return &types.Config{Services: []types.ServiceConfig{service}}, nil
+		serviceName := getBasename(s.GetHostname())
+		return &types.Config{Services: types.Services{serviceName: service}}, nil
 	}
 
 	return nil, fmt.Errorf("no registry found with name: %s", s.name)

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/compose-spec/compose-go/types"
+	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 )
@@ -222,8 +222,8 @@ func TestDNSService_GetComposeConfig(t *testing.T) {
 		if len(cfg.Services) != 1 {
 			t.Errorf("Expected 1 service, got %d", len(cfg.Services))
 		}
-		if cfg.Services[0].Name != "dns" {
-			t.Errorf("Expected service name to be 'dns', got %s", cfg.Services[0].Name)
+		if service, exists := cfg.Services["dns"]; !exists || service.Name != "dns" {
+			t.Errorf("Expected service with name 'dns', got %+v", cfg.Services)
 		}
 	})
 
@@ -249,14 +249,27 @@ func TestDNSService_GetComposeConfig(t *testing.T) {
 		if len(cfg.Services) != 1 {
 			t.Errorf("Expected 1 service, got %d", len(cfg.Services))
 		}
-		if len(cfg.Services[0].Ports) != 2 {
-			t.Errorf("Expected 2 ports, got %d", len(cfg.Services[0].Ports))
+
+		// Get the DNS service from the map
+		var dnsService types.ServiceConfig
+		var found bool
+		for _, svc := range cfg.Services {
+			dnsService = svc
+			found = true
+			break
 		}
-		if cfg.Services[0].Ports[0].Published != "53" || cfg.Services[0].Ports[0].Protocol != "tcp" {
-			t.Errorf("Expected port 53 with protocol tcp, got port %s with protocol %s", cfg.Services[0].Ports[0].Published, cfg.Services[0].Ports[0].Protocol)
+		if !found {
+			t.Fatalf("No service found in Services map")
 		}
-		if cfg.Services[0].Ports[1].Published != "53" || cfg.Services[0].Ports[1].Protocol != "udp" {
-			t.Errorf("Expected port 53 with protocol udp, got port %s with protocol %s", cfg.Services[0].Ports[1].Published, cfg.Services[0].Ports[1].Protocol)
+
+		if len(dnsService.Ports) != 2 {
+			t.Errorf("Expected 2 ports, got %d", len(dnsService.Ports))
+		}
+		if dnsService.Ports[0].Published != "53" || dnsService.Ports[0].Protocol != "tcp" {
+			t.Errorf("Expected port 53 with protocol tcp, got port %s with protocol %s", dnsService.Ports[0].Published, dnsService.Ports[0].Protocol)
+		}
+		if dnsService.Ports[1].Published != "53" || dnsService.Ports[1].Protocol != "udp" {
+			t.Errorf("Expected port 53 with protocol udp, got port %s with protocol %s", dnsService.Ports[1].Published, dnsService.Ports[1].Protocol)
 		}
 	})
 }
@@ -401,8 +414,8 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		}
 		mockService.GetComposeConfigFunc = func() (*types.Config, error) {
 			return &types.Config{
-				Services: []types.ServiceConfig{
-					{Name: "test-service"},
+				Services: types.Services{
+					"test-service": {Name: "test-service"},
 				},
 			}, nil
 		}
@@ -454,8 +467,8 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		}
 		mockService.GetComposeConfigFunc = func() (*types.Config, error) {
 			return &types.Config{
-				Services: []types.ServiceConfig{
-					{Name: "test-service"},
+				Services: types.Services{
+					"test-service": {Name: "test-service"},
 				},
 			}, nil
 		}
@@ -519,8 +532,8 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		}
 		mockServiceNoName.GetComposeConfigFunc = func() (*types.Config, error) {
 			return &types.Config{
-				Services: []types.ServiceConfig{
-					{Name: ""},
+				Services: types.Services{
+					"": {Name: ""},
 				},
 			}, nil
 		}
@@ -535,8 +548,8 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		}
 		mockServiceNoAddress.GetComposeConfigFunc = func() (*types.Config, error) {
 			return &types.Config{
-				Services: []types.ServiceConfig{
-					{Name: "test-service"},
+				Services: types.Services{
+					"test-service": {Name: "test-service"},
 				},
 			}, nil
 		}

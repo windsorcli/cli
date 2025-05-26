@@ -4,7 +4,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/compose-spec/compose-go/types"
+	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 )
@@ -63,34 +63,36 @@ func (s *LocalstackService) GetComposeConfig() (*types.Config, error) {
 	containerName := s.GetContainerName()
 
 	// Create the service config
-	services := []types.ServiceConfig{
-		{
-			Name:          serviceName,
-			ContainerName: containerName,
-			Image:         image,
-			Restart:       "always",
-			Environment: map[string]*string{
-				"ENFORCE_IAM":   ptrString("1"),
-				"PERSISTENCE":   ptrString("1"),
-				"IAM_SOFT_MODE": ptrString("0"),
-				"DEBUG":         ptrString("0"),
-				"SERVICES":      ptrString(servicesList),
-			},
-			Labels: map[string]string{
-				"role":       "localstack",
-				"managed_by": "windsor",
-				"wildcard":   "true",
-			},
+	serviceConfig := types.ServiceConfig{
+		Name:          serviceName,
+		ContainerName: containerName,
+		Image:         image,
+		Restart:       "always",
+		Environment: map[string]*string{
+			"ENFORCE_IAM":   ptrString("1"),
+			"PERSISTENCE":   ptrString("1"),
+			"IAM_SOFT_MODE": ptrString("0"),
+			"DEBUG":         ptrString("0"),
+			"SERVICES":      ptrString(servicesList),
+		},
+		Labels: map[string]string{
+			"role":       "localstack",
+			"managed_by": "windsor",
+			"wildcard":   "true",
 		},
 	}
 
 	// If the localstack auth token is set, add it to the secrets
 	if localstackAuthToken != "" {
-		services[0].Secrets = []types.ServiceSecretConfig{
+		serviceConfig.Secrets = []types.ServiceSecretConfig{
 			{
 				Source: "LOCALSTACK_AUTH_TOKEN",
 			},
 		}
+	}
+
+	services := types.Services{
+		serviceName: serviceConfig,
 	}
 
 	return &types.Config{Services: services}, nil
