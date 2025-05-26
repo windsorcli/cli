@@ -102,7 +102,9 @@ jobs:
         run: go install ./...
 
       - name: Run Gosec Security Scanner
-        run: gosec ./...
+        uses: securego/gosec@6decf96c3d272d5a8bbdcf9fddb5789d0be16a8d # v2.22.4
+        with:
+          args: ./...
         env:
           GOTOOLCHAIN: 'auto'
           GOFLAGS: '-buildvcs=false'
