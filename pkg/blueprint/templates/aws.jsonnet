@@ -20,6 +20,11 @@ local terraformConfig = [
     source: "core",
   },
   {
+    path: "cluster/aws-eks/additions",
+    source: "core",
+    destroy: false
+  },
+  {
     path: "gitops/flux",
     source: "core",
     destroy: false,
