@@ -46,7 +46,6 @@
       "matchManagers": [
         "gomod"
       ],
-      "enabled": true,
       "automerge": true,
       "automergeType": "pr",
       "automergeStrategy": "squash",
@@ -54,6 +53,13 @@
         "go",
         "dependencies"
       ]
+    },
+    {
+      "description": "Enable Go version updates",
+      "matchManagers": ["gomod"],
+      "matchDepNames": ["go"],
+      "matchDepTypes": ["golang"],
+      "rangeStrategy": "replace"
     },
     {
       "description": "Update Taskfile dependencies",
@@ -67,16 +73,6 @@
       "labels": [
         "dependencies"
       ]
-    },
-    {
-      "description": "Pin Go to version 1.23.4",
-      "matchManagers": [
-        "gomod"
-      ],
-      "matchPackageNames": [
-        "golang.org/x"
-      ],
-      "allowedVersions": "1.23.4"
     }
   ],
   "platformAutomerge": true,
@@ -117,5 +113,8 @@
   ],
   "labels": [
     "dependencies"
+  ],
+  "postUpdateOptions": [
+    "gomodTidy"
   ]
 }
