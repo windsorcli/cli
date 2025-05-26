@@ -2368,6 +2368,26 @@ func TestBaseBlueprintHandler_WaitForKustomizations(t *testing.T) {
 }
 
 func TestBaseBlueprintHandler_Down(t *testing.T) {
+	// Patch kubeClient to handle all necessary operations
+	origKubeClient := kubeClient
+	kubeClient = func(_ string, config KubeRequestConfig) error {
+		if config.Method == "GET" && config.Resource == "kustomizations" {
+			kustomization := &kustomizev1.Kustomization{
+				Status: kustomizev1.KustomizationStatus{
+					Inventory: &kustomizev1.ResourceInventory{
+						Entries: []kustomizev1.ResourceRef{},
+					},
+				},
+			}
+			if config.Response != nil {
+				*config.Response.(*kustomizev1.Kustomization) = *kustomization
+			}
+			return nil
+		}
+		return nil
+	}
+	defer func() { kubeClient = origKubeClient }()
+
 	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
@@ -2844,6 +2864,243 @@ func TestBaseBlueprintHandler_Down(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "apply error") {
 			t.Errorf("Expected error about apply error, got: %v", err)
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_SuspendKustomization(t *testing.T) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		return handler, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		handler, _ := setup(t)
+		baseHandler := handler
+
+		// Patch kubeClient to verify correct request
+		origKubeClient := kubeClient
+		defer func() { kubeClient = origKubeClient }()
+		var capturedConfig KubeRequestConfig
+		kubeClient = func(_ string, config KubeRequestConfig) error {
+			capturedConfig = config
+			return nil
+		}
+
+		// When suspending a kustomization
+		err := baseHandler.suspendKustomization("test-kustomization", "test-namespace")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("expected nil error, got %v", err)
+		}
+
+		// And the request should be correct
+		if capturedConfig.Method != "PATCH" {
+			t.Errorf("expected Method 'PATCH', got '%s'", capturedConfig.Method)
+		}
+		if capturedConfig.ApiPath != "/apis/kustomize.toolkit.fluxcd.io/v1" {
+			t.Errorf("expected ApiPath '/apis/kustomize.toolkit.fluxcd.io/v1', got '%s'", capturedConfig.ApiPath)
+		}
+		if capturedConfig.Namespace != "test-namespace" {
+			t.Errorf("expected Namespace 'test-namespace', got '%s'", capturedConfig.Namespace)
+		}
+		if capturedConfig.Resource != "kustomizations" {
+			t.Errorf("expected Resource 'kustomizations', got '%s'", capturedConfig.Resource)
+		}
+		if capturedConfig.Name != "test-kustomization" {
+			t.Errorf("expected Name 'test-kustomization', got '%s'", capturedConfig.Name)
+		}
+		if string(capturedConfig.Body.([]byte)) != `{"spec":{"suspend":true}}` {
+			t.Errorf("expected Body '{\"spec\":{\"suspend\":true}}', got '%s'", capturedConfig.Body)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		handler, _ := setup(t)
+		baseHandler := handler
+
+		// Patch kubeClient to return error
+		origKubeClient := kubeClient
+		defer func() { kubeClient = origKubeClient }()
+		kubeClient = func(_ string, _ KubeRequestConfig) error {
+			return fmt.Errorf("test error")
+		}
+
+		// When suspending a kustomization
+		err := baseHandler.suspendKustomization("test-kustomization", "test-namespace")
+
+		// Then error should be returned
+		if err == nil {
+			t.Error("expected error, got nil")
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_SuspendHelmRelease(t *testing.T) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		return handler, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		handler, _ := setup(t)
+		baseHandler := handler
+
+		// Patch kubeClient to verify correct request
+		origKubeClient := kubeClient
+		defer func() { kubeClient = origKubeClient }()
+		var capturedConfig KubeRequestConfig
+		kubeClient = func(_ string, config KubeRequestConfig) error {
+			capturedConfig = config
+			return nil
+		}
+
+		// When suspending a helmrelease
+		err := baseHandler.suspendHelmRelease("test-helmrelease", "test-namespace")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("expected nil error, got %v", err)
+		}
+
+		// And the request should be correct
+		if capturedConfig.Method != "PATCH" {
+			t.Errorf("expected Method 'PATCH', got '%s'", capturedConfig.Method)
+		}
+		if capturedConfig.ApiPath != "/apis/helm.toolkit.fluxcd.io/v2" {
+			t.Errorf("expected ApiPath '/apis/helm.toolkit.fluxcd.io/v2', got '%s'", capturedConfig.ApiPath)
+		}
+		if capturedConfig.Namespace != "test-namespace" {
+			t.Errorf("expected Namespace 'test-namespace', got '%s'", capturedConfig.Namespace)
+		}
+		if capturedConfig.Resource != "helmreleases" {
+			t.Errorf("expected Resource 'helmreleases', got '%s'", capturedConfig.Resource)
+		}
+		if capturedConfig.Name != "test-helmrelease" {
+			t.Errorf("expected Name 'test-helmrelease', got '%s'", capturedConfig.Name)
+		}
+		if string(capturedConfig.Body.([]byte)) != `{"spec":{"suspend":true}}` {
+			t.Errorf("expected Body '{\"spec\":{\"suspend\":true}}', got '%s'", capturedConfig.Body)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		handler, _ := setup(t)
+		baseHandler := handler
+
+		// Patch kubeClient to return error
+		origKubeClient := kubeClient
+		defer func() { kubeClient = origKubeClient }()
+		kubeClient = func(_ string, _ KubeRequestConfig) error {
+			return fmt.Errorf("test error")
+		}
+
+		// When suspending a helmrelease
+		err := baseHandler.suspendHelmRelease("test-helmrelease", "test-namespace")
+
+		// Then error should be returned
+		if err == nil {
+			t.Error("expected error, got nil")
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_GetHelmReleasesForKustomization(t *testing.T) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		return handler, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		handler, _ := setup(t)
+		baseHandler := handler
+
+		// Patch kubeClient to return kustomization with helmreleases
+		origKubeClient := kubeClient
+		defer func() { kubeClient = origKubeClient }()
+		kubeClient = func(_ string, config KubeRequestConfig) error {
+			if config.Method == "GET" && config.Resource == "kustomizations" {
+				kustomization := &kustomizev1.Kustomization{
+					Status: kustomizev1.KustomizationStatus{
+						Inventory: &kustomizev1.ResourceInventory{
+							Entries: []kustomizev1.ResourceRef{
+								{ID: "ns1_hr1_helm.toolkit.fluxcd.io_HelmRelease"},
+								{ID: "ns2_hr2_helm.toolkit.fluxcd.io_HelmRelease"},
+								{ID: "ns3_other_kind_OtherResource"},
+							},
+						},
+					},
+				}
+				response := config.Response.(*kustomizev1.Kustomization)
+				*response = *kustomization
+				return nil
+			}
+			return nil
+		}
+
+		// When getting helmreleases for a kustomization
+		helmReleases, err := baseHandler.getHelmReleasesForKustomization("test-kustomization", "test-namespace")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("expected nil error, got %v", err)
+		}
+
+		// And the helmreleases should be correct
+		if len(helmReleases) != 2 {
+			t.Errorf("expected 2 helmreleases, got %d", len(helmReleases))
+		}
+
+		expectedReleases := map[string]string{
+			"hr1": "ns1",
+			"hr2": "ns2",
+		}
+		for _, hr := range helmReleases {
+			if expectedNs, ok := expectedReleases[hr.Name]; !ok || expectedNs != hr.Namespace {
+				t.Errorf("unexpected helmrelease: %s in namespace %s", hr.Name, hr.Namespace)
+			}
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		handler, _ := setup(t)
+		baseHandler := handler
+
+		// Patch kubeClient to return error
+		origKubeClient := kubeClient
+		defer func() { kubeClient = origKubeClient }()
+		kubeClient = func(_ string, _ KubeRequestConfig) error {
+			return fmt.Errorf("test error")
+		}
+
+		// When getting helmreleases for a kustomization
+		_, err := baseHandler.getHelmReleasesForKustomization("test-kustomization", "test-namespace")
+
+		// Then error should be returned
+		if err == nil {
+			t.Error("expected error, got nil")
 		}
 	})
 }
