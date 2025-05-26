@@ -59,7 +59,7 @@
       "matchManagers": ["gomod"],
       "matchDepNames": ["go"],
       "matchDepTypes": ["golang"],
-      "rangeStrategy": "bump"
+      "rangeStrategy": "replace"
     },
     {
       "description": "Update Taskfile dependencies",
