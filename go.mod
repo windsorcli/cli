@@ -1,6 +1,6 @@
 module github.com/windsorcli/cli
 
-go 1.23.4
+go 1.24.3
 
 require (
 	github.com/1password/onepassword-sdk-go v0.3.0

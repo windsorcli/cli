@@ -106,7 +106,7 @@ jobs:
         with:
           args: ./...
         env:
-          GOTOOLCHAIN: 'local'
+          GOTOOLCHAIN: 'auto'
           GOFLAGS: '-buildvcs=false'
 
   release:
