@@ -21,6 +21,7 @@ import (
 // WindsorPrefixedVars are the environment variables that are managed by Windsor.
 var WindsorPrefixedVars = []string{
 	"WINDSOR_CONTEXT",
+	"WINDSOR_CONTEXT_ID",
 	"WINDSOR_PROJECT_ROOT",
 	"WINDSOR_SESSION_TOKEN",
 	"WINDSOR_MANAGED_ENV",
@@ -86,6 +87,9 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 	currentContext := e.configHandler.GetContext()
 	envVars["WINDSOR_CONTEXT"] = currentContext
+
+	contextID := e.configHandler.GetString("id", "")
+	envVars["WINDSOR_CONTEXT_ID"] = contextID
 
 	projectRoot, err := e.shell.GetProjectRoot()
 	if err != nil {
