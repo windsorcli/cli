@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/secrets"
 )
@@ -117,6 +118,47 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		expectedSessionToken := "mock-token"
 		if envVars["WINDSOR_SESSION_TOKEN"] != expectedSessionToken {
 			t.Errorf("Expected WINDSOR_SESSION_TOKEN to be %q, got %q", expectedSessionToken, envVars["WINDSOR_SESSION_TOKEN"])
+		}
+
+		// And context ID should be set but empty (YamlConfigHandler returns empty for non-existent keys)
+		expectedContextID := ""
+		if envVars["WINDSOR_CONTEXT_ID"] != expectedContextID {
+			t.Errorf("Expected WINDSOR_CONTEXT_ID to be %q, got %q", expectedContextID, envVars["WINDSOR_CONTEXT_ID"])
+		}
+	})
+
+	t.Run("ContextIDNotSet", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with no context ID
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "id" {
+				return ""
+			}
+			return "mock-string"
+		}
+
+		mocks := setupWindsorEnvMocks(t, &SetupOptions{
+			ConfigHandler: mockConfigHandler,
+		})
+		printer := NewWindsorEnvPrinter(mocks.Injector)
+		if err := printer.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize env: %v", err)
+		}
+		printer.shims = mocks.Shims
+
+		// When GetEnvVars is called
+		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// And WINDSOR_CONTEXT_ID should be set but empty
+		if contextID, exists := envVars["WINDSOR_CONTEXT_ID"]; !exists {
+			t.Error("Expected WINDSOR_CONTEXT_ID to be set even when empty")
+		} else if contextID != "" {
+			t.Errorf("Expected WINDSOR_CONTEXT_ID to be empty, got %q", contextID)
 		}
 	})
 
@@ -384,8 +426,8 @@ contexts:
 
 		// And no additional variables should be added
 		t.Logf("Environment variables: %v", envVars)
-		if len(envVars) != 5 {
-			t.Errorf("Should have five base environment variables")
+		if len(envVars) != 6 {
+			t.Errorf("Should have six base environment variables")
 		}
 	})
 
@@ -806,7 +848,7 @@ func TestWindsorEnv_Print(t *testing.T) {
 
 		// And WINDSOR_MANAGED_ENV should include core Windsor variables
 		managedEnv := capturedEnvVars["WINDSOR_MANAGED_ENV"]
-		coreVars := []string{"WINDSOR_CONTEXT", "WINDSOR_PROJECT_ROOT", "WINDSOR_SESSION_TOKEN", "WINDSOR_MANAGED_ENV", "WINDSOR_MANAGED_ALIAS"}
+		coreVars := []string{"WINDSOR_CONTEXT", "WINDSOR_CONTEXT_ID", "WINDSOR_PROJECT_ROOT", "WINDSOR_SESSION_TOKEN", "WINDSOR_MANAGED_ENV", "WINDSOR_MANAGED_ALIAS"}
 		for _, v := range coreVars {
 			if !strings.Contains(managedEnv, v) {
 				t.Errorf("WINDSOR_MANAGED_ENV should contain %q, got %q", v, managedEnv)
