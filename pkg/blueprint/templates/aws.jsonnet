@@ -20,6 +20,11 @@ local terraformConfig = [
     source: "core",
   },
   {
+    path: "cluster/aws-eks/additions",
+    source: "core",
+    destroy: false
+  },
+  {
     path: "gitops/flux",
     source: "core",
     destroy: false,
@@ -70,9 +75,17 @@ local kustomizeConfig = if blueprint == "full" then [
     ],
   },
   {
-    name: "ingress-base",
+    name: "csi",
     source: "core",
-    path: "ingress/base",
+    path: "csi",
+    cleanup: [
+      "pvcs"
+    ],
+  },
+  {
+    name: "ingress",
+    source: "core",
+    path: "ingress",
     dependsOn: [
       "pki-resources"
     ],
@@ -81,6 +94,10 @@ local kustomizeConfig = if blueprint == "full" then [
       "nginx",
       "nginx/flux-webhook",
       "nginx/web"
+    ],
+    cleanup: [
+      "loadbalancers",
+      "ingresses"
     ],
   },
   {
@@ -110,11 +127,20 @@ local kustomizeConfig = if blueprint == "full" then [
     ],
   },
   {
+    name: "dns",
+    source: "core",
+    path: "dns",
+    components: [
+      "external-dns",
+      "external-dns/route53"
+    ],
+  },
+  {
     name: "observability",
     source: "core",
     path: "observability",
     dependsOn: [
-      "ingress-base"
+      "ingress"
     ],
     components: [
       "grafana",
