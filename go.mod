@@ -10,7 +10,7 @@ require (
 	github.com/compose-spec/compose-go v1.20.2
 	github.com/fluxcd/kustomize-controller/api v1.5.1
 	github.com/fluxcd/pkg/apis/kustomize v1.9.0
-	github.com/fluxcd/pkg/apis/meta v1.10.0
+	github.com/fluxcd/pkg/apis/meta v1.12.0
 	github.com/fluxcd/source-controller/api v1.5.0
 	github.com/getsops/sops/v3 v3.10.2
 	github.com/goccy/go-yaml v1.17.1
@@ -22,7 +22,7 @@ require (
 	golang.org/x/crypto v0.38.0
 	golang.org/x/sys v0.33.0
 	k8s.io/api v0.32.4
-	k8s.io/apimachinery v0.32.4
+	k8s.io/apimachinery v0.33.0
 	k8s.io/client-go v0.32.4
 	sigs.k8s.io/yaml v1.4.0
 )
@@ -105,7 +105,6 @@ require (
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/gnostic-models v0.6.9 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
-	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
 	github.com/google/uuid v1.6.0 // indirect
