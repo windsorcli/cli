@@ -46,7 +46,6 @@
       "matchManagers": [
         "gomod"
       ],
-      "enabled": true,
       "automerge": true,
       "automergeType": "pr",
       "automergeStrategy": "squash",
@@ -67,16 +66,6 @@
       "labels": [
         "dependencies"
       ]
-    },
-    {
-      "description": "Pin Go to version 1.23.4",
-      "matchManagers": [
-        "gomod"
-      ],
-      "matchPackageNames": [
-        "golang.org/x"
-      ],
-      "allowedVersions": "1.23.4"
     }
   ],
   "platformAutomerge": true,
@@ -117,5 +106,8 @@
   ],
   "labels": [
     "dependencies"
+  ],
+  "postUpdateOptions": [
+    "gomodTidy"
   ]
 }
