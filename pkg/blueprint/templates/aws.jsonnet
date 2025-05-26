@@ -75,6 +75,14 @@ local kustomizeConfig = if blueprint == "full" then [
     ],
   },
   {
+    name: "csi",
+    source: "core",
+    path: "csi",
+    cleanup: [
+      "pvcs"
+    ],
+  },
+  {
     name: "ingress",
     source: "core",
     path: "ingress",
@@ -86,6 +94,10 @@ local kustomizeConfig = if blueprint == "full" then [
       "nginx",
       "nginx/flux-webhook",
       "nginx/web"
+    ],
+    cleanup: [
+      "loadbalancers",
+      "ingresses"
     ],
   },
   {
@@ -112,6 +124,15 @@ local kustomizeConfig = if blueprint == "full" then [
     components: [
       "private-issuer/ca",
       "public-issuer/selfsigned"
+    ],
+  },
+  {
+    name: "dns",
+    source: "core",
+    path: "dns",
+    components: [
+      "external-dns",
+      "external-dns/route53"
     ],
   },
   {
