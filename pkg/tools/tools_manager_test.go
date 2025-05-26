@@ -99,6 +99,8 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 			return fmt.Sprintf("Terraform v%s", constants.MINIMUM_VERSION_TERRAFORM), nil
 		case name == "op" && args[0] == "--version":
 			return fmt.Sprintf("1Password CLI %s", constants.MINIMUM_VERSION_1PASSWORD), nil
+		case name == "aws" && args[0] == "--version":
+			return fmt.Sprintf("aws-cli/%s Python/3.13.3 Darwin/24.0.0 exe/x86_64", constants.MINIMUM_VERSION_AWS_CLI), nil
 		}
 		return "", fmt.Errorf("command not found")
 	}
@@ -262,6 +264,7 @@ func TestToolsManager_Check(t *testing.T) {
 			"talosctl":       {"version", "--client", "--short"},
 			"terraform":      {"version"},
 			"op":             {"--version"},
+			"aws":            {"--version"},
 		}
 		// When checking tool versions
 		err := toolsManager.Check()
@@ -283,7 +286,8 @@ func TestToolsManager_Check(t *testing.T) {
 				!strings.Contains(output, constants.MINIMUM_VERSION_KUBECTL) &&
 				!strings.Contains(output, constants.MINIMUM_VERSION_TALOSCTL) &&
 				!strings.Contains(output, constants.MINIMUM_VERSION_TERRAFORM) &&
-				!strings.Contains(output, constants.MINIMUM_VERSION_1PASSWORD) {
+				!strings.Contains(output, constants.MINIMUM_VERSION_1PASSWORD) &&
+				!strings.Contains(output, constants.MINIMUM_VERSION_AWS_CLI) {
 				t.Errorf("Expected %s version check to pass, got output: %s", tool, output)
 			}
 		}
@@ -452,6 +456,33 @@ contexts:
 			t.Error("Expected error when 1Password is enabled but not available")
 		} else if !strings.Contains(err.Error(), "1password check failed: 1Password CLI is not available in the PATH") {
 			t.Errorf("Expected error to contain '1password check failed: 1Password CLI is not available in the PATH', got: %v", err)
+		}
+	})
+
+	t.Run("MultipleToolFailures", func(t *testing.T) {
+		// Given multiple tools are enabled but fail checks
+		mocks, toolsManager := setup(t, defaultConfig)
+		mocks.ConfigHandler.SetContextValue("docker.enabled", true)
+		mocks.ConfigHandler.SetContextValue("aws.enabled", true)
+		mocks.ConfigHandler.SetContextValue("cluster.enabled", true)
+
+		// Mock failures for multiple tools
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "docker" || name == "aws" || name == "kubectl" {
+				return "", fmt.Errorf("%s is not available in the PATH", name)
+			}
+			return originalExecLookPath(name)
+		}
+
+		// When checking tool versions
+		err := toolsManager.Check()
+
+		// Then an error should be returned for the first failing tool
+		if err == nil {
+			t.Error("Expected error when multiple tools fail checks")
+		} else if !strings.Contains(err.Error(), "docker check failed") {
+			t.Errorf("Expected error to contain 'docker check failed', got: %v", err)
 		}
 	})
 }
@@ -949,6 +980,94 @@ func TestToolsManager_checkOnePassword(t *testing.T) {
 		// Then an error indicating version is too low should be returned
 		if err == nil || !strings.Contains(err.Error(), "1Password CLI version 1.0.0 is below the minimum required version") {
 			t.Errorf("Expected 1Password CLI version too low error, got %v", err)
+		}
+	})
+}
+
+// Tests for AWS CLI version validation
+func TestToolsManager_checkAwsCli(t *testing.T) {
+	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
+		t.Helper()
+		mocks := setupMocks(t)
+		toolsManager := NewToolsManager(mocks.Injector)
+		toolsManager.Initialize()
+		return mocks, toolsManager
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given AWS CLI is available with correct version
+		mocks, toolsManager := setup(t)
+		execLookPath = func(name string) (string, error) {
+			return "/usr/bin/" + name, nil
+		}
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+			if name == "aws" && args[0] == "--version" {
+				return "aws-cli/2.15.0", nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+		// When checking AWS CLI version
+		err := toolsManager.checkAwsCli()
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected checkAwsCli to succeed, but got error: %v", err)
+		}
+	})
+
+	t.Run("AwsCliNotAvailable", func(t *testing.T) {
+		// Given AWS CLI is not found in PATH
+		_, toolsManager := setup(t)
+		execLookPath = func(name string) (string, error) {
+			if name == "aws" {
+				return "", fmt.Errorf("aws cli is not available in the PATH")
+			}
+			return "/usr/bin/" + name, nil
+		}
+		// When checking AWS CLI version
+		err := toolsManager.checkAwsCli()
+		// Then an error indicating AWS CLI is not available should be returned
+		if err == nil || !strings.Contains(err.Error(), "aws cli is not available in the PATH") {
+			t.Errorf("Expected aws cli not available error, got %v", err)
+		}
+	})
+
+	t.Run("AwsCliVersionInvalidResponse", func(t *testing.T) {
+		// Given AWS CLI version response is invalid
+		mocks, toolsManager := setup(t)
+		execLookPath = func(name string) (string, error) {
+			return "/usr/bin/" + name, nil
+		}
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+			if name == "aws" && args[0] == "--version" {
+				return "Invalid version response", nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+		// When checking AWS CLI version
+		err := toolsManager.checkAwsCli()
+		// Then an error indicating version extraction failed should be returned
+		if err == nil || !strings.Contains(err.Error(), "failed to extract aws cli version") {
+			t.Errorf("Expected failed to extract aws cli version error, got %v", err)
+		}
+	})
+
+	t.Run("AwsCliVersionTooLow", func(t *testing.T) {
+		// Given AWS CLI version is below minimum required version
+		mocks, toolsManager := setup(t)
+		execLookPath = func(name string) (string, error) {
+			return "/usr/bin/" + name, nil
+		}
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+			if name == "aws" && args[0] == "--version" {
+				return "aws-cli/1.0.0", nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+		// When checking AWS CLI version
+		err := toolsManager.checkAwsCli()
+		// Then an error indicating version is too low should be returned
+		if err == nil || !strings.Contains(err.Error(), "aws cli version 1.0.0 is below the minimum required version") {
+			t.Errorf("Expected aws cli version too low error, got %v", err)
 		}
 	})
 }
