@@ -39,6 +39,7 @@ type Shims struct {
 	LookupEnv      func(string) (string, bool)
 	Environ        func() []string
 	Getenv         func(string) string
+	Command        func(name string, arg ...string) *exec.Cmd
 }
 
 // =============================================================================
@@ -66,5 +67,6 @@ func NewShims() *Shims {
 		LookupEnv:      os.LookupEnv,
 		Environ:        os.Environ,
 		Getenv:         os.Getenv,
+		Command:        exec.Command,
 	}
 }
