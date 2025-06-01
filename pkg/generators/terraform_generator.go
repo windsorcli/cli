@@ -194,6 +194,7 @@ func (g *TerraformGenerator) initializeTerraformModule(component blueprintv1alph
 		"init",
 		"--backend=false",
 		"-input=false",
+		"-upgrade",
 		"-json",
 	)
 	if err != nil {
