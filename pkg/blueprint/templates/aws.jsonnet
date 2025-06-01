@@ -169,7 +169,7 @@ local sourceConfig = [
     name: "core",
     url: "github.com/windsorcli/core",
     ref: {
-      branch: "main",
+      tag: "v0.4.0",
     },
   },
 ];

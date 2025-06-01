@@ -80,36 +80,3 @@ brews:
     homepage: "https://windsorcli.github.io"
     description: "The Windsor Command Line Interface"
     license: "MPL-2.0"
-
-chocolateys:
-  - name: windsor
-    ids:
-      - windsor
-    package_source_url: https://github.com/windsorcli/cli
-    owners: Windsor CLI
-    title: Windsor CLI
-    authors: Windsor CLI Team
-    project_url: https://windsorcli.github.io
-    icon_url: https://windsorcli.github.io/icon.png
-    copyright: "2025 Windsor CLI Team"
-    license_url: https://github.com/windsorcli/cli/blob/main/LICENSE
-    require_license_acceptance: false
-    project_source_url: https://github.com/windsorcli/cli
-    docs_url: https://windsorcli.github.io
-    bug_tracker_url: https://github.com/windsorcli/cli/issues
-    tags: "cli windows command-line"
-    summary: "The Windsor Command Line Interface"
-    description: |
-      The Windsor CLI assists your cloud native development workflow.
-      This package provides the Windows installer for Windsor CLI.
-      
-      After installation, add the following line to your PowerShell profile to enable shell integration:
-      ```powershell
-      Invoke-Expression (& windsor hook powershell)
-      ```
-      
-      Your PowerShell profile is located at: $PROFILE
-    release_notes: "https://github.com/windsorcli/cli/releases/tag/v{{ .Version }}"
-    api_key: "{{ .Env.CHOCOLATEY_API_KEY }}"
-    source_repo: "https://push.chocolatey.org/"
-    url_template: "https://github.com/windsorcli/cli/releases/download/v{{ .Version }}/windsor_{{ .Version }}_windows_amd64.zip"
