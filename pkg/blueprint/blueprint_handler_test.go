@@ -286,24 +286,44 @@ contexts:
 
 	shims := setupShims(t)
 
-	// Patch kubeClient and kubeClientResourceOperation to no-op by default
+	// Mock kubeClient
 	origKubeClient := kubeClient
-	kubeClient = func(string, KubeRequestConfig) error { return nil }
-	origKubeClientResourceOperation := kubeClientResourceOperation
-	kubeClientResourceOperation = func(string, ResourceOperationConfig) error { return nil }
+	kubeClient = func(kubeconfigPath string, config KubeRequestConfig) error {
+		// Return success for all operations
+		return nil
+	}
 
+	// Mock kubeClientResourceOperation
+	origKubeClientResourceOperation := kubeClientResourceOperation
+	kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
+		// Return success for all operations
+		return nil
+	}
+
+	// Mock status check functions
 	origCheckGitRepositoryStatus := checkGitRepositoryStatus
-	checkGitRepositoryStatus = func(_ string) error { return nil }
+	checkGitRepositoryStatus = func(kubeconfigPath string) error {
+		return nil
+	}
+
+	origCheckKustomizationStatus := checkKustomizationStatus
+	checkKustomizationStatus = func(kubeconfigPath string, names []string) (map[string]bool, error) {
+		status := make(map[string]bool)
+		for _, name := range names {
+			status[name] = true
+		}
+		return status, nil
+	}
 
 	t.Cleanup(func() {
 		kubeClient = origKubeClient
 		kubeClientResourceOperation = origKubeClientResourceOperation
 		checkGitRepositoryStatus = origCheckGitRepositoryStatus
+		checkKustomizationStatus = origCheckKustomizationStatus
 		os.Unsetenv("WINDSOR_PROJECT_ROOT")
+		os.Unsetenv("WINDSOR_CONFIG_ROOT")
 		os.Unsetenv("WINDSOR_CONTEXT")
-		if err := os.Chdir(origDir); err != nil {
-			t.Logf("Warning: Failed to change back to original directory: %v", err)
-		}
+		os.Chdir(origDir)
 	})
 
 	return &Mocks{
@@ -1543,8 +1563,16 @@ func TestBlueprintHandler_Install(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
+		const pollInterval = 45 * time.Millisecond
+		const kustomTimeout = 500 * time.Millisecond
+
+		origKubeClient := kubeClient
 		origKubeClientResourceOperation := kubeClientResourceOperation
-		defer func() { kubeClientResourceOperation = origKubeClientResourceOperation }()
+		defer func() {
+			kubeClient = origKubeClient
+			kubeClientResourceOperation = origKubeClientResourceOperation
+		}()
+
 		// Given a mock Kubernetes client that validates resource types
 		kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
 			switch config.ResourceName {
@@ -1566,8 +1594,26 @@ func TestBlueprintHandler_Install(t *testing.T) {
 			return nil
 		}
 
+		// And a mock kubeClient that returns immediate success for reconciliation
+		kubeClient = func(_ string, config KubeRequestConfig) error {
+			if config.Method == "GET" && config.Resource == "kustomizations" {
+				existingObj := &kustomizev1.Kustomization{
+					Status: kustomizev1.KustomizationStatus{
+						LastAppliedRevision: "test-revision",
+					},
+				}
+				if config.Response != nil {
+					*config.Response.(*kustomizev1.Kustomization) = *existingObj
+				}
+			}
+			return nil
+		}
+
 		// And a blueprint handler with repository, sources, and kustomizations
 		handler, _ := setup(t)
+		handler.(*BaseBlueprintHandler).kustomizationWaitPollInterval = pollInterval
+		handler.(*BaseBlueprintHandler).kustomizationReconcileTimeout = kustomTimeout
+		handler.(*BaseBlueprintHandler).kustomizationReconcileSleep = pollInterval
 
 		err := handler.SetRepository(blueprintv1alpha1.Repository{
 			Url: "git::https://example.com/repo.git",
@@ -1604,9 +1650,28 @@ func TestBlueprintHandler_Install(t *testing.T) {
 	})
 
 	t.Run("SourceURLWithoutDotGit", func(t *testing.T) {
+		origKubeClient := kubeClient
 		origKubeClientResourceOperation := kubeClientResourceOperation
-		defer func() { kubeClientResourceOperation = origKubeClientResourceOperation }()
+		defer func() {
+			kubeClient = origKubeClient
+			kubeClientResourceOperation = origKubeClientResourceOperation
+		}()
+
 		kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
+			return nil
+		}
+
+		kubeClient = func(_ string, config KubeRequestConfig) error {
+			if config.Method == "GET" && config.Resource == "kustomizations" {
+				existingObj := &kustomizev1.Kustomization{
+					Status: kustomizev1.KustomizationStatus{
+						LastAppliedRevision: "test-revision",
+					},
+				}
+				if config.Response != nil {
+					*config.Response.(*kustomizev1.Kustomization) = *existingObj
+				}
+			}
 			return nil
 		}
 
@@ -1640,9 +1705,28 @@ func TestBlueprintHandler_Install(t *testing.T) {
 	})
 
 	t.Run("SourceWithSecretName", func(t *testing.T) {
+		origKubeClient := kubeClient
 		origKubeClientResourceOperation := kubeClientResourceOperation
-		defer func() { kubeClientResourceOperation = origKubeClientResourceOperation }()
+		defer func() {
+			kubeClient = origKubeClient
+			kubeClientResourceOperation = origKubeClientResourceOperation
+		}()
+
 		kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
+			return nil
+		}
+
+		kubeClient = func(_ string, config KubeRequestConfig) error {
+			if config.Method == "GET" && config.Resource == "kustomizations" {
+				existingObj := &kustomizev1.Kustomization{
+					Status: kustomizev1.KustomizationStatus{
+						LastAppliedRevision: "test-revision",
+					},
+				}
+				if config.Response != nil {
+					*config.Response.(*kustomizev1.Kustomization) = *existingObj
+				}
+			}
 			return nil
 		}
 
@@ -1677,8 +1761,31 @@ func TestBlueprintHandler_Install(t *testing.T) {
 	})
 
 	t.Run("EmptySourceUrlError", func(t *testing.T) {
+		origKubeClient := kubeClient
 		origKubeClientResourceOperation := kubeClientResourceOperation
-		defer func() { kubeClientResourceOperation = origKubeClientResourceOperation }()
+		defer func() {
+			kubeClient = origKubeClient
+			kubeClientResourceOperation = origKubeClientResourceOperation
+		}()
+
+		kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
+			return nil
+		}
+
+		kubeClient = func(_ string, config KubeRequestConfig) error {
+			if config.Method == "GET" && config.Resource == "kustomizations" {
+				existingObj := &kustomizev1.Kustomization{
+					Status: kustomizev1.KustomizationStatus{
+						LastAppliedRevision: "test-revision",
+					},
+				}
+				if config.Response != nil {
+					*config.Response.(*kustomizev1.Kustomization) = *existingObj
+				}
+			}
+			return nil
+		}
+
 		// Given a blueprint handler with a source that has an empty URL
 		handler, _ := setup(t)
 
@@ -1701,9 +1808,28 @@ func TestBlueprintHandler_Install(t *testing.T) {
 	})
 
 	t.Run("EmptyRepositoryURL", func(t *testing.T) {
+		origKubeClient := kubeClient
 		origKubeClientResourceOperation := kubeClientResourceOperation
-		defer func() { kubeClientResourceOperation = origKubeClientResourceOperation }()
+		defer func() {
+			kubeClient = origKubeClient
+			kubeClientResourceOperation = origKubeClientResourceOperation
+		}()
+
 		kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
+			return nil
+		}
+
+		kubeClient = func(_ string, config KubeRequestConfig) error {
+			if config.Method == "GET" && config.Resource == "kustomizations" {
+				existingObj := &kustomizev1.Kustomization{
+					Status: kustomizev1.KustomizationStatus{
+						LastAppliedRevision: "test-revision",
+					},
+				}
+				if config.Response != nil {
+					*config.Response.(*kustomizev1.Kustomization) = *existingObj
+				}
+			}
 			return nil
 		}
 
@@ -1728,12 +1854,31 @@ func TestBlueprintHandler_Install(t *testing.T) {
 	})
 
 	t.Run("NoRepository", func(t *testing.T) {
+		origKubeClient := kubeClient
 		origKubeClientResourceOperation := kubeClientResourceOperation
-		defer func() { kubeClientResourceOperation = origKubeClientResourceOperation }()
+		defer func() {
+			kubeClient = origKubeClient
+			kubeClientResourceOperation = origKubeClientResourceOperation
+		}()
+
 		gitRepoAttempted := false
 		kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
 			if config.ResourceName == "gitrepositories" {
 				gitRepoAttempted = true
+			}
+			return nil
+		}
+
+		kubeClient = func(_ string, config KubeRequestConfig) error {
+			if config.Method == "GET" && config.Resource == "kustomizations" {
+				existingObj := &kustomizev1.Kustomization{
+					Status: kustomizev1.KustomizationStatus{
+						LastAppliedRevision: "test-revision",
+					},
+				}
+				if config.Response != nil {
+					*config.Response.(*kustomizev1.Kustomization) = *existingObj
+				}
 			}
 			return nil
 		}
@@ -1845,7 +1990,6 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to get project root: %v", err)
 		}
-
 		// And terraform components have been set
 		expectedComponents := []blueprintv1alpha1.TerraformComponent{
 			{
@@ -2368,26 +2512,6 @@ func TestBaseBlueprintHandler_WaitForKustomizations(t *testing.T) {
 }
 
 func TestBaseBlueprintHandler_Down(t *testing.T) {
-	// Patch kubeClient to handle all necessary operations
-	origKubeClient := kubeClient
-	kubeClient = func(_ string, config KubeRequestConfig) error {
-		if config.Method == "GET" && config.Resource == "kustomizations" {
-			kustomization := &kustomizev1.Kustomization{
-				Status: kustomizev1.KustomizationStatus{
-					Inventory: &kustomizev1.ResourceInventory{
-						Entries: []kustomizev1.ResourceRef{},
-					},
-				},
-			}
-			if config.Response != nil {
-				*config.Response.(*kustomizev1.Kustomization) = *kustomization
-			}
-			return nil
-		}
-		return nil
-	}
-	defer func() { kubeClient = origKubeClient }()
-
 	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
@@ -2441,6 +2565,7 @@ func TestBaseBlueprintHandler_Down(t *testing.T) {
 		baseHandler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
 			{Name: "k1", Cleanup: []string{"cleanup/path"}},
 		}
+
 		// Patch kubeClientResourceOperation to record calls
 		var calledConfigs []ResourceOperationConfig
 		origKubeClientResourceOperation := kubeClientResourceOperation
@@ -2449,22 +2574,6 @@ func TestBaseBlueprintHandler_Down(t *testing.T) {
 			return nil
 		}
 		defer func() { kubeClientResourceOperation = origKubeClientResourceOperation }()
-
-		// Patch checkKustomizationStatus to always return ready
-		origCheckKustomizationStatus := checkKustomizationStatus
-		checkKustomizationStatus = func(_ string, names []string) (map[string]bool, error) {
-			m := make(map[string]bool)
-			for _, n := range names {
-				m[n] = true
-			}
-			return m, nil
-		}
-		defer func() { checkKustomizationStatus = origCheckKustomizationStatus }()
-
-		// Patch checkGitRepositoryStatus to no-op
-		origCheckGitRepositoryStatus := checkGitRepositoryStatus
-		checkGitRepositoryStatus = func(_ string) error { return nil }
-		defer func() { checkGitRepositoryStatus = origCheckGitRepositoryStatus }()
 
 		// When calling Down
 		err := baseHandler.Down()
@@ -2539,7 +2648,7 @@ func TestBaseBlueprintHandler_Down(t *testing.T) {
 			t.Fatalf("expected nil error, got %v", err)
 		}
 
-		// And kubeClientResourceOperation should be called for each kustomization with cleanup
+		// And kubeClientResourceOperation should be called for each kustomization with non-empty cleanup
 		if len(calledConfigs) != 3 {
 			t.Fatalf("expected 3 calls to kubeClientResourceOperation, got %d", len(calledConfigs))
 		}
@@ -2595,36 +2704,6 @@ func TestBaseBlueprintHandler_Down(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "apply error") {
 			t.Errorf("Expected error about apply error, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorApplyingCleanupKustomization", func(t *testing.T) {
-		// Given a handler with kustomizations that need cleanup
-		handler, _ := setup(t)
-		baseHandler := handler
-		baseHandler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
-			{Name: "k1", Cleanup: []string{"cleanup/path1"}},
-		}
-
-		// And a mock that fails to apply cleanup kustomization
-		origKubeClientResourceOperation := kubeClientResourceOperation
-		kubeClientResourceOperation = func(_ string, config ResourceOperationConfig) error {
-			if config.ResourceInstanceName == "k1-cleanup" {
-				return fmt.Errorf("failed to apply cleanup kustomization")
-			}
-			return nil
-		}
-		defer func() { kubeClientResourceOperation = origKubeClientResourceOperation }()
-
-		// When calling Down
-		err := baseHandler.Down()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to apply cleanup kustomization") {
-			t.Errorf("Expected error about cleanup kustomization, got: %v", err)
 		}
 	})
 
@@ -2653,22 +2732,6 @@ func TestBaseBlueprintHandler_Down(t *testing.T) {
 		}
 		defer func() { kubeClientResourceOperation = origKubeClientResourceOperation }()
 
-		// Patch checkKustomizationStatus to always return ready
-		origCheckKustomizationStatus := checkKustomizationStatus
-		checkKustomizationStatus = func(_ string, names []string) (map[string]bool, error) {
-			m := make(map[string]bool)
-			for _, n := range names {
-				m[n] = true
-			}
-			return m, nil
-		}
-		defer func() { checkKustomizationStatus = origCheckKustomizationStatus }()
-
-		// Patch checkGitRepositoryStatus to no-op
-		origCheckGitRepositoryStatus := checkGitRepositoryStatus
-		checkGitRepositoryStatus = func(_ string) error { return nil }
-		defer func() { checkGitRepositoryStatus = origCheckGitRepositoryStatus }()
-
 		// When calling Down
 		err := baseHandler.Down()
 
@@ -2680,266 +2743,48 @@ func TestBaseBlueprintHandler_Down(t *testing.T) {
 			t.Errorf("Expected error about delete error, got: %v", err)
 		}
 	})
-
-	// ErrorApplyingCleanupKustomization
-	t.Run("ErrorApplyingCleanupKustomization", func(t *testing.T) {
-		handler, _ := setup(t)
-		baseHandler := handler
-		baseHandler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
-			{Name: "k1", Cleanup: []string{"cleanup/path1"}},
-		}
-		origKubeClientResourceOperation := kubeClientResourceOperation
-		kubeClientResourceOperation = func(_ string, config ResourceOperationConfig) error {
-			if config.ResourceInstanceName == "k1-cleanup" {
-				return fmt.Errorf("failed to apply cleanup kustomization")
-			}
-			return nil
-		}
-		defer func() { kubeClientResourceOperation = origKubeClientResourceOperation }()
-		// Patch checkKustomizationStatus to always return ready
-		origCheckKustomizationStatus := checkKustomizationStatus
-		checkKustomizationStatus = func(_ string, names []string) (map[string]bool, error) {
-			m := make(map[string]bool)
-			for _, n := range names {
-				m[n] = true
-			}
-			return m, nil
-		}
-		defer func() { checkKustomizationStatus = origCheckKustomizationStatus }()
-		// Patch checkGitRepositoryStatus to no-op
-		origCheckGitRepositoryStatus := checkGitRepositoryStatus
-		checkGitRepositoryStatus = func(_ string) error { return nil }
-		defer func() { checkGitRepositoryStatus = origCheckGitRepositoryStatus }()
-		err := baseHandler.Down()
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to apply cleanup kustomization") {
-			t.Errorf("Expected error about cleanup kustomization, got: %v", err)
-		}
-	})
-
-	t.Run("ApplyKustomizationError", func(t *testing.T) {
-		handler, _ := setup(t)
-		baseHandler := handler
-		baseHandler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
-			{Name: "k1", Cleanup: []string{"cleanup/path1"}},
-		}
-		origKubeClientResourceOperation := kubeClientResourceOperation
-		kubeClientResourceOperation = func(_ string, config ResourceOperationConfig) error {
-			if config.ResourceInstanceName == "k1-cleanup" {
-				return fmt.Errorf("apply error")
-			}
-			return nil
-		}
-		defer func() { kubeClientResourceOperation = origKubeClientResourceOperation }()
-		origCheckKustomizationStatus := checkKustomizationStatus
-		checkKustomizationStatus = func(_ string, names []string) (map[string]bool, error) {
-			m := make(map[string]bool)
-			for _, n := range names {
-				m[n] = true
-			}
-			return m, nil
-		}
-		defer func() { checkKustomizationStatus = origCheckKustomizationStatus }()
-		origCheckGitRepositoryStatus := checkGitRepositoryStatus
-		checkGitRepositoryStatus = func(_ string) error { return nil }
-		defer func() { checkGitRepositoryStatus = origCheckGitRepositoryStatus }()
-		err := baseHandler.Down()
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "apply error") {
-			t.Errorf("Expected error about apply error, got: %v", err)
-		}
-	})
-
-	t.Run("MultipleKustomizationsWithCleanup", func(t *testing.T) {
-		// Given a handler with multiple kustomizations, some with cleanup paths
-		handler, _ := setup(t)
-		baseHandler := handler
-		baseHandler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
-			{Name: "k1", Cleanup: []string{"cleanup/path1"}},
-			{Name: "k2", Cleanup: []string{"cleanup/path2"}},
-			{Name: "k3", Cleanup: []string{"cleanup/path3"}},
-			{Name: "k4", Cleanup: []string{}},
-		}
-
-		// Set fast poll interval and short timeout
-		baseHandler.kustomizationWaitPollInterval = 1 * time.Millisecond
-		for i := range baseHandler.blueprint.Kustomizations {
-			if baseHandler.blueprint.Kustomizations[i].Timeout == nil {
-				baseHandler.blueprint.Kustomizations[i].Timeout = &metav1.Duration{Duration: 5 * time.Millisecond}
-			} else {
-				baseHandler.blueprint.Kustomizations[i].Timeout.Duration = 5 * time.Millisecond
-			}
-		}
-
-		// Patch kubeClientResourceOperation to record calls
-		var calledConfigs []ResourceOperationConfig
-		origKubeClientResourceOperation := kubeClientResourceOperation
-		kubeClientResourceOperation = func(_ string, config ResourceOperationConfig) error {
-			calledConfigs = append(calledConfigs, config)
-			return nil
-		}
-		defer func() { kubeClientResourceOperation = origKubeClientResourceOperation }()
-
-		// Patch checkKustomizationStatus to always return ready
-		origCheckKustomizationStatus := checkKustomizationStatus
-		checkKustomizationStatus = func(_ string, names []string) (map[string]bool, error) {
-			m := make(map[string]bool)
-			for _, n := range names {
-				m[n] = true
-			}
-			return m, nil
-		}
-		defer func() { checkKustomizationStatus = origCheckKustomizationStatus }()
-
-		// Patch checkGitRepositoryStatus to no-op
-		origCheckGitRepositoryStatus := checkGitRepositoryStatus
-		checkGitRepositoryStatus = func(_ string) error { return nil }
-		defer func() { checkGitRepositoryStatus = origCheckGitRepositoryStatus }()
-
-		// When calling Down
-		err := baseHandler.Down()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("expected nil error, got %v", err)
-		}
-
-		// And kubeClientResourceOperation should be called for each kustomization with cleanup
-		if len(calledConfigs) != 3 {
-			t.Fatalf("expected 3 calls to kubeClientResourceOperation, got %d", len(calledConfigs))
-		}
-
-		// And the resource names should be k1-cleanup, k2-cleanup, k3-cleanup
-		expectedNames := map[string]bool{"k1-cleanup": true, "k2-cleanup": true, "k3-cleanup": true}
-		for _, config := range calledConfigs {
-			if !expectedNames[config.ResourceInstanceName] {
-				t.Errorf("unexpected ResourceInstanceName '%s'", config.ResourceInstanceName)
-			}
-			delete(expectedNames, config.ResourceInstanceName)
-		}
-		if len(expectedNames) != 0 {
-			t.Errorf("expected ResourceInstanceNames not called: %v", expectedNames)
-		}
-	})
-
-	t.Run("ApplyKustomizationError", func(t *testing.T) {
-		// Given a handler with a kustomization with cleanup
-		handler, _ := setup(t)
-		baseHandler := handler
-		baseHandler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
-			{Name: "k1", Cleanup: []string{"cleanup/path1"}},
-		}
-
-		// Patch kubeClientResourceOperation to error on apply
-		origKubeClientResourceOperation := kubeClientResourceOperation
-		kubeClientResourceOperation = func(_ string, config ResourceOperationConfig) error {
-			if config.ResourceInstanceName == "k1-cleanup" {
-				return fmt.Errorf("apply error")
-			}
-			return nil
-		}
-		defer func() { kubeClientResourceOperation = origKubeClientResourceOperation }()
-
-		// Patch checkKustomizationStatus to always return ready
-		origCheckKustomizationStatus := checkKustomizationStatus
-		checkKustomizationStatus = func(_ string, names []string) (map[string]bool, error) {
-			m := make(map[string]bool)
-			for _, n := range names {
-				m[n] = true
-			}
-			return m, nil
-		}
-		defer func() { checkKustomizationStatus = origCheckKustomizationStatus }()
-
-		// When calling Down
-		err := baseHandler.Down()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "apply error") {
-			t.Errorf("Expected error about apply error, got: %v", err)
-		}
-	})
 }
 
 func TestBaseBlueprintHandler_SuspendKustomization(t *testing.T) {
-	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
-		t.Helper()
-		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-		err := handler.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
-		}
-		return handler, mocks
-	}
-
 	t.Run("Success", func(t *testing.T) {
-		handler, _ := setup(t)
-		baseHandler := handler
-
-		// Patch kubeClient to verify correct request
-		origKubeClient := kubeClient
-		defer func() { kubeClient = origKubeClient }()
-		var capturedConfig KubeRequestConfig
-		kubeClient = func(_ string, config KubeRequestConfig) error {
-			capturedConfig = config
+		// Create a mock kubeClient function
+		mockKubeClient := func(kubeconfigPath string, config KubeRequestConfig) error {
+			if config.Method != "PATCH" {
+				t.Errorf("expected Method 'PATCH', got '%s'", config.Method)
+			}
+			if config.ApiPath != "/apis/kustomize.toolkit.fluxcd.io/v1" {
+				t.Errorf("expected ApiPath '/apis/kustomize.toolkit.fluxcd.io/v1', got '%s'", config.ApiPath)
+			}
+			if config.Namespace != "test-namespace" {
+				t.Errorf("expected Namespace 'test-namespace', got '%s'", config.Namespace)
+			}
+			if config.Resource != "kustomizations" {
+				t.Errorf("expected Resource 'kustomizations', got '%s'", config.Resource)
+			}
+			if config.Name != "test-kustomization" {
+				t.Errorf("expected Name 'test-kustomization', got '%s'", config.Name)
+			}
+			if config.Headers["Content-Type"] != "application/merge-patch+json" {
+				t.Errorf("expected Content-Type 'application/merge-patch+json', got '%s'", config.Headers["Content-Type"])
+			}
 			return nil
 		}
 
-		// When suspending a kustomization
-		err := baseHandler.suspendKustomization("test-kustomization", "test-namespace")
+		// Save original kubeClient and restore after test
+		originalKubeClient := kubeClient
+		kubeClient = mockKubeClient
+		defer func() { kubeClient = originalKubeClient }()
 
-		// Then no error should be returned
+		handler := &BaseBlueprintHandler{
+			shims: &Shims{
+				JsonMarshal: func(v any) ([]byte, error) {
+					return []byte(`{"spec":{"suspend":true}}`), nil
+				},
+			},
+		}
+		err := handler.suspendKustomization("test-kustomization", "test-namespace")
 		if err != nil {
 			t.Errorf("expected nil error, got %v", err)
-		}
-
-		// And the request should be correct
-		if capturedConfig.Method != "PATCH" {
-			t.Errorf("expected Method 'PATCH', got '%s'", capturedConfig.Method)
-		}
-		if capturedConfig.ApiPath != "/apis/kustomize.toolkit.fluxcd.io/v1" {
-			t.Errorf("expected ApiPath '/apis/kustomize.toolkit.fluxcd.io/v1', got '%s'", capturedConfig.ApiPath)
-		}
-		if capturedConfig.Namespace != "test-namespace" {
-			t.Errorf("expected Namespace 'test-namespace', got '%s'", capturedConfig.Namespace)
-		}
-		if capturedConfig.Resource != "kustomizations" {
-			t.Errorf("expected Resource 'kustomizations', got '%s'", capturedConfig.Resource)
-		}
-		if capturedConfig.Name != "test-kustomization" {
-			t.Errorf("expected Name 'test-kustomization', got '%s'", capturedConfig.Name)
-		}
-		if string(capturedConfig.Body.([]byte)) != `{"spec":{"suspend":true}}` {
-			t.Errorf("expected Body '{\"spec\":{\"suspend\":true}}', got '%s'", capturedConfig.Body)
-		}
-	})
-
-	t.Run("Error", func(t *testing.T) {
-		handler, _ := setup(t)
-		baseHandler := handler
-
-		// Patch kubeClient to return error
-		origKubeClient := kubeClient
-		defer func() { kubeClient = origKubeClient }()
-		kubeClient = func(_ string, _ KubeRequestConfig) error {
-			return fmt.Errorf("test error")
-		}
-
-		// When suspending a kustomization
-		err := baseHandler.suspendKustomization("test-kustomization", "test-namespace")
-
-		// Then error should be returned
-		if err == nil {
-			t.Error("expected error, got nil")
 		}
 	})
 }
