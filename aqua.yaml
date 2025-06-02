@@ -29,5 +29,5 @@ packages:
 - name: goreleaser/goreleaser@v2.9.0
 - name: helm/helm@v3.18.1
 - name: 1password/cli@v2.30.3
-- name: fluxcd/flux2@v2.6.0
+- name: fluxcd/flux2@v2.6.1
 - name: aws/aws-cli@2.27.26
