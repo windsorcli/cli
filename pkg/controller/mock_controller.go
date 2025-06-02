@@ -9,6 +9,7 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
+	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/network"
 	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/services"
@@ -42,6 +43,7 @@ type MockController struct {
 	ResolveStackFunc               func() stack.Stack
 	ResolveBlueprintHandlerFunc    func() blueprint.BlueprintHandler
 	ResolveAllSecretsProvidersFunc func() []secrets.SecretsProvider
+	ResolveKubernetesManagerFunc   func() kubernetes.KubernetesManager
 	WriteConfigurationFilesFunc    func() error
 	SetEnvironmentVariablesFunc    func() error
 }
@@ -183,6 +185,11 @@ func NewMockConstructors() ComponentConstructors {
 		// Stack components
 		NewWindsorStack: func(injector di.Injector) stack.Stack {
 			return stack.NewMockStack(injector)
+		},
+
+		// Kubernetes components
+		NewKubernetesManager: func(injector di.Injector) kubernetes.KubernetesManager {
+			return kubernetes.NewMockKubernetesManager(injector)
 		},
 	}
 }
@@ -364,6 +371,14 @@ func (m *MockController) SetEnvironmentVariables() error {
 		return m.SetEnvironmentVariablesFunc()
 	}
 	return m.BaseController.SetEnvironmentVariables()
+}
+
+// ResolveKubernetesManager implements the Controller interface
+func (m *MockController) ResolveKubernetesManager() kubernetes.KubernetesManager {
+	if m.ResolveKubernetesManagerFunc != nil {
+		return m.ResolveKubernetesManagerFunc()
+	}
+	return m.BaseController.ResolveKubernetesManager()
 }
 
 // Ensure MockController implements Controller

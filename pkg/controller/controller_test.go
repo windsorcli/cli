@@ -15,6 +15,7 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
+	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/network"
 	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/services"
@@ -329,6 +330,13 @@ func TestNewController(t *testing.T) {
 				stack := controller.constructors.NewWindsorStack(mocks.Injector)
 				if stack == nil {
 					return fmt.Errorf("NewWindsorStack returned nil")
+				}
+				return nil
+			},
+			"NewKubernetesManager": func() error {
+				manager := controller.constructors.NewKubernetesManager(mocks.Injector)
+				if manager == nil {
+					return fmt.Errorf("NewKubernetesManager returned nil")
 				}
 				return nil
 			},
@@ -3889,4 +3897,42 @@ func (m *BlueprintHandlerMock) LoadConfig(reset ...bool) error {
 		return m.LoadConfigFunc(reset...)
 	}
 	return nil
+}
+
+func TestBaseController_ResolveKubernetesManager(t *testing.T) {
+	setup := func(t *testing.T) (*BaseController, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		return controller, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a controller with a registered kubernetes manager
+		controller, mocks := setup(t)
+		mockK8sManager := kubernetes.NewMockKubernetesManager(mocks.Injector)
+		mocks.Injector.Register("kubernetesManager", mockK8sManager)
+
+		// When resolving the kubernetes manager
+		resolvedManager := controller.ResolveKubernetesManager()
+
+		// Then the registered kubernetes manager should be returned
+		if resolvedManager != mockK8sManager {
+			t.Errorf("Expected kubernetes manager to be %v, got %v", mockK8sManager, resolvedManager)
+		}
+	})
+
+	t.Run("ReturnsNilWhenKubernetesManagerNotRegistered", func(t *testing.T) {
+		// Given a controller with no kubernetes manager registered
+		controller, mocks := setup(t)
+		mocks.Injector.Register("kubernetesManager", nil)
+
+		// When resolving the kubernetes manager
+		manager := controller.ResolveKubernetesManager()
+
+		// Then nil should be returned
+		if manager != nil {
+			t.Errorf("Expected kubernetes manager to be nil, got %v", manager)
+		}
+	})
 }

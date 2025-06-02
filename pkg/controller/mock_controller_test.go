@@ -11,6 +11,7 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
+	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/network"
 	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/services"
@@ -190,6 +191,22 @@ func TestMockController_ResolveNetworkManager(t *testing.T) {
 		}
 
 		manager := ctrl.ResolveNetworkManager()
+
+		if manager != expectedManager {
+			t.Errorf("expected manager %v, got %v", expectedManager, manager)
+		}
+	})
+}
+
+func TestMockController_ResolveKubernetesManager(t *testing.T) {
+	t.Run("WithMockFunc", func(t *testing.T) {
+		ctrl := NewMockController()
+		expectedManager := kubernetes.NewMockKubernetesManager(nil)
+		ctrl.ResolveKubernetesManagerFunc = func() kubernetes.KubernetesManager {
+			return expectedManager
+		}
+
+		manager := ctrl.ResolveKubernetesManager()
 
 		if manager != expectedManager {
 			t.Errorf("expected manager %v, got %v", expectedManager, manager)

@@ -16,6 +16,7 @@ type MockKubernetesManager struct {
 	ApplyConfigMapFunc                  func(name, namespace string, data map[string]string) error
 	GetHelmReleasesForKustomizationFunc func(name, namespace string) ([]HelmRelease, error)
 	SuspendKustomizationFunc            func(name, namespace string) error
+	SuspendHelmReleaseFunc              func(name, namespace string) error
 }
 
 // NewMockKubernetesManager creates a new instance of MockKubernetesManager
@@ -99,6 +100,14 @@ func (m *MockKubernetesManager) GetHelmReleasesForKustomization(name, namespace 
 func (m *MockKubernetesManager) SuspendKustomization(name, namespace string) error {
 	if m.SuspendKustomizationFunc != nil {
 		return m.SuspendKustomizationFunc(name, namespace)
+	}
+	return nil
+}
+
+// SuspendHelmRelease implements KubernetesManager interface
+func (m *MockKubernetesManager) SuspendHelmRelease(name, namespace string) error {
+	if m.SuspendHelmReleaseFunc != nil {
+		return m.SuspendHelmReleaseFunc(name, namespace)
 	}
 	return nil
 }

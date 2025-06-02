@@ -12,6 +12,7 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
+	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/network"
 	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/services"
@@ -57,6 +58,7 @@ type Controller interface {
 	ResolveAllGenerators() []generators.Generator
 	WriteConfigurationFiles() error
 	SetEnvironmentVariables() error
+	ResolveKubernetesManager() kubernetes.KubernetesManager
 }
 
 // BaseController implements the Controller interface with default component management
@@ -79,6 +81,7 @@ type ComponentConstructors struct {
 	NewTerraformGenerator func(di.Injector) generators.Generator
 	NewKustomizeGenerator func(di.Injector) generators.Generator
 	NewToolsManager       func(di.Injector) tools.ToolsManager
+	NewKubernetesManager  func(di.Injector) kubernetes.KubernetesManager
 
 	NewAwsEnvPrinter       func(di.Injector) env.EnvPrinter
 	NewAzureEnvPrinter     func(di.Injector) env.EnvPrinter
@@ -183,6 +186,9 @@ func NewDefaultConstructors() ComponentConstructors {
 		},
 		NewToolsManager: func(injector di.Injector) tools.ToolsManager {
 			return tools.NewToolsManager(injector)
+		},
+		NewKubernetesManager: func(injector di.Injector) kubernetes.KubernetesManager {
+			return kubernetes.NewKubernetesManager(injector)
 		},
 
 		NewAwsEnvPrinter: func(injector di.Injector) env.EnvPrinter {
@@ -297,6 +303,7 @@ func (c *BaseController) CreateComponents() error {
 		{"service", c.createServiceComponents},
 		{"network", c.createNetworkComponents},
 		{"stack", c.createStackComponent},
+		{"kubernetes", c.createKubernetesComponents},
 	}
 
 	for _, cc := range componentCreators {
@@ -664,6 +671,14 @@ func (c *BaseController) SetEnvironmentVariables() error {
 		}
 	}
 	return nil
+}
+
+// ResolveKubernetesManager returns the Kubernetes manager component
+// It retrieves the Kubernetes manager from the dependency injection container
+func (c *BaseController) ResolveKubernetesManager() kubernetes.KubernetesManager {
+	instance := c.injector.Resolve("kubernetesManager")
+	manager, _ := instance.(kubernetes.KubernetesManager)
+	return manager
 }
 
 // =============================================================================
@@ -1119,6 +1134,20 @@ func (c *BaseController) createStackComponent(req Requirements) error {
 		c.injector.Register("stack", stackInstance)
 	}
 
+	return nil
+}
+
+// createKubernetesComponents creates and initializes the Kubernetes manager component if required
+// It sets up the Kubernetes manager for managing Kubernetes clusters
+func (c *BaseController) createKubernetesComponents(req Requirements) error {
+	if c.ResolveKubernetesManager() != nil {
+		return nil
+	}
+	manager := c.constructors.NewKubernetesManager(c.injector)
+	if err := manager.Initialize(); err != nil {
+		return err
+	}
+	c.injector.Register("kubernetesManager", manager)
 	return nil
 }
 
