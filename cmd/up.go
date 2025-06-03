@@ -36,6 +36,7 @@ var upCmd = &cobra.Command{
 			Services:     true,
 			Network:      true,
 			Blueprint:    true,
+			Kubernetes:   true,
 			Generators:   true,
 			Stack:        true,
 			CommandName:  cmd.Name(),
@@ -133,6 +134,14 @@ var upCmd = &cobra.Command{
 		}
 		if err := stack.Up(); err != nil {
 			return fmt.Errorf("Error running stack Up command: %w", err)
+		}
+
+		// Initialize Kubernetes client after stack is up
+		kubernetesManager := controller.ResolveKubernetesManager()
+		if kubernetesManager != nil {
+			if err := kubernetesManager.InitializeClient(); err != nil {
+				return fmt.Errorf("Error initializing kubernetes client: %w", err)
+			}
 		}
 
 		// If the install flag is set, install the blueprint to finalize the setup process.

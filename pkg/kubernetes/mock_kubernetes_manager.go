@@ -1,29 +1,51 @@
+// Package kubernetes provides Kubernetes resource management functionality
+// It implements server-side apply patterns for managing Kubernetes resources
+// and provides a clean interface for kustomization and resource management
+
 package kubernetes
 
 import (
+	helmv2 "github.com/fluxcd/helm-controller/api/v2"
+	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"github.com/windsorcli/cli/pkg/di"
 )
+
+// =============================================================================
+// Types
+// =============================================================================
 
 // MockKubernetesManager is a mock implementation of KubernetesManager interface for testing
 type MockKubernetesManager struct {
 	InitializeFunc                      func() error
-	ApplyKustomizationFunc              func(kustomization Kustomization) error
+	InitializeClientFunc                func() error
+	ApplyKustomizationFunc              func(kustomization kustomizev1.Kustomization) error
 	DeleteKustomizationFunc             func(name, namespace string) error
 	WaitForKustomizationsFunc           func(message string, names ...string) error
 	GetKustomizationStatusFunc          func(names []string) (map[string]bool, error)
 	CreateNamespaceFunc                 func(name string) error
 	DeleteNamespaceFunc                 func(name string) error
 	ApplyConfigMapFunc                  func(name, namespace string, data map[string]string) error
-	GetHelmReleasesForKustomizationFunc func(name, namespace string) ([]HelmRelease, error)
+	GetHelmReleasesForKustomizationFunc func(name, namespace string) ([]helmv2.HelmRelease, error)
 	SuspendKustomizationFunc            func(name, namespace string) error
 	SuspendHelmReleaseFunc              func(name, namespace string) error
-	ApplyGitRepositoryFunc              func(repo *GitRepository) error
+	ApplyGitRepositoryFunc              func(repo *sourcev1.GitRepository) error
+	WaitForKustomizationsDeletedFunc    func(message string, names ...string) error
+	CheckGitRepositoryStatusFunc        func() error
 }
+
+// =============================================================================
+// Constructor
+// =============================================================================
 
 // NewMockKubernetesManager creates a new instance of MockKubernetesManager
 func NewMockKubernetesManager(injector di.Injector) *MockKubernetesManager {
 	return &MockKubernetesManager{}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize implements KubernetesManager interface
 func (m *MockKubernetesManager) Initialize() error {
@@ -33,8 +55,16 @@ func (m *MockKubernetesManager) Initialize() error {
 	return nil
 }
 
+// InitializeClient implements KubernetesManager interface
+func (m *MockKubernetesManager) InitializeClient() error {
+	if m.InitializeClientFunc != nil {
+		return m.InitializeClientFunc()
+	}
+	return nil
+}
+
 // ApplyKustomization implements KubernetesManager interface
-func (m *MockKubernetesManager) ApplyKustomization(kustomization Kustomization) error {
+func (m *MockKubernetesManager) ApplyKustomization(kustomization kustomizev1.Kustomization) error {
 	if m.ApplyKustomizationFunc != nil {
 		return m.ApplyKustomizationFunc(kustomization)
 	}
@@ -90,7 +120,7 @@ func (m *MockKubernetesManager) ApplyConfigMap(name, namespace string, data map[
 }
 
 // GetHelmReleasesForKustomization implements KubernetesManager interface
-func (m *MockKubernetesManager) GetHelmReleasesForKustomization(name, namespace string) ([]HelmRelease, error) {
+func (m *MockKubernetesManager) GetHelmReleasesForKustomization(name, namespace string) ([]helmv2.HelmRelease, error) {
 	if m.GetHelmReleasesForKustomizationFunc != nil {
 		return m.GetHelmReleasesForKustomizationFunc(name, namespace)
 	}
@@ -114,9 +144,25 @@ func (m *MockKubernetesManager) SuspendHelmRelease(name, namespace string) error
 }
 
 // ApplyGitRepository implements KubernetesManager interface
-func (m *MockKubernetesManager) ApplyGitRepository(repo *GitRepository) error {
+func (m *MockKubernetesManager) ApplyGitRepository(repo *sourcev1.GitRepository) error {
 	if m.ApplyGitRepositoryFunc != nil {
 		return m.ApplyGitRepositoryFunc(repo)
+	}
+	return nil
+}
+
+// WaitForKustomizationsDeleted waits for the specified kustomizations to be deleted.
+func (m *MockKubernetesManager) WaitForKustomizationsDeleted(message string, names ...string) error {
+	if m.WaitForKustomizationsDeletedFunc != nil {
+		return m.WaitForKustomizationsDeletedFunc(message, names...)
+	}
+	return nil
+}
+
+// CheckGitRepositoryStatus checks the status of all GitRepository resources
+func (m *MockKubernetesManager) CheckGitRepositoryStatus() error {
+	if m.CheckGitRepositoryStatusFunc != nil {
+		return m.CheckGitRepositoryStatusFunc()
 	}
 	return nil
 }

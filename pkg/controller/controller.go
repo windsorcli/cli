@@ -129,6 +129,7 @@ type Requirements struct {
 	VM         bool // Needs virtual machine capabilities
 	Containers bool // Needs container runtime capabilities
 	Network    bool // Needs network management
+	Kubernetes bool // Needs Kubernetes manager
 
 	// Service requirements
 	Services bool // Needs service management
@@ -1140,6 +1141,9 @@ func (c *BaseController) createStackComponent(req Requirements) error {
 // createKubernetesComponents creates and initializes the Kubernetes manager component if required
 // It sets up the Kubernetes manager for managing Kubernetes clusters
 func (c *BaseController) createKubernetesComponents(req Requirements) error {
+	if !req.Kubernetes {
+		return nil
+	}
 	if c.ResolveKubernetesManager() != nil {
 		return nil
 	}

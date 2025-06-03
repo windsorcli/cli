@@ -2,6 +2,7 @@ package blueprint
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -16,6 +17,11 @@ import (
 	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/shell"
 
+	"github.com/briandowns/spinner"
+	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
+	kustomize "github.com/fluxcd/pkg/apis/kustomize"
+	meta "github.com/fluxcd/pkg/apis/meta"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -299,13 +305,83 @@ func (b *BaseBlueprintHandler) WriteConfig(overwrite ...bool) error {
 // WaitForKustomizations waits for the specified kustomizations to be ready.
 // It polls the status of the kustomizations until they are all ready or a timeout occurs.
 func (b *BaseBlueprintHandler) WaitForKustomizations(message string, names ...string) error {
-	return b.kubernetesManager.WaitForKustomizations(message, names...)
+	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+	spin.Suffix = " " + message
+	spin.Start()
+	defer spin.Stop()
+
+	timeout := time.After(b.calculateMaxWaitTime())
+	ticker := time.NewTicker(b.kustomizationWaitPollInterval)
+	defer ticker.Stop()
+
+	var kustomizationNames []string
+	if len(names) > 0 && len(names[0]) > 0 {
+		kustomizationNames = names
+	} else {
+		kustomizations := b.GetKustomizations()
+		kustomizationNames = make([]string, len(kustomizations))
+		for i, k := range kustomizations {
+			kustomizationNames[i] = k.Name
+		}
+	}
+
+	consecutiveFailures := 0
+	for {
+		select {
+		case <-timeout:
+			spin.Stop()
+			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
+			return fmt.Errorf("timeout waiting for kustomizations")
+		case <-ticker.C:
+			if err := b.kubernetesManager.CheckGitRepositoryStatus(); err != nil {
+				consecutiveFailures++
+				if consecutiveFailures >= constants.DEFAULT_KUSTOMIZATION_WAIT_MAX_FAILURES {
+					spin.Stop()
+					fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
+					return fmt.Errorf("git repository error after %d consecutive failures: %w", consecutiveFailures, err)
+				}
+				continue
+			}
+			status, err := b.kubernetesManager.GetKustomizationStatus(kustomizationNames)
+			if err != nil {
+				consecutiveFailures++
+				if consecutiveFailures >= constants.DEFAULT_KUSTOMIZATION_WAIT_MAX_FAILURES {
+					spin.Stop()
+					fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
+					return fmt.Errorf("kustomization error after %d consecutive failures: %w", consecutiveFailures, err)
+				}
+				continue
+			}
+
+			allReady := true
+			for _, ready := range status {
+				if !ready {
+					allReady = false
+					break
+				}
+			}
+
+			if allReady {
+				spin.Stop()
+				fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m%s - \033[32mDone\033[0m\n", spin.Suffix)
+				return nil
+			}
+
+			// Reset consecutive failures on successful check
+			consecutiveFailures = 0
+		}
+	}
 }
 
 // Install applies the blueprint's Kubernetes resources to the cluster. It handles GitRepositories
 // for the main repository and sources, Kustomizations for deployments, and a ConfigMap containing
 // context-specific configuration. Uses environment KUBECONFIG or falls back to in-cluster config.
 func (b *BaseBlueprintHandler) Install() error {
+	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+	spin.Suffix = " 📐 Installing blueprint resources"
+	spin.Start()
+	defer spin.Stop()
+
 	// Apply GitRepository for the main repository
 	if b.blueprint.Repository.Url != "" {
 		source := blueprintv1alpha1.Source{
@@ -315,6 +391,8 @@ func (b *BaseBlueprintHandler) Install() error {
 			SecretName: b.blueprint.Repository.SecretName,
 		}
 		if err := b.applyGitRepository(source, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+			spin.Stop()
+			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 			return fmt.Errorf("failed to apply main repository: %w", err)
 		}
 	}
@@ -322,21 +400,33 @@ func (b *BaseBlueprintHandler) Install() error {
 	// Apply GitRepositories for sources
 	for _, source := range b.blueprint.Sources {
 		if err := b.applyGitRepository(source, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+			spin.Stop()
+			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 			return fmt.Errorf("failed to apply source repository %s: %w", source.Name, err)
 		}
 	}
 
 	// Apply ConfigMap
 	if err := b.applyConfigMap(); err != nil {
+		spin.Stop()
+		fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 		return fmt.Errorf("failed to apply configmap: %w", err)
 	}
 
 	// Apply Kustomizations
-	for _, k := range b.GetKustomizations() {
-		if err := b.kubernetesManager.ApplyKustomization(kubernetes.ToKubernetesKustomization(k, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)); err != nil {
+	kustomizations := b.GetKustomizations()
+	kustomizationNames := make([]string, len(kustomizations))
+	for i, k := range kustomizations {
+		if err := b.kubernetesManager.ApplyKustomization(b.ToKubernetesKustomization(k, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)); err != nil {
+			spin.Stop()
+			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 			return fmt.Errorf("failed to apply kustomization %s: %w", k.Name, err)
 		}
+		kustomizationNames[i] = k.Name
 	}
+
+	spin.Stop()
+	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m%s - \033[32mDone\033[0m\n", spin.Suffix)
 
 	return nil
 }
@@ -484,6 +574,11 @@ func (b *BaseBlueprintHandler) Down() error {
 		return nil
 	}
 
+	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+	spin.Suffix = " 🗑️  Tearing down blueprint resources"
+	spin.Start()
+	defer spin.Stop()
+
 	deps := make(map[string][]string)
 	for _, k := range kustomizations {
 		deps[k.Name] = k.DependsOn
@@ -524,6 +619,8 @@ func (b *BaseBlueprintHandler) Down() error {
 
 	if needsCleanupNamespace {
 		if err := b.createManagedNamespace("system-cleanup"); err != nil {
+			spin.Stop()
+			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 			return fmt.Errorf("failed to create system-cleanup namespace: %w", err)
 		}
 	}
@@ -532,16 +629,22 @@ func (b *BaseBlueprintHandler) Down() error {
 		k := nameToK[name]
 
 		if err := b.kubernetesManager.SuspendKustomization(k.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+			spin.Stop()
+			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 			return fmt.Errorf("failed to suspend kustomization %s: %w", k.Name, err)
 		}
 
 		helmReleases, err := b.kubernetesManager.GetHelmReleasesForKustomization(k.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)
 		if err != nil {
+			spin.Stop()
+			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 			return fmt.Errorf("failed to get helmreleases for kustomization %s: %w", k.Name, err)
 		}
 
 		for _, hr := range helmReleases {
 			if err := b.kubernetesManager.SuspendHelmRelease(hr.Name, hr.Namespace); err != nil {
+				spin.Stop()
+				fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 				return fmt.Errorf("failed to suspend helmrelease %s in namespace %s: %w", hr.Name, hr.Namespace, err)
 			}
 		}
@@ -560,38 +663,56 @@ func (b *BaseBlueprintHandler) Down() error {
 				Interval:      &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL},
 				RetryInterval: &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL},
 				Wait:          func() *bool { b := true; return &b }(),
+				Force:         func() *bool { b := true; return &b }(),
 				PostBuild: &blueprintv1alpha1.PostBuild{
 					SubstituteFrom: []blueprintv1alpha1.SubstituteReference{},
 				},
 			}
-			if err := b.kubernetesManager.ApplyKustomization(kubernetes.ToKubernetesKustomization(*cleanupKustomization, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)); err != nil {
+			if err := b.kubernetesManager.ApplyKustomization(b.ToKubernetesKustomization(*cleanupKustomization, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)); err != nil {
+				spin.Stop()
+				fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 				return fmt.Errorf("failed to apply cleanup kustomization for %s: %w", k.Name, err)
 			}
 			cleanupNames = append(cleanupNames, cleanupKustomization.Name)
 		}
 	}
 
-	if len(cleanupNames) > 0 {
-		if err := b.WaitForKustomizations("📐 Deploying cleanup kustomizations", cleanupNames...); err != nil {
-			return fmt.Errorf("failed waiting for cleanup kustomizations: %w", err)
-		}
-	}
-
 	for _, name := range sorted {
 		k := nameToK[name]
 		if err := b.kubernetesManager.DeleteKustomization(k.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+			spin.Stop()
+			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 			return fmt.Errorf("failed to delete kustomization %s: %w", k.Name, err)
 		}
+	}
+
+	spin.Stop()
+	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m%s - \033[32mDone\033[0m\n", spin.Suffix)
+
+	if err := b.kubernetesManager.WaitForKustomizationsDeleted("⌛️ Waiting for kustomizations to be deleted", sorted...); err != nil {
+		spin.Stop()
+		fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
+		return fmt.Errorf("failed waiting for kustomizations to be deleted: %w", err)
 	}
 
 	if len(cleanupNames) > 0 {
 		for _, cname := range cleanupNames {
 			if err := b.kubernetesManager.DeleteKustomization(cname, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+				spin.Stop()
+				fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 				return fmt.Errorf("failed to delete cleanup kustomization %s: %w", cname, err)
 			}
 		}
 
+		if err := b.kubernetesManager.WaitForKustomizationsDeleted("⌛️ Waiting for cleanup kustomizations to be deleted", cleanupNames...); err != nil {
+			spin.Stop()
+			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
+			return fmt.Errorf("failed waiting for cleanup kustomizations to be deleted: %w", err)
+		}
+
 		if err := b.deleteNamespace("system-cleanup"); err != nil {
+			spin.Stop()
+			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 			return fmt.Errorf("failed to delete system-cleanup namespace: %w", err)
 		}
 	}
@@ -883,22 +1004,34 @@ func (b *BaseBlueprintHandler) applyGitRepository(source blueprintv1alpha1.Sourc
 		sourceUrl = "https://" + sourceUrl
 	}
 
-	gitRepo := &kubernetes.GitRepository{
-		Name:      source.Name,
-		Namespace: namespace,
-		URL:       sourceUrl,
-		Interval:  constants.DEFAULT_FLUX_SOURCE_INTERVAL,
-		Timeout:   constants.DEFAULT_FLUX_SOURCE_TIMEOUT,
-		Reference: &kubernetes.GitRepositoryRef{
-			Branch: source.Ref.Branch,
-			Tag:    source.Ref.Tag,
-			SemVer: source.Ref.SemVer,
-			Commit: source.Ref.Commit,
+	gitRepo := &sourcev1.GitRepository{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "GitRepository",
+			APIVersion: "source.toolkit.fluxcd.io/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      source.Name,
+			Namespace: namespace,
+		},
+		Spec: sourcev1.GitRepositorySpec{
+			URL: sourceUrl,
+			Interval: metav1.Duration{
+				Duration: constants.DEFAULT_FLUX_SOURCE_INTERVAL,
+			},
+			Timeout: &metav1.Duration{
+				Duration: constants.DEFAULT_FLUX_SOURCE_TIMEOUT,
+			},
+			Reference: &sourcev1.GitRepositoryRef{
+				Branch: source.Ref.Branch,
+				Tag:    source.Ref.Tag,
+				SemVer: source.Ref.SemVer,
+				Commit: source.Ref.Commit,
+			},
 		},
 	}
 
 	if source.SecretName != "" {
-		gitRepo.SecretRef = &kubernetes.LocalObjectReference{
+		gitRepo.Spec.SecretRef = &meta.LocalObjectReference{
 			Name: source.SecretName,
 		}
 	}
@@ -1016,4 +1149,76 @@ func (b *BaseBlueprintHandler) calculateMaxWaitTime() time.Duration {
 	}
 
 	return maxPathTime
+}
+
+// ToKubernetesKustomization converts a blueprint kustomization to a Flux kustomization
+func (b *BaseBlueprintHandler) ToKubernetesKustomization(k blueprintv1alpha1.Kustomization, namespace string) kustomizev1.Kustomization {
+	// Convert dependsOn to Flux format
+	dependsOn := make([]meta.NamespacedObjectReference, len(k.DependsOn))
+	for i, dep := range k.DependsOn {
+		dependsOn[i] = meta.NamespacedObjectReference{
+			Name:      dep,
+			Namespace: namespace,
+		}
+	}
+
+	// Convert patches to Flux format
+	patches := make([]kustomize.Patch, len(k.Patches))
+	for i, p := range k.Patches {
+		patches[i] = kustomize.Patch{
+			Patch: p.Patch,
+			Target: &kustomize.Selector{
+				Kind: p.Target.Kind,
+				Name: p.Target.Name,
+			},
+		}
+	}
+
+	// Convert postBuild configuration
+	var postBuild *kustomizev1.PostBuild
+	if k.PostBuild != nil {
+		substituteFrom := make([]kustomizev1.SubstituteReference, len(k.PostBuild.SubstituteFrom))
+		for i, ref := range k.PostBuild.SubstituteFrom {
+			substituteFrom[i] = kustomizev1.SubstituteReference{
+				Kind:     ref.Kind,
+				Name:     ref.Name,
+				Optional: ref.Optional,
+			}
+		}
+		postBuild = &kustomizev1.PostBuild{
+			Substitute:     k.PostBuild.Substitute,
+			SubstituteFrom: substituteFrom,
+		}
+	}
+
+	interval := metav1.Duration{Duration: k.Interval.Duration}
+	retryInterval := metav1.Duration{Duration: k.RetryInterval.Duration}
+	timeout := metav1.Duration{Duration: k.Timeout.Duration}
+
+	return kustomizev1.Kustomization{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Kustomization",
+			APIVersion: "kustomize.toolkit.fluxcd.io/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      k.Name,
+			Namespace: namespace,
+		},
+		Spec: kustomizev1.KustomizationSpec{
+			SourceRef: kustomizev1.CrossNamespaceSourceReference{
+				Kind: "GitRepository",
+				Name: k.Source,
+			},
+			Path:          k.Path,
+			DependsOn:     dependsOn,
+			Interval:      interval,
+			RetryInterval: &retryInterval,
+			Timeout:       &timeout,
+			Patches:       patches,
+			Force:         *k.Force,
+			PostBuild:     postBuild,
+			Components:    k.Components,
+			Wait:          *k.Wait,
+		},
+	}
 }

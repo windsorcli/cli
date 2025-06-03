@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/kubernetes"
 )
@@ -32,7 +33,7 @@ func TestBlueprintHandler_resolveComponentSources(t *testing.T) {
 
 		// Mock Kubernetes manager
 		mockK8sManager := &kubernetes.MockKubernetesManager{}
-		mockK8sManager.ApplyGitRepositoryFunc = func(repo *kubernetes.GitRepository) error {
+		mockK8sManager.ApplyGitRepositoryFunc = func(repo *sourcev1.GitRepository) error {
 			return nil
 		}
 		handler.(*BaseBlueprintHandler).kubernetesManager = mockK8sManager
@@ -64,7 +65,7 @@ func TestBlueprintHandler_resolveComponentSources(t *testing.T) {
 
 		// Mock Kubernetes manager
 		mockK8sManager := &kubernetes.MockKubernetesManager{}
-		mockK8sManager.ApplyGitRepositoryFunc = func(repo *kubernetes.GitRepository) error {
+		mockK8sManager.ApplyGitRepositoryFunc = func(repo *sourcev1.GitRepository) error {
 			return nil
 		}
 		handler.(*BaseBlueprintHandler).kubernetesManager = mockK8sManager
@@ -96,7 +97,7 @@ func TestBlueprintHandler_resolveComponentSources(t *testing.T) {
 
 		// Mock Kubernetes manager
 		mockK8sManager := &kubernetes.MockKubernetesManager{}
-		mockK8sManager.ApplyGitRepositoryFunc = func(repo *kubernetes.GitRepository) error {
+		mockK8sManager.ApplyGitRepositoryFunc = func(repo *sourcev1.GitRepository) error {
 			return nil
 		}
 		handler.(*BaseBlueprintHandler).kubernetesManager = mockK8sManager

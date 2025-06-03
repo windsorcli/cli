@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/aws/smithy-go/ptr"
+	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/constants"
@@ -1540,13 +1542,13 @@ func TestBlueprintHandler_Install(t *testing.T) {
 
 		// Mock Kubernetes manager
 		mockK8sManager := &kubernetes.MockKubernetesManager{}
-		mockK8sManager.ApplyGitRepositoryFunc = func(repo *kubernetes.GitRepository) error {
+		mockK8sManager.ApplyGitRepositoryFunc = func(repo *sourcev1.GitRepository) error {
 			return nil
 		}
 		mockK8sManager.ApplyConfigMapFunc = func(name, namespace string, data map[string]string) error {
 			return nil
 		}
-		mockK8sManager.ApplyKustomizationFunc = func(kustomization kubernetes.Kustomization) error {
+		mockK8sManager.ApplyKustomizationFunc = func(kustomization kustomizev1.Kustomization) error {
 			return nil
 		}
 		handler.(*BaseBlueprintHandler).kubernetesManager = mockK8sManager
@@ -1591,13 +1593,13 @@ func TestBlueprintHandler_Install(t *testing.T) {
 
 		// Mock Kubernetes manager
 		mockK8sManager := &kubernetes.MockKubernetesManager{}
-		mockK8sManager.ApplyGitRepositoryFunc = func(repo *kubernetes.GitRepository) error {
+		mockK8sManager.ApplyGitRepositoryFunc = func(repo *sourcev1.GitRepository) error {
 			return nil
 		}
 		mockK8sManager.ApplyConfigMapFunc = func(name, namespace string, data map[string]string) error {
 			return nil
 		}
-		mockK8sManager.ApplyKustomizationFunc = func(kustomization kubernetes.Kustomization) error {
+		mockK8sManager.ApplyKustomizationFunc = func(kustomization kustomizev1.Kustomization) error {
 			return nil
 		}
 		handler.(*BaseBlueprintHandler).kubernetesManager = mockK8sManager
@@ -1634,13 +1636,13 @@ func TestBlueprintHandler_Install(t *testing.T) {
 
 		// Mock Kubernetes manager
 		mockK8sManager := &kubernetes.MockKubernetesManager{}
-		mockK8sManager.ApplyGitRepositoryFunc = func(repo *kubernetes.GitRepository) error {
+		mockK8sManager.ApplyGitRepositoryFunc = func(repo *sourcev1.GitRepository) error {
 			return nil
 		}
 		mockK8sManager.ApplyConfigMapFunc = func(name, namespace string, data map[string]string) error {
 			return nil
 		}
-		mockK8sManager.ApplyKustomizationFunc = func(kustomization kubernetes.Kustomization) error {
+		mockK8sManager.ApplyKustomizationFunc = func(kustomization kustomizev1.Kustomization) error {
 			return nil
 		}
 		handler.(*BaseBlueprintHandler).kubernetesManager = mockK8sManager
@@ -2172,8 +2174,8 @@ func TestBaseBlueprintHandler_Down(t *testing.T) {
 
 		// Mock Kubernetes manager
 		mockK8sManager := &kubernetes.MockKubernetesManager{}
-		var appliedKustomizations []kubernetes.Kustomization
-		mockK8sManager.ApplyKustomizationFunc = func(kustomization kubernetes.Kustomization) error {
+		var appliedKustomizations []kustomizev1.Kustomization
+		mockK8sManager.ApplyKustomizationFunc = func(kustomization kustomizev1.Kustomization) error {
 			appliedKustomizations = append(appliedKustomizations, kustomization)
 			return nil
 		}
@@ -2182,24 +2184,36 @@ func TestBaseBlueprintHandler_Down(t *testing.T) {
 		}
 		handler.(*BaseBlueprintHandler).kubernetesManager = mockK8sManager
 
-		expectedKustomizations := []blueprintv1alpha1.Kustomization{
+		inputKustomizations := []blueprintv1alpha1.Kustomization{
 			{
-				Name:      "kustomization1",
-				Cleanup:   []string{"cleanup1"},
-				DependsOn: []string{"dependency1"},
+				Name:          "kustomization1",
+				Cleanup:       []string{"cleanup1"},
+				DependsOn:     []string{"dependency1"},
+				Force:         boolPtr(true),
+				Interval:      &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL},
+				RetryInterval: &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL},
+				Timeout:       &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT},
 			},
 			{
-				Name:      "kustomization2",
-				Cleanup:   []string{"cleanup2"},
-				DependsOn: []string{"dependency2"},
+				Name:          "kustomization2",
+				Cleanup:       []string{"cleanup2"},
+				DependsOn:     []string{"dependency2"},
+				Force:         boolPtr(true),
+				Interval:      &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL},
+				RetryInterval: &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL},
+				Timeout:       &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT},
 			},
 			{
-				Name:      "kustomization3",
-				Cleanup:   []string{"cleanup3"},
-				DependsOn: []string{"dependency3"},
+				Name:          "kustomization3",
+				Cleanup:       []string{"cleanup3"},
+				DependsOn:     []string{"dependency3"},
+				Force:         boolPtr(true),
+				Interval:      &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL},
+				RetryInterval: &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL},
+				Timeout:       &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT},
 			},
 		}
-		handler.SetKustomizations(expectedKustomizations)
+		handler.SetKustomizations(inputKustomizations)
 
 		// When running down
 		err := handler.Down()
@@ -2221,7 +2235,7 @@ func TestBaseBlueprintHandler_Down(t *testing.T) {
 
 		// Mock Kubernetes manager
 		mockK8sManager := &kubernetes.MockKubernetesManager{}
-		mockK8sManager.ApplyKustomizationFunc = func(kustomization kubernetes.Kustomization) error {
+		mockK8sManager.ApplyKustomizationFunc = func(kustomization kustomizev1.Kustomization) error {
 			return fmt.Errorf("apply error")
 		}
 		mockK8sManager.DeleteKustomizationFunc = func(name, namespace string) error {
@@ -2229,14 +2243,18 @@ func TestBaseBlueprintHandler_Down(t *testing.T) {
 		}
 		handler.(*BaseBlueprintHandler).kubernetesManager = mockK8sManager
 
-		expectedKustomizations := []blueprintv1alpha1.Kustomization{
+		inputKustomizations := []blueprintv1alpha1.Kustomization{
 			{
-				Name:      "kustomization1",
-				Cleanup:   []string{"cleanup1"},
-				DependsOn: []string{"dependency1"},
+				Name:          "kustomization1",
+				Cleanup:       []string{"cleanup1"},
+				DependsOn:     []string{"dependency1"},
+				Force:         boolPtr(true),
+				Interval:      &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL},
+				RetryInterval: &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL},
+				Timeout:       &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT},
 			},
 		}
-		handler.SetKustomizations(expectedKustomizations)
+		handler.SetKustomizations(inputKustomizations)
 
 		// When running down
 		err := handler.Down()
@@ -2260,8 +2278,12 @@ func TestBaseBlueprintHandler_Down(t *testing.T) {
 
 		expectedKustomizations := []blueprintv1alpha1.Kustomization{
 			{
-				Name:      "kustomization1",
-				DependsOn: []string{"dependency1"},
+				Name:          "kustomization1",
+				DependsOn:     []string{"dependency1"},
+				Force:         boolPtr(true),
+				Interval:      &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL},
+				RetryInterval: &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL},
+				Timeout:       &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT},
 			},
 		}
 		handler.SetKustomizations(expectedKustomizations)
@@ -2275,3 +2297,6 @@ func TestBaseBlueprintHandler_Down(t *testing.T) {
 		}
 	})
 }
+
+// boolPtr returns a pointer to the given bool value.
+func boolPtr(b bool) *bool { return &b }

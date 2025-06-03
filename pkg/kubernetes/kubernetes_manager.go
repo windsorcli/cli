@@ -13,101 +13,22 @@ import (
 	"time"
 
 	"github.com/briandowns/spinner"
+	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
-	"github.com/fluxcd/pkg/apis/meta"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
-	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	unstructured "k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
-
-// =============================================================================
-// Types
-// =============================================================================
-
-// KubeRequestConfig defines configuration for Kubernetes API requests
-type KubeRequestConfig struct {
-	Method    string
-	ApiPath   string
-	Namespace string
-	Resource  string
-	Name      string
-	Body      any
-	Response  runtime.Object
-	Headers   map[string]string
-}
-
-// GitRepository represents a Flux GitRepository resource
-type GitRepository struct {
-	Name      string
-	Namespace string
-	URL       string
-	Interval  time.Duration
-	Timeout   time.Duration
-	Reference *GitRepositoryRef
-	SecretRef *LocalObjectReference
-}
-
-type GitRepositoryRef struct {
-	Branch string
-	Tag    string
-	SemVer string
-	Commit string
-}
-
-type LocalObjectReference struct {
-	Name string
-}
-
-// Kustomization represents a Flux Kustomization resource
-type Patch struct {
-	Patch  string       `json:"patch" yaml:"patch"`
-	Target *PatchTarget `json:"target,omitempty" yaml:"target,omitempty"`
-}
-
-type PatchTarget struct {
-	Kind string `json:"kind,omitempty" yaml:"kind,omitempty"`
-	Name string `json:"name,omitempty" yaml:"name,omitempty"`
-}
-
-type Kustomization struct {
-	Name       string
-	Namespace  string
-	Source     string
-	Path       string
-	DependsOn  []string
-	Force      bool
-	Components []string
-	Cleanup    []string
-	Patches    []Patch
-	PostBuild  *kustomizev1.PostBuild
-}
-
-// HelmRelease represents a Flux HelmRelease resource
-type HelmRelease struct {
-	Name      string
-	Namespace string
-}
-
-// ResourceOperationConfig defines configuration for resource operations
-// Matches blueprint ResourceOperationConfig
-type ResourceOperationConfig struct {
-	ApiPath              string
-	Namespace            string
-	ResourceName         string
-	ResourceInstanceName string
-	ResourceObject       runtime.Object
-	ResourceType         func() runtime.Object
-}
 
 // =============================================================================
 // Interfaces
@@ -116,21 +37,24 @@ type ResourceOperationConfig struct {
 // KubernetesManager defines methods for Kubernetes resource management
 type KubernetesManager interface {
 	Initialize() error
-	ApplyKustomization(kustomization Kustomization) error
+	InitializeClient() error
+	ApplyKustomization(kustomization kustomizev1.Kustomization) error
 	DeleteKustomization(name, namespace string) error
 	WaitForKustomizations(message string, names ...string) error
-	GetKustomizationStatus(names []string) (map[string]bool, error)
 	CreateNamespace(name string) error
 	DeleteNamespace(name string) error
 	ApplyConfigMap(name, namespace string, data map[string]string) error
-	GetHelmReleasesForKustomization(name, namespace string) ([]HelmRelease, error)
+	GetHelmReleasesForKustomization(name, namespace string) ([]helmv2.HelmRelease, error)
 	SuspendKustomization(name, namespace string) error
 	SuspendHelmRelease(name, namespace string) error
-	ApplyGitRepository(repo *GitRepository) error
+	ApplyGitRepository(repo *sourcev1.GitRepository) error
+	WaitForKustomizationsDeleted(message string, names ...string) error
+	CheckGitRepositoryStatus() error
+	GetKustomizationStatus(names []string) (map[string]bool, error)
 }
 
 // =============================================================================
-// Base Implementation
+// Constructor
 // =============================================================================
 
 // BaseKubernetesManager implements KubernetesManager interface
@@ -139,6 +63,7 @@ type BaseKubernetesManager struct {
 	shell         shell.Shell
 	configHandler config.ConfigHandler
 	shims         *Shims
+	client        dynamic.Interface
 
 	kustomizationWaitPollInterval time.Duration
 	kustomizationReconcileTimeout time.Duration
@@ -177,337 +102,13 @@ func (k *BaseKubernetesManager) Initialize() error {
 	return nil
 }
 
-// ApplyKustomization creates or updates a Kustomization resource in the cluster.
-// Matches blueprint logic: get-or-create-or-update, all fields, context/source resolution.
-func (k *BaseKubernetesManager) ApplyKustomization(kustomization Kustomization) error {
-	// Source resolution
-	if kustomization.Source == "" {
-		if k.configHandler != nil {
-			kustomization.Source = k.configHandler.GetContext()
-		}
+// InitializeClient sets up the Kubernetes client connection
+func (k *BaseKubernetesManager) InitializeClient() error {
+	if k.client != nil {
+		return nil
 	}
 
-	interval := 2 * time.Minute
-	timeout := 5 * time.Minute
-	retryInterval := 30 * time.Second
-	prune := true
-	wait := true
-	suspend := false
-	dependsOn := []map[string]interface{}{}
-	for _, dep := range kustomization.DependsOn {
-		dependsOn = append(dependsOn, map[string]interface{}{"name": dep})
-	}
-
-	// Local struct matching blueprint and Flux YAML
-	kustomizeObj := map[string]interface{}{
-		"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
-		"kind":       "Kustomization",
-		"metadata": map[string]interface{}{
-			"name":      kustomization.Name,
-			"namespace": kustomization.Namespace,
-		},
-		"spec": map[string]interface{}{
-			"interval":      interval.String(),
-			"timeout":       timeout.String(),
-			"retryInterval": retryInterval.String(),
-			"path":          kustomization.Path,
-			"prune":         prune,
-			"wait":          wait,
-			"suspend":       suspend,
-			"dependsOn":     dependsOn,
-			"sourceRef": map[string]interface{}{
-				"kind":      "GitRepository",
-				"name":      kustomization.Source,
-				"namespace": kustomization.Namespace,
-			},
-			"patches":    kustomization.Patches,
-			"components": kustomization.Components,
-			"postBuild":  kustomization.PostBuild,
-		},
-	}
-
-	config := ResourceOperationConfig{
-		ApiPath:              "/apis/kustomize.toolkit.fluxcd.io/v1",
-		Namespace:            kustomization.Namespace,
-		ResourceName:         "kustomizations",
-		ResourceInstanceName: kustomization.Name,
-		ResourceObject:       &unstructured.Unstructured{Object: kustomizeObj},
-		ResourceType: func() runtime.Object {
-			return &unstructured.Unstructured{}
-		},
-	}
-
-	return kubeClientResourceOperation(os.Getenv("KUBECONFIG"), config)
-}
-
-// DeleteKustomization removes a Kustomization resource
-func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) error {
-	return kubeClient(os.Getenv("KUBECONFIG"), KubeRequestConfig{
-		Method:    "DELETE",
-		ApiPath:   "/apis/kustomize.toolkit.fluxcd.io/v1",
-		Namespace: namespace,
-		Resource:  "kustomizations",
-		Name:      name,
-	})
-}
-
-// WaitForKustomizations waits for kustomizations to be ready
-func (k *BaseKubernetesManager) WaitForKustomizations(message string, names ...string) error {
-	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
-	spin.Suffix = " " + message
-	spin.Start()
-	defer spin.Stop()
-
-	timeout := time.After(k.kustomizationReconcileTimeout)
-	ticker := time.NewTicker(k.kustomizationWaitPollInterval)
-	defer ticker.Stop()
-
-	consecutiveFailures := 0
-	for {
-		select {
-		case <-timeout:
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - \033[31mFailed\033[0m\n", message)
-			return fmt.Errorf("timeout waiting for kustomizations")
-		case <-ticker.C:
-			kubeconfig := os.Getenv("KUBECONFIG")
-			if err := checkGitRepositoryStatus(kubeconfig); err != nil {
-				consecutiveFailures++
-				if consecutiveFailures >= 3 { // DEFAULT_KUSTOMIZATION_WAIT_MAX_FAILURES
-					spin.Stop()
-					fmt.Fprintf(os.Stderr, "\033[31m✗ %s - \033[31mFailed\033[0m\n", message)
-					return fmt.Errorf("git repository error after %d consecutive failures: %w", consecutiveFailures, err)
-				}
-				continue
-			}
-			status, err := k.GetKustomizationStatus(names)
-			if err != nil {
-				consecutiveFailures++
-				if consecutiveFailures >= 3 { // DEFAULT_KUSTOMIZATION_WAIT_MAX_FAILURES
-					spin.Stop()
-					fmt.Fprintf(os.Stderr, "\033[31m✗ %s - \033[31mFailed\033[0m\n", message)
-					return fmt.Errorf("kustomization error after %d consecutive failures: %w", consecutiveFailures, err)
-				}
-				continue
-			}
-
-			allReady := true
-			for _, ready := range status {
-				if !ready {
-					allReady = false
-					break
-				}
-			}
-
-			if allReady {
-				spin.Stop()
-				fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
-				return nil
-			}
-
-			// Reset consecutive failures on successful check
-			consecutiveFailures = 0
-		}
-	}
-}
-
-// GetKustomizationStatus checks the status of kustomizations
-func (k *BaseKubernetesManager) GetKustomizationStatus(names []string) (map[string]bool, error) {
-	return checkKustomizationStatus(os.Getenv("KUBECONFIG"), names)
-}
-
-// CreateNamespace creates a new namespace
-func (k *BaseKubernetesManager) CreateNamespace(name string) error {
-	ns := &corev1.Namespace{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "v1",
-			Kind:       "Namespace",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "windsor-cli",
-			},
-		},
-	}
-
-	return kubeClient(os.Getenv("KUBECONFIG"), KubeRequestConfig{
-		Method:   "POST",
-		ApiPath:  "/api/v1",
-		Resource: "namespaces",
-		Body:     ns,
-	})
-}
-
-// DeleteNamespace removes a namespace
-func (k *BaseKubernetesManager) DeleteNamespace(name string) error {
-	return kubeClient(os.Getenv("KUBECONFIG"), KubeRequestConfig{
-		Method:   "DELETE",
-		ApiPath:  "/api/v1",
-		Resource: "namespaces",
-		Name:     name,
-	})
-}
-
-// ApplyConfigMap creates or updates a ConfigMap
-func (k *BaseKubernetesManager) ApplyConfigMap(name, namespace string, data map[string]string) error {
-	configMap := &corev1.ConfigMap{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "v1",
-			Kind:       "ConfigMap",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-		},
-		Data: data,
-	}
-
-	return kubeClientResourceOperation(os.Getenv("KUBECONFIG"), ResourceOperationConfig{
-		ApiPath:              "/api/v1",
-		Namespace:            namespace,
-		ResourceName:         "configmaps",
-		ResourceInstanceName: name,
-		ResourceObject:       configMap,
-		ResourceType: func() runtime.Object {
-			return &corev1.ConfigMap{}
-		},
-	})
-}
-
-// GetHelmReleasesForKustomization gets HelmReleases associated with a Kustomization
-func (k *BaseKubernetesManager) GetHelmReleasesForKustomization(name, namespace string) ([]HelmRelease, error) {
-	var kustomization kustomizev1.Kustomization
-
-	err := kubeClient(os.Getenv("KUBECONFIG"), KubeRequestConfig{
-		Method:    "GET",
-		ApiPath:   "/apis/kustomize.toolkit.fluxcd.io/v1",
-		Namespace: namespace,
-		Resource:  "kustomizations",
-		Name:      name,
-		Response:  &kustomization,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get kustomization: %w", err)
-	}
-
-	var helmReleases []HelmRelease
-	if kustomization.Status.Inventory == nil {
-		return helmReleases, nil
-	}
-
-	for _, entry := range kustomization.Status.Inventory.Entries {
-		parts := strings.Split(entry.ID, "_")
-		if len(parts) >= 4 && parts[2] == "helm.toolkit.fluxcd.io" && parts[3] == "HelmRelease" {
-			helmReleases = append(helmReleases, HelmRelease{
-				Name:      parts[1],
-				Namespace: parts[0],
-			})
-		}
-	}
-
-	return helmReleases, nil
-}
-
-// SuspendKustomization suspends a Kustomization
-func (k *BaseKubernetesManager) SuspendKustomization(name, namespace string) error {
-	patch := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"spec": map[string]interface{}{
-				"suspend": true,
-			},
-		},
-	}
-
-	return kubeClient(os.Getenv("KUBECONFIG"), KubeRequestConfig{
-		Method:    "PATCH",
-		ApiPath:   "/apis/kustomize.toolkit.fluxcd.io/v1",
-		Namespace: namespace,
-		Resource:  "kustomizations",
-		Name:      name,
-		Body:      patch,
-		Headers: map[string]string{
-			"Content-Type": "application/merge-patch+json",
-		},
-	})
-}
-
-// SuspendHelmRelease suspends a Flux HelmRelease by setting its suspend field to true.
-// This prevents the helmrelease from reconciling during teardown.
-func (k *BaseKubernetesManager) SuspendHelmRelease(name, namespace string) error {
-	patch := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"spec": map[string]interface{}{
-				"suspend": true,
-			},
-		},
-	}
-
-	return kubeClient(os.Getenv("KUBECONFIG"), KubeRequestConfig{
-		Method:    "PATCH",
-		ApiPath:   "/apis/helm.toolkit.fluxcd.io/v2",
-		Namespace: namespace,
-		Resource:  "helmreleases",
-		Name:      name,
-		Body:      patch,
-		Headers: map[string]string{
-			"Content-Type": "application/merge-patch+json",
-		},
-	})
-}
-
-// ApplyGitRepository creates or updates a GitRepository resource in the cluster
-func (k *BaseKubernetesManager) ApplyGitRepository(repo *GitRepository) error {
-	gitRepo := &sourcev1.GitRepository{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "source.toolkit.fluxcd.io/v1",
-			Kind:       "GitRepository",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      repo.Name,
-			Namespace: repo.Namespace,
-		},
-		Spec: sourcev1.GitRepositorySpec{
-			URL: repo.URL,
-			Interval: metav1.Duration{
-				Duration: repo.Interval,
-			},
-			Timeout: &metav1.Duration{
-				Duration: repo.Timeout,
-			},
-			Reference: &sourcev1.GitRepositoryRef{
-				Branch: repo.Reference.Branch,
-				Tag:    repo.Reference.Tag,
-				SemVer: repo.Reference.SemVer,
-				Commit: repo.Reference.Commit,
-			},
-		},
-	}
-
-	if repo.SecretRef != nil {
-		gitRepo.Spec.SecretRef = &meta.LocalObjectReference{
-			Name: repo.SecretRef.Name,
-		}
-	}
-
-	return kubeClientResourceOperation(os.Getenv("KUBECONFIG"), ResourceOperationConfig{
-		ApiPath:              "/apis/source.toolkit.fluxcd.io/v1",
-		Namespace:            repo.Namespace,
-		ResourceName:         "gitrepositories",
-		ResourceInstanceName: repo.Name,
-		ResourceObject:       gitRepo,
-		ResourceType: func() runtime.Object {
-			return &sourcev1.GitRepository{}
-		},
-	})
-}
-
-// =============================================================================
-// Private Methods
-// =============================================================================
-
-// kubeClient performs a Kubernetes API request using the provided configuration
-func kubeClient(kubeconfigPath string, config KubeRequestConfig) error {
+	kubeconfigPath := os.Getenv("KUBECONFIG")
 	var kubeConfig *rest.Config
 	var err error
 
@@ -521,110 +122,25 @@ func kubeClient(kubeconfigPath string, config KubeRequestConfig) error {
 		return fmt.Errorf("failed to create Kubernetes config: %w", err)
 	}
 
-	dynamicClient, err := dynamic.NewForConfig(kubeConfig)
+	k.client, err = dynamic.NewForConfig(kubeConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create dynamic client: %w", err)
-	}
-
-	// Parse API path to get group, version, resource
-	parts := strings.Split(strings.TrimPrefix(config.ApiPath, "/"), "/")
-	if len(parts) < 2 {
-		return fmt.Errorf("invalid API path: %s", config.ApiPath)
-	}
-
-	var gvr schema.GroupVersionResource
-	if parts[0] == "api" {
-		// Core API group
-		gvr = schema.GroupVersionResource{
-			Group:    "",
-			Version:  parts[1],
-			Resource: config.Resource,
-		}
-	} else if parts[0] == "apis" {
-		// Custom resource
-		if len(parts) < 3 {
-			return fmt.Errorf("invalid API path for custom resource: %s", config.ApiPath)
-		}
-		gvr = schema.GroupVersionResource{
-			Group:    parts[1],
-			Version:  parts[2],
-			Resource: config.Resource,
-		}
-	} else {
-		return fmt.Errorf("invalid API path format: %s", config.ApiPath)
-	}
-
-	var resourceClient dynamic.ResourceInterface
-	if config.Namespace != "" {
-		resourceClient = dynamicClient.Resource(gvr).Namespace(config.Namespace)
-	} else {
-		resourceClient = dynamicClient.Resource(gvr)
-	}
-
-	switch config.Method {
-	case "GET":
-		if config.Name != "" {
-			obj, err := resourceClient.Get(context.Background(), config.Name, metav1.GetOptions{})
-			if err != nil {
-				return err
-			}
-			if config.Response != nil {
-				return runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), config.Response)
-			}
-		} else {
-			list, err := resourceClient.List(context.Background(), metav1.ListOptions{})
-			if err != nil {
-				return err
-			}
-			if config.Response != nil {
-				return runtime.DefaultUnstructuredConverter.FromUnstructured(list.UnstructuredContent(), config.Response)
-			}
-		}
-	case "POST":
-		unstructuredMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(config.Body)
-		if err != nil {
-			return fmt.Errorf("failed to convert object to unstructured: %w", err)
-		}
-		_, err = resourceClient.Create(context.Background(), &unstructured.Unstructured{Object: unstructuredMap}, metav1.CreateOptions{})
-		return err
-	case "DELETE":
-		return resourceClient.Delete(context.Background(), config.Name, metav1.DeleteOptions{})
-	case "PATCH":
-		unstructured, err := runtime.DefaultUnstructuredConverter.ToUnstructured(config.Body)
-		if err != nil {
-			return fmt.Errorf("failed to convert object to unstructured: %w", err)
-		}
-		patchBytes, err := json.Marshal(unstructured)
-		if err != nil {
-			return fmt.Errorf("failed to marshal patch: %w", err)
-		}
-		_, err = resourceClient.Patch(context.Background(), config.Name, "application/merge-patch+json", patchBytes, metav1.PatchOptions{})
-		return err
-	default:
-		return fmt.Errorf("unsupported method: %s", config.Method)
 	}
 
 	return nil
 }
 
-// checkKustomizationStatus checks the status of kustomizations
-func checkKustomizationStatus(kubeconfigPath string, names []string) (map[string]bool, error) {
-	var kubeConfig *rest.Config
-	var err error
-
-	if kubeconfigPath != "" {
-		kubeConfig, err = clientcmd.BuildConfigFromFlags("", kubeconfigPath)
-	} else {
-		kubeConfig, err = rest.InClusterConfig()
-	}
-
+// ApplyKustomization creates or updates a Kustomization resource using SSA
+func (k *BaseKubernetesManager) ApplyKustomization(kustomization kustomizev1.Kustomization) error {
+	obj := &unstructured.Unstructured{}
+	unstructuredMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&kustomization)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Kubernetes config: %w", err)
+		return fmt.Errorf("failed to convert kustomization to unstructured: %w", err)
 	}
+	obj.Object = unstructuredMap
 
-	dynamicClient, err := dynamic.NewForConfig(kubeConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create dynamic client: %w", err)
+	if err := validateFields(obj); err != nil {
+		return fmt.Errorf("invalid kustomization fields: %w", err)
 	}
 
 	gvr := schema.GroupVersionResource{
@@ -633,7 +149,381 @@ func checkKustomizationStatus(kubeconfigPath string, names []string) (map[string
 		Resource: "kustomizations",
 	}
 
-	objList, err := dynamicClient.Resource(gvr).Namespace("flux-system").
+	opts := metav1.ApplyOptions{
+		FieldManager: "windsor-cli",
+		Force:        false,
+	}
+
+	return k.applyWithRetry(gvr, obj, opts)
+}
+
+// DeleteKustomization removes a Kustomization resource
+func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) error {
+	gvr := schema.GroupVersionResource{
+		Group:    "kustomize.toolkit.fluxcd.io",
+		Version:  "v1",
+		Resource: "kustomizations",
+	}
+
+	return k.client.Resource(gvr).Namespace(namespace).
+		Delete(context.Background(), name, metav1.DeleteOptions{})
+}
+
+// WaitForKustomizations waits for kustomizations to be ready
+func (k *BaseKubernetesManager) WaitForKustomizations(message string, names ...string) error {
+	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+	spin.Suffix = " " + message
+	spin.Start()
+	defer spin.Stop()
+
+	timeout := time.After(k.kustomizationReconcileTimeout)
+	ticker := time.NewTicker(k.kustomizationWaitPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeout:
+			spin.Stop()
+			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
+			return fmt.Errorf("timeout waiting for kustomizations")
+		case <-ticker.C:
+			allReady := true
+			for _, name := range names {
+				gvr := schema.GroupVersionResource{
+					Group:    "kustomize.toolkit.fluxcd.io",
+					Version:  "v1",
+					Resource: "kustomizations",
+				}
+				obj, err := k.client.Resource(gvr).Namespace("flux-system").Get(context.Background(), name, metav1.GetOptions{})
+				if err != nil {
+					allReady = false
+					break
+				}
+				var kustomizationObj map[string]interface{}
+				if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), &kustomizationObj); err != nil {
+					allReady = false
+					break
+				}
+				status, ok := kustomizationObj["status"].(map[string]interface{})
+				if !ok {
+					allReady = false
+					break
+				}
+				conditions, ok := status["conditions"].([]interface{})
+				if !ok {
+					allReady = false
+					break
+				}
+				ready := false
+				for _, cond := range conditions {
+					condMap, ok := cond.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					if condMap["type"] == "Ready" && condMap["status"] == "True" {
+						ready = true
+						break
+					}
+				}
+				if !ready {
+					allReady = false
+					break
+				}
+			}
+			if allReady {
+				spin.Stop()
+				fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m%s - Done\n", spin.Suffix)
+				return nil
+			}
+		}
+	}
+}
+
+// CreateNamespace creates a new namespace
+func (k *BaseKubernetesManager) CreateNamespace(name string) error {
+	obj := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "Namespace",
+			"metadata": map[string]any{
+				"name": name,
+				"labels": map[string]any{
+					"app.kubernetes.io/managed-by": "windsor-cli",
+				},
+			},
+		},
+	}
+
+	gvr := schema.GroupVersionResource{
+		Group:    "",
+		Version:  "v1",
+		Resource: "namespaces",
+	}
+
+	opts := metav1.ApplyOptions{
+		FieldManager: "windsor-cli",
+		Force:        false,
+	}
+
+	return k.applyWithRetry(gvr, obj, opts)
+}
+
+// DeleteNamespace removes a namespace
+func (k *BaseKubernetesManager) DeleteNamespace(name string) error {
+	gvr := schema.GroupVersionResource{
+		Group:    "",
+		Version:  "v1",
+		Resource: "namespaces",
+	}
+
+	return k.client.Resource(gvr).
+		Delete(context.Background(), name, metav1.DeleteOptions{})
+}
+
+// ApplyConfigMap creates or updates a ConfigMap using SSA
+func (k *BaseKubernetesManager) ApplyConfigMap(name, namespace string, data map[string]string) error {
+	obj := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]any{
+				"name":      name,
+				"namespace": namespace,
+			},
+			"data": data,
+		},
+	}
+
+	if err := validateFields(obj); err != nil {
+		return fmt.Errorf("invalid configmap fields: %w", err)
+	}
+
+	gvr := schema.GroupVersionResource{
+		Group:    "",
+		Version:  "v1",
+		Resource: "configmaps",
+	}
+
+	existing, err := k.client.Resource(gvr).Namespace(namespace).
+		Get(context.Background(), name, metav1.GetOptions{})
+	if err == nil && isImmutableConfigMap(existing) {
+		if err := k.client.Resource(gvr).Namespace(namespace).
+			Delete(context.Background(), name, metav1.DeleteOptions{}); err != nil {
+			return fmt.Errorf("failed to delete immutable configmap: %w", err)
+		}
+		time.Sleep(time.Second)
+	}
+
+	opts := metav1.ApplyOptions{
+		FieldManager: "windsor-cli",
+		Force:        false,
+	}
+
+	return k.applyWithRetry(gvr, obj, opts)
+}
+
+// GetHelmReleasesForKustomization gets HelmReleases associated with a Kustomization
+func (k *BaseKubernetesManager) GetHelmReleasesForKustomization(name, namespace string) ([]helmv2.HelmRelease, error) {
+	gvr := schema.GroupVersionResource{
+		Group:    "kustomize.toolkit.fluxcd.io",
+		Version:  "v1",
+		Resource: "kustomizations",
+	}
+
+	obj, err := k.client.Resource(gvr).Namespace(namespace).
+		Get(context.Background(), name, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get kustomization: %w", err)
+	}
+
+	var kustomization kustomizev1.Kustomization
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), &kustomization); err != nil {
+		return nil, fmt.Errorf("failed to convert kustomization: %w", err)
+	}
+
+	var helmReleases []helmv2.HelmRelease
+	if kustomization.Status.Inventory == nil {
+		return helmReleases, nil
+	}
+
+	for _, entry := range kustomization.Status.Inventory.Entries {
+		parts := strings.Split(entry.ID, "_")
+		if len(parts) >= 4 && parts[2] == "helm.toolkit.fluxcd.io" && parts[3] == "HelmRelease" {
+			helmRelease, err := k.getHelmRelease(parts[1], parts[0])
+			if err != nil {
+				return nil, err
+			}
+			helmReleases = append(helmReleases, *helmRelease)
+		}
+	}
+
+	return helmReleases, nil
+}
+
+// SuspendKustomization suspends a Kustomization using a strategic merge patch
+func (k *BaseKubernetesManager) SuspendKustomization(name, namespace string) error {
+	gvr := schema.GroupVersionResource{
+		Group:    "kustomize.toolkit.fluxcd.io",
+		Version:  "v1",
+		Resource: "kustomizations",
+	}
+
+	patch := map[string]any{
+		"spec": map[string]any{
+			"suspend": true,
+		},
+	}
+
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		return fmt.Errorf("failed to marshal patch: %w", err)
+	}
+
+	_, err = k.client.Resource(gvr).Namespace(namespace).
+		Patch(context.Background(), name, types.MergePatchType, patchBytes, metav1.PatchOptions{})
+	return err
+}
+
+// SuspendHelmRelease suspends a Flux HelmRelease using SSA
+func (k *BaseKubernetesManager) SuspendHelmRelease(name, namespace string) error {
+	obj := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "helm.toolkit.fluxcd.io/v2",
+			"kind":       "HelmRelease",
+			"metadata": map[string]any{
+				"name":      name,
+				"namespace": namespace,
+			},
+			"spec": map[string]any{
+				"suspend": true,
+			},
+		},
+	}
+
+	gvr := schema.GroupVersionResource{
+		Group:    "helm.toolkit.fluxcd.io",
+		Version:  "v2",
+		Resource: "helmreleases",
+	}
+
+	opts := metav1.ApplyOptions{
+		FieldManager: "windsor-cli",
+		Force:        false,
+	}
+
+	return k.applyWithRetry(gvr, obj, opts)
+}
+
+// ApplyGitRepository creates or updates a GitRepository resource using SSA
+func (k *BaseKubernetesManager) ApplyGitRepository(repo *sourcev1.GitRepository) error {
+	obj := &unstructured.Unstructured{}
+	unstructuredMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(repo)
+	if err != nil {
+		return fmt.Errorf("failed to convert gitrepository to unstructured: %w", err)
+	}
+	obj.Object = unstructuredMap
+
+	if err := validateFields(obj); err != nil {
+		return fmt.Errorf("invalid gitrepository fields: %w", err)
+	}
+
+	gvr := schema.GroupVersionResource{
+		Group:    "source.toolkit.fluxcd.io",
+		Version:  "v1",
+		Resource: "gitrepositories",
+	}
+
+	opts := metav1.ApplyOptions{
+		FieldManager: "windsor-cli",
+		Force:        false,
+	}
+
+	return k.applyWithRetry(gvr, obj, opts)
+}
+
+// WaitForKustomizationsDeleted waits for the specified kustomizations to be deleted.
+func (k *BaseKubernetesManager) WaitForKustomizationsDeleted(message string, names ...string) error {
+	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+	spin.Suffix = " " + message
+	spin.Start()
+	defer spin.Stop()
+
+	timeout := time.After(k.kustomizationReconcileTimeout)
+	ticker := time.NewTicker(k.kustomizationWaitPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeout:
+			spin.Stop()
+			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
+			return fmt.Errorf("timeout waiting for kustomizations to be deleted")
+		case <-ticker.C:
+			allDeleted := true
+			for _, name := range names {
+				_, err := k.client.Resource(schema.GroupVersionResource{
+					Group:    "kustomize.toolkit.fluxcd.io",
+					Version:  "v1",
+					Resource: "kustomizations",
+				}).Namespace("flux-system").Get(context.Background(), name, metav1.GetOptions{})
+				if err == nil {
+					allDeleted = false
+					break
+				}
+			}
+			if allDeleted {
+				spin.Stop()
+				fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m%s - \033[32mDone\033[0m\n", spin.Suffix)
+				return nil
+			}
+		}
+	}
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// CheckGitRepositoryStatus checks the status of all GitRepository resources
+func (k *BaseKubernetesManager) CheckGitRepositoryStatus() error {
+	gvr := schema.GroupVersionResource{
+		Group:    "source.toolkit.fluxcd.io",
+		Version:  "v1",
+		Resource: "gitrepositories",
+	}
+
+	objList, err := k.client.Resource(gvr).Namespace("flux-system").
+		List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to list git repositories: %w", err)
+	}
+
+	for _, obj := range objList.Items {
+		var gitRepo sourcev1.GitRepository
+		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), &gitRepo); err != nil {
+			return fmt.Errorf("failed to convert git repository %s: %w", gitRepo.Name, err)
+		}
+
+		for _, condition := range gitRepo.Status.Conditions {
+			if condition.Type == "Ready" && condition.Status == "False" {
+				return fmt.Errorf("%s: %s", gitRepo.Name, condition.Message)
+			}
+		}
+	}
+
+	return nil
+}
+
+// GetKustomizationStatus checks the status of kustomizations
+func (k *BaseKubernetesManager) GetKustomizationStatus(names []string) (map[string]bool, error) {
+	gvr := schema.GroupVersionResource{
+		Group:    "kustomize.toolkit.fluxcd.io",
+		Version:  "v1",
+		Resource: "kustomizations",
+	}
+
+	namespace := constants.DEFAULT_FLUX_SYSTEM_NAMESPACE
+	objList, err := k.client.Resource(gvr).Namespace(namespace).
 		List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list kustomizations: %w", err)
@@ -673,137 +563,104 @@ func checkKustomizationStatus(kubeconfigPath string, names []string) (map[string
 	return status, nil
 }
 
-// kubeClientResourceOperation implements get-or-create-or-update pattern for resources
-func kubeClientResourceOperation(kubeconfigPath string, config ResourceOperationConfig) error {
-	existingObj := config.ResourceType()
-	err := kubeClient(kubeconfigPath, KubeRequestConfig{
-		Method:    "GET",
-		ApiPath:   config.ApiPath,
-		Namespace: config.Namespace,
-		Resource:  config.ResourceName,
-		Name:      config.ResourceInstanceName,
-		Response:  existingObj,
-	})
-	if err != nil {
-		// If not found, create
-		if strings.Contains(err.Error(), "not found") {
-			return kubeClient(kubeconfigPath, KubeRequestConfig{
-				Method:    "POST",
-				ApiPath:   config.ApiPath,
-				Namespace: config.Namespace,
-				Resource:  config.ResourceName,
-				Body:      config.ResourceObject,
-			})
+// applyWithRetry applies a resource using SSA with minimal logic
+func (k *BaseKubernetesManager) applyWithRetry(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	existing, err := k.client.Resource(gvr).Namespace(obj.GetNamespace()).
+		Get(ctx, obj.GetName(), metav1.GetOptions{})
+	if err == nil {
+		applyConfig, err := runtime.DefaultUnstructuredConverter.ToUnstructured(existing)
+		if err != nil {
+			return fmt.Errorf("failed to convert existing object to unstructured: %w", err)
 		}
+
+		for k, v := range obj.Object {
+			applyConfig[k] = v
+		}
+
+		mergedObj := &unstructured.Unstructured{Object: applyConfig}
+		mergedObj.SetResourceVersion(existing.GetResourceVersion())
+
+		opts.Force = true
+
+		_, err = k.client.Resource(gvr).Namespace(obj.GetNamespace()).
+			Apply(ctx, obj.GetName(), mergedObj, opts)
 		return err
 	}
-	// Update: set resourceVersion
-	metaObj, ok := existingObj.(metav1.Object)
-	if !ok {
-		return fmt.Errorf("existing object does not implement metav1.Object")
-	}
-	newMetaObj, ok := config.ResourceObject.(metav1.Object)
-	if !ok {
-		return fmt.Errorf("new object does not implement metav1.Object")
-	}
-	newMetaObj.SetResourceVersion(metaObj.GetResourceVersion())
-	return kubeClient(kubeconfigPath, KubeRequestConfig{
-		Method:    "PATCH",
-		ApiPath:   config.ApiPath,
-		Namespace: config.Namespace,
-		Resource:  config.ResourceName,
-		Name:      config.ResourceInstanceName,
-		Body:      config.ResourceObject,
-		Headers: map[string]string{
-			"Content-Type": "application/merge-patch+json",
-		},
-	})
+
+	_, err = k.client.Resource(gvr).Namespace(obj.GetNamespace()).
+		Apply(ctx, obj.GetName(), obj, opts)
+	return err
 }
 
-// checkGitRepositoryStatus checks the status of all GitRepository resources in the cluster.
-// It returns an error if any repository is not ready or has failed. The function queries all
-// GitRepository resources in the default namespace, converts them to typed objects, and inspects
-// their status conditions for readiness or failure. If any repository is not ready, it returns an error
-// with the repository name and failure message.
-func checkGitRepositoryStatus(kubeconfigPath string) error {
-	var kubeConfig *rest.Config
-	var err error
-
-	if kubeconfigPath != "" {
-		kubeConfig, err = clientcmd.BuildConfigFromFlags("", kubeconfigPath)
-	} else {
-		kubeConfig, err = rest.InClusterConfig()
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to create Kubernetes config: %w", err)
-	}
-
-	dynamicClient, err := dynamic.NewForConfig(kubeConfig)
-	if err != nil {
-		return fmt.Errorf("failed to create dynamic client: %w", err)
-	}
-
+// getHelmRelease gets a HelmRelease by name and namespace
+func (k *BaseKubernetesManager) getHelmRelease(name, namespace string) (*helmv2.HelmRelease, error) {
 	gvr := schema.GroupVersionResource{
-		Group:    "source.toolkit.fluxcd.io",
-		Version:  "v1",
-		Resource: "gitrepositories",
+		Group:    "helm.toolkit.fluxcd.io",
+		Version:  "v2",
+		Resource: "helmreleases",
 	}
 
-	objList, err := dynamicClient.Resource(gvr).Namespace("flux-system").
-		List(context.Background(), metav1.ListOptions{})
+	obj, err := k.client.Resource(gvr).Namespace(namespace).
+		Get(context.Background(), name, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to list git repositories: %w", err)
+		return nil, fmt.Errorf("failed to get helm release: %w", err)
 	}
 
-	for _, obj := range objList.Items {
-		var gitRepo sourcev1.GitRepository
-		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), &gitRepo); err != nil {
-			return fmt.Errorf("failed to convert git repository %s: %w", gitRepo.Name, err)
-		}
+	var helmRelease helmv2.HelmRelease
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), &helmRelease); err != nil {
+		return nil, fmt.Errorf("failed to convert helm release: %w", err)
+	}
 
-		for _, condition := range gitRepo.Status.Conditions {
-			if condition.Type == "Ready" && condition.Status == "False" {
-				return fmt.Errorf("%s: %s", gitRepo.Name, condition.Message)
-			}
+	return &helmRelease, nil
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// validateFields validates required fields and types
+func validateFields(obj *unstructured.Unstructured) error {
+	if obj == nil {
+		return fmt.Errorf("object cannot be nil")
+	}
+
+	metadata, ok := obj.Object["metadata"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("metadata is required")
+	}
+
+	if _, ok := metadata["name"]; !ok {
+		return fmt.Errorf("metadata.name is required")
+	}
+
+	if obj.GetKind() == "ConfigMap" {
+		if _, hasData := obj.Object["data"]; !hasData {
+			return fmt.Errorf("data is required for ConfigMap")
 		}
+		return nil
+	}
+
+	if _, ok := obj.Object["spec"]; !ok {
+		return fmt.Errorf("spec is required")
 	}
 
 	return nil
 }
 
-// ToKubernetesKustomization converts a blueprint kustomization to a kubernetes kustomization
-func ToKubernetesKustomization(k blueprintv1alpha1.Kustomization, namespace string) Kustomization {
-	kk := Kustomization{
-		Name:       k.Name,
-		Namespace:  namespace,
-		Path:       k.Path,
-		Source:     k.Source,
-		DependsOn:  k.DependsOn,
-		Patches:    make([]Patch, len(k.Patches)),
-		Components: k.Components,
-		PostBuild:  nil,
+// isImmutableConfigMap checks if a ConfigMap is immutable
+func isImmutableConfigMap(obj *unstructured.Unstructured) bool {
+	if obj.GetKind() != "ConfigMap" {
+		return false
 	}
-	if k.PostBuild != nil {
-		kk.PostBuild = &kustomizev1.PostBuild{
-			SubstituteFrom: make([]kustomizev1.SubstituteReference, len(k.PostBuild.SubstituteFrom)),
-		}
-		for i, ref := range k.PostBuild.SubstituteFrom {
-			kk.PostBuild.SubstituteFrom[i] = kustomizev1.SubstituteReference{
-				Kind:     ref.Kind,
-				Name:     ref.Name,
-				Optional: ref.Optional,
-			}
-		}
+
+	spec, ok := obj.Object["spec"].(map[string]any)
+	if !ok {
+		return false
 	}
-	for i, p := range k.Patches {
-		kk.Patches[i] = Patch{
-			Patch: p.Patch,
-			Target: &PatchTarget{
-				Kind: p.Target.Kind,
-				Name: p.Target.Name,
-			},
-		}
-	}
-	return kk
+
+	immutable, ok := spec["immutable"].(bool)
+	return ok && immutable
 }
