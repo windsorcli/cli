@@ -6,6 +6,7 @@ package kubernetes
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -13,7 +14,9 @@ import (
 
 	"github.com/briandowns/spinner"
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
+	"github.com/fluxcd/pkg/apis/meta"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -41,6 +44,28 @@ type KubeRequestConfig struct {
 	Body      any
 	Response  runtime.Object
 	Headers   map[string]string
+}
+
+// GitRepository represents a Flux GitRepository resource
+type GitRepository struct {
+	Name      string
+	Namespace string
+	URL       string
+	Interval  time.Duration
+	Timeout   time.Duration
+	Reference *GitRepositoryRef
+	SecretRef *LocalObjectReference
+}
+
+type GitRepositoryRef struct {
+	Branch string
+	Tag    string
+	SemVer string
+	Commit string
+}
+
+type LocalObjectReference struct {
+	Name string
 }
 
 // Kustomization represents a Flux Kustomization resource
@@ -101,6 +126,7 @@ type KubernetesManager interface {
 	GetHelmReleasesForKustomization(name, namespace string) ([]HelmRelease, error)
 	SuspendKustomization(name, namespace string) error
 	SuspendHelmRelease(name, namespace string) error
+	ApplyGitRepository(repo *GitRepository) error
 }
 
 // =============================================================================
@@ -337,12 +363,15 @@ func (k *BaseKubernetesManager) ApplyConfigMap(name, namespace string, data map[
 		Data: data,
 	}
 
-	return kubeClient(os.Getenv("KUBECONFIG"), KubeRequestConfig{
-		Method:   "POST",
-		ApiPath:  "/api/v1",
-		Resource: "configmaps",
-		Name:     name,
-		Body:     configMap,
+	return kubeClientResourceOperation(os.Getenv("KUBECONFIG"), ResourceOperationConfig{
+		ApiPath:              "/api/v1",
+		Namespace:            namespace,
+		ResourceName:         "configmaps",
+		ResourceInstanceName: name,
+		ResourceObject:       configMap,
+		ResourceType: func() runtime.Object {
+			return &corev1.ConfigMap{}
+		},
 	})
 }
 
@@ -382,9 +411,11 @@ func (k *BaseKubernetesManager) GetHelmReleasesForKustomization(name, namespace 
 
 // SuspendKustomization suspends a Kustomization
 func (k *BaseKubernetesManager) SuspendKustomization(name, namespace string) error {
-	patch := map[string]interface{}{
-		"spec": map[string]interface{}{
-			"suspend": true,
+	patch := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"spec": map[string]interface{}{
+				"suspend": true,
+			},
 		},
 	}
 
@@ -404,9 +435,11 @@ func (k *BaseKubernetesManager) SuspendKustomization(name, namespace string) err
 // SuspendHelmRelease suspends a Flux HelmRelease by setting its suspend field to true.
 // This prevents the helmrelease from reconciling during teardown.
 func (k *BaseKubernetesManager) SuspendHelmRelease(name, namespace string) error {
-	patch := map[string]interface{}{
-		"spec": map[string]interface{}{
-			"suspend": true,
+	patch := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"spec": map[string]interface{}{
+				"suspend": true,
+			},
 		},
 	}
 
@@ -419,6 +452,52 @@ func (k *BaseKubernetesManager) SuspendHelmRelease(name, namespace string) error
 		Body:      patch,
 		Headers: map[string]string{
 			"Content-Type": "application/merge-patch+json",
+		},
+	})
+}
+
+// ApplyGitRepository creates or updates a GitRepository resource in the cluster
+func (k *BaseKubernetesManager) ApplyGitRepository(repo *GitRepository) error {
+	gitRepo := &sourcev1.GitRepository{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "source.toolkit.fluxcd.io/v1",
+			Kind:       "GitRepository",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      repo.Name,
+			Namespace: repo.Namespace,
+		},
+		Spec: sourcev1.GitRepositorySpec{
+			URL: repo.URL,
+			Interval: metav1.Duration{
+				Duration: repo.Interval,
+			},
+			Timeout: &metav1.Duration{
+				Duration: repo.Timeout,
+			},
+			Reference: &sourcev1.GitRepositoryRef{
+				Branch: repo.Reference.Branch,
+				Tag:    repo.Reference.Tag,
+				SemVer: repo.Reference.SemVer,
+				Commit: repo.Reference.Commit,
+			},
+		},
+	}
+
+	if repo.SecretRef != nil {
+		gitRepo.Spec.SecretRef = &meta.LocalObjectReference{
+			Name: repo.SecretRef.Name,
+		}
+	}
+
+	return kubeClientResourceOperation(os.Getenv("KUBECONFIG"), ResourceOperationConfig{
+		ApiPath:              "/apis/source.toolkit.fluxcd.io/v1",
+		Namespace:            repo.Namespace,
+		ResourceName:         "gitrepositories",
+		ResourceInstanceName: repo.Name,
+		ResourceObject:       gitRepo,
+		ResourceType: func() runtime.Object {
+			return &sourcev1.GitRepository{}
 		},
 	})
 }
@@ -515,7 +594,11 @@ func kubeClient(kubeconfigPath string, config KubeRequestConfig) error {
 		if err != nil {
 			return fmt.Errorf("failed to convert object to unstructured: %w", err)
 		}
-		_, err = resourceClient.Patch(context.Background(), config.Name, "application/merge-patch+json", []byte(fmt.Sprintf("%v", unstructured)), metav1.PatchOptions{})
+		patchBytes, err := json.Marshal(unstructured)
+		if err != nil {
+			return fmt.Errorf("failed to marshal patch: %w", err)
+		}
+		_, err = resourceClient.Patch(context.Background(), config.Name, "application/merge-patch+json", patchBytes, metav1.PatchOptions{})
 		return err
 	default:
 		return fmt.Errorf("unsupported method: %s", config.Method)
@@ -625,12 +708,15 @@ func kubeClientResourceOperation(kubeconfigPath string, config ResourceOperation
 	}
 	newMetaObj.SetResourceVersion(metaObj.GetResourceVersion())
 	return kubeClient(kubeconfigPath, KubeRequestConfig{
-		Method:    "PUT",
+		Method:    "PATCH",
 		ApiPath:   config.ApiPath,
 		Namespace: config.Namespace,
 		Resource:  config.ResourceName,
 		Name:      config.ResourceInstanceName,
 		Body:      config.ResourceObject,
+		Headers: map[string]string{
+			"Content-Type": "application/merge-patch+json",
+		},
 	})
 }
 
@@ -684,4 +770,40 @@ func checkGitRepositoryStatus(kubeconfigPath string) error {
 	}
 
 	return nil
+}
+
+// ToKubernetesKustomization converts a blueprint kustomization to a kubernetes kustomization
+func ToKubernetesKustomization(k blueprintv1alpha1.Kustomization, namespace string) Kustomization {
+	kk := Kustomization{
+		Name:       k.Name,
+		Namespace:  namespace,
+		Path:       k.Path,
+		Source:     k.Source,
+		DependsOn:  k.DependsOn,
+		Patches:    make([]Patch, len(k.Patches)),
+		Components: k.Components,
+		PostBuild:  nil,
+	}
+	if k.PostBuild != nil {
+		kk.PostBuild = &kustomizev1.PostBuild{
+			SubstituteFrom: make([]kustomizev1.SubstituteReference, len(k.PostBuild.SubstituteFrom)),
+		}
+		for i, ref := range k.PostBuild.SubstituteFrom {
+			kk.PostBuild.SubstituteFrom[i] = kustomizev1.SubstituteReference{
+				Kind:     ref.Kind,
+				Name:     ref.Name,
+				Optional: ref.Optional,
+			}
+		}
+	}
+	for i, p := range k.Patches {
+		kk.Patches[i] = Patch{
+			Patch: p.Patch,
+			Target: &PatchTarget{
+				Kind: p.Target.Kind,
+				Name: p.Target.Name,
+			},
+		}
+	}
+	return kk
 }

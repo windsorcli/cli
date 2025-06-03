@@ -2,7 +2,6 @@ package blueprint
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -11,28 +10,14 @@ import (
 
 	_ "embed"
 
-	"github.com/briandowns/spinner"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/shell"
 
-	ctx "context"
-
-	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
-	"github.com/fluxcd/pkg/apis/meta"
-	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 )
 
 // The BlueprintHandler is a core component that manages infrastructure and application configurations
@@ -79,13 +64,14 @@ var azureJsonnetTemplate string
 
 type BaseBlueprintHandler struct {
 	BlueprintHandler
-	injector       di.Injector
-	configHandler  config.ConfigHandler
-	shell          shell.Shell
-	localBlueprint blueprintv1alpha1.Blueprint
-	blueprint      blueprintv1alpha1.Blueprint
-	projectRoot    string
-	shims          *Shims
+	injector          di.Injector
+	configHandler     config.ConfigHandler
+	shell             shell.Shell
+	kubernetesManager kubernetes.KubernetesManager
+	localBlueprint    blueprintv1alpha1.Blueprint
+	blueprint         blueprintv1alpha1.Blueprint
+	projectRoot       string
+	shims             *Shims
 
 	kustomizationWaitPollInterval time.Duration
 	kustomizationReconcileTimeout time.Duration
@@ -124,6 +110,12 @@ func (b *BaseBlueprintHandler) Initialize() error {
 		return fmt.Errorf("error resolving shell")
 	}
 	b.shell = shell
+
+	kubernetesManager, ok := b.injector.Resolve("kubernetesManager").(kubernetes.KubernetesManager)
+	if !ok {
+		return fmt.Errorf("error resolving kubernetesManager")
+	}
+	b.kubernetesManager = kubernetesManager
 
 	projectRoot, err := b.shell.GetProjectRoot()
 	if err != nil {
@@ -304,135 +296,48 @@ func (b *BaseBlueprintHandler) WriteConfig(overwrite ...bool) error {
 	return nil
 }
 
-// WaitForKustomizations polls for readiness of all kustomizations with a maximum timeout.
-// It uses a spinner to show progress and checks both GitRepository and Kustomization status.
-// The timeout is calculated based on the longest dependency path through the kustomizations.
+// WaitForKustomizations waits for the specified kustomizations to be ready.
+// It polls the status of the kustomizations until they are all ready or a timeout occurs.
 func (b *BaseBlueprintHandler) WaitForKustomizations(message string, names ...string) error {
-	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
-	spin.Suffix = " " + message
-	spin.Start()
-	defer spin.Stop()
-
-	timeout := time.After(b.calculateMaxWaitTime())
-	ticker := time.NewTicker(b.kustomizationWaitPollInterval)
-	defer ticker.Stop()
-
-	var kustomizationNames []string
-	if len(names) > 0 && len(names[0]) > 0 {
-		kustomizationNames = names
-	} else {
-		kustomizations := b.GetKustomizations()
-		kustomizationNames = make([]string, len(kustomizations))
-		for i, k := range kustomizations {
-			kustomizationNames[i] = k.Name
-		}
-	}
-
-	consecutiveFailures := 0
-	for {
-		select {
-		case <-timeout:
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - \033[31mFailed\033[0m\n", message)
-			return fmt.Errorf("timeout waiting for kustomizations")
-		case <-ticker.C:
-			kubeconfig := os.Getenv("KUBECONFIG")
-			if err := checkGitRepositoryStatus(kubeconfig); err != nil {
-				consecutiveFailures++
-				if consecutiveFailures >= constants.DEFAULT_KUSTOMIZATION_WAIT_MAX_FAILURES {
-					spin.Stop()
-					fmt.Fprintf(os.Stderr, "\033[31m✗ %s - \033[31mFailed\033[0m\n", message)
-					return fmt.Errorf("git repository error after %d consecutive failures: %w", consecutiveFailures, err)
-				}
-				continue
-			}
-			status, err := checkKustomizationStatus(kubeconfig, kustomizationNames)
-			if err != nil {
-				consecutiveFailures++
-				if consecutiveFailures >= constants.DEFAULT_KUSTOMIZATION_WAIT_MAX_FAILURES {
-					spin.Stop()
-					fmt.Fprintf(os.Stderr, "\033[31m✗ %s - \033[31mFailed\033[0m\n", message)
-					return fmt.Errorf("kustomization error after %d consecutive failures: %w", consecutiveFailures, err)
-				}
-				continue
-			}
-
-			allReady := true
-			for _, ready := range status {
-				if !ready {
-					allReady = false
-					break
-				}
-			}
-
-			if allReady {
-				spin.Stop()
-				fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
-				return nil
-			}
-
-			// Reset consecutive failures on successful check
-			consecutiveFailures = 0
-		}
-	}
+	return b.kubernetesManager.WaitForKustomizations(message, names...)
 }
 
 // Install applies the blueprint's Kubernetes resources to the cluster. It handles GitRepositories
 // for the main repository and sources, Kustomizations for deployments, and a ConfigMap containing
 // context-specific configuration. Uses environment KUBECONFIG or falls back to in-cluster config.
 func (b *BaseBlueprintHandler) Install() error {
-	context := b.configHandler.GetContext()
-
-	message := "📐 Installing blueprint components"
-	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
-	spin.Suffix = " " + message
-	spin.Start()
-	defer spin.Stop()
-
-	repository := b.GetRepository()
-	if repository.Url != "" {
+	// Apply GitRepository for the main repository
+	if b.blueprint.Repository.Url != "" {
 		source := blueprintv1alpha1.Source{
-			Name:       context,
-			Url:        repository.Url,
-			Ref:        repository.Ref,
-			SecretName: repository.SecretName,
+			Name:       b.configHandler.GetContext(),
+			Url:        b.blueprint.Repository.Url,
+			Ref:        b.blueprint.Repository.Ref,
+			SecretName: b.blueprint.Repository.SecretName,
 		}
-		if err := b.applyGitRepository(source); err != nil {
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
-			return fmt.Errorf("failed to apply GitRepository: %w", err)
+		if err := b.applyGitRepository(source, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+			return fmt.Errorf("failed to apply main repository: %w", err)
 		}
 	}
 
-	for _, source := range b.GetSources() {
-		if source.Url == "" {
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
-			return fmt.Errorf("source URL cannot be empty")
-		}
-		if err := b.applyGitRepository(source); err != nil {
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
-			return fmt.Errorf("failed to apply GitRepository: %w", err)
+	// Apply GitRepositories for sources
+	for _, source := range b.blueprint.Sources {
+		if err := b.applyGitRepository(source, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+			return fmt.Errorf("failed to apply source repository %s: %w", source.Name, err)
 		}
 	}
 
-	for _, kustomization := range b.GetKustomizations() {
-		if err := b.applyKustomization(kustomization, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
-			return fmt.Errorf("failed to apply Kustomization: %w", err)
-		}
-	}
-
+	// Apply ConfigMap
 	if err := b.applyConfigMap(); err != nil {
-		spin.Stop()
-		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
-		return fmt.Errorf("failed to apply ConfigMap: %w", err)
+		return fmt.Errorf("failed to apply configmap: %w", err)
 	}
 
-	spin.Stop()
-	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
+	// Apply Kustomizations
+	for _, k := range b.GetKustomizations() {
+		if err := b.kubernetesManager.ApplyKustomization(kubernetes.ToKubernetesKustomization(k, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)); err != nil {
+			return fmt.Errorf("failed to apply kustomization %s: %w", k.Name, err)
+		}
+	}
+
 	return nil
 }
 
@@ -626,17 +531,17 @@ func (b *BaseBlueprintHandler) Down() error {
 	for _, name := range sorted {
 		k := nameToK[name]
 
-		if err := b.suspendKustomization(k.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+		if err := b.kubernetesManager.SuspendKustomization(k.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
 			return fmt.Errorf("failed to suspend kustomization %s: %w", k.Name, err)
 		}
 
-		helmReleases, err := b.getHelmReleasesForKustomization(k.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)
+		helmReleases, err := b.kubernetesManager.GetHelmReleasesForKustomization(k.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)
 		if err != nil {
 			return fmt.Errorf("failed to get helmreleases for kustomization %s: %w", k.Name, err)
 		}
 
 		for _, hr := range helmReleases {
-			if err := b.suspendHelmRelease(hr.Name, hr.Namespace); err != nil {
+			if err := b.kubernetesManager.SuspendHelmRelease(hr.Name, hr.Namespace); err != nil {
 				return fmt.Errorf("failed to suspend helmrelease %s in namespace %s: %w", hr.Name, hr.Namespace, err)
 			}
 		}
@@ -659,7 +564,7 @@ func (b *BaseBlueprintHandler) Down() error {
 					SubstituteFrom: []blueprintv1alpha1.SubstituteReference{},
 				},
 			}
-			if err := b.applyKustomization(*cleanupKustomization, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+			if err := b.kubernetesManager.ApplyKustomization(kubernetes.ToKubernetesKustomization(*cleanupKustomization, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)); err != nil {
 				return fmt.Errorf("failed to apply cleanup kustomization for %s: %w", k.Name, err)
 			}
 			cleanupNames = append(cleanupNames, cleanupKustomization.Name)
@@ -674,14 +579,14 @@ func (b *BaseBlueprintHandler) Down() error {
 
 	for _, name := range sorted {
 		k := nameToK[name]
-		if err := b.deleteKustomization(k.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+		if err := b.kubernetesManager.DeleteKustomization(k.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
 			return fmt.Errorf("failed to delete kustomization %s: %w", k.Name, err)
 		}
 	}
 
 	if len(cleanupNames) > 0 {
 		for _, cname := range cleanupNames {
-			if err := b.deleteKustomization(cname, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+			if err := b.kubernetesManager.DeleteKustomization(cname, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
 				return fmt.Errorf("failed to delete cleanup kustomization %s: %w", cname, err)
 			}
 		}
@@ -697,91 +602,6 @@ func (b *BaseBlueprintHandler) Down() error {
 // =============================================================================
 // Private Methods
 // =============================================================================
-
-// applyKustomization creates or updates a Kustomization resource in the cluster. The function
-// handles source resolution, default value population, and proper API object construction.
-// It ensures all required fields are set, including intervals, timeouts, and post-build
-// configurations. The function uses a get-then-create-or-update pattern to handle both
-// new and existing kustomizations.
-func (b *BaseBlueprintHandler) applyKustomization(kustomization blueprintv1alpha1.Kustomization, namespace string) error {
-	if kustomization.Source == "" {
-		context := b.configHandler.GetContext()
-		kustomization.Source = context
-	}
-
-	kustomizeObj := &kustomizev1.Kustomization{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "kustomize.toolkit.fluxcd.io/v1",
-			Kind:       "Kustomization",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      kustomization.Name,
-			Namespace: namespace,
-		},
-		Spec: kustomizev1.KustomizationSpec{
-			Interval:      *kustomization.Interval,
-			Timeout:       kustomization.Timeout,
-			RetryInterval: kustomization.RetryInterval,
-			Path:          kustomization.Path,
-			Prune:         constants.DEFAULT_FLUX_KUSTOMIZATION_PRUNE,
-			Wait:          constants.DEFAULT_FLUX_KUSTOMIZATION_WAIT,
-			Suspend:       false,
-			DependsOn: func() []meta.NamespacedObjectReference {
-				dependsOn := make([]meta.NamespacedObjectReference, len(kustomization.DependsOn))
-				for i, dep := range kustomization.DependsOn {
-					dependsOn[i] = meta.NamespacedObjectReference{Name: dep}
-				}
-				return dependsOn
-			}(),
-			SourceRef: kustomizev1.CrossNamespaceSourceReference{
-				Kind:      "GitRepository",
-				Name:      kustomization.Source,
-				Namespace: constants.DEFAULT_FLUX_SYSTEM_NAMESPACE,
-			},
-			Patches:    kustomization.Patches,
-			Components: kustomization.Components,
-			PostBuild: &kustomizev1.PostBuild{
-				SubstituteFrom: func() []kustomizev1.SubstituteReference {
-					substituteFrom := make([]kustomizev1.SubstituteReference, len(kustomization.PostBuild.SubstituteFrom))
-					for i, sub := range kustomization.PostBuild.SubstituteFrom {
-						substituteFrom[i] = kustomizev1.SubstituteReference{
-							Kind: sub.Kind,
-							Name: sub.Name,
-						}
-					}
-					return substituteFrom
-				}(),
-			},
-		},
-	}
-
-	kustomizeObj.Status = kustomizev1.KustomizationStatus{}
-
-	config := ResourceOperationConfig{
-		ApiPath:              "/apis/kustomize.toolkit.fluxcd.io/v1",
-		Namespace:            namespace,
-		ResourceName:         "kustomizations",
-		ResourceInstanceName: kustomizeObj.Name,
-		ResourceObject:       kustomizeObj,
-		ResourceType: func() runtime.Object {
-			return &kustomizev1.Kustomization{}
-		},
-	}
-
-	return kubeClientResourceOperation(os.Getenv("KUBECONFIG"), config)
-}
-
-// deleteKustomization deletes a Kustomization resource from the cluster. The function
-// sends a DELETE request to remove the kustomization and its associated resources.
-func (b *BaseBlueprintHandler) deleteKustomization(name string, namespace string) error {
-	return kubeClient(os.Getenv("KUBECONFIG"), KubeRequestConfig{
-		Method:    "DELETE",
-		ApiPath:   "/apis/kustomize.toolkit.fluxcd.io/v1",
-		Namespace: namespace,
-		Resource:  "kustomizations",
-		Name:      name,
-	})
-}
 
 // resolveComponentSources processes each Terraform component's source field, expanding it into a full
 // URL with path prefix and reference information based on the associated source configuration.
@@ -881,100 +701,6 @@ func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *blue
 	blueprint.Merge(completeBlueprint)
 	return nil
 }
-
-// suspendKustomization suspends a Flux Kustomization by setting its suspend field to true.
-// This prevents the kustomization from reconciling during teardown. The function sends a PATCH
-// request to update the kustomization's spec.suspend field.
-func (b *BaseBlueprintHandler) suspendKustomization(name, namespace string) error {
-	patch := map[string]any{
-		"spec": map[string]any{
-			"suspend": true,
-		},
-	}
-	patchBytes, err := b.shims.JsonMarshal(patch)
-	if err != nil {
-		return fmt.Errorf("failed to marshal patch: %w", err)
-	}
-
-	return kubeClient(os.Getenv("KUBECONFIG"), KubeRequestConfig{
-		Method:    "PATCH",
-		ApiPath:   "/apis/kustomize.toolkit.fluxcd.io/v1",
-		Namespace: namespace,
-		Resource:  "kustomizations",
-		Name:      name,
-		Body:      patchBytes,
-		Headers: map[string]string{
-			"Content-Type": "application/merge-patch+json",
-		},
-	})
-}
-
-// suspendHelmRelease suspends a Flux HelmRelease by setting its suspend field to true.
-// This prevents the helmrelease from reconciling during teardown. The function sends a PATCH
-// request to update the helmrelease's spec.suspend field.
-func (b *BaseBlueprintHandler) suspendHelmRelease(name, namespace string) error {
-	patch := map[string]any{
-		"spec": map[string]any{
-			"suspend": true,
-		},
-	}
-	patchBytes, err := b.shims.JsonMarshal(patch)
-	if err != nil {
-		return fmt.Errorf("failed to marshal patch: %w", err)
-	}
-
-	return kubeClient(os.Getenv("KUBECONFIG"), KubeRequestConfig{
-		Method:    "PATCH",
-		ApiPath:   "/apis/helm.toolkit.fluxcd.io/v2",
-		Namespace: namespace,
-		Resource:  "helmreleases",
-		Name:      name,
-		Body:      patchBytes,
-		Headers: map[string]string{
-			"Content-Type": "application/merge-patch+json",
-		},
-	})
-}
-
-// getHelmReleasesForKustomization retrieves all HelmReleases associated with a Kustomization
-// by parsing its inventory entries. The function extracts entries matching the pattern
-// {namespace}_{name}_{group}_{kind} to identify helmreleases. Returns a list of helmrelease
-// names and their namespaces.
-func (b *BaseBlueprintHandler) getHelmReleasesForKustomization(kustomizationName, namespace string) ([]struct{ Name, Namespace string }, error) {
-	var kustomization kustomizev1.Kustomization
-
-	err := kubeClient(os.Getenv("KUBECONFIG"), KubeRequestConfig{
-		Method:    "GET",
-		ApiPath:   "/apis/kustomize.toolkit.fluxcd.io/v1",
-		Namespace: namespace,
-		Resource:  "kustomizations",
-		Name:      kustomizationName,
-		Response:  &kustomization,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get kustomization: %w", err)
-	}
-
-	var helmReleases []struct{ Name, Namespace string }
-	if kustomization.Status.Inventory == nil {
-		return helmReleases, nil
-	}
-	for _, entry := range kustomization.Status.Inventory.Entries {
-		parts := strings.Split(entry.ID, "_")
-		if len(parts) >= 4 && parts[2] == "helm.toolkit.fluxcd.io" && parts[3] == "HelmRelease" {
-			helmReleases = append(helmReleases, struct{ Name, Namespace string }{
-				Name:      parts[1],
-				Namespace: parts[0],
-			})
-		}
-	}
-
-	return helmReleases, nil
-}
-
-// =============================================================================
-// Helper Functions
-// =============================================================================
 
 // isValidTerraformRemoteSource checks if the source is a valid Terraform module reference.
 // It uses regular expressions to match the source string against known patterns for remote Terraform modules.
@@ -1141,97 +867,43 @@ func (b *BaseBlueprintHandler) yamlMarshalWithDefinedPaths(v any) ([]byte, error
 }
 
 func (b *BaseBlueprintHandler) createManagedNamespace(name string) error {
-	ns := &corev1.Namespace{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "v1",
-			Kind:       "Namespace",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "windsor-cli",
-			},
-		},
-	}
-
-	err := kubeClient(os.Getenv("KUBECONFIG"), KubeRequestConfig{
-		Method:   "POST",
-		ApiPath:  "/api/v1",
-		Resource: "namespaces",
-		Body:     ns,
-	})
-	if err != nil {
-		if strings.Contains(err.Error(), "already exists") {
-			return nil
-		}
-		return err
-	}
-	return nil
+	return b.kubernetesManager.CreateNamespace(name)
 }
 
 func (b *BaseBlueprintHandler) deleteNamespace(name string) error {
-	return kubeClient(os.Getenv("KUBECONFIG"), KubeRequestConfig{
-		Method:   "DELETE",
-		ApiPath:  "/api/v1",
-		Resource: "namespaces",
-		Name:     name,
-	})
+	return b.kubernetesManager.DeleteNamespace(name)
 }
 
 // applyGitRepository creates or updates a GitRepository resource in the cluster. It normalizes
 // the repository URL format, configures standard intervals and timeouts, and handles secret
 // references for private repositories.
-func (b *BaseBlueprintHandler) applyGitRepository(source blueprintv1alpha1.Source) error {
+func (b *BaseBlueprintHandler) applyGitRepository(source blueprintv1alpha1.Source, namespace string) error {
 	sourceUrl := source.Url
 	if !strings.HasPrefix(sourceUrl, "http://") && !strings.HasPrefix(sourceUrl, "https://") {
 		sourceUrl = "https://" + sourceUrl
 	}
-	if !strings.HasSuffix(sourceUrl, ".git") {
-		sourceUrl = sourceUrl + ".git"
-	}
 
-	gitRepository := &sourcev1.GitRepository{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "source.toolkit.fluxcd.io/v1",
-			Kind:       "GitRepository",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      source.Name,
-			Namespace: constants.DEFAULT_FLUX_SYSTEM_NAMESPACE,
-		},
-		Spec: sourcev1.GitRepositorySpec{
-			URL: sourceUrl,
-			Reference: &sourcev1.GitRepositoryRef{
-				Commit: source.Ref.Commit,
-				Name:   source.Ref.Name,
-				SemVer: source.Ref.SemVer,
-				Tag:    source.Ref.Tag,
-				Branch: source.Ref.Branch,
-			},
-			Interval: metav1Duration{Duration: constants.DEFAULT_FLUX_SOURCE_INTERVAL},
-			Timeout:  &metav1Duration{Duration: constants.DEFAULT_FLUX_SOURCE_TIMEOUT},
+	gitRepo := &kubernetes.GitRepository{
+		Name:      source.Name,
+		Namespace: namespace,
+		URL:       sourceUrl,
+		Interval:  constants.DEFAULT_FLUX_SOURCE_INTERVAL,
+		Timeout:   constants.DEFAULT_FLUX_SOURCE_TIMEOUT,
+		Reference: &kubernetes.GitRepositoryRef{
+			Branch: source.Ref.Branch,
+			Tag:    source.Ref.Tag,
+			SemVer: source.Ref.SemVer,
+			Commit: source.Ref.Commit,
 		},
 	}
 
 	if source.SecretName != "" {
-		gitRepository.Spec.SecretRef = &meta.LocalObjectReference{
+		gitRepo.SecretRef = &kubernetes.LocalObjectReference{
 			Name: source.SecretName,
 		}
 	}
 
-	// Ensure the status field is not included in the request body
-	gitRepository.Status = sourcev1.GitRepositoryStatus{}
-
-	config := ResourceOperationConfig{
-		ApiPath:              "/apis/source.toolkit.fluxcd.io/v1",
-		Namespace:            gitRepository.Namespace,
-		ResourceName:         "gitrepositories",
-		ResourceInstanceName: gitRepository.Name,
-		ResourceObject:       gitRepository,
-		ResourceType:         func() runtime.Object { return &sourcev1.GitRepository{} },
-	}
-
-	return kubeClientResourceOperation(os.Getenv("KUBECONFIG"), config)
+	return b.kubernetesManager.ApplyGitRepository(gitRepo)
 }
 
 // applyConfigMap creates or updates a ConfigMap in the cluster containing context-specific
@@ -1254,39 +926,18 @@ func (b *BaseBlueprintHandler) applyConfigMap() error {
 		localVolumePath = ""
 	}
 
-	configMap := &corev1.ConfigMap{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "v1",
-			Kind:       "ConfigMap",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "blueprint",
-			Namespace: constants.DEFAULT_FLUX_SYSTEM_NAMESPACE,
-		},
-		Data: map[string]string{
-			"DOMAIN":                domain,
-			"CONTEXT":               context,
-			"CONTEXT_ID":            b.configHandler.GetString("id"),
-			"LOADBALANCER_IP_RANGE": loadBalancerIPRange,
-			"LOADBALANCER_IP_START": lbStart,
-			"LOADBALANCER_IP_END":   lbEnd,
-			"REGISTRY_URL":          registryURL,
-			"LOCAL_VOLUME_PATH":     localVolumePath,
-		},
+	data := map[string]string{
+		"DOMAIN":                domain,
+		"CONTEXT":               context,
+		"CONTEXT_ID":            b.configHandler.GetString("id"),
+		"LOADBALANCER_IP_RANGE": loadBalancerIPRange,
+		"LOADBALANCER_IP_START": lbStart,
+		"LOADBALANCER_IP_END":   lbEnd,
+		"REGISTRY_URL":          registryURL,
+		"LOCAL_VOLUME_PATH":     localVolumePath,
 	}
 
-	config := ResourceOperationConfig{
-		ApiPath:              "/api/v1",
-		Namespace:            configMap.Namespace,
-		ResourceName:         "configmaps",
-		ResourceInstanceName: configMap.Name,
-		ResourceObject:       configMap,
-		ResourceType: func() runtime.Object {
-			return &corev1.ConfigMap{}
-		},
-	}
-
-	return kubeClientResourceOperation(os.Getenv("KUBECONFIG"), config)
+	return b.kubernetesManager.ApplyConfigMap("blueprint", constants.DEFAULT_FLUX_SYSTEM_NAMESPACE, data)
 }
 
 // calculateMaxWaitTime calculates the maximum wait time needed based on kustomization dependencies.
@@ -1365,329 +1016,4 @@ func (b *BaseBlueprintHandler) calculateMaxWaitTime() time.Duration {
 	}
 
 	return maxPathTime
-}
-
-// =============================================================================
-// Kubernetes Client Operations
-// =============================================================================
-
-type ResourceOperationConfig struct {
-	ApiPath              string
-	Namespace            string
-	ResourceName         string
-	ResourceInstanceName string
-	ResourceObject       runtime.Object
-	ResourceType         func() runtime.Object
-}
-
-type KubeRequestConfig struct {
-	Method    string
-	ApiPath   string
-	Namespace string
-	Resource  string
-	Name      string
-	Body      any
-	Response  runtime.Object
-	Headers   map[string]string
-}
-
-// kubeClient performs a Kubernetes API request using the provided configuration.
-// It handles authentication, request construction, and response processing.
-// The function supports GET, POST, PUT, and DELETE operations with optional response handling.
-var kubeClient = func(kubeconfigPath string, config KubeRequestConfig) error {
-	var kubeConfig *rest.Config
-	var err error
-
-	if kubeconfigPath != "" {
-		kubeConfig, err = clientcmd.BuildConfigFromFlags("", kubeconfigPath)
-	} else {
-		kubeConfig, err = rest.InClusterConfig()
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to create Kubernetes config: %w", err)
-	}
-
-	dynamicClient, err := dynamic.NewForConfig(kubeConfig)
-	if err != nil {
-		return fmt.Errorf("failed to create dynamic client: %w", err)
-	}
-
-	// Parse API path to get group, version, resource
-	parts := strings.Split(strings.TrimPrefix(config.ApiPath, "/"), "/")
-	if len(parts) < 2 {
-		return fmt.Errorf("invalid API path: %s", config.ApiPath)
-	}
-
-	var gvr schema.GroupVersionResource
-	if parts[0] == "api" {
-		// Core API group
-		gvr = schema.GroupVersionResource{
-			Group:    "",
-			Version:  parts[1],
-			Resource: config.Resource,
-		}
-	} else if parts[0] == "apis" {
-		// Custom resource
-		if len(parts) < 3 {
-			return fmt.Errorf("invalid API path for custom resource: %s", config.ApiPath)
-		}
-		gvr = schema.GroupVersionResource{
-			Group:    parts[1],
-			Version:  parts[2],
-			Resource: config.Resource,
-		}
-	} else {
-		return fmt.Errorf("invalid API path format: %s", config.ApiPath)
-	}
-
-	var resourceClient dynamic.ResourceInterface
-	if config.Namespace != "" {
-		resourceClient = dynamicClient.Resource(gvr).Namespace(config.Namespace)
-	} else {
-		resourceClient = dynamicClient.Resource(gvr)
-	}
-
-	switch config.Method {
-	case "GET":
-		if config.Name == "" {
-			// List operation
-			list, err := resourceClient.List(ctx.Background(), metav1.ListOptions{})
-			if err != nil {
-				return err
-			}
-			if config.Response != nil {
-				return runtime.DefaultUnstructuredConverter.FromUnstructured(list.UnstructuredContent(), config.Response)
-			}
-		} else {
-			// Get operation
-			obj, err := resourceClient.Get(ctx.Background(), config.Name, metav1.GetOptions{})
-			if err != nil {
-				return err
-			}
-			if config.Response != nil {
-				return runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), config.Response)
-			}
-		}
-	case "POST":
-		if config.Body == nil {
-			return fmt.Errorf("body required for POST request")
-		}
-		unstructuredObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(config.Body)
-		if err != nil {
-			return fmt.Errorf("failed to convert object to unstructured: %w", err)
-		}
-		_, err = resourceClient.Create(ctx.Background(), &unstructured.Unstructured{Object: unstructuredObj}, metav1.CreateOptions{})
-		return err
-	case "PUT":
-		if config.Body == nil {
-			return fmt.Errorf("body required for PUT request")
-		}
-		unstructuredObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(config.Body)
-		if err != nil {
-			return fmt.Errorf("failed to convert object to unstructured: %w", err)
-		}
-		_, err = resourceClient.Update(ctx.Background(), &unstructured.Unstructured{Object: unstructuredObj}, metav1.UpdateOptions{})
-		return err
-	case "DELETE":
-		if config.Name == "" {
-			return fmt.Errorf("name required for DELETE request")
-		}
-		return resourceClient.Delete(ctx.Background(), config.Name, metav1.DeleteOptions{})
-	case "PATCH":
-		if config.Name == "" || config.Body == nil {
-			return fmt.Errorf("name and body required for PATCH request")
-		}
-		patchBytes, ok := config.Body.([]byte)
-		if !ok {
-			return fmt.Errorf("body must be []byte for PATCH request")
-		}
-		_, err = resourceClient.Patch(
-			ctx.Background(),
-			config.Name,
-			types.MergePatchType,
-			patchBytes,
-			metav1.PatchOptions{},
-		)
-		return err
-	default:
-		return fmt.Errorf("unsupported method: %s", config.Method)
-	}
-
-	return nil
-}
-
-// kubeClientResourceOperation manages the lifecycle of a Kubernetes resource.
-// It implements a get-then-create-or-update pattern, ensuring proper resource versioning.
-// The function handles resource creation for new resources and updates for existing ones.
-var kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
-	existingObj := config.ResourceType()
-	err := kubeClient(kubeconfigPath, KubeRequestConfig{
-		Method:    "GET",
-		ApiPath:   config.ApiPath,
-		Namespace: config.Namespace,
-		Resource:  config.ResourceName,
-		Name:      config.ResourceInstanceName,
-		Response:  existingObj,
-	})
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return kubeClient(kubeconfigPath, KubeRequestConfig{
-				Method:    "POST",
-				ApiPath:   config.ApiPath,
-				Namespace: config.Namespace,
-				Resource:  config.ResourceName,
-				Body:      config.ResourceObject,
-			})
-		}
-		return fmt.Errorf("failed to get resource: %w", err)
-	}
-
-	metaObj, ok := existingObj.(metav1.Object)
-	if !ok {
-		return fmt.Errorf("existing object does not implement metav1.Object")
-	}
-
-	newMetaObj, ok := config.ResourceObject.(metav1.Object)
-	if !ok {
-		return fmt.Errorf("new object does not implement metav1.Object")
-	}
-	newMetaObj.SetResourceVersion(metaObj.GetResourceVersion())
-
-	return kubeClient(kubeconfigPath, KubeRequestConfig{
-		Method:    "PUT",
-		ApiPath:   config.ApiPath,
-		Namespace: config.Namespace,
-		Resource:  config.ResourceName,
-		Name:      config.ResourceInstanceName,
-		Body:      config.ResourceObject,
-	})
-}
-
-// NOTE: This is a temporary solution until we've integrated the kube client into our DI system.
-// As such, this function is not internally covered by our tests.
-//
-// checkKustomizationStatus checks the status of all kustomizations in the cluster by name.
-// It returns a map of kustomization names to their readiness (true if ready, false otherwise).
-// If any kustomization is missing or has failed, it returns an error. The function queries all
-// kustomizations in the default namespace, converts them to typed objects, and inspects their
-// status conditions for readiness or failure. It ensures all requested kustomizations are present.
-var checkKustomizationStatus = func(kubeconfigPath string, names []string) (map[string]bool, error) {
-	var kubeConfig *rest.Config
-	var err error
-
-	if kubeconfigPath != "" {
-		kubeConfig, err = clientcmd.BuildConfigFromFlags("", kubeconfigPath)
-	} else {
-		kubeConfig, err = rest.InClusterConfig()
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Kubernetes config: %w", err)
-	}
-
-	dynamicClient, err := dynamic.NewForConfig(kubeConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create dynamic client: %w", err)
-	}
-
-	gvr := schema.GroupVersionResource{
-		Group:    "kustomize.toolkit.fluxcd.io",
-		Version:  "v1",
-		Resource: "kustomizations",
-	}
-
-	objList, err := dynamicClient.Resource(gvr).Namespace(constants.DEFAULT_FLUX_SYSTEM_NAMESPACE).
-		List(ctx.Background(), metav1.ListOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list kustomizations: %w", err)
-	}
-
-	status := make(map[string]bool)
-	found := make(map[string]bool)
-
-	for _, obj := range objList.Items {
-		var kustomizeObj kustomizev1.Kustomization
-		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), &kustomizeObj); err != nil {
-			return nil, fmt.Errorf("failed to convert kustomization %s: %w", kustomizeObj.Name, err)
-		}
-
-		found[kustomizeObj.Name] = true
-		ready := false
-		for _, condition := range kustomizeObj.Status.Conditions {
-			if condition.Type == "Ready" {
-				if condition.Status == "True" {
-					ready = true
-				} else if condition.Status == "False" && condition.Reason == "ReconciliationFailed" {
-					return nil, fmt.Errorf("kustomization %s failed: %s", kustomizeObj.Name, condition.Message)
-				}
-				break
-			}
-		}
-		status[kustomizeObj.Name] = ready
-	}
-
-	for _, name := range names {
-		if !found[name] {
-			status[name] = false
-			continue
-		}
-	}
-
-	return status, nil
-}
-
-// NOTE: This is a temporary solution until we've integrated the kube client into our DI system.
-// As such, this function is not internally covered by our tests.
-//
-// checkGitRepositoryStatus checks the status of all GitRepository resources in the cluster.
-// It returns an error if any repository is not ready or has failed. The function queries all
-// GitRepository resources in the default namespace, converts them to typed objects, and inspects
-// their status conditions for readiness or failure. If any repository is not ready, it returns an error
-// with the repository name and failure message.
-var checkGitRepositoryStatus = func(kubeconfigPath string) error {
-	var kubeConfig *rest.Config
-	var err error
-
-	if kubeconfigPath != "" {
-		kubeConfig, err = clientcmd.BuildConfigFromFlags("", kubeconfigPath)
-	} else {
-		kubeConfig, err = rest.InClusterConfig()
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to create Kubernetes config: %w", err)
-	}
-
-	dynamicClient, err := dynamic.NewForConfig(kubeConfig)
-	if err != nil {
-		return fmt.Errorf("failed to create dynamic client: %w", err)
-	}
-
-	gvr := schema.GroupVersionResource{
-		Group:    "source.toolkit.fluxcd.io",
-		Version:  "v1",
-		Resource: "gitrepositories",
-	}
-
-	objList, err := dynamicClient.Resource(gvr).Namespace(constants.DEFAULT_FLUX_SYSTEM_NAMESPACE).
-		List(ctx.Background(), metav1.ListOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to list git repositories: %w", err)
-	}
-
-	for _, obj := range objList.Items {
-		var gitRepo sourcev1.GitRepository
-		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), &gitRepo); err != nil {
-			return fmt.Errorf("failed to convert git repository %s: %w", gitRepo.Name, err)
-		}
-
-		for _, condition := range gitRepo.Status.Conditions {
-			if condition.Type == "Ready" && condition.Status == "False" {
-				return fmt.Errorf("%s: %s", gitRepo.Name, condition.Message)
-			}
-		}
-	}
-
-	return nil
 }

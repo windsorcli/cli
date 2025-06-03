@@ -17,6 +17,7 @@ type MockKubernetesManager struct {
 	GetHelmReleasesForKustomizationFunc func(name, namespace string) ([]HelmRelease, error)
 	SuspendKustomizationFunc            func(name, namespace string) error
 	SuspendHelmReleaseFunc              func(name, namespace string) error
+	ApplyGitRepositoryFunc              func(repo *GitRepository) error
 }
 
 // NewMockKubernetesManager creates a new instance of MockKubernetesManager
@@ -108,6 +109,14 @@ func (m *MockKubernetesManager) SuspendKustomization(name, namespace string) err
 func (m *MockKubernetesManager) SuspendHelmRelease(name, namespace string) error {
 	if m.SuspendHelmReleaseFunc != nil {
 		return m.SuspendHelmReleaseFunc(name, namespace)
+	}
+	return nil
+}
+
+// ApplyGitRepository implements KubernetesManager interface
+func (m *MockKubernetesManager) ApplyGitRepository(repo *GitRepository) error {
+	if m.ApplyGitRepositoryFunc != nil {
+		return m.ApplyGitRepositoryFunc(repo)
 	}
 	return nil
 }
