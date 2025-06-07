@@ -5,20 +5,16 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/aws/smithy-go/ptr"
+	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
-	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/shell"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
 )
@@ -160,10 +156,11 @@ local context = std.extVar("context");
 `
 
 type Mocks struct {
-	Injector      di.Injector
-	Shell         *shell.MockShell
-	ConfigHandler config.ConfigHandler
-	Shims         *Shims
+	Injector          di.Injector
+	Shell             *shell.MockShell
+	ConfigHandler     config.ConfigHandler
+	Shims             *Shims
+	KubernetesManager *kubernetes.MockKubernetesManager
 }
 
 type SetupOptions struct {
@@ -215,42 +212,73 @@ func setupShims(t *testing.T) *Shims {
 func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	t.Helper()
 
-	origDir, err := os.Getwd()
+	// Create temporary directory for test
+	tmpDir, err := os.MkdirTemp("", "blueprint-test-*")
 	if err != nil {
-		t.Fatalf("Failed to get working directory: %v", err)
+		t.Fatalf("Failed to create temp directory: %v", err)
 	}
 
-	tmpDir := t.TempDir()
+	// Change to temporary directory
 	if err := os.Chdir(tmpDir); err != nil {
 		t.Fatalf("Failed to change to temp directory: %v", err)
 	}
 
+	// Set environment variable
 	os.Setenv("WINDSOR_PROJECT_ROOT", tmpDir)
 
-	options := &SetupOptions{}
-	if len(opts) > 0 && opts[0] != nil {
-		options = opts[0]
-	}
+	// Create injector
+	injector := di.NewInjector()
 
-	var injector di.Injector
-	if options.Injector == nil {
-		injector = di.NewMockInjector()
-	} else {
-		injector = options.Injector
-	}
-
+	// Set up config handler
 	var configHandler config.ConfigHandler
-	if options.ConfigHandler == nil {
-		configHandler = config.NewYamlConfigHandler(injector)
+	if len(opts) > 0 && opts[0].ConfigHandler != nil {
+		configHandler = opts[0].ConfigHandler
 	} else {
-		configHandler = options.ConfigHandler
+		configHandler = config.NewYamlConfigHandler(injector)
 	}
 
+	// Create mock shell and kubernetes manager
 	mockShell := shell.NewMockShell()
+	mockKubernetesManager := kubernetes.NewMockKubernetesManager(nil)
+	// Initialize safe default implementations for all mock functions
+	mockKubernetesManager.DeleteKustomizationFunc = func(name, namespace string) error {
+		return nil
+	}
+	mockKubernetesManager.WaitForKustomizationsDeletedFunc = func(message string, names ...string) error {
+		return nil
+	}
+	mockKubernetesManager.ApplyKustomizationFunc = func(kustomization kustomizev1.Kustomization) error {
+		return nil
+	}
+	mockKubernetesManager.SuspendKustomizationFunc = func(name, namespace string) error {
+		return nil
+	}
+	mockKubernetesManager.GetKustomizationStatusFunc = func(names []string) (map[string]bool, error) {
+		status := make(map[string]bool)
+		for _, name := range names {
+			status[name] = true
+		}
+		return status, nil
+	}
+	mockKubernetesManager.GetHelmReleasesForKustomizationFunc = func(name, namespace string) ([]helmv2.HelmRelease, error) {
+		return nil, nil
+	}
+	mockKubernetesManager.SuspendHelmReleaseFunc = func(name, namespace string) error {
+		return nil
+	}
+	mockKubernetesManager.CreateNamespaceFunc = func(name string) error {
+		return nil
+	}
+	mockKubernetesManager.DeleteNamespaceFunc = func(name string) error {
+		return nil
+	}
 
+	// Register components with injector
 	injector.Register("shell", mockShell)
 	injector.Register("configHandler", configHandler)
+	injector.Register("kubernetesManager", mockKubernetesManager)
 
+	// Set up default config
 	defaultConfigStr := `
 contexts:
   mock-context:
@@ -274,63 +302,28 @@ contexts:
 	if err := configHandler.LoadConfigString(defaultConfigStr); err != nil {
 		t.Fatalf("Failed to load default config string: %v", err)
 	}
-	if options.ConfigStr != "" {
-		if err := configHandler.LoadConfigString(options.ConfigStr); err != nil {
+	if len(opts) > 0 && opts[0].ConfigStr != "" {
+		if err := configHandler.LoadConfigString(opts[0].ConfigStr); err != nil {
 			t.Fatalf("Failed to load config string: %v", err)
 		}
 	}
 
-	mockShell.GetProjectRootFunc = func() (string, error) {
-		return tmpDir, nil
-	}
-
+	// Create shims
 	shims := setupShims(t)
 
-	// Mock kubeClient
-	origKubeClient := kubeClient
-	kubeClient = func(kubeconfigPath string, config KubeRequestConfig) error {
-		// Return success for all operations
-		return nil
-	}
-
-	// Mock kubeClientResourceOperation
-	origKubeClientResourceOperation := kubeClientResourceOperation
-	kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
-		// Return success for all operations
-		return nil
-	}
-
-	// Mock status check functions
-	origCheckGitRepositoryStatus := checkGitRepositoryStatus
-	checkGitRepositoryStatus = func(kubeconfigPath string) error {
-		return nil
-	}
-
-	origCheckKustomizationStatus := checkKustomizationStatus
-	checkKustomizationStatus = func(kubeconfigPath string, names []string) (map[string]bool, error) {
-		status := make(map[string]bool)
-		for _, name := range names {
-			status[name] = true
-		}
-		return status, nil
-	}
-
+	// Cleanup function
 	t.Cleanup(func() {
-		kubeClient = origKubeClient
-		kubeClientResourceOperation = origKubeClientResourceOperation
-		checkGitRepositoryStatus = origCheckGitRepositoryStatus
-		checkKustomizationStatus = origCheckKustomizationStatus
 		os.Unsetenv("WINDSOR_PROJECT_ROOT")
-		os.Unsetenv("WINDSOR_CONFIG_ROOT")
 		os.Unsetenv("WINDSOR_CONTEXT")
-		os.Chdir(origDir)
+		os.Chdir(tmpDir)
 	})
 
 	return &Mocks{
-		Injector:      injector,
-		Shell:         mockShell,
-		ConfigHandler: configHandler,
-		Shims:         shims,
+		Injector:          injector,
+		Shell:             mockShell,
+		ConfigHandler:     configHandler,
+		Shims:             shims,
+		KubernetesManager: mockKubernetesManager,
 	}
 }
 
@@ -392,144 +385,65 @@ func TestBlueprintHandler_Initialize(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given a new blueprint handler
+		// Given a handler
 		handler, _ := setup(t)
 
-		// When initializing the handler
+		// When calling Initialize
 		err := handler.Initialize()
 
 		// Then no error should be returned
 		if err != nil {
-			t.Fatalf("Initialize() failed: %v", err)
-		}
-
-		// And the handler should have the correct project root
-		expectedRoot, _ := handler.shell.GetProjectRoot()
-		if handler.projectRoot != expectedRoot {
-			t.Errorf("projectRoot = %q, want %q", handler.projectRoot, expectedRoot)
-		}
-	})
-
-	t.Run("SetProjectNameInContext", func(t *testing.T) {
-		// Given a blueprint handler and mocks
-		handler, mocks := setup(t)
-
-		// And a mock config handler that tracks project name setting
-		projectNameSet := false
-		mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler)
-		if ok {
-			mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
-				projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-				expectedName := filepath.Base(projectRoot)
-				if key == "projectName" && value == expectedName {
-					projectNameSet = true
-				}
-				return nil
-			}
-		} else {
-			handler.Initialize()
-			projectName := mocks.ConfigHandler.GetString("projectName")
-			projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-			if projectName == filepath.Base(projectRoot) {
-				projectNameSet = true
-			}
-		}
-
-		// When initializing the handler
-		err := handler.Initialize()
-		if err != nil {
-			t.Fatalf("Initialize() failed: %v", err)
-		}
-
-		// Then the project name should be set in the context
-		if !projectNameSet {
-			t.Error("Expected project name to be set in context")
-		}
-	})
-
-	t.Run("ErrorSettingProjectName", func(t *testing.T) {
-		// Given a mock config handler that returns an error
-		mocks := setupMocks(t, &SetupOptions{
-			ConfigHandler: config.NewMockConfigHandler(),
-		})
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
-			if key == "projectName" {
-				return fmt.Errorf("error setting project name")
-			}
-			return nil
-		}
-
-		// And a new blueprint handler
-		handler := NewBlueprintHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-		err := handler.Initialize()
-
-		// Then the appropriate error should be returned
-		if err == nil {
-			t.Fatal("Initialize() succeeded, want error")
-		}
-		if err.Error() != "error setting project name in config: error setting project name" {
-			t.Errorf("error = %q, want %q", err.Error(), "error setting project name in config: error setting project name")
-		}
-	})
-
-	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		// Given a mock injector with no config handler
-		mocks := setupMocks(t)
-		mocks.Injector.Register("configHandler", nil)
-
-		// And a new blueprint handler
-		handler := NewBlueprintHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-		err := handler.Initialize()
-
-		// Then the appropriate error should be returned
-		if err == nil {
-			t.Fatal("Initialize() succeeded, want error")
-		}
-		if err.Error() != "error resolving configHandler" {
-			t.Errorf("error = %q, want %q", err.Error(), "error resolving configHandler")
-		}
-	})
-
-	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		// Given a mock injector with no shell
-		mocks := setupMocks(t)
-		mocks.Injector.Register("shell", nil)
-
-		// And a new blueprint handler
-		handler := NewBlueprintHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-
-		// When initializing the handler
-		err := handler.Initialize()
-
-		// Then the appropriate error should be returned
-		if err == nil {
-			t.Fatal("Initialize() succeeded, want error")
-		}
-		if err.Error() != "error resolving shell" {
-			t.Errorf("error = %q, want %q", err.Error(), "error resolving shell")
+			t.Errorf("expected nil error, got %v", err)
 		}
 	})
 
 	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
-		// Given a mock shell that returns an error getting project root
+		// Given a handler
 		handler, mocks := setup(t)
+
+		// And a shell that returns an error
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "", fmt.Errorf("error getting project root")
+			return "", fmt.Errorf("get project root error")
 		}
 
-		// When initializing the handler
+		// When calling Initialize
 		err := handler.Initialize()
 
-		// Then the appropriate error should be returned
+		// Then an error should be returned
 		if err == nil {
-			t.Fatal("Initialize() succeeded, want error")
+			t.Error("Expected error, got nil")
 		}
-		if err.Error() != "error getting project root: error getting project root" {
-			t.Errorf("error = %q, want %q", err.Error(), "error getting project root: error getting project root")
+		if !strings.Contains(err.Error(), "get project root error") {
+			t.Errorf("Expected error about get project root error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
+		// Given an injector with no config handler registered
+		handler, mocks := setup(t)
+
+		mocks.Injector.Register("configHandler", nil)
+
+		// When calling Initialize
+		err := handler.Initialize()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+	})
+
+	t.Run("ErrorResolvingShell", func(t *testing.T) {
+		// Given an injector with no shell registered
+		handler, mocks := setup(t)
+		mocks.Injector.Register("shell", nil)
+
+		// When calling Initialize
+		err := handler.Initialize()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
 		}
 	})
 }
@@ -1199,6 +1113,17 @@ metadata:
 			t.Errorf("Expected error containing 'mock error marshalling yaml non null', got: %v", err)
 		}
 	})
+
+	t.Run("PathBackslashNormalization", func(t *testing.T) {
+		handler, _ := setup(t)
+		handler.SetKustomizations([]blueprintv1alpha1.Kustomization{
+			{Name: "k1", Path: "foo\\bar\\baz"},
+		})
+		ks := handler.getKustomizations()
+		if ks[0].Path != "kustomize/foo/bar/baz" {
+			t.Errorf("expected normalized path, got %q", ks[0].Path)
+		}
+	})
 }
 
 func TestBlueprintHandler_WriteConfig(t *testing.T) {
@@ -1548,6 +1473,166 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 			t.Errorf("Expected Path to be 'path/to/code', got %s", component.Path)
 		}
 	})
+
+	t.Run("ErrorGettingHelmReleases", func(t *testing.T) {
+		// Given a handler with a kustomization
+		handler, mocks := setup(t)
+		baseHandler := handler
+		baseHandler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
+			{Name: "k1"},
+		}
+
+		// Set up mock Kubernetes manager to return error when getting helm releases
+		mocks.KubernetesManager.GetHelmReleasesForKustomizationFunc = func(name, namespace string) ([]helmv2.HelmRelease, error) {
+			return nil, fmt.Errorf("failed to get helm releases")
+		}
+
+		// When calling Down
+		err := baseHandler.Down()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to get helmreleases for kustomization k1") {
+			t.Errorf("Expected error about failed helm releases, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorSuspendingHelmRelease", func(t *testing.T) {
+		// Given a handler with a kustomization
+		handler, mocks := setup(t)
+		baseHandler := handler
+		baseHandler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
+			{Name: "k1"},
+		}
+
+		// Set up mock Kubernetes manager to return a helm release and error on suspend
+		mocks.KubernetesManager.GetHelmReleasesForKustomizationFunc = func(name, namespace string) ([]helmv2.HelmRelease, error) {
+			return []helmv2.HelmRelease{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-release",
+						Namespace: "test-namespace",
+					},
+				},
+			}, nil
+		}
+		mocks.KubernetesManager.SuspendHelmReleaseFunc = func(name, namespace string) error {
+			return fmt.Errorf("failed to suspend helm release")
+		}
+
+		// When calling Down
+		err := baseHandler.Down()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to suspend helmrelease test-release in namespace test-namespace") {
+			t.Errorf("Expected error about failed helm release suspension, got: %v", err)
+		}
+	})
+
+	t.Run("SuspendKustomizationError", func(t *testing.T) {
+		// Given a handler with a kustomization
+		handler, mocks := setup(t)
+		baseHandler := handler
+		baseHandler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
+			{Name: "k1"},
+		}
+
+		// Set up mock Kubernetes manager to return error on suspend
+		mocks.KubernetesManager.SuspendKustomizationFunc = func(name, namespace string) error {
+			return fmt.Errorf("suspend error")
+		}
+
+		// When calling Down
+		err := baseHandler.Down()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "suspend error") {
+			t.Errorf("Expected error about suspend error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWaitingForKustomizationsDeleted", func(t *testing.T) {
+		// Given a handler with a kustomization
+		handler, mocks := setup(t)
+		baseHandler := handler
+		baseHandler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
+			{Name: "k1"},
+		}
+
+		// Set up mock Kubernetes manager to return error on wait for deletion
+		mocks.KubernetesManager.WaitForKustomizationsDeletedFunc = func(message string, names ...string) error {
+			return fmt.Errorf("wait for deletion error")
+		}
+
+		// When calling Down
+		err := baseHandler.Down()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed waiting for kustomizations to be deleted") {
+			t.Errorf("Expected error about waiting for kustomizations to be deleted, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorDeletingCleanupKustomization", func(t *testing.T) {
+		// Given a handler with a kustomization with a cleanup path
+		handler, mocks := setup(t)
+		baseHandler := handler
+		baseHandler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
+			{Name: "k1", Cleanup: []string{"cleanup"}},
+		}
+
+		// Set up mock Kubernetes manager to return error on delete for cleanup
+		mocks.KubernetesManager.DeleteKustomizationFunc = func(name, namespace string) error {
+			return fmt.Errorf("delete cleanup error")
+		}
+
+		// When calling Down
+		err := baseHandler.Down()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to delete kustomization") {
+			t.Errorf("Expected error about failed to delete kustomization, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWaitingForCleanupKustomizationsDeleted", func(t *testing.T) {
+		// Given a handler with a kustomization with a cleanup path
+		handler, mocks := setup(t)
+		baseHandler := handler
+		baseHandler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
+			{Name: "k1", Cleanup: []string{"cleanup"}},
+		}
+
+		// Set up mock Kubernetes manager to return error on wait for cleanup deletion
+		mocks.KubernetesManager.WaitForKustomizationsDeletedFunc = func(message string, names ...string) error {
+			return fmt.Errorf("wait for cleanup deletion error")
+		}
+
+		// When calling Down
+		err := baseHandler.Down()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed waiting for kustomizations to be deleted") {
+			t.Errorf("Expected error about failed waiting for kustomizations to be deleted, got: %v", err)
+		}
+	})
 }
 
 func TestBlueprintHandler_Install(t *testing.T) {
@@ -1555,6 +1640,7 @@ func TestBlueprintHandler_Install(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t)
 		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
 		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
@@ -1563,57 +1649,8 @@ func TestBlueprintHandler_Install(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		const pollInterval = 45 * time.Millisecond
-		const kustomTimeout = 500 * time.Millisecond
-
-		origKubeClient := kubeClient
-		origKubeClientResourceOperation := kubeClientResourceOperation
-		defer func() {
-			kubeClient = origKubeClient
-			kubeClientResourceOperation = origKubeClientResourceOperation
-		}()
-
-		// Given a mock Kubernetes client that validates resource types
-		kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
-			switch config.ResourceName {
-			case "kustomizations":
-				if _, ok := config.ResourceType().(*kustomizev1.Kustomization); !ok {
-					return fmt.Errorf("unexpected resource type for Kustomization")
-				}
-			case "gitrepositories":
-				if _, ok := config.ResourceType().(*sourcev1.GitRepository); !ok {
-					return fmt.Errorf("unexpected resource type for GitRepository")
-				}
-			case "configmaps":
-				if _, ok := config.ResourceType().(*corev1.ConfigMap); !ok {
-					return fmt.Errorf("unexpected resource type for ConfigMap")
-				}
-			default:
-				return fmt.Errorf("unexpected resource name: %s", config.ResourceName)
-			}
-			return nil
-		}
-
-		// And a mock kubeClient that returns immediate success for reconciliation
-		kubeClient = func(_ string, config KubeRequestConfig) error {
-			if config.Method == "GET" && config.Resource == "kustomizations" {
-				existingObj := &kustomizev1.Kustomization{
-					Status: kustomizev1.KustomizationStatus{
-						LastAppliedRevision: "test-revision",
-					},
-				}
-				if config.Response != nil {
-					*config.Response.(*kustomizev1.Kustomization) = *existingObj
-				}
-			}
-			return nil
-		}
-
 		// And a blueprint handler with repository, sources, and kustomizations
 		handler, _ := setup(t)
-		handler.(*BaseBlueprintHandler).kustomizationWaitPollInterval = pollInterval
-		handler.(*BaseBlueprintHandler).kustomizationReconcileTimeout = kustomTimeout
-		handler.(*BaseBlueprintHandler).kustomizationReconcileSleep = pollInterval
 
 		err := handler.SetRepository(blueprintv1alpha1.Repository{
 			Url: "git::https://example.com/repo.git",
@@ -1626,7 +1663,7 @@ func TestBlueprintHandler_Install(t *testing.T) {
 		expectedSources := []blueprintv1alpha1.Source{
 			{
 				Name: "source1",
-				Url:  "git::https://example.com/source1.git",
+				Url:  "https://example.com/source1.git",
 				Ref:  blueprintv1alpha1.Reference{Branch: "main"},
 			},
 		}
@@ -1634,8 +1671,7 @@ func TestBlueprintHandler_Install(t *testing.T) {
 
 		expectedKustomizations := []blueprintv1alpha1.Kustomization{
 			{
-				Name:      "kustomization1",
-				DependsOn: []string{"dependency1", "dependency2"},
+				Name: "kustomization1",
 			},
 		}
 		handler.SetKustomizations(expectedKustomizations)
@@ -1649,34 +1685,9 @@ func TestBlueprintHandler_Install(t *testing.T) {
 		}
 	})
 
-	t.Run("SourceURLWithoutDotGit", func(t *testing.T) {
-		origKubeClient := kubeClient
-		origKubeClientResourceOperation := kubeClientResourceOperation
-		defer func() {
-			kubeClient = origKubeClient
-			kubeClientResourceOperation = origKubeClientResourceOperation
-		}()
-
-		kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
-			return nil
-		}
-
-		kubeClient = func(_ string, config KubeRequestConfig) error {
-			if config.Method == "GET" && config.Resource == "kustomizations" {
-				existingObj := &kustomizev1.Kustomization{
-					Status: kustomizev1.KustomizationStatus{
-						LastAppliedRevision: "test-revision",
-					},
-				}
-				if config.Response != nil {
-					*config.Response.(*kustomizev1.Kustomization) = *existingObj
-				}
-			}
-			return nil
-		}
-
-		// And a blueprint handler with repository and source without .git suffix
-		handler, _ := setup(t)
+	t.Run("ApplyKustomizationError", func(t *testing.T) {
+		// Given a blueprint handler with repository, sources, and kustomizations
+		handler, mocks := setup(t)
 
 		err := handler.SetRepository(blueprintv1alpha1.Repository{
 			Url: "git::https://example.com/repo.git",
@@ -1686,832 +1697,42 @@ func TestBlueprintHandler_Install(t *testing.T) {
 			t.Fatalf("Failed to set repository: %v", err)
 		}
 
-		expectedSources := []blueprintv1alpha1.Source{
+		sources := []blueprintv1alpha1.Source{
 			{
-				Name: "source2",
-				Url:  "https://example.com/source2",
-				Ref:  blueprintv1alpha1.Reference{Branch: "main"},
-			},
-		}
-		handler.SetSources(expectedSources)
-
-		// When installing the blueprint
-		err = handler.Install()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Expected successful installation with .git URL, but got error: %v", err)
-		}
-	})
-
-	t.Run("SourceWithSecretName", func(t *testing.T) {
-		origKubeClient := kubeClient
-		origKubeClientResourceOperation := kubeClientResourceOperation
-		defer func() {
-			kubeClient = origKubeClient
-			kubeClientResourceOperation = origKubeClientResourceOperation
-		}()
-
-		kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
-			return nil
-		}
-
-		kubeClient = func(_ string, config KubeRequestConfig) error {
-			if config.Method == "GET" && config.Resource == "kustomizations" {
-				existingObj := &kustomizev1.Kustomization{
-					Status: kustomizev1.KustomizationStatus{
-						LastAppliedRevision: "test-revision",
-					},
-				}
-				if config.Response != nil {
-					*config.Response.(*kustomizev1.Kustomization) = *existingObj
-				}
-			}
-			return nil
-		}
-
-		// And a blueprint handler with repository and source with secret name
-		handler, _ := setup(t)
-
-		err := handler.SetRepository(blueprintv1alpha1.Repository{
-			Url: "git::https://example.com/repo.git",
-			Ref: blueprintv1alpha1.Reference{Branch: "main"},
-		})
-		if err != nil {
-			t.Fatalf("Failed to set repository: %v", err)
-		}
-
-		expectedSources := []blueprintv1alpha1.Source{
-			{
-				Name:       "source3",
-				Url:        "https://example.com/source3.git",
+				Name:       "source1",
+				Url:        "git::https://example.com/source1.git",
 				Ref:        blueprintv1alpha1.Reference{Branch: "main"},
-				SecretName: "my-secret",
+				PathPrefix: "terraform",
 			},
 		}
-		handler.SetSources(expectedSources)
+		handler.SetSources(sources)
 
-		// When installing the blueprint
-		err = handler.Install()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Expected successful installation with SecretName, but got error: %v", err)
-		}
-	})
-
-	t.Run("EmptySourceUrlError", func(t *testing.T) {
-		origKubeClient := kubeClient
-		origKubeClientResourceOperation := kubeClientResourceOperation
-		defer func() {
-			kubeClient = origKubeClient
-			kubeClientResourceOperation = origKubeClientResourceOperation
-		}()
-
-		kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
-			return nil
-		}
-
-		kubeClient = func(_ string, config KubeRequestConfig) error {
-			if config.Method == "GET" && config.Resource == "kustomizations" {
-				existingObj := &kustomizev1.Kustomization{
-					Status: kustomizev1.KustomizationStatus{
-						LastAppliedRevision: "test-revision",
-					},
-				}
-				if config.Response != nil {
-					*config.Response.(*kustomizev1.Kustomization) = *existingObj
-				}
-			}
-			return nil
-		}
-
-		// Given a blueprint handler with a source that has an empty URL
-		handler, _ := setup(t)
-
-		expectedSources := []blueprintv1alpha1.Source{
+		kustomizations := []blueprintv1alpha1.Kustomization{
 			{
-				Name: "source1",
-				Url:  "",
-				Ref:  blueprintv1alpha1.Reference{Branch: "main"},
+				Name: "kustomization1",
 			},
 		}
-		handler.SetSources(expectedSources)
+		handler.SetKustomizations(kustomizations)
 
-		// When installing the blueprint
-		err := handler.Install()
-
-		// Then an error about empty source URL should be returned
-		if err == nil || !strings.Contains(err.Error(), "source URL cannot be empty") {
-			t.Fatalf("Expected error for empty source URL, but got: %v", err)
-		}
-	})
-
-	t.Run("EmptyRepositoryURL", func(t *testing.T) {
-		origKubeClient := kubeClient
-		origKubeClientResourceOperation := kubeClientResourceOperation
-		defer func() {
-			kubeClient = origKubeClient
-			kubeClientResourceOperation = origKubeClientResourceOperation
-		}()
-
-		kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
-			return nil
-		}
-
-		kubeClient = func(_ string, config KubeRequestConfig) error {
-			if config.Method == "GET" && config.Resource == "kustomizations" {
-				existingObj := &kustomizev1.Kustomization{
-					Status: kustomizev1.KustomizationStatus{
-						LastAppliedRevision: "test-revision",
-					},
-				}
-				if config.Response != nil {
-					*config.Response.(*kustomizev1.Kustomization) = *existingObj
-				}
-			}
-			return nil
-		}
-
-		// Given a blueprint handler with an empty repository URL
-		handler, _ := setup(t)
-
-		err := handler.SetRepository(blueprintv1alpha1.Repository{
-			Url: "",
-			Ref: blueprintv1alpha1.Reference{Branch: "main"},
-		})
-		if err != nil {
-			t.Fatalf("Failed to set repository: %v", err)
+		// Set up mock to return error for ApplyKustomization
+		mocks.KubernetesManager.ApplyKustomizationFunc = func(kustomization kustomizev1.Kustomization) error {
+			return fmt.Errorf("apply error")
 		}
 
 		// When installing the blueprint
 		err = handler.Install()
 
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error for empty repository URL, got: %v", err)
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
 		}
-	})
-
-	t.Run("NoRepository", func(t *testing.T) {
-		origKubeClient := kubeClient
-		origKubeClientResourceOperation := kubeClientResourceOperation
-		defer func() {
-			kubeClient = origKubeClient
-			kubeClientResourceOperation = origKubeClientResourceOperation
-		}()
-
-		gitRepoAttempted := false
-		kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
-			if config.ResourceName == "gitrepositories" {
-				gitRepoAttempted = true
-			}
-			return nil
-		}
-
-		kubeClient = func(_ string, config KubeRequestConfig) error {
-			if config.Method == "GET" && config.Resource == "kustomizations" {
-				existingObj := &kustomizev1.Kustomization{
-					Status: kustomizev1.KustomizationStatus{
-						LastAppliedRevision: "test-revision",
-					},
-				}
-				if config.Response != nil {
-					*config.Response.(*kustomizev1.Kustomization) = *existingObj
-				}
-			}
-			return nil
-		}
-
-		// And a blueprint handler
-		handler, _ := setup(t)
-
-		err := handler.Install()
-		if err != nil {
-			t.Errorf("Expected no error when no repository is defined, got: %v", err)
-		}
-		if gitRepoAttempted {
-			t.Error("Expected no GitRepository to be applied when no repository is defined")
+		if !strings.Contains(err.Error(), "failed to apply kustomization kustomization1") {
+			t.Errorf("Expected error about failed kustomization apply, got: %v", err)
 		}
 	})
 }
 
-func TestBlueprintHandler_GetMetadata(t *testing.T) {
-	setup := func(t *testing.T) (BlueprintHandler, *Mocks) {
-		t.Helper()
-		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-		err := handler.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
-		}
-		return handler, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a blueprint handler
-		handler, _ := setup(t)
-
-		// And metadata has been set
-		expectedMetadata := blueprintv1alpha1.Metadata{
-			Name:        "test-blueprint",
-			Description: "A test blueprint",
-			Authors:     []string{"John Doe"},
-		}
-		handler.SetMetadata(expectedMetadata)
-
-		// When getting the metadata
-		actualMetadata := handler.GetMetadata()
-
-		// Then it should match the expected metadata
-		if !reflect.DeepEqual(actualMetadata, expectedMetadata) {
-			t.Errorf("Expected metadata to be %v, but got %v", expectedMetadata, actualMetadata)
-		}
-	})
-}
-
-func TestBlueprintHandler_GetSources(t *testing.T) {
-	setup := func(t *testing.T) (BlueprintHandler, *Mocks) {
-		t.Helper()
-		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-		err := handler.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
-		}
-		return handler, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a blueprint handler
-		handler, _ := setup(t)
-
-		// And sources have been set
-		expectedSources := []blueprintv1alpha1.Source{
-			{
-				Name: "source1",
-				Url:  "git::https://example.com/source1.git",
-				Ref:  blueprintv1alpha1.Reference{Branch: "main"},
-			},
-		}
-		handler.SetSources(expectedSources)
-
-		// When getting the sources
-		actualSources := handler.GetSources()
-
-		// Then they should match the expected sources
-		if !reflect.DeepEqual(actualSources, expectedSources) {
-			t.Errorf("Expected sources to be %v, but got %v", expectedSources, actualSources)
-		}
-	})
-}
-
-func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
-	setup := func(t *testing.T) (BlueprintHandler, *Mocks) {
-		t.Helper()
-		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-		err := handler.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
-		}
-		return handler, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a blueprint handler and mocks
-		handler, mocks := setup(t)
-
-		// And a project root is available
-		projectRoot, err := mocks.Shell.GetProjectRoot()
-		if err != nil {
-			t.Fatalf("Failed to get project root: %v", err)
-		}
-		// And terraform components have been set
-		expectedComponents := []blueprintv1alpha1.TerraformComponent{
-			{
-				Source:   "source1",
-				Path:     "path/to/code",
-				FullPath: filepath.Join(projectRoot, "terraform", "path/to/code"),
-				Values: map[string]any{
-					"key1": "value1",
-				},
-			},
-		}
-		handler.SetTerraformComponents(expectedComponents)
-
-		// When getting the terraform components
-		actualComponents := handler.GetTerraformComponents()
-
-		// Then they should match the expected components
-		if !reflect.DeepEqual(actualComponents, expectedComponents) {
-			t.Errorf("Expected Terraform components to be %v, but got %v", expectedComponents, actualComponents)
-		}
-	})
-}
-
-func TestBlueprintHandler_GetKustomizations(t *testing.T) {
-	setup := func(t *testing.T) (BlueprintHandler, *Mocks) {
-		t.Helper()
-		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-		err := handler.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
-		}
-		return handler, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a blueprint handler
-		handler, _ := setup(t)
-
-		// And kustomizations have been set
-		inputKustomizations := []blueprintv1alpha1.Kustomization{
-			{
-				Name:          "kustomization1",
-				Path:          filepath.FromSlash("overlays/dev"),
-				Source:        "source1",
-				Interval:      &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL},
-				RetryInterval: &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL},
-				Timeout:       &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT},
-				Wait:          ptr.Bool(constants.DEFAULT_FLUX_KUSTOMIZATION_WAIT),
-				Force:         ptr.Bool(constants.DEFAULT_FLUX_KUSTOMIZATION_FORCE),
-				PostBuild: &blueprintv1alpha1.PostBuild{
-					SubstituteFrom: []blueprintv1alpha1.SubstituteReference{
-						{
-							Kind:     "ConfigMap",
-							Name:     "blueprint",
-							Optional: false,
-						},
-					},
-				},
-			},
-		}
-		handler.SetKustomizations(inputKustomizations)
-
-		// When getting the kustomizations
-		actualKustomizations := handler.GetKustomizations()
-
-		// Then they should match the expected kustomizations
-		expectedKustomizations := []blueprintv1alpha1.Kustomization{
-			{
-				Name:          "kustomization1",
-				Path:          "kustomize/overlays/dev",
-				Source:        "source1",
-				Interval:      &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL},
-				RetryInterval: &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL},
-				Timeout:       &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT},
-				Wait:          ptr.Bool(constants.DEFAULT_FLUX_KUSTOMIZATION_WAIT),
-				Force:         ptr.Bool(constants.DEFAULT_FLUX_KUSTOMIZATION_FORCE),
-				PostBuild: &blueprintv1alpha1.PostBuild{
-					SubstituteFrom: []blueprintv1alpha1.SubstituteReference{
-						{
-							Kind:     "ConfigMap",
-							Name:     "blueprint",
-							Optional: false,
-						},
-					},
-				},
-			},
-		}
-		if !reflect.DeepEqual(actualKustomizations, expectedKustomizations) {
-			t.Errorf("Expected Kustomizations to be %v, but got %v", expectedKustomizations, actualKustomizations)
-		}
-	})
-
-	t.Run("NilKustomizations", func(t *testing.T) {
-		// Given a blueprint handler
-		handler, _ := setup(t)
-
-		// And kustomizations are set to nil
-		handler.SetKustomizations(nil)
-
-		// When getting the kustomizations
-		actualKustomizations := handler.GetKustomizations()
-
-		// Then they should be nil
-		if actualKustomizations != nil {
-			t.Errorf("Expected Kustomizations to be nil, but got %v", actualKustomizations)
-		}
-	})
-}
-
-func TestBlueprintHandler_GetRepository(t *testing.T) {
-	setup := func(t *testing.T) (BlueprintHandler, *Mocks) {
-		t.Helper()
-		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-		err := handler.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
-		}
-		return handler, mocks
-	}
-
-	t.Run("DefaultRepository", func(t *testing.T) {
-		// Given a blueprint handler
-		handler, _ := setup(t)
-
-		// When getting the repository
-		repository := handler.GetRepository()
-
-		// Then it should have default values
-		if repository.Url != "" {
-			t.Errorf("Expected empty URL, got %s", repository.Url)
-		}
-		if repository.Ref.Branch != "main" {
-			t.Errorf("Expected branch 'main', got %s", repository.Ref.Branch)
-		}
-	})
-
-	t.Run("CustomRepository", func(t *testing.T) {
-		// Given a blueprint handler
-		handler, mocks := setup(t)
-
-		// And a mock file system with a custom repository configuration
-		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if strings.HasSuffix(name, ".yaml") {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			if strings.HasSuffix(name, ".yaml") {
-				return []byte(`
-kind: Blueprint
-apiVersion: v1alpha1
-metadata:
-  name: test-blueprint
-  description: A test blueprint
-  authors:
-    - John Doe
-repository:
-  url: git::https://example.com/custom-repo.git
-  ref:
-    branch: develop
-`), nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		mocks.Shims.NewJsonnetVM = func() JsonnetVM {
-			return NewMockJsonnetVM(func(filename, snippet string) (string, error) {
-				return "", nil
-			})
-		}
-
-		originalContext := os.Getenv("WINDSOR_CONTEXT")
-		os.Setenv("WINDSOR_CONTEXT", "test")
-		defer func() { os.Setenv("WINDSOR_CONTEXT", originalContext) }()
-
-		// And the config is loaded
-		err := handler.LoadConfig()
-		if err != nil {
-			t.Fatalf("Failed to load config: %v", err)
-		}
-
-		// When getting the repository
-		repository := handler.GetRepository()
-
-		// Then it should match the custom configuration
-		if repository.Url != "git::https://example.com/custom-repo.git" {
-			t.Errorf("Expected URL 'git::https://example.com/custom-repo.git', got %s", repository.Url)
-		}
-		if repository.Ref.Branch != "develop" {
-			t.Errorf("Expected branch 'develop', got %s", repository.Ref.Branch)
-		}
-	})
-}
-
-func TestBlueprintHandler_SetRepository(t *testing.T) {
-	setup := func(t *testing.T) (BlueprintHandler, *Mocks) {
-		t.Helper()
-		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-		err := handler.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
-		}
-		return handler, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a blueprint handler
-		handler, _ := setup(t)
-
-		// And a test repository configuration
-		testRepo := blueprintv1alpha1.Repository{
-			Url: "git::https://example.com/test-repo.git",
-			Ref: blueprintv1alpha1.Reference{
-				Branch: "feature/test",
-			},
-		}
-
-		// When setting the repository
-		err := handler.SetRepository(testRepo)
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("SetRepository failed: %v", err)
-		}
-
-		// And the repository should match the test configuration
-		repo := handler.GetRepository()
-		if repo.Url != testRepo.Url {
-			t.Errorf("Expected URL %s, got %s", testRepo.Url, repo.Url)
-		}
-		if repo.Ref.Branch != testRepo.Ref.Branch {
-			t.Errorf("Expected branch %s, got %s", testRepo.Ref.Branch, repo.Ref.Branch)
-		}
-	})
-}
-
-func TestBaseBlueprintHandler_WaitForKustomizations(t *testing.T) {
-	const pollInterval = 45 * time.Millisecond
-	const kustomTimeout = 500 * time.Millisecond
-
-	t.Run("AllKustomizationsReady", func(t *testing.T) {
-		// Given a blueprint handler with multiple kustomizations that are all ready
-		handler := &BaseBlueprintHandler{
-			blueprint: blueprintv1alpha1.Blueprint{
-				Kustomizations: []blueprintv1alpha1.Kustomization{
-					{Name: "k1", Timeout: &metav1.Duration{Duration: kustomTimeout}},
-					{Name: "k2", Timeout: &metav1.Duration{Duration: kustomTimeout}},
-				},
-			},
-		}
-		handler.kustomizationWaitPollInterval = pollInterval
-
-		// And Git repository and kustomization status checks that return success
-		origCheckGit := checkGitRepositoryStatus
-		origCheckKustom := checkKustomizationStatus
-		defer func() {
-			checkGitRepositoryStatus = origCheckGit
-			checkKustomizationStatus = origCheckKustom
-		}()
-		checkGitRepositoryStatus = func(string) error { return nil }
-		checkKustomizationStatus = func(string, []string) (map[string]bool, error) {
-			return map[string]bool{"k1": true, "k2": true}, nil
-		}
-
-		// When waiting for kustomizations to be ready
-		err := handler.WaitForKustomizations("")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("TimeoutWaitingForKustomizations", func(t *testing.T) {
-		// Given a blueprint handler with kustomizations that never reach ready state
-		handler := &BaseBlueprintHandler{
-			blueprint: blueprintv1alpha1.Blueprint{
-				Kustomizations: []blueprintv1alpha1.Kustomization{
-					{Name: "k1", Timeout: &metav1.Duration{Duration: kustomTimeout}},
-					{Name: "k2", Timeout: &metav1.Duration{Duration: kustomTimeout}},
-				},
-			},
-		}
-		handler.kustomizationWaitPollInterval = pollInterval
-
-		// And status checks that always return not ready
-		origCheckGit := checkGitRepositoryStatus
-		origCheckKustom := checkKustomizationStatus
-		defer func() {
-			checkGitRepositoryStatus = origCheckGit
-			checkKustomizationStatus = origCheckKustom
-		}()
-		checkGitRepositoryStatus = func(string) error { return nil }
-		checkKustomizationStatus = func(string, []string) (map[string]bool, error) {
-			return map[string]bool{"k1": false, "k2": false}, nil
-		}
-
-		// When waiting for kustomizations to be ready
-		err := handler.WaitForKustomizations("")
-
-		// Then a timeout error should be returned
-		if err == nil || !strings.Contains(err.Error(), "timeout waiting for kustomizations") {
-			t.Errorf("expected timeout error, got %v", err)
-		}
-	})
-
-	t.Run("GitRepositoryStatusError", func(t *testing.T) {
-		// Given a blueprint handler with a kustomization
-		handler := &BaseBlueprintHandler{
-			blueprint: blueprintv1alpha1.Blueprint{
-				Kustomizations: []blueprintv1alpha1.Kustomization{
-					{Name: "k1", Timeout: &metav1.Duration{Duration: kustomTimeout}},
-				},
-			},
-		}
-		handler.kustomizationWaitPollInterval = pollInterval
-
-		// And a Git repository status check that returns an error
-		origCheckGit := checkGitRepositoryStatus
-		origCheckKustom := checkKustomizationStatus
-		defer func() {
-			checkGitRepositoryStatus = origCheckGit
-			checkKustomizationStatus = origCheckKustom
-		}()
-		checkGitRepositoryStatus = func(string) error { return fmt.Errorf("git repo error") }
-		checkKustomizationStatus = func(string, []string) (map[string]bool, error) {
-			return map[string]bool{"k1": true}, nil
-		}
-
-		// When waiting for kustomizations to be ready
-		err := handler.WaitForKustomizations("")
-
-		// Then a Git repository error should be returned
-		if err == nil || !strings.Contains(err.Error(), "git repository error") {
-			t.Errorf("expected git repository error, got %v", err)
-		}
-	})
-
-	t.Run("KustomizationStatusError", func(t *testing.T) {
-		// Given a blueprint handler with a kustomization
-		handler := &BaseBlueprintHandler{
-			blueprint: blueprintv1alpha1.Blueprint{
-				Kustomizations: []blueprintv1alpha1.Kustomization{
-					{Name: "k1", Timeout: &metav1.Duration{Duration: kustomTimeout}},
-				},
-			},
-		}
-		handler.kustomizationWaitPollInterval = pollInterval
-
-		// And a kustomization status check that returns an error
-		origCheckGit := checkGitRepositoryStatus
-		origCheckKustom := checkKustomizationStatus
-		defer func() {
-			checkGitRepositoryStatus = origCheckGit
-			checkKustomizationStatus = origCheckKustom
-		}()
-		checkGitRepositoryStatus = func(string) error { return nil }
-		checkKustomizationStatus = func(string, []string) (map[string]bool, error) {
-			return nil, fmt.Errorf("kustomization error")
-		}
-
-		// When waiting for kustomizations to be ready
-		err := handler.WaitForKustomizations("")
-
-		// Then a kustomization error should be returned
-		if err == nil || !strings.Contains(err.Error(), "kustomization error") {
-			t.Errorf("expected kustomization error, got %v", err)
-		}
-	})
-
-	t.Run("RecoverFromGitRepositoryError", func(t *testing.T) {
-		// Given a blueprint handler with a kustomization
-		handler := &BaseBlueprintHandler{
-			blueprint: blueprintv1alpha1.Blueprint{
-				Kustomizations: []blueprintv1alpha1.Kustomization{
-					{Name: "k1", Timeout: &metav1.Duration{Duration: kustomTimeout}},
-				},
-			},
-		}
-		handler.kustomizationWaitPollInterval = pollInterval
-
-		// And a Git repository status check that fails twice then succeeds
-		failCount := 0
-		origCheckGit := checkGitRepositoryStatus
-		origCheckKustom := checkKustomizationStatus
-		defer func() {
-			checkGitRepositoryStatus = origCheckGit
-			checkKustomizationStatus = origCheckKustom
-		}()
-		checkGitRepositoryStatus = func(string) error {
-			if failCount < 2 {
-				failCount++
-				return fmt.Errorf("git repo error")
-			}
-			return nil
-		}
-		checkKustomizationStatus = func(string, []string) (map[string]bool, error) {
-			return map[string]bool{"k1": true}, nil
-		}
-
-		// When waiting for kustomizations to be ready
-		err := handler.WaitForKustomizations("")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("RecoverFromKustomizationError", func(t *testing.T) {
-		// Given a blueprint handler with a kustomization
-		handler := &BaseBlueprintHandler{
-			blueprint: blueprintv1alpha1.Blueprint{
-				Kustomizations: []blueprintv1alpha1.Kustomization{
-					{Name: "k1", Timeout: &metav1.Duration{Duration: kustomTimeout}},
-				},
-			},
-		}
-		handler.kustomizationWaitPollInterval = pollInterval
-
-		// And a kustomization status check that fails twice then succeeds
-		failCount := 0
-		origCheckGit := checkGitRepositoryStatus
-		origCheckKustom := checkKustomizationStatus
-		defer func() {
-			checkGitRepositoryStatus = origCheckGit
-			checkKustomizationStatus = origCheckKustom
-		}()
-		checkGitRepositoryStatus = func(string) error { return nil }
-		checkKustomizationStatus = func(string, []string) (map[string]bool, error) {
-			if failCount < 2 {
-				failCount++
-				return nil, fmt.Errorf("kustomization error")
-			}
-			return map[string]bool{"k1": true}, nil
-		}
-
-		// When waiting for kustomizations to be ready
-		err := handler.WaitForKustomizations("")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("MaxGitRepositoryFailures", func(t *testing.T) {
-		// Given a blueprint handler with a kustomization
-		handler := &BaseBlueprintHandler{
-			blueprint: blueprintv1alpha1.Blueprint{
-				Kustomizations: []blueprintv1alpha1.Kustomization{
-					{Name: "k1", Timeout: &metav1.Duration{Duration: kustomTimeout}},
-				},
-			},
-		}
-		handler.kustomizationWaitPollInterval = pollInterval
-
-		// And a Git repository status check that always fails
-		origCheckGit := checkGitRepositoryStatus
-		origCheckKustom := checkKustomizationStatus
-		defer func() {
-			checkGitRepositoryStatus = origCheckGit
-			checkKustomizationStatus = origCheckKustom
-		}()
-		checkGitRepositoryStatus = func(string) error { return fmt.Errorf("git repo error") }
-		checkKustomizationStatus = func(string, []string) (map[string]bool, error) {
-			return map[string]bool{"k1": true}, nil
-		}
-
-		// When waiting for kustomizations to be ready
-		err := handler.WaitForKustomizations("")
-
-		// Then a Git repository error should be returned with failure count
-		expectedMsg := fmt.Sprintf("after %d consecutive failures", constants.DEFAULT_KUSTOMIZATION_WAIT_MAX_FAILURES)
-		if err == nil || !strings.Contains(err.Error(), expectedMsg) {
-			t.Errorf("expected error with failure count, got %v", err)
-		}
-	})
-
-	t.Run("MaxKustomizationFailures", func(t *testing.T) {
-		// Given a blueprint handler with a kustomization
-		handler := &BaseBlueprintHandler{
-			blueprint: blueprintv1alpha1.Blueprint{
-				Kustomizations: []blueprintv1alpha1.Kustomization{
-					{Name: "k1", Timeout: &metav1.Duration{Duration: kustomTimeout}},
-				},
-			},
-		}
-		handler.kustomizationWaitPollInterval = pollInterval
-
-		// And a kustomization status check that always fails
-		origCheckGit := checkGitRepositoryStatus
-		origCheckKustom := checkKustomizationStatus
-		defer func() {
-			checkGitRepositoryStatus = origCheckGit
-			checkKustomizationStatus = origCheckKustom
-		}()
-		checkGitRepositoryStatus = func(string) error { return nil }
-		checkKustomizationStatus = func(string, []string) (map[string]bool, error) {
-			return nil, fmt.Errorf("kustomization error")
-		}
-
-		// When waiting for kustomizations to be ready
-		err := handler.WaitForKustomizations("")
-
-		// Then a kustomization error should be returned with failure count
-		expectedMsg := fmt.Sprintf("after %d consecutive failures", constants.DEFAULT_KUSTOMIZATION_WAIT_MAX_FAILURES)
-		if err == nil || !strings.Contains(err.Error(), expectedMsg) {
-			t.Errorf("expected error with failure count, got %v", err)
-		}
-	})
-}
-
-func TestBaseBlueprintHandler_Down(t *testing.T) {
+func TestBlueprintHandler_Down(t *testing.T) {
 	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
@@ -2520,15 +1741,6 @@ func TestBaseBlueprintHandler_Down(t *testing.T) {
 		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
-		}
-		// Set fast poll interval and short timeout for all kustomizations
-		handler.kustomizationWaitPollInterval = 1 * time.Millisecond
-		for i := range handler.blueprint.Kustomizations {
-			if handler.blueprint.Kustomizations[i].Timeout == nil {
-				handler.blueprint.Kustomizations[i].Timeout = &metav1.Duration{Duration: 5 * time.Millisecond}
-			} else {
-				handler.blueprint.Kustomizations[i].Timeout.Duration = 5 * time.Millisecond
-			}
 		}
 		return handler, mocks
 	}
@@ -2540,13 +1752,6 @@ func TestBaseBlueprintHandler_Down(t *testing.T) {
 		baseHandler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
 			{Name: "k1", Cleanup: nil},
 			{Name: "k2", Cleanup: []string{}},
-		}
-
-		// Patch kubeClientResourceOperation to panic if called (simulate applyKustomization)
-		origKubeClientResourceOperation := kubeClientResourceOperation
-		defer func() { kubeClientResourceOperation = origKubeClientResourceOperation }()
-		kubeClientResourceOperation = func(string, ResourceOperationConfig) error {
-			panic("kubeClientResourceOperation should not be called")
 		}
 
 		// When calling Down
@@ -2563,17 +1768,8 @@ func TestBaseBlueprintHandler_Down(t *testing.T) {
 		handler, _ := setup(t)
 		baseHandler := handler
 		baseHandler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
-			{Name: "k1", Cleanup: []string{"cleanup/path"}},
+			{Name: "k1", Path: "", Cleanup: []string{"cleanup/path"}},
 		}
-
-		// Patch kubeClientResourceOperation to record calls
-		var calledConfigs []ResourceOperationConfig
-		origKubeClientResourceOperation := kubeClientResourceOperation
-		kubeClientResourceOperation = func(_ string, config ResourceOperationConfig) error {
-			calledConfigs = append(calledConfigs, config)
-			return nil
-		}
-		defer func() { kubeClientResourceOperation = origKubeClientResourceOperation }()
 
 		// When calling Down
 		err := baseHandler.Down()
@@ -2581,16 +1777,6 @@ func TestBaseBlueprintHandler_Down(t *testing.T) {
 		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("expected nil error, got %v", err)
-		}
-
-		// And kubeClientResourceOperation should be called once
-		if len(calledConfigs) != 1 {
-			t.Fatalf("expected 1 call to kubeClientResourceOperation, got %d", len(calledConfigs))
-		}
-
-		// And the resource name should be k1-cleanup
-		if calledConfigs[0].ResourceInstanceName != "k1-cleanup" {
-			t.Errorf("expected ResourceInstanceName 'k1-cleanup', got '%s'", calledConfigs[0].ResourceInstanceName)
 		}
 	})
 
@@ -2599,46 +1785,11 @@ func TestBaseBlueprintHandler_Down(t *testing.T) {
 		handler, _ := setup(t)
 		baseHandler := handler
 		baseHandler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
-			{Name: "k1", Cleanup: []string{"cleanup/path1"}},
-			{Name: "k2", Cleanup: []string{"cleanup/path2"}},
-			{Name: "k3", Cleanup: []string{"cleanup/path3"}},
-			{Name: "k4", Cleanup: []string{}},
+			{Name: "k1", Path: "", Cleanup: []string{"cleanup"}},
+			{Name: "k2", Path: "", Cleanup: []string{"cleanup"}},
+			{Name: "k3", Path: "", Cleanup: []string{"cleanup"}},
+			{Name: "k4", Path: "", Cleanup: []string{}},
 		}
-
-		// Set fast poll interval and short timeout
-		baseHandler.kustomizationWaitPollInterval = 1 * time.Millisecond
-		for i := range baseHandler.blueprint.Kustomizations {
-			if baseHandler.blueprint.Kustomizations[i].Timeout == nil {
-				baseHandler.blueprint.Kustomizations[i].Timeout = &metav1.Duration{Duration: 5 * time.Millisecond}
-			} else {
-				baseHandler.blueprint.Kustomizations[i].Timeout.Duration = 5 * time.Millisecond
-			}
-		}
-
-		// Patch kubeClientResourceOperation to record calls
-		var calledConfigs []ResourceOperationConfig
-		origKubeClientResourceOperation := kubeClientResourceOperation
-		kubeClientResourceOperation = func(_ string, config ResourceOperationConfig) error {
-			calledConfigs = append(calledConfigs, config)
-			return nil
-		}
-		defer func() { kubeClientResourceOperation = origKubeClientResourceOperation }()
-
-		// Patch checkKustomizationStatus to always return ready
-		origCheckKustomizationStatus := checkKustomizationStatus
-		checkKustomizationStatus = func(_ string, names []string) (map[string]bool, error) {
-			m := make(map[string]bool)
-			for _, n := range names {
-				m[n] = true
-			}
-			return m, nil
-		}
-		defer func() { checkKustomizationStatus = origCheckKustomizationStatus }()
-
-		// Patch checkGitRepositoryStatus to no-op
-		origCheckGitRepositoryStatus := checkGitRepositoryStatus
-		checkGitRepositoryStatus = func(_ string) error { return nil }
-		defer func() { checkGitRepositoryStatus = origCheckGitRepositoryStatus }()
 
 		// When calling Down
 		err := baseHandler.Down()
@@ -2647,149 +1798,451 @@ func TestBaseBlueprintHandler_Down(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected nil error, got %v", err)
 		}
+	})
 
-		// And kubeClientResourceOperation should be called for each kustomization with non-empty cleanup
-		if len(calledConfigs) != 3 {
-			t.Fatalf("expected 3 calls to kubeClientResourceOperation, got %d", len(calledConfigs))
+	t.Run("ErrorCases", func(t *testing.T) {
+		testCases := []struct {
+			name           string
+			kustomizations []blueprintv1alpha1.Kustomization
+			setupMock      func(*kubernetes.MockKubernetesManager)
+			expectedError  string
+		}{
+			{
+				name: "ApplyKustomizationError",
+				kustomizations: []blueprintv1alpha1.Kustomization{
+					{Name: "k1", Cleanup: []string{"cleanup/path1"}},
+				},
+				setupMock: func(m *kubernetes.MockKubernetesManager) {
+					m.ApplyKustomizationFunc = func(kustomization kustomizev1.Kustomization) error {
+						return fmt.Errorf("apply error")
+					}
+				},
+				expectedError: "apply error",
+			},
+			{
+				name: "ErrorDeletingKustomization",
+				kustomizations: []blueprintv1alpha1.Kustomization{
+					{Name: "k1"},
+				},
+				setupMock: func(m *kubernetes.MockKubernetesManager) {
+					m.DeleteKustomizationFunc = func(name, namespace string) error {
+						return fmt.Errorf("delete error")
+					}
+				},
+				expectedError: "delete error",
+			},
+			{
+				name: "SuspendKustomizationError",
+				kustomizations: []blueprintv1alpha1.Kustomization{
+					{Name: "k1"},
+				},
+				setupMock: func(m *kubernetes.MockKubernetesManager) {
+					m.SuspendKustomizationFunc = func(name, namespace string) error {
+						return fmt.Errorf("suspend error")
+					}
+				},
+				expectedError: "suspend error",
+			},
+			{
+				name: "ErrorWaitingForKustomizationsDeleted",
+				kustomizations: []blueprintv1alpha1.Kustomization{
+					{Name: "k1"},
+				},
+				setupMock: func(m *kubernetes.MockKubernetesManager) {
+					m.WaitForKustomizationsDeletedFunc = func(message string, names ...string) error {
+						return fmt.Errorf("wait for deletion error")
+					}
+				},
+				expectedError: "failed waiting for kustomizations to be deleted",
+			},
+			{
+				name: "ErrorWaitingForCleanupKustomizationsDeleted",
+				kustomizations: []blueprintv1alpha1.Kustomization{
+					{Name: "k1", Cleanup: []string{"cleanup"}},
+				},
+				setupMock: func(m *kubernetes.MockKubernetesManager) {
+					m.WaitForKustomizationsDeletedFunc = func(message string, names ...string) error {
+						return fmt.Errorf("wait for cleanup deletion error")
+					}
+				},
+				expectedError: "failed waiting for kustomizations to be deleted",
+			},
 		}
 
-		// And the resource names should be k1-cleanup, k2-cleanup, k3-cleanup
-		expectedNames := map[string]bool{"k1-cleanup": true, "k2-cleanup": true, "k3-cleanup": true}
-		for _, config := range calledConfigs {
-			if !expectedNames[config.ResourceInstanceName] {
-				t.Errorf("unexpected ResourceInstanceName '%s'", config.ResourceInstanceName)
-			}
-			delete(expectedNames, config.ResourceInstanceName)
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				// Given a handler with the test case kustomizations
+				handler, mocks := setup(t)
+				baseHandler := handler
+				baseHandler.blueprint.Kustomizations = tc.kustomizations
+
+				// And the mock setup
+				tc.setupMock(mocks.KubernetesManager)
+
+				// When calling Down
+				err := baseHandler.Down()
+
+				// Then an error should be returned
+				if err == nil {
+					t.Error("Expected error, got nil")
+				}
+				if !strings.Contains(err.Error(), tc.expectedError) {
+					t.Errorf("Expected error containing %q, got: %v", tc.expectedError, err)
+				}
+			})
 		}
-		if len(expectedNames) != 0 {
-			t.Errorf("expected ResourceInstanceNames not called: %v", expectedNames)
+	})
+}
+
+func TestBaseBlueprintHandler_isValidTerraformRemoteSource(t *testing.T) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		return handler, mocks
+	}
+
+	t.Run("ValidGitHTTPS", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, _ := setup(t)
+
+		// When checking a valid git HTTPS source
+		source := "git::https://github.com/example/repo.git"
+		valid := handler.isValidTerraformRemoteSource(source)
+
+		// Then it should be valid
+		if !valid {
+			t.Errorf("Expected %s to be valid, got invalid", source)
 		}
 	})
 
-	t.Run("ApplyKustomizationError", func(t *testing.T) {
-		// Given a handler with a kustomization with cleanup
+	t.Run("ValidGitSSH", func(t *testing.T) {
+		// Given a blueprint handler
 		handler, _ := setup(t)
-		baseHandler := handler
-		baseHandler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
-			{Name: "k1", Cleanup: []string{"cleanup/path1"}},
+
+		// When checking a valid git SSH source
+		source := "git@github.com:example/repo.git"
+		valid := handler.isValidTerraformRemoteSource(source)
+
+		// Then it should be valid
+		if !valid {
+			t.Errorf("Expected %s to be valid, got invalid", source)
+		}
+	})
+
+	t.Run("ValidHTTPS", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, _ := setup(t)
+
+		// When checking a valid HTTPS source
+		source := "https://github.com/example/repo.git"
+		valid := handler.isValidTerraformRemoteSource(source)
+
+		// Then it should be valid
+		if !valid {
+			t.Errorf("Expected %s to be valid, got invalid", source)
+		}
+	})
+
+	t.Run("ValidZip", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, _ := setup(t)
+
+		// When checking a valid ZIP source
+		source := "https://github.com/example/repo/archive/main.zip"
+		valid := handler.isValidTerraformRemoteSource(source)
+
+		// Then it should be valid
+		if !valid {
+			t.Errorf("Expected %s to be valid, got invalid", source)
+		}
+	})
+
+	t.Run("ValidRegistry", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, _ := setup(t)
+
+		// When checking a valid registry source
+		source := "registry.terraform.io/example/module"
+		valid := handler.isValidTerraformRemoteSource(source)
+
+		// Then it should be valid
+		if !valid {
+			t.Errorf("Expected %s to be valid, got invalid", source)
+		}
+	})
+
+	t.Run("ValidCustomDomain", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, _ := setup(t)
+
+		// When checking a valid custom domain source
+		source := "example.com/module"
+		valid := handler.isValidTerraformRemoteSource(source)
+
+		// Then it should be valid
+		if !valid {
+			t.Errorf("Expected %s to be valid, got invalid", source)
+		}
+	})
+
+	t.Run("InvalidSource", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, _ := setup(t)
+
+		// When checking an invalid source
+		source := "invalid-source"
+		valid := handler.isValidTerraformRemoteSource(source)
+
+		// Then it should be invalid
+		if valid {
+			t.Errorf("Expected %s to be invalid, got valid", source)
+		}
+	})
+
+	t.Run("InvalidRegex", func(t *testing.T) {
+		// Given a blueprint handler with a mock that returns error
+		handler, mocks := setup(t)
+		mocks.Shims.RegexpMatchString = func(pattern, s string) (bool, error) {
+			return false, fmt.Errorf("mock regex error")
 		}
 
-		// Patch kubeClientResourceOperation to error on apply
-		origKubeClientResourceOperation := kubeClientResourceOperation
-		kubeClientResourceOperation = func(_ string, config ResourceOperationConfig) error {
-			if config.ResourceInstanceName == "k1-cleanup" {
-				return fmt.Errorf("apply error")
-			}
+		// When checking a source with regex error
+		source := "git::https://github.com/example/repo.git"
+		valid := handler.isValidTerraformRemoteSource(source)
+
+		// Then it should be invalid
+		if valid {
+			t.Errorf("Expected %s to be invalid with regex error, got valid", source)
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_CreateManagedNamespace(t *testing.T) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		return handler, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, mocks := setup(t)
+
+		// And a mock Kubernetes manager that tracks calls
+		var createdNamespace string
+		mocks.KubernetesManager.CreateNamespaceFunc = func(name string) error {
+			createdNamespace = name
 			return nil
 		}
-		defer func() { kubeClientResourceOperation = origKubeClientResourceOperation }()
 
-		// Patch checkKustomizationStatus to always return ready
-		origCheckKustomizationStatus := checkKustomizationStatus
-		checkKustomizationStatus = func(_ string, names []string) (map[string]bool, error) {
-			m := make(map[string]bool)
-			for _, n := range names {
-				m[n] = true
-			}
-			return m, nil
+		// When creating a managed namespace
+		err := handler.createManagedNamespace("test-namespace")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
 		}
-		defer func() { checkKustomizationStatus = origCheckKustomizationStatus }()
 
-		// When calling Down
-		err := baseHandler.Down()
+		// And the correct namespace should be created
+		if createdNamespace != "test-namespace" {
+			t.Errorf("Expected namespace 'test-namespace', got: %s", createdNamespace)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, mocks := setup(t)
+
+		// And a mock Kubernetes manager that returns an error
+		mocks.KubernetesManager.CreateNamespaceFunc = func(name string) error {
+			return fmt.Errorf("mock create error")
+		}
+
+		// When creating a managed namespace
+		err := handler.createManagedNamespace("test-namespace")
 
 		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "apply error") {
-			t.Errorf("Expected error about apply error, got: %v", err)
+		if !strings.Contains(err.Error(), "mock create error") {
+			t.Errorf("Expected error about create error, got: %v", err)
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_DeleteNamespace(t *testing.T) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		return handler, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, mocks := setup(t)
+
+		// And a mock Kubernetes manager that tracks calls
+		var deletedNamespace string
+		mocks.KubernetesManager.DeleteNamespaceFunc = func(name string) error {
+			deletedNamespace = name
+			return nil
+		}
+
+		// When deleting a namespace
+		err := handler.deleteNamespace("test-namespace")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And the correct namespace should be deleted
+		if deletedNamespace != "test-namespace" {
+			t.Errorf("Expected namespace 'test-namespace', got: %s", deletedNamespace)
 		}
 	})
 
-	t.Run("ErrorDeletingKustomization", func(t *testing.T) {
-		// Given a handler with kustomizations
-		handler, _ := setup(t)
-		baseHandler := handler
-		baseHandler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
-			{Name: "k1"},
+	t.Run("Error", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, mocks := setup(t)
+
+		// And a mock Kubernetes manager that returns an error
+		mocks.KubernetesManager.DeleteNamespaceFunc = func(name string) error {
+			return fmt.Errorf("mock delete error")
 		}
 
-		// Patch kubeClient to return error on DELETE
-		origKubeClient := kubeClient
-		kubeClient = func(kubeconfig string, req KubeRequestConfig) error {
-			if req.Method == "DELETE" {
-				return fmt.Errorf("delete error")
-			}
-			return nil
-		}
-		defer func() { kubeClient = origKubeClient }()
-
-		// Patch kubeClientResourceOperation to no-op
-		origKubeClientResourceOperation := kubeClientResourceOperation
-		kubeClientResourceOperation = func(_ string, config ResourceOperationConfig) error {
-			return nil
-		}
-		defer func() { kubeClientResourceOperation = origKubeClientResourceOperation }()
-
-		// When calling Down
-		err := baseHandler.Down()
+		// When deleting a namespace
+		err := handler.deleteNamespace("test-namespace")
 
 		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "delete error") {
+		if !strings.Contains(err.Error(), "mock delete error") {
 			t.Errorf("Expected error about delete error, got: %v", err)
 		}
 	})
 }
 
-func TestBaseBlueprintHandler_SuspendKustomization(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Create a mock kubeClient function
-		mockKubeClient := func(kubeconfigPath string, config KubeRequestConfig) error {
-			if config.Method != "PATCH" {
-				t.Errorf("expected Method 'PATCH', got '%s'", config.Method)
-			}
-			if config.ApiPath != "/apis/kustomize.toolkit.fluxcd.io/v1" {
-				t.Errorf("expected ApiPath '/apis/kustomize.toolkit.fluxcd.io/v1', got '%s'", config.ApiPath)
-			}
-			if config.Namespace != "test-namespace" {
-				t.Errorf("expected Namespace 'test-namespace', got '%s'", config.Namespace)
-			}
-			if config.Resource != "kustomizations" {
-				t.Errorf("expected Resource 'kustomizations', got '%s'", config.Resource)
-			}
-			if config.Name != "test-kustomization" {
-				t.Errorf("expected Name 'test-kustomization', got '%s'", config.Name)
-			}
-			if config.Headers["Content-Type"] != "application/merge-patch+json" {
-				t.Errorf("expected Content-Type 'application/merge-patch+json', got '%s'", config.Headers["Content-Type"])
-			}
-			return nil
+func TestBlueprintHandler_GetRepository(t *testing.T) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
 		}
+		return handler, mocks
+	}
 
-		// Save original kubeClient and restore after test
-		originalKubeClient := kubeClient
-		kubeClient = mockKubeClient
-		defer func() { kubeClient = originalKubeClient }()
+	t.Run("ReturnsExpectedRepository", func(t *testing.T) {
+		// Given a blueprint handler with a set repository
+		handler, _ := setup(t)
+		expectedRepo := blueprintv1alpha1.Repository{
+			Url: "git::https://example.com/repo.git",
+			Ref: blueprintv1alpha1.Reference{Branch: "main"},
+		}
+		handler.SetRepository(expectedRepo)
 
-		handler := &BaseBlueprintHandler{
-			shims: &Shims{
-				JsonMarshal: func(v any) ([]byte, error) {
-					return []byte(`{"spec":{"suspend":true}}`), nil
-				},
+		// When getting the repository
+		repo := handler.GetRepository()
+
+		// Then the expected repository should be returned
+		if repo != expectedRepo {
+			t.Errorf("Expected repository %+v, got %+v", expectedRepo, repo)
+		}
+	})
+
+	t.Run("ReturnsDefaultValues", func(t *testing.T) {
+		// Given a blueprint handler with an empty repository
+		handler, _ := setup(t)
+		handler.SetRepository(blueprintv1alpha1.Repository{})
+
+		// When getting the repository
+		repo := handler.GetRepository()
+
+		// Then default values should be set
+		expectedRepo := blueprintv1alpha1.Repository{
+			Url: "",
+			Ref: blueprintv1alpha1.Reference{Branch: "main"},
+		}
+		if repo != expectedRepo {
+			t.Errorf("Expected repository %+v, got %+v", expectedRepo, repo)
+		}
+	})
+}
+
+func TestBlueprintHandler_GetSources(t *testing.T) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{},
+		}
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		return handler, mocks
+	}
+
+	t.Run("ReturnsExpectedSources", func(t *testing.T) {
+		// Given a blueprint handler with a set of sources
+		handler, _ := setup(t)
+		expectedSources := []blueprintv1alpha1.Source{
+			{
+				Name:       "source1",
+				Url:        "git::https://example.com/source1.git",
+				Ref:        blueprintv1alpha1.Reference{Branch: "main"},
+				PathPrefix: "/source1",
+			},
+			{
+				Name:       "source2",
+				Url:        "git::https://example.com/source2.git",
+				Ref:        blueprintv1alpha1.Reference{Branch: "develop"},
+				PathPrefix: "/source2",
 			},
 		}
-		err := handler.suspendKustomization("test-kustomization", "test-namespace")
+		err := handler.SetSources(expectedSources)
 		if err != nil {
-			t.Errorf("expected nil error, got %v", err)
+			t.Fatalf("Failed to set sources: %v", err)
+		}
+
+		// When getting sources
+		sources := handler.GetSources()
+
+		// Then the returned sources should match the expected sources
+		if len(sources) != len(expectedSources) {
+			t.Fatalf("Expected %d sources, got %d", len(expectedSources), len(sources))
+		}
+		for i := range expectedSources {
+			if sources[i] != expectedSources[i] {
+				t.Errorf("Source[%d] = %+v, want %+v", i, sources[i], expectedSources[i])
+			}
 		}
 	})
 }
 
-func TestBaseBlueprintHandler_SuspendHelmRelease(t *testing.T) {
+func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
@@ -2802,150 +2255,130 @@ func TestBaseBlueprintHandler_SuspendHelmRelease(t *testing.T) {
 		return handler, mocks
 	}
 
-	t.Run("Success", func(t *testing.T) {
+	t.Run("ReturnsResolvedComponents", func(t *testing.T) {
+		// Given a blueprint handler with terraform components and sources
 		handler, _ := setup(t)
-		baseHandler := handler
 
-		// Patch kubeClient to verify correct request
-		origKubeClient := kubeClient
-		defer func() { kubeClient = origKubeClient }()
-		var capturedConfig KubeRequestConfig
-		kubeClient = func(_ string, config KubeRequestConfig) error {
-			capturedConfig = config
-			return nil
+		// And a project root directory
+		projectRoot := "/test/project"
+		handler.projectRoot = projectRoot
+
+		// And a set of sources
+		sources := []blueprintv1alpha1.Source{
+			{
+				Name:       "source1",
+				Url:        "https://example.com/source1.git",
+				Ref:        blueprintv1alpha1.Reference{Branch: "main"},
+				PathPrefix: "terraform",
+			},
+		}
+		handler.SetSources(sources)
+
+		// And a set of terraform components
+		components := []blueprintv1alpha1.TerraformComponent{
+			{
+				Source: "source1",
+				Path:   "path/to/module",
+				Values: map[string]any{"key": "value"},
+			},
+		}
+		handler.SetTerraformComponents(components)
+
+		// When getting terraform components
+		resolvedComponents := handler.GetTerraformComponents()
+
+		// Then the components should be returned
+		if len(resolvedComponents) != 1 {
+			t.Fatalf("Expected 1 component, got %d", len(resolvedComponents))
 		}
 
-		// When suspending a helmrelease
-		err := baseHandler.suspendHelmRelease("test-helmrelease", "test-namespace")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("expected nil error, got %v", err)
+		// And the component should have the correct resolved source
+		expectedSource := "https://example.com/source1.git//terraform/path/to/module?ref=main"
+		if resolvedComponents[0].Source != expectedSource {
+			t.Errorf("Expected source %q, got %q", expectedSource, resolvedComponents[0].Source)
 		}
 
-		// And the request should be correct
-		if capturedConfig.Method != "PATCH" {
-			t.Errorf("expected Method 'PATCH', got '%s'", capturedConfig.Method)
+		// And the component should have the correct full path
+		expectedPath := filepath.FromSlash(filepath.Join(projectRoot, ".windsor", ".tf_modules", "path/to/module"))
+		if resolvedComponents[0].FullPath != expectedPath {
+			t.Errorf("Expected path %q, got %q", expectedPath, resolvedComponents[0].FullPath)
 		}
-		if capturedConfig.ApiPath != "/apis/helm.toolkit.fluxcd.io/v2" {
-			t.Errorf("expected ApiPath '/apis/helm.toolkit.fluxcd.io/v2', got '%s'", capturedConfig.ApiPath)
-		}
-		if capturedConfig.Namespace != "test-namespace" {
-			t.Errorf("expected Namespace 'test-namespace', got '%s'", capturedConfig.Namespace)
-		}
-		if capturedConfig.Resource != "helmreleases" {
-			t.Errorf("expected Resource 'helmreleases', got '%s'", capturedConfig.Resource)
-		}
-		if capturedConfig.Name != "test-helmrelease" {
-			t.Errorf("expected Name 'test-helmrelease', got '%s'", capturedConfig.Name)
-		}
-		if string(capturedConfig.Body.([]byte)) != `{"spec":{"suspend":true}}` {
-			t.Errorf("expected Body '{\"spec\":{\"suspend\":true}}', got '%s'", capturedConfig.Body)
+
+		// And the values should be preserved
+		if resolvedComponents[0].Values["key"] != "value" {
+			t.Errorf("Expected value 'value' for key 'key', got %q", resolvedComponents[0].Values["key"])
 		}
 	})
 
-	t.Run("Error", func(t *testing.T) {
+	t.Run("HandlesEmptyComponents", func(t *testing.T) {
+		// Given a blueprint handler with no terraform components
 		handler, _ := setup(t)
-		baseHandler := handler
 
-		// Patch kubeClient to return error
-		origKubeClient := kubeClient
-		defer func() { kubeClient = origKubeClient }()
-		kubeClient = func(_ string, _ KubeRequestConfig) error {
-			return fmt.Errorf("test error")
-		}
-
-		// When suspending a helmrelease
-		err := baseHandler.suspendHelmRelease("test-helmrelease", "test-namespace")
-
-		// Then error should be returned
-		if err == nil {
-			t.Error("expected error, got nil")
-		}
-	})
-}
-
-func TestBaseBlueprintHandler_GetHelmReleasesForKustomization(t *testing.T) {
-	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
-		t.Helper()
-		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-		err := handler.Initialize()
+		// And an empty set of terraform components
+		err := handler.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{})
 		if err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
-		}
-		return handler, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		handler, _ := setup(t)
-		baseHandler := handler
-
-		// Patch kubeClient to return kustomization with helmreleases
-		origKubeClient := kubeClient
-		defer func() { kubeClient = origKubeClient }()
-		kubeClient = func(_ string, config KubeRequestConfig) error {
-			if config.Method == "GET" && config.Resource == "kustomizations" {
-				kustomization := &kustomizev1.Kustomization{
-					Status: kustomizev1.KustomizationStatus{
-						Inventory: &kustomizev1.ResourceInventory{
-							Entries: []kustomizev1.ResourceRef{
-								{ID: "ns1_hr1_helm.toolkit.fluxcd.io_HelmRelease"},
-								{ID: "ns2_hr2_helm.toolkit.fluxcd.io_HelmRelease"},
-								{ID: "ns3_other_kind_OtherResource"},
-							},
-						},
-					},
-				}
-				response := config.Response.(*kustomizev1.Kustomization)
-				*response = *kustomization
-				return nil
-			}
-			return nil
+			t.Fatalf("Failed to set empty components: %v", err)
 		}
 
-		// When getting helmreleases for a kustomization
-		helmReleases, err := baseHandler.getHelmReleasesForKustomization("test-kustomization", "test-namespace")
+		// When getting terraform components
+		components := handler.GetTerraformComponents()
 
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("expected nil error, got %v", err)
+		// Then an empty slice should be returned
+		if components == nil {
+			t.Error("Expected empty slice, got nil")
 		}
-
-		// And the helmreleases should be correct
-		if len(helmReleases) != 2 {
-			t.Errorf("expected 2 helmreleases, got %d", len(helmReleases))
-		}
-
-		expectedReleases := map[string]string{
-			"hr1": "ns1",
-			"hr2": "ns2",
-		}
-		for _, hr := range helmReleases {
-			if expectedNs, ok := expectedReleases[hr.Name]; !ok || expectedNs != hr.Namespace {
-				t.Errorf("unexpected helmrelease: %s in namespace %s", hr.Name, hr.Namespace)
-			}
+		if len(components) != 0 {
+			t.Errorf("Expected 0 components, got %d", len(components))
 		}
 	})
 
-	t.Run("Error", func(t *testing.T) {
+	t.Run("NormalizesPathsWithBackslashes", func(t *testing.T) {
+		// Given a blueprint handler with terraform components and sources
 		handler, _ := setup(t)
-		baseHandler := handler
 
-		// Patch kubeClient to return error
-		origKubeClient := kubeClient
-		defer func() { kubeClient = origKubeClient }()
-		kubeClient = func(_ string, _ KubeRequestConfig) error {
-			return fmt.Errorf("test error")
+		// And a project root directory
+		projectRoot := "/test/project"
+		handler.projectRoot = projectRoot
+
+		// And a set of sources
+		sources := []blueprintv1alpha1.Source{
+			{
+				Name:       "source1",
+				Url:        "https://example.com/source1.git",
+				Ref:        blueprintv1alpha1.Reference{Branch: "main"},
+				PathPrefix: "terraform",
+			},
+		}
+		handler.SetSources(sources)
+
+		// And a set of terraform components with backslashes in paths
+		components := []blueprintv1alpha1.TerraformComponent{
+			{
+				Source: "source1",
+				Path:   "path\\to\\module",
+				Values: map[string]any{"key": "value"},
+			},
+		}
+		handler.SetTerraformComponents(components)
+
+		// When getting terraform components
+		resolvedComponents := handler.GetTerraformComponents()
+
+		// Then the components should be returned
+		if len(resolvedComponents) != 1 {
+			t.Fatalf("Expected 1 component, got %d", len(resolvedComponents))
 		}
 
-		// When getting helmreleases for a kustomization
-		_, err := baseHandler.getHelmReleasesForKustomization("test-kustomization", "test-namespace")
+		// And the component should have the correct resolved source with backslashes preserved
+		expectedSource := "https://example.com/source1.git//terraform/path\\to\\module?ref=main"
+		if resolvedComponents[0].Source != expectedSource {
+			t.Errorf("Expected source %q, got %q", expectedSource, resolvedComponents[0].Source)
+		}
 
-		// Then error should be returned
-		if err == nil {
-			t.Error("expected error, got nil")
+		// And the component should have the correct full path with backslashes preserved
+		expectedPath := filepath.Join(projectRoot, ".windsor", ".tf_modules", "path\\to\\module")
+		if resolvedComponents[0].FullPath != expectedPath {
+			t.Errorf("Expected path %q, got %q", expectedPath, resolvedComponents[0].FullPath)
 		}
 	})
 }

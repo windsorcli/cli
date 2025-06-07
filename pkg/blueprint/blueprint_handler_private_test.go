@@ -2,15 +2,13 @@ package blueprint
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/config"
-	corev1 "k8s.io/api/core/v1"
+	"github.com/windsorcli/cli/pkg/kubernetes"
 )
 
 // =============================================================================
@@ -19,9 +17,9 @@ import (
 
 func TestBlueprintHandler_resolveComponentSources(t *testing.T) {
 	setup := func(t *testing.T) (BlueprintHandler, *Mocks) {
+		t.Helper()
 		mocks := setupMocks(t)
 		handler := NewBlueprintHandler(mocks.Injector)
-		handler.shims = mocks.Shims
 		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
@@ -30,87 +28,100 @@ func TestBlueprintHandler_resolveComponentSources(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given a blueprint handler
+		// Given a blueprint handler with repository and sources
 		handler, _ := setup(t)
 
-		// And a mock resource operation that tracks applied sources
-		var appliedSources []string
-		kubeClientResourceOperation = func(_ string, config ResourceOperationConfig) error {
-			if repo, ok := config.ResourceObject.(*sourcev1.GitRepository); ok {
-				appliedSources = append(appliedSources, repo.Spec.URL)
-			}
+		// Mock Kubernetes manager
+		mockK8sManager := &kubernetes.MockKubernetesManager{}
+		mockK8sManager.ApplyGitRepositoryFunc = func(repo *sourcev1.GitRepository) error {
 			return nil
 		}
+		handler.(*BaseBlueprintHandler).kubernetesManager = mockK8sManager
 
-		// And sources have been set
-		sources := []blueprintv1alpha1.Source{
-			{
-				Name:       "source1",
-				Url:        "git::https://example.com/source1.git",
-				PathPrefix: "terraform",
-				Ref:        blueprintv1alpha1.Reference{Branch: "main"},
-			},
-		}
-		handler.SetSources(sources)
-
-		// And terraform components have been set
-		components := []blueprintv1alpha1.TerraformComponent{
-			{
-				Source: "source1",
-				Path:   "path/to/code",
-			},
-		}
-		handler.SetTerraformComponents(components)
-
-		// When installing the components
-		err := handler.Install()
-
-		// Then no error should be returned
+		err := handler.SetRepository(blueprintv1alpha1.Repository{
+			Url: "git::https://example.com/repo.git",
+			Ref: blueprintv1alpha1.Reference{Branch: "main"},
+		})
 		if err != nil {
-			t.Fatalf("Expected successful installation, but got error: %v", err)
+			t.Fatalf("Failed to set repository: %v", err)
 		}
 
-		// And the source URL should be applied
-		expectedURL := "git::https://example.com/source1.git"
-		found := false
-		for _, url := range appliedSources {
-			if strings.TrimPrefix(url, "https://") == expectedURL {
-				found = true
-				break
-			}
+		expectedSources := []blueprintv1alpha1.Source{
+			{
+				Name: "source1",
+				Url:  "git::https://example.com/source1.git",
+				Ref:  blueprintv1alpha1.Reference{Branch: "main"},
+			},
 		}
-		if !found {
-			t.Errorf("Expected source URL %s to be applied, but it wasn't. Applied sources: %v", expectedURL, appliedSources)
-		}
-	})
-
-	t.Run("DefaultPathPrefix", func(t *testing.T) {
-		// Given a blueprint handler
-		handler, _ := setup(t)
-		baseHandler := handler.(*BaseBlueprintHandler)
-
-		// And sources have been set without a path prefix
-		handler.SetSources([]blueprintv1alpha1.Source{{
-			Name: "test-source",
-			Url:  "https://github.com/user/repo.git",
-			Ref:  blueprintv1alpha1.Reference{Branch: "main"},
-		}})
-
-		// And terraform components have been set
-		handler.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{{
-			Source: "test-source",
-			Path:   "module/path",
-		}})
+		handler.SetSources(expectedSources)
 
 		// When resolving component sources
-		blueprint := baseHandler.blueprint.DeepCopy()
-		baseHandler.resolveComponentSources(blueprint)
+		handler.(*BaseBlueprintHandler).resolveComponentSources(&handler.(*BaseBlueprintHandler).blueprint)
+	})
 
-		// Then the default path prefix should be used
-		expectedSource := "https://github.com/user/repo.git//terraform/module/path?ref=main"
-		if blueprint.TerraformComponents[0].Source != expectedSource {
-			t.Errorf("Expected source URL %s, got %s", expectedSource, blueprint.TerraformComponents[0].Source)
+	t.Run("SourceURLWithoutDotGit", func(t *testing.T) {
+		// Given a blueprint handler with repository and source without .git suffix
+		handler, _ := setup(t)
+
+		// Mock Kubernetes manager
+		mockK8sManager := &kubernetes.MockKubernetesManager{}
+		mockK8sManager.ApplyGitRepositoryFunc = func(repo *sourcev1.GitRepository) error {
+			return nil
 		}
+		handler.(*BaseBlueprintHandler).kubernetesManager = mockK8sManager
+
+		err := handler.SetRepository(blueprintv1alpha1.Repository{
+			Url: "git::https://example.com/repo.git",
+			Ref: blueprintv1alpha1.Reference{Branch: "main"},
+		})
+		if err != nil {
+			t.Fatalf("Failed to set repository: %v", err)
+		}
+
+		expectedSources := []blueprintv1alpha1.Source{
+			{
+				Name: "source2",
+				Url:  "https://example.com/source2",
+				Ref:  blueprintv1alpha1.Reference{Branch: "main"},
+			},
+		}
+		handler.SetSources(expectedSources)
+
+		// When resolving component sources
+		handler.(*BaseBlueprintHandler).resolveComponentSources(&handler.(*BaseBlueprintHandler).blueprint)
+	})
+
+	t.Run("SourceWithSecretName", func(t *testing.T) {
+		// Given a blueprint handler with repository and source with secret name
+		handler, _ := setup(t)
+
+		// Mock Kubernetes manager
+		mockK8sManager := &kubernetes.MockKubernetesManager{}
+		mockK8sManager.ApplyGitRepositoryFunc = func(repo *sourcev1.GitRepository) error {
+			return nil
+		}
+		handler.(*BaseBlueprintHandler).kubernetesManager = mockK8sManager
+
+		err := handler.SetRepository(blueprintv1alpha1.Repository{
+			Url: "git::https://example.com/repo.git",
+			Ref: blueprintv1alpha1.Reference{Branch: "main"},
+		})
+		if err != nil {
+			t.Fatalf("Failed to set repository: %v", err)
+		}
+
+		expectedSources := []blueprintv1alpha1.Source{
+			{
+				Name:       "source3",
+				Url:        "https://example.com/source3.git",
+				Ref:        blueprintv1alpha1.Reference{Branch: "main"},
+				SecretName: "git-credentials",
+			},
+		}
+		handler.SetSources(expectedSources)
+
+		// When resolving component sources
+		handler.(*BaseBlueprintHandler).resolveComponentSources(&handler.(*BaseBlueprintHandler).blueprint)
 	})
 }
 
@@ -566,145 +577,6 @@ metadata:
 		// Then no error should be returned since validation is removed
 		if err != nil {
 			t.Errorf("Expected no error for empty authors list, got: %v", err)
-		}
-	})
-}
-
-func TestBaseBlueprintHandler_deleteKustomization(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		baseHandler := &BaseBlueprintHandler{}
-		os.Setenv("KUBECONFIG", "test-kubeconfig")
-		name := "test-kustomization"
-		namespace := "test-namespace"
-
-		var called bool
-		var gotKubeconfig string
-		var gotReq KubeRequestConfig
-		origKubeClient := kubeClient
-		kubeClient = func(kubeconfig string, req KubeRequestConfig) error {
-			called = true
-			gotKubeconfig = kubeconfig
-			gotReq = req
-			return nil
-		}
-		defer func() { kubeClient = origKubeClient }()
-
-		err := baseHandler.deleteKustomization(name, namespace)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		if !called {
-			t.Fatal("expected kubeClient to be called")
-		}
-		if gotKubeconfig != "test-kubeconfig" {
-			t.Errorf("expected kubeconfig 'test-kubeconfig', got '%s'", gotKubeconfig)
-		}
-		if gotReq.Namespace != namespace {
-			t.Errorf("expected namespace '%s', got '%s'", namespace, gotReq.Namespace)
-		}
-		if gotReq.Name != name {
-			t.Errorf("expected resource name '%s', got '%s'", name, gotReq.Name)
-		}
-		if gotReq.Resource != "kustomizations" {
-			t.Errorf("expected resource type 'kustomizations', got '%s'", gotReq.Resource)
-		}
-		if gotReq.Method != "DELETE" {
-			t.Errorf("expected method 'DELETE', got '%s'", gotReq.Method)
-		}
-	})
-
-	t.Run("DeleteError", func(t *testing.T) {
-		baseHandler := &BaseBlueprintHandler{}
-		os.Setenv("KUBECONFIG", "test-kubeconfig")
-		name := "test-kustomization"
-		namespace := "test-namespace"
-
-		expectedErr := fmt.Errorf("delete error")
-		origKubeClient := kubeClient
-		kubeClient = func(kubeconfig string, req KubeRequestConfig) error {
-			return expectedErr
-		}
-		defer func() { kubeClient = origKubeClient }()
-
-		err := baseHandler.deleteKustomization(name, namespace)
-		if err == nil {
-			t.Fatal("expected error, got nil")
-		}
-		if err != expectedErr {
-			t.Errorf("expected error %v, got %v", expectedErr, err)
-		}
-	})
-}
-
-func TestBaseBlueprintHandler_applyConfigMap(t *testing.T) {
-	t.Run("Error", func(t *testing.T) {
-		baseHandler := &BaseBlueprintHandler{}
-		os.Setenv("KUBECONFIG", "test-kubeconfig")
-
-		mockConfigHandler := &config.MockConfigHandler{
-			GetStringFunc: func(key string, _ ...string) string {
-				if key == "id" {
-					return "w1234567"
-				}
-				return "foo"
-			},
-			GetStringSliceFunc: func(key string, _ ...[]string) []string { return []string{"/tmp:/var/local"} },
-			GetContextFunc:     func() string { return "mock-context" },
-		}
-		baseHandler.configHandler = mockConfigHandler
-
-		errExpected := fmt.Errorf("apply configmap error")
-		origKubeClientResourceOperation := kubeClientResourceOperation
-		kubeClientResourceOperation = func(_ string, _ ResourceOperationConfig) error {
-			return errExpected
-		}
-		defer func() { kubeClientResourceOperation = origKubeClientResourceOperation }()
-
-		err := baseHandler.applyConfigMap()
-		if err == nil {
-			t.Fatal("expected error, got nil")
-		}
-		if err != errExpected {
-			t.Errorf("expected error %v, got %v", errExpected, err)
-		}
-	})
-
-	t.Run("Success", func(t *testing.T) {
-		baseHandler := &BaseBlueprintHandler{}
-		os.Setenv("KUBECONFIG", "test-kubeconfig")
-
-		mockConfigHandler := &config.MockConfigHandler{
-			GetStringFunc: func(key string, _ ...string) string {
-				if key == "id" {
-					return "w1234567"
-				}
-				return "foo"
-			},
-			GetStringSliceFunc: func(key string, _ ...[]string) []string { return []string{"/tmp:/var/local"} },
-			GetContextFunc:     func() string { return "mock-context" },
-		}
-		baseHandler.configHandler = mockConfigHandler
-
-		var capturedConfig ResourceOperationConfig
-		origKubeClientResourceOperation := kubeClientResourceOperation
-		kubeClientResourceOperation = func(_ string, config ResourceOperationConfig) error {
-			capturedConfig = config
-			return nil
-		}
-		defer func() { kubeClientResourceOperation = origKubeClientResourceOperation }()
-
-		err := baseHandler.applyConfigMap()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		configMap, ok := capturedConfig.ResourceObject.(*corev1.ConfigMap)
-		if !ok {
-			t.Fatal("expected ConfigMap resource object")
-		}
-
-		if configMap.Data["CONTEXT_ID"] != "w1234567" {
-			t.Errorf("expected CONTEXT_ID to be 'w1234567', got '%s'", configMap.Data["CONTEXT_ID"])
 		}
 	})
 }

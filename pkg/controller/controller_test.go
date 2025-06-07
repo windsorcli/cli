@@ -15,6 +15,7 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
+	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/network"
 	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/services"
@@ -329,6 +330,13 @@ func TestNewController(t *testing.T) {
 				stack := controller.constructors.NewWindsorStack(mocks.Injector)
 				if stack == nil {
 					return fmt.Errorf("NewWindsorStack returned nil")
+				}
+				return nil
+			},
+			"NewKubernetesManager": func() error {
+				manager := controller.constructors.NewKubernetesManager(mocks.Injector)
+				if manager == nil {
+					return fmt.Errorf("NewKubernetesManager returned nil")
 				}
 				return nil
 			},
@@ -3889,4 +3897,199 @@ func (m *BlueprintHandlerMock) LoadConfig(reset ...bool) error {
 		return m.LoadConfigFunc(reset...)
 	}
 	return nil
+}
+
+func TestBaseController_ResolveKubernetesManager(t *testing.T) {
+	setup := func(t *testing.T) (*BaseController, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		return controller, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a controller with a registered kubernetes manager
+		controller, mocks := setup(t)
+		mockK8sManager := kubernetes.NewMockKubernetesManager(mocks.Injector)
+		mocks.Injector.Register("kubernetesManager", mockK8sManager)
+
+		// When resolving the kubernetes manager
+		resolvedManager := controller.ResolveKubernetesManager()
+
+		// Then the registered kubernetes manager should be returned
+		if resolvedManager != mockK8sManager {
+			t.Errorf("Expected kubernetes manager to be %v, got %v", mockK8sManager, resolvedManager)
+		}
+	})
+
+	t.Run("ReturnsNilWhenKubernetesManagerNotRegistered", func(t *testing.T) {
+		// Given a controller with no kubernetes manager registered
+		controller, mocks := setup(t)
+		mocks.Injector.Register("kubernetesManager", nil)
+
+		// When resolving the kubernetes manager
+		manager := controller.ResolveKubernetesManager()
+
+		// Then nil should be returned
+		if manager != nil {
+			t.Errorf("Expected kubernetes manager to be nil, got %v", manager)
+		}
+	})
+}
+
+// ... existing code ...
+
+func TestBaseController_createKubernetesComponents(t *testing.T) {
+	setup := func(t *testing.T, configStr string) (*BaseController, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t, &SetupOptions{
+			ConfigStr: configStr,
+		})
+		controller := NewController(mocks.Injector)
+		return controller, mocks
+	}
+
+	t.Run("ReturnsErrorWhenKubernetesNotRequired", func(t *testing.T) {
+		// Given a controller with Kubernetes not required
+		controller, _ := setup(t, "")
+		req := Requirements{Kubernetes: false}
+
+		// When createKubernetesComponents is called
+		err := controller.createKubernetesComponents(req)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenKubernetesManagerConstructorIsNil", func(t *testing.T) {
+		// Given a controller with nil Kubernetes manager constructor
+		controller, _ := setup(t, "")
+		controller.constructors.NewKubernetesManager = nil
+		req := Requirements{Kubernetes: true}
+
+		// When createKubernetesComponents is called
+		err := controller.createKubernetesComponents(req)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "NewKubernetesManager constructor is nil") {
+			t.Errorf("Expected error about nil constructor, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenKubernetesClientConstructorIsNil", func(t *testing.T) {
+		// Given a controller with nil Kubernetes client constructor
+		controller, _ := setup(t, "")
+		controller.constructors.NewKubernetesClient = nil
+		req := Requirements{Kubernetes: true}
+
+		// When createKubernetesComponents is called
+		err := controller.createKubernetesComponents(req)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "NewKubernetesClient constructor is nil") {
+			t.Errorf("Expected error about nil constructor, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenKubernetesClientReturnsNil", func(t *testing.T) {
+		// Given a controller with Kubernetes client returning nil
+		controller, _ := setup(t, "")
+		controller.constructors.NewKubernetesClient = func(di.Injector) kubernetes.KubernetesClient {
+			return nil
+		}
+		req := Requirements{Kubernetes: true}
+
+		// When createKubernetesComponents is called
+		err := controller.createKubernetesComponents(req)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "NewKubernetesClient returned nil") {
+			t.Errorf("Expected error about nil client, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenKubernetesManagerReturnsNil", func(t *testing.T) {
+		// Given a controller with Kubernetes manager returning nil
+		controller, _ := setup(t, "")
+		controller.constructors.NewKubernetesManager = func(di.Injector) kubernetes.KubernetesManager {
+			return nil
+		}
+		req := Requirements{Kubernetes: true}
+
+		// When createKubernetesComponents is called
+		err := controller.createKubernetesComponents(req)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "NewKubernetesManager returned nil") {
+			t.Errorf("Expected error about nil manager, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenKubernetesManagerInitializationFails", func(t *testing.T) {
+		// Given a controller with failing Kubernetes manager initialization
+		controller, _ := setup(t, "")
+		mockManager := &kubernetes.MockKubernetesManager{}
+		mockManager.InitializeFunc = func() error {
+			return fmt.Errorf("initialization failed")
+		}
+		controller.constructors.NewKubernetesManager = func(di.Injector) kubernetes.KubernetesManager {
+			return mockManager
+		}
+		req := Requirements{Kubernetes: true}
+
+		// When createKubernetesComponents is called
+		err := controller.createKubernetesComponents(req)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to initialize kubernetes manager") {
+			t.Errorf("Expected error about initialization failure, got %v", err)
+		}
+	})
+
+	t.Run("SuccessfullyCreatesKubernetesComponents", func(t *testing.T) {
+		// Given a controller with valid Kubernetes components
+		controller, _ := setup(t, "")
+		mockClient := &kubernetes.MockKubernetesClient{}
+		mockManager := &kubernetes.MockKubernetesManager{}
+		controller.constructors.NewKubernetesClient = func(di.Injector) kubernetes.KubernetesClient {
+			return mockClient
+		}
+		controller.constructors.NewKubernetesManager = func(di.Injector) kubernetes.KubernetesManager {
+			return mockManager
+		}
+		req := Requirements{Kubernetes: true}
+
+		// When createKubernetesComponents is called
+		err := controller.createKubernetesComponents(req)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And the components should be registered
+		if client := controller.injector.Resolve("kubernetesClient"); client == nil {
+			t.Error("Expected kubernetesClient to be registered")
+		}
+		if manager := controller.injector.Resolve("kubernetesManager"); manager == nil {
+			t.Error("Expected kubernetesManager to be registered")
+		}
+	})
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
+	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/network"
 	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/services"
@@ -57,6 +58,7 @@ type Controller interface {
 	ResolveAllGenerators() []generators.Generator
 	WriteConfigurationFiles() error
 	SetEnvironmentVariables() error
+	ResolveKubernetesManager() kubernetes.KubernetesManager
 }
 
 // BaseController implements the Controller interface with default component management
@@ -79,6 +81,8 @@ type ComponentConstructors struct {
 	NewTerraformGenerator func(di.Injector) generators.Generator
 	NewKustomizeGenerator func(di.Injector) generators.Generator
 	NewToolsManager       func(di.Injector) tools.ToolsManager
+	NewKubernetesManager  func(di.Injector) kubernetes.KubernetesManager
+	NewKubernetesClient   func(di.Injector) kubernetes.KubernetesClient
 
 	NewAwsEnvPrinter       func(di.Injector) env.EnvPrinter
 	NewAzureEnvPrinter     func(di.Injector) env.EnvPrinter
@@ -126,6 +130,7 @@ type Requirements struct {
 	VM         bool // Needs virtual machine capabilities
 	Containers bool // Needs container runtime capabilities
 	Network    bool // Needs network management
+	Kubernetes bool // Needs Kubernetes manager
 
 	// Service requirements
 	Services bool // Needs service management
@@ -183,6 +188,12 @@ func NewDefaultConstructors() ComponentConstructors {
 		},
 		NewToolsManager: func(injector di.Injector) tools.ToolsManager {
 			return tools.NewToolsManager(injector)
+		},
+		NewKubernetesManager: func(injector di.Injector) kubernetes.KubernetesManager {
+			return kubernetes.NewKubernetesManager(injector)
+		},
+		NewKubernetesClient: func(injector di.Injector) kubernetes.KubernetesClient {
+			return kubernetes.NewDynamicKubernetesClient()
 		},
 
 		NewAwsEnvPrinter: func(injector di.Injector) env.EnvPrinter {
@@ -271,7 +282,7 @@ func (c *BaseController) SetRequirements(req Requirements) {
 	c.requirements = req
 }
 
-// CreateComponents initializes all required components based on current requirements
+// CreateComponents creates all required components based on the current requirements
 // It creates components in a specific order to ensure proper dependency resolution
 func (c *BaseController) CreateComponents() error {
 	if c.injector == nil {
@@ -292,11 +303,12 @@ func (c *BaseController) CreateComponents() error {
 		{"env", c.createEnvComponents},
 		{"secrets", c.createSecretsComponents},
 		{"generators", c.createGeneratorsComponents},
-		{"blueprint", c.createBlueprintComponent},
+		{"kubernetes", c.createKubernetesComponents},
 		{"virtualization", c.createVirtualizationComponents},
 		{"service", c.createServiceComponents},
 		{"network", c.createNetworkComponents},
 		{"stack", c.createStackComponent},
+		{"blueprint", c.createBlueprintComponent},
 	}
 
 	for _, cc := range componentCreators {
@@ -664,6 +676,14 @@ func (c *BaseController) SetEnvironmentVariables() error {
 		}
 	}
 	return nil
+}
+
+// ResolveKubernetesManager returns the Kubernetes manager component
+// It retrieves the Kubernetes manager from the dependency injection container
+func (c *BaseController) ResolveKubernetesManager() kubernetes.KubernetesManager {
+	instance := c.injector.Resolve("kubernetesManager")
+	manager, _ := instance.(kubernetes.KubernetesManager)
+	return manager
 }
 
 // =============================================================================
@@ -1119,6 +1139,48 @@ func (c *BaseController) createStackComponent(req Requirements) error {
 		c.injector.Register("stack", stackInstance)
 	}
 
+	return nil
+}
+
+// createKubernetesComponents creates and initializes the Kubernetes manager component if required
+// It sets up the Kubernetes manager for managing Kubernetes clusters
+func (c *BaseController) createKubernetesComponents(req Requirements) error {
+	if !req.Kubernetes {
+		return nil
+	}
+
+	if existingManager := c.ResolveKubernetesManager(); existingManager != nil {
+		return nil
+	}
+
+	if c.constructors.NewKubernetesManager == nil {
+		return fmt.Errorf("failed to create kubernetes components: NewKubernetesManager constructor is nil")
+	}
+
+	if c.constructors.NewKubernetesClient == nil {
+		return fmt.Errorf("failed to create kubernetes components: NewKubernetesClient constructor is nil")
+	}
+
+	client := c.constructors.NewKubernetesClient(c.injector)
+	if client == nil {
+		return fmt.Errorf("failed to create kubernetes components: NewKubernetesClient returned nil")
+	}
+
+	c.injector.Register("kubernetesClient", client)
+
+	manager := c.constructors.NewKubernetesManager(c.injector)
+	if manager == nil {
+		return fmt.Errorf("failed to create kubernetes components: NewKubernetesManager returned nil")
+	}
+
+	// Skip initialization during init command
+	if c.requirements.CommandName != "init" {
+		if err := manager.Initialize(); err != nil {
+			return fmt.Errorf("failed to initialize kubernetes manager: %w", err)
+		}
+	}
+
+	c.injector.Register("kubernetesManager", manager)
 	return nil
 }
 

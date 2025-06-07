@@ -24,6 +24,7 @@ var installCmd = &cobra.Command{
 			Services:     true,
 			Network:      true,
 			Blueprint:    true,
+			Kubernetes:   true,
 			Generators:   true,
 			Stack:        true,
 			CommandName:  cmd.Name(),
