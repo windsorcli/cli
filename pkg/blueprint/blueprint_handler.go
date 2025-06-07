@@ -77,21 +77,14 @@ type BaseBlueprintHandler struct {
 	blueprint         blueprintv1alpha1.Blueprint
 	projectRoot       string
 	shims             *Shims
-
-	kustomizationWaitPollInterval time.Duration
-	kustomizationReconcileTimeout time.Duration
-	kustomizationReconcileSleep   time.Duration
 }
 
 // NewBlueprintHandler creates a new instance of BaseBlueprintHandler.
 // It initializes the handler with the provided dependency injector.
 func NewBlueprintHandler(injector di.Injector) *BaseBlueprintHandler {
 	return &BaseBlueprintHandler{
-		injector:                      injector,
-		shims:                         NewShims(),
-		kustomizationWaitPollInterval: constants.DEFAULT_KUSTOMIZATION_WAIT_POLL_INTERVAL,
-		kustomizationReconcileTimeout: constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT,
-		kustomizationReconcileSleep:   constants.DEFAULT_KUSTOMIZATION_WAIT_POLL_INTERVAL,
+		injector: injector,
+		shims:    NewShims(),
 	}
 }
 
@@ -310,7 +303,7 @@ func (b *BaseBlueprintHandler) WaitForKustomizations(message string, names ...st
 	defer spin.Stop()
 
 	timeout := time.After(b.calculateMaxWaitTime())
-	ticker := time.NewTicker(b.kustomizationWaitPollInterval)
+	ticker := time.NewTicker(constants.DEFAULT_KUSTOMIZATION_WAIT_POLL_INTERVAL)
 	defer ticker.Stop()
 
 	var kustomizationNames []string
@@ -432,7 +425,7 @@ func (b *BaseBlueprintHandler) Install() error {
 	}
 
 	// Wait for kustomizations to be ready
-	if err := b.WaitForKustomizations(spin.Suffix, kustomizationNames...); err != nil {
+	if err := b.WaitForKustomizations("⌛️ Waiting for kustomizations to be ready", kustomizationNames...); err != nil {
 		spin.Stop()
 		fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 		return fmt.Errorf("failed waiting for kustomizations: %w", err)

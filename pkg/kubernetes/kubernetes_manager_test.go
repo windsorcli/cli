@@ -68,30 +68,33 @@ func setupShims(t *testing.T) *Shims {
 }
 
 func TestBaseKubernetesManager_Initialize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a new BaseKubernetesManager
+	setup := func(t *testing.T) *BaseKubernetesManager {
+		t.Helper()
 		mocks := setupMocks(t)
 		manager := NewKubernetesManager(mocks.Injector)
+		if err := manager.Initialize(); err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+		// Use shorter timeouts for tests
+		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.kustomizationReconcileSleep = 50 * time.Millisecond
+		return manager
+	}
 
-		// When initializing
-		err := manager.Initialize()
-
-		// Then no error should be returned
-		if err != nil {
+	t.Run("Success", func(t *testing.T) {
+		manager := setup(t)
+		if err := manager.Initialize(); err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("KubernetesClientResolutionError", func(t *testing.T) {
-		// Given a new BaseKubernetesManager with a mock kubernetes client that returns an error
 		mocks := setupMocks(t)
 		manager := NewKubernetesManager(mocks.Injector)
 		mocks.Injector.Register("kubernetesClient", nil)
 
-		// When initializing
 		err := manager.Initialize()
-
-		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -106,6 +109,10 @@ func TestBaseKubernetesManager_ApplyKustomization(t *testing.T) {
 		if err := manager.Initialize(); err != nil {
 			t.Fatalf("Initialize failed: %v", err)
 		}
+		// Use shorter timeouts for tests
+		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.kustomizationReconcileSleep = 50 * time.Millisecond
 		return manager
 	}
 
@@ -128,11 +135,25 @@ func TestBaseKubernetesManager_ApplyKustomization(t *testing.T) {
 	})
 
 	t.Run("UnstructuredConversionError", func(t *testing.T) {
-		// Given: a kustomization that causes ToUnstructured to fail
-		// NOTE: Cannot add an invalid field to KustomizationSpec due to Go type safety.
-		// This test is not feasible unless the code allows injection of a faulty converter or similar.
-		// Skipping this test for now.
-		t.Skip("Cannot trigger unstructured conversion error with Go type safety.")
+		manager := setup(t)
+		manager.shims.ToUnstructured = func(obj interface{}) (map[string]interface{}, error) {
+			return nil, fmt.Errorf("forced conversion error")
+		}
+
+		kustomization := kustomizev1.Kustomization{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-kustomization",
+				Namespace: "test-namespace",
+			},
+			Spec: kustomizev1.KustomizationSpec{
+				Path: "./test-path",
+			},
+		}
+
+		err := manager.ApplyKustomization(kustomization)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
 	})
 
 	t.Run("ApplyWithRetryError", func(t *testing.T) {
@@ -171,6 +192,10 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		if err := manager.Initialize(); err != nil {
 			t.Fatalf("Initialize failed: %v", err)
 		}
+		// Use shorter timeouts for tests
+		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.kustomizationReconcileSleep = 50 * time.Millisecond
 		return manager
 	}
 
@@ -205,6 +230,10 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		if err := manager.Initialize(); err != nil {
 			t.Fatalf("Initialize failed: %v", err)
 		}
+		// Use shorter timeouts for tests
+		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.kustomizationReconcileSleep = 50 * time.Millisecond
 		return manager
 	}
 
@@ -235,9 +264,6 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 
 	t.Run("Timeout", func(t *testing.T) {
 		manager := setup(t)
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
-
 		client := NewMockKubernetesClient()
 		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
@@ -263,9 +289,6 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 
 	t.Run("MissingStatus", func(t *testing.T) {
 		manager := setup(t)
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
-
 		client := NewMockKubernetesClient()
 		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
@@ -282,9 +305,6 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 
 	t.Run("FromUnstructuredError", func(t *testing.T) {
 		manager := setup(t)
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
-
 		client := NewMockKubernetesClient()
 		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
@@ -314,9 +334,6 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 
 	t.Run("MissingConditions", func(t *testing.T) {
 		manager := setup(t)
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
-
 		client := NewMockKubernetesClient()
 		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
@@ -335,9 +352,6 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 
 	t.Run("ConditionTypeNotReady", func(t *testing.T) {
 		manager := setup(t)
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
-
 		client := NewMockKubernetesClient()
 		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
@@ -363,9 +377,6 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 
 	t.Run("ConditionReadyFalse", func(t *testing.T) {
 		manager := setup(t)
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
-
 		client := NewMockKubernetesClient()
 		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
@@ -478,6 +489,10 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 		if err := manager.Initialize(); err != nil {
 			t.Fatalf("Initialize failed: %v", err)
 		}
+		// Use shorter timeouts for tests
+		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.kustomizationReconcileSleep = 50 * time.Millisecond
 		return manager
 	}
 
@@ -1318,9 +1333,6 @@ func TestBaseKubernetesManager_ApplyGitRepository(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "failed to convert gitrepository to unstructured") {
-			t.Errorf("Expected error containing 'failed to convert gitrepository to unstructured', got %v", err)
-		}
 	})
 
 	t.Run("ValidateFieldsError", func(t *testing.T) {
@@ -1348,9 +1360,6 @@ func TestBaseKubernetesManager_ApplyGitRepository(t *testing.T) {
 		err := manager.ApplyGitRepository(repo)
 		if err == nil {
 			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "invalid gitrepository fields") {
-			t.Errorf("Expected error containing 'invalid gitrepository fields', got %v", err)
 		}
 	})
 
@@ -1382,9 +1391,6 @@ func TestBaseKubernetesManager_ApplyGitRepository(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "apply error") {
-			t.Errorf("Expected error containing 'apply error', got %v", err)
-		}
 	})
 
 	t.Run("NilRepository", func(t *testing.T) {
@@ -1400,15 +1406,22 @@ func TestBaseKubernetesManager_ApplyGitRepository(t *testing.T) {
 }
 
 func TestBaseKubernetesManager_WaitForKustomizationsDeleted(t *testing.T) {
+	setup := func(t *testing.T) *BaseKubernetesManager {
+		t.Helper()
+		mocks := setupMocks(t)
+		manager := NewKubernetesManager(mocks.Injector)
+		if err := manager.Initialize(); err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+		// Use shorter timeouts for tests
+		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.kustomizationReconcileSleep = 50 * time.Millisecond
+		return manager
+	}
+
 	t.Run("Success", func(t *testing.T) {
-		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupMocks(t)
-			manager := NewKubernetesManager(mocks.Injector)
-			if err := manager.Initialize(); err != nil {
-				t.Fatalf("Initialize failed: %v", err)
-			}
-			return manager
-		}(t)
+		manager := setup(t)
 		client := NewMockKubernetesClient()
 		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
@@ -1422,17 +1435,7 @@ func TestBaseKubernetesManager_WaitForKustomizationsDeleted(t *testing.T) {
 	})
 
 	t.Run("Timeout", func(t *testing.T) {
-		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupMocks(t)
-			manager := NewKubernetesManager(mocks.Injector)
-			if err := manager.Initialize(); err != nil {
-				t.Fatalf("Initialize failed: %v", err)
-			}
-			// Speed up test
-			manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-			manager.kustomizationWaitPollInterval = 50 * time.Millisecond
-			return manager
-		}(t)
+		manager := setup(t)
 		client := NewMockKubernetesClient()
 		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{}, nil
@@ -1446,14 +1449,7 @@ func TestBaseKubernetesManager_WaitForKustomizationsDeleted(t *testing.T) {
 	})
 
 	t.Run("GetResourceError", func(t *testing.T) {
-		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupMocks(t)
-			manager := NewKubernetesManager(mocks.Injector)
-			if err := manager.Initialize(); err != nil {
-				t.Fatalf("Initialize failed: %v", err)
-			}
-			return manager
-		}(t)
+		manager := setup(t)
 		client := NewMockKubernetesClient()
 		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("some transient error")

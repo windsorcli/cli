@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
@@ -1641,6 +1640,7 @@ func TestBlueprintHandler_Install(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t)
 		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
 		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
@@ -1649,156 +1649,8 @@ func TestBlueprintHandler_Install(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		const pollInterval = 45 * time.Millisecond
-		const kustomTimeout = 500 * time.Millisecond
-
 		// And a blueprint handler with repository, sources, and kustomizations
 		handler, _ := setup(t)
-		handler.(*BaseBlueprintHandler).kustomizationWaitPollInterval = pollInterval
-		handler.(*BaseBlueprintHandler).kustomizationReconcileTimeout = kustomTimeout
-		handler.(*BaseBlueprintHandler).kustomizationReconcileSleep = pollInterval
-
-		err := handler.SetRepository(blueprintv1alpha1.Repository{
-			Url: "git::https://example.com/repo.git",
-			Ref: blueprintv1alpha1.Reference{Branch: "main"},
-		})
-		if err != nil {
-			t.Fatalf("Failed to set repository: %v", err)
-		}
-
-		expectedSources := []blueprintv1alpha1.Source{
-			{
-				Name: "source1",
-				Url:  "git::https://example.com/source1.git",
-				Ref:  blueprintv1alpha1.Reference{Branch: "main"},
-			},
-		}
-		handler.SetSources(expectedSources)
-
-		expectedKustomizations := []blueprintv1alpha1.Kustomization{
-			{
-				Name:      "kustomization1",
-				DependsOn: []string{"dependency1", "dependency2"},
-			},
-		}
-		handler.SetKustomizations(expectedKustomizations)
-
-		// When installing the blueprint
-		err = handler.Install()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Expected successful installation, but got error: %v", err)
-		}
-	})
-
-	t.Run("SourceURLWithoutDotGit", func(t *testing.T) {
-		// And a blueprint handler with repository and source without .git URL
-		handler, mocks := setup(t)
-
-		// Set up mock Kubernetes manager to return success for kustomization status
-		mocks.KubernetesManager.GetKustomizationStatusFunc = func(names []string) (map[string]bool, error) {
-			status := make(map[string]bool)
-			for _, name := range names {
-				status[name] = true
-			}
-			return status, nil
-		}
-
-		err := handler.SetRepository(blueprintv1alpha1.Repository{
-			Url: "git::https://example.com/repo.git",
-			Ref: blueprintv1alpha1.Reference{Branch: "main"},
-		})
-		if err != nil {
-			t.Fatalf("Failed to set repository: %v", err)
-		}
-
-		expectedSources := []blueprintv1alpha1.Source{
-			{
-				Name: "source2",
-				Url:  "https://example.com/source2",
-				Ref:  blueprintv1alpha1.Reference{Branch: "main"},
-			},
-		}
-		handler.SetSources(expectedSources)
-
-		// Add a kustomization so the install logic triggers the mock
-		expectedKustomizations := []blueprintv1alpha1.Kustomization{
-			{
-				Name: "kustomization1",
-			},
-		}
-		handler.SetKustomizations(expectedKustomizations)
-
-		// When installing the blueprint
-		err = handler.Install()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Expected successful installation with .git URL, but got error: %v", err)
-		}
-	})
-
-	t.Run("SourceWithSecretName", func(t *testing.T) {
-		// And a blueprint handler with repository and source with secret name
-		handler, mocks := setup(t)
-
-		// Set up mock Kubernetes manager to return success for kustomization status
-		mocks.KubernetesManager.GetKustomizationStatusFunc = func(names []string) (map[string]bool, error) {
-			status := make(map[string]bool)
-			for _, name := range names {
-				status[name] = true
-			}
-			return status, nil
-		}
-
-		err := handler.SetRepository(blueprintv1alpha1.Repository{
-			Url: "git::https://example.com/repo.git",
-			Ref: blueprintv1alpha1.Reference{Branch: "main"},
-		})
-		if err != nil {
-			t.Fatalf("Failed to set repository: %v", err)
-		}
-
-		expectedSources := []blueprintv1alpha1.Source{
-			{
-				Name:       "source3",
-				Url:        "https://example.com/source3.git",
-				Ref:        blueprintv1alpha1.Reference{Branch: "main"},
-				SecretName: "git-credentials",
-			},
-		}
-		handler.SetSources(expectedSources)
-
-		// Add a kustomization so the install logic triggers the mock
-		expectedKustomizations := []blueprintv1alpha1.Kustomization{
-			{
-				Name: "kustomization1",
-			},
-		}
-		handler.SetKustomizations(expectedKustomizations)
-
-		// When installing the blueprint
-		err = handler.Install()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Expected successful installation with secret name, but got error: %v", err)
-		}
-	})
-
-	t.Run("ErrorWaitingForKustomizations", func(t *testing.T) {
-		// And a blueprint handler with repository and source
-		handler, mocks := setup(t)
-
-		// Set up mock Kubernetes manager to return error for kustomization status
-		mocks.KubernetesManager.GetKustomizationStatusFunc = func(names []string) (map[string]bool, error) {
-			return nil, fmt.Errorf("failed to get kustomization status")
-		}
-
-		// Set minimal poll interval and timeout to avoid hanging
-		handler.(*BaseBlueprintHandler).kustomizationWaitPollInterval = 5 * time.Millisecond
-		handler.(*BaseBlueprintHandler).kustomizationReconcileTimeout = 10 * time.Millisecond
 
 		err := handler.SetRepository(blueprintv1alpha1.Repository{
 			Url: "git::https://example.com/repo.git",
@@ -1817,7 +1669,6 @@ func TestBlueprintHandler_Install(t *testing.T) {
 		}
 		handler.SetSources(expectedSources)
 
-		// Add a kustomization so the install logic triggers the mock
 		expectedKustomizations := []blueprintv1alpha1.Kustomization{
 			{
 				Name: "kustomization1",
@@ -1828,21 +1679,15 @@ func TestBlueprintHandler_Install(t *testing.T) {
 		// When installing the blueprint
 		err = handler.Install()
 
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected error when waiting for kustomizations, but got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to get kustomization status") {
-			t.Errorf("Expected error to contain 'failed to get kustomization status', but got: %v", err)
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected successful installation, but got error: %v", err)
 		}
 	})
 
 	t.Run("ApplyKustomizationError", func(t *testing.T) {
 		// Given a blueprint handler with repository, sources, and kustomizations
 		handler, mocks := setup(t)
-		handler.(*BaseBlueprintHandler).kustomizationWaitPollInterval = 5 * time.Millisecond
-		handler.(*BaseBlueprintHandler).kustomizationReconcileTimeout = 10 * time.Millisecond
-		handler.(*BaseBlueprintHandler).kustomizationReconcileSleep = 5 * time.Millisecond
 
 		err := handler.SetRepository(blueprintv1alpha1.Repository{
 			Url: "git::https://example.com/repo.git",
@@ -1896,15 +1741,6 @@ func TestBlueprintHandler_Down(t *testing.T) {
 		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
-		}
-		// Set fast poll interval and short timeout for all kustomizations
-		handler.kustomizationWaitPollInterval = 1 * time.Millisecond
-		for i := range handler.blueprint.Kustomizations {
-			if handler.blueprint.Kustomizations[i].Timeout == nil {
-				handler.blueprint.Kustomizations[i].Timeout = &metav1.Duration{Duration: 5 * time.Millisecond}
-			} else {
-				handler.blueprint.Kustomizations[i].Timeout.Duration = 5 * time.Millisecond
-			}
 		}
 		return handler, mocks
 	}

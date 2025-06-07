@@ -82,7 +82,6 @@ func (k *BaseKubernetesManager) Initialize() error {
 		return fmt.Errorf("error resolving kubernetesClient")
 	}
 	k.client = client
-
 	return nil
 }
 

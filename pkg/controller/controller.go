@@ -282,7 +282,7 @@ func (c *BaseController) SetRequirements(req Requirements) {
 	c.requirements = req
 }
 
-// CreateComponents initializes all required components based on current requirements
+// CreateComponents creates all required components based on the current requirements
 // It creates components in a specific order to ensure proper dependency resolution
 func (c *BaseController) CreateComponents() error {
 	if c.injector == nil {
@@ -303,12 +303,12 @@ func (c *BaseController) CreateComponents() error {
 		{"env", c.createEnvComponents},
 		{"secrets", c.createSecretsComponents},
 		{"generators", c.createGeneratorsComponents},
-		{"blueprint", c.createBlueprintComponent},
+		{"kubernetes", c.createKubernetesComponents},
 		{"virtualization", c.createVirtualizationComponents},
 		{"service", c.createServiceComponents},
 		{"network", c.createNetworkComponents},
 		{"stack", c.createStackComponent},
-		{"kubernetes", c.createKubernetesComponents},
+		{"blueprint", c.createBlueprintComponent},
 	}
 
 	for _, cc := range componentCreators {
@@ -1173,8 +1173,11 @@ func (c *BaseController) createKubernetesComponents(req Requirements) error {
 		return fmt.Errorf("failed to create kubernetes components: NewKubernetesManager returned nil")
 	}
 
-	if err := manager.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize kubernetes manager: %w", err)
+	// Skip initialization during init command
+	if c.requirements.CommandName != "init" {
+		if err := manager.Initialize(); err != nil {
+			return fmt.Errorf("failed to initialize kubernetes manager: %w", err)
+		}
 	}
 
 	c.injector.Register("kubernetesManager", manager)
