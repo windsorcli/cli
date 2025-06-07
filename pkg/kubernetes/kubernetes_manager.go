@@ -5,8 +5,6 @@
 package kubernetes
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -16,18 +14,13 @@ import (
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
-	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/shell"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 )
 
 // =============================================================================
@@ -37,7 +30,6 @@ import (
 // KubernetesManager defines methods for Kubernetes resource management
 type KubernetesManager interface {
 	Initialize() error
-	InitializeClient() error
 	ApplyKustomization(kustomization kustomizev1.Kustomization) error
 	DeleteKustomization(name, namespace string) error
 	WaitForKustomizations(message string, names ...string) error
@@ -59,11 +51,9 @@ type KubernetesManager interface {
 
 // BaseKubernetesManager implements KubernetesManager interface
 type BaseKubernetesManager struct {
-	injector      di.Injector
-	shell         shell.Shell
-	configHandler config.ConfigHandler
-	shims         *Shims
-	client        dynamic.Interface
+	injector di.Injector
+	shims    *Shims
+	client   KubernetesClient
 
 	kustomizationWaitPollInterval time.Duration
 	kustomizationReconcileTimeout time.Duration
@@ -87,45 +77,11 @@ func NewKubernetesManager(injector di.Injector) *BaseKubernetesManager {
 
 // Initialize sets up the BaseKubernetesManager by resolving dependencies
 func (k *BaseKubernetesManager) Initialize() error {
-	shellInstance, ok := k.injector.Resolve("shell").(shell.Shell)
+	client, ok := k.injector.Resolve("kubernetesClient").(KubernetesClient)
 	if !ok {
-		return fmt.Errorf("error resolving shell")
+		return fmt.Errorf("error resolving kubernetesClient")
 	}
-	k.shell = shellInstance
-
-	configHandler, ok := k.injector.Resolve("configHandler").(config.ConfigHandler)
-	if !ok {
-		return fmt.Errorf("error resolving configHandler")
-	}
-	k.configHandler = configHandler
-
-	return nil
-}
-
-// InitializeClient sets up the Kubernetes client connection
-func (k *BaseKubernetesManager) InitializeClient() error {
-	if k.client != nil {
-		return nil
-	}
-
-	kubeconfigPath := os.Getenv("KUBECONFIG")
-	var kubeConfig *rest.Config
-	var err error
-
-	if kubeconfigPath != "" {
-		kubeConfig, err = clientcmd.BuildConfigFromFlags("", kubeconfigPath)
-	} else {
-		kubeConfig, err = rest.InClusterConfig()
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to create Kubernetes config: %w", err)
-	}
-
-	k.client, err = dynamic.NewForConfig(kubeConfig)
-	if err != nil {
-		return fmt.Errorf("failed to create dynamic client: %w", err)
-	}
+	k.client = client
 
 	return nil
 }
@@ -133,7 +89,7 @@ func (k *BaseKubernetesManager) InitializeClient() error {
 // ApplyKustomization creates or updates a Kustomization resource using SSA
 func (k *BaseKubernetesManager) ApplyKustomization(kustomization kustomizev1.Kustomization) error {
 	obj := &unstructured.Unstructured{}
-	unstructuredMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&kustomization)
+	unstructuredMap, err := k.shims.ToUnstructured(&kustomization)
 	if err != nil {
 		return fmt.Errorf("failed to convert kustomization to unstructured: %w", err)
 	}
@@ -165,8 +121,7 @@ func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) erro
 		Resource: "kustomizations",
 	}
 
-	return k.client.Resource(gvr).Namespace(namespace).
-		Delete(context.Background(), name, metav1.DeleteOptions{})
+	return k.client.DeleteResource(gvr, namespace, name, metav1.DeleteOptions{})
 }
 
 // WaitForKustomizations waits for kustomizations to be ready
@@ -194,29 +149,29 @@ func (k *BaseKubernetesManager) WaitForKustomizations(message string, names ...s
 					Version:  "v1",
 					Resource: "kustomizations",
 				}
-				obj, err := k.client.Resource(gvr).Namespace("flux-system").Get(context.Background(), name, metav1.GetOptions{})
+				obj, err := k.client.GetResource(gvr, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE, name)
 				if err != nil {
 					allReady = false
 					break
 				}
-				var kustomizationObj map[string]interface{}
-				if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), &kustomizationObj); err != nil {
+				var kustomizationObj map[string]any
+				if err := k.shims.FromUnstructured(obj.UnstructuredContent(), &kustomizationObj); err != nil {
 					allReady = false
 					break
 				}
-				status, ok := kustomizationObj["status"].(map[string]interface{})
+				status, ok := kustomizationObj["status"].(map[string]any)
 				if !ok {
 					allReady = false
 					break
 				}
-				conditions, ok := status["conditions"].([]interface{})
+				conditions, ok := status["conditions"].([]any)
 				if !ok {
 					allReady = false
 					break
 				}
 				ready := false
 				for _, cond := range conditions {
-					condMap, ok := cond.(map[string]interface{})
+					condMap, ok := cond.(map[string]any)
 					if !ok {
 						continue
 					}
@@ -276,8 +231,7 @@ func (k *BaseKubernetesManager) DeleteNamespace(name string) error {
 		Resource: "namespaces",
 	}
 
-	return k.client.Resource(gvr).
-		Delete(context.Background(), name, metav1.DeleteOptions{})
+	return k.client.DeleteResource(gvr, "", name, metav1.DeleteOptions{})
 }
 
 // ApplyConfigMap creates or updates a ConfigMap using SSA
@@ -304,11 +258,9 @@ func (k *BaseKubernetesManager) ApplyConfigMap(name, namespace string, data map[
 		Resource: "configmaps",
 	}
 
-	existing, err := k.client.Resource(gvr).Namespace(namespace).
-		Get(context.Background(), name, metav1.GetOptions{})
+	existing, err := k.client.GetResource(gvr, namespace, name)
 	if err == nil && isImmutableConfigMap(existing) {
-		if err := k.client.Resource(gvr).Namespace(namespace).
-			Delete(context.Background(), name, metav1.DeleteOptions{}); err != nil {
+		if err := k.client.DeleteResource(gvr, namespace, name, metav1.DeleteOptions{}); err != nil {
 			return fmt.Errorf("failed to delete immutable configmap: %w", err)
 		}
 		time.Sleep(time.Second)
@@ -330,14 +282,13 @@ func (k *BaseKubernetesManager) GetHelmReleasesForKustomization(name, namespace 
 		Resource: "kustomizations",
 	}
 
-	obj, err := k.client.Resource(gvr).Namespace(namespace).
-		Get(context.Background(), name, metav1.GetOptions{})
+	obj, err := k.client.GetResource(gvr, namespace, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get kustomization: %w", err)
 	}
 
 	var kustomization kustomizev1.Kustomization
-	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), &kustomization); err != nil {
+	if err := k.shims.FromUnstructured(obj.UnstructuredContent(), &kustomization); err != nil {
 		return nil, fmt.Errorf("failed to convert kustomization: %w", err)
 	}
 
@@ -360,7 +311,7 @@ func (k *BaseKubernetesManager) GetHelmReleasesForKustomization(name, namespace 
 	return helmReleases, nil
 }
 
-// SuspendKustomization suspends a Kustomization using a strategic merge patch
+// SuspendKustomization suspends a Kustomization using a JSON merge patch
 func (k *BaseKubernetesManager) SuspendKustomization(name, namespace string) error {
 	gvr := schema.GroupVersionResource{
 		Group:    "kustomize.toolkit.fluxcd.io",
@@ -368,56 +319,32 @@ func (k *BaseKubernetesManager) SuspendKustomization(name, namespace string) err
 		Resource: "kustomizations",
 	}
 
-	patch := map[string]any{
-		"spec": map[string]any{
-			"suspend": true,
-		},
-	}
-
-	patchBytes, err := json.Marshal(patch)
-	if err != nil {
-		return fmt.Errorf("failed to marshal patch: %w", err)
-	}
-
-	_, err = k.client.Resource(gvr).Namespace(namespace).
-		Patch(context.Background(), name, types.MergePatchType, patchBytes, metav1.PatchOptions{})
+	patch := []byte(`{"spec":{"suspend":true}}`)
+	_, err := k.client.PatchResource(gvr, namespace, name, types.MergePatchType, patch, metav1.PatchOptions{
+		FieldManager: "windsor-cli",
+	})
 	return err
 }
 
 // SuspendHelmRelease suspends a Flux HelmRelease using SSA
 func (k *BaseKubernetesManager) SuspendHelmRelease(name, namespace string) error {
-	obj := &unstructured.Unstructured{
-		Object: map[string]any{
-			"apiVersion": "helm.toolkit.fluxcd.io/v2",
-			"kind":       "HelmRelease",
-			"metadata": map[string]any{
-				"name":      name,
-				"namespace": namespace,
-			},
-			"spec": map[string]any{
-				"suspend": true,
-			},
-		},
-	}
-
 	gvr := schema.GroupVersionResource{
 		Group:    "helm.toolkit.fluxcd.io",
 		Version:  "v2",
 		Resource: "helmreleases",
 	}
 
-	opts := metav1.ApplyOptions{
+	patch := []byte(`{"spec":{"suspend":true}}`)
+	_, err := k.client.PatchResource(gvr, namespace, name, types.MergePatchType, patch, metav1.PatchOptions{
 		FieldManager: "windsor-cli",
-		Force:        false,
-	}
-
-	return k.applyWithRetry(gvr, obj, opts)
+	})
+	return err
 }
 
 // ApplyGitRepository creates or updates a GitRepository resource using SSA
 func (k *BaseKubernetesManager) ApplyGitRepository(repo *sourcev1.GitRepository) error {
 	obj := &unstructured.Unstructured{}
-	unstructuredMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(repo)
+	unstructuredMap, err := k.shims.ToUnstructured(repo)
 	if err != nil {
 		return fmt.Errorf("failed to convert gitrepository to unstructured: %w", err)
 	}
@@ -461,11 +388,11 @@ func (k *BaseKubernetesManager) WaitForKustomizationsDeleted(message string, nam
 		case <-ticker.C:
 			allDeleted := true
 			for _, name := range names {
-				_, err := k.client.Resource(schema.GroupVersionResource{
+				_, err := k.client.GetResource(schema.GroupVersionResource{
 					Group:    "kustomize.toolkit.fluxcd.io",
 					Version:  "v1",
 					Resource: "kustomizations",
-				}).Namespace("flux-system").Get(context.Background(), name, metav1.GetOptions{})
+				}, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE, name)
 				if err == nil {
 					allDeleted = false
 					break
@@ -480,10 +407,6 @@ func (k *BaseKubernetesManager) WaitForKustomizationsDeleted(message string, nam
 	}
 }
 
-// =============================================================================
-// Private Methods
-// =============================================================================
-
 // CheckGitRepositoryStatus checks the status of all GitRepository resources
 func (k *BaseKubernetesManager) CheckGitRepositoryStatus() error {
 	gvr := schema.GroupVersionResource{
@@ -492,15 +415,14 @@ func (k *BaseKubernetesManager) CheckGitRepositoryStatus() error {
 		Resource: "gitrepositories",
 	}
 
-	objList, err := k.client.Resource(gvr).Namespace("flux-system").
-		List(context.Background(), metav1.ListOptions{})
+	objList, err := k.client.ListResources(gvr, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)
 	if err != nil {
 		return fmt.Errorf("failed to list git repositories: %w", err)
 	}
 
 	for _, obj := range objList.Items {
 		var gitRepo sourcev1.GitRepository
-		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), &gitRepo); err != nil {
+		if err := k.shims.FromUnstructured(obj.UnstructuredContent(), &gitRepo); err != nil {
 			return fmt.Errorf("failed to convert git repository %s: %w", gitRepo.Name, err)
 		}
 
@@ -522,9 +444,7 @@ func (k *BaseKubernetesManager) GetKustomizationStatus(names []string) (map[stri
 		Resource: "kustomizations",
 	}
 
-	namespace := constants.DEFAULT_FLUX_SYSTEM_NAMESPACE
-	objList, err := k.client.Resource(gvr).Namespace(namespace).
-		List(context.Background(), metav1.ListOptions{})
+	objList, err := k.client.ListResources(gvr, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list kustomizations: %w", err)
 	}
@@ -534,7 +454,7 @@ func (k *BaseKubernetesManager) GetKustomizationStatus(names []string) (map[stri
 
 	for _, obj := range objList.Items {
 		var kustomizeObj kustomizev1.Kustomization
-		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), &kustomizeObj); err != nil {
+		if err := k.shims.FromUnstructured(obj.UnstructuredContent(), &kustomizeObj); err != nil {
 			return nil, fmt.Errorf("failed to convert kustomization %s: %w", kustomizeObj.Name, err)
 		}
 
@@ -565,13 +485,9 @@ func (k *BaseKubernetesManager) GetKustomizationStatus(names []string) (map[stri
 
 // applyWithRetry applies a resource using SSA with minimal logic
 func (k *BaseKubernetesManager) applyWithRetry(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	existing, err := k.client.Resource(gvr).Namespace(obj.GetNamespace()).
-		Get(ctx, obj.GetName(), metav1.GetOptions{})
+	existing, err := k.client.GetResource(gvr, obj.GetNamespace(), obj.GetName())
 	if err == nil {
-		applyConfig, err := runtime.DefaultUnstructuredConverter.ToUnstructured(existing)
+		applyConfig, err := k.shims.ToUnstructured(existing)
 		if err != nil {
 			return fmt.Errorf("failed to convert existing object to unstructured: %w", err)
 		}
@@ -585,13 +501,11 @@ func (k *BaseKubernetesManager) applyWithRetry(gvr schema.GroupVersionResource, 
 
 		opts.Force = true
 
-		_, err = k.client.Resource(gvr).Namespace(obj.GetNamespace()).
-			Apply(ctx, obj.GetName(), mergedObj, opts)
+		_, err = k.client.ApplyResource(gvr, mergedObj, opts)
 		return err
 	}
 
-	_, err = k.client.Resource(gvr).Namespace(obj.GetNamespace()).
-		Apply(ctx, obj.GetName(), obj, opts)
+	_, err = k.client.ApplyResource(gvr, obj, opts)
 	return err
 }
 
@@ -603,8 +517,7 @@ func (k *BaseKubernetesManager) getHelmRelease(name, namespace string) (*helmv2.
 		Resource: "helmreleases",
 	}
 
-	obj, err := k.client.Resource(gvr).Namespace(namespace).
-		Get(context.Background(), name, metav1.GetOptions{})
+	obj, err := k.client.GetResource(gvr, namespace, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get helm release: %w", err)
 	}
@@ -635,10 +548,23 @@ func validateFields(obj *unstructured.Unstructured) error {
 	if _, ok := metadata["name"]; !ok {
 		return fmt.Errorf("metadata.name is required")
 	}
+	if name, ok := metadata["name"].(string); ok && strings.TrimSpace(name) == "" {
+		return fmt.Errorf("metadata.name cannot be empty")
+	}
 
 	if obj.GetKind() == "ConfigMap" {
 		if _, hasData := obj.Object["data"]; !hasData {
 			return fmt.Errorf("data is required for ConfigMap")
+		}
+		data, _ := obj.Object["data"]
+		if data == nil {
+			return fmt.Errorf("data cannot be nil for ConfigMap")
+		}
+		if m, ok := data.(map[string]string); ok && len(m) == 0 {
+			return fmt.Errorf("data cannot be empty for ConfigMap")
+		}
+		if m, ok := data.(map[string]any); ok && len(m) == 0 {
+			return fmt.Errorf("data cannot be empty for ConfigMap")
 		}
 		return nil
 	}

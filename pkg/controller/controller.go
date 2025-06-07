@@ -82,6 +82,7 @@ type ComponentConstructors struct {
 	NewKustomizeGenerator func(di.Injector) generators.Generator
 	NewToolsManager       func(di.Injector) tools.ToolsManager
 	NewKubernetesManager  func(di.Injector) kubernetes.KubernetesManager
+	NewKubernetesClient   func(di.Injector) kubernetes.KubernetesClient
 
 	NewAwsEnvPrinter       func(di.Injector) env.EnvPrinter
 	NewAzureEnvPrinter     func(di.Injector) env.EnvPrinter
@@ -190,6 +191,9 @@ func NewDefaultConstructors() ComponentConstructors {
 		},
 		NewKubernetesManager: func(injector di.Injector) kubernetes.KubernetesManager {
 			return kubernetes.NewKubernetesManager(injector)
+		},
+		NewKubernetesClient: func(injector di.Injector) kubernetes.KubernetesClient {
+			return kubernetes.NewDynamicKubernetesClient()
 		},
 
 		NewAwsEnvPrinter: func(injector di.Injector) env.EnvPrinter {
@@ -1144,13 +1148,35 @@ func (c *BaseController) createKubernetesComponents(req Requirements) error {
 	if !req.Kubernetes {
 		return nil
 	}
-	if c.ResolveKubernetesManager() != nil {
+
+	if existingManager := c.ResolveKubernetesManager(); existingManager != nil {
 		return nil
 	}
-	manager := c.constructors.NewKubernetesManager(c.injector)
-	if err := manager.Initialize(); err != nil {
-		return err
+
+	if c.constructors.NewKubernetesManager == nil {
+		return fmt.Errorf("failed to create kubernetes components: NewKubernetesManager constructor is nil")
 	}
+
+	if c.constructors.NewKubernetesClient == nil {
+		return fmt.Errorf("failed to create kubernetes components: NewKubernetesClient constructor is nil")
+	}
+
+	client := c.constructors.NewKubernetesClient(c.injector)
+	if client == nil {
+		return fmt.Errorf("failed to create kubernetes components: NewKubernetesClient returned nil")
+	}
+
+	c.injector.Register("kubernetesClient", client)
+
+	manager := c.constructors.NewKubernetesManager(c.injector)
+	if manager == nil {
+		return fmt.Errorf("failed to create kubernetes components: NewKubernetesManager returned nil")
+	}
+
+	if err := manager.Initialize(); err != nil {
+		return fmt.Errorf("failed to initialize kubernetes manager: %w", err)
+	}
+
 	c.injector.Register("kubernetesManager", manager)
 	return nil
 }

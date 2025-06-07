@@ -59,14 +59,6 @@ var downCmd = &cobra.Command{
 			return fmt.Errorf("Error loading blueprint config: %w", err)
 		}
 		if !skipK8sFlag {
-			kubernetesManager := controller.ResolveKubernetesManager()
-			if kubernetesManager == nil {
-				return fmt.Errorf("No kubernetes manager found")
-			}
-			if err := kubernetesManager.InitializeClient(); err != nil {
-				return fmt.Errorf("Error initializing kubernetes client: %w", err)
-			}
-
 			if err := blueprintHandler.Down(); err != nil {
 				return fmt.Errorf("Error running blueprint down: %w", err)
 			}

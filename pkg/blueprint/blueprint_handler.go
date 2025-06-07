@@ -43,7 +43,6 @@ type BlueprintHandler interface {
 	GetSources() []blueprintv1alpha1.Source
 	GetRepository() blueprintv1alpha1.Repository
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
-	GetKustomizations() []blueprintv1alpha1.Kustomization
 	SetMetadata(metadata blueprintv1alpha1.Metadata) error
 	SetSources(sources []blueprintv1alpha1.Source) error
 	SetRepository(repository blueprintv1alpha1.Repository) error
@@ -318,7 +317,7 @@ func (b *BaseBlueprintHandler) WaitForKustomizations(message string, names ...st
 	if len(names) > 0 && len(names[0]) > 0 {
 		kustomizationNames = names
 	} else {
-		kustomizations := b.GetKustomizations()
+		kustomizations := b.getKustomizations()
 		kustomizationNames = make([]string, len(kustomizations))
 		for i, k := range kustomizations {
 			kustomizationNames[i] = k.Name
@@ -382,6 +381,13 @@ func (b *BaseBlueprintHandler) Install() error {
 	spin.Start()
 	defer spin.Stop()
 
+	// Ensure namespace exists
+	if err := b.createManagedNamespace(constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+		spin.Stop()
+		fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
+		return fmt.Errorf("failed to create namespace: %w", err)
+	}
+
 	// Apply GitRepository for the main repository
 	if b.blueprint.Repository.Url != "" {
 		source := blueprintv1alpha1.Source{
@@ -414,7 +420,7 @@ func (b *BaseBlueprintHandler) Install() error {
 	}
 
 	// Apply Kustomizations
-	kustomizations := b.GetKustomizations()
+	kustomizations := b.getKustomizations()
 	kustomizationNames := make([]string, len(kustomizations))
 	for i, k := range kustomizations {
 		if err := b.kubernetesManager.ApplyKustomization(b.ToKubernetesKustomization(k, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)); err != nil {
@@ -423,6 +429,13 @@ func (b *BaseBlueprintHandler) Install() error {
 			return fmt.Errorf("failed to apply kustomization %s: %w", k.Name, err)
 		}
 		kustomizationNames[i] = k.Name
+	}
+
+	// Wait for kustomizations to be ready
+	if err := b.WaitForKustomizations(spin.Suffix, kustomizationNames...); err != nil {
+		spin.Stop()
+		fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
+		return fmt.Errorf("failed waiting for kustomizations: %w", err)
 	}
 
 	spin.Stop()
@@ -470,9 +483,9 @@ func (b *BaseBlueprintHandler) GetTerraformComponents() []blueprintv1alpha1.Terr
 	return resolvedBlueprint.TerraformComponents
 }
 
-// GetKustomizations retrieves the blueprint's Kustomization configurations, ensuring default values
+// getKustomizations retrieves the blueprint's Kustomization configurations, ensuring default values
 // are set for intervals, timeouts, and adding standard PostBuild configurations for variable substitution.
-func (b *BaseBlueprintHandler) GetKustomizations() []blueprintv1alpha1.Kustomization {
+func (b *BaseBlueprintHandler) getKustomizations() []blueprintv1alpha1.Kustomization {
 	if b.blueprint.Kustomizations == nil {
 		return nil
 	}
@@ -569,7 +582,7 @@ func (b *BaseBlueprintHandler) SetKustomizations(kustomizations []blueprintv1alp
 // resources are deleted in the correct order. It also manages a dedicated cleanup
 // namespace for cleanup kustomizations when needed.
 func (b *BaseBlueprintHandler) Down() error {
-	kustomizations := b.GetKustomizations()
+	kustomizations := b.getKustomizations()
 	if len(kustomizations) == 0 {
 		return nil
 	}
@@ -1077,7 +1090,7 @@ func (b *BaseBlueprintHandler) applyConfigMap() error {
 // It builds a dependency graph and uses DFS to find the longest path through it, accumulating
 // timeouts for each kustomization in the path. Returns the total time needed for the longest path.
 func (b *BaseBlueprintHandler) calculateMaxWaitTime() time.Duration {
-	kustomizations := b.GetKustomizations()
+	kustomizations := b.getKustomizations()
 	if len(kustomizations) == 0 {
 		return 0
 	}
@@ -1152,8 +1165,10 @@ func (b *BaseBlueprintHandler) calculateMaxWaitTime() time.Duration {
 }
 
 // ToKubernetesKustomization converts a blueprint kustomization to a Flux kustomization
+// It handles conversion of dependsOn, patches, and postBuild configurations
+// It maps blueprint fields to their Flux kustomization equivalents
+// It maintains namespace context and preserves all configuration options
 func (b *BaseBlueprintHandler) ToKubernetesKustomization(k blueprintv1alpha1.Kustomization, namespace string) kustomizev1.Kustomization {
-	// Convert dependsOn to Flux format
 	dependsOn := make([]meta.NamespacedObjectReference, len(k.DependsOn))
 	for i, dep := range k.DependsOn {
 		dependsOn[i] = meta.NamespacedObjectReference{
@@ -1162,7 +1177,6 @@ func (b *BaseBlueprintHandler) ToKubernetesKustomization(k blueprintv1alpha1.Kus
 		}
 	}
 
-	// Convert patches to Flux format
 	patches := make([]kustomize.Patch, len(k.Patches))
 	for i, p := range k.Patches {
 		patches[i] = kustomize.Patch{
@@ -1174,7 +1188,6 @@ func (b *BaseBlueprintHandler) ToKubernetesKustomization(k blueprintv1alpha1.Kus
 		}
 	}
 
-	// Convert postBuild configuration
 	var postBuild *kustomizev1.PostBuild
 	if k.PostBuild != nil {
 		substituteFrom := make([]kustomizev1.SubstituteReference, len(k.PostBuild.SubstituteFrom))

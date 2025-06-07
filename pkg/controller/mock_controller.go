@@ -44,6 +44,7 @@ type MockController struct {
 	ResolveBlueprintHandlerFunc    func() blueprint.BlueprintHandler
 	ResolveAllSecretsProvidersFunc func() []secrets.SecretsProvider
 	ResolveKubernetesManagerFunc   func() kubernetes.KubernetesManager
+	ResolveKubernetesClientFunc    func() kubernetes.KubernetesClient
 	WriteConfigurationFilesFunc    func() error
 	SetEnvironmentVariablesFunc    func() error
 }
@@ -190,6 +191,9 @@ func NewMockConstructors() ComponentConstructors {
 		// Kubernetes components
 		NewKubernetesManager: func(injector di.Injector) kubernetes.KubernetesManager {
 			return kubernetes.NewMockKubernetesManager(injector)
+		},
+		NewKubernetesClient: func(injector di.Injector) kubernetes.KubernetesClient {
+			return kubernetes.NewMockKubernetesClient()
 		},
 	}
 }

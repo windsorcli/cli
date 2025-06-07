@@ -17,11 +17,11 @@ type MockBlueprintHandler struct {
 	SetSourcesFunc             func(sources []blueprintv1alpha1.Source) error
 	SetTerraformComponentsFunc func(terraformComponents []blueprintv1alpha1.TerraformComponent) error
 	SetKustomizationsFunc      func(kustomizations []blueprintv1alpha1.Kustomization) error
+	WaitForKustomizationsFunc  func(message string, names ...string) error
 	WriteConfigFunc            func(overwrite ...bool) error
 	InstallFunc                func() error
 	GetRepositoryFunc          func() blueprintv1alpha1.Repository
 	SetRepositoryFunc          func(repository blueprintv1alpha1.Repository) error
-	WaitForKustomizationsFunc  func(message string, names ...string) error
 	DownFunc                   func() error
 }
 
@@ -154,18 +154,18 @@ func (m *MockBlueprintHandler) SetRepository(repository blueprintv1alpha1.Reposi
 	return nil
 }
 
-// WaitForKustomizations mocks the WaitForKustomizations method.
-func (m *MockBlueprintHandler) WaitForKustomizations(message string, names ...string) error {
-	if m.WaitForKustomizationsFunc != nil {
-		return m.WaitForKustomizationsFunc(message, names...)
-	}
-	return nil
-}
-
 // Down mocks the Down method.
 func (m *MockBlueprintHandler) Down() error {
 	if m.DownFunc != nil {
 		return m.DownFunc()
+	}
+	return nil
+}
+
+// WaitForKustomizations calls the mock WaitForKustomizationsFunc if set, otherwise returns nil
+func (m *MockBlueprintHandler) WaitForKustomizations(message string, names ...string) error {
+	if m.WaitForKustomizationsFunc != nil {
+		return m.WaitForKustomizationsFunc(message, names...)
 	}
 	return nil
 }

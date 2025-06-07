@@ -524,28 +524,43 @@ func TestMockBlueprintHandler_SetRepository(t *testing.T) {
 }
 
 func TestMockBlueprintHandler_WaitForKustomizations(t *testing.T) {
-	t.Run("DefaultReturnsNil", func(t *testing.T) {
-		mock := &MockBlueprintHandler{}
-		err := mock.WaitForKustomizations("⏳ Waiting for kustomizations to be ready", "a", "b")
-		if err != nil {
-			t.Errorf("expected nil, got %v", err)
+	setup := func(t *testing.T) *MockBlueprintHandler {
+		t.Helper()
+		injector := di.NewInjector()
+		handler := NewMockBlueprintHandler(injector)
+		return handler
+	}
+
+	t.Run("WithFuncSet", func(t *testing.T) {
+		// Given a mock handler with wait for kustomizations function
+		handler := setup(t)
+		message := "test message"
+		names := []string{"kustomization1", "kustomization2"}
+		expectedErr := fmt.Errorf("mock error")
+		handler.WaitForKustomizationsFunc = func(msg string, nms ...string) error {
+			if msg != message || len(nms) != len(names) {
+				t.Errorf("Expected message %s and names %v, got %s and %v", message, names, msg, nms)
+			}
+			return expectedErr
+		}
+		// When waiting for kustomizations
+		err := handler.WaitForKustomizations(message, names...)
+		// Then expected error should be returned
+		if err != expectedErr {
+			t.Errorf("Expected error = %v, got = %v", expectedErr, err)
 		}
 	})
 
-	t.Run("CustomFuncIsCalled", func(t *testing.T) {
-		called := false
-		mock := &MockBlueprintHandler{
-			WaitForKustomizationsFunc: func(message string, names ...string) error {
-				called = true
-				return nil
-			},
-		}
-		err := mock.WaitForKustomizations("⏳ Waiting for kustomizations to be ready", "x", "y")
-		if !called {
-			t.Error("expected custom func to be called")
-		}
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a mock handler without wait for kustomizations function
+		handler := setup(t)
+		message := "test message"
+		names := []string{"kustomization1", "kustomization2"}
+		// When waiting for kustomizations
+		err := handler.WaitForKustomizations(message, names...)
+		// Then no error should be returned
 		if err != nil {
-			t.Errorf("expected error nil, got %v", err)
+			t.Errorf("Expected error = %v, got = %v", nil, err)
 		}
 	})
 }

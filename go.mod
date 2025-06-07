@@ -5,7 +5,6 @@ go 1.24.3
 require (
 	github.com/1password/onepassword-sdk-go v0.3.0
 	github.com/abiosoft/colima v0.8.1
-	github.com/aws/smithy-go v1.22.3
 	github.com/briandowns/spinner v1.23.2
 	github.com/compose-spec/compose-go/v2 v2.6.4
 	github.com/fluxcd/helm-controller/api v1.3.0
@@ -72,6 +71,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.25.3 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.30.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.19 // indirect
+	github.com/aws/smithy-go v1.22.3 // indirect
 	github.com/blang/semver v3.5.1+incompatible // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

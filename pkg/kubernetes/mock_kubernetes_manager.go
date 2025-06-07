@@ -18,7 +18,6 @@ import (
 // MockKubernetesManager is a mock implementation of KubernetesManager interface for testing
 type MockKubernetesManager struct {
 	InitializeFunc                      func() error
-	InitializeClientFunc                func() error
 	ApplyKustomizationFunc              func(kustomization kustomizev1.Kustomization) error
 	DeleteKustomizationFunc             func(name, namespace string) error
 	WaitForKustomizationsFunc           func(message string, names ...string) error
@@ -51,14 +50,6 @@ func NewMockKubernetesManager(injector di.Injector) *MockKubernetesManager {
 func (m *MockKubernetesManager) Initialize() error {
 	if m.InitializeFunc != nil {
 		return m.InitializeFunc()
-	}
-	return nil
-}
-
-// InitializeClient implements KubernetesManager interface
-func (m *MockKubernetesManager) InitializeClient() error {
-	if m.InitializeClientFunc != nil {
-		return m.InitializeClientFunc()
 	}
 	return nil
 }
