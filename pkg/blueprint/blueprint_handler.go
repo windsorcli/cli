@@ -384,7 +384,7 @@ func (b *BaseBlueprintHandler) Install() error {
 	// Apply GitRepository for the main repository
 	if b.blueprint.Repository.Url != "" {
 		source := blueprintv1alpha1.Source{
-			Name:       b.configHandler.GetContext(),
+			Name:       b.blueprint.Metadata.Name,
 			Url:        b.blueprint.Repository.Url,
 			Ref:        b.blueprint.Repository.Ref,
 			SecretName: b.blueprint.Repository.SecretName,
@@ -422,13 +422,6 @@ func (b *BaseBlueprintHandler) Install() error {
 			return fmt.Errorf("failed to apply kustomization %s: %w", k.Name, err)
 		}
 		kustomizationNames[i] = k.Name
-	}
-
-	// Wait for kustomizations to be ready
-	if err := b.WaitForKustomizations("⌛️ Waiting for kustomizations to be ready", kustomizationNames...); err != nil {
-		spin.Stop()
-		fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
-		return fmt.Errorf("failed waiting for kustomizations: %w", err)
 	}
 
 	spin.Stop()
@@ -476,8 +469,10 @@ func (b *BaseBlueprintHandler) GetTerraformComponents() []blueprintv1alpha1.Terr
 	return resolvedBlueprint.TerraformComponents
 }
 
-// getKustomizations retrieves the blueprint's Kustomization configurations, ensuring default values
-// are set for intervals, timeouts, and adding standard PostBuild configurations for variable substitution.
+// getKustomizations retrieves and normalizes the blueprint's Kustomization configurations.
+// It provides default values for intervals, timeouts, and paths while ensuring consistent
+// configuration across all kustomizations. The function also adds standard PostBuild
+// configurations for variable substitution from the blueprint ConfigMap.
 func (b *BaseBlueprintHandler) getKustomizations() []blueprintv1alpha1.Kustomization {
 	if b.blueprint.Kustomizations == nil {
 		return nil
@@ -488,6 +483,10 @@ func (b *BaseBlueprintHandler) getKustomizations() []blueprintv1alpha1.Kustomiza
 	copy(kustomizations, resolvedBlueprint.Kustomizations)
 
 	for i := range kustomizations {
+		if kustomizations[i].Source == "" {
+			kustomizations[i].Source = b.blueprint.Metadata.Name
+		}
+
 		if kustomizations[i].Path == "" {
 			kustomizations[i].Path = "kustomize"
 		} else {
@@ -512,7 +511,6 @@ func (b *BaseBlueprintHandler) getKustomizations() []blueprintv1alpha1.Kustomiza
 			kustomizations[i].Force = &defaultForce
 		}
 
-		// Add the substituteFrom configuration
 		kustomizations[i].PostBuild = &blueprintv1alpha1.PostBuild{
 			SubstituteFrom: []blueprintv1alpha1.SubstituteReference{
 				{
@@ -1201,6 +1199,11 @@ func (b *BaseBlueprintHandler) ToKubernetesKustomization(k blueprintv1alpha1.Kus
 	retryInterval := metav1.Duration{Duration: k.RetryInterval.Duration}
 	timeout := metav1.Duration{Duration: k.Timeout.Duration}
 
+	prune := true
+	if k.Prune != nil {
+		prune = *k.Prune
+	}
+
 	return kustomizev1.Kustomization{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Kustomization",
@@ -1225,6 +1228,7 @@ func (b *BaseBlueprintHandler) ToKubernetesKustomization(k blueprintv1alpha1.Kus
 			PostBuild:     postBuild,
 			Components:    k.Components,
 			Wait:          *k.Wait,
+			Prune:         prune,
 		},
 	}
 }

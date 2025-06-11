@@ -155,6 +155,9 @@ type Kustomization struct {
 	// Force apply the kustomization.
 	Force *bool `yaml:"force,omitempty"`
 
+	// Prune enables garbage collection of resources that are no longer present in the source.
+	Prune *bool `yaml:"prune,omitempty"`
+
 	// Components to include in the kustomization.
 	Components []string `yaml:"components,omitempty"`
 
@@ -270,6 +273,7 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 			Patches:       slices.Clone(kustomization.Patches),
 			Wait:          kustomization.Wait,
 			Force:         kustomization.Force,
+			Prune:         kustomization.Prune,
 			Components:    slices.Clone(kustomization.Components),
 			Cleanup:       slices.Clone(kustomization.Cleanup),
 			PostBuild:     postBuildCopy,
@@ -418,6 +422,7 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 		Patches:       slices.Clone(k.Patches),
 		Wait:          k.Wait,
 		Force:         k.Force,
+		Prune:         k.Prune,
 		Components:    slices.Clone(k.Components),
 		Cleanup:       slices.Clone(k.Cleanup),
 		PostBuild:     postBuildCopy,
