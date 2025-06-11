@@ -581,6 +581,32 @@ metadata:
 	})
 }
 
+func TestBaseBlueprintHandler_getKustomizations(t *testing.T) {
+	t.Run("UsesBlueprintNameAsSource", func(t *testing.T) {
+		handler := &BaseBlueprintHandler{
+			blueprint: blueprintv1alpha1.Blueprint{
+				Metadata: blueprintv1alpha1.Metadata{
+					Name: "test-blueprint",
+				},
+				Kustomizations: []blueprintv1alpha1.Kustomization{
+					{
+						Name: "test-kustomization",
+					},
+				},
+			},
+		}
+
+		kustomizations := handler.getKustomizations()
+		if len(kustomizations) != 1 {
+			t.Fatalf("expected 1 kustomization, got %d", len(kustomizations))
+		}
+
+		if kustomizations[0].Source != "test-blueprint" {
+			t.Errorf("expected source to be 'test-blueprint', got '%s'", kustomizations[0].Source)
+		}
+	})
+}
+
 // mockConfigHandler implements config.ConfigHandler for testing
 // Only the methods used in applyConfigMap are implemented
 
