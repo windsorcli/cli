@@ -7,11 +7,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -1649,7 +1651,7 @@ func TestBlueprintHandler_Install(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// And a blueprint handler with repository, sources, and kustomizations
+		// Given a blueprint handler with repository, sources, and kustomizations
 		handler, _ := setup(t)
 
 		err := handler.SetRepository(blueprintv1alpha1.Repository{
@@ -1682,6 +1684,112 @@ func TestBlueprintHandler_Install(t *testing.T) {
 		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("Expected successful installation, but got error: %v", err)
+		}
+	})
+
+	t.Run("KustomizationDefaults", func(t *testing.T) {
+		// Given a blueprint handler with repository and kustomizations
+		handler, mocks := setup(t)
+
+		err := handler.SetRepository(blueprintv1alpha1.Repository{
+			Url: "git::https://example.com/repo.git",
+			Ref: blueprintv1alpha1.Reference{Branch: "main"},
+		})
+		if err != nil {
+			t.Fatalf("Failed to set repository: %v", err)
+		}
+
+		// And a blueprint with metadata name
+		handler.(*BaseBlueprintHandler).blueprint.Metadata.Name = "test-blueprint"
+
+		// And kustomizations with various configurations
+		kustomizations := []blueprintv1alpha1.Kustomization{
+			{
+				Name: "k1", // No source, should use blueprint name
+			},
+			{
+				Name:   "k2",
+				Source: "custom-source", // Explicit source
+			},
+			{
+				Name: "k3", // No path, should default to "kustomize"
+			},
+			{
+				Name: "k4",
+				Path: "custom/path", // Custom path, should be prefixed with "kustomize/"
+			},
+			{
+				Name: "k5", // No intervals/timeouts, should use defaults
+			},
+			{
+				Name:          "k6",
+				Interval:      &metav1.Duration{Duration: 2 * time.Minute},
+				RetryInterval: &metav1.Duration{Duration: 30 * time.Second},
+				Timeout:       &metav1.Duration{Duration: 5 * time.Minute},
+			},
+		}
+		handler.SetKustomizations(kustomizations)
+
+		// And a mock that captures the applied kustomizations
+		var appliedKustomizations []kustomizev1.Kustomization
+		mocks.KubernetesManager.ApplyKustomizationFunc = func(k kustomizev1.Kustomization) error {
+			appliedKustomizations = append(appliedKustomizations, k)
+			return nil
+		}
+
+		// When installing the blueprint
+		err = handler.Install()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected successful installation, but got error: %v", err)
+		}
+
+		// And the kustomizations should have the correct defaults
+		if len(appliedKustomizations) != 6 {
+			t.Fatalf("Expected 6 kustomizations to be applied, got %d", len(appliedKustomizations))
+		}
+
+		// Verify k1 (no source)
+		if appliedKustomizations[0].Spec.SourceRef.Name != "test-blueprint" {
+			t.Errorf("Expected k1 source to be 'test-blueprint', got '%s'", appliedKustomizations[0].Spec.SourceRef.Name)
+		}
+
+		// Verify k2 (explicit source)
+		if appliedKustomizations[1].Spec.SourceRef.Name != "custom-source" {
+			t.Errorf("Expected k2 source to be 'custom-source', got '%s'", appliedKustomizations[1].Spec.SourceRef.Name)
+		}
+
+		// Verify k3 (no path)
+		if appliedKustomizations[2].Spec.Path != "kustomize" {
+			t.Errorf("Expected k3 path to be 'kustomize', got '%s'", appliedKustomizations[2].Spec.Path)
+		}
+
+		// Verify k4 (custom path)
+		if appliedKustomizations[3].Spec.Path != "kustomize/custom/path" {
+			t.Errorf("Expected k4 path to be 'kustomize/custom/path', got '%s'", appliedKustomizations[3].Spec.Path)
+		}
+
+		// Verify k5 (default intervals/timeouts)
+		if appliedKustomizations[4].Spec.Interval.Duration != constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL {
+			t.Errorf("Expected k5 interval to be %v, got %v", constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL, appliedKustomizations[4].Spec.Interval.Duration)
+		}
+		if appliedKustomizations[4].Spec.RetryInterval.Duration != constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL {
+			t.Errorf("Expected k5 retry interval to be %v, got %v", constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL, appliedKustomizations[4].Spec.RetryInterval.Duration)
+		}
+		if appliedKustomizations[4].Spec.Timeout.Duration != constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT {
+			t.Errorf("Expected k5 timeout to be %v, got %v", constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT, appliedKustomizations[4].Spec.Timeout.Duration)
+		}
+
+		// Verify k6 (custom intervals/timeouts)
+		if appliedKustomizations[5].Spec.Interval.Duration != 2*time.Minute {
+			t.Errorf("Expected k6 interval to be 2m, got %v", appliedKustomizations[5].Spec.Interval.Duration)
+		}
+		if appliedKustomizations[5].Spec.RetryInterval.Duration != 30*time.Second {
+			t.Errorf("Expected k6 retry interval to be 30s, got %v", appliedKustomizations[5].Spec.RetryInterval.Duration)
+		}
+		if appliedKustomizations[5].Spec.Timeout.Duration != 5*time.Minute {
+			t.Errorf("Expected k6 timeout to be 5m, got %v", appliedKustomizations[5].Spec.Timeout.Duration)
 		}
 	})
 

@@ -580,22 +580,3 @@ metadata:
 		}
 	})
 }
-
-// mockConfigHandler implements config.ConfigHandler for testing
-// Only the methods used in applyConfigMap are implemented
-
-type mockConfigHandler struct {
-	getString      func(string) string
-	getStringSlice func(string) []string
-	getContext     func() string
-}
-
-func (m *mockConfigHandler) GetString(key string) string {
-	return m.getString(key)
-}
-func (m *mockConfigHandler) GetStringSlice(key string) []string {
-	return m.getStringSlice(key)
-}
-func (m *mockConfigHandler) GetContext() string {
-	return m.getContext()
-}
