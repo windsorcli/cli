@@ -3,7 +3,7 @@ module github.com/windsorcli/cli
 go 1.24.3
 
 require (
-	github.com/1password/onepassword-sdk-go v0.3.0
+	github.com/1password/onepassword-sdk-go v0.3.1
 	github.com/abiosoft/colima v0.8.1
 	github.com/briandowns/spinner v1.23.2
 	github.com/compose-spec/compose-go/v2 v2.6.4
