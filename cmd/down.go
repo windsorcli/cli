@@ -31,7 +31,7 @@ var downCmd = &cobra.Command{
 			Containers:   true,
 			Network:      true,
 			Blueprint:    true,
-			Kubernetes:   true,
+			Cluster:      true,
 			Stack:        true,
 			CommandName:  cmd.Name(),
 			Flags: map[string]bool{

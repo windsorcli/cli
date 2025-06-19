@@ -8,6 +8,7 @@ import (
 
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
 	"github.com/windsorcli/cli/pkg/blueprint"
+	"github.com/windsorcli/cli/pkg/cluster"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
@@ -59,6 +60,7 @@ type Controller interface {
 	WriteConfigurationFiles() error
 	SetEnvironmentVariables() error
 	ResolveKubernetesManager() kubernetes.KubernetesManager
+	ResolveClusterClient() cluster.ClusterClient
 }
 
 // BaseController implements the Controller interface with default component management
@@ -111,6 +113,8 @@ type ComponentConstructors struct {
 	NewOnePasswordCLISecretsProvider func(secretsConfigType.OnePasswordVault, di.Injector) secrets.SecretsProvider
 
 	NewWindsorStack func(di.Injector) stack.Stack
+
+	NewTalosClusterClient func(di.Injector) *cluster.TalosClusterClient
 }
 
 // Requirements defines the operational requirements for the controller
@@ -130,7 +134,7 @@ type Requirements struct {
 	VM         bool // Needs virtual machine capabilities
 	Containers bool // Needs container runtime capabilities
 	Network    bool // Needs network management
-	Kubernetes bool // Needs Kubernetes manager
+	Cluster    bool // Needs Kubernetes manager
 
 	// Service requirements
 	Services bool // Needs service management
@@ -195,7 +199,6 @@ func NewDefaultConstructors() ComponentConstructors {
 		NewKubernetesClient: func(injector di.Injector) kubernetes.KubernetesClient {
 			return kubernetes.NewDynamicKubernetesClient()
 		},
-
 		NewAwsEnvPrinter: func(injector di.Injector) env.EnvPrinter {
 			return env.NewAwsEnvPrinter(injector)
 		},
@@ -269,6 +272,10 @@ func NewDefaultConstructors() ComponentConstructors {
 		NewWindsorStack: func(injector di.Injector) stack.Stack {
 			return stack.NewWindsorStack(injector)
 		},
+
+		NewTalosClusterClient: func(injector di.Injector) *cluster.TalosClusterClient {
+			return cluster.NewTalosClusterClient(injector)
+		},
 	}
 }
 
@@ -303,7 +310,7 @@ func (c *BaseController) CreateComponents() error {
 		{"env", c.createEnvComponents},
 		{"secrets", c.createSecretsComponents},
 		{"generators", c.createGeneratorsComponents},
-		{"kubernetes", c.createKubernetesComponents},
+		{"kubernetes", c.createClusterComponents},
 		{"virtualization", c.createVirtualizationComponents},
 		{"service", c.createServiceComponents},
 		{"network", c.createNetworkComponents},
@@ -684,6 +691,14 @@ func (c *BaseController) ResolveKubernetesManager() kubernetes.KubernetesManager
 	instance := c.injector.Resolve("kubernetesManager")
 	manager, _ := instance.(kubernetes.KubernetesManager)
 	return manager
+}
+
+// ResolveClusterClient returns the cluster client component
+// It retrieves the cluster client from the dependency injection container
+func (c *BaseController) ResolveClusterClient() cluster.ClusterClient {
+	instance := c.injector.Resolve("clusterClient")
+	client, _ := instance.(cluster.ClusterClient)
+	return client
 }
 
 // =============================================================================
@@ -1142,13 +1157,19 @@ func (c *BaseController) createStackComponent(req Requirements) error {
 	return nil
 }
 
-// createKubernetesComponents creates and initializes the Kubernetes manager component if required
-// It sets up the Kubernetes manager for managing Kubernetes clusters
-func (c *BaseController) createKubernetesComponents(req Requirements) error {
-	if !req.Kubernetes {
+// createClusterComponents creates and initializes the cluster components if required
+// It sets up the cluster manager for managing cluster operations
+func (c *BaseController) createClusterComponents(req Requirements) error {
+	if !req.Cluster {
 		return nil
 	}
 
+	configHandler := c.ResolveConfigHandler()
+	if configHandler == nil {
+		return fmt.Errorf("config handler is nil")
+	}
+
+	// Create Kubernetes components
 	if existingManager := c.ResolveKubernetesManager(); existingManager != nil {
 		return nil
 	}
@@ -1168,19 +1189,34 @@ func (c *BaseController) createKubernetesComponents(req Requirements) error {
 
 	c.injector.Register("kubernetesClient", client)
 
-	manager := c.constructors.NewKubernetesManager(c.injector)
-	if manager == nil {
+	kubernetesManager := c.constructors.NewKubernetesManager(c.injector)
+	if kubernetesManager == nil {
 		return fmt.Errorf("failed to create kubernetes components: NewKubernetesManager returned nil")
 	}
 
 	// Skip initialization during init command
 	if c.requirements.CommandName != "init" {
-		if err := manager.Initialize(); err != nil {
+		if err := kubernetesManager.Initialize(); err != nil {
 			return fmt.Errorf("failed to initialize kubernetes manager: %w", err)
 		}
 	}
 
-	c.injector.Register("kubernetesManager", manager)
+	c.injector.Register("kubernetesManager", kubernetesManager)
+
+	// Create Talos components if configured
+	if configHandler.GetString("cluster.driver") == "talos" {
+		if c.constructors.NewTalosClusterClient == nil {
+			return fmt.Errorf("failed to create talos components: NewTalosClusterClient constructor is nil")
+		}
+
+		talosClient := c.constructors.NewTalosClusterClient(c.injector)
+		if talosClient == nil {
+			return fmt.Errorf("failed to create talos components: NewTalosClusterClient returned nil")
+		}
+
+		c.injector.Register("clusterClient", talosClient)
+	}
+
 	return nil
 }
 

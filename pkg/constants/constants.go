@@ -24,6 +24,7 @@ const (
 	DEFAULT_TALOS_CONTROL_PLANE_CPU = 2
 	DEFAULT_TALOS_CONTROL_PLANE_RAM = 2
 	DEFAULT_TALOS_API_PORT          = 50000
+	GRPCMaxMessageSize              = 32 * 1024 * 1024 // 32MB
 )
 
 const (
@@ -88,4 +89,10 @@ const (
 	MINIMUM_VERSION_TERRAFORM      = "1.7.0"
 	MINIMUM_VERSION_1PASSWORD      = "2.15.0"
 	MINIMUM_VERSION_AWS_CLI        = "2.15.0"
+)
+
+// Default node health check settings
+const (
+	DEFAULT_NODE_HEALTH_CHECK_TIMEOUT       = 5 * time.Minute
+	DEFAULT_NODE_HEALTH_CHECK_POLL_INTERVAL = 10 * time.Second
 )

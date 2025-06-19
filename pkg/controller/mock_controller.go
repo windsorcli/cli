@@ -5,6 +5,7 @@ import (
 
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
 	"github.com/windsorcli/cli/pkg/blueprint"
+	"github.com/windsorcli/cli/pkg/cluster"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
@@ -45,6 +46,7 @@ type MockController struct {
 	ResolveAllSecretsProvidersFunc func() []secrets.SecretsProvider
 	ResolveKubernetesManagerFunc   func() kubernetes.KubernetesManager
 	ResolveKubernetesClientFunc    func() kubernetes.KubernetesClient
+	ResolveClusterClientFunc       func() cluster.ClusterClient
 	WriteConfigurationFilesFunc    func() error
 	SetEnvironmentVariablesFunc    func() error
 }
@@ -194,6 +196,11 @@ func NewMockConstructors() ComponentConstructors {
 		},
 		NewKubernetesClient: func(injector di.Injector) kubernetes.KubernetesClient {
 			return kubernetes.NewMockKubernetesClient()
+		},
+
+		// Cluster components
+		NewTalosClusterClient: func(injector di.Injector) *cluster.TalosClusterClient {
+			return cluster.NewTalosClusterClient(injector)
 		},
 	}
 }
@@ -383,6 +390,14 @@ func (m *MockController) ResolveKubernetesManager() kubernetes.KubernetesManager
 		return m.ResolveKubernetesManagerFunc()
 	}
 	return m.BaseController.ResolveKubernetesManager()
+}
+
+// ResolveClusterClient implements the Controller interface
+func (m *MockController) ResolveClusterClient() cluster.ClusterClient {
+	if m.ResolveClusterClientFunc != nil {
+		return m.ResolveClusterClientFunc()
+	}
+	return m.BaseController.ResolveClusterClient()
 }
 
 // Ensure MockController implements Controller
