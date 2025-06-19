@@ -348,7 +348,7 @@ func TestMockConfigHandler_SaveConfig(t *testing.T) {
 	t.Run("WithPath", func(t *testing.T) {
 		// Given a mock config handler with SaveConfigFunc set to return an error
 		handler := NewMockConfigHandler()
-		handler.SaveConfigFunc = func(path string) error { return mockSaveErr }
+		handler.SaveConfigFunc = func(path string, overwrite ...bool) error { return mockSaveErr }
 
 		// When SaveConfig is called with a path
 		err := handler.SaveConfig("some/path")

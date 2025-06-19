@@ -420,6 +420,82 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("OverwriteFalseWithExistingFile", func(t *testing.T) {
+		// Given a set of safe mocks and a YamlConfigHandler
+		handler, _ := setup(t)
+
+		// And a valid config path with existing file
+		tempDir := t.TempDir()
+		configPath := filepath.Join(tempDir, "existing_config.yaml")
+
+		// Create an existing file
+		existingContent := "existing: content"
+		if err := os.WriteFile(configPath, []byte(existingContent), 0644); err != nil {
+			t.Fatalf("Failed to create existing file: %v", err)
+		}
+
+		// And a key-value pair to save
+		handler.Set("saveKey", "newValue")
+
+		// Use real file system for this test
+		handler.shims = NewShims()
+
+		// When SaveConfig is called with overwrite=false
+		err := handler.SaveConfig(configPath, false)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And the existing file should not be modified
+		content, err := os.ReadFile(configPath)
+		if err != nil {
+			t.Fatalf("Failed to read file: %v", err)
+		}
+		if string(content) != existingContent {
+			t.Errorf("Expected file to remain unchanged, got %s", string(content))
+		}
+	})
+
+	t.Run("OverwriteTrueWithExistingFile", func(t *testing.T) {
+		// Given a set of safe mocks and a YamlConfigHandler
+		handler, _ := setup(t)
+
+		// And a valid config path with existing file
+		tempDir := t.TempDir()
+		configPath := filepath.Join(tempDir, "existing_config.yaml")
+
+		// Create an existing file
+		existingContent := "existing: content"
+		if err := os.WriteFile(configPath, []byte(existingContent), 0644); err != nil {
+			t.Fatalf("Failed to create existing file: %v", err)
+		}
+
+		// And a key-value pair to save
+		handler.Set("saveKey", "newValue")
+
+		// Use real file system for this test
+		handler.shims = NewShims()
+
+		// When SaveConfig is called with overwrite=true
+		err := handler.SaveConfig(configPath, true)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And the file should be overwritten with new content
+		content, err := os.ReadFile(configPath)
+		if err != nil {
+			t.Fatalf("Failed to read file: %v", err)
+		}
+		if string(content) == existingContent {
+			t.Error("Expected file to be overwritten, but it remained unchanged")
+		}
+	})
+
 	t.Run("OmitsNullValues", func(t *testing.T) {
 		// Given a set of safe mocks and a YamlConfigHandler
 		handler, _ := setup(t)
