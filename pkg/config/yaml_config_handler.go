@@ -78,8 +78,13 @@ func (y *YamlConfigHandler) LoadConfig(path string) error {
 }
 
 // SaveConfig saves the current configuration to the specified path. If the path is empty, it uses the previously loaded path.
-// If the file does not exist, it creates an empty one.
-func (y *YamlConfigHandler) SaveConfig(path string) error {
+// If overwrite is false and the file exists, it will not overwrite the file
+func (y *YamlConfigHandler) SaveConfig(path string, overwrite ...bool) error {
+	shouldOverwrite := true
+	if len(overwrite) > 0 {
+		shouldOverwrite = overwrite[0]
+	}
+
 	if path == "" {
 		if y.path == "" {
 			return fmt.Errorf("path cannot be empty")
@@ -90,6 +95,13 @@ func (y *YamlConfigHandler) SaveConfig(path string) error {
 	dir := filepath.Dir(path)
 	if err := y.shims.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("error creating directories: %w", err)
+	}
+
+	// Check if file exists and we should not overwrite
+	if !shouldOverwrite {
+		if _, err := y.shims.Stat(path); err == nil {
+			return nil
+		}
 	}
 
 	// Ensure the config version is set to "v1alpha1" before saving

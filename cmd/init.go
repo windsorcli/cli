@@ -199,7 +199,7 @@ var initCmd = &cobra.Command{
 		}
 
 		// Save the cli configuration
-		if err := configHandler.SaveConfig(cliConfigPath); err != nil {
+		if err := configHandler.SaveConfig(cliConfigPath, reset); err != nil {
 			return fmt.Errorf("Error saving config file: %w", err)
 		}
 

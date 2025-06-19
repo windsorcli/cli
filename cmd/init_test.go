@@ -203,7 +203,7 @@ func TestInitCmd(t *testing.T) {
 		mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			return nil
 		}
-		mockConfigHandler.SaveConfigFunc = func(path string) error {
+		mockConfigHandler.SaveConfigFunc = func(path string, overwrite ...bool) error {
 			return nil
 		}
 		mocks.Controller.ResolveConfigHandlerFunc = func() config.ConfigHandler {
@@ -250,7 +250,7 @@ func TestInitCmd(t *testing.T) {
 		mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			return nil
 		}
-		mockConfigHandler.SaveConfigFunc = func(path string) error {
+		mockConfigHandler.SaveConfigFunc = func(path string, overwrite ...bool) error {
 			return fmt.Errorf("save config error")
 		}
 		mocks.Controller.ResolveConfigHandlerFunc = func() config.ConfigHandler {
@@ -814,7 +814,7 @@ func TestInitCmd(t *testing.T) {
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string { return "" }
 		mockConfigHandler.SetDefaultFunc = func(config v1alpha1.Context) error { return nil }
 		mockConfigHandler.SetContextValueFunc = func(key string, value any) error { return nil }
-		mockConfigHandler.SaveConfigFunc = func(path string) error { return nil }
+		mockConfigHandler.SaveConfigFunc = func(path string, overwrite ...bool) error { return nil }
 		mockConfigHandler.GenerateContextIDFunc = func() error { return fmt.Errorf("generate context id error") }
 		mocks.Controller.ResolveConfigHandlerFunc = func() config.ConfigHandler { return mockConfigHandler }
 
