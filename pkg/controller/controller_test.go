@@ -3952,10 +3952,10 @@ func TestBaseController_createKubernetesComponents(t *testing.T) {
 	t.Run("ReturnsErrorWhenKubernetesNotRequired", func(t *testing.T) {
 		// Given a controller with Kubernetes not required
 		controller, _ := setup(t, "")
-		req := Requirements{Kubernetes: false}
+		req := Requirements{Cluster: false}
 
 		// When createKubernetesComponents is called
-		err := controller.createKubernetesComponents(req)
+		err := controller.createClusterComponents(req)
 
 		// Then no error should be returned
 		if err != nil {
@@ -3967,10 +3967,10 @@ func TestBaseController_createKubernetesComponents(t *testing.T) {
 		// Given a controller with nil Kubernetes manager constructor
 		controller, _ := setup(t, "")
 		controller.constructors.NewKubernetesManager = nil
-		req := Requirements{Kubernetes: true}
+		req := Requirements{Cluster: true}
 
 		// When createKubernetesComponents is called
-		err := controller.createKubernetesComponents(req)
+		err := controller.createClusterComponents(req)
 
 		// Then an error should be returned
 		if err == nil {
@@ -3985,10 +3985,10 @@ func TestBaseController_createKubernetesComponents(t *testing.T) {
 		// Given a controller with nil Kubernetes client constructor
 		controller, _ := setup(t, "")
 		controller.constructors.NewKubernetesClient = nil
-		req := Requirements{Kubernetes: true}
+		req := Requirements{Cluster: true}
 
 		// When createKubernetesComponents is called
-		err := controller.createKubernetesComponents(req)
+		err := controller.createClusterComponents(req)
 
 		// Then an error should be returned
 		if err == nil {
@@ -4005,10 +4005,10 @@ func TestBaseController_createKubernetesComponents(t *testing.T) {
 		controller.constructors.NewKubernetesClient = func(di.Injector) kubernetes.KubernetesClient {
 			return nil
 		}
-		req := Requirements{Kubernetes: true}
+		req := Requirements{Cluster: true}
 
 		// When createKubernetesComponents is called
-		err := controller.createKubernetesComponents(req)
+		err := controller.createClusterComponents(req)
 
 		// Then an error should be returned
 		if err == nil {
@@ -4025,10 +4025,10 @@ func TestBaseController_createKubernetesComponents(t *testing.T) {
 		controller.constructors.NewKubernetesManager = func(di.Injector) kubernetes.KubernetesManager {
 			return nil
 		}
-		req := Requirements{Kubernetes: true}
+		req := Requirements{Cluster: true}
 
 		// When createKubernetesComponents is called
-		err := controller.createKubernetesComponents(req)
+		err := controller.createClusterComponents(req)
 
 		// Then an error should be returned
 		if err == nil {
@@ -4049,10 +4049,10 @@ func TestBaseController_createKubernetesComponents(t *testing.T) {
 		controller.constructors.NewKubernetesManager = func(di.Injector) kubernetes.KubernetesManager {
 			return mockManager
 		}
-		req := Requirements{Kubernetes: true}
+		req := Requirements{Cluster: true}
 
 		// When createKubernetesComponents is called
-		err := controller.createKubernetesComponents(req)
+		err := controller.createClusterComponents(req)
 
 		// Then an error should be returned
 		if err == nil {
@@ -4074,10 +4074,10 @@ func TestBaseController_createKubernetesComponents(t *testing.T) {
 		controller.constructors.NewKubernetesManager = func(di.Injector) kubernetes.KubernetesManager {
 			return mockManager
 		}
-		req := Requirements{Kubernetes: true}
+		req := Requirements{Cluster: true}
 
 		// When createKubernetesComponents is called
-		err := controller.createKubernetesComponents(req)
+		err := controller.createClusterComponents(req)
 
 		// Then no error should be returned
 		if err != nil {

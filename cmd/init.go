@@ -211,7 +211,7 @@ var initCmd = &cobra.Command{
 			Services:    true,
 			Network:     true,
 			Blueprint:   true,
-			Kubernetes:  true,
+			Cluster:     true,
 			Generators:  true,
 			Stack:       true,
 			Reset:       reset,
