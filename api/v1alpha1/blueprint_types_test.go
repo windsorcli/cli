@@ -397,6 +397,83 @@ func TestBlueprint_Merge(t *testing.T) {
 		}
 	})
 
+	t.Run("ParallelismFieldMerge", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			dst      *int
+			overlay  *int
+			expected *int
+		}{
+			{
+				name:     "BothNil",
+				dst:      nil,
+				overlay:  nil,
+				expected: nil,
+			},
+			{
+				name:     "DstNilOverlaySet",
+				dst:      nil,
+				overlay:  ptrInt(5),
+				expected: ptrInt(5),
+			},
+			{
+				name:     "DstSetOverlayNil",
+				dst:      ptrInt(10),
+				overlay:  nil,
+				expected: ptrInt(10),
+			},
+			{
+				name:     "BothSet",
+				dst:      ptrInt(10),
+				overlay:  ptrInt(5),
+				expected: ptrInt(5),
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				dst := &Blueprint{
+					TerraformComponents: []TerraformComponent{
+						{
+							Source:      "source1",
+							Path:        "module/path1",
+							Parallelism: tt.dst,
+						},
+					},
+				}
+
+				overlay := &Blueprint{
+					TerraformComponents: []TerraformComponent{
+						{
+							Source:      "source1",
+							Path:        "module/path1",
+							Parallelism: tt.overlay,
+						},
+					},
+				}
+
+				dst.Merge(overlay)
+
+				if len(dst.TerraformComponents) != 1 {
+					t.Fatalf("Expected 1 TerraformComponent, but got %d", len(dst.TerraformComponents))
+				}
+
+				component := dst.TerraformComponents[0]
+				if tt.expected == nil {
+					if component.Parallelism != nil {
+						t.Errorf("Expected Parallelism to be nil, but got %v", component.Parallelism)
+					}
+				} else {
+					if component.Parallelism == nil {
+						t.Errorf("Expected Parallelism to be %v, but got nil", *tt.expected)
+					} else if *component.Parallelism != *tt.expected {
+						t.Errorf("Expected Parallelism to be %v, but got %v", *tt.expected, *component.Parallelism)
+					}
+				}
+			})
+		}
+	})
+
 	t.Run("OverlayComponentWithDifferentSource", func(t *testing.T) {
 		base := &Blueprint{
 			TerraformComponents: []TerraformComponent{{Path: "mod", Source: "A"}},

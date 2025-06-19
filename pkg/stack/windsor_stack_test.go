@@ -331,6 +331,48 @@ func TestWindsorStack_Up(t *testing.T) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
 		}
 	})
+
+	t.Run("SuccessWithParallelism", func(t *testing.T) {
+		stack, mocks := setup(t)
+
+		// Set up components with parallelism
+		mocks.Blueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Source:      "source1",
+					Path:        "module/path1",
+					FullPath:    filepath.Join(os.Getenv("WINDSOR_PROJECT_ROOT"), ".windsor", ".tf_modules", "remote", "path"),
+					Parallelism: ptrInt(5),
+				},
+			}
+		}
+
+		// Track terraform commands to verify parallelism flag
+		var capturedCommands [][]string
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "terraform" {
+				capturedCommands = append(capturedCommands, append([]string{command}, args...))
+			}
+			return "", nil
+		}
+
+		// When the stack is brought up
+		if err := stack.Up(); err != nil {
+			t.Errorf("Expected Up to return nil, got %v", err)
+		}
+
+		// Then terraform apply should be called with parallelism flag
+		foundApplyWithParallelism := false
+		for _, cmd := range capturedCommands {
+			if len(cmd) >= 3 && cmd[1] == "apply" && cmd[2] == "-parallelism=5" {
+				foundApplyWithParallelism = true
+				break
+			}
+		}
+		if !foundApplyWithParallelism {
+			t.Errorf("Expected terraform apply command with -parallelism=5, but it was not found in captured commands: %v", capturedCommands)
+		}
+	})
 }
 
 func TestWindsorStack_Down(t *testing.T) {
@@ -530,6 +572,48 @@ func TestWindsorStack_Down(t *testing.T) {
 		}
 	})
 
+	t.Run("SuccessWithParallelism", func(t *testing.T) {
+		stack, mocks := setup(t)
+
+		// Set up components with parallelism
+		mocks.Blueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Source:      "source1",
+					Path:        "module/path1",
+					FullPath:    filepath.Join(os.Getenv("WINDSOR_PROJECT_ROOT"), ".windsor", ".tf_modules", "remote", "path"),
+					Parallelism: ptrInt(3),
+				},
+			}
+		}
+
+		// Track terraform commands to verify parallelism flag
+		var capturedCommands [][]string
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "terraform" {
+				capturedCommands = append(capturedCommands, append([]string{command}, args...))
+			}
+			return "", nil
+		}
+
+		// When the stack is brought down
+		if err := stack.Down(); err != nil {
+			t.Errorf("Expected Down to return nil, got %v", err)
+		}
+
+		// Then terraform destroy should be called with parallelism flag
+		foundDestroyWithParallelism := false
+		for _, cmd := range capturedCommands {
+			if len(cmd) >= 4 && cmd[1] == "destroy" && cmd[2] == "-auto-approve" && cmd[3] == "-parallelism=3" {
+				foundDestroyWithParallelism = true
+				break
+			}
+		}
+		if !foundDestroyWithParallelism {
+			t.Errorf("Expected terraform destroy command with -parallelism=3, but it was not found in captured commands: %v", capturedCommands)
+		}
+	})
+
 	t.Run("SkipComponentWithDestroyFalse", func(t *testing.T) {
 		stack, mocks := setup(t)
 		mocks.Blueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
@@ -555,4 +639,8 @@ func TestWindsorStack_Down(t *testing.T) {
 // Helper functions to create pointers for basic types
 func ptrBool(b bool) *bool {
 	return &b
+}
+
+func ptrInt(i int) *int {
+	return &i
 }

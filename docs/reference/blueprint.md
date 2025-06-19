@@ -109,6 +109,7 @@ terraform:
   
   # A Terraform module defined within the current blueprint source
   - path: apps/my-infra
+    parallelism: 5
 ```
 
 | Field      | Type                             | Description                                      |
@@ -117,6 +118,7 @@ terraform:
 | `path`     | `string`                         | Path of the Terraform module relative to the `terraform/` folder.                    |
 | `values`   | `map[string]any`         | Configuration values for the module.             |
 | `variables`| `map[string]TerraformVariable`   | Input variables for the module.                  |
+| `parallelism`| `int`                         | Limits the number of concurrent operations as Terraform walks the graph. Corresponds to the `-parallelism` flag. |
 
 ### Kustomization
 For more information on Flux Kustomizations, which are sets of resources and configurations applied to a Kubernetes cluster, visit [Flux Kustomizations Documentation](https://fluxcd.io/flux/components/kustomize/kustomizations/). Most parameters are not necessary to define.
