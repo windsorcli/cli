@@ -48,7 +48,7 @@ func NewShims() *Shims {
 			return c.ServiceList(ctx)
 		},
 		TalosClose: func(c *client.Client) {
-			c.Close()
+			_ = c.Close()
 		},
 	}
 }

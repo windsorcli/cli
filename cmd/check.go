@@ -124,5 +124,5 @@ func init() {
 	checkNodeHealthCmd.Flags().DurationVar(&nodeHealthTimeout, "timeout", 0, "Maximum time to wait for nodes to be ready (default 5m)")
 	checkNodeHealthCmd.Flags().StringSliceVar(&nodeHealthNodes, "nodes", []string{}, "Nodes to check (required)")
 	checkNodeHealthCmd.Flags().StringVar(&nodeHealthVersion, "version", "", "Expected version to check against (optional)")
-	checkNodeHealthCmd.MarkFlagRequired("nodes")
+	_ = checkNodeHealthCmd.MarkFlagRequired("nodes")
 }
