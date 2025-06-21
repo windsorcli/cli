@@ -9,9 +9,9 @@ import (
 )
 
 // The OnePasswordCLISecretsProvider is an implementation of the SecretsProvider interface
-// It provides integration with the 1Password CLI for secret management
-// It serves as a bridge between the application and 1Password's secure storage
-// It enables retrieval and parsing of secrets from 1Password vaults
+// It provides integration with the 1Password CLI for secret management with automatic shell scrubbing registration
+// It serves as a bridge between the application and 1Password's secure storage with built-in security features
+// It enables retrieval and parsing of secrets from 1Password vaults while automatically registering secrets for output scrubbing
 
 // =============================================================================
 // Types
@@ -41,7 +41,9 @@ func NewOnePasswordCLISecretsProvider(vault secretsConfigType.OnePasswordVault, 
 // Public Methods
 // =============================================================================
 
-// GetSecret retrieves a secret value for the specified key
+// GetSecret retrieves a secret value for the specified key and automatically registers it with the shell for output scrubbing.
+// It uses the 1Password CLI to fetch secrets from the configured vault and automatically registers
+// the retrieved secret with the shell's scrubbing system to prevent accidental exposure in command output.
 func (s *OnePasswordCLISecretsProvider) GetSecret(key string) (string, error) {
 	if !s.unlocked {
 		return "********", nil
@@ -59,7 +61,9 @@ func (s *OnePasswordCLISecretsProvider) GetSecret(key string) (string, error) {
 		return "", fmt.Errorf("failed to retrieve secret from 1Password: %w", err)
 	}
 
-	return strings.TrimSpace(string(output)), nil
+	value := strings.TrimSpace(string(output))
+	s.shell.RegisterSecret(value)
+	return value, nil
 }
 
 // ParseSecrets identifies and replaces ${{ op.<id>.<secret>.<field> }} patterns in the input

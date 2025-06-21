@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -17,9 +18,9 @@ import (
 )
 
 // The Shell package is a unified interface for shell operations across different platforms.
-// It provides cross-platform command execution, environment variable management, and session token handling.
-// This package serves as the core interface for all shell operations in the Windsor CLI.
-// Key features include command execution, environment variable management, and session token handling.
+// It provides cross-platform command execution, environment variable management, session token handling, and secret scrubbing.
+// This package serves as the core interface for all shell operations in the Windsor CLI with built-in security features.
+// Key features include command execution, environment variable management, session token handling, and automatic secret scrubbing from command output.
 
 // =============================================================================
 // Constants
@@ -61,6 +62,7 @@ type Shell interface {
 	GetSessionToken() (string, error)
 	CheckResetFlags() (bool, error)
 	Reset()
+	RegisterSecret(value string)
 }
 
 // DefaultShell is the default implementation of the Shell interface
@@ -71,6 +73,7 @@ type DefaultShell struct {
 	verbose      bool
 	sessionToken string
 	shims        *Shims
+	secrets      []string
 }
 
 // =============================================================================
@@ -143,11 +146,16 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 
 // Exec runs a command with args, capturing stdout and stderr. It prints output and returns stdout as a string.
 // If the command is "sudo", it connects stdin to the terminal for password input.
+// All output is scrubbed to remove registered secrets before being displayed or returned.
 func (s *DefaultShell) Exec(command string, args ...string) (string, error) {
 	cmd := s.shims.Command(command, args...)
 	var stdoutBuf, stderrBuf bytes.Buffer
-	cmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
-	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
+
+	scrubbingStdoutWriter := &scrubbingWriter{writer: os.Stdout, scrubFunc: s.scrubString}
+	scrubbingStderrWriter := &scrubbingWriter{writer: os.Stderr, scrubFunc: s.scrubString}
+
+	cmd.Stdout = io.MultiWriter(scrubbingStdoutWriter, &stdoutBuf)
+	cmd.Stderr = io.MultiWriter(scrubbingStderrWriter, &stderrBuf)
 	if command == "sudo" {
 		cmd.Stdin = os.Stdin
 	}
@@ -155,9 +163,9 @@ func (s *DefaultShell) Exec(command string, args ...string) (string, error) {
 		return stdoutBuf.String(), fmt.Errorf("command start failed: %w", err)
 	}
 	if err := s.shims.CmdWait(cmd); err != nil {
-		return stdoutBuf.String(), fmt.Errorf("command execution failed: %w", err)
+		return s.scrubString(stdoutBuf.String()), fmt.Errorf("command execution failed: %w", err)
 	}
-	return stdoutBuf.String(), nil
+	return s.scrubString(stdoutBuf.String()), nil
 }
 
 // ExecSudo runs a command with 'sudo', ensuring elevated privileges. It handles password prompts by
@@ -205,7 +213,7 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 
 	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
 
-	return stdoutBuf.String(), nil
+	return s.scrubString(stdoutBuf.String()), nil
 }
 
 // ExecSilent is a method that runs a command quietly, capturing its output.
@@ -225,10 +233,10 @@ func (s *DefaultShell) ExecSilent(command string, args ...string) (string, error
 	cmd.Stderr = &stderrBuf
 
 	if err := s.shims.CmdRun(cmd); err != nil {
-		return stdoutBuf.String(), fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
+		return s.scrubString(stdoutBuf.String()), fmt.Errorf("command execution failed: %w\n%s", err, s.scrubString(stderrBuf.String()))
 	}
 
-	return stdoutBuf.String(), nil
+	return s.scrubString(stdoutBuf.String()), nil
 }
 
 // ExecProgress is a method of the DefaultShell struct that executes a command with a progress indicator.
@@ -323,15 +331,15 @@ func (s *DefaultShell) ExecProgress(message string, command string, args ...stri
 	cmdErr := s.shims.CmdWait(cmd)
 
 	if firstErr != nil || cmdErr != nil {
-		fmt.Fprintf(os.Stderr, "\n[ExecProgress ERROR]\nCommand: %s %v\nStdout:\n%s\nStderr:\n%s\nError: %v\n", command, args, stdoutBuf.String(), stderrBuf.String(), firstErr)
+		fmt.Fprintf(os.Stderr, "\n[ExecProgress ERROR]\nCommand: %s %v\nStdout:\n%s\nStderr:\n%s\nError: %v\n", command, s.scrubString(fmt.Sprintf("%v", args)), s.scrubString(stdoutBuf.String()), s.scrubString(stderrBuf.String()), firstErr)
 		if cmdErr != nil {
-			return stdoutBuf.String(), fmt.Errorf("command execution failed: %w", cmdErr)
+			return s.scrubString(stdoutBuf.String()), fmt.Errorf("command execution failed: %w", cmdErr)
 		}
-		return stdoutBuf.String(), firstErr
+		return s.scrubString(stdoutBuf.String()), firstErr
 	}
 
 	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
-	return stdoutBuf.String(), nil
+	return s.scrubString(stdoutBuf.String()), nil
 }
 
 // InstallHook sets up a shell hook for a specified shell using a template with the Windsor path.
@@ -496,7 +504,6 @@ func (s *DefaultShell) WriteResetToken() (string, error) {
 // GetSessionToken retrieves or generates a session token. It first checks if a token is already stored in memory.
 // If not, it looks for a token in the environment variable. If no token is found in the environment, it generates a new token.
 func (s *DefaultShell) GetSessionToken() (string, error) {
-	// If we already have a token in memory, return it
 	if s.sessionToken != "" {
 		return s.sessionToken, nil
 	}
@@ -514,6 +521,21 @@ func (s *DefaultShell) GetSessionToken() (string, error) {
 
 	s.sessionToken = token
 	return token, nil
+}
+
+// RegisterSecret adds a secret value to the internal list of secrets that will be scrubbed from all command output.
+// Empty strings are ignored to prevent unnecessary processing.
+// Duplicate values are automatically filtered out to maintain list efficiency.
+func (s *DefaultShell) RegisterSecret(value string) {
+	if value == "" {
+		return
+	}
+
+	if slices.Contains(s.secrets, value) {
+		return
+	}
+
+	s.secrets = append(s.secrets, value)
 }
 
 // Reset removes all managed environment variables and aliases.
@@ -587,6 +609,11 @@ func (s *DefaultShell) CheckResetFlags() (bool, error) {
 	return tokenFileExists, nil
 }
 
+// ResetSessionToken resets the session token - used primarily for testing
+func (s *DefaultShell) ResetSessionToken() {
+	s.sessionToken = ""
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================
@@ -604,13 +631,18 @@ func (s *DefaultShell) generateRandomString(length int) (string, error) {
 	return string(b), nil
 }
 
-// =============================================================================
-// Public Functions
-// =============================================================================
+// scrubString replaces all registered secret values with fixed "********" strings for security.
+// It processes the input string and replaces any occurrence of registered secrets with asterisks.
+// This method is used internally by all command execution methods to prevent secret leakage in output.
+func (s *DefaultShell) scrubString(input string) string {
+	result := input
+	for _, secret := range s.secrets {
+		if secret != "" {
+			result = strings.ReplaceAll(result, secret, "********")
+		}
+	}
 
-// ResetSessionToken resets the session token - used primarily for testing
-func (s *DefaultShell) ResetSessionToken() {
-	s.sessionToken = ""
+	return result
 }
 
 // Ensure DefaultShell implements the Shell interface
