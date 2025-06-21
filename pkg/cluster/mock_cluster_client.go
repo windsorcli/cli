@@ -17,6 +17,7 @@ import (
 type MockClusterClient struct {
 	BaseClusterClient
 	WaitForNodesHealthyFunc func(ctx context.Context, nodeAddresses []string, expectedVersion string) error
+	UpgradeNodesFunc        func(ctx context.Context, nodeAddresses []string, image string) error
 	CloseFunc               func()
 }
 
@@ -37,6 +38,14 @@ func NewMockClusterClient() *MockClusterClient {
 func (m *MockClusterClient) WaitForNodesHealthy(ctx context.Context, nodeAddresses []string, expectedVersion string) error {
 	if m.WaitForNodesHealthyFunc != nil {
 		return m.WaitForNodesHealthyFunc(ctx, nodeAddresses, expectedVersion)
+	}
+	return nil
+}
+
+// UpgradeNodes calls the mock UpgradeNodesFunc if set, otherwise returns nil
+func (m *MockClusterClient) UpgradeNodes(ctx context.Context, nodeAddresses []string, image string) error {
+	if m.UpgradeNodesFunc != nil {
+		return m.UpgradeNodesFunc(ctx, nodeAddresses, image)
 	}
 	return nil
 }

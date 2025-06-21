@@ -25,6 +25,7 @@ type Shims struct {
 	TalosVersion     func(ctx context.Context, client *client.Client) (*machine.VersionResponse, error)
 	TalosWithNodes   func(ctx context.Context, nodes ...string) context.Context
 	TalosServiceList func(ctx context.Context, client *client.Client) (*machine.ServiceListResponse, error)
+	TalosUpgrade     func(ctx context.Context, client *client.Client, image string) error
 	TalosClose       func(client *client.Client)
 }
 
@@ -46,6 +47,11 @@ func NewShims() *Shims {
 		TalosWithNodes: client.WithNodes,
 		TalosServiceList: func(ctx context.Context, c *client.Client) (*machine.ServiceListResponse, error) {
 			return c.ServiceList(ctx)
+		},
+		TalosUpgrade: func(ctx context.Context, c *client.Client, image string) error {
+			// Use the provided image
+			_, err := c.Upgrade(ctx, image, false, false)
+			return err
 		},
 		TalosClose: func(c *client.Client) {
 			_ = c.Close()

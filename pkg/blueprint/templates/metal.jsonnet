@@ -26,9 +26,11 @@ local baseUrl = extractBaseUrl(endpoint);
 // Build certSANs list
 local certSANs = ["localhost", baseUrl] + (if std.objectHas(context.cluster, "controlplanes") && std.objectHas(context.cluster.controlplanes, "nodes") && std.length(std.objectValues(context.cluster.controlplanes.nodes)) > 0 then
   local firstNode = std.objectValues(context.cluster.controlplanes.nodes)[0];
-  local hostname = firstNode.hostname;
+  // Only use hostname if explicitly provided in the node configuration
+  local hostname = if std.objectHas(firstNode, "hostname") then firstNode.hostname else "";
   local domain = if std.objectHas(context, "dns") && std.objectHas(context.dns, "domain") then context.dns.domain else "";
-  [hostname] + (if domain != "" then [hostname + "." + domain] else [])
+  // Only add hostname entries if hostname is explicitly provided
+  (if hostname != "" then [hostname] else []) + (if domain != "" && hostname != "" then [hostname + "." + domain] else [])
 else []);
 
 // Build the mirrors dynamically, only if registries are defined

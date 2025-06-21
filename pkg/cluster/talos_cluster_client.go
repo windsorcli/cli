@@ -155,6 +155,28 @@ func (c *TalosClusterClient) WaitForNodesHealthy(ctx context.Context, nodeAddres
 	return fmt.Errorf("timeout waiting for nodes to be ready")
 }
 
+// UpgradeNodes upgrades the specified nodes to the specified image.
+// It iterates through each node address and initiates an upgrade using the Talos Upgrade API.
+// Returns an error if any node upgrade fails or if the Talos client cannot be initialized.
+func (c *TalosClusterClient) UpgradeNodes(ctx context.Context, nodeAddresses []string, image string) error {
+	if err := c.ensureClient(); err != nil {
+		return fmt.Errorf("failed to initialize Talos client: %w", err)
+	}
+
+	for _, nodeAddress := range nodeAddresses {
+		fmt.Printf("upgrading node %s\n", nodeAddress)
+
+		nodeCtx := c.shims.TalosWithNodes(ctx, nodeAddress)
+		err := c.shims.TalosUpgrade(nodeCtx, c.client, image)
+
+		if err != nil {
+			return fmt.Errorf("failed to upgrade node %s: %w", nodeAddress, err)
+		}
+	}
+
+	return nil
+}
+
 // Close releases resources held by the TalosClusterClient.
 // It safely closes the underlying Talos gRPC client connection if one exists and sets
 // the client reference to nil to prevent further use. This method is safe to call
@@ -206,7 +228,8 @@ func (c *TalosClusterClient) ensureClient() error {
 // It creates a node-specific context targeting the given node address, then queries
 // the Talos ServiceList API to retrieve all services running on that node. For each
 // service, it checks both the running state and health status to determine if the
-// service is fully operational. Returns the overall node health status, lists of
+// service is fully operational. Only essential services are considered for overall
+// node health determination. Returns the overall node health status, lists of
 // healthy and unhealthy service names, and any error encountered during the API call.
 func (c *TalosClusterClient) getNodeHealthDetails(ctx context.Context, nodeAddress string) (bool, []string, []string, error) {
 	nodeCtx := c.shims.TalosWithNodes(ctx, nodeAddress)
@@ -216,9 +239,19 @@ func (c *TalosClusterClient) getNodeHealthDetails(ctx context.Context, nodeAddre
 		return false, nil, nil, err
 	}
 
+	// Define essential services that must be healthy for the node to be considered healthy
+	// Based on Talos machine status controller requirements
+	essentialServices := map[string]bool{
+		"apid":     true,
+		"machined": true,
+		"kubelet":  true,
+		"etcd":     true, // Only required on control plane nodes, but we'll check if it exists
+		"trustd":   true, // Only required on control plane nodes, but we'll check if it exists
+	}
+
 	var healthyServices []string
 	var unhealthyServices []string
-	overallHealthy := true
+	var unhealthyEssentialServices []string
 
 	for _, serviceList := range serviceResp.GetMessages() {
 		for _, service := range serviceList.GetServices() {
@@ -234,10 +267,16 @@ func (c *TalosClusterClient) getNodeHealthDetails(ctx context.Context, nodeAddre
 				healthyServices = append(healthyServices, serviceName)
 			} else {
 				unhealthyServices = append(unhealthyServices, serviceName)
-				overallHealthy = false
+				// Only mark node as unhealthy if an essential service is unhealthy
+				if essentialServices[serviceName] {
+					unhealthyEssentialServices = append(unhealthyEssentialServices, serviceName)
+				}
 			}
 		}
 	}
+
+	// Node is healthy if no essential services are unhealthy
+	overallHealthy := len(unhealthyEssentialServices) == 0
 
 	return overallHealthy, healthyServices, unhealthyServices, nil
 }

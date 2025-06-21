@@ -518,7 +518,7 @@ func TestTalosClusterClient_getNodeHealthDetails(t *testing.T) {
 					{
 						Services: []*machine.ServiceInfo{
 							{
-								Id:     "service-with-nil-health",
+								Id:     "apid", // Use essential service to trigger unhealthy status
 								State:  "Running",
 								Health: nil, // nil health should be treated as unhealthy
 							},
@@ -554,7 +554,7 @@ func TestTalosClusterClient_getNodeHealthDetails(t *testing.T) {
 					{
 						Services: []*machine.ServiceInfo{
 							{
-								Id:    "stopped-service",
+								Id:    "kubelet", // Use essential service to trigger unhealthy status
 								State: "Stopped",
 								Health: &machine.ServiceHealth{
 									Healthy: true, // healthy but not running should be unhealthy
@@ -578,6 +578,51 @@ func TestTalosClusterClient_getNodeHealthDetails(t *testing.T) {
 		}
 		if len(healthyServices) != 0 {
 			t.Errorf("Expected 0 healthy services, got %d", len(healthyServices))
+		}
+		if len(unhealthyServices) != 1 {
+			t.Errorf("Expected 1 unhealthy service, got %d", len(unhealthyServices))
+		}
+	})
+
+	t.Run("NonEssentialServiceUnhealthy", func(t *testing.T) {
+		client := setup(t)
+		client.shims.TalosServiceList = func(ctx context.Context, client *talosclient.Client) (*machine.ServiceListResponse, error) {
+			return &machine.ServiceListResponse{
+				Messages: []*machine.ServiceList{
+					{
+						Services: []*machine.ServiceInfo{
+							{
+								Id:    "apid",
+								State: "Running",
+								Health: &machine.ServiceHealth{
+									Healthy: true,
+								},
+							},
+							{
+								Id:    "dashboard", // Non-essential service
+								State: "Stopped",
+								Health: &machine.ServiceHealth{
+									Healthy: false,
+								},
+							},
+						},
+					},
+				},
+			}, nil
+		}
+
+		ctx := context.Background()
+		nodeAddress := "10.0.0.1"
+
+		healthy, healthyServices, unhealthyServices, err := client.getNodeHealthDetails(ctx, nodeAddress)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !healthy {
+			t.Error("Expected node to be healthy despite non-essential service being unhealthy")
+		}
+		if len(healthyServices) != 1 {
+			t.Errorf("Expected 1 healthy service, got %d", len(healthyServices))
 		}
 		if len(unhealthyServices) != 1 {
 			t.Errorf("Expected 1 unhealthy service, got %d", len(unhealthyServices))

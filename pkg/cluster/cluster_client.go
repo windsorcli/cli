@@ -29,6 +29,9 @@ type ClusterClient interface {
 	// Polls until all nodes are healthy (and correct version if specified) or timeout
 	WaitForNodesHealthy(ctx context.Context, nodeAddresses []string, expectedVersion string) error
 
+	// UpgradeNodes upgrades the specified nodes to the specified image
+	UpgradeNodes(ctx context.Context, nodeAddresses []string, image string) error
+
 	// Close closes any open connections.
 	Close()
 }
