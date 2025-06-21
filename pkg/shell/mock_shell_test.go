@@ -1114,3 +1114,37 @@ func TestMockShell_Reset(t *testing.T) {
 		mockShell.Reset()
 	})
 }
+
+func TestMockShell_RegisterSecret(t *testing.T) {
+	t.Run("CallsRegisterSecretFunc", func(t *testing.T) {
+		// Given a mock shell with RegisterSecretFunc configured to track calls
+		mockShell := setupMockShellMocks(t)
+		called := false
+		expectedValue := "test-secret-value"
+		var receivedValue string
+		mockShell.RegisterSecretFunc = func(value string) {
+			called = true
+			receivedValue = value
+		}
+
+		// When RegisterSecret is called with a secret value
+		mockShell.RegisterSecret(expectedValue)
+
+		// Then the mock function should be called with the expected secret value
+		if !called {
+			t.Error("Expected RegisterSecretFunc to be called")
+		}
+		if receivedValue != expectedValue {
+			t.Errorf("Expected value %v, got %v", expectedValue, receivedValue)
+		}
+	})
+
+	t.Run("NilFuncDoesNotPanic", func(t *testing.T) {
+		// Given a mock shell without RegisterSecretFunc configured
+		mockShell := setupMockShellMocks(t)
+
+		// When RegisterSecret is called with no function set
+		// Then it should not panic and handle the nil function gracefully
+		mockShell.RegisterSecret("test-secret")
+	})
+}

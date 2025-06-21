@@ -10,9 +10,9 @@ import (
 )
 
 // The SopsSecretsProvider is an implementation of the SecretsProvider interface
-// It provides integration with Mozilla SOPS for encrypted secrets management
-// It serves as a bridge between the application and SOPS-encrypted YAML files
-// It enables secure storage and retrieval of secrets using SOPS encryption
+// It provides integration with Mozilla SOPS for encrypted secrets management with automatic shell scrubbing registration
+// It serves as a bridge between the application and SOPS-encrypted YAML files with built-in security features
+// It enables secure storage and retrieval of secrets using SOPS encryption while automatically registering secrets for output scrubbing
 
 // =============================================================================
 // Constants
@@ -116,13 +116,16 @@ func (s *SopsSecretsProvider) LoadSecrets() error {
 	return nil
 }
 
-// GetSecret retrieves a secret value for the specified key
+// GetSecret retrieves a secret value for the specified key and automatically registers it with the shell for output scrubbing.
+// If the provider is locked, it returns a masked value. When unlocked, it returns the actual secret value
+// and registers it with the shell's scrubbing system to prevent accidental exposure in command output.
 func (s *SopsSecretsProvider) GetSecret(key string) (string, error) {
 	if !s.unlocked {
 		return "********", nil
 	}
 
 	if value, ok := s.secrets[key]; ok {
+		s.shell.RegisterSecret(value)
 		return value, nil
 	}
 

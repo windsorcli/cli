@@ -1,7 +1,7 @@
 // The OnePasswordSDKSecretsProvider is an implementation of the SecretsProvider interface
-// It provides integration with the 1Password SDK for secret management
-// It serves as a bridge between the application and 1Password's secure storage
-// It enables retrieval and parsing of secrets from 1Password vaults using the official SDK
+// It provides integration with the 1Password SDK for secret management with automatic shell scrubbing registration
+// It serves as a bridge between the application and 1Password's secure storage with built-in security features
+// It enables retrieval and parsing of secrets from 1Password vaults using the official SDK while automatically registering secrets for output scrubbing
 
 package secrets
 
@@ -69,11 +69,11 @@ func (s *OnePasswordSDKSecretsProvider) Initialize() error {
 	return nil
 }
 
-// GetSecret retrieves a secret value for the specified key. It first checks if the provider is unlocked.
-// If not, it returns a masked value. It then ensures the 1Password client is initialized using a
-// service account token from the environment. The key is split into item and field parts, and the
-// item name is sanitized. A secret reference URI is constructed and used to resolve the secret value
-// from 1Password. If successful, the secret value is returned; otherwise, an error is reported.
+// GetSecret retrieves a secret value for the specified key and automatically registers it with the shell for output scrubbing.
+// It first checks if the provider is unlocked. If not, it returns a masked value. It then ensures the 1Password client
+// is initialized using a service account token from the environment. The key is split into item and field parts, and the
+// item name is sanitized. A secret reference URI is constructed and used to resolve the secret value from 1Password.
+// If successful, the secret value is registered with the shell's scrubbing system and returned; otherwise, an error is reported.
 func (s *OnePasswordSDKSecretsProvider) GetSecret(key string) (string, error) {
 	if !s.unlocked {
 		return "********", nil
@@ -120,6 +120,7 @@ func (s *OnePasswordSDKSecretsProvider) GetSecret(key string) (string, error) {
 		return "", fmt.Errorf("failed to resolve secret: %w", err)
 	}
 
+	s.shell.RegisterSecret(value)
 	return value, nil
 }
 
