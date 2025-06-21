@@ -91,7 +91,12 @@ func (s *WindsorStack) Up() error {
 			return fmt.Errorf("error planning Terraform changes in %s: %w", component.FullPath, err)
 		}
 
-		_, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Applying Terraform changes in %s", component.Path), "terraform", "apply")
+		// Build terraform apply command with optional parallelism flag
+		applyArgs := []string{"apply"}
+		if component.Parallelism != nil {
+			applyArgs = append(applyArgs, fmt.Sprintf("-parallelism=%d", *component.Parallelism))
+		}
+		_, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Applying Terraform changes in %s", component.Path), "terraform", applyArgs...)
 		if err != nil {
 			return fmt.Errorf("error applying Terraform changes in %s: %w", component.FullPath, err)
 		}
@@ -164,7 +169,12 @@ func (s *WindsorStack) Down() error {
 			return fmt.Errorf("error planning Terraform destruction in %s: %w", component.FullPath, err)
 		}
 
-		_, err = s.shell.ExecProgress(fmt.Sprintf("🗑️  Destroying Terraform resources in %s", component.Path), "terraform", "destroy", "-auto-approve")
+		// Build terraform destroy command with optional parallelism flag
+		destroyArgs := []string{"destroy", "-auto-approve"}
+		if component.Parallelism != nil {
+			destroyArgs = append(destroyArgs, fmt.Sprintf("-parallelism=%d", *component.Parallelism))
+		}
+		_, err = s.shell.ExecProgress(fmt.Sprintf("🗑️  Destroying Terraform resources in %s", component.Path), "terraform", destroyArgs...)
 		if err != nil {
 			return fmt.Errorf("error destroying Terraform resources in %s: %w", component.FullPath, err)
 		}
