@@ -37,18 +37,13 @@ import (
 type BlueprintHandler interface {
 	Initialize() error
 	LoadConfig(reset ...bool) error
-	WriteConfig(overwrite ...bool) error
 	Install() error
 	GetMetadata() blueprintv1alpha1.Metadata
 	GetSources() []blueprintv1alpha1.Source
 	GetRepository() blueprintv1alpha1.Repository
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
-	SetMetadata(metadata blueprintv1alpha1.Metadata) error
-	SetSources(sources []blueprintv1alpha1.Source) error
-	SetRepository(repository blueprintv1alpha1.Repository) error
-	SetTerraformComponents(terraformComponents []blueprintv1alpha1.TerraformComponent) error
-	SetKustomizations(kustomizations []blueprintv1alpha1.Kustomization) error
 	WaitForKustomizations(message string, names ...string) error
+	ProcessContextTemplates(contextName string, reset ...bool) error
 	Down() error
 }
 
@@ -128,170 +123,30 @@ func (b *BaseBlueprintHandler) Initialize() error {
 	return nil
 }
 
-// LoadConfig reads blueprint configuration from specified path or default location.
-// Priority: blueprint.yaml (if !reset), blueprint.jsonnet, platform template, default.
-// Processes Jsonnet templates with context data injection for dynamic configuration.
-// Falls back to embedded defaults if no configuration files exist.
+// LoadConfig reads blueprint configuration from blueprint.yaml file.
+// Only loads existing blueprint.yaml files - no templating or generation.
+// All template processing happens in ProcessContextTemplates during init.
 func (b *BaseBlueprintHandler) LoadConfig(reset ...bool) error {
-	shouldReset := false
-	if len(reset) > 0 {
-		shouldReset = reset[0]
-	}
-
 	configRoot, err := b.configHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("error getting config root: %w", err)
 	}
 
-	basePath := filepath.Join(configRoot, "blueprint")
-	yamlPath := basePath + ".yaml"
-	jsonnetPath := basePath + ".jsonnet"
-
-	if !shouldReset {
-		// 1. blueprint.yaml
-		if _, err := b.shims.Stat(yamlPath); err == nil {
-			yamlData, err := b.shims.ReadFile(yamlPath)
-			if err != nil {
-				return err
-			}
-			if err := b.processBlueprintData(yamlData, &b.blueprint); err != nil {
-				return err
-			}
-			return nil
-		}
-	}
-
-	// 2. blueprint.jsonnet
-	if _, err := b.shims.Stat(jsonnetPath); err == nil {
-		jsonnetData, err := b.shims.ReadFile(jsonnetPath)
-		if err != nil {
-			return err
-		}
-		config := b.configHandler.GetConfig()
-		contextYAML, err := b.yamlMarshalWithDefinedPaths(config)
-		if err != nil {
-			return fmt.Errorf("error marshalling context to YAML: %w", err)
-		}
-		var contextMap map[string]any = make(map[string]any)
-		if err := b.shims.YamlUnmarshal(contextYAML, &contextMap); err != nil {
-			return fmt.Errorf("error unmarshalling context YAML: %w", err)
-		}
+	yamlPath := filepath.Join(configRoot, "blueprint.yaml")
+	if _, err := b.shims.Stat(yamlPath); err != nil {
+		// No blueprint.yaml exists - use default blueprint
 		context := b.configHandler.GetContext()
-		contextMap["name"] = context
-		contextJSON, err := b.shims.JsonMarshal(contextMap)
-		if err != nil {
-			return fmt.Errorf("error marshalling context map to JSON: %w", err)
-		}
-		vm := b.shims.NewJsonnetVM()
-		vm.ExtCode("context", string(contextJSON))
-		evaluatedJsonnet, err := vm.EvaluateAnonymousSnippet("blueprint.jsonnet", string(jsonnetData))
-		if err != nil {
-			return fmt.Errorf("error generating blueprint from jsonnet: %w", err)
-		}
-		if err := b.processBlueprintData([]byte(evaluatedJsonnet), &b.blueprint); err != nil {
-			return err
-		}
-		return nil
-	}
-
-	// 3. internal default (platform-specific if available, else global default)
-	platform := ""
-	if b.configHandler.GetConfig().Cluster != nil && b.configHandler.GetConfig().Cluster.Platform != nil {
-		platform = *b.configHandler.GetConfig().Cluster.Platform
-	}
-	var platformData []byte
-	if platform != "" {
-		platformData, err = b.loadPlatformTemplate(platform)
-		if err != nil {
-			return fmt.Errorf("error loading platform template: %w", err)
-		}
-	}
-	var evaluatedJsonnet string
-	config := b.configHandler.GetConfig()
-	contextYAML, err := b.yamlMarshalWithDefinedPaths(config)
-	if err != nil {
-		return fmt.Errorf("error marshalling context to YAML: %w", err)
-	}
-	var contextMap map[string]any = make(map[string]any)
-	if err := b.shims.YamlUnmarshal(contextYAML, &contextMap); err != nil {
-		return fmt.Errorf("error unmarshalling context YAML: %w", err)
-	}
-	context := b.configHandler.GetContext()
-	contextMap["name"] = context
-	contextJSON, err := b.shims.JsonMarshal(contextMap)
-	if err != nil {
-		return fmt.Errorf("error marshalling context map to JSON: %w", err)
-	}
-	vm := b.shims.NewJsonnetVM()
-	vm.ExtCode("context", string(contextJSON))
-	if len(platformData) > 0 {
-		evaluatedJsonnet, err = vm.EvaluateAnonymousSnippet("blueprint.jsonnet", string(platformData))
-		if err != nil {
-			return fmt.Errorf("error generating blueprint from jsonnet: %w", err)
-		}
-	} else {
-		evaluatedJsonnet, err = vm.EvaluateAnonymousSnippet("default.jsonnet", defaultJsonnetTemplate)
-		if err != nil {
-			return fmt.Errorf("error generating blueprint from default jsonnet: %w", err)
-		}
-	}
-	if evaluatedJsonnet == "" {
 		b.blueprint = *DefaultBlueprint.DeepCopy()
 		b.blueprint.Metadata.Name = context
 		b.blueprint.Metadata.Description = fmt.Sprintf("This blueprint outlines resources in the %s context", context)
-	} else {
-		if err := b.processBlueprintData([]byte(evaluatedJsonnet), &b.blueprint); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// WriteConfig persists the current blueprint configuration to disk. It handles path resolution,
-// directory creation, and writes the blueprint in YAML format. The function cleans sensitive or
-// redundant data before writing, such as Terraform component variables/values and empty PostBuild configs.
-func (b *BaseBlueprintHandler) WriteConfig(overwrite ...bool) error {
-	shouldOverwrite := false
-	if len(overwrite) > 0 {
-		shouldOverwrite = overwrite[0]
+		return nil
 	}
 
-	configRoot, err := b.configHandler.GetConfigRoot()
+	yamlData, err := b.shims.ReadFile(yamlPath)
 	if err != nil {
-		return fmt.Errorf("error getting config root: %w", err)
+		return err
 	}
-
-	finalPath := filepath.Join(configRoot, "blueprint.yaml")
-	dir := filepath.Dir(finalPath)
-	if err := b.shims.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("error creating directory: %w", err)
-	}
-
-	if !shouldOverwrite {
-		if _, err := b.shims.Stat(finalPath); err == nil {
-			return nil
-		}
-	}
-
-	fullBlueprint := b.blueprint.DeepCopy()
-	for i := range fullBlueprint.TerraformComponents {
-		fullBlueprint.TerraformComponents[i].Values = nil
-	}
-	for i := range fullBlueprint.Kustomizations {
-		postBuild := fullBlueprint.Kustomizations[i].PostBuild
-		if postBuild != nil && len(postBuild.Substitute) == 0 && len(postBuild.SubstituteFrom) == 0 {
-			fullBlueprint.Kustomizations[i].PostBuild = nil
-		}
-	}
-	fullBlueprint.Merge(&b.localBlueprint)
-	data, err := b.shims.YamlMarshalNonNull(fullBlueprint)
-	if err != nil {
-		return fmt.Errorf("error marshalling yaml: %w", err)
-	}
-	if err := b.shims.WriteFile(finalPath, data, 0644); err != nil {
-		return fmt.Errorf("error writing blueprint file: %w", err)
-	}
-	return nil
+	return b.processBlueprintData(yamlData, &b.blueprint)
 }
 
 // WaitForKustomizations waits for the specified kustomizations to be ready.
@@ -302,9 +157,9 @@ func (b *BaseBlueprintHandler) WaitForKustomizations(message string, names ...st
 	spin.Start()
 	defer spin.Stop()
 
-	timeout := time.After(b.calculateMaxWaitTime())
-	ticker := time.NewTicker(constants.DEFAULT_KUSTOMIZATION_WAIT_POLL_INTERVAL)
-	defer ticker.Stop()
+	timeout := b.shims.TimeAfter(b.calculateMaxWaitTime())
+	ticker := b.shims.NewTicker(constants.DEFAULT_KUSTOMIZATION_WAIT_POLL_INTERVAL)
+	defer b.shims.TickerStop(ticker)
 
 	var kustomizationNames []string
 	if len(names) > 0 && len(names[0]) > 0 {
@@ -317,7 +172,19 @@ func (b *BaseBlueprintHandler) WaitForKustomizations(message string, names ...st
 		}
 	}
 
+	// Check immediately before starting polling loop
+	ready, err := b.checkKustomizationStatus(kustomizationNames)
+	if err == nil && ready {
+		spin.Stop()
+		fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m%s - \033[32mDone\033[0m\n", spin.Suffix)
+		return nil
+	}
+
 	consecutiveFailures := 0
+	if err != nil {
+		consecutiveFailures = 1
+	}
+
 	for {
 		select {
 		case <-timeout:
@@ -325,35 +192,18 @@ func (b *BaseBlueprintHandler) WaitForKustomizations(message string, names ...st
 			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 			return fmt.Errorf("timeout waiting for kustomizations")
 		case <-ticker.C:
-			if err := b.kubernetesManager.CheckGitRepositoryStatus(); err != nil {
-				consecutiveFailures++
-				if consecutiveFailures >= constants.DEFAULT_KUSTOMIZATION_WAIT_MAX_FAILURES {
-					spin.Stop()
-					fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
-					return fmt.Errorf("git repository error after %d consecutive failures: %w", consecutiveFailures, err)
-				}
-				continue
-			}
-			status, err := b.kubernetesManager.GetKustomizationStatus(kustomizationNames)
+			ready, err := b.checkKustomizationStatus(kustomizationNames)
 			if err != nil {
 				consecutiveFailures++
 				if consecutiveFailures >= constants.DEFAULT_KUSTOMIZATION_WAIT_MAX_FAILURES {
 					spin.Stop()
 					fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
-					return fmt.Errorf("kustomization error after %d consecutive failures: %w", consecutiveFailures, err)
+					return fmt.Errorf("%s after %d consecutive failures", err.Error(), consecutiveFailures)
 				}
 				continue
 			}
 
-			allReady := true
-			for _, ready := range status {
-				if !ready {
-					allReady = false
-					break
-				}
-			}
-
-			if allReady {
+			if ready {
 				spin.Stop()
 				fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m%s - \033[32mDone\033[0m\n", spin.Suffix)
 				return nil
@@ -416,7 +266,7 @@ func (b *BaseBlueprintHandler) Install() error {
 	kustomizations := b.getKustomizations()
 	kustomizationNames := make([]string, len(kustomizations))
 	for i, k := range kustomizations {
-		if err := b.kubernetesManager.ApplyKustomization(b.ToKubernetesKustomization(k, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)); err != nil {
+		if err := b.kubernetesManager.ApplyKustomization(b.toKubernetesKustomization(k, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)); err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 			return fmt.Errorf("failed to apply kustomization %s: %w", k.Name, err)
@@ -467,98 +317,6 @@ func (b *BaseBlueprintHandler) GetTerraformComponents() []blueprintv1alpha1.Terr
 	b.resolveComponentPaths(&resolvedBlueprint)
 
 	return resolvedBlueprint.TerraformComponents
-}
-
-// getKustomizations retrieves and normalizes the blueprint's Kustomization configurations.
-// It provides default values for intervals, timeouts, and paths while ensuring consistent
-// configuration across all kustomizations. The function also adds standard PostBuild
-// configurations for variable substitution from the blueprint ConfigMap.
-func (b *BaseBlueprintHandler) getKustomizations() []blueprintv1alpha1.Kustomization {
-	if b.blueprint.Kustomizations == nil {
-		return nil
-	}
-
-	resolvedBlueprint := b.blueprint
-	kustomizations := make([]blueprintv1alpha1.Kustomization, len(resolvedBlueprint.Kustomizations))
-	copy(kustomizations, resolvedBlueprint.Kustomizations)
-
-	for i := range kustomizations {
-		if kustomizations[i].Source == "" {
-			kustomizations[i].Source = b.blueprint.Metadata.Name
-		}
-
-		if kustomizations[i].Path == "" {
-			kustomizations[i].Path = "kustomize"
-		} else {
-			kustomizations[i].Path = "kustomize/" + strings.ReplaceAll(kustomizations[i].Path, "\\", "/")
-		}
-
-		if kustomizations[i].Interval == nil || kustomizations[i].Interval.Duration == 0 {
-			kustomizations[i].Interval = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL}
-		}
-		if kustomizations[i].RetryInterval == nil || kustomizations[i].RetryInterval.Duration == 0 {
-			kustomizations[i].RetryInterval = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL}
-		}
-		if kustomizations[i].Timeout == nil || kustomizations[i].Timeout.Duration == 0 {
-			kustomizations[i].Timeout = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT}
-		}
-		if kustomizations[i].Wait == nil {
-			defaultWait := constants.DEFAULT_FLUX_KUSTOMIZATION_WAIT
-			kustomizations[i].Wait = &defaultWait
-		}
-		if kustomizations[i].Force == nil {
-			defaultForce := constants.DEFAULT_FLUX_KUSTOMIZATION_FORCE
-			kustomizations[i].Force = &defaultForce
-		}
-
-		kustomizations[i].PostBuild = &blueprintv1alpha1.PostBuild{
-			SubstituteFrom: []blueprintv1alpha1.SubstituteReference{
-				{
-					Kind:     "ConfigMap",
-					Name:     "blueprint",
-					Optional: false,
-				},
-			},
-		}
-	}
-
-	return kustomizations
-}
-
-// SetMetadata updates the metadata for the current blueprint.
-// It replaces the existing metadata with the provided metadata information.
-func (b *BaseBlueprintHandler) SetMetadata(metadata blueprintv1alpha1.Metadata) error {
-	b.blueprint.Metadata = metadata
-	return nil
-}
-
-// SetRepository updates the repository for the current blueprint.
-// It replaces the existing repository with the provided repository information.
-func (b *BaseBlueprintHandler) SetRepository(repository blueprintv1alpha1.Repository) error {
-	b.blueprint.Repository = repository
-	return nil
-}
-
-// SetSources updates the source configurations for the current blueprint.
-// It replaces the existing sources with the provided list of sources.
-func (b *BaseBlueprintHandler) SetSources(sources []blueprintv1alpha1.Source) error {
-	b.blueprint.Sources = sources
-	return nil
-}
-
-// SetTerraformComponents updates the Terraform components for the current blueprint.
-// It replaces the existing components with the provided list of Terraform components.
-func (b *BaseBlueprintHandler) SetTerraformComponents(terraformComponents []blueprintv1alpha1.TerraformComponent) error {
-	b.blueprint.TerraformComponents = terraformComponents
-	return nil
-}
-
-// SetKustomizations updates the Kustomizations for the current blueprint.
-// It replaces the existing Kustomizations with the provided list of Kustomizations.
-// If the provided list is nil, it clears the existing Kustomizations.
-func (b *BaseBlueprintHandler) SetKustomizations(kustomizations []blueprintv1alpha1.Kustomization) error {
-	b.blueprint.Kustomizations = kustomizations
-	return nil
 }
 
 // Down orchestrates the controlled teardown of all kustomizations and their associated resources.
@@ -672,7 +430,7 @@ func (b *BaseBlueprintHandler) Down() error {
 					SubstituteFrom: []blueprintv1alpha1.SubstituteReference{},
 				},
 			}
-			if err := b.kubernetesManager.ApplyKustomization(b.ToKubernetesKustomization(*cleanupKustomization, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)); err != nil {
+			if err := b.kubernetesManager.ApplyKustomization(b.toKubernetesKustomization(*cleanupKustomization, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)); err != nil {
 				spin.Stop()
 				fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 				return fmt.Errorf("failed to apply cleanup kustomization for %s: %w", k.Name, err)
@@ -718,6 +476,121 @@ func (b *BaseBlueprintHandler) Down() error {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 			return fmt.Errorf("failed to delete system-cleanup namespace: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// ProcessContextTemplates processes jsonnet templates from the contexts/_template directory
+// and generates corresponding files in the specified context directory. The function handles
+// three scenarios:
+//  1. Template Processing: If contexts/_template exists, recursively processes all .jsonnet files,
+//     evaluating them with context data and writing output files with appropriate extensions
+//     (.yaml for general files, .tfvars for terraform/ subdirectories)
+//  2. Platform Template Processing: If no template directory exists but a platform is configured,
+//     loads and processes the platform-specific jsonnet template
+//  3. Default Blueprint Generation: Falls back to generating a default blueprint.yaml using
+//     either the embedded default jsonnet template or the hardcoded DefaultBlueprint
+func (b *BaseBlueprintHandler) ProcessContextTemplates(contextName string, reset ...bool) error {
+	resetMode := len(reset) > 0 && reset[0]
+	// === Setup ===
+	projectRoot, err := b.shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("error getting project root: %w", err)
+	}
+
+	contextDir := filepath.Join(projectRoot, "contexts", contextName)
+	if err := b.shims.MkdirAll(contextDir, 0755); err != nil {
+		return fmt.Errorf("error creating context directory: %w", err)
+	}
+
+	// === Template Processing ===
+	templateDir := filepath.Join(projectRoot, "contexts", "_template")
+	if _, err := b.shims.Stat(templateDir); err == nil {
+		var walkDir func(string) error
+		walkDir = func(currentDir string) error {
+			entries, err := b.shims.ReadDir(currentDir)
+			if err != nil {
+				return fmt.Errorf("error reading template directory %s: %w", currentDir, err)
+			}
+
+			for _, entry := range entries {
+				fullPath := filepath.Join(currentDir, entry.Name())
+
+				if entry.IsDir() {
+					if err := walkDir(fullPath); err != nil {
+						return err
+					}
+				} else if strings.HasSuffix(entry.Name(), ".jsonnet") {
+					if err := b.processJsonnetTemplate(templateDir, fullPath, contextDir, resetMode); err != nil {
+						return fmt.Errorf("error processing template %s: %w", fullPath, err)
+					}
+				}
+			}
+			return nil
+		}
+
+		if err := walkDir(templateDir); err != nil {
+			return err
+		}
+	} else {
+		// === Default Blueprint Generation ===
+		blueprintPath := filepath.Join(contextDir, "blueprint.yaml")
+		if _, err := b.shims.Stat(blueprintPath); err != nil || resetMode {
+			// === Platform Template Loading ===
+			platform := b.configHandler.GetString("cluster.platform")
+			templateData, err := b.loadPlatformTemplate(platform)
+			if err != nil || len(templateData) == 0 {
+				templateData, err = b.loadPlatformTemplate("default")
+				if err != nil {
+					return fmt.Errorf("error loading default template: %w", err)
+				}
+			}
+
+			// === Blueprint Data Generation ===
+			var blueprintData []byte
+			if len(templateData) > 0 {
+				config := b.configHandler.GetConfig()
+				contextYAML, err := b.yamlMarshalWithDefinedPaths(config)
+				if err != nil {
+					return fmt.Errorf("error marshalling context to YAML: %w", err)
+				}
+				var contextMap map[string]any = make(map[string]any)
+				if err := b.shims.YamlUnmarshal(contextYAML, &contextMap); err != nil {
+					return fmt.Errorf("error unmarshalling context YAML: %w", err)
+				}
+				contextMap["name"] = contextName
+				contextJSON, err := b.shims.JsonMarshal(contextMap)
+				if err != nil {
+					return fmt.Errorf("error marshalling context map to JSON: %w", err)
+				}
+				vm := b.shims.NewJsonnetVM()
+				vm.ExtCode("context", string(contextJSON))
+				evaluatedJsonnet, err := vm.EvaluateAnonymousSnippet("blueprint.jsonnet", string(templateData))
+				if err != nil {
+					return fmt.Errorf("error generating blueprint from jsonnet: %w", err)
+				}
+				if evaluatedJsonnet != "" {
+					blueprintData = []byte(evaluatedJsonnet)
+				}
+			}
+
+			// === Fallback Blueprint Creation ===
+			if len(blueprintData) == 0 {
+				blueprint := *DefaultBlueprint.DeepCopy()
+				blueprint.Metadata.Name = contextName
+				blueprint.Metadata.Description = fmt.Sprintf("This blueprint outlines resources in the %s context", contextName)
+				blueprintData, err = b.shims.YamlMarshal(blueprint)
+				if err != nil {
+					return fmt.Errorf("error marshalling default blueprint: %w", err)
+				}
+			}
+
+			// === Blueprint File Write ===
+			if err := b.shims.WriteFile(blueprintPath, blueprintData, 0644); err != nil {
+				return fmt.Errorf("error writing blueprint file: %w", err)
+			}
 		}
 	}
 
@@ -853,12 +726,64 @@ func (b *BaseBlueprintHandler) isValidTerraformRemoteSource(source string) bool 
 	return false
 }
 
-// loadPlatformTemplate loads a platform-specific template if one exists
-func (b *BaseBlueprintHandler) loadPlatformTemplate(platform string) ([]byte, error) {
-	if platform == "" {
-		return nil, nil
+// getKustomizations retrieves and normalizes the blueprint's Kustomization configurations.
+// It provides default values for intervals, timeouts, and paths while ensuring consistent
+// configuration across all kustomizations. The function also adds standard PostBuild
+// configurations for variable substitution from the blueprint ConfigMap.
+func (b *BaseBlueprintHandler) getKustomizations() []blueprintv1alpha1.Kustomization {
+	if b.blueprint.Kustomizations == nil {
+		return nil
 	}
 
+	resolvedBlueprint := b.blueprint
+	kustomizations := make([]blueprintv1alpha1.Kustomization, len(resolvedBlueprint.Kustomizations))
+	copy(kustomizations, resolvedBlueprint.Kustomizations)
+
+	for i := range kustomizations {
+		if kustomizations[i].Source == "" {
+			kustomizations[i].Source = b.blueprint.Metadata.Name
+		}
+
+		if kustomizations[i].Path == "" {
+			kustomizations[i].Path = "kustomize"
+		} else {
+			kustomizations[i].Path = "kustomize/" + strings.ReplaceAll(kustomizations[i].Path, "\\", "/")
+		}
+
+		if kustomizations[i].Interval == nil || kustomizations[i].Interval.Duration == 0 {
+			kustomizations[i].Interval = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL}
+		}
+		if kustomizations[i].RetryInterval == nil || kustomizations[i].RetryInterval.Duration == 0 {
+			kustomizations[i].RetryInterval = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL}
+		}
+		if kustomizations[i].Timeout == nil || kustomizations[i].Timeout.Duration == 0 {
+			kustomizations[i].Timeout = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT}
+		}
+		if kustomizations[i].Wait == nil {
+			defaultWait := constants.DEFAULT_FLUX_KUSTOMIZATION_WAIT
+			kustomizations[i].Wait = &defaultWait
+		}
+		if kustomizations[i].Force == nil {
+			defaultForce := constants.DEFAULT_FLUX_KUSTOMIZATION_FORCE
+			kustomizations[i].Force = &defaultForce
+		}
+
+		kustomizations[i].PostBuild = &blueprintv1alpha1.PostBuild{
+			SubstituteFrom: []blueprintv1alpha1.SubstituteReference{
+				{
+					Kind:     "ConfigMap",
+					Name:     "blueprint",
+					Optional: false,
+				},
+			},
+		}
+	}
+
+	return kustomizations
+}
+
+// loadPlatformTemplate loads a platform-specific template or the default template
+func (b *BaseBlueprintHandler) loadPlatformTemplate(platform string) ([]byte, error) {
 	switch platform {
 	case "local":
 		return []byte(localJsonnetTemplate), nil
@@ -868,9 +793,193 @@ func (b *BaseBlueprintHandler) loadPlatformTemplate(platform string) ([]byte, er
 		return []byte(awsJsonnetTemplate), nil
 	case "azure":
 		return []byte(azureJsonnetTemplate), nil
+	case "default":
+		return []byte(defaultJsonnetTemplate), nil
 	default:
+		if platform == "" {
+			return []byte(defaultJsonnetTemplate), nil
+		}
 		return nil, nil
 	}
+}
+
+// applyGitRepository creates or updates a GitRepository resource in the cluster. It normalizes
+// the repository URL format, configures standard intervals and timeouts, and handles secret
+// references for private repositories.
+func (b *BaseBlueprintHandler) applyGitRepository(source blueprintv1alpha1.Source, namespace string) error {
+	sourceUrl := source.Url
+	if !strings.HasPrefix(sourceUrl, "http://") && !strings.HasPrefix(sourceUrl, "https://") {
+		sourceUrl = "https://" + sourceUrl
+	}
+
+	gitRepo := &sourcev1.GitRepository{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "GitRepository",
+			APIVersion: "source.toolkit.fluxcd.io/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      source.Name,
+			Namespace: namespace,
+		},
+		Spec: sourcev1.GitRepositorySpec{
+			URL: sourceUrl,
+			Interval: metav1.Duration{
+				Duration: constants.DEFAULT_FLUX_SOURCE_INTERVAL,
+			},
+			Timeout: &metav1.Duration{
+				Duration: constants.DEFAULT_FLUX_SOURCE_TIMEOUT,
+			},
+			Reference: &sourcev1.GitRepositoryRef{
+				Branch: source.Ref.Branch,
+				Tag:    source.Ref.Tag,
+				SemVer: source.Ref.SemVer,
+				Commit: source.Ref.Commit,
+			},
+		},
+	}
+
+	if source.SecretName != "" {
+		gitRepo.Spec.SecretRef = &meta.LocalObjectReference{
+			Name: source.SecretName,
+		}
+	}
+
+	return b.kubernetesManager.ApplyGitRepository(gitRepo)
+}
+
+// applyConfigMap creates or updates a ConfigMap in the cluster containing context-specific
+// configuration values used by the blueprint's resources, such as domain names, IP ranges,
+// and volume paths.
+func (b *BaseBlueprintHandler) applyConfigMap() error {
+	domain := b.configHandler.GetString("dns.domain")
+	context := b.configHandler.GetContext()
+	lbStart := b.configHandler.GetString("network.loadbalancer_ips.start")
+	lbEnd := b.configHandler.GetString("network.loadbalancer_ips.end")
+	registryURL := b.configHandler.GetString("docker.registry_url")
+	localVolumePaths := b.configHandler.GetStringSlice("cluster.workers.volumes")
+
+	loadBalancerIPRange := fmt.Sprintf("%s-%s", lbStart, lbEnd)
+
+	var localVolumePath string
+	if len(localVolumePaths) > 0 {
+		localVolumePath = strings.Split(localVolumePaths[0], ":")[1]
+	} else {
+		localVolumePath = ""
+	}
+
+	data := map[string]string{
+		"DOMAIN":                domain,
+		"CONTEXT":               context,
+		"CONTEXT_ID":            b.configHandler.GetString("id"),
+		"LOADBALANCER_IP_RANGE": loadBalancerIPRange,
+		"LOADBALANCER_IP_START": lbStart,
+		"LOADBALANCER_IP_END":   lbEnd,
+		"REGISTRY_URL":          registryURL,
+		"LOCAL_VOLUME_PATH":     localVolumePath,
+	}
+
+	return b.kubernetesManager.ApplyConfigMap("blueprint", constants.DEFAULT_FLUX_SYSTEM_NAMESPACE, data)
+}
+
+// checkKustomizationStatus verifies the readiness of specified kustomizations by first checking
+// the git repository status and then polling each kustomization's status. Returns true if all
+// kustomizations are ready, false otherwise, along with any errors encountered during the checks.
+func (b *BaseBlueprintHandler) checkKustomizationStatus(kustomizationNames []string) (bool, error) {
+	if err := b.kubernetesManager.CheckGitRepositoryStatus(); err != nil {
+		return false, fmt.Errorf("git repository error: %w", err)
+	}
+	status, err := b.kubernetesManager.GetKustomizationStatus(kustomizationNames)
+	if err != nil {
+		return false, fmt.Errorf("kustomization error: %w", err)
+	}
+
+	allReady := true
+	for _, ready := range status {
+		if !ready {
+			allReady = false
+			break
+		}
+	}
+	return allReady, nil
+}
+
+// calculateMaxWaitTime calculates the maximum wait time needed based on kustomization dependencies.
+// It builds a dependency graph from all kustomizations, mapping each to its dependencies and timeouts.
+// Using depth-first search (DFS), it explores all possible dependency paths to find the longest one,
+// accumulating timeout values along each path. The function handles circular dependencies by tracking
+// visited nodes and avoiding infinite recursion while still considering their timeout contributions.
+// It identifies root nodes (those with no incoming dependencies) as starting points, or if no roots
+// exist due to cycles, it starts DFS from every node to ensure complete coverage. Returns the total
+// time needed for the longest dependency path through the kustomization graph.
+func (b *BaseBlueprintHandler) calculateMaxWaitTime() time.Duration {
+	kustomizations := b.getKustomizations()
+	if len(kustomizations) == 0 {
+		return 0
+	}
+
+	deps := make(map[string][]string)
+	timeouts := make(map[string]time.Duration)
+	for _, k := range kustomizations {
+		deps[k.Name] = k.DependsOn
+		if k.Timeout != nil {
+			timeouts[k.Name] = k.Timeout.Duration
+		} else {
+			timeouts[k.Name] = constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT
+		}
+	}
+
+	var maxPathTime time.Duration
+	visited := make(map[string]bool)
+	path := make([]string, 0)
+
+	var dfs func(name string, currentTime time.Duration)
+	dfs = func(name string, currentTime time.Duration) {
+		visited[name] = true
+		path = append(path, name)
+		currentTime += timeouts[name]
+
+		if currentTime > maxPathTime {
+			maxPathTime = currentTime
+		}
+
+		for _, dep := range deps[name] {
+			if !visited[dep] {
+				dfs(dep, currentTime)
+			} else {
+				if currentTime+timeouts[dep] > maxPathTime {
+					maxPathTime = currentTime + timeouts[dep]
+				}
+			}
+		}
+
+		visited[name] = false
+		path = path[:len(path)-1]
+	}
+
+	roots := []string{}
+	for _, k := range kustomizations {
+		isRoot := true
+		for _, other := range kustomizations {
+			if slices.Contains(other.DependsOn, k.Name) {
+				isRoot = false
+				break
+			}
+		}
+		if isRoot {
+			roots = append(roots, k.Name)
+		}
+	}
+	if len(roots) == 0 {
+		for _, k := range kustomizations {
+			dfs(k.Name, 0)
+		}
+	} else {
+		for _, root := range roots {
+			dfs(root, 0)
+		}
+	}
+
+	return maxPathTime
 }
 
 // yamlMarshalWithDefinedPaths marshals data to YAML format while ensuring all parent paths are defined.
@@ -999,167 +1108,11 @@ func (b *BaseBlueprintHandler) deleteNamespace(name string) error {
 	return b.kubernetesManager.DeleteNamespace(name)
 }
 
-// applyGitRepository creates or updates a GitRepository resource in the cluster. It normalizes
-// the repository URL format, configures standard intervals and timeouts, and handles secret
-// references for private repositories.
-func (b *BaseBlueprintHandler) applyGitRepository(source blueprintv1alpha1.Source, namespace string) error {
-	sourceUrl := source.Url
-	if !strings.HasPrefix(sourceUrl, "http://") && !strings.HasPrefix(sourceUrl, "https://") {
-		sourceUrl = "https://" + sourceUrl
-	}
-
-	gitRepo := &sourcev1.GitRepository{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "GitRepository",
-			APIVersion: "source.toolkit.fluxcd.io/v1",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      source.Name,
-			Namespace: namespace,
-		},
-		Spec: sourcev1.GitRepositorySpec{
-			URL: sourceUrl,
-			Interval: metav1.Duration{
-				Duration: constants.DEFAULT_FLUX_SOURCE_INTERVAL,
-			},
-			Timeout: &metav1.Duration{
-				Duration: constants.DEFAULT_FLUX_SOURCE_TIMEOUT,
-			},
-			Reference: &sourcev1.GitRepositoryRef{
-				Branch: source.Ref.Branch,
-				Tag:    source.Ref.Tag,
-				SemVer: source.Ref.SemVer,
-				Commit: source.Ref.Commit,
-			},
-		},
-	}
-
-	if source.SecretName != "" {
-		gitRepo.Spec.SecretRef = &meta.LocalObjectReference{
-			Name: source.SecretName,
-		}
-	}
-
-	return b.kubernetesManager.ApplyGitRepository(gitRepo)
-}
-
-// applyConfigMap creates or updates a ConfigMap in the cluster containing context-specific
-// configuration values used by the blueprint's resources, such as domain names, IP ranges,
-// and volume paths.
-func (b *BaseBlueprintHandler) applyConfigMap() error {
-	domain := b.configHandler.GetString("dns.domain")
-	context := b.configHandler.GetContext()
-	lbStart := b.configHandler.GetString("network.loadbalancer_ips.start")
-	lbEnd := b.configHandler.GetString("network.loadbalancer_ips.end")
-	registryURL := b.configHandler.GetString("docker.registry_url")
-	localVolumePaths := b.configHandler.GetStringSlice("cluster.workers.volumes")
-
-	loadBalancerIPRange := fmt.Sprintf("%s-%s", lbStart, lbEnd)
-
-	var localVolumePath string
-	if len(localVolumePaths) > 0 {
-		localVolumePath = strings.Split(localVolumePaths[0], ":")[1]
-	} else {
-		localVolumePath = ""
-	}
-
-	data := map[string]string{
-		"DOMAIN":                domain,
-		"CONTEXT":               context,
-		"CONTEXT_ID":            b.configHandler.GetString("id"),
-		"LOADBALANCER_IP_RANGE": loadBalancerIPRange,
-		"LOADBALANCER_IP_START": lbStart,
-		"LOADBALANCER_IP_END":   lbEnd,
-		"REGISTRY_URL":          registryURL,
-		"LOCAL_VOLUME_PATH":     localVolumePath,
-	}
-
-	return b.kubernetesManager.ApplyConfigMap("blueprint", constants.DEFAULT_FLUX_SYSTEM_NAMESPACE, data)
-}
-
-// calculateMaxWaitTime calculates the maximum wait time needed based on kustomization dependencies.
-// It builds a dependency graph and uses DFS to find the longest path through it, accumulating
-// timeouts for each kustomization in the path. Returns the total time needed for the longest path.
-func (b *BaseBlueprintHandler) calculateMaxWaitTime() time.Duration {
-	kustomizations := b.getKustomizations()
-	if len(kustomizations) == 0 {
-		return 0
-	}
-
-	deps := make(map[string][]string)
-	timeouts := make(map[string]time.Duration)
-	for _, k := range kustomizations {
-		deps[k.Name] = k.DependsOn
-		if k.Timeout != nil {
-			timeouts[k.Name] = k.Timeout.Duration
-		} else {
-			timeouts[k.Name] = constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT
-		}
-	}
-
-	var maxPathTime time.Duration
-	visited := make(map[string]bool)
-	path := make([]string, 0)
-
-	var dfs func(name string, currentTime time.Duration)
-	dfs = func(name string, currentTime time.Duration) {
-		visited[name] = true
-		path = append(path, name)
-		currentTime += timeouts[name]
-
-		if currentTime > maxPathTime {
-			maxPathTime = currentTime
-		}
-
-		for _, dep := range deps[name] {
-			if !visited[dep] {
-				dfs(dep, currentTime)
-			} else {
-				// For circular dependencies, we still want to consider the path
-				// but we don't want to recurse further
-				if currentTime+timeouts[dep] > maxPathTime {
-					maxPathTime = currentTime + timeouts[dep]
-				}
-			}
-		}
-
-		visited[name] = false
-		path = path[:len(path)-1]
-	}
-
-	// Start DFS from each root node (nodes with no incoming dependencies)
-	roots := []string{}
-	for _, k := range kustomizations {
-		isRoot := true
-		for _, other := range kustomizations {
-			if slices.Contains(other.DependsOn, k.Name) {
-				isRoot = false
-				break
-			}
-		}
-		if isRoot {
-			roots = append(roots, k.Name)
-		}
-	}
-	if len(roots) == 0 {
-		// No roots found (cycle or all nodes have dependencies), start from every node
-		for _, k := range kustomizations {
-			dfs(k.Name, 0)
-		}
-	} else {
-		for _, root := range roots {
-			dfs(root, 0)
-		}
-	}
-
-	return maxPathTime
-}
-
-// ToKubernetesKustomization converts a blueprint kustomization to a Flux kustomization
+// toKubernetesKustomization converts a blueprint kustomization to a Flux kustomization
 // It handles conversion of dependsOn, patches, and postBuild configurations
 // It maps blueprint fields to their Flux kustomization equivalents
 // It maintains namespace context and preserves all configuration options
-func (b *BaseBlueprintHandler) ToKubernetesKustomization(k blueprintv1alpha1.Kustomization, namespace string) kustomizev1.Kustomization {
+func (b *BaseBlueprintHandler) toKubernetesKustomization(k blueprintv1alpha1.Kustomization, namespace string) kustomizev1.Kustomization {
 	dependsOn := make([]meta.NamespacedObjectReference, len(k.DependsOn))
 	for i, dep := range k.DependsOn {
 		dependsOn[i] = meta.NamespacedObjectReference{
@@ -1231,4 +1184,73 @@ func (b *BaseBlueprintHandler) ToKubernetesKustomization(k blueprintv1alpha1.Kus
 			Prune:         prune,
 		},
 	}
+}
+
+// processJsonnetTemplate reads a jsonnet template file, evaluates it with context data,
+// and writes the processed output to the appropriate location with correct file extension.
+// It handles path resolution, context marshalling, jsonnet evaluation, output path determination
+// based on file location and naming conventions, and conditional file writing based on reset mode.
+func (b *BaseBlueprintHandler) processJsonnetTemplate(templateDir, templateFile, contextDir string, resetMode bool) error {
+	jsonnetData, err := b.shims.ReadFile(templateFile)
+	if err != nil {
+		return fmt.Errorf("error reading template file: %w", err)
+	}
+
+	config := b.configHandler.GetConfig()
+	contextYAML, err := b.yamlMarshalWithDefinedPaths(config)
+	if err != nil {
+		return fmt.Errorf("error marshalling context to YAML: %w", err)
+	}
+
+	var contextMap map[string]any = make(map[string]any)
+	if err := b.shims.YamlUnmarshal(contextYAML, &contextMap); err != nil {
+		return fmt.Errorf("error unmarshalling context YAML: %w", err)
+	}
+
+	context := b.configHandler.GetContext()
+	contextMap["name"] = context
+	contextJSON, err := b.shims.JsonMarshal(contextMap)
+	if err != nil {
+		return fmt.Errorf("error marshalling context map to JSON: %w", err)
+	}
+
+	vm := b.shims.NewJsonnetVM()
+	vm.ExtCode("context", string(contextJSON))
+	evaluatedContent, err := vm.EvaluateAnonymousSnippet(templateFile, string(jsonnetData))
+	if err != nil {
+		return fmt.Errorf("error evaluating jsonnet template: %w", err)
+	}
+
+	relPath, err := filepath.Rel(templateDir, templateFile)
+	if err != nil {
+		return fmt.Errorf("error getting relative path: %w", err)
+	}
+
+	outputName := strings.TrimSuffix(relPath, ".jsonnet")
+	outputPath := filepath.Join(contextDir, outputName)
+
+	if strings.Contains(outputName, "blueprint") {
+		outputPath += ".yaml"
+	} else if strings.Contains(relPath, "terraform/") {
+		outputPath += ".tfvars"
+	} else {
+		outputPath += ".yaml"
+	}
+
+	if !resetMode {
+		if _, err := b.shims.Stat(outputPath); err == nil {
+			return nil
+		}
+	}
+
+	outputDir := filepath.Dir(outputPath)
+	if err := b.shims.MkdirAll(outputDir, 0755); err != nil {
+		return fmt.Errorf("error creating output directory: %w", err)
+	}
+
+	if err := b.shims.WriteFile(outputPath, []byte(evaluatedContent), 0644); err != nil {
+		return fmt.Errorf("error writing output file: %w", err)
+	}
+
+	return nil
 }

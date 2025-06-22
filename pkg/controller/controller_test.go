@@ -1059,13 +1059,6 @@ func TestBaseController_WriteConfigurationFiles(t *testing.T) {
 		}
 		mocks.Injector.Register("toolsManager", mockToolsManager)
 
-		// Mock blueprint handler
-		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(mocks.Injector)
-		mockBlueprintHandler.WriteConfigFunc = func(overwrite ...bool) error {
-			return nil
-		}
-		mocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
-
 		// Mock services
 		mockService := services.NewMockService()
 		mockService.WriteConfigFunc = func() error {
@@ -1162,32 +1155,6 @@ func TestBaseController_WriteConfigurationFiles(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "error writing tools manifest") {
 			t.Errorf("Expected error about tools manifest, got %v", err)
-		}
-	})
-
-	t.Run("BlueprintConfigError", func(t *testing.T) {
-		// Given a controller with blueprint requirement enabled
-		controller, mocks := setup(t)
-		controller.SetRequirements(Requirements{
-			Blueprint: true,
-		})
-
-		// And a blueprint handler that fails to write config
-		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(mocks.Injector)
-		mockBlueprintHandler.WriteConfigFunc = func(overwrite ...bool) error {
-			return fmt.Errorf("blueprint config write failed")
-		}
-		mocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
-
-		// When writing configuration files
-		err := controller.WriteConfigurationFiles()
-
-		// Then an error about blueprint config should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error writing blueprint config") {
-			t.Errorf("Expected error about blueprint config, got %v", err)
 		}
 	})
 

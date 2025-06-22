@@ -878,7 +878,7 @@ func TestBaseBlueprintHandler_loadPlatformTemplate(t *testing.T) {
 		handler := &BaseBlueprintHandler{}
 
 		// When loading templates for valid platforms
-		platforms := []string{"local", "metal", "aws", "azure"}
+		platforms := []string{"local", "metal", "aws", "azure", "default"}
 		for _, platform := range platforms {
 			// Then the template should be loaded successfully
 			template, err := handler.loadPlatformTemplate(platform)
@@ -914,12 +914,12 @@ func TestBaseBlueprintHandler_loadPlatformTemplate(t *testing.T) {
 		// When loading template with empty platform
 		template, err := handler.loadPlatformTemplate("")
 
-		// Then no error should occur and template should be empty
+		// Then no error should occur and template should contain default template
 		if err != nil {
 			t.Errorf("Expected no error for empty platform, got: %v", err)
 		}
-		if len(template) != 0 {
-			t.Errorf("Expected empty template for empty platform, got length: %d", len(template))
+		if len(template) == 0 {
+			t.Errorf("Expected default template for empty platform, got empty template")
 		}
 	})
 }

@@ -13,16 +13,13 @@ type MockBlueprintHandler struct {
 	GetSourcesFunc             func() []blueprintv1alpha1.Source
 	GetTerraformComponentsFunc func() []blueprintv1alpha1.TerraformComponent
 	GetKustomizationsFunc      func() []blueprintv1alpha1.Kustomization
-	SetMetadataFunc            func(metadata blueprintv1alpha1.Metadata) error
-	SetSourcesFunc             func(sources []blueprintv1alpha1.Source) error
-	SetTerraformComponentsFunc func(terraformComponents []blueprintv1alpha1.TerraformComponent) error
-	SetKustomizationsFunc      func(kustomizations []blueprintv1alpha1.Kustomization) error
-	WaitForKustomizationsFunc  func(message string, names ...string) error
-	WriteConfigFunc            func(overwrite ...bool) error
-	InstallFunc                func() error
-	GetRepositoryFunc          func() blueprintv1alpha1.Repository
-	SetRepositoryFunc          func(repository blueprintv1alpha1.Repository) error
-	DownFunc                   func() error
+
+	WaitForKustomizationsFunc   func(message string, names ...string) error
+	ProcessContextTemplatesFunc func(contextName string, reset ...bool) error
+	InstallFunc                 func() error
+	GetRepositoryFunc           func() blueprintv1alpha1.Repository
+
+	DownFunc func() error
 }
 
 // =============================================================================
@@ -90,46 +87,6 @@ func (m *MockBlueprintHandler) GetKustomizations() []blueprintv1alpha1.Kustomiza
 	return []blueprintv1alpha1.Kustomization{}
 }
 
-// SetMetadata calls the mock SetMetadataFunc if set, otherwise returns nil
-func (m *MockBlueprintHandler) SetMetadata(metadata blueprintv1alpha1.Metadata) error {
-	if m.SetMetadataFunc != nil {
-		return m.SetMetadataFunc(metadata)
-	}
-	return nil
-}
-
-// SetSources calls the mock SetSourcesFunc if set, otherwise returns nil
-func (m *MockBlueprintHandler) SetSources(sources []blueprintv1alpha1.Source) error {
-	if m.SetSourcesFunc != nil {
-		return m.SetSourcesFunc(sources)
-	}
-	return nil
-}
-
-// SetTerraformComponents calls the mock SetTerraformComponentsFunc if set, otherwise returns nil
-func (m *MockBlueprintHandler) SetTerraformComponents(terraformComponents []blueprintv1alpha1.TerraformComponent) error {
-	if m.SetTerraformComponentsFunc != nil {
-		return m.SetTerraformComponentsFunc(terraformComponents)
-	}
-	return nil
-}
-
-// SetKustomizations calls the mock SetKustomizationsFunc if set, otherwise returns nil
-func (m *MockBlueprintHandler) SetKustomizations(kustomizations []blueprintv1alpha1.Kustomization) error {
-	if m.SetKustomizationsFunc != nil {
-		return m.SetKustomizationsFunc(kustomizations)
-	}
-	return nil
-}
-
-// WriteConfig calls the mock WriteConfigFunc if set, otherwise returns nil
-func (m *MockBlueprintHandler) WriteConfig(overwrite ...bool) error {
-	if m.WriteConfigFunc != nil {
-		return m.WriteConfigFunc(overwrite...)
-	}
-	return nil
-}
-
 // Install calls the mock InstallFunc if set, otherwise returns nil
 func (m *MockBlueprintHandler) Install() error {
 	if m.InstallFunc != nil {
@@ -146,14 +103,6 @@ func (m *MockBlueprintHandler) GetRepository() blueprintv1alpha1.Repository {
 	return blueprintv1alpha1.Repository{}
 }
 
-// SetRepository calls the mock SetRepositoryFunc if set, otherwise returns nil
-func (m *MockBlueprintHandler) SetRepository(repository blueprintv1alpha1.Repository) error {
-	if m.SetRepositoryFunc != nil {
-		return m.SetRepositoryFunc(repository)
-	}
-	return nil
-}
-
 // Down mocks the Down method.
 func (m *MockBlueprintHandler) Down() error {
 	if m.DownFunc != nil {
@@ -166,6 +115,14 @@ func (m *MockBlueprintHandler) Down() error {
 func (m *MockBlueprintHandler) WaitForKustomizations(message string, names ...string) error {
 	if m.WaitForKustomizationsFunc != nil {
 		return m.WaitForKustomizationsFunc(message, names...)
+	}
+	return nil
+}
+
+// ProcessContextTemplates calls the mock ProcessContextTemplatesFunc if set, otherwise returns nil
+func (m *MockBlueprintHandler) ProcessContextTemplates(contextName string, reset ...bool) error {
+	if m.ProcessContextTemplatesFunc != nil {
+		return m.ProcessContextTemplatesFunc(contextName, reset...)
 	}
 	return nil
 }
