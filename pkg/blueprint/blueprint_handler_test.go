@@ -2466,7 +2466,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		handler, mocks := setup(t)
 
 		// Override: template directory exists
-		templateDir := "/mock/project/contexts/_template"
+		templateDir := filepath.Join("/mock/project", "contexts", "_template")
 		handler.shims.Stat = func(path string) (os.FileInfo, error) {
 			if path == templateDir {
 				return mockFileInfo{name: "_template"}, nil
@@ -2493,7 +2493,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Given a blueprint handler with template directory containing jsonnet files
 		handler, mocks := setup(t)
 
-		templateDir := "/mock/project/contexts/_template"
+		templateDir := filepath.Join("/mock/project", "contexts", "_template")
 		blueprintJsonnet := "local context = std.extVar('context');\n{\n  kind: 'Blueprint',\n  metadata: { name: context.name }\n}"
 		tfvarsJsonnet := "local context = std.extVar('context');\n'cluster_name = \"' + context.name + '\"'"
 
@@ -2613,7 +2613,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Given a blueprint handler where blueprint.yaml already exists
 		handler, _ := setup(t)
 
-		blueprintPath := "/mock/project/contexts/test-context/blueprint.yaml"
+		blueprintPath := filepath.Join("/mock/project", "contexts", "test-context", "blueprint.yaml")
 		handler.shims.Stat = func(path string) (os.FileInfo, error) {
 			if path == blueprintPath {
 				return mockFileInfo{name: "blueprint.yaml"}, nil
@@ -2634,7 +2634,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Given a blueprint handler where blueprint.yaml already exists
 		handler, mocks := setup(t)
 
-		blueprintPath := "/mock/project/contexts/test-context/blueprint.yaml"
+		blueprintPath := filepath.Join("/mock/project", "contexts", "test-context", "blueprint.yaml")
 		handler.shims.Stat = func(path string) (os.FileInfo, error) {
 			if path == blueprintPath {
 				return mockFileInfo{name: "blueprint.yaml"}, nil
@@ -2741,8 +2741,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error getting project root") {
+		} else if !strings.Contains(err.Error(), "error getting project root") {
 			t.Errorf("Expected project root error, got: %v", err)
 		}
 	})
@@ -2762,8 +2761,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error creating context directory") {
+		} else if !strings.Contains(err.Error(), "error creating context directory") {
 			t.Errorf("Expected context directory error, got: %v", err)
 		}
 	})
@@ -2773,7 +2771,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		handler, _ := setup(t)
 
 		// Override: template directory exists but ReadDir fails
-		templateDir := "/mock/project/contexts/_template"
+		templateDir := filepath.Join("/mock/project", "contexts", "_template")
 		handler.shims.Stat = func(path string) (os.FileInfo, error) {
 			if path == templateDir {
 				return mockFileInfo{name: "_template"}, nil
@@ -2799,7 +2797,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Given a blueprint handler with template directory containing jsonnet file
 		handler, _ := setup(t)
 
-		templateDir := "/mock/project/contexts/_template"
+		templateDir := filepath.Join("/mock/project", "contexts", "_template")
 
 		// Override: template directory exists with jsonnet file
 		handler.shims.Stat = func(path string) (os.FileInfo, error) {
@@ -2819,7 +2817,10 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		}
 
 		handler.shims.ReadFile = func(path string) ([]byte, error) {
-			return nil, fmt.Errorf("read file error")
+			if strings.Contains(path, "blueprint.jsonnet") {
+				return nil, fmt.Errorf("read file error")
+			}
+			return nil, fmt.Errorf("unexpected file: %s", path)
 		}
 
 		// When processing context templates
@@ -2828,8 +2829,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error reading template file") {
+		} else if !strings.Contains(err.Error(), "error reading template file") {
 			t.Errorf("Expected template reading error, got: %v", err)
 		}
 	})
@@ -2838,7 +2838,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Given a blueprint handler with template directory containing jsonnet file
 		handler, mocks := setup(t)
 
-		templateDir := "/mock/project/contexts/_template"
+		templateDir := filepath.Join("/mock/project", "contexts", "_template")
 		blueprintJsonnet := "invalid jsonnet syntax"
 
 		// Override: template directory exists with jsonnet file
@@ -2883,8 +2883,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error evaluating jsonnet template") {
+		} else if !strings.Contains(err.Error(), "jsonnet evaluation error") {
 			t.Errorf("Expected jsonnet evaluation error, got: %v", err)
 		}
 	})
@@ -2893,7 +2892,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Given a blueprint handler with template directory containing jsonnet file
 		handler, mocks := setup(t)
 
-		templateDir := "/mock/project/contexts/_template"
+		templateDir := filepath.Join("/mock/project", "contexts", "_template")
 		blueprintJsonnet := "local context = std.extVar('context');\n{\n  kind: 'Blueprint'\n}"
 
 		// Override: template directory exists with jsonnet file
@@ -2943,8 +2942,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error writing blueprint file") {
+		} else if !strings.Contains(err.Error(), "error writing blueprint file") {
 			t.Errorf("Expected blueprint writing error, got: %v", err)
 		}
 	})
@@ -2954,7 +2952,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		handler, _ := setup(t)
 
 		// Override: template directory exists
-		templateDir := "/mock/project/contexts/_template"
+		templateDir := filepath.Join("/mock/project", "contexts", "_template")
 		handler.shims.Stat = func(path string) (os.FileInfo, error) {
 			if path == templateDir {
 				return mockFileInfo{name: "_template"}, nil
@@ -2975,7 +2973,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Given a blueprint handler with template directory containing blueprint jsonnet
 		handler, _ := setup(t)
 
-		templateDir := "/mock/project/contexts/_template"
+		templateDir := filepath.Join("/mock/project", "contexts", "_template")
 		blueprintJsonnet := "local context = std.extVar('context');\n{\n  kind: 'Blueprint',\n  metadata: { name: context.name }\n}"
 
 		// Override: template directory exists with blueprint jsonnet file
@@ -3036,7 +3034,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Given a blueprint handler with template directory containing blueprint jsonnet
 		handler, _ := setup(t)
 
-		templateDir := "/mock/project/contexts/_template"
+		templateDir := filepath.Join("/mock/project", "contexts", "_template")
 		blueprintJsonnet := "local context = std.extVar('context');\n{\n  kind: 'Blueprint',\n  metadata: {\n    name: context.name\n  }\n}"
 
 		// Override: template directory exists with blueprint jsonnet file
@@ -3097,7 +3095,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Given a blueprint handler with template directory containing non-blueprint jsonnet
 		handler, _ := setup(t)
 
-		templateDir := "/mock/project/contexts/_template"
+		templateDir := filepath.Join("/mock/project", "contexts", "_template")
 
 		// Override: template directory exists with non-blueprint jsonnet file
 		handler.shims.Stat = func(path string) (os.FileInfo, error) {
@@ -3144,7 +3142,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Given a blueprint handler with template directory and existing output file
 		handler, _ := setup(t)
 
-		templateDir := "/mock/project/contexts/_template"
+		templateDir := filepath.Join("/mock/project", "contexts", "_template")
 		blueprintJsonnet := "local context = std.extVar('context');\n{\n  kind: 'Blueprint'\n}"
 
 		// Override: template directory exists with jsonnet file
@@ -3206,7 +3204,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Given a blueprint handler with template directory and MkdirAll error for context directory
 		handler, _ := setup(t)
 
-		templateDir := "/mock/project/contexts/_template"
+		templateDir := filepath.Join("/mock/project", "contexts", "_template")
 		blueprintJsonnet := "local context = std.extVar('context');\n{\n  kind: 'Blueprint'\n}"
 
 		// Override: template directory exists with blueprint jsonnet file
@@ -3260,7 +3258,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Given a blueprint handler with template directory and relative path error
 		handler, _ := setup(t)
 
-		templateDir := "/mock/project/contexts/_template"
+		templateDir := filepath.Join("/mock/project", "contexts", "_template")
 		blueprintJsonnet := "local context = std.extVar('context');\n{\n  kind: 'Blueprint'\n}"
 
 		// Override: template directory exists with jsonnet file
@@ -3302,7 +3300,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Given a blueprint handler with template directory and YAML marshal error
 		handler, _ := setup(t)
 
-		templateDir := "/mock/project/contexts/_template"
+		templateDir := filepath.Join("/mock/project", "contexts", "_template")
 		blueprintJsonnet := "local context = std.extVar('context');\n{\n  kind: 'Blueprint'\n}"
 
 		// Override: template directory exists with jsonnet file
@@ -3338,7 +3336,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "error converting blueprint to YAML") {
+		if !strings.Contains(err.Error(), "yaml marshal error") {
 			t.Errorf("Expected YAML marshalling error, got: %v", err)
 		}
 	})
@@ -3347,7 +3345,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Given a blueprint handler with template directory and YAML unmarshal error
 		handler, _ := setup(t)
 
-		templateDir := "/mock/project/contexts/_template"
+		templateDir := filepath.Join("/mock/project", "contexts", "_template")
 		blueprintJsonnet := "local context = std.extVar('context');\n{\n  kind: 'Blueprint'\n}"
 
 		// Override: template directory exists with jsonnet file
@@ -3392,7 +3390,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Given a blueprint handler with template directory and JSON marshal error
 		handler, _ := setup(t)
 
-		templateDir := "/mock/project/contexts/_template"
+		templateDir := filepath.Join("/mock/project", "contexts", "_template")
 		blueprintJsonnet := "local context = std.extVar('context');\n{\n  kind: 'Blueprint'\n}"
 
 		// Override: template directory exists with jsonnet file
@@ -3437,7 +3435,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Given a blueprint handler with nested template directories but no blueprint.jsonnet in root
 		handler, _ := setup(t)
 
-		templateDir := "/mock/project/contexts/_template"
+		templateDir := filepath.Join("/mock/project", "contexts", "_template")
 
 		// Override: template directory exists with nested structure but no blueprint.jsonnet
 		handler.shims.Stat = func(path string) (os.FileInfo, error) {
@@ -3485,7 +3483,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Given a blueprint handler with no template directory and jsonnet evaluation error
 		handler, _ := setup(t)
 
-		templateDir := "/mock/project/contexts/_template"
+		templateDir := filepath.Join("/mock/project", "contexts", "_template")
 
 		// Override: template directory does not exist
 		handler.shims.Stat = func(path string) (os.FileInfo, error) {
@@ -3524,7 +3522,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Given a blueprint handler with no template directory and YAML marshal error for default blueprint
 		handler, _ := setup(t)
 
-		templateDir := "/mock/project/contexts/_template"
+		templateDir := filepath.Join("/mock/project", "contexts", "_template")
 
 		// Override: template directory does not exist
 		handler.shims.Stat = func(path string) (os.FileInfo, error) {
@@ -3569,7 +3567,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Given a blueprint handler with no template directory and write file error
 		handler, _ := setup(t)
 
-		templateDir := "/mock/project/contexts/_template"
+		templateDir := filepath.Join("/mock/project", "contexts", "_template")
 
 		// Override: template directory does not exist
 		handler.shims.Stat = func(path string) (os.FileInfo, error) {
@@ -3609,7 +3607,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Given a blueprint handler with platform template that evaluates to empty
 		handler, _ := setup(t)
 
-		templateDir := "/mock/project/contexts/_template"
+		templateDir := filepath.Join("/mock/project", "contexts", "_template")
 
 		// Override: template directory does not exist
 		handler.shims.Stat = func(path string) (os.FileInfo, error) {
@@ -3675,7 +3673,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Given a blueprint handler with platform template
 		handler, _ := setup(t)
 
-		templateDir := "/mock/project/contexts/_template"
+		templateDir := filepath.Join("/mock/project", "contexts", "_template")
 
 		// Override: template directory does not exist, triggering platform template path
 		handler.shims.Stat = func(path string) (os.FileInfo, error) {
@@ -3722,7 +3720,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Given a blueprint handler with platform template
 		handler, _ := setup(t)
 
-		templateDir := "/mock/project/contexts/_template"
+		templateDir := filepath.Join("/mock/project", "contexts", "_template")
 
 		// Override: template directory does not exist, triggering platform template path
 		handler.shims.Stat = func(path string) (os.FileInfo, error) {
