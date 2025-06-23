@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -483,18 +482,19 @@ func (b *BaseBlueprintHandler) Down() error {
 }
 
 // ProcessContextTemplates processes jsonnet templates from the contexts/_template directory
-// and generates corresponding files in the specified context directory. The function handles
+// and generates corresponding blueprint files in the specified context directory. The function handles
 // three scenarios:
-//  1. Template Processing: If contexts/_template exists, recursively processes all .jsonnet files,
-//     evaluating them with context data and writing output files with appropriate extensions
-//     (.yaml for general files, .tfvars for terraform/ subdirectories)
-//  2. Platform Template Processing: If no template directory exists but a platform is configured,
-//     loads and processes the platform-specific jsonnet template
-//  3. Default Blueprint Generation: Falls back to generating a default blueprint.yaml using
-//     either the embedded default jsonnet template or the hardcoded DefaultBlueprint
+//  1. Blueprint Flag Processing: If --blueprint flag is specified, uses embedded platform templates
+//     and ignores any _template directory to ensure consistent behavior
+//  2. Template Processing: If no --blueprint flag and contexts/_template exists, processes blueprint.jsonnet files,
+//     evaluating them with context data and writing blueprint.yaml files
+//  3. Default Blueprint Generation: Falls back to generating platform-specific blueprints
+//
+// Other template types (terraform, kustomize, etc.) are handled by their respective generators
+// during the WriteConfigurationFiles phase.
 func (b *BaseBlueprintHandler) ProcessContextTemplates(contextName string, reset ...bool) error {
 	resetMode := len(reset) > 0 && reset[0]
-	// === Setup ===
+
 	projectRoot, err := b.shell.GetProjectRoot()
 	if err != nil {
 		return fmt.Errorf("error getting project root: %w", err)
@@ -505,93 +505,184 @@ func (b *BaseBlueprintHandler) ProcessContextTemplates(contextName string, reset
 		return fmt.Errorf("error creating context directory: %w", err)
 	}
 
-	// === Template Processing ===
+	// Check for --blueprint flag first (highest priority)
+	// If --blueprint is specified, use embedded templates and ignore _template directory
+	blueprintValue := b.configHandler.GetString("blueprint")
+	if blueprintValue != "" {
+		return b.generateDefaultBlueprint(contextDir, contextName, resetMode)
+	}
+
+	// Check for _template directory (second priority)
+	// Only used if --blueprint flag is not specified
 	templateDir := filepath.Join(projectRoot, "contexts", "_template")
 	if _, err := b.shims.Stat(templateDir); err == nil {
-		var walkDir func(string) error
-		walkDir = func(currentDir string) error {
-			entries, err := b.shims.ReadDir(currentDir)
+		return b.processTemplateDirectory(templateDir, contextDir, contextName, resetMode)
+	}
+
+	// Fall back to platform/default templates (lowest priority)
+	return b.generateDefaultBlueprint(contextDir, contextName, resetMode)
+}
+
+// processTemplateDirectory processes blueprint templates from the _template directory
+func (b *BaseBlueprintHandler) processTemplateDirectory(templateDir, contextDir, contextName string, resetMode bool) error {
+	entries, err := b.shims.ReadDir(templateDir)
+	if err != nil {
+		return fmt.Errorf("error reading template directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.Name() == "blueprint.jsonnet" {
+			templateFile := filepath.Join(templateDir, entry.Name())
+			return b.processJsonnetTemplate(templateFile, contextDir, contextName, resetMode)
+		}
+	}
+
+	// No blueprint template found, generate default
+	return b.generateDefaultBlueprint(contextDir, contextName, resetMode)
+}
+
+// processJsonnetTemplate processes a single blueprint jsonnet template
+func (b *BaseBlueprintHandler) processJsonnetTemplate(templateFile, contextDir, contextName string, resetMode bool) error {
+	jsonnetData, err := b.shims.ReadFile(templateFile)
+	if err != nil {
+		return fmt.Errorf("error reading template file: %w", err)
+	}
+
+	config := b.configHandler.GetConfig()
+	contextYAML, err := b.configHandler.YamlMarshalWithDefinedPaths(config)
+	if err != nil {
+		return fmt.Errorf("error marshalling context to YAML: %w", err)
+	}
+
+	var contextMap map[string]any = make(map[string]any)
+	if err := b.shims.YamlUnmarshal(contextYAML, &contextMap); err != nil {
+		return fmt.Errorf("error unmarshalling context YAML: %w", err)
+	}
+
+	contextMap["name"] = contextName
+	contextJSON, err := b.shims.JsonMarshal(contextMap)
+	if err != nil {
+		return fmt.Errorf("error marshalling context map to JSON: %w", err)
+	}
+
+	// Use ExtCode to make context available via std.extVar("context")
+	// Templates must include: local context = std.extVar("context");
+	// This follows standard jsonnet patterns and is explicit and debuggable
+	vm := b.shims.NewJsonnetVM()
+	vm.ExtCode("context", string(contextJSON))
+	evaluatedContent, err := vm.EvaluateAnonymousSnippet(templateFile, string(jsonnetData))
+	if err != nil {
+		return fmt.Errorf("error evaluating jsonnet template: %w", err)
+	}
+
+	outputPath := filepath.Join(contextDir, "blueprint.yaml")
+	return b.processBlueprintTemplate(outputPath, evaluatedContent, contextName, resetMode)
+}
+
+// generateDefaultBlueprint generates a default blueprint when no templates exist
+func (b *BaseBlueprintHandler) generateDefaultBlueprint(contextDir, contextName string, resetMode bool) error {
+	blueprintPath := filepath.Join(contextDir, "blueprint.yaml")
+	if _, err := b.shims.Stat(blueprintPath); err != nil || resetMode {
+		// === Platform Template Loading ===
+		// --platform flag determines which template file to use
+		platform := b.configHandler.GetString("platform")
+		if platform == "" {
+			platform = b.configHandler.GetString("cluster.platform")
+		}
+		templateData, err := b.loadPlatformTemplate(platform)
+		if err != nil || len(templateData) == 0 {
+			templateData, err = b.loadPlatformTemplate("default")
 			if err != nil {
-				return fmt.Errorf("error reading template directory %s: %w", currentDir, err)
+				return fmt.Errorf("error loading default template: %w", err)
+			}
+		}
+
+		// === Blueprint Data Generation ===
+		if len(templateData) > 0 {
+			config := b.configHandler.GetConfig()
+			contextYAML, err := b.configHandler.YamlMarshalWithDefinedPaths(config)
+			if err != nil {
+				return fmt.Errorf("error marshalling context to YAML: %w", err)
+			}
+			var contextMap map[string]any = make(map[string]any)
+			if err := b.shims.YamlUnmarshal(contextYAML, &contextMap); err != nil {
+				return fmt.Errorf("error unmarshalling context YAML: %w", err)
+			}
+			contextMap["name"] = contextName
+
+			// --blueprint flag controls the context.blueprint field value
+			// Only set if explicitly provided via --blueprint flag
+			blueprintValue := b.configHandler.GetString("blueprint")
+			if blueprintValue != "" {
+				contextMap["blueprint"] = blueprintValue
 			}
 
-			for _, entry := range entries {
-				fullPath := filepath.Join(currentDir, entry.Name())
-
-				if entry.IsDir() {
-					if err := walkDir(fullPath); err != nil {
-						return err
-					}
-				} else if strings.HasSuffix(entry.Name(), ".jsonnet") {
-					if err := b.processJsonnetTemplate(templateDir, fullPath, contextDir, resetMode); err != nil {
-						return fmt.Errorf("error processing template %s: %w", fullPath, err)
-					}
-				}
+			contextJSON, err := b.shims.JsonMarshal(contextMap)
+			if err != nil {
+				return fmt.Errorf("error marshalling context map to JSON: %w", err)
 			}
+
+			// Use ExtCode to make context available via std.extVar("context")
+			// Templates must include: local context = std.extVar("context");
+			// This follows standard jsonnet patterns and is explicit and debuggable
+			vm := b.shims.NewJsonnetVM()
+			vm.ExtCode("context", string(contextJSON))
+			evaluatedContent, err := vm.EvaluateAnonymousSnippet("blueprint.jsonnet", string(templateData))
+			if err != nil {
+				return fmt.Errorf("error generating blueprint from jsonnet: %w", err)
+			}
+			if evaluatedContent != "" {
+				// Process through standard pipeline (validates, converts to YAML, applies metadata)
+				return b.processBlueprintTemplate(blueprintPath, evaluatedContent, contextName, resetMode)
+			}
+		}
+
+		// === Fallback Blueprint Creation ===
+		blueprint := *DefaultBlueprint.DeepCopy()
+		blueprint.Metadata.Name = contextName
+		blueprint.Metadata.Description = fmt.Sprintf("This blueprint outlines resources in the %s context", contextName)
+		blueprintData, err := b.shims.YamlMarshal(blueprint)
+		if err != nil {
+			return fmt.Errorf("error marshalling default blueprint: %w", err)
+		}
+
+		// === Blueprint File Write ===
+		if err := b.shims.WriteFile(blueprintPath, blueprintData, 0644); err != nil {
+			return fmt.Errorf("error writing blueprint file: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// processBlueprintTemplate validates blueprint template output against the Blueprint schema
+// and writes it as a properly formatted blueprint.yaml file
+func (b *BaseBlueprintHandler) processBlueprintTemplate(outputPath, content, contextName string, resetMode bool) error {
+	if !resetMode {
+		if _, err := b.shims.Stat(outputPath); err == nil {
 			return nil
 		}
+	}
 
-		if err := walkDir(templateDir); err != nil {
-			return err
-		}
-	} else {
-		// === Default Blueprint Generation ===
-		blueprintPath := filepath.Join(contextDir, "blueprint.yaml")
-		if _, err := b.shims.Stat(blueprintPath); err != nil || resetMode {
-			// === Platform Template Loading ===
-			platform := b.configHandler.GetString("cluster.platform")
-			templateData, err := b.loadPlatformTemplate(platform)
-			if err != nil || len(templateData) == 0 {
-				templateData, err = b.loadPlatformTemplate("default")
-				if err != nil {
-					return fmt.Errorf("error loading default template: %w", err)
-				}
-			}
+	// Validate blueprint content against schema
+	var testBlueprint blueprintv1alpha1.Blueprint
+	if err := b.processBlueprintData([]byte(content), &testBlueprint); err != nil {
+		return fmt.Errorf("error validating blueprint template: %w", err)
+	}
 
-			// === Blueprint Data Generation ===
-			var blueprintData []byte
-			if len(templateData) > 0 {
-				config := b.configHandler.GetConfig()
-				contextYAML, err := b.yamlMarshalWithDefinedPaths(config)
-				if err != nil {
-					return fmt.Errorf("error marshalling context to YAML: %w", err)
-				}
-				var contextMap map[string]any = make(map[string]any)
-				if err := b.shims.YamlUnmarshal(contextYAML, &contextMap); err != nil {
-					return fmt.Errorf("error unmarshalling context YAML: %w", err)
-				}
-				contextMap["name"] = contextName
-				contextJSON, err := b.shims.JsonMarshal(contextMap)
-				if err != nil {
-					return fmt.Errorf("error marshalling context map to JSON: %w", err)
-				}
-				vm := b.shims.NewJsonnetVM()
-				vm.ExtCode("context", string(contextJSON))
-				evaluatedJsonnet, err := vm.EvaluateAnonymousSnippet("blueprint.jsonnet", string(templateData))
-				if err != nil {
-					return fmt.Errorf("error generating blueprint from jsonnet: %w", err)
-				}
-				if evaluatedJsonnet != "" {
-					blueprintData = []byte(evaluatedJsonnet)
-				}
-			}
+	// Override metadata with context-specific values
+	testBlueprint.Metadata.Name = contextName
+	testBlueprint.Metadata.Description = fmt.Sprintf("This blueprint outlines resources in the %s context", contextName)
 
-			// === Fallback Blueprint Creation ===
-			if len(blueprintData) == 0 {
-				blueprint := *DefaultBlueprint.DeepCopy()
-				blueprint.Metadata.Name = contextName
-				blueprint.Metadata.Description = fmt.Sprintf("This blueprint outlines resources in the %s context", contextName)
-				blueprintData, err = b.shims.YamlMarshal(blueprint)
-				if err != nil {
-					return fmt.Errorf("error marshalling default blueprint: %w", err)
-				}
-			}
+	// Convert JSON content to YAML format
+	yamlData, err := b.shims.YamlMarshal(testBlueprint)
+	if err != nil {
+		return fmt.Errorf("error converting blueprint to YAML: %w", err)
+	}
 
-			// === Blueprint File Write ===
-			if err := b.shims.WriteFile(blueprintPath, blueprintData, 0644); err != nil {
-				return fmt.Errorf("error writing blueprint file: %w", err)
-			}
-		}
+	// Write validated blueprint content as YAML
+	if err := b.shims.WriteFile(outputPath, yamlData, 0644); err != nil {
+		return fmt.Errorf("error writing blueprint file: %w", err)
 	}
 
 	return nil
@@ -982,124 +1073,6 @@ func (b *BaseBlueprintHandler) calculateMaxWaitTime() time.Duration {
 	return maxPathTime
 }
 
-// yamlMarshalWithDefinedPaths marshals data to YAML format while ensuring all parent paths are defined.
-// It handles various Go types including structs, maps, slices, and primitive types, preserving YAML
-// tags and properly representing nil values.
-func (b *BaseBlueprintHandler) yamlMarshalWithDefinedPaths(v any) ([]byte, error) {
-	if v == nil {
-		return nil, fmt.Errorf("invalid input: nil value")
-	}
-
-	var convert func(reflect.Value) (any, error)
-	convert = func(val reflect.Value) (any, error) {
-		switch val.Kind() {
-		case reflect.Ptr, reflect.Interface:
-			if val.IsNil() {
-				if val.Kind() == reflect.Interface || (val.Kind() == reflect.Ptr && val.Type().Elem().Kind() == reflect.Struct) {
-					return make(map[string]any), nil
-				}
-				return nil, nil
-			}
-			return convert(val.Elem())
-		case reflect.Struct:
-			result := make(map[string]any)
-			typ := val.Type()
-			for i := range make([]int, val.NumField()) {
-				fieldValue := val.Field(i)
-				fieldType := typ.Field(i)
-
-				if fieldType.PkgPath != "" {
-					continue
-				}
-
-				yamlTag := strings.Split(fieldType.Tag.Get("yaml"), ",")[0]
-				if yamlTag == "-" {
-					continue
-				}
-				if yamlTag == "" {
-					yamlTag = fieldType.Name
-				}
-
-				fieldInterface, err := convert(fieldValue)
-				if err != nil {
-					return nil, fmt.Errorf("error converting field %s: %w", fieldType.Name, err)
-				}
-				if fieldInterface != nil || fieldType.Type.Kind() == reflect.Interface || fieldType.Type.Kind() == reflect.Slice || fieldType.Type.Kind() == reflect.Map || fieldType.Type.Kind() == reflect.Struct {
-					result[yamlTag] = fieldInterface
-				}
-			}
-			return result, nil
-		case reflect.Slice, reflect.Array:
-			if val.Len() == 0 {
-				return []any{}, nil
-			}
-			slice := make([]any, val.Len())
-			for i := 0; i < val.Len(); i++ {
-				elemVal := val.Index(i)
-				if elemVal.Kind() == reflect.Ptr || elemVal.Kind() == reflect.Interface {
-					if elemVal.IsNil() {
-						slice[i] = nil
-						continue
-					}
-				}
-				elemInterface, err := convert(elemVal)
-				if err != nil {
-					return nil, fmt.Errorf("error converting slice element at index %d: %w", i, err)
-				}
-				slice[i] = elemInterface
-			}
-			return slice, nil
-		case reflect.Map:
-			result := make(map[string]any)
-			for _, key := range val.MapKeys() {
-				keyStr := fmt.Sprintf("%v", key.Interface())
-				elemVal := val.MapIndex(key)
-				if elemVal.Kind() == reflect.Interface && elemVal.IsNil() {
-					result[keyStr] = nil
-					continue
-				}
-				elemInterface, err := convert(elemVal)
-				if err != nil {
-					return nil, fmt.Errorf("error converting map value for key %s: %w", keyStr, err)
-				}
-				if elemInterface != nil || elemVal.Kind() == reflect.Interface || elemVal.Kind() == reflect.Slice || elemVal.Kind() == reflect.Map || elemVal.Kind() == reflect.Struct {
-					result[keyStr] = elemInterface
-				}
-			}
-			return result, nil
-		case reflect.String:
-			return val.String(), nil
-		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			return val.Int(), nil
-		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-			return val.Uint(), nil
-		case reflect.Float32, reflect.Float64:
-			return val.Float(), nil
-		case reflect.Bool:
-			return val.Bool(), nil
-		default:
-			return nil, fmt.Errorf("unsupported value type %s", val.Kind())
-		}
-	}
-
-	val := reflect.ValueOf(v)
-	if val.Kind() == reflect.Func {
-		return nil, fmt.Errorf("unsupported value type func")
-	}
-
-	processed, err := convert(val)
-	if err != nil {
-		return nil, err
-	}
-
-	yamlData, err := b.shims.YamlMarshal(processed)
-	if err != nil {
-		return nil, fmt.Errorf("error marshalling yaml: %w", err)
-	}
-
-	return yamlData, nil
-}
-
 func (b *BaseBlueprintHandler) createManagedNamespace(name string) error {
 	return b.kubernetesManager.CreateNamespace(name)
 }
@@ -1184,73 +1157,4 @@ func (b *BaseBlueprintHandler) toKubernetesKustomization(k blueprintv1alpha1.Kus
 			Prune:         prune,
 		},
 	}
-}
-
-// processJsonnetTemplate reads a jsonnet template file, evaluates it with context data,
-// and writes the processed output to the appropriate location with correct file extension.
-// It handles path resolution, context marshalling, jsonnet evaluation, output path determination
-// based on file location and naming conventions, and conditional file writing based on reset mode.
-func (b *BaseBlueprintHandler) processJsonnetTemplate(templateDir, templateFile, contextDir string, resetMode bool) error {
-	jsonnetData, err := b.shims.ReadFile(templateFile)
-	if err != nil {
-		return fmt.Errorf("error reading template file: %w", err)
-	}
-
-	config := b.configHandler.GetConfig()
-	contextYAML, err := b.yamlMarshalWithDefinedPaths(config)
-	if err != nil {
-		return fmt.Errorf("error marshalling context to YAML: %w", err)
-	}
-
-	var contextMap map[string]any = make(map[string]any)
-	if err := b.shims.YamlUnmarshal(contextYAML, &contextMap); err != nil {
-		return fmt.Errorf("error unmarshalling context YAML: %w", err)
-	}
-
-	context := b.configHandler.GetContext()
-	contextMap["name"] = context
-	contextJSON, err := b.shims.JsonMarshal(contextMap)
-	if err != nil {
-		return fmt.Errorf("error marshalling context map to JSON: %w", err)
-	}
-
-	vm := b.shims.NewJsonnetVM()
-	vm.ExtCode("context", string(contextJSON))
-	evaluatedContent, err := vm.EvaluateAnonymousSnippet(templateFile, string(jsonnetData))
-	if err != nil {
-		return fmt.Errorf("error evaluating jsonnet template: %w", err)
-	}
-
-	relPath, err := filepath.Rel(templateDir, templateFile)
-	if err != nil {
-		return fmt.Errorf("error getting relative path: %w", err)
-	}
-
-	outputName := strings.TrimSuffix(relPath, ".jsonnet")
-	outputPath := filepath.Join(contextDir, outputName)
-
-	if strings.Contains(outputName, "blueprint") {
-		outputPath += ".yaml"
-	} else if strings.Contains(relPath, "terraform/") {
-		outputPath += ".tfvars"
-	} else {
-		outputPath += ".yaml"
-	}
-
-	if !resetMode {
-		if _, err := b.shims.Stat(outputPath); err == nil {
-			return nil
-		}
-	}
-
-	outputDir := filepath.Dir(outputPath)
-	if err := b.shims.MkdirAll(outputDir, 0755); err != nil {
-		return fmt.Errorf("error creating output directory: %w", err)
-	}
-
-	if err := b.shims.WriteFile(outputPath, []byte(evaluatedContent), 0644); err != nil {
-		return fmt.Errorf("error writing output file: %w", err)
-	}
-
-	return nil
 }

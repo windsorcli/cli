@@ -185,7 +185,7 @@ func setupMocks(t *testing.T) *Mocks {
 		return nil
 	}
 
-	shims.ExecuteTemplate = func(tmpl *template.Template, data interface{}) error {
+	shims.ExecuteTemplate = func(tmpl *template.Template, data any) error {
 		return nil
 	}
 

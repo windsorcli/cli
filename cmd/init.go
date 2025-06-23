@@ -228,10 +228,15 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("Error initializing: %w", err)
 		}
 
-		// Process context templates if they exist (after blueprint handler is initialized)
+		// Process context templates if they exist
 		blueprintHandler := controller.ResolveBlueprintHandler()
 		if err := blueprintHandler.ProcessContextTemplates(contextName, reset); err != nil {
 			return fmt.Errorf("Error processing context templates: %w", err)
+		}
+
+		// Reload blueprint after processing templates
+		if err := blueprintHandler.LoadConfig(reset); err != nil {
+			return fmt.Errorf("Error reloading blueprint config: %w", err)
 		}
 
 		// Set the environment variables internally in the process

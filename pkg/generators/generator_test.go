@@ -1,6 +1,7 @@
 package generators
 
 import (
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -195,6 +196,12 @@ output "local_output1" {
 		}
 
 		return []byte{}, nil
+	}
+	shims.JsonUnmarshal = func(data []byte, v any) error {
+		return json.Unmarshal(data, v)
+	}
+	shims.FilepathRel = func(basepath, targpath string) (string, error) {
+		return filepath.Rel(basepath, targpath)
 	}
 
 	configHandler.Initialize()

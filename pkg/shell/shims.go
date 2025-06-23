@@ -63,7 +63,7 @@ type Shims struct {
 	NewTemplate     func(name string) *template.Template
 	TemplateParse   func(tmpl *template.Template, text string) (*template.Template, error)
 	TemplateExecute func(tmpl *template.Template, wr io.Writer, data any) error
-	ExecuteTemplate func(tmpl *template.Template, data interface{}) error
+	ExecuteTemplate func(tmpl *template.Template, data any) error
 
 	// Bufio operations
 	NewScanner  func(r io.Reader) *bufio.Scanner
@@ -141,7 +141,7 @@ func NewShims() *Shims {
 		NewTemplate:     template.New,
 		TemplateParse:   (*template.Template).Parse,
 		TemplateExecute: (*template.Template).Execute,
-		ExecuteTemplate: func(tmpl *template.Template, data interface{}) error {
+		ExecuteTemplate: func(tmpl *template.Template, data any) error {
 			return tmpl.Execute(os.Stdout, data)
 		},
 

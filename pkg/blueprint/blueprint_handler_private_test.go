@@ -11,6 +11,7 @@ import (
 	kustomize "github.com/fluxcd/pkg/apis/kustomize"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/kubernetes"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -25,7 +26,7 @@ func (m mockFileInfo) Size() int64        { return 0 }
 func (m mockFileInfo) Mode() os.FileMode  { return 0644 }
 func (m mockFileInfo) ModTime() time.Time { return time.Time{} }
 func (m mockFileInfo) IsDir() bool        { return false }
-func (m mockFileInfo) Sys() interface{}   { return nil }
+func (m mockFileInfo) Sys() any           { return nil }
 
 // =============================================================================
 // Test Private Methods
@@ -741,7 +742,7 @@ func TestBlueprintHandler_processJsonnetTemplate(t *testing.T) {
 		}
 
 		// When calling processJsonnetTemplate
-		err := handler.processJsonnetTemplate("/template", "/template/test.jsonnet", "/context", false)
+		err := handler.processJsonnetTemplate("/template/test.jsonnet", "/context", "test-context", false)
 
 		// Then an error should be returned
 		if err == nil {
@@ -756,16 +757,19 @@ func TestBlueprintHandler_processJsonnetTemplate(t *testing.T) {
 		// Given a blueprint handler with mocked dependencies
 		handler, mocks := setup(t)
 
-		// And ReadFile succeeds but YamlMarshal fails
+		// And ReadFile succeeds but YamlMarshalWithDefinedPaths fails
 		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
 			return []byte("{}"), nil
 		}
-		mocks.Shims.YamlMarshal = func(v any) ([]byte, error) {
+
+		// Mock the config handler's YamlMarshalWithDefinedPaths method
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
 			return nil, fmt.Errorf("yaml marshal error")
 		}
 
 		// When calling processJsonnetTemplate
-		err := handler.processJsonnetTemplate("/template", "/template/test.jsonnet", "/context", false)
+		err := handler.processJsonnetTemplate("/template/test.jsonnet", "/context", "test-context", false)
 
 		// Then an error should be returned
 		if err == nil {
@@ -789,7 +793,7 @@ func TestBlueprintHandler_processJsonnetTemplate(t *testing.T) {
 		}
 
 		// When calling processJsonnetTemplate
-		err := handler.processJsonnetTemplate("/template", "/template/test.jsonnet", "/context", false)
+		err := handler.processJsonnetTemplate("/template/test.jsonnet", "/context", "test-context", false)
 
 		// Then an error should be returned
 		if err == nil {
@@ -813,7 +817,7 @@ func TestBlueprintHandler_processJsonnetTemplate(t *testing.T) {
 		}
 
 		// When calling processJsonnetTemplate
-		err := handler.processJsonnetTemplate("/template", "/template/test.jsonnet", "/context", false)
+		err := handler.processJsonnetTemplate("/template/test.jsonnet", "/context", "test-context", false)
 
 		// Then an error should be returned
 		if err == nil {
@@ -839,7 +843,7 @@ func TestBlueprintHandler_processJsonnetTemplate(t *testing.T) {
 		}
 
 		// When calling processJsonnetTemplate
-		err := handler.processJsonnetTemplate("/template", "/template/test.jsonnet", "/context", false)
+		err := handler.processJsonnetTemplate("/template/test.jsonnet", "/context", "test-context", false)
 
 		// Then an error should be returned
 		if err == nil {
@@ -850,24 +854,45 @@ func TestBlueprintHandler_processJsonnetTemplate(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorGettingRelativePath", func(t *testing.T) {
+	t.Run("ErrorWritingBlueprintFile", func(t *testing.T) {
 		// Given a blueprint handler with mocked dependencies
 		handler, mocks := setup(t)
 
 		// And ReadFile succeeds
 		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			return []byte("{}"), nil
+			return []byte("local context = std.extVar('context'); {}"), nil
 		}
 
-		// When calling processJsonnetTemplate with invalid paths
-		err := handler.processJsonnetTemplate("", "/template/test.jsonnet", "/context", false)
+		// And jsonnet evaluation returns valid blueprint content
+		mocks.Shims.NewJsonnetVM = func() JsonnetVM {
+			return NewMockJsonnetVM(func(filename, snippet string) (string, error) {
+				return `kind: Blueprint
+metadata:
+  name: test-context
+  description: Test blueprint
+  authors: ["test"]`, nil
+			})
+		}
+
+		// And Stat returns file not exists (so we proceed to write)
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		// And WriteFile returns an error
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			return fmt.Errorf("write file error")
+		}
+
+		// When calling processJsonnetTemplate
+		err := handler.processJsonnetTemplate("/template/test.jsonnet", "/context", "test-context", false)
 
 		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "error getting relative path") {
-			t.Errorf("Expected 'error getting relative path' in error, got: %v", err)
+		if !strings.Contains(err.Error(), "error writing blueprint file") {
+			t.Errorf("Expected 'error writing blueprint file' in error, got: %v", err)
 		}
 	})
 
@@ -877,7 +902,7 @@ func TestBlueprintHandler_processJsonnetTemplate(t *testing.T) {
 
 		// And ReadFile succeeds
 		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			return []byte("{}"), nil
+			return []byte("kind: Blueprint"), nil
 		}
 
 		// And output file doesn't exist
@@ -892,7 +917,7 @@ func TestBlueprintHandler_processJsonnetTemplate(t *testing.T) {
 		}
 
 		// When calling processJsonnetTemplate with blueprint file
-		err := handler.processJsonnetTemplate("/template", "/template/blueprint.jsonnet", "/context", false)
+		err := handler.processJsonnetTemplate("/template/blueprint.jsonnet", "/context", "test-context", false)
 
 		// Then no error should occur
 		if err != nil {
@@ -902,74 +927,6 @@ func TestBlueprintHandler_processJsonnetTemplate(t *testing.T) {
 		// And the output path should have .yaml extension
 		if !strings.HasSuffix(writtenPath, "blueprint.yaml") {
 			t.Errorf("Expected blueprint.yaml extension, got: %s", writtenPath)
-		}
-	})
-
-	t.Run("TerraformFileExtension", func(t *testing.T) {
-		// Given a blueprint handler with mocked dependencies
-		handler, mocks := setup(t)
-
-		// And ReadFile succeeds
-		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			return []byte("{}"), nil
-		}
-
-		// And output file doesn't exist
-		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-
-		var writtenPath string
-		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			writtenPath = name
-			return nil
-		}
-
-		// When calling processJsonnetTemplate with terraform file
-		err := handler.processJsonnetTemplate("/template", "/template/terraform/main.jsonnet", "/context", false)
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		// And the output path should have .tfvars extension
-		if !strings.HasSuffix(writtenPath, "main.tfvars") {
-			t.Errorf("Expected main.tfvars extension, got: %s", writtenPath)
-		}
-	})
-
-	t.Run("DefaultYamlFileExtension", func(t *testing.T) {
-		// Given a blueprint handler with mocked dependencies
-		handler, mocks := setup(t)
-
-		// And ReadFile succeeds
-		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			return []byte("{}"), nil
-		}
-
-		// And output file doesn't exist
-		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-
-		var writtenPath string
-		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			writtenPath = name
-			return nil
-		}
-
-		// When calling processJsonnetTemplate with regular file
-		err := handler.processJsonnetTemplate("/template", "/template/config.jsonnet", "/context", false)
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		// And the output path should have .yaml extension
-		if !strings.HasSuffix(writtenPath, "config.yaml") {
-			t.Errorf("Expected config.yaml extension, got: %s", writtenPath)
 		}
 	})
 
@@ -997,7 +954,7 @@ func TestBlueprintHandler_processJsonnetTemplate(t *testing.T) {
 		}
 
 		// When calling processJsonnetTemplate without reset
-		err := handler.processJsonnetTemplate("/template", "/template/test.jsonnet", "/context", false)
+		err := handler.processJsonnetTemplate("/template/test.jsonnet", "/context", "test-context", false)
 
 		// Then no error should occur
 		if err != nil {
@@ -1034,7 +991,7 @@ func TestBlueprintHandler_processJsonnetTemplate(t *testing.T) {
 		}
 
 		// When calling processJsonnetTemplate with reset
-		err := handler.processJsonnetTemplate("/template", "/template/test.jsonnet", "/context", true)
+		err := handler.processJsonnetTemplate("/template/test.jsonnet", "/context", "test-context", true)
 
 		// Then no error should occur
 		if err != nil {
@@ -1044,58 +1001,6 @@ func TestBlueprintHandler_processJsonnetTemplate(t *testing.T) {
 		// And WriteFile should be called
 		if !writeFileCalled {
 			t.Error("WriteFile should be called when reset is true")
-		}
-	})
-
-	t.Run("ErrorCreatingOutputDirectory", func(t *testing.T) {
-		// Given a blueprint handler with mocked dependencies
-		handler, mocks := setup(t)
-
-		// And ReadFile succeeds
-		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			return []byte("{}"), nil
-		}
-
-		// And MkdirAll fails
-		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
-			return fmt.Errorf("mkdir error")
-		}
-
-		// When calling processJsonnetTemplate
-		err := handler.processJsonnetTemplate("/template", "/template/subdir/test.jsonnet", "/context", false)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error creating output directory") {
-			t.Errorf("Expected 'error creating output directory' in error, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorWritingOutputFile", func(t *testing.T) {
-		// Given a blueprint handler with mocked dependencies
-		handler, mocks := setup(t)
-
-		// And ReadFile succeeds
-		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			return []byte("{}"), nil
-		}
-
-		// And WriteFile fails
-		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			return fmt.Errorf("write file error")
-		}
-
-		// When calling processJsonnetTemplate
-		err := handler.processJsonnetTemplate("/template", "/template/test.jsonnet", "/context", false)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error writing output file") {
-			t.Errorf("Expected 'error writing output file' in error, got: %v", err)
 		}
 	})
 
@@ -1133,7 +1038,7 @@ func TestBlueprintHandler_processJsonnetTemplate(t *testing.T) {
 		}
 
 		// When calling processJsonnetTemplate
-		err := handler.processJsonnetTemplate("/template", "/template/blueprint.jsonnet", "/context", false)
+		err := handler.processJsonnetTemplate("/template/blueprint.jsonnet", "/context", "test-context", false)
 
 		// Then no error should occur
 		if err != nil {

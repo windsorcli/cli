@@ -26,9 +26,9 @@ type Shims struct {
 	Mkdir         func(path string, perm os.FileMode) error
 	MkdirAll      func(path string, perm os.FileMode) error
 	Rename        func(oldpath, newpath string) error
-	YamlMarshal   func(in interface{}) ([]byte, error)
-	YamlUnmarshal func(in []byte, out interface{}) error
-	JsonUnmarshal func(data []byte, v interface{}) error
+	YamlMarshal   func(in any) ([]byte, error)
+	YamlUnmarshal func(in []byte, out any) error
+	JsonUnmarshal func(data []byte, v any) error
 	UserHomeDir   func() (string, error)
 }
 

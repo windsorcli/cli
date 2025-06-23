@@ -808,7 +808,7 @@ func TestTerraformGenerator_Write(t *testing.T) {
 		}
 
 		// And the error should match the expected error
-		expectedError := "failed to get project root: error getting project root"
+		expectedError := "failed to process terraform templates: failed to get project root: error getting project root"
 		if err.Error() != expectedError {
 			t.Errorf("expected error %s, got %s", expectedError, err.Error())
 		}
@@ -863,8 +863,10 @@ func TestTerraformGenerator_Write(t *testing.T) {
 	})
 
 	t.Run("DeletesTerraformDirOnReset", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
 		generator, mocks := setup(t)
-		// Arrange: .terraform dir exists, RemoveAll should be called
+
+		// And .terraform directory exists
 		var removedPath string
 		mocks.Shims.Stat = func(path string) (os.FileInfo, error) {
 			if strings.HasSuffix(path, ".terraform") {
@@ -889,12 +891,16 @@ func TestTerraformGenerator_Write(t *testing.T) {
 		mocks.Shims.WriteFile = func(_ string, _ []byte, _ fs.FileMode) error { return nil }
 		mocks.Shims.ReadFile = func(_ string) ([]byte, error) { return []byte{}, nil }
 		mocks.Shims.Chdir = func(_ string) error { return nil }
-		// Act
+
+		// When Write is called with reset=true
 		err := generator.Write(true)
-		// Assert
+
+		// Then no error should occur
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
+
+		// And the .terraform directory should be removed
 		want := filepath.Join("/mock/context", ".terraform")
 		if removedPath != want {
 			t.Errorf("expected RemoveAll called with %q, got %q", want, removedPath)
@@ -902,8 +908,10 @@ func TestTerraformGenerator_Write(t *testing.T) {
 	})
 
 	t.Run("ErrorRemovingTerraformDir", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
 		generator, mocks := setup(t)
-		// Arrange: .terraform dir exists, RemoveAll should fail
+
+		// And .terraform directory exists but RemoveAll fails
 		mocks.Shims.Stat = func(path string) (os.FileInfo, error) {
 			if strings.HasSuffix(path, ".terraform") {
 				return nil, nil // exists
@@ -922,17 +930,70 @@ func TestTerraformGenerator_Write(t *testing.T) {
 		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
 			return []blueprintv1alpha1.TerraformComponent{}
 		}
-		// Act
+
+		// When Write is called with reset=true
 		err := generator.Write(true)
-		// Assert
+
+		// Then an error should be returned
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
+
+		// And the error should match the expected message
 		expectedError := "failed to remove .terraform directory: mock error removing directory"
 		if err.Error() != expectedError {
 			t.Errorf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
+
+	t.Run("ErrorFromGenerateModuleShim", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And a component with source that will cause generateModuleShim to fail
+		component := blueprintv1alpha1.TerraformComponent{
+			Source:   "fake-source",
+			Path:     "test-component",
+			FullPath: "/tmp/terraform/test-component",
+		}
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{component}
+		}
+
+		// Mock processTemplates to succeed
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/tmp", nil
+		}
+
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/tmp/context", nil
+		}
+
+		mocks.Shims.MkdirAll = func(path string, _ fs.FileMode) error {
+			if strings.Contains(path, "terraform") && !strings.Contains(path, "test-component") {
+				return nil // Allow terraform folder creation
+			}
+			return fmt.Errorf("mock error creating module directory")
+		}
+
+		// When Write is called
+		err := generator.Write()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "failed to generate module shim") {
+			t.Errorf("expected error to contain 'failed to generate module shim', got %v", err)
+		}
+	})
+
 }
 
 func TestTerraformGenerator_generateModuleShim(t *testing.T) {
@@ -1389,7 +1450,7 @@ func TestTerraformGenerator_generateModuleShim(t *testing.T) {
 
 		// And ExecSilent is mocked to return output without module path
 		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
-			return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-05-09T16:25:03Z","message_code":"initializing_modules_message","type":"init_output"}`, nil
+			return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-05-09T16:25:03Z"}`, nil
 		}
 
 		// And Stat is mocked to return success for .tf_modules/variables.tf
@@ -1437,7 +1498,7 @@ func TestTerraformGenerator_generateModuleShim(t *testing.T) {
 
 		// And ExecSilent is mocked to return output without module path
 		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
-			return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-05-09T16:25:03Z","message_code":"initializing_modules_message","type":"init_output"}`, nil
+			return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-05-09T16:25:03Z"}`, nil
 		}
 
 		// And Stat is mocked to return success for the standard path
@@ -2546,6 +2607,95 @@ func TestTerraformGenerator_writeShimVariablesTf(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("ErrorReadingVariables", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And ReadFile is mocked to return an error for variables.tf
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			if strings.HasSuffix(path, "variables.tf") {
+				return nil, fmt.Errorf("mock error reading variables.tf")
+			}
+			return nil, fmt.Errorf("unexpected file read: %s", path)
+		}
+
+		// When writeShimVariablesTf is called
+		err := generator.writeShimVariablesTf("test_dir", "module_path", "fake-source")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "failed to read variables.tf") {
+			t.Errorf("expected error to contain 'failed to read variables.tf', got %v", err)
+		}
+	})
+
+	t.Run("ErrorParsingVariables", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And ReadFile is mocked to return invalid HCL content
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			if strings.HasSuffix(path, "variables.tf") {
+				return []byte(`invalid hcl syntax {`), nil
+			}
+			return nil, fmt.Errorf("unexpected file read: %s", path)
+		}
+
+		// When writeShimVariablesTf is called
+		err := generator.writeShimVariablesTf("test_dir", "module_path", "fake-source")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "failed to parse variables.tf") {
+			t.Errorf("expected error to contain 'failed to parse variables.tf', got %v", err)
+		}
+	})
+
+	t.Run("ErrorWritingMainTf", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And ReadFile is mocked to return content for variables.tf
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			if strings.HasSuffix(path, "variables.tf") {
+				return []byte(`variable "test" {
+  description = "Test variable"
+  type        = string
+}`), nil
+			}
+			return nil, fmt.Errorf("unexpected file read: %s", path)
+		}
+
+		// And WriteFile is mocked to fail only for main.tf
+		mocks.Shims.WriteFile = func(path string, _ []byte, _ fs.FileMode) error {
+			if strings.HasSuffix(path, "main.tf") {
+				return fmt.Errorf("mock error writing main.tf")
+			}
+			return nil // Success for variables.tf
+		}
+
+		// When writeShimVariablesTf is called
+		err := generator.writeShimVariablesTf("test_dir", "module_path", "fake-source")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "failed to write shim main.tf") {
+			t.Errorf("expected error to contain 'failed to write shim main.tf', got %v", err)
+		}
+	})
 }
 
 func TestTerraformGenerator_writeShimOutputsTf(t *testing.T) {
@@ -2591,6 +2741,1209 @@ func TestTerraformGenerator_writeShimOutputsTf(t *testing.T) {
 		expectedError := "failed to read outputs.tf: mock error reading outputs.tf"
 		if err.Error() != expectedError {
 			t.Errorf("expected error %s, got %s", expectedError, err.Error())
+		}
+	})
+}
+
+// =============================================================================
+// Test Template Processing Methods
+// =============================================================================
+
+func TestTerraformGenerator_processTemplates(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
+		mocks := setupMocks(t)
+		generator := NewTerraformGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
+		if err := generator.Initialize(); err != nil {
+			t.Fatalf("failed to initialize TerraformGenerator: %v", err)
+		}
+		return generator, mocks
+	}
+
+	t.Run("TemplateDirectoryNotExists", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And Stat is mocked to return os.ErrNotExist for template directory
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			if strings.Contains(path, "_template") {
+				return nil, os.ErrNotExist
+			}
+			return nil, nil
+		}
+
+		// When processTemplates is called
+		result, err := generator.processTemplates(false)
+
+		// Then no error should occur and result should be nil
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if result != nil {
+			t.Errorf("expected nil result, got %v", result)
+		}
+	})
+
+	t.Run("ErrorCheckingTemplateDirectory", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And Stat is mocked to return an error for template directory
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			if strings.Contains(path, "_template") {
+				return nil, fmt.Errorf("permission denied")
+			}
+			return nil, nil
+		}
+
+		// When processTemplates is called
+		result, err := generator.processTemplates(false)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+		if result != nil {
+			t.Errorf("expected nil result, got %v", result)
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "failed to check template directory") {
+			t.Errorf("expected error to contain 'failed to check template directory', got %v", err)
+		}
+	})
+
+	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And Shell.GetProjectRoot is mocked to return an error
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("project root error")
+		}
+
+		// When processTemplates is called
+		result, err := generator.processTemplates(false)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+		if result != nil {
+			t.Errorf("expected nil result, got %v", result)
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "failed to get project root") {
+			t.Errorf("expected error to contain 'failed to get project root', got %v", err)
+		}
+	})
+
+	t.Run("SuccessWithEmptyDirectory", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And Stat is mocked to return success for template directory
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			if strings.Contains(path, "_template") {
+				return nil, nil
+			}
+			return nil, nil
+		}
+
+		// And ReadDir is mocked to return empty directory
+		mocks.Shims.ReadDir = func(path string) ([]fs.DirEntry, error) {
+			return []fs.DirEntry{}, nil
+		}
+
+		// When processTemplates is called
+		result, err := generator.processTemplates(false)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And result should be an empty map
+		if result == nil {
+			t.Errorf("expected non-nil result, got nil")
+		}
+		if len(result) != 0 {
+			t.Errorf("expected empty result, got %v", result)
+		}
+	})
+
+	t.Run("ProcessesJsonnetFiles", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// Create a simple mock for fs.DirEntry with jsonnet file
+		mockEntry := &simpleDirEntry{name: "test.jsonnet", isDir: false}
+
+		// And ReadDir is mocked to return a jsonnet file
+		mocks.Shims.ReadDir = func(path string) ([]fs.DirEntry, error) {
+			return []fs.DirEntry{mockEntry}, nil
+		}
+
+		// Mock all dependencies for processJsonnetTemplate
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			return []byte(`{
+  test_var: "test_value"
+}`), nil
+		}
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).YamlMarshalWithDefinedPathsFunc = func(config any) ([]byte, error) {
+			return []byte("test: config"), nil
+		}
+
+		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
+			if configMap, ok := v.(*map[string]any); ok {
+				*configMap = map[string]any{"test": "config"}
+			}
+			return nil
+		}
+
+		mocks.Shims.JsonMarshal = func(v any) ([]byte, error) {
+			return []byte(`{"test": "config", "name": "test-context"}`), nil
+		}
+
+		mocks.Shims.JsonUnmarshal = func(data []byte, v any) error {
+			if values, ok := v.(*map[string]any); ok {
+				*values = map[string]any{"test_var": "test_value"}
+			}
+			return nil
+		}
+
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/tmp", nil
+		}
+
+		templateValues := make(map[string]map[string]any)
+
+		// When walkTemplateDirectory is called
+		err := generator.walkTemplateDirectory("/tmp/contexts/_template/terraform", "/context/path", "test-context", false, templateValues)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And template values should contain the processed template
+		if len(templateValues) != 1 {
+			t.Errorf("expected 1 template value, got %d", len(templateValues))
+		}
+	})
+
+	t.Run("ErrorProcessingJsonnetTemplate", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// Create a simple mock for fs.DirEntry with jsonnet file
+		mockEntry := &simpleDirEntry{name: "test.jsonnet", isDir: false}
+
+		// And ReadDir is mocked to return a jsonnet file
+		mocks.Shims.ReadDir = func(path string) ([]fs.DirEntry, error) {
+			return []fs.DirEntry{mockEntry}, nil
+		}
+
+		// And ReadFile is mocked to return an error for processJsonnetTemplate
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			return nil, fmt.Errorf("file read error")
+		}
+
+		templateValues := make(map[string]map[string]any)
+
+		// When walkTemplateDirectory is called
+		err := generator.walkTemplateDirectory("/template/dir", "/context/path", "test-context", false, templateValues)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "error reading template file") {
+			t.Errorf("expected error to contain 'error reading template file', got %v", err)
+		}
+	})
+
+	t.Run("RecursivelyProcessesDirectories", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		callCount := 0
+		// Create mock directory entry
+		mockDirEntry := &simpleDirEntry{name: "subdir", isDir: true}
+
+		// And ReadDir is mocked to return a directory on first call, empty on second
+		mocks.Shims.ReadDir = func(path string) ([]fs.DirEntry, error) {
+			callCount++
+			if callCount == 1 {
+				return []fs.DirEntry{mockDirEntry}, nil
+			}
+			return []fs.DirEntry{}, nil // Empty subdirectory
+		}
+
+		templateValues := make(map[string]map[string]any)
+
+		// When walkTemplateDirectory is called
+		err := generator.walkTemplateDirectory("/template/dir", "/context/path", "test-context", false, templateValues)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And ReadDir should have been called twice (once for root, once for subdir)
+		if callCount != 2 {
+			t.Errorf("expected ReadDir to be called 2 times, got %d", callCount)
+		}
+	})
+
+	t.Run("ErrorInRecursiveDirectoryCall", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		callCount := 0
+		// Create mock directory entry
+		mockDirEntry := &simpleDirEntry{name: "subdir", isDir: true}
+
+		// And ReadDir is mocked to return a directory on first call, error on second
+		mocks.Shims.ReadDir = func(path string) ([]fs.DirEntry, error) {
+			callCount++
+			if callCount == 1 {
+				return []fs.DirEntry{mockDirEntry}, nil
+			}
+			return nil, fmt.Errorf("subdirectory read error")
+		}
+
+		templateValues := make(map[string]map[string]any)
+
+		// When walkTemplateDirectory is called
+		err := generator.walkTemplateDirectory("/template/dir", "/context/path", "test-context", false, templateValues)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "failed to read template directory") {
+			t.Errorf("expected error to contain 'failed to read template directory', got %v", err)
+		}
+	})
+
+	t.Run("ErrorGettingConfigRoot", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And Stat is mocked to return success for template directory
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			if strings.Contains(path, "_template") {
+				return nil, nil
+			}
+			return nil, nil
+		}
+
+		// And GetConfigRoot is mocked to return an error
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("config root error")
+		}
+
+		// When processTemplates is called
+		result, err := generator.processTemplates(false)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+		if result != nil {
+			t.Errorf("expected nil result, got %v", result)
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "failed to get config root") {
+			t.Errorf("expected error to contain 'failed to get config root', got %v", err)
+		}
+	})
+
+	t.Run("UsesEnvironmentVariableForContextName", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And Stat is mocked to return success for template directory
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			if strings.Contains(path, "_template") {
+				return nil, nil
+			}
+			return nil, nil
+		}
+
+		// And ReadDir is mocked to return empty directory
+		mocks.Shims.ReadDir = func(path string) ([]fs.DirEntry, error) {
+			return []fs.DirEntry{}, nil
+		}
+
+		// And GetString is mocked to return empty string (no context configured)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "context" {
+				return "" // No context configured
+			}
+			return ""
+		}
+
+		// Mock environment variable
+		originalEnv := os.Getenv("WINDSOR_CONTEXT")
+		os.Setenv("WINDSOR_CONTEXT", "env-context")
+		defer os.Setenv("WINDSOR_CONTEXT", originalEnv)
+
+		// When processTemplates is called
+		result, err := generator.processTemplates(false)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And result should be an empty map
+		if result == nil {
+			t.Errorf("expected non-nil result, got nil")
+		}
+		if len(result) != 0 {
+			t.Errorf("expected empty result, got %v", result)
+		}
+
+		// Note: The environment variable usage is tested by the fact that
+		// the function completes successfully and calls walkTemplateDirectory
+		// with the environment context name
+	})
+}
+
+func TestTerraformGenerator_processJsonnetTemplate(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
+		mocks := setupMocks(t)
+		generator := NewTerraformGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
+		if err := generator.Initialize(); err != nil {
+			t.Fatalf("failed to initialize TerraformGenerator: %v", err)
+		}
+		return generator, mocks
+	}
+
+	t.Run("ErrorReadingTemplateFile", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And ReadFile is mocked to return an error
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			return nil, fmt.Errorf("file not found")
+		}
+
+		templateValues := make(map[string]map[string]any)
+
+		// When processJsonnetTemplate is called
+		err := generator.processJsonnetTemplate("/template/test.jsonnet", "test-context", templateValues)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "error reading template file") {
+			t.Errorf("expected error to contain 'error reading template file', got %v", err)
+		}
+	})
+
+	t.Run("ErrorMarshallingContextToYAML", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And ReadFile is mocked to return jsonnet content
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			return []byte(`local context = std.extVar("context");
+{
+  test_var: context.test
+}`), nil
+		}
+
+		// And YamlMarshalWithDefinedPaths is mocked to return an error
+		mocks.ConfigHandler.(*config.MockConfigHandler).YamlMarshalWithDefinedPathsFunc = func(config any) ([]byte, error) {
+			return nil, fmt.Errorf("yaml marshal error")
+		}
+
+		templateValues := make(map[string]map[string]any)
+
+		// When processJsonnetTemplate is called
+		err := generator.processJsonnetTemplate("/template/test.jsonnet", "test-context", templateValues)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "error marshalling context to YAML") {
+			t.Errorf("expected error to contain 'error marshalling context to YAML', got %v", err)
+		}
+	})
+
+	t.Run("ErrorUnmarshallingContextYAML", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And ReadFile is mocked to return jsonnet content
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			return []byte(`local context = std.extVar("context");
+{
+  test_var: context.test
+}`), nil
+		}
+
+		// And YamlMarshalWithDefinedPaths is mocked
+		mocks.ConfigHandler.(*config.MockConfigHandler).YamlMarshalWithDefinedPathsFunc = func(config any) ([]byte, error) {
+			return []byte("test: config"), nil
+		}
+
+		// And YamlUnmarshal is mocked to return an error
+		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
+			return fmt.Errorf("yaml unmarshal error")
+		}
+
+		templateValues := make(map[string]map[string]any)
+
+		// When processJsonnetTemplate is called
+		err := generator.processJsonnetTemplate("/template/test.jsonnet", "test-context", templateValues)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "error unmarshalling context YAML") {
+			t.Errorf("expected error to contain 'error unmarshalling context YAML', got %v", err)
+		}
+	})
+
+	t.Run("ErrorMarshallingContextToJSON", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And ReadFile is mocked to return jsonnet content
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			return []byte(`local context = std.extVar("context");
+{
+  test_var: context.test
+}`), nil
+		}
+
+		// And YamlMarshalWithDefinedPaths is mocked
+		mocks.ConfigHandler.(*config.MockConfigHandler).YamlMarshalWithDefinedPathsFunc = func(config any) ([]byte, error) {
+			return []byte("test: config"), nil
+		}
+
+		// And YamlUnmarshal is mocked
+		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
+			if configMap, ok := v.(*map[string]any); ok {
+				*configMap = map[string]any{"test": "config"}
+			}
+			return nil
+		}
+
+		// And JsonMarshal is mocked to return an error
+		mocks.Shims.JsonMarshal = func(v any) ([]byte, error) {
+			return nil, fmt.Errorf("json marshal error")
+		}
+
+		templateValues := make(map[string]map[string]any)
+
+		// When processJsonnetTemplate is called
+		err := generator.processJsonnetTemplate("/template/test.jsonnet", "test-context", templateValues)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "error marshalling context map to JSON") {
+			t.Errorf("expected error to contain 'error marshalling context map to JSON', got %v", err)
+		}
+	})
+
+	t.Run("ErrorEvaluatingJsonnet", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And ReadFile is mocked to return invalid jsonnet content
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			return []byte(`invalid jsonnet syntax {`), nil
+		}
+
+		// Mock the required dependencies
+		mocks.ConfigHandler.(*config.MockConfigHandler).YamlMarshalWithDefinedPathsFunc = func(config any) ([]byte, error) {
+			return []byte("test: config"), nil
+		}
+
+		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
+			if configMap, ok := v.(*map[string]any); ok {
+				*configMap = map[string]any{"test": "config"}
+			}
+			return nil
+		}
+
+		mocks.Shims.JsonMarshal = func(v any) ([]byte, error) {
+			return []byte(`{"test": "config", "name": "test-context"}`), nil
+		}
+
+		templateValues := make(map[string]map[string]any)
+
+		// When processJsonnetTemplate is called
+		err := generator.processJsonnetTemplate("/template/test.jsonnet", "test-context", templateValues)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "error evaluating jsonnet template") {
+			t.Errorf("expected error to contain 'error evaluating jsonnet template', got %v", err)
+		}
+	})
+
+	t.Run("ErrorUnmarshallingJsonnetResult", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And ReadFile is mocked to return jsonnet that produces valid output
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			return []byte(`{
+  test_var: "test_value"
+}`), nil
+		}
+
+		// Mock the required dependencies
+		mocks.ConfigHandler.(*config.MockConfigHandler).YamlMarshalWithDefinedPathsFunc = func(config any) ([]byte, error) {
+			return []byte("test: config"), nil
+		}
+
+		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
+			if configMap, ok := v.(*map[string]any); ok {
+				*configMap = map[string]any{"test": "config"}
+			}
+			return nil
+		}
+
+		mocks.Shims.JsonMarshal = func(v any) ([]byte, error) {
+			return []byte(`{"test": "config", "name": "test-context"}`), nil
+		}
+
+		// And JsonUnmarshal is mocked to return an error
+		mocks.Shims.JsonUnmarshal = func(data []byte, v any) error {
+			return fmt.Errorf("json unmarshal error")
+		}
+
+		templateValues := make(map[string]map[string]any)
+
+		// When processJsonnetTemplate is called
+		err := generator.processJsonnetTemplate("/template/test.jsonnet", "test-context", templateValues)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "jsonnet template must output valid JSON") {
+			t.Errorf("expected error to contain 'jsonnet template must output valid JSON', got %v", err)
+		}
+	})
+
+	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And Shell.GetProjectRoot is mocked to return an error
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("project root error")
+		}
+
+		// And ReadFile is mocked to return valid jsonnet content
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			return []byte(`{
+  test_var: "test_value"
+}`), nil
+		}
+
+		// Mock the required dependencies
+		mocks.ConfigHandler.(*config.MockConfigHandler).YamlMarshalWithDefinedPathsFunc = func(config any) ([]byte, error) {
+			return []byte("test: config"), nil
+		}
+
+		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
+			if configMap, ok := v.(*map[string]any); ok {
+				*configMap = map[string]any{"test": "config"}
+			}
+			return nil
+		}
+
+		mocks.Shims.JsonMarshal = func(v any) ([]byte, error) {
+			return []byte(`{"test": "config", "name": "test-context"}`), nil
+		}
+
+		mocks.Shims.JsonUnmarshal = func(data []byte, v any) error {
+			if values, ok := v.(*map[string]any); ok {
+				*values = map[string]any{"test_var": "test_value"}
+			}
+			return nil
+		}
+
+		templateValues := make(map[string]map[string]any)
+
+		// When processJsonnetTemplate is called
+		err := generator.processJsonnetTemplate("/template/test.jsonnet", "test-context", templateValues)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "failed to get project root") {
+			t.Errorf("expected error to contain 'failed to get project root', got %v", err)
+		}
+	})
+
+	t.Run("ErrorCalculatingRelativePath", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And Shell.GetProjectRoot is mocked to return expected path
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/tmp", nil
+		}
+
+		// And ReadFile is mocked to return valid jsonnet content
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			return []byte(`{
+  test_var: "test_value"
+}`), nil
+		}
+
+		// Mock the required dependencies
+		mocks.ConfigHandler.(*config.MockConfigHandler).YamlMarshalWithDefinedPathsFunc = func(config any) ([]byte, error) {
+			return []byte("test: config"), nil
+		}
+
+		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
+			if configMap, ok := v.(*map[string]any); ok {
+				*configMap = map[string]any{"test": "config"}
+			}
+			return nil
+		}
+
+		mocks.Shims.JsonMarshal = func(v any) ([]byte, error) {
+			return []byte(`{"test": "config", "name": "test-context"}`), nil
+		}
+
+		mocks.Shims.JsonUnmarshal = func(data []byte, v any) error {
+			if values, ok := v.(*map[string]any); ok {
+				*values = map[string]any{"test_var": "test_value"}
+			}
+			return nil
+		}
+
+		// And FilepathRel is mocked to return an error
+		mocks.Shims.FilepathRel = func(basepath, targpath string) (string, error) {
+			return "", fmt.Errorf("relative path calculation error")
+		}
+
+		templateValues := make(map[string]map[string]any)
+
+		// When processJsonnetTemplate is called
+		err := generator.processJsonnetTemplate("/template/test.jsonnet", "test-context", templateValues)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "failed to calculate relative path") {
+			t.Errorf("expected error to contain 'failed to calculate relative path', got %v", err)
+		}
+	})
+
+	t.Run("SuccessProcessingTemplate", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And Shell.GetProjectRoot is mocked to return expected path
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/tmp", nil
+		}
+
+		// And ReadFile is mocked to return valid jsonnet content
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			return []byte(`local context = std.extVar("context");
+{
+  test_var: context.test,
+  context_name: context.name
+}`), nil
+		}
+
+		// Mock the required dependencies
+		mocks.ConfigHandler.(*config.MockConfigHandler).YamlMarshalWithDefinedPathsFunc = func(config any) ([]byte, error) {
+			return []byte("test: config"), nil
+		}
+
+		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
+			if configMap, ok := v.(*map[string]any); ok {
+				*configMap = map[string]any{"test": "config"}
+			}
+			return nil
+		}
+
+		mocks.Shims.JsonMarshal = func(v any) ([]byte, error) {
+			return []byte(`{"test": "config", "name": "test-context"}`), nil
+		}
+
+		mocks.Shims.JsonUnmarshal = func(data []byte, v any) error {
+			if values, ok := v.(*map[string]any); ok {
+				*values = map[string]any{
+					"test_var":     "config",
+					"context_name": "test-context",
+				}
+			}
+			return nil
+		}
+
+		templateValues := make(map[string]map[string]any)
+
+		// When processJsonnetTemplate is called
+		err := generator.processJsonnetTemplate("/tmp/contexts/_template/terraform/test.jsonnet", "test-context", templateValues)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And template values should contain the processed template
+		if len(templateValues) != 1 {
+			t.Errorf("expected 1 template value, got %d", len(templateValues))
+		}
+		if _, exists := templateValues["test"]; !exists {
+			t.Errorf("expected template values to contain 'test' key")
+		}
+
+		// And the values should match expected content
+		values := templateValues["test"]
+		if values["test_var"] != "config" {
+			t.Errorf("expected test_var to be 'config', got %v", values["test_var"])
+		}
+		if values["context_name"] != "test-context" {
+			t.Errorf("expected context_name to be 'test-context', got %v", values["context_name"])
+		}
+	})
+
+	t.Run("SuccessWithNestedPath", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And Shell.GetProjectRoot is mocked to return expected path
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/tmp", nil
+		}
+
+		// And ReadFile is mocked to return valid jsonnet content
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			return []byte(`{
+  nested_var: "nested_value"
+}`), nil
+		}
+
+		// Mock the required dependencies
+		mocks.ConfigHandler.(*config.MockConfigHandler).YamlMarshalWithDefinedPathsFunc = func(config any) ([]byte, error) {
+			return []byte("test: config"), nil
+		}
+
+		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
+			if configMap, ok := v.(*map[string]any); ok {
+				*configMap = map[string]any{"test": "config"}
+			}
+			return nil
+		}
+
+		mocks.Shims.JsonMarshal = func(v any) ([]byte, error) {
+			return []byte(`{"test": "config", "name": "test-context"}`), nil
+		}
+
+		mocks.Shims.JsonUnmarshal = func(data []byte, v any) error {
+			if values, ok := v.(*map[string]any); ok {
+				*values = map[string]any{"nested_var": "nested_value"}
+			}
+			return nil
+		}
+
+		templateValues := make(map[string]map[string]any)
+
+		// When processJsonnetTemplate is called with nested path
+		err := generator.processJsonnetTemplate("/tmp/contexts/_template/terraform/nested/path/component.jsonnet", "test-context", templateValues)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And template values should contain the processed template with nested key
+		if len(templateValues) != 1 {
+			t.Errorf("expected 1 template value, got %d", len(templateValues))
+		}
+		if _, exists := templateValues["nested/path/component"]; !exists {
+			t.Errorf("expected template values to contain 'nested/path/component' key")
+		}
+	})
+}
+
+// =============================================================================
+// Test Helpers
+// =============================================================================
+
+// simpleDirEntry implements fs.DirEntry for testing
+type simpleDirEntry struct {
+	name  string
+	isDir bool
+}
+
+func (s *simpleDirEntry) Name() string {
+	return s.name
+}
+
+func (s *simpleDirEntry) IsDir() bool {
+	return s.isDir
+}
+
+func (s *simpleDirEntry) Type() fs.FileMode {
+	if s.isDir {
+		return fs.ModeDir
+	}
+	return 0
+}
+
+func (s *simpleDirEntry) Info() (fs.FileInfo, error) {
+	return nil, nil
+}
+
+func TestTerraformGenerator_walkTemplateDirectory(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
+		mocks := setupMocks(t)
+		generator := NewTerraformGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
+		if err := generator.Initialize(); err != nil {
+			t.Fatalf("failed to initialize TerraformGenerator: %v", err)
+		}
+		return generator, mocks
+	}
+
+	t.Run("ErrorReadingDirectory", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And ReadDir is mocked to return an error
+		mocks.Shims.ReadDir = func(path string) ([]fs.DirEntry, error) {
+			return nil, fmt.Errorf("permission denied")
+		}
+
+		templateValues := make(map[string]map[string]any)
+
+		// When walkTemplateDirectory is called
+		err := generator.walkTemplateDirectory("/template/dir", "/context/path", "test-context", false, templateValues)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "failed to read template directory") {
+			t.Errorf("expected error to contain 'failed to read template directory', got %v", err)
+		}
+	})
+
+	t.Run("IgnoresNonJsonnetFiles", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// Create a simple mock for fs.DirEntry
+		mockEntry := &simpleDirEntry{name: "test.txt", isDir: false}
+
+		// And ReadDir is mocked to return a non-jsonnet file
+		mocks.Shims.ReadDir = func(path string) ([]fs.DirEntry, error) {
+			return []fs.DirEntry{mockEntry}, nil
+		}
+
+		templateValues := make(map[string]map[string]any)
+
+		// When walkTemplateDirectory is called
+		err := generator.walkTemplateDirectory("/template/dir", "/context/path", "test-context", false, templateValues)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And template values should be empty
+		if len(templateValues) != 0 {
+			t.Errorf("expected 0 template values, got %d", len(templateValues))
+		}
+	})
+
+	t.Run("ProcessesJsonnetFiles", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// Create a simple mock for fs.DirEntry with jsonnet file
+		mockEntry := &simpleDirEntry{name: "test.jsonnet", isDir: false}
+
+		// And ReadDir is mocked to return a jsonnet file
+		mocks.Shims.ReadDir = func(path string) ([]fs.DirEntry, error) {
+			return []fs.DirEntry{mockEntry}, nil
+		}
+
+		// Mock all dependencies for processJsonnetTemplate
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			return []byte(`{
+  test_var: "test_value"
+}`), nil
+		}
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).YamlMarshalWithDefinedPathsFunc = func(config any) ([]byte, error) {
+			return []byte("test: config"), nil
+		}
+
+		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
+			if configMap, ok := v.(*map[string]any); ok {
+				*configMap = map[string]any{"test": "config"}
+			}
+			return nil
+		}
+
+		mocks.Shims.JsonMarshal = func(v any) ([]byte, error) {
+			return []byte(`{"test": "config", "name": "test-context"}`), nil
+		}
+
+		mocks.Shims.JsonUnmarshal = func(data []byte, v any) error {
+			if values, ok := v.(*map[string]any); ok {
+				*values = map[string]any{"test_var": "test_value"}
+			}
+			return nil
+		}
+
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/tmp", nil
+		}
+
+		templateValues := make(map[string]map[string]any)
+
+		// When walkTemplateDirectory is called
+		err := generator.walkTemplateDirectory("/tmp/contexts/_template/terraform", "/context/path", "test-context", false, templateValues)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And template values should contain the processed template
+		if len(templateValues) != 1 {
+			t.Errorf("expected 1 template value, got %d", len(templateValues))
+		}
+	})
+
+	t.Run("ErrorProcessingJsonnetTemplate", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// Create a simple mock for fs.DirEntry with jsonnet file
+		mockEntry := &simpleDirEntry{name: "test.jsonnet", isDir: false}
+
+		// And ReadDir is mocked to return a jsonnet file
+		mocks.Shims.ReadDir = func(path string) ([]fs.DirEntry, error) {
+			return []fs.DirEntry{mockEntry}, nil
+		}
+
+		// And ReadFile is mocked to return an error for processJsonnetTemplate
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			return nil, fmt.Errorf("file read error")
+		}
+
+		templateValues := make(map[string]map[string]any)
+
+		// When walkTemplateDirectory is called
+		err := generator.walkTemplateDirectory("/template/dir", "/context/path", "test-context", false, templateValues)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "error reading template file") {
+			t.Errorf("expected error to contain 'error reading template file', got %v", err)
+		}
+	})
+
+	t.Run("RecursivelyProcessesDirectories", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		callCount := 0
+		// Create mock directory entry
+		mockDirEntry := &simpleDirEntry{name: "subdir", isDir: true}
+
+		// And ReadDir is mocked to return a directory on first call, empty on second
+		mocks.Shims.ReadDir = func(path string) ([]fs.DirEntry, error) {
+			callCount++
+			if callCount == 1 {
+				return []fs.DirEntry{mockDirEntry}, nil
+			}
+			return []fs.DirEntry{}, nil // Empty subdirectory
+		}
+
+		templateValues := make(map[string]map[string]any)
+
+		// When walkTemplateDirectory is called
+		err := generator.walkTemplateDirectory("/template/dir", "/context/path", "test-context", false, templateValues)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And ReadDir should have been called twice (once for root, once for subdir)
+		if callCount != 2 {
+			t.Errorf("expected ReadDir to be called 2 times, got %d", callCount)
+		}
+	})
+
+	t.Run("ErrorInRecursiveDirectoryCall", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		callCount := 0
+		// Create mock directory entry
+		mockDirEntry := &simpleDirEntry{name: "subdir", isDir: true}
+
+		// And ReadDir is mocked to return a directory on first call, error on second
+		mocks.Shims.ReadDir = func(path string) ([]fs.DirEntry, error) {
+			callCount++
+			if callCount == 1 {
+				return []fs.DirEntry{mockDirEntry}, nil
+			}
+			return nil, fmt.Errorf("subdirectory read error")
+		}
+
+		templateValues := make(map[string]map[string]any)
+
+		// When walkTemplateDirectory is called
+		err := generator.walkTemplateDirectory("/template/dir", "/context/path", "test-context", false, templateValues)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "failed to read template directory") {
+			t.Errorf("expected error to contain 'failed to read template directory', got %v", err)
+		}
+	})
+
+	t.Run("ErrorGettingConfigRoot", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And template directory exists
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			if strings.Contains(path, "_template") {
+				return nil, nil
+			}
+			return nil, nil
+		}
+
+		// And GetConfigRoot is mocked to return an error
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("config root error")
+		}
+
+		// When processTemplates is called
+		result, err := generator.processTemplates(false)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+		if result != nil {
+			t.Errorf("expected nil result, got %v", result)
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "failed to get config root") {
+			t.Errorf("expected error to contain 'failed to get config root', got %v", err)
+		}
+	})
+
+	t.Run("ContextNameFromEnvironment", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And template directory exists
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			if strings.Contains(path, "_template") {
+				return nil, nil
+			}
+			return nil, nil
+		}
+
+		// And GetString returns empty string (no context configured)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "context" {
+				return ""
+			}
+			return ""
+		}
+
+		// And environment variable is set
+		originalEnv := os.Getenv("WINDSOR_CONTEXT")
+		defer func() {
+			if originalEnv == "" {
+				os.Unsetenv("WINDSOR_CONTEXT")
+			} else {
+				os.Setenv("WINDSOR_CONTEXT", originalEnv)
+			}
+		}()
+		os.Setenv("WINDSOR_CONTEXT", "env-context")
+
+		// And ReadDir is mocked to return empty directory
+		mocks.Shims.ReadDir = func(path string) ([]fs.DirEntry, error) {
+			return []fs.DirEntry{}, nil
+		}
+
+		// When processTemplates is called
+		result, err := generator.processTemplates(false)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And result should be an empty map
+		if result == nil {
+			t.Errorf("expected non-nil result, got nil")
+		}
+		if len(result) != 0 {
+			t.Errorf("expected empty result, got %v", result)
 		}
 	})
 }

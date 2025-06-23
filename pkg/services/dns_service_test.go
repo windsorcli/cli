@@ -168,7 +168,7 @@ func TestDNSService_SetAddress(t *testing.T) {
 
 	t.Run("ErrorSettingAddress", func(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			return fmt.Errorf("mocked error setting address")
 		}
 		mocks := setupDnsMocks(t, &SetupOptions{
