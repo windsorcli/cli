@@ -2790,8 +2790,7 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error reading template directory") {
+		} else if !strings.Contains(err.Error(), "error reading template directory") {
 			t.Errorf("Expected read directory error, got: %v", err)
 		}
 	})

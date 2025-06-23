@@ -249,6 +249,7 @@ func (g *TerraformGenerator) processJsonnetTemplate(templateFile, contextName st
 	}
 
 	componentPath := strings.TrimSuffix(relPath, ".jsonnet")
+	componentPath = strings.ReplaceAll(componentPath, "\\", "/") // Windows fix
 	templateValues[componentPath] = values
 
 	return nil
