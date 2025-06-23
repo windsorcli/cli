@@ -26,8 +26,8 @@ type Shims struct {
 	Glob           func(string) ([]string, error)
 	WriteFile      func(string, []byte, os.FileMode) error
 	ReadDir        func(string) ([]os.DirEntry, error)
-	YamlUnmarshal  func([]byte, interface{}) error
-	YamlMarshal    func(interface{}) ([]byte, error)
+	YamlUnmarshal  func([]byte, any) error
+	YamlMarshal    func(any) ([]byte, error)
 	Remove         func(string) error
 	RemoveAll      func(string) error
 	CryptoRandRead func([]byte) (int, error)

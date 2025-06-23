@@ -1,13 +1,14 @@
 package generators
 
 import (
-	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/google/go-jsonnet"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
@@ -64,21 +65,33 @@ func NewTerraformGenerator(injector di.Injector) *TerraformGenerator {
 // Public Methods
 // =============================================================================
 
-// Write generates Terraform configuration files for all components in the blueprint.
-// It creates the necessary directory structure and writes three types of files:
-// 1. main.tf - Contains module source and variable references
-// 2. variables.tf - Defines all variables used by the module
-// 3. .tfvars - Contains actual variable values for each context
-// The function preserves existing values in .tfvars files while adding new ones.
-// When reset is enabled, it removes existing .terraform state directories to force reinitialization.
-// For components with remote sources, it generates module shims that provide local references.
+// Write generates Terraform configuration files including module shims and tfvars files for all components.
+// It processes jsonnet templates from contexts/_template/terraform directory to merge template values into
+// blueprint terraform components, then handles components by generating module shims for remote sources and
+// creating corresponding tfvars files. The function manages terraform state cleanup on reset.
 func (g *TerraformGenerator) Write(overwrite ...bool) error {
 	shouldOverwrite := false
 	if len(overwrite) > 0 {
 		shouldOverwrite = overwrite[0]
 	}
 	g.reset = shouldOverwrite
+
 	components := g.blueprintHandler.GetTerraformComponents()
+
+	templateValues, err := g.processTemplates(shouldOverwrite)
+	if err != nil {
+		return fmt.Errorf("failed to process terraform templates: %w", err)
+	}
+
+	for i, component := range components {
+		if values, exists := templateValues[component.Path]; exists {
+			if component.Values == nil {
+				component.Values = make(map[string]any)
+			}
+			maps.Copy(component.Values, values)
+			components[i] = component
+		}
+	}
 
 	projectRoot, err := g.shell.GetProjectRoot()
 	if err != nil {
@@ -122,6 +135,125 @@ func (g *TerraformGenerator) Write(overwrite ...bool) error {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// processTemplates discovers and processes jsonnet template files from the contexts/_template/terraform directory.
+// It checks for template directory existence, retrieves the current context configuration, and recursively
+// walks through template files to generate corresponding .tfvars files. The function handles template
+// discovery, context resolution, and delegates actual processing to walkTemplateDirectory.
+func (g *TerraformGenerator) processTemplates(reset bool) (map[string]map[string]any, error) {
+	projectRoot, err := g.shell.GetProjectRoot()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	templateDir := filepath.Join(projectRoot, "contexts", "_template", "terraform")
+
+	if _, err := g.shims.Stat(templateDir); os.IsNotExist(err) {
+		return nil, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to check template directory: %w", err)
+	}
+
+	contextPath, err := g.configHandler.GetConfigRoot()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get config root: %w", err)
+	}
+
+	contextName := g.configHandler.GetString("context")
+	if contextName == "" {
+		contextName = os.Getenv("WINDSOR_CONTEXT")
+	}
+
+	templateValues := make(map[string]map[string]any)
+
+	return templateValues, g.walkTemplateDirectory(templateDir, contextPath, contextName, reset, templateValues)
+}
+
+// walkTemplateDirectory recursively traverses the template directory structure and processes jsonnet files.
+// It handles both files and subdirectories, maintaining the directory structure in the output location.
+// For each .jsonnet file found, it delegates processing to processJsonnetTemplate to collect template
+// values that will be merged into terraform components.
+func (g *TerraformGenerator) walkTemplateDirectory(templateDir, contextPath, contextName string, reset bool, templateValues map[string]map[string]any) error {
+	entries, err := g.shims.ReadDir(templateDir)
+	if err != nil {
+		return fmt.Errorf("failed to read template directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		entryPath := filepath.Join(templateDir, entry.Name())
+
+		if entry.IsDir() {
+			if err := g.walkTemplateDirectory(entryPath, contextPath, contextName, reset, templateValues); err != nil {
+				return err
+			}
+		} else if strings.HasSuffix(entry.Name(), ".jsonnet") {
+			if err := g.processJsonnetTemplate(entryPath, contextName, templateValues); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// processJsonnetTemplate processes a jsonnet template file and collects generated values
+// for merging into blueprint terraform components. It evaluates the template with context data
+// made available via std.extVar("context"), then stores the result in templateValues using
+// the relative path from the template directory as the key.
+// Templates must include: local context = std.extVar("context"); to access context data.
+func (g *TerraformGenerator) processJsonnetTemplate(templateFile, contextName string, templateValues map[string]map[string]any) error {
+	templateContent, err := g.shims.ReadFile(templateFile)
+	if err != nil {
+		return fmt.Errorf("error reading template file %s: %w", templateFile, err)
+	}
+
+	config := g.configHandler.GetConfig()
+
+	contextYAML, err := g.configHandler.YamlMarshalWithDefinedPaths(config)
+	if err != nil {
+		return fmt.Errorf("error marshalling context to YAML: %w", err)
+	}
+
+	var contextMap map[string]any = make(map[string]any)
+	if err := g.shims.YamlUnmarshal(contextYAML, &contextMap); err != nil {
+		return fmt.Errorf("error unmarshalling context YAML: %w", err)
+	}
+
+	contextMap["name"] = contextName
+	contextJSON, err := g.shims.JsonMarshal(contextMap)
+	if err != nil {
+		return fmt.Errorf("error marshalling context map to JSON: %w", err)
+	}
+
+	vm := jsonnet.MakeVM()
+	vm.ExtCode("context", string(contextJSON))
+	result, err := vm.EvaluateAnonymousSnippet("template.jsonnet", string(templateContent))
+	if err != nil {
+		return fmt.Errorf("error evaluating jsonnet template %s: %w", templateFile, err)
+	}
+
+	var values map[string]any
+	if err := g.shims.JsonUnmarshal([]byte(result), &values); err != nil {
+		return fmt.Errorf("jsonnet template must output valid JSON: %w", err)
+	}
+
+	projectRoot, err := g.shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	templateDir := filepath.Join(projectRoot, "contexts", "_template", "terraform")
+	relPath, err := g.shims.FilepathRel(templateDir, templateFile)
+	if err != nil {
+		return fmt.Errorf("failed to calculate relative path: %w", err)
+	}
+
+	componentPath := strings.TrimSuffix(relPath, ".jsonnet")
+	componentPath = strings.ReplaceAll(componentPath, "\\", "/") // Windows fix
+	templateValues[componentPath] = values
+
+	return nil
+}
 
 // generateModuleShim creates a local reference to a remote Terraform module.
 // It provides a shim layer that maintains module configuration while allowing Windsor to manage it.
@@ -208,7 +340,7 @@ func (g *TerraformGenerator) initializeTerraformModule(component blueprintv1alph
 			continue
 		}
 		var initOutput TerraformInitOutput
-		if err := json.Unmarshal([]byte(line), &initOutput); err != nil {
+		if err := g.shims.JsonUnmarshal([]byte(line), &initOutput); err != nil {
 			continue
 		}
 		if initOutput.Type == "log" {

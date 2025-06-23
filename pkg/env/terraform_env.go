@@ -180,21 +180,21 @@ func (e *TerraformEnvPrinter) generateBackendOverrideTf() error {
 		}
 		return nil
 	case "local":
-		backendConfig = fmt.Sprintf(`terraform {
+		backendConfig = `terraform {
   backend "local" {}
-}`)
+}`
 	case "s3":
-		backendConfig = fmt.Sprintf(`terraform {
+		backendConfig = `terraform {
   backend "s3" {}
-}`)
+}`
 	case "kubernetes":
-		backendConfig = fmt.Sprintf(`terraform {
+		backendConfig = `terraform {
   backend "kubernetes" {}
-}`)
+}`
 	case "azurerm":
-		backendConfig = fmt.Sprintf(`terraform {
+		backendConfig = `terraform {
   backend "azurerm" {}
-}`)
+}`
 	default:
 		return fmt.Errorf("unsupported backend: %s", backend)
 	}

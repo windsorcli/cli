@@ -89,14 +89,19 @@ var initCmd = &cobra.Command{
 		}
 
 		// Set the default configuration if applicable
-		defaultConfig := &config.DefaultConfig
-		if vmDriverConfig == "docker-desktop" {
-			defaultConfig = &config.DefaultConfig_Localhost
-		} else if vmDriverConfig == "colima" || vmDriverConfig == "docker" {
-			defaultConfig = &config.DefaultConfig_Full
-		}
-		if err := configHandler.SetDefault(*defaultConfig); err != nil {
-			return fmt.Errorf("Error setting default config: %w", err)
+		switch vmDriverConfig {
+		case "docker-desktop":
+			if err := configHandler.SetDefault(config.DefaultConfig_Localhost); err != nil {
+				return fmt.Errorf("Error setting default config: %w", err)
+			}
+		case "colima", "docker":
+			if err := configHandler.SetDefault(config.DefaultConfig_Full); err != nil {
+				return fmt.Errorf("Error setting default config: %w", err)
+			}
+		default:
+			if err := configHandler.SetDefault(config.DefaultConfig); err != nil {
+				return fmt.Errorf("Error setting default config: %w", err)
+			}
 		}
 
 		// Create the flag to config path mapping and set the configurations
@@ -221,6 +226,17 @@ var initCmd = &cobra.Command{
 			},
 		}); err != nil {
 			return fmt.Errorf("Error initializing: %w", err)
+		}
+
+		// Process context templates if they exist
+		blueprintHandler := controller.ResolveBlueprintHandler()
+		if err := blueprintHandler.ProcessContextTemplates(contextName, reset); err != nil {
+			return fmt.Errorf("Error processing context templates: %w", err)
+		}
+
+		// Reload blueprint after processing templates
+		if err := blueprintHandler.LoadConfig(reset); err != nil {
+			return fmt.Errorf("Error reloading blueprint config: %w", err)
 		}
 
 		// Set the environment variables internally in the process

@@ -456,15 +456,6 @@ func (c *BaseController) WriteConfigurationFiles() error {
 		}
 	}
 
-	if req.Blueprint {
-		blueprintHandler := c.ResolveBlueprintHandler()
-		if blueprintHandler != nil {
-			if err := blueprintHandler.WriteConfig(req.Reset); err != nil {
-				return fmt.Errorf("error writing blueprint config: %w", err)
-			}
-		}
-	}
-
 	if req.Services {
 		resolvedServices := c.ResolveAllServices()
 		for _, service := range resolvedServices {
