@@ -42,7 +42,8 @@ type Shims struct {
 // NewShims creates a new Shims instance with default implementations
 func NewShims() *Shims {
 	return &Shims{
-		Stat:          os.Stat,
+		Stat: os.Stat,
+		// #nosec G304 - User-controlled output path is intentional for build artifact creation
 		Create:        func(name string) (io.WriteCloser, error) { return os.Create(name) },
 		NewGzipWriter: gzip.NewWriter,
 		NewTarWriter:  func(w io.Writer) TarWriter { return tar.NewWriter(w) },
