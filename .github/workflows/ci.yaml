@@ -27,6 +27,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
+      - name: Setup Windows optimization environment
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: |
+          echo "GOCACHE=D:\go-cache" >> $env:GITHUB_ENV
+          echo "GOMODCACHE=D:\go-mod" >> $env:GITHUB_ENV
+          echo "GOTMPDIR=D:\go-tmp" >> $env:GITHUB_ENV
+          echo "TMP=D:\tmp" >> $env:GITHUB_ENV
+          echo "TEMP=D:\tmp" >> $env:GITHUB_ENV
+          New-Item -ItemType Directory -Force -Path "D:\go-cache"
+          New-Item -ItemType Directory -Force -Path "D:\go-mod" 
+          New-Item -ItemType Directory -Force -Path "D:\go-tmp"
+          New-Item -ItemType Directory -Force -Path "D:\tmp"
+        shell: pwsh
+
       - name: Install Aqua
         uses: aquaproj/aqua-installer@d1fe50798dbadd4eb5b98957290ca175f6b4870f # v4.0.2
         with:
@@ -35,12 +49,24 @@ jobs:
       - name: Install tools
         run: aqua install
 
-      - name: Cache Go Modules
+      - name: Cache Go Modules (Linux/macOS)
+        if: ${{ matrix.os != 'windows-latest' }}
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Cache Go Modules (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            D:\\go-cache
+            D:\\go-mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
@@ -117,6 +143,19 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Windows optimization environment  
+        run: |
+          echo "GOCACHE=D:\go-cache" >> $env:GITHUB_ENV
+          echo "GOMODCACHE=D:\go-mod" >> $env:GITHUB_ENV
+          echo "GOTMPDIR=D:\go-tmp" >> $env:GITHUB_ENV
+          echo "TMP=D:\tmp" >> $env:GITHUB_ENV
+          echo "TEMP=D:\tmp" >> $env:GITHUB_ENV
+          New-Item -ItemType Directory -Force -Path "D:\go-cache"
+          New-Item -ItemType Directory -Force -Path "D:\go-mod"
+          New-Item -ItemType Directory -Force -Path "D:\go-tmp" 
+          New-Item -ItemType Directory -Force -Path "D:\tmp"
+        shell: pwsh
 
       - name: Import GPG key
         id: import_gpg
