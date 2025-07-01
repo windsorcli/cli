@@ -115,14 +115,12 @@ func (a *ArtifactBuilder) AddFile(path string, content []byte) error {
 	return nil
 }
 
-// Create generates a tar.gz artifact from the stored files and metadata.
-// It accepts an optional tag in "name:version" format to override or provide metadata values.
-// Tag values take precedence over metadata.yaml when both are present. If no metadata.yaml
-// exists, the tag is required to provide name and version. The output is a compressed tar.gz
-// file containing all bundled files plus a generated metadata.yaml at the root.
-// The outputPath can be a file or directory - if directory, filename is generated from metadata.
+// Create generates a tar.gz artifact from stored files and metadata.
+// Accepts optional tag in "name:version" format to override metadata.yaml values.
+// Tag takes precedence over existing metadata. If no metadata.yaml exists, tag is required.
+// OutputPath can be file or directory - generates filename from metadata if directory.
+// Creates compressed tar.gz with all files plus generated metadata.yaml at root.
 func (a *ArtifactBuilder) Create(outputPath string, tag string) (string, error) {
-	// Parse tag if provided
 	var tagName, tagVersion string
 	if tag != "" {
 		parts := strings.Split(tag, ":")
@@ -133,7 +131,6 @@ func (a *ArtifactBuilder) Create(outputPath string, tag string) (string, error) 
 		tagVersion = parts[1]
 	}
 
-	// Parse existing metadata if available
 	metadataData, hasMetadata := a.files["_templates/metadata.yaml"]
 	var input BlueprintMetadataInput
 
@@ -143,7 +140,6 @@ func (a *ArtifactBuilder) Create(outputPath string, tag string) (string, error) 
 		}
 	}
 
-	// Determine final name and version (tag takes precedence)
 	finalName := input.Name
 	finalVersion := input.Version
 
@@ -161,7 +157,6 @@ func (a *ArtifactBuilder) Create(outputPath string, tag string) (string, error) 
 		return "", fmt.Errorf("version is required: provide via tag parameter or metadata.yaml")
 	}
 
-	// Handle output path - generate filename if needed
 	finalOutputPath := a.resolveOutputPath(outputPath, finalName, finalVersion)
 
 	metadata, err := a.generateMetadataWithNameVersion(input, finalName, finalVersion)
@@ -229,22 +224,18 @@ func (a *ArtifactBuilder) Create(outputPath string, tag string) (string, error) 
 func (a *ArtifactBuilder) resolveOutputPath(outputPath, name, version string) string {
 	filename := fmt.Sprintf("%s-%s.tar.gz", name, version)
 
-	// Check if output path is an existing directory
 	if stat, err := a.shims.Stat(outputPath); err == nil && stat.IsDir() {
 		return filepath.Join(outputPath, filename)
 	}
 
-	// Check if path ends with slash (intended as directory)
 	if strings.HasSuffix(outputPath, "/") {
 		return filepath.Join(outputPath, filename)
 	}
 
-	// Check if this looks like a directory path (no file extension)
 	if filepath.Ext(outputPath) == "" {
 		return filepath.Join(outputPath, filename)
 	}
 
-	// Use outputPath as-is (user provided explicit filename)
 	return outputPath
 }
 
