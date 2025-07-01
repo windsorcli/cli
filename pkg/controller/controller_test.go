@@ -11,6 +11,7 @@ import (
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
 	"github.com/windsorcli/cli/pkg/blueprint"
+	"github.com/windsorcli/cli/pkg/bundler"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
@@ -340,6 +341,27 @@ func TestNewController(t *testing.T) {
 				}
 				return nil
 			},
+			"NewArtifactBuilder": func() error {
+				builder := controller.constructors.NewArtifactBuilder(mocks.Injector)
+				if builder == nil {
+					return fmt.Errorf("NewArtifactBuilder returned nil")
+				}
+				return nil
+			},
+			"NewTemplateBundler": func() error {
+				bundler := controller.constructors.NewTemplateBundler(mocks.Injector)
+				if bundler == nil {
+					return fmt.Errorf("NewTemplateBundler returned nil")
+				}
+				return nil
+			},
+			"NewKustomizeBundler": func() error {
+				bundler := controller.constructors.NewKustomizeBundler(mocks.Injector)
+				if bundler == nil {
+					return fmt.Errorf("NewKustomizeBundler returned nil")
+				}
+				return nil
+			},
 		}
 		// When each constructor is tested
 		for name, test := range constructorTests {
@@ -381,6 +403,7 @@ func TestBaseController_SetRequirements(t *testing.T) {
 			Blueprint:    true,
 			Generators:   true,
 			Stack:        true,
+			Bundler:      true,
 			CommandName:  "test-command",
 			Flags:        map[string]bool{"verbose": true},
 		}
@@ -4057,6 +4080,591 @@ func TestBaseController_createKubernetesComponents(t *testing.T) {
 		}
 		if manager := controller.injector.Resolve("kubernetesManager"); manager == nil {
 			t.Error("Expected kubernetesManager to be registered")
+		}
+	})
+}
+
+// =============================================================================
+// Test Bundler Components
+// =============================================================================
+
+func TestBaseController_ResolveArtifactBuilder(t *testing.T) {
+	setup := func(t *testing.T) (*BaseController, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		return controller, mocks
+	}
+
+	t.Run("ReturnsArtifactBuilderWhenRegistered", func(t *testing.T) {
+		// Given a controller with a registered artifact builder
+		controller, mocks := setup(t)
+		artifactBuilder := &bundler.MockArtifact{}
+		mocks.Injector.Register("artifactBuilder", artifactBuilder)
+
+		// When resolving the artifact builder
+		resolvedBuilder := controller.ResolveArtifactBuilder()
+
+		// Then the registered artifact builder should be returned
+		if resolvedBuilder != artifactBuilder {
+			t.Errorf("Expected artifact builder to be %v, got %v", artifactBuilder, resolvedBuilder)
+		}
+	})
+
+	t.Run("ReturnsNilWhenArtifactBuilderNotRegistered", func(t *testing.T) {
+		// Given a controller with no artifact builder registered
+		controller, mocks := setup(t)
+		mocks.Injector.Register("artifactBuilder", nil)
+
+		// When resolving the artifact builder
+		builder := controller.ResolveArtifactBuilder()
+
+		// Then nil should be returned
+		if builder != nil {
+			t.Errorf("Expected artifact builder to be nil, got %v", builder)
+		}
+	})
+}
+
+func TestBaseController_ResolveAllBundlers(t *testing.T) {
+	setup := func(t *testing.T) (*BaseController, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		return controller, mocks
+	}
+
+	t.Run("ReturnsAllRegisteredBundlers", func(t *testing.T) {
+		// Given a controller with multiple bundlers registered
+		controller, mocks := setup(t)
+		templateBundler := &bundler.MockBundler{}
+		kustomizeBundler := &bundler.MockBundler{}
+		mocks.Injector.Register("templateBundler", templateBundler)
+		mocks.Injector.Register("kustomizeBundler", kustomizeBundler)
+
+		// When resolving all bundlers
+		bundlers := controller.ResolveAllBundlers()
+
+		// Then all registered bundlers should be returned
+		if len(bundlers) != 2 {
+			t.Errorf("Expected 2 bundlers, got %d", len(bundlers))
+		}
+
+		// And the bundlers should include both registered ones
+		foundTemplate := false
+		foundKustomize := false
+		for _, b := range bundlers {
+			if b == templateBundler {
+				foundTemplate = true
+			}
+			if b == kustomizeBundler {
+				foundKustomize = true
+			}
+		}
+
+		if !foundTemplate {
+			t.Error("Expected template bundler to be in returned bundlers")
+		}
+		if !foundKustomize {
+			t.Error("Expected kustomize bundler to be in returned bundlers")
+		}
+	})
+
+	t.Run("ReturnsEmptySliceWhenNoBundlersRegistered", func(t *testing.T) {
+		// Given a controller with no bundlers registered
+		controller, mocks := setup(t)
+		mocks.Injector.Register("templateBundler", nil)
+		mocks.Injector.Register("kustomizeBundler", nil)
+
+		// When resolving all bundlers
+		bundlers := controller.ResolveAllBundlers()
+
+		// Then an empty slice should be returned
+		if len(bundlers) != 0 {
+			t.Errorf("Expected 0 bundlers, got %d", len(bundlers))
+		}
+	})
+
+	t.Run("HandlesPartialBundlerRegistration", func(t *testing.T) {
+		// Given a controller with only one bundler registered
+		controller, mocks := setup(t)
+		templateBundler := &bundler.MockBundler{}
+		mocks.Injector.Register("templateBundler", templateBundler)
+		mocks.Injector.Register("kustomizeBundler", nil)
+
+		// When resolving all bundlers
+		bundlers := controller.ResolveAllBundlers()
+
+		// Then only the registered bundler should be returned
+		if len(bundlers) != 1 {
+			t.Errorf("Expected 1 bundler, got %d", len(bundlers))
+		}
+
+		if bundlers[0] != templateBundler {
+			t.Error("Expected template bundler to be the only returned bundler")
+		}
+	})
+}
+
+func TestBaseController_createBundlerComponents(t *testing.T) {
+	setup := func(t *testing.T) (*BaseController, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		return controller, mocks
+	}
+
+	t.Run("ReturnsEarlyWhenBundlerNotRequired", func(t *testing.T) {
+		// Given bundler is not required
+		controller, _ := setup(t)
+
+		// When creating bundler components with no bundler requirement
+		err := controller.createBundlerComponents(Requirements{
+			Bundler: false,
+		})
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("CreatesArtifactBuilderWhenRequired", func(t *testing.T) {
+		// Given bundler is required and no existing artifact builder
+		controller, mocks := setup(t)
+		mockArtifactBuilder := &bundler.MockArtifact{}
+		controller.constructors.NewArtifactBuilder = func(di.Injector) bundler.Artifact {
+			return mockArtifactBuilder
+		}
+
+		// When creating bundler components with bundler requirement
+		err := controller.createBundlerComponents(Requirements{
+			Bundler: true,
+		})
+
+		// Then artifact builder should be created and registered
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		resolvedBuilder := mocks.Injector.Resolve("artifactBuilder")
+		if resolvedBuilder != mockArtifactBuilder {
+			t.Error("Expected artifact builder to be registered")
+		}
+	})
+
+	t.Run("DoesNotCreateArtifactBuilderWhenAlreadyExists", func(t *testing.T) {
+		// Given bundler is required and artifact builder already exists
+		controller, mocks := setup(t)
+		existingBuilder := &bundler.MockArtifact{}
+		mocks.Injector.Register("artifactBuilder", existingBuilder)
+
+		// Track if constructor is called
+		constructorCalled := false
+		controller.constructors.NewArtifactBuilder = func(di.Injector) bundler.Artifact {
+			constructorCalled = true
+			return &bundler.MockArtifact{}
+		}
+
+		// When creating bundler components
+		err := controller.createBundlerComponents(Requirements{
+			Bundler: true,
+		})
+
+		// Then constructor should not be called
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if constructorCalled {
+			t.Error("Expected artifact builder constructor not to be called when builder already exists")
+		}
+
+		// And existing builder should remain
+		resolvedBuilder := mocks.Injector.Resolve("artifactBuilder")
+		if resolvedBuilder != existingBuilder {
+			t.Error("Expected existing artifact builder to remain")
+		}
+	})
+
+	t.Run("CreatesTemplateBundlerWhenRequired", func(t *testing.T) {
+		// Given bundler is required and no existing template bundler
+		controller, mocks := setup(t)
+		mockTemplateBundler := &bundler.MockBundler{}
+		controller.constructors.NewTemplateBundler = func(di.Injector) bundler.Bundler {
+			return mockTemplateBundler
+		}
+
+		// When creating bundler components
+		err := controller.createBundlerComponents(Requirements{
+			Bundler: true,
+		})
+
+		// Then template bundler should be created and registered
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		resolvedBundler := mocks.Injector.Resolve("templateBundler")
+		if resolvedBundler != mockTemplateBundler {
+			t.Error("Expected template bundler to be registered")
+		}
+	})
+
+	t.Run("DoesNotCreateTemplateBundlerWhenAlreadyExists", func(t *testing.T) {
+		// Given bundler is required and template bundler already exists
+		controller, mocks := setup(t)
+		existingBundler := &bundler.MockBundler{}
+		mocks.Injector.Register("templateBundler", existingBundler)
+
+		// Track if constructor is called
+		constructorCalled := false
+		controller.constructors.NewTemplateBundler = func(di.Injector) bundler.Bundler {
+			constructorCalled = true
+			return &bundler.MockBundler{}
+		}
+
+		// When creating bundler components
+		err := controller.createBundlerComponents(Requirements{
+			Bundler: true,
+		})
+
+		// Then constructor should not be called
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if constructorCalled {
+			t.Error("Expected template bundler constructor not to be called when bundler already exists")
+		}
+
+		// And existing bundler should remain
+		resolvedBundler := mocks.Injector.Resolve("templateBundler")
+		if resolvedBundler != existingBundler {
+			t.Error("Expected existing template bundler to remain")
+		}
+	})
+
+	t.Run("CreatesKustomizeBundlerWhenRequired", func(t *testing.T) {
+		// Given bundler is required and no existing kustomize bundler
+		controller, mocks := setup(t)
+		mockKustomizeBundler := &bundler.MockBundler{}
+		controller.constructors.NewKustomizeBundler = func(di.Injector) bundler.Bundler {
+			return mockKustomizeBundler
+		}
+
+		// When creating bundler components
+		err := controller.createBundlerComponents(Requirements{
+			Bundler: true,
+		})
+
+		// Then kustomize bundler should be created and registered
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		resolvedBundler := mocks.Injector.Resolve("kustomizeBundler")
+		if resolvedBundler != mockKustomizeBundler {
+			t.Error("Expected kustomize bundler to be registered")
+		}
+	})
+
+	t.Run("DoesNotCreateKustomizeBundlerWhenAlreadyExists", func(t *testing.T) {
+		// Given bundler is required and kustomize bundler already exists
+		controller, mocks := setup(t)
+		existingBundler := &bundler.MockBundler{}
+		mocks.Injector.Register("kustomizeBundler", existingBundler)
+
+		// Track if constructor is called
+		constructorCalled := false
+		controller.constructors.NewKustomizeBundler = func(di.Injector) bundler.Bundler {
+			constructorCalled = true
+			return &bundler.MockBundler{}
+		}
+
+		// When creating bundler components
+		err := controller.createBundlerComponents(Requirements{
+			Bundler: true,
+		})
+
+		// Then constructor should not be called
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if constructorCalled {
+			t.Error("Expected kustomize bundler constructor not to be called when bundler already exists")
+		}
+
+		// And existing bundler should remain
+		resolvedBundler := mocks.Injector.Resolve("kustomizeBundler")
+		if resolvedBundler != existingBundler {
+			t.Error("Expected existing kustomize bundler to remain")
+		}
+	})
+
+	t.Run("HandlesNilArtifactBuilderConstructor", func(t *testing.T) {
+		// Given bundler is required but artifact builder constructor is nil
+		controller, _ := setup(t)
+		controller.constructors.NewArtifactBuilder = nil
+
+		// When creating bundler components
+		err := controller.createBundlerComponents(Requirements{
+			Bundler: true,
+		})
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error when artifact builder constructor is nil")
+		}
+		if !strings.Contains(err.Error(), "NewArtifactBuilder constructor is nil") {
+			t.Errorf("Expected error about nil constructor, got %v", err)
+		}
+	})
+
+	t.Run("HandlesNilArtifactBuilderFromConstructor", func(t *testing.T) {
+		// Given artifact builder constructor returns nil
+		controller, _ := setup(t)
+		controller.constructors.NewArtifactBuilder = func(di.Injector) bundler.Artifact {
+			return nil
+		}
+
+		// When creating bundler components
+		err := controller.createBundlerComponents(Requirements{
+			Bundler: true,
+		})
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error when artifact builder constructor returns nil")
+		}
+		if !strings.Contains(err.Error(), "NewArtifactBuilder returned nil") {
+			t.Errorf("Expected error about nil artifact builder, got %v", err)
+		}
+	})
+
+	t.Run("HandlesNilTemplateBundlerConstructor", func(t *testing.T) {
+		// Given bundler is required but template bundler constructor is nil
+		controller, _ := setup(t)
+		controller.constructors.NewTemplateBundler = nil
+
+		// When creating bundler components
+		err := controller.createBundlerComponents(Requirements{
+			Bundler: true,
+		})
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error when template bundler constructor is nil")
+		}
+		if !strings.Contains(err.Error(), "NewTemplateBundler constructor is nil") {
+			t.Errorf("Expected error about nil constructor, got %v", err)
+		}
+	})
+
+	t.Run("HandlesNilTemplateBundlerFromConstructor", func(t *testing.T) {
+		// Given template bundler constructor returns nil
+		controller, _ := setup(t)
+		controller.constructors.NewTemplateBundler = func(di.Injector) bundler.Bundler {
+			return nil
+		}
+
+		// When creating bundler components
+		err := controller.createBundlerComponents(Requirements{
+			Bundler: true,
+		})
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error when template bundler constructor returns nil")
+		}
+		if !strings.Contains(err.Error(), "NewTemplateBundler returned nil") {
+			t.Errorf("Expected error about nil template bundler, got %v", err)
+		}
+	})
+
+	t.Run("HandlesNilKustomizeBundlerConstructor", func(t *testing.T) {
+		// Given bundler is required but kustomize bundler constructor is nil
+		controller, _ := setup(t)
+		controller.constructors.NewKustomizeBundler = nil
+
+		// When creating bundler components
+		err := controller.createBundlerComponents(Requirements{
+			Bundler: true,
+		})
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error when kustomize bundler constructor is nil")
+		}
+		if !strings.Contains(err.Error(), "NewKustomizeBundler constructor is nil") {
+			t.Errorf("Expected error about nil constructor, got %v", err)
+		}
+	})
+
+	t.Run("HandlesNilKustomizeBundlerFromConstructor", func(t *testing.T) {
+		// Given kustomize bundler constructor returns nil
+		controller, _ := setup(t)
+		controller.constructors.NewKustomizeBundler = func(di.Injector) bundler.Bundler {
+			return nil
+		}
+
+		// When creating bundler components
+		err := controller.createBundlerComponents(Requirements{
+			Bundler: true,
+		})
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error when kustomize bundler constructor returns nil")
+		}
+		if !strings.Contains(err.Error(), "NewKustomizeBundler returned nil") {
+			t.Errorf("Expected error about nil kustomize bundler, got %v", err)
+		}
+	})
+
+	t.Run("CreatesAllBundlerComponentsSuccessfully", func(t *testing.T) {
+		// Given bundler is required and all constructors are valid
+		controller, mocks := setup(t)
+		mockArtifactBuilder := &bundler.MockArtifact{}
+		mockTemplateBundler := &bundler.MockBundler{}
+		mockKustomizeBundler := &bundler.MockBundler{}
+
+		controller.constructors.NewArtifactBuilder = func(di.Injector) bundler.Artifact {
+			return mockArtifactBuilder
+		}
+		controller.constructors.NewTemplateBundler = func(di.Injector) bundler.Bundler {
+			return mockTemplateBundler
+		}
+		controller.constructors.NewKustomizeBundler = func(di.Injector) bundler.Bundler {
+			return mockKustomizeBundler
+		}
+
+		// When creating bundler components
+		err := controller.createBundlerComponents(Requirements{
+			Bundler: true,
+		})
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And all components should be registered
+		if builder := mocks.Injector.Resolve("artifactBuilder"); builder != mockArtifactBuilder {
+			t.Error("Expected artifact builder to be registered")
+		}
+		if bundler := mocks.Injector.Resolve("templateBundler"); bundler != mockTemplateBundler {
+			t.Error("Expected template bundler to be registered")
+		}
+		if bundler := mocks.Injector.Resolve("kustomizeBundler"); bundler != mockKustomizeBundler {
+			t.Error("Expected kustomize bundler to be registered")
+		}
+	})
+}
+
+func TestBaseController_BundlerRequirementIntegration(t *testing.T) {
+	setup := func(t *testing.T) (*BaseController, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		return controller, mocks
+	}
+
+	t.Run("BundlerRequirementIncludedInSetRequirements", func(t *testing.T) {
+		// Given a controller
+		controller, _ := setup(t)
+
+		// When setting requirements with bundler enabled
+		requirements := Requirements{
+			Bundler:     true,
+			CommandName: "bundle",
+		}
+		controller.SetRequirements(requirements)
+
+		// Then the bundler requirement should be set
+		if !controller.requirements.Bundler {
+			t.Error("Expected bundler requirement to be true")
+		}
+	})
+
+	t.Run("CreateComponentsIncludesBundlerComponents", func(t *testing.T) {
+		// Given a controller with bundler requirements
+		controller, mocks := setup(t)
+
+		// And valid bundler constructors
+		mockArtifactBuilder := &bundler.MockArtifact{}
+		mockTemplateBundler := &bundler.MockBundler{}
+		mockKustomizeBundler := &bundler.MockBundler{}
+
+		controller.constructors.NewArtifactBuilder = func(di.Injector) bundler.Artifact {
+			return mockArtifactBuilder
+		}
+		controller.constructors.NewTemplateBundler = func(di.Injector) bundler.Bundler {
+			return mockTemplateBundler
+		}
+		controller.constructors.NewKustomizeBundler = func(di.Injector) bundler.Bundler {
+			return mockKustomizeBundler
+		}
+
+		// Set requirements before creating components
+		controller.SetRequirements(Requirements{
+			Bundler:     true,
+			CommandName: "test",
+		})
+
+		// When creating components
+		err := controller.CreateComponents()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And bundler components should be created
+		if builder := mocks.Injector.Resolve("artifactBuilder"); builder == nil {
+			t.Error("Expected artifact builder to be created during CreateComponents")
+		}
+		if bundler := mocks.Injector.Resolve("templateBundler"); bundler == nil {
+			t.Error("Expected template bundler to be created during CreateComponents")
+		}
+		if bundler := mocks.Injector.Resolve("kustomizeBundler"); bundler == nil {
+			t.Error("Expected kustomize bundler to be created during CreateComponents")
+		}
+	})
+
+	t.Run("InitializeWithRequirementsHandlesBundlerRequirement", func(t *testing.T) {
+		// Given a controller with valid bundler constructors
+		controller, _ := setup(t)
+		mockArtifactBuilder := &bundler.MockArtifact{}
+		mockTemplateBundler := &bundler.MockBundler{}
+		mockKustomizeBundler := &bundler.MockBundler{}
+
+		controller.constructors.NewArtifactBuilder = func(di.Injector) bundler.Artifact {
+			return mockArtifactBuilder
+		}
+		controller.constructors.NewTemplateBundler = func(di.Injector) bundler.Bundler {
+			return mockTemplateBundler
+		}
+		controller.constructors.NewKustomizeBundler = func(di.Injector) bundler.Bundler {
+			return mockKustomizeBundler
+		}
+
+		// When initializing with bundler requirements
+		err := controller.InitializeWithRequirements(Requirements{
+			Bundler:     true,
+			CommandName: "bundle",
+		})
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And bundler components should be available
+		if builder := controller.ResolveArtifactBuilder(); builder == nil {
+			t.Error("Expected artifact builder to be available after InitializeWithRequirements")
+		}
+		bundlers := controller.ResolveAllBundlers()
+		if len(bundlers) == 0 {
+			t.Error("Expected bundlers to be available after InitializeWithRequirements")
 		}
 	})
 }
