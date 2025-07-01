@@ -6,7 +6,7 @@ require (
 	github.com/1password/onepassword-sdk-go v0.3.1
 	github.com/abiosoft/colima v0.8.1
 	github.com/briandowns/spinner v1.23.2
-	github.com/compose-spec/compose-go/v2 v2.6.5
+	github.com/compose-spec/compose-go/v2 v2.7.1
 	github.com/fluxcd/helm-controller/api v1.3.0
 	github.com/fluxcd/kustomize-controller/api v1.6.0
 	github.com/fluxcd/pkg/apis/kustomize v1.10.0
