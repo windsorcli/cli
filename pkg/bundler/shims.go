@@ -5,7 +5,6 @@ import (
 	"compress/gzip"
 	"io"
 	"os"
-	"path/filepath"
 
 	"github.com/goccy/go-yaml"
 )
