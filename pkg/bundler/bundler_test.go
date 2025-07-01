@@ -25,9 +25,6 @@ func setupBundlerMocks(t *testing.T) *BundlerMocks {
 
 	// Create temp directory
 	tmpDir := t.TempDir()
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatalf("Failed to change to temp directory: %v", err)
-	}
 
 	// Create injector
 	injector := di.NewInjector()
