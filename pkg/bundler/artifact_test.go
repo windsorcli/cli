@@ -783,7 +783,7 @@ func TestArtifactBuilder_resolveOutputPath(t *testing.T) {
 		actualPath := builder.resolveOutputPath("output", "testproject", "v1.0.0")
 
 		// Then filename should be generated in that directory
-		expectedPath := "output/testproject-v1.0.0.tar.gz"
+		expectedPath := filepath.Join("output", "testproject-v1.0.0.tar.gz")
 		if actualPath != expectedPath {
 			t.Errorf("Expected path %s, got %s", expectedPath, actualPath)
 		}
@@ -797,7 +797,7 @@ func TestArtifactBuilder_resolveOutputPath(t *testing.T) {
 		actualPath := builder.resolveOutputPath("output/", "testproject", "v1.0.0")
 
 		// Then filename should be generated in that directory
-		expectedPath := "output/testproject-v1.0.0.tar.gz"
+		expectedPath := filepath.Join("output", "testproject-v1.0.0.tar.gz")
 		if actualPath != expectedPath {
 			t.Errorf("Expected path %s, got %s", expectedPath, actualPath)
 		}
@@ -822,7 +822,7 @@ func TestArtifactBuilder_resolveOutputPath(t *testing.T) {
 		builder, _ := setup(t)
 
 		// When resolving path with directory and filename
-		explicitPath := "output/custom-name.tar.gz"
+		explicitPath := filepath.Join("output", "custom-name.tar.gz")
 		actualPath := builder.resolveOutputPath(explicitPath, "testproject", "v1.0.0")
 
 		// Then explicit path should be used
