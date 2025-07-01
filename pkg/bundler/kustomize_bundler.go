@@ -65,7 +65,7 @@ func (k *KustomizeBundler) Bundle(artifact Artifact) error {
 			return fmt.Errorf("failed to read kustomize file %s: %w", path, err)
 		}
 
-		artifactPath := filepath.Join("kustomize", relPath)
+		artifactPath := "kustomize/" + filepath.ToSlash(relPath)
 		return artifact.AddFile(artifactPath, data)
 	})
 }

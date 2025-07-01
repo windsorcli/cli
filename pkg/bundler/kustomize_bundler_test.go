@@ -63,26 +63,27 @@ func TestKustomizeBundler_Bundle(t *testing.T) {
 
 		bundler.shims.Walk = func(root string, fn filepath.WalkFunc) error {
 			// Simulate finding multiple files in kustomize directory
-			fn("kustomize/kustomization.yaml", &mockFileInfo{name: "kustomization.yaml", isDir: false}, nil)
-			fn("kustomize/deployment.yaml", &mockFileInfo{name: "deployment.yaml", isDir: false}, nil)
-			fn("kustomize/base", &mockFileInfo{name: "base", isDir: true}, nil)
-			fn("kustomize/base/service.yaml", &mockFileInfo{name: "service.yaml", isDir: false}, nil)
-			fn("kustomize/overlays", &mockFileInfo{name: "overlays", isDir: true}, nil)
-			fn("kustomize/overlays/prod", &mockFileInfo{name: "prod", isDir: true}, nil)
-			fn("kustomize/overlays/prod/patch.yaml", &mockFileInfo{name: "patch.yaml", isDir: false}, nil)
+			// Use filepath.Join to ensure cross-platform compatibility
+			fn(filepath.Join("kustomize", "kustomization.yaml"), &mockFileInfo{name: "kustomization.yaml", isDir: false}, nil)
+			fn(filepath.Join("kustomize", "deployment.yaml"), &mockFileInfo{name: "deployment.yaml", isDir: false}, nil)
+			fn(filepath.Join("kustomize", "base"), &mockFileInfo{name: "base", isDir: true}, nil)
+			fn(filepath.Join("kustomize", "base", "service.yaml"), &mockFileInfo{name: "service.yaml", isDir: false}, nil)
+			fn(filepath.Join("kustomize", "overlays"), &mockFileInfo{name: "overlays", isDir: true}, nil)
+			fn(filepath.Join("kustomize", "overlays", "prod"), &mockFileInfo{name: "prod", isDir: true}, nil)
+			fn(filepath.Join("kustomize", "overlays", "prod", "patch.yaml"), &mockFileInfo{name: "patch.yaml", isDir: false}, nil)
 			return nil
 		}
 
 		bundler.shims.FilepathRel = func(basepath, targpath string) (string, error) {
 			switch targpath {
-			case "kustomize/kustomization.yaml":
+			case filepath.Join("kustomize", "kustomization.yaml"):
 				return "kustomization.yaml", nil
-			case "kustomize/deployment.yaml":
+			case filepath.Join("kustomize", "deployment.yaml"):
 				return "deployment.yaml", nil
-			case "kustomize/base/service.yaml":
-				return "base/service.yaml", nil
-			case "kustomize/overlays/prod/patch.yaml":
-				return "overlays/prod/patch.yaml", nil
+			case filepath.Join("kustomize", "base", "service.yaml"):
+				return filepath.Join("base", "service.yaml"), nil
+			case filepath.Join("kustomize", "overlays", "prod", "patch.yaml"):
+				return filepath.Join("overlays", "prod", "patch.yaml"), nil
 			default:
 				return "", fmt.Errorf("unexpected path: %s", targpath)
 			}
@@ -90,13 +91,13 @@ func TestKustomizeBundler_Bundle(t *testing.T) {
 
 		bundler.shims.ReadFile = func(filename string) ([]byte, error) {
 			switch filename {
-			case "kustomize/kustomization.yaml":
+			case filepath.Join("kustomize", "kustomization.yaml"):
 				return []byte("apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization"), nil
-			case "kustomize/deployment.yaml":
+			case filepath.Join("kustomize", "deployment.yaml"):
 				return []byte("apiVersion: apps/v1\nkind: Deployment"), nil
-			case "kustomize/base/service.yaml":
+			case filepath.Join("kustomize", "base", "service.yaml"):
 				return []byte("apiVersion: v1\nkind: Service"), nil
-			case "kustomize/overlays/prod/patch.yaml":
+			case filepath.Join("kustomize", "overlays", "prod", "patch.yaml"):
 				return []byte("- op: replace\n  path: /spec/replicas\n  value: 3"), nil
 			default:
 				return nil, fmt.Errorf("unexpected file: %s", filename)
@@ -180,7 +181,7 @@ func TestKustomizeBundler_Bundle(t *testing.T) {
 		bundler, mocks := setup(t)
 		bundler.shims.Walk = func(root string, fn filepath.WalkFunc) error {
 			// Simulate walk callback being called with an error
-			return fn("kustomize/test.yaml", &mockFileInfo{name: "test.yaml", isDir: false}, fmt.Errorf("callback error"))
+			return fn(filepath.Join("kustomize", "test.yaml"), &mockFileInfo{name: "test.yaml", isDir: false}, fmt.Errorf("callback error"))
 		}
 
 		// When calling Bundle
@@ -199,7 +200,7 @@ func TestKustomizeBundler_Bundle(t *testing.T) {
 		// Given a kustomize bundler with failing relative path calculation
 		bundler, mocks := setup(t)
 		bundler.shims.Walk = func(root string, fn filepath.WalkFunc) error {
-			return fn("kustomize/test.yaml", &mockFileInfo{name: "test.yaml", isDir: false}, nil)
+			return fn(filepath.Join("kustomize", "test.yaml"), &mockFileInfo{name: "test.yaml", isDir: false}, nil)
 		}
 		bundler.shims.FilepathRel = func(basepath, targpath string) (string, error) {
 			return "", fmt.Errorf("relative path error")
@@ -222,7 +223,7 @@ func TestKustomizeBundler_Bundle(t *testing.T) {
 		// Given a kustomize bundler with failing file read
 		bundler, mocks := setup(t)
 		bundler.shims.Walk = func(root string, fn filepath.WalkFunc) error {
-			return fn("kustomize/test.yaml", &mockFileInfo{name: "test.yaml", isDir: false}, nil)
+			return fn(filepath.Join("kustomize", "test.yaml"), &mockFileInfo{name: "test.yaml", isDir: false}, nil)
 		}
 		bundler.shims.FilepathRel = func(basepath, targpath string) (string, error) {
 			return "test.yaml", nil
@@ -238,7 +239,7 @@ func TestKustomizeBundler_Bundle(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error when read file fails")
 		}
-		expectedMsg := "failed to read kustomize file kustomize/test.yaml: read permission denied"
+		expectedMsg := "failed to read kustomize file " + filepath.Join("kustomize", "test.yaml") + ": read permission denied"
 		if err.Error() != expectedMsg {
 			t.Errorf("Expected error %q, got %q", expectedMsg, err.Error())
 		}
@@ -248,7 +249,7 @@ func TestKustomizeBundler_Bundle(t *testing.T) {
 		// Given a kustomize bundler with failing artifact add file
 		bundler, mocks := setup(t)
 		bundler.shims.Walk = func(root string, fn filepath.WalkFunc) error {
-			return fn("kustomize/test.yaml", &mockFileInfo{name: "test.yaml", isDir: false}, nil)
+			return fn(filepath.Join("kustomize", "test.yaml"), &mockFileInfo{name: "test.yaml", isDir: false}, nil)
 		}
 		bundler.shims.FilepathRel = func(basepath, targpath string) (string, error) {
 			return "test.yaml", nil
@@ -284,18 +285,18 @@ func TestKustomizeBundler_Bundle(t *testing.T) {
 
 		bundler.shims.Walk = func(root string, fn filepath.WalkFunc) error {
 			// Mix of directories and files
-			fn("kustomize/base", &mockFileInfo{name: "base", isDir: true}, nil)
-			fn("kustomize/kustomization.yaml", &mockFileInfo{name: "kustomization.yaml", isDir: false}, nil)
-			fn("kustomize/overlays", &mockFileInfo{name: "overlays", isDir: true}, nil)
-			fn("kustomize/deployment.yaml", &mockFileInfo{name: "deployment.yaml", isDir: false}, nil)
+			fn(filepath.Join("kustomize", "base"), &mockFileInfo{name: "base", isDir: true}, nil)
+			fn(filepath.Join("kustomize", "kustomization.yaml"), &mockFileInfo{name: "kustomization.yaml", isDir: false}, nil)
+			fn(filepath.Join("kustomize", "overlays"), &mockFileInfo{name: "overlays", isDir: true}, nil)
+			fn(filepath.Join("kustomize", "deployment.yaml"), &mockFileInfo{name: "deployment.yaml", isDir: false}, nil)
 			return nil
 		}
 
 		bundler.shims.FilepathRel = func(basepath, targpath string) (string, error) {
-			if targpath == "kustomize/kustomization.yaml" {
+			if targpath == filepath.Join("kustomize", "kustomization.yaml") {
 				return "kustomization.yaml", nil
 			}
-			if targpath == "kustomize/deployment.yaml" {
+			if targpath == filepath.Join("kustomize", "deployment.yaml") {
 				return "deployment.yaml", nil
 			}
 			return "", nil
