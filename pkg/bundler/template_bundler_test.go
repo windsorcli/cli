@@ -63,33 +63,37 @@ func TestTemplateBundler_Bundle(t *testing.T) {
 
 		bundler.shims.Walk = func(root string, fn filepath.WalkFunc) error {
 			// Simulate finding multiple files in templates directory
-			fn("contexts/_template/metadata.yaml", &mockFileInfo{name: "metadata.yaml", isDir: false}, nil)
-			fn("contexts/_template/template.jsonnet", &mockFileInfo{name: "template.jsonnet", isDir: false}, nil)
-			fn("contexts/_template/subdir", &mockFileInfo{name: "subdir", isDir: true}, nil)
-			fn("contexts/_template/subdir/nested.yaml", &mockFileInfo{name: "nested.yaml", isDir: false}, nil)
+			// Use filepath.Join to ensure cross-platform compatibility
+			templatesDir := filepath.Join("contexts", "_template")
+			fn(filepath.Join(templatesDir, "metadata.yaml"), &mockFileInfo{name: "metadata.yaml", isDir: false}, nil)
+			fn(filepath.Join(templatesDir, "template.jsonnet"), &mockFileInfo{name: "template.jsonnet", isDir: false}, nil)
+			fn(filepath.Join(templatesDir, "subdir"), &mockFileInfo{name: "subdir", isDir: true}, nil)
+			fn(filepath.Join(templatesDir, "subdir", "nested.yaml"), &mockFileInfo{name: "nested.yaml", isDir: false}, nil)
 			return nil
 		}
 
 		bundler.shims.FilepathRel = func(basepath, targpath string) (string, error) {
+			templatesDir := filepath.Join("contexts", "_template")
 			switch targpath {
-			case "contexts/_template/metadata.yaml":
+			case filepath.Join(templatesDir, "metadata.yaml"):
 				return "metadata.yaml", nil
-			case "contexts/_template/template.jsonnet":
+			case filepath.Join(templatesDir, "template.jsonnet"):
 				return "template.jsonnet", nil
-			case "contexts/_template/subdir/nested.yaml":
-				return "subdir/nested.yaml", nil
+			case filepath.Join(templatesDir, "subdir", "nested.yaml"):
+				return filepath.Join("subdir", "nested.yaml"), nil
 			default:
 				return "", fmt.Errorf("unexpected path: %s", targpath)
 			}
 		}
 
 		bundler.shims.ReadFile = func(filename string) ([]byte, error) {
+			templatesDir := filepath.Join("contexts", "_template")
 			switch filename {
-			case "contexts/_template/metadata.yaml":
+			case filepath.Join(templatesDir, "metadata.yaml"):
 				return []byte("name: test\nversion: v1.0.0"), nil
-			case "contexts/_template/template.jsonnet":
+			case filepath.Join(templatesDir, "template.jsonnet"):
 				return []byte("local test = 'value';"), nil
-			case "contexts/_template/subdir/nested.yaml":
+			case filepath.Join(templatesDir, "subdir", "nested.yaml"):
 				return []byte("nested: content"), nil
 			default:
 				return nil, fmt.Errorf("unexpected file: %s", filename)
@@ -129,7 +133,8 @@ func TestTemplateBundler_Bundle(t *testing.T) {
 		// Given a template bundler with missing templates directory
 		bundler, mocks := setup(t)
 		bundler.shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "contexts/_template" {
+			templatesDir := filepath.Join("contexts", "_template")
+			if name == templatesDir {
 				return nil, os.ErrNotExist
 			}
 			return &mockFileInfo{name: name, isDir: true}, nil
@@ -142,7 +147,7 @@ func TestTemplateBundler_Bundle(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error when templates directory not found")
 		}
-		expectedMsg := "templates directory not found: contexts/_template"
+		expectedMsg := "templates directory not found: " + filepath.Join("contexts", "_template")
 		if err.Error() != expectedMsg {
 			t.Errorf("Expected error %q, got %q", expectedMsg, err.Error())
 		}
@@ -172,7 +177,8 @@ func TestTemplateBundler_Bundle(t *testing.T) {
 		bundler, mocks := setup(t)
 		bundler.shims.Walk = func(root string, fn filepath.WalkFunc) error {
 			// Simulate walk callback being called with an error
-			return fn("contexts/_template/test.txt", &mockFileInfo{name: "test.txt", isDir: false}, fmt.Errorf("callback error"))
+			templatesDir := filepath.Join("contexts", "_template")
+			return fn(filepath.Join(templatesDir, "test.txt"), &mockFileInfo{name: "test.txt", isDir: false}, fmt.Errorf("callback error"))
 		}
 
 		// When calling Bundle
@@ -191,7 +197,8 @@ func TestTemplateBundler_Bundle(t *testing.T) {
 		// Given a template bundler with failing relative path calculation
 		bundler, mocks := setup(t)
 		bundler.shims.Walk = func(root string, fn filepath.WalkFunc) error {
-			return fn("contexts/_template/test.txt", &mockFileInfo{name: "test.txt", isDir: false}, nil)
+			templatesDir := filepath.Join("contexts", "_template")
+			return fn(filepath.Join(templatesDir, "test.txt"), &mockFileInfo{name: "test.txt", isDir: false}, nil)
 		}
 		bundler.shims.FilepathRel = func(basepath, targpath string) (string, error) {
 			return "", fmt.Errorf("relative path error")
@@ -214,7 +221,8 @@ func TestTemplateBundler_Bundle(t *testing.T) {
 		// Given a template bundler with failing file read
 		bundler, mocks := setup(t)
 		bundler.shims.Walk = func(root string, fn filepath.WalkFunc) error {
-			return fn("contexts/_template/test.txt", &mockFileInfo{name: "test.txt", isDir: false}, nil)
+			templatesDir := filepath.Join("contexts", "_template")
+			return fn(filepath.Join(templatesDir, "test.txt"), &mockFileInfo{name: "test.txt", isDir: false}, nil)
 		}
 		bundler.shims.FilepathRel = func(basepath, targpath string) (string, error) {
 			return "test.txt", nil
@@ -230,7 +238,7 @@ func TestTemplateBundler_Bundle(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error when read file fails")
 		}
-		expectedMsg := "failed to read template file contexts/_template/test.txt: read permission denied"
+		expectedMsg := "failed to read template file " + filepath.Join("contexts", "_template", "test.txt") + ": read permission denied"
 		if err.Error() != expectedMsg {
 			t.Errorf("Expected error %q, got %q", expectedMsg, err.Error())
 		}
@@ -240,7 +248,8 @@ func TestTemplateBundler_Bundle(t *testing.T) {
 		// Given a template bundler with failing artifact add file
 		bundler, mocks := setup(t)
 		bundler.shims.Walk = func(root string, fn filepath.WalkFunc) error {
-			return fn("contexts/_template/test.txt", &mockFileInfo{name: "test.txt", isDir: false}, nil)
+			templatesDir := filepath.Join("contexts", "_template")
+			return fn(filepath.Join(templatesDir, "test.txt"), &mockFileInfo{name: "test.txt", isDir: false}, nil)
 		}
 		bundler.shims.FilepathRel = func(basepath, targpath string) (string, error) {
 			return "test.txt", nil
@@ -276,18 +285,20 @@ func TestTemplateBundler_Bundle(t *testing.T) {
 
 		bundler.shims.Walk = func(root string, fn filepath.WalkFunc) error {
 			// Mix of directories and files
-			fn("contexts/_template/dir1", &mockFileInfo{name: "dir1", isDir: true}, nil)
-			fn("contexts/_template/file1.txt", &mockFileInfo{name: "file1.txt", isDir: false}, nil)
-			fn("contexts/_template/dir2", &mockFileInfo{name: "dir2", isDir: true}, nil)
-			fn("contexts/_template/file2.yaml", &mockFileInfo{name: "file2.yaml", isDir: false}, nil)
+			templatesDir := filepath.Join("contexts", "_template")
+			fn(filepath.Join(templatesDir, "dir1"), &mockFileInfo{name: "dir1", isDir: true}, nil)
+			fn(filepath.Join(templatesDir, "file1.txt"), &mockFileInfo{name: "file1.txt", isDir: false}, nil)
+			fn(filepath.Join(templatesDir, "dir2"), &mockFileInfo{name: "dir2", isDir: true}, nil)
+			fn(filepath.Join(templatesDir, "file2.yaml"), &mockFileInfo{name: "file2.yaml", isDir: false}, nil)
 			return nil
 		}
 
 		bundler.shims.FilepathRel = func(basepath, targpath string) (string, error) {
-			if targpath == "contexts/_template/file1.txt" {
+			templatesDir := filepath.Join("contexts", "_template")
+			if targpath == filepath.Join(templatesDir, "file1.txt") {
 				return "file1.txt", nil
 			}
-			if targpath == "contexts/_template/file2.yaml" {
+			if targpath == filepath.Join(templatesDir, "file2.yaml") {
 				return "file2.yaml", nil
 			}
 			return "", nil

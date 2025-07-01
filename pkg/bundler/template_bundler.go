@@ -65,7 +65,7 @@ func (t *TemplateBundler) Bundle(artifact Artifact) error {
 			return fmt.Errorf("failed to read template file %s: %w", path, err)
 		}
 
-		artifactPath := filepath.Join("_template", relPath)
+		artifactPath := "_template/" + filepath.ToSlash(relPath)
 		return artifact.AddFile(artifactPath, data)
 	})
 }
