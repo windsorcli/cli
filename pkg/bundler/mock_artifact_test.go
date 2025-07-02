@@ -143,26 +143,30 @@ func TestMockArtifact_Push(t *testing.T) {
 		// Given a mock with a custom push function
 		mock := NewMockArtifact()
 		called := false
-		var capturedRegistry, capturedTag string
-		mock.PushFunc = func(registry string, tag string) error {
+		var capturedRegistryBase, capturedRepoName, capturedTag string
+		mock.PushFunc = func(registryBase string, repoName string, tag string) error {
 			called = true
-			capturedRegistry = registry
+			capturedRegistryBase = registryBase
+			capturedRepoName = repoName
 			capturedTag = tag
 			return nil
 		}
 
 		// When calling Push
-		err := mock.Push("registry.example.com", "myapp:v1.0.0")
+		err := mock.Push("registry.example.com", "myapp", "v1.0.0")
 
 		// Then the mock function should be called
 		if !called {
 			t.Error("Expected PushFunc to be called")
 		}
-		if capturedRegistry != "registry.example.com" {
-			t.Errorf("Expected registry 'registry.example.com', got '%s'", capturedRegistry)
+		if capturedRegistryBase != "registry.example.com" {
+			t.Errorf("Expected registryBase 'registry.example.com', got '%s'", capturedRegistryBase)
 		}
-		if capturedTag != "myapp:v1.0.0" {
-			t.Errorf("Expected tag 'myapp:v1.0.0', got '%s'", capturedTag)
+		if capturedRepoName != "myapp" {
+			t.Errorf("Expected repoName 'myapp', got '%s'", capturedRepoName)
+		}
+		if capturedTag != "v1.0.0" {
+			t.Errorf("Expected tag 'v1.0.0', got '%s'", capturedTag)
 		}
 		if err != nil {
 			t.Errorf("Expected nil error, got %v", err)
@@ -174,7 +178,7 @@ func TestMockArtifact_Push(t *testing.T) {
 		mock := NewMockArtifact()
 
 		// When calling Push
-		err := mock.Push("registry.example.com", "myapp:v1.0.0")
+		err := mock.Push("registry.example.com", "myapp", "v1.0.0")
 
 		// Then no error should be returned
 		if err != nil {

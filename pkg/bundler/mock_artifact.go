@@ -18,7 +18,7 @@ type MockArtifact struct {
 	InitializeFunc func(injector di.Injector) error
 	AddFileFunc    func(path string, content []byte) error
 	CreateFunc     func(outputPath string, tag string) (string, error)
-	PushFunc       func(registry string, tag string) error
+	PushFunc       func(registryBase string, repoName string, tag string) error
 }
 
 // =============================================================================
@@ -59,9 +59,9 @@ func (m *MockArtifact) Create(outputPath string, tag string) (string, error) {
 }
 
 // Push calls the mock PushFunc if set, otherwise returns nil
-func (m *MockArtifact) Push(registry string, tag string) error {
+func (m *MockArtifact) Push(registryBase string, repoName string, tag string) error {
 	if m.PushFunc != nil {
-		return m.PushFunc(registry, tag)
+		return m.PushFunc(registryBase, repoName, tag)
 	}
 	return nil
 }

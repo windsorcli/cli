@@ -16,7 +16,7 @@ var pushCmd = &cobra.Command{
 
 This command packages your blueprint and pushes it to any OCI-compatible registry
 like Docker Hub, GitHub Container Registry, or AWS ECR. The artifacts are compatible
-with FluxCD and other GitOps tools.
+with FluxCD's OCIRepository.
 
 Examples:
   # Push to Docker Hub
@@ -52,32 +52,38 @@ Examples:
 			}
 		}
 
-		// Parse registry and tag from positional argument
+		// Parse registry, repository name, and tag from positional argument
 		if len(args) == 0 {
 			return fmt.Errorf("registry is required: windsor push registry/repo[:tag]")
 		}
 
-		var registry, tag string
+		var registryBase, repoName, tag string
 		arg := args[0]
 
+		// First extract tag if present
 		if lastColon := strings.LastIndex(arg, ":"); lastColon > 0 && lastColon < len(arg)-1 {
 			// Has tag in URL format (registry/repo:tag)
-			registry = arg[:lastColon]
 			tag = arg[lastColon+1:]
+			arg = arg[:lastColon] // Remove tag from argument
+		}
+
+		// Now extract repository name (last path component) and registry base
+		if lastSlash := strings.LastIndex(arg, "/"); lastSlash >= 0 {
+			registryBase = arg[:lastSlash]
+			repoName = arg[lastSlash+1:]
 		} else {
-			// No tag in URL, registry only
-			registry = arg
+			return fmt.Errorf("invalid registry format: must include repository path (e.g., registry.com/namespace/repo)")
 		}
 
 		// Push the artifact to the registry
-		if err := artifact.Push(registry, tag); err != nil {
+		if err := artifact.Push(registryBase, repoName, tag); err != nil {
 			return fmt.Errorf("failed to push artifact: %w", err)
 		}
 
 		if tag != "" {
-			fmt.Printf("Blueprint pushed successfully to %s:%s\n", registry, tag)
+			fmt.Printf("Blueprint pushed successfully to %s/%s:%s\n", registryBase, repoName, tag)
 		} else {
-			fmt.Printf("Blueprint pushed successfully to %s\n", registry)
+			fmt.Printf("Blueprint pushed successfully to %s/%s\n", registryBase, repoName)
 		}
 		return nil
 	},

@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 
 	"github.com/goccy/go-yaml"
+	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 )
 
@@ -32,21 +34,24 @@ type TarWriter interface {
 
 // Shims provides mockable wrappers around system and file operations
 type Shims struct {
-	Stat            func(name string) (os.FileInfo, error)
-	Create          func(name string) (io.WriteCloser, error)
-	ReadFile        func(name string) ([]byte, error)
-	Walk            func(root string, walkFn filepath.WalkFunc) error
-	NewGzipWriter   func(w io.Writer) *gzip.Writer
-	NewTarWriter    func(w io.Writer) TarWriter
-	YamlUnmarshal   func(data []byte, v any) error
-	FilepathRel     func(basepath, targpath string) (string, error)
-	YamlMarshal     func(data any) ([]byte, error)
-	AppendLayers    func(base v1.Image, layers ...v1.Layer) (v1.Image, error)
-	ConfigFile      func(img v1.Image, cfg *v1.ConfigFile) (v1.Image, error)
-	MediaType       func(img v1.Image, mt types.MediaType) v1.Image
-	ConfigMediaType func(img v1.Image, mt types.MediaType) v1.Image
-	Annotations     func(img v1.Image, anns map[string]string) v1.Image
-	EmptyImage      func() v1.Image
+	Stat             func(name string) (os.FileInfo, error)
+	Create           func(name string) (io.WriteCloser, error)
+	ReadFile         func(name string) ([]byte, error)
+	Walk             func(root string, walkFn filepath.WalkFunc) error
+	NewGzipWriter    func(w io.Writer) *gzip.Writer
+	NewTarWriter     func(w io.Writer) TarWriter
+	YamlUnmarshal    func(data []byte, v any) error
+	FilepathRel      func(basepath, targpath string) (string, error)
+	YamlMarshal      func(data any) ([]byte, error)
+	AppendLayers     func(base v1.Image, layers ...v1.Layer) (v1.Image, error)
+	ConfigFile       func(img v1.Image, cfg *v1.ConfigFile) (v1.Image, error)
+	MediaType        func(img v1.Image, mt types.MediaType) v1.Image
+	ConfigMediaType  func(img v1.Image, mt types.MediaType) v1.Image
+	Annotations      func(img v1.Image, anns map[string]string) v1.Image
+	EmptyImage       func() v1.Image
+	RemoteGet        func(ref name.Reference, options ...remote.Option) (*remote.Descriptor, error)
+	RemoteWriteLayer func(repo name.Repository, layer v1.Layer, options ...remote.Option) error
+	RemoteWrite      func(ref name.Reference, img v1.Image, options ...remote.Option) error
 }
 
 // =============================================================================
@@ -73,6 +78,9 @@ func NewShims() *Shims {
 		Annotations: func(img v1.Image, anns map[string]string) v1.Image {
 			return mutate.Annotations(img, anns).(v1.Image)
 		},
-		EmptyImage: func() v1.Image { return empty.Image },
+		EmptyImage:       func() v1.Image { return empty.Image },
+		RemoteGet:        remote.Get,
+		RemoteWriteLayer: remote.WriteLayer,
+		RemoteWrite:      remote.Write,
 	}
 }

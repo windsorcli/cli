@@ -4,15 +4,16 @@ import (
 	"archive/tar"
 	"bytes"
 	"fmt"
-	"io"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
-	"github.com/google/go-containerregistry/pkg/v1/stream"
+	"github.com/google/go-containerregistry/pkg/v1/static"
+	"github.com/google/go-containerregistry/pkg/v1/types"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -74,7 +75,7 @@ type Artifact interface {
 	Initialize(injector di.Injector) error
 	AddFile(path string, content []byte) error
 	Create(outputPath string, tag string) (string, error)
-	Push(registry string, tag string) error
+	Push(registryBase string, repoName string, tag string) error
 }
 
 // =============================================================================
@@ -139,7 +140,7 @@ func (a *ArtifactBuilder) AddFile(path string, content []byte) error {
 // Creates compressed tar.gz with all files plus generated metadata.yaml at root.
 // Returns the final output path of the created artifact file.
 func (a *ArtifactBuilder) Create(outputPath string, tag string) (string, error) {
-	finalName, finalVersion, metadata, err := a.parseTagAndResolveMetadata(tag)
+	finalName, finalVersion, metadata, err := a.parseTagAndResolveMetadata("", tag)
 	if err != nil {
 		return "", err
 	}
@@ -158,36 +159,15 @@ func (a *ArtifactBuilder) Create(outputPath string, tag string) (string, error) 
 	return finalOutputPath, nil
 }
 
-// Push creates and uploads a FluxCD-compatible OCI artifact to the specified registry entirely in-memory.
-// The registry parameter should be in format "registry.example.com/namespace/name" or "registry.example.com:port/namespace/name".
-// The tag parameter should be in format "name:version" to override metadata, or empty to use existing metadata.
-// Creates a FluxCD-compatible OCI artifact entirely in-memory without touching the filesystem.
-// Uses FluxCD-specific media types and annotations for full compatibility with FluxCD OCI repositories.
-// Returns an error if registry format is invalid, tag format is incorrect, or push operation fails.
-func (a *ArtifactBuilder) Push(registry string, tag string) error {
-	finalName, finalVersion, metadata, err := a.parseTagAndResolveMetadata(tag)
+// Push uploads the artifact to an OCI registry with explicit blob handling to prevent MANIFEST_BLOB_UNKNOWN errors.
+// Implements robust blob upload strategy recommended by Red Hat for resolving registry upload issues.
+// Creates tarball in memory, constructs OCI image, uploads blobs explicitly, then uploads manifest.
+// Uses authenticated keychain for registry access and retry backoff for resilience.
+// Registry base should be the base URL (e.g., "ghcr.io/namespace"), repoName the repository name, tag the version.
+func (a *ArtifactBuilder) Push(registryBase string, repoName string, tag string) error {
+	finalName, tagName, metadata, err := a.parseTagAndResolveMetadata(repoName, tag)
 	if err != nil {
 		return err
-	}
-
-	var repoName, tagName string
-	if tag != "" {
-		parts := strings.Split(tag, ":")
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			return fmt.Errorf("invalid tag format: %s (expected format: name:version)", tag)
-		}
-		repoName = parts[0]
-		tagName = parts[1]
-	} else {
-		repoName = finalName
-		tagName = finalVersion
-	}
-
-	fullRepo := fmt.Sprintf("%s/%s", registry, repoName)
-
-	ref, err := name.ParseReference(fmt.Sprintf("%s:%s", fullRepo, tagName))
-	if err != nil {
-		return fmt.Errorf("invalid repository reference: %w", err)
 	}
 
 	tarballContent, err := a.createTarballInMemory(metadata)
@@ -195,14 +175,70 @@ func (a *ArtifactBuilder) Push(registry string, tag string) error {
 		return fmt.Errorf("failed to create tarball in memory: %w", err)
 	}
 
-	layer := stream.NewLayer(io.NopCloser(bytes.NewReader(tarballContent)))
+	layer := static.NewLayer(tarballContent, types.DockerLayer)
 
-	img, err := a.createFluxCDCompatibleImage(layer, repoName, tagName)
+	img, err := a.createFluxCDCompatibleImage(layer, finalName, tagName)
 	if err != nil {
-		return fmt.Errorf("failed to create FluxCD-compatible OCI image: %w", err)
+		return fmt.Errorf("failed to create OCI image: %w", err)
 	}
 
-	err = remote.Write(ref, img)
+	repoURL := fmt.Sprintf("%s/%s", registryBase, repoName)
+	if tagName != "" {
+		repoURL = fmt.Sprintf("%s:%s", repoURL, tagName)
+	}
+
+	ref, err := name.ParseReference(repoURL)
+	if err != nil {
+		return fmt.Errorf("failed to parse repository reference: %w", err)
+	}
+
+	manifest, err := img.Manifest()
+	if err != nil {
+		return fmt.Errorf("failed to get image manifest: %w", err)
+	}
+
+	for _, layerDesc := range manifest.Layers {
+		layer, err := img.LayerByDigest(layerDesc.Digest)
+		if err != nil {
+			return fmt.Errorf("failed to get layer %s: %w", layerDesc.Digest, err)
+		}
+
+		blobRef := ref.Context().Digest(layerDesc.Digest.String())
+		_, err = a.shims.RemoteGet(blobRef, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+		if err != nil {
+			err = a.shims.RemoteWriteLayer(ref.Context(), layer, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+			if err != nil {
+				return fmt.Errorf("failed to upload layer %s: %w", layerDesc.Digest, err)
+			}
+		}
+	}
+
+	configDigest, err := img.ConfigName()
+	if err != nil {
+		return fmt.Errorf("failed to get config digest: %w", err)
+	}
+
+	configRef := ref.Context().Digest(configDigest.String())
+	_, err = a.shims.RemoteGet(configRef, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+	if err != nil {
+		configBlob, err := img.RawConfigFile()
+		if err != nil {
+			return fmt.Errorf("failed to get config file: %w", err)
+		}
+
+		configLayer := static.NewLayer(configBlob, types.DockerConfigJSON)
+		err = a.shims.RemoteWriteLayer(ref.Context(), configLayer, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+		if err != nil {
+			return fmt.Errorf("failed to upload config: %w", err)
+		}
+	}
+
+	err = a.shims.RemoteWrite(ref, img, remote.WithAuthFromKeychain(authn.DefaultKeychain), remote.WithRetryBackoff(remote.Backoff{
+		Duration: 1.0,
+		Factor:   3.0,
+		Jitter:   0.1,
+		Steps:    5,
+	}))
 	if err != nil {
 		return fmt.Errorf("failed to push artifact to registry: %w", err)
 	}
@@ -215,20 +251,31 @@ func (a *ArtifactBuilder) Push(registry string, tag string) error {
 // =============================================================================
 
 // parseTagAndResolveMetadata extracts name and version from tag parameter or metadata file and generates final metadata.
-// Handles tag parsing in "name:version" format and validates both components are non-empty.
+// For Create method (repoName is empty): tag can be "name:version" format or empty to use metadata.yaml
+// For Push method (repoName provided): tag is version only, repoName is used as fallback name
 // Loads existing metadata.yaml from files if present and parses it as BlueprintMetadataInput.
-// Tag parameters take precedence over metadata file values for name and version.
-// Requires either tag parameters or metadata file to provide name and version.
+// Tag parameter takes precedence over metadata file values for version and/or name.
 // Returns final name, version, and complete marshaled metadata ready for embedding in artifacts.
-func (a *ArtifactBuilder) parseTagAndResolveMetadata(tag string) (string, string, []byte, error) {
+func (a *ArtifactBuilder) parseTagAndResolveMetadata(repoName, tag string) (string, string, []byte, error) {
 	var tagName, tagVersion string
-	if tag != "" {
-		parts := strings.Split(tag, ":")
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			return "", "", nil, fmt.Errorf("tag must be in format 'name:version', got: %s", tag)
+
+	if repoName == "" {
+		if tag != "" {
+			if strings.Contains(tag, ":") {
+				parts := strings.Split(tag, ":")
+				if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+					return "", "", nil, fmt.Errorf("tag must be in format 'name:version', got: %s", tag)
+				}
+				tagName = parts[0]
+				tagVersion = parts[1]
+			} else {
+				tagVersion = tag
+			}
 		}
-		tagName = parts[0]
-		tagVersion = parts[1]
+	} else {
+		if tag != "" {
+			tagVersion = tag
+		}
 	}
 
 	metadataData, hasMetadata := a.files["_templates/metadata.yaml"]
@@ -250,8 +297,16 @@ func (a *ArtifactBuilder) parseTagAndResolveMetadata(tag string) (string, string
 		finalVersion = tagVersion
 	}
 
+	if finalName == "" && repoName != "" {
+		finalName = repoName
+	}
+
 	if finalName == "" {
-		return "", "", nil, fmt.Errorf("name is required: provide via tag parameter or metadata.yaml")
+		if repoName == "" {
+			return "", "", nil, fmt.Errorf("name is required: provide via tag parameter or metadata.yaml")
+		} else {
+			return "", "", nil, fmt.Errorf("name is required: provide via metadata.yaml")
+		}
 	}
 	if finalVersion == "" {
 		return "", "", nil, fmt.Errorf("version is required: provide via tag parameter or metadata.yaml")

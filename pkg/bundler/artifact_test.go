@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -123,8 +125,10 @@ func setupArtifactMocks(t *testing.T, opts ...*ArtifactSetupOptions) *ArtifactMo
 	// Register shell with injector
 	injector.Register("shell", mockShell)
 
-	// Create shims with test-friendly defaults
-	shims := NewShims()
+	// Use setupShims for consistent shim configuration
+	shims := setupShims(t)
+
+	// Override specific shims for file system operations
 	shims.Stat = func(name string) (os.FileInfo, error) {
 		if name == "." {
 			// Mock "." as an existing directory
@@ -147,12 +151,6 @@ func setupArtifactMocks(t *testing.T, opts ...*ArtifactSetupOptions) *ArtifactMo
 
 		return os.Create(fullPath)
 	}
-	shims.YamlUnmarshal = func(data []byte, v any) error {
-		return nil
-	}
-	shims.YamlMarshal = func(data any) ([]byte, error) {
-		return []byte("test: yaml"), nil
-	}
 
 	// Cleanup function
 	t.Cleanup(func() {
@@ -164,6 +162,84 @@ func setupArtifactMocks(t *testing.T, opts ...*ArtifactSetupOptions) *ArtifactMo
 		Shell:    mockShell,
 		Shims:    shims,
 	}
+}
+
+// setupShims provides common shim configurations for testing.
+// This function sets up standard mocks for YAML, file operations, and image creation
+// that can be reused across multiple test cases to reduce duplication.
+func setupShims(t *testing.T) *Shims {
+	t.Helper()
+
+	shims := NewShims()
+
+	// Standard YAML processing mocks
+	shims.YamlUnmarshal = func(data []byte, v any) error {
+		input := v.(*BlueprintMetadataInput)
+		input.Name = "test"
+		input.Version = "1.0.0"
+		return nil
+	}
+	shims.YamlMarshal = func(data any) ([]byte, error) {
+		return []byte("test: yaml"), nil
+	}
+
+	// Standard image creation mocks
+	mockImg := &mockImageWithManifest{
+		manifestFunc: func() (*v1.Manifest, error) {
+			return &v1.Manifest{
+				Layers: []v1.Descriptor{
+					{
+						Digest: v1.Hash{
+							Algorithm: "sha256",
+							Hex:       "abc123",
+						},
+						Size: 1000,
+					},
+				},
+			}, nil
+		},
+		layerByDigestFunc: func(hash v1.Hash) (v1.Layer, error) {
+			return &mockLayer{}, nil
+		},
+		configNameFunc: func() (v1.Hash, error) {
+			return v1.Hash{
+				Algorithm: "sha256",
+				Hex:       "config123",
+			}, nil
+		},
+		rawConfigFileFunc: func() ([]byte, error) {
+			return []byte("config"), nil
+		},
+	}
+
+	shims.AppendLayers = func(base v1.Image, layers ...v1.Layer) (v1.Image, error) {
+		return mockImg, nil
+	}
+	shims.ConfigFile = func(img v1.Image, cfg *v1.ConfigFile) (v1.Image, error) {
+		return mockImg, nil
+	}
+	shims.MediaType = func(img v1.Image, mt types.MediaType) v1.Image {
+		return mockImg
+	}
+	shims.ConfigMediaType = func(img v1.Image, mt types.MediaType) v1.Image {
+		return mockImg
+	}
+	shims.Annotations = func(img v1.Image, annotations map[string]string) v1.Image {
+		return mockImg
+	}
+
+	// Remote operations mocks for network testing
+	shims.RemoteGet = func(ref name.Reference, options ...remote.Option) (*remote.Descriptor, error) {
+		return nil, fmt.Errorf("blob not found")
+	}
+	shims.RemoteWriteLayer = func(repo name.Repository, layer v1.Layer, options ...remote.Option) error {
+		return nil
+	}
+	shims.RemoteWrite = func(ref name.Reference, img v1.Image, options ...remote.Option) error {
+		return nil
+	}
+
+	return shims
 }
 
 // =============================================================================
@@ -435,18 +511,12 @@ description: A test project
 
 		// When creating artifact with invalid tag format
 		invalidTags := []string{
-			"notag",
 			"only:colon:",
 			":missingname",
 			"missingversion:",
-			"",
 		}
 
 		for _, tag := range invalidTags {
-			if tag == "" {
-				continue // Skip empty tag as it's handled differently
-			}
-
 			_, err := builder.Create(".", tag)
 
 			// Then an error should be returned
@@ -780,24 +850,23 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			t.Fatalf("Failed to create artifact: %v", err)
 		}
 
-		// When pushing with invalid tag format
+		// When pushing with invalid tag format (only colon-separated tags that are malformed)
 		invalidTags := []string{
-			"notag",
-			"only:colon:",
-			":missingname",
-			"missingversion:",
+			"only:colon:",     // has colon but empty version
+			":missingname",    // has colon but empty name
+			"missingversion:", // has colon but empty version
 		}
 
 		for _, tag := range invalidTags {
-			err := builder.Push("registry.example.com", tag)
-			if err == nil || !strings.Contains(err.Error(), "tag must be in format") {
-				t.Errorf("Expected tag format error for %s, got: %v", tag, err)
+			err := builder.Push("registry.example.com", "test", tag)
+			if err == nil || !strings.Contains(err.Error(), "failed to parse repository reference") {
+				t.Errorf("Expected repository reference error for %s, got: %v", tag, err)
 			}
 		}
 	})
 
 	t.Run("ErrorWhenNameMissing", func(t *testing.T) {
-		// Given a builder with no metadata and no tag provided
+		// Given a builder with no metadata and no repoName provided (simulating Create method usage)
 		builder, mocks := setup(t)
 
 		// Set up mocks for metadata parsing that returns empty metadata
@@ -807,8 +876,8 @@ func TestArtifactBuilder_Push(t *testing.T) {
 		}
 		builder.AddFile("_templates/metadata.yaml", []byte(""))
 
-		// When pushing without providing tag
-		err := builder.Push("registry.example.com", "")
+		// When pushing with empty repoName (simulates Create method scenario)
+		err := builder.Push("registry.example.com", "", "")
 		if err == nil || !strings.Contains(err.Error(), "name is required") {
 			t.Errorf("Expected name required error, got: %v", err)
 		}
@@ -828,7 +897,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 		builder.AddFile("_templates/metadata.yaml", []byte("name: test"))
 
 		// When pushing without providing tag
-		err := builder.Push("registry.example.com", "")
+		err := builder.Push("registry.example.com", "test", "")
 		if err == nil || !strings.Contains(err.Error(), "version is required") {
 			t.Errorf("Expected version required error, got: %v", err)
 		}
@@ -838,13 +907,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 		// Given a builder with valid metadata
 		builder, mocks := setup(t)
 
-		// Set up mocks for successful in-memory operation
-		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
-			input := v.(*BlueprintMetadataInput)
-			input.Name = "test"
-			input.Version = "1.0.0"
-			return nil
-		}
+		// Set up custom AppendLayers behavior for testing
 		mocks.Shims.AppendLayers = func(base v1.Image, layers ...v1.Layer) (v1.Image, error) {
 			return nil, fmt.Errorf("mock implementation error")
 		}
@@ -852,7 +915,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"))
 
 		// When pushing
-		err := builder.Push("registry.example.com", "myapp:2.0.0")
+		err := builder.Push("registry.example.com", "myapp", "2.0.0")
 
 		// Then should get mock implementation error (indicating it reached the OCI creation step)
 		if err == nil || !strings.Contains(err.Error(), "mock implementation error") {
@@ -863,17 +926,6 @@ func TestArtifactBuilder_Push(t *testing.T) {
 	t.Run("SuccessWithInMemoryOperation", func(t *testing.T) {
 		// Given a builder with valid metadata
 		builder, mocks := setup(t)
-
-		// Set up mocks for successful in-memory operation
-		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
-			input := v.(*BlueprintMetadataInput)
-			input.Name = "test"
-			input.Version = "1.0.0"
-			return nil
-		}
-		mocks.Shims.YamlMarshal = func(data any) ([]byte, error) {
-			return []byte("test: yaml"), nil
-		}
 
 		// Mock the tarball creation to verify in-memory operation
 		tarballCreated := false
@@ -894,7 +946,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 		builder.AddFile("test.txt", []byte("test content"))
 
 		// When pushing (this should work entirely in-memory)
-		err := builder.Push("registry.example.com", "test:1.0.0")
+		err := builder.Push("registry.example.com", "test", "1.0.0")
 
 		// Then should get expected test termination (proving in-memory operation worked)
 		if err == nil || !strings.Contains(err.Error(), "expected test termination") {
@@ -904,6 +956,30 @@ func TestArtifactBuilder_Push(t *testing.T) {
 		// And tarball should have been created in memory
 		if !tarballCreated {
 			t.Error("Expected tarball to be created in memory")
+		}
+	})
+
+	t.Run("ErrorFromCreateTarballInMemory", func(t *testing.T) {
+		// Given a builder with valid metadata
+		builder, mocks := setup(t)
+
+		// Mock tar writer to fail on WriteHeader
+		mocks.Shims.NewTarWriter = func(w io.Writer) TarWriter {
+			return &mockTarWriter{
+				writeHeaderFunc: func(*tar.Header) error {
+					return fmt.Errorf("tar writer header failed")
+				},
+			}
+		}
+
+		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"))
+
+		// When pushing
+		err := builder.Push("registry.example.com", "test", "1.0.0")
+
+		// Then should get tarball creation error
+		if err == nil || !strings.Contains(err.Error(), "failed to create tarball in memory") {
+			t.Errorf("Expected tarball creation error, got: %v", err)
 		}
 	})
 
@@ -920,42 +996,11 @@ func TestArtifactBuilder_Push(t *testing.T) {
 		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"))
 
 		// When pushing with invalid registry format (contains invalid characters)
-		err := builder.Push("invalid registry format with spaces", "test:1.0.0")
+		err := builder.Push("invalid registry format with spaces", "test", "1.0.0")
 
 		// Then should get repository reference error
-		if err == nil || !strings.Contains(err.Error(), "invalid repository reference") {
+		if err == nil || !strings.Contains(err.Error(), "failed to parse repository reference") {
 			t.Errorf("Expected invalid repository reference error, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorFromCreateTarballInMemory", func(t *testing.T) {
-		// Given a builder with valid metadata
-		builder, mocks := setup(t)
-
-		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
-			input := v.(*BlueprintMetadataInput)
-			input.Name = "test"
-			input.Version = "1.0.0"
-			return nil
-		}
-
-		// Mock tar writer to fail on WriteHeader
-		mocks.Shims.NewTarWriter = func(w io.Writer) TarWriter {
-			return &mockTarWriter{
-				writeHeaderFunc: func(*tar.Header) error {
-					return fmt.Errorf("tar writer header failed")
-				},
-			}
-		}
-
-		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"))
-
-		// When pushing
-		err := builder.Push("registry.example.com", "test:1.0.0")
-
-		// Then should get tarball creation error
-		if err == nil || !strings.Contains(err.Error(), "failed to create tarball in memory") {
-			t.Errorf("Expected tarball creation error, got: %v", err)
 		}
 	})
 
@@ -981,39 +1026,460 @@ func TestArtifactBuilder_Push(t *testing.T) {
 		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"))
 
 		// When pushing
-		err := builder.Push("registry.example.com", "test:1.0.0")
+		err := builder.Push("registry.example.com", "test", "1.0.0")
 
-		// Then should get FluxCD image creation error
-		if err == nil || !strings.Contains(err.Error(), "failed to create FluxCD-compatible OCI image") {
-			t.Errorf("Expected FluxCD image creation error, got: %v", err)
+		// Then should get OCI image creation error
+		if err == nil || !strings.Contains(err.Error(), "failed to create OCI image") {
+			t.Errorf("Expected OCI image creation error, got: %v", err)
 		}
 	})
 
 	t.Run("SuccessWithEmptyTag", func(t *testing.T) {
-		// Given a builder with valid metadata file
+		// Given a builder with valid metadata
 		builder, mocks := setup(t)
 
-		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
-			input := v.(*BlueprintMetadataInput)
-			input.Name = "myapp"
-			input.Version = "2.0.0"
-			return nil
-		}
-		mocks.Shims.YamlMarshal = func(data any) ([]byte, error) {
-			return []byte("test: yaml"), nil
-		}
+		// Set up standard mocks
+		mocks.Shims = setupShims(t)
+		builder.shims = mocks.Shims // Update builder to use new shims
+
+		// Mock that terminates early to avoid nil pointer issues
 		mocks.Shims.AppendLayers = func(base v1.Image, layers ...v1.Layer) (v1.Image, error) {
 			return nil, fmt.Errorf("expected test termination")
 		}
 
-		builder.AddFile("_templates/metadata.yaml", []byte("name: myapp\nversion: 2.0.0"))
+		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"))
 
-		// When pushing with empty tag (should use metadata values)
-		err := builder.Push("registry.example.com", "")
+		// When pushing with empty tag (should use version from metadata)
+		err := builder.Push("registry.example.com", "test", "")
 
-		// Then should use metadata name/version and reach the expected termination
+		// Then should get expected test termination (verifying it gets to image creation step)
 		if err == nil || !strings.Contains(err.Error(), "expected test termination") {
 			t.Errorf("Expected test termination error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorFromImageManifest", func(t *testing.T) {
+		// Given a builder with valid metadata
+		builder, mocks := setup(t)
+
+		// Set up standard mocks with custom manifest behavior
+		mocks.Shims = setupShims(t)
+		builder.shims = mocks.Shims // Update builder to use new shims
+
+		// Mock successful image creation but failing manifest
+		mockImg := &mockImageWithManifest{
+			manifestFunc: func() (*v1.Manifest, error) {
+				return nil, fmt.Errorf("manifest generation failed")
+			},
+		}
+		mocks.Shims.AppendLayers = func(base v1.Image, layers ...v1.Layer) (v1.Image, error) {
+			return mockImg, nil
+		}
+		mocks.Shims.ConfigFile = func(img v1.Image, cfg *v1.ConfigFile) (v1.Image, error) {
+			return mockImg, nil
+		}
+		mocks.Shims.MediaType = func(img v1.Image, mt types.MediaType) v1.Image {
+			return mockImg
+		}
+		mocks.Shims.ConfigMediaType = func(img v1.Image, mt types.MediaType) v1.Image {
+			return mockImg
+		}
+		mocks.Shims.Annotations = func(img v1.Image, annotations map[string]string) v1.Image {
+			return mockImg
+		}
+
+		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"))
+
+		// When pushing
+		err := builder.Push("registry.example.com", "test", "1.0.0")
+
+		// Then should get manifest error
+		if err == nil || !strings.Contains(err.Error(), "failed to get image manifest") {
+			t.Errorf("Expected manifest error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorFromLayerByDigest", func(t *testing.T) {
+		// Given a builder with valid metadata
+		builder, mocks := setup(t)
+
+		// Set up standard mocks with custom layer behavior
+		mocks.Shims = setupShims(t)
+		builder.shims = mocks.Shims // Update builder to use new shims
+
+		// Mock image with manifest but failing layer access
+		mockImg := &mockImageWithManifest{
+			manifestFunc: func() (*v1.Manifest, error) {
+				return &v1.Manifest{
+					Layers: []v1.Descriptor{
+						{
+							Digest: v1.Hash{
+								Algorithm: "sha256",
+								Hex:       "abc123",
+							},
+							Size: 1000,
+						},
+					},
+				}, nil
+			},
+			layerByDigestFunc: func(hash v1.Hash) (v1.Layer, error) {
+				return nil, fmt.Errorf("layer access failed")
+			},
+		}
+		mocks.Shims.AppendLayers = func(base v1.Image, layers ...v1.Layer) (v1.Image, error) {
+			return mockImg, nil
+		}
+		mocks.Shims.ConfigFile = func(img v1.Image, cfg *v1.ConfigFile) (v1.Image, error) {
+			return mockImg, nil
+		}
+		mocks.Shims.MediaType = func(img v1.Image, mt types.MediaType) v1.Image {
+			return mockImg
+		}
+		mocks.Shims.ConfigMediaType = func(img v1.Image, mt types.MediaType) v1.Image {
+			return mockImg
+		}
+		mocks.Shims.Annotations = func(img v1.Image, annotations map[string]string) v1.Image {
+			return mockImg
+		}
+
+		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"))
+
+		// When pushing
+		err := builder.Push("registry.example.com", "test", "1.0.0")
+
+		// Then should get layer access error
+		if err == nil || !strings.Contains(err.Error(), "failed to get layer") {
+			t.Errorf("Expected layer access error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorFromConfigName", func(t *testing.T) {
+		// Given a builder with valid metadata
+		builder, mocks := setup(t)
+
+		// Set up standard mocks with custom config behavior
+		mocks.Shims = setupShims(t)
+		builder.shims = mocks.Shims // Update builder to use new shims
+
+		// Mock image with empty manifest but failing config name
+		mockImg := &mockImageWithManifest{
+			manifestFunc: func() (*v1.Manifest, error) {
+				return &v1.Manifest{
+					Layers: []v1.Descriptor{}, // Empty layers to skip layer upload
+				}, nil
+			},
+			configNameFunc: func() (v1.Hash, error) {
+				return v1.Hash{}, fmt.Errorf("config name failed")
+			},
+		}
+		mocks.Shims.AppendLayers = func(base v1.Image, layers ...v1.Layer) (v1.Image, error) {
+			return mockImg, nil
+		}
+		mocks.Shims.ConfigFile = func(img v1.Image, cfg *v1.ConfigFile) (v1.Image, error) {
+			return mockImg, nil
+		}
+		mocks.Shims.MediaType = func(img v1.Image, mt types.MediaType) v1.Image {
+			return mockImg
+		}
+		mocks.Shims.ConfigMediaType = func(img v1.Image, mt types.MediaType) v1.Image {
+			return mockImg
+		}
+		mocks.Shims.Annotations = func(img v1.Image, annotations map[string]string) v1.Image {
+			return mockImg
+		}
+
+		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"))
+
+		// When pushing
+		err := builder.Push("registry.example.com", "test", "1.0.0")
+
+		// Then should get config digest error
+		if err == nil || !strings.Contains(err.Error(), "failed to get config digest") {
+			t.Errorf("Expected config digest error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorFromRawConfigFile", func(t *testing.T) {
+		// Given a builder with valid metadata
+		builder, mocks := setup(t)
+
+		// Set up standard mocks with custom config file behavior
+		mocks.Shims = setupShims(t)
+		builder.shims = mocks.Shims // Update builder to use new shims
+
+		// Mock image with successful config name but failing raw config
+		mockImg := &mockImageWithManifest{
+			manifestFunc: func() (*v1.Manifest, error) {
+				return &v1.Manifest{
+					Layers: []v1.Descriptor{}, // Empty layers to skip layer upload
+				}, nil
+			},
+			configNameFunc: func() (v1.Hash, error) {
+				return v1.Hash{
+					Algorithm: "sha256",
+					Hex:       "def456",
+				}, nil
+			},
+			rawConfigFileFunc: func() ([]byte, error) {
+				return nil, fmt.Errorf("raw config failed")
+			},
+		}
+		mocks.Shims.AppendLayers = func(base v1.Image, layers ...v1.Layer) (v1.Image, error) {
+			return mockImg, nil
+		}
+		mocks.Shims.ConfigFile = func(img v1.Image, cfg *v1.ConfigFile) (v1.Image, error) {
+			return mockImg, nil
+		}
+		mocks.Shims.MediaType = func(img v1.Image, mt types.MediaType) v1.Image {
+			return mockImg
+		}
+		mocks.Shims.ConfigMediaType = func(img v1.Image, mt types.MediaType) v1.Image {
+			return mockImg
+		}
+		mocks.Shims.Annotations = func(img v1.Image, annotations map[string]string) v1.Image {
+			return mockImg
+		}
+
+		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"))
+
+		// When pushing (assuming remote.Get will fail for config, triggering upload path)
+		err := builder.Push("registry.example.com", "test", "1.0.0")
+
+		// Then should get config file error
+		if err == nil || !strings.Contains(err.Error(), "failed to get config file") {
+			t.Errorf("Expected config file error, got: %v", err)
+		}
+	})
+
+	// Edge Cases for parseTagAndResolveMetadata Coverage
+	t.Run("EdgeCaseWithMultipleColonTag", func(t *testing.T) {
+		// Given a builder with metadata
+		builder, mocks := setup(t)
+
+		// Set up YAML unmarshal to return empty values
+		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
+			// Return empty input so tag parsing is tested
+			return nil
+		}
+		builder.AddFile("_templates/metadata.yaml", []byte(""))
+
+		// When creating with tag containing multiple colons (should fail in Create method)
+		_, err := builder.Create("test.tar.gz", "name:version:extra")
+
+		// Then should get tag format error
+		if err == nil || !strings.Contains(err.Error(), "tag must be in format 'name:version'") {
+			t.Errorf("Expected tag format error, got: %v", err)
+		}
+	})
+
+	t.Run("EdgeCaseWithEmptyTagParts", func(t *testing.T) {
+		// Given a builder with metadata
+		builder, mocks := setup(t)
+
+		// Set up YAML unmarshal to return empty values
+		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
+			return nil
+		}
+		builder.AddFile("_templates/metadata.yaml", []byte(""))
+
+		// When creating with tag having empty parts (should fail in Create method)
+		invalidTags := []string{":version", "name:", ":"}
+		for _, tag := range invalidTags {
+			_, err := builder.Create("test.tar.gz", tag)
+			if err == nil || !strings.Contains(err.Error(), "tag must be in format 'name:version'") {
+				t.Errorf("Expected tag format error for '%s', got: %v", tag, err)
+			}
+		}
+	})
+
+	t.Run("EdgeCaseWithRepoNameFallback", func(t *testing.T) {
+		// Given a builder with metadata that has no name
+		builder, mocks := setup(t)
+
+		// Set up YAML unmarshal to return metadata without name
+		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
+			input := v.(*BlueprintMetadataInput)
+			// No name set, should fall back to repoName
+			input.Version = "1.0.0"
+			return nil
+		}
+		builder.AddFile("_templates/metadata.yaml", []byte("version: 1.0.0"))
+
+		// Mock to terminate early after metadata resolution
+		mocks.Shims.AppendLayers = func(base v1.Image, layers ...v1.Layer) (v1.Image, error) {
+			return nil, fmt.Errorf("test termination - repoName fallback worked")
+		}
+
+		// When pushing (should use repoName as name fallback)
+		err := builder.Push("registry.example.com", "fallback-name", "2.0.0")
+
+		// Then should reach AppendLayers (proving repoName fallback worked)
+		if err == nil || !strings.Contains(err.Error(), "test termination - repoName fallback worked") {
+			t.Errorf("Expected repoName fallback to work, got: %v", err)
+		}
+	})
+
+	// Push Method Additional Coverage Tests
+	t.Run("SuccessPathWithEmptyTagName", func(t *testing.T) {
+		// Given a builder with valid metadata but no tag
+		builder, mocks := setup(t)
+
+		// Mock to terminate early after URL construction
+		mockImg := &mockImageWithManifest{
+			manifestFunc: func() (*v1.Manifest, error) {
+				// This tests the empty tagName path (repoURL without tag)
+				return nil, fmt.Errorf("test termination after URL construction")
+			},
+		}
+
+		// Override image creation to return our mock
+		mocks.Shims.AppendLayers = func(base v1.Image, layers ...v1.Layer) (v1.Image, error) {
+			return mockImg, nil
+		}
+		mocks.Shims.ConfigFile = func(img v1.Image, cfg *v1.ConfigFile) (v1.Image, error) {
+			return mockImg, nil
+		}
+		mocks.Shims.MediaType = func(img v1.Image, mt types.MediaType) v1.Image {
+			return mockImg
+		}
+		mocks.Shims.ConfigMediaType = func(img v1.Image, mt types.MediaType) v1.Image {
+			return mockImg
+		}
+		mocks.Shims.Annotations = func(img v1.Image, annotations map[string]string) v1.Image {
+			return mockImg
+		}
+
+		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"))
+
+		// When pushing with empty tag (should construct URL without tag)
+		err := builder.Push("registry.example.com", "test", "")
+
+		// Then should get expected test termination
+		if err == nil || !strings.Contains(err.Error(), "test termination after URL construction") {
+			t.Errorf("Expected URL construction termination, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorFromRemoteWriteLayer", func(t *testing.T) {
+		// Given a builder with files and metadata
+		builder, mocks := setup(t)
+
+		// And RemoteWriteLayer fails
+		mocks.Shims.RemoteWriteLayer = func(repo name.Repository, layer v1.Layer, options ...remote.Option) error {
+			return fmt.Errorf("layer upload failed")
+		}
+
+		builder.AddFile("file.txt", []byte("content"))
+
+		// When calling Push
+		err := builder.Push("registry.example.com", "test", "1.0.0")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error from layer upload failure")
+		}
+		if !strings.Contains(err.Error(), "failed to upload layer") {
+			t.Errorf("Expected layer upload error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorFromRemoteWrite", func(t *testing.T) {
+		// Given a builder with files and metadata
+		builder, mocks := setup(t)
+
+		// And RemoteWrite fails
+		mocks.Shims.RemoteWrite = func(ref name.Reference, img v1.Image, options ...remote.Option) error {
+			return fmt.Errorf("manifest upload failed")
+		}
+
+		builder.AddFile("file.txt", []byte("content"))
+
+		// When calling Push
+		err := builder.Push("registry.example.com", "test", "1.0.0")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error from manifest upload failure")
+		}
+		if !strings.Contains(err.Error(), "failed to push artifact to registry") {
+			t.Errorf("Expected manifest upload error, got: %v", err)
+		}
+	})
+
+	t.Run("SuccessWithBlobsExisting", func(t *testing.T) {
+		// Given a builder with files and metadata
+		builder, mocks := setup(t)
+
+		// And RemoteGet succeeds (blobs exist)
+		mocks.Shims.RemoteGet = func(ref name.Reference, options ...remote.Option) (*remote.Descriptor, error) {
+			return &remote.Descriptor{}, nil
+		}
+
+		builder.AddFile("file.txt", []byte("content"))
+
+		// When calling Push
+		err := builder.Push("registry.example.com", "test", "1.0.0")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected nil error, got %v", err)
+		}
+	})
+
+	t.Run("SuccessWithBlobsNotExisting", func(t *testing.T) {
+		// Given a builder with files and metadata
+		builder, mocks := setup(t)
+
+		// And RemoteGet fails (blobs don't exist, need upload)
+		mocks.Shims.RemoteGet = func(ref name.Reference, options ...remote.Option) (*remote.Descriptor, error) {
+			return nil, fmt.Errorf("blob not found")
+		}
+		// And RemoteWriteLayer succeeds
+		mocks.Shims.RemoteWriteLayer = func(repo name.Repository, layer v1.Layer, options ...remote.Option) error {
+			return nil
+		}
+
+		builder.AddFile("file.txt", []byte("content"))
+
+		// When calling Push
+		err := builder.Push("registry.example.com", "test", "1.0.0")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected nil error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorFromConfigUpload", func(t *testing.T) {
+		// Given a builder with files and metadata
+		builder, mocks := setup(t)
+
+		// And config blob doesn't exist but upload fails
+		callCount := 0
+		mocks.Shims.RemoteGet = func(ref name.Reference, options ...remote.Option) (*remote.Descriptor, error) {
+			return nil, fmt.Errorf("blob not found")
+		}
+		mocks.Shims.RemoteWriteLayer = func(repo name.Repository, layer v1.Layer, options ...remote.Option) error {
+			callCount++
+			if callCount == 1 {
+				// First call (layer upload) succeeds
+				return nil
+			}
+			// Second call (config upload) fails
+			return fmt.Errorf("config upload failed")
+		}
+
+		builder.AddFile("file.txt", []byte("content"))
+
+		// When calling Push
+		err := builder.Push("registry.example.com", "test", "1.0.0")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error from config upload failure")
+		}
+		if !strings.Contains(err.Error(), "failed to upload config") {
+			t.Errorf("Expected config upload error, got: %v", err)
 		}
 	})
 }
@@ -1671,3 +2137,61 @@ func (m *mockImage) Manifest() (*v1.Manifest, error)         { return nil, nil }
 func (m *mockImage) RawManifest() ([]byte, error)            { return nil, nil }
 func (m *mockImage) LayerByDigest(v1.Hash) (v1.Layer, error) { return nil, nil }
 func (m *mockImage) LayerByDiffID(v1.Hash) (v1.Layer, error) { return nil, nil }
+
+// Enhanced mock image with configurable behavior for testing different scenarios
+type mockImageWithManifest struct {
+	manifestFunc      func() (*v1.Manifest, error)
+	layerByDigestFunc func(v1.Hash) (v1.Layer, error)
+	configNameFunc    func() (v1.Hash, error)
+	rawConfigFileFunc func() ([]byte, error)
+}
+
+func (m *mockImageWithManifest) Layers() ([]v1.Layer, error)             { return nil, nil }
+func (m *mockImageWithManifest) MediaType() (types.MediaType, error)     { return "", nil }
+func (m *mockImageWithManifest) Size() (int64, error)                    { return 0, nil }
+func (m *mockImageWithManifest) ConfigFile() (*v1.ConfigFile, error)     { return nil, nil }
+func (m *mockImageWithManifest) Digest() (v1.Hash, error)                { return v1.Hash{}, nil }
+func (m *mockImageWithManifest) RawManifest() ([]byte, error)            { return nil, nil }
+func (m *mockImageWithManifest) LayerByDiffID(v1.Hash) (v1.Layer, error) { return nil, nil }
+
+func (m *mockImageWithManifest) Manifest() (*v1.Manifest, error) {
+	if m.manifestFunc != nil {
+		return m.manifestFunc()
+	}
+	mockImg := &mockImage{}
+	return mockImg.Manifest()
+}
+
+func (m *mockImageWithManifest) LayerByDigest(hash v1.Hash) (v1.Layer, error) {
+	if m.layerByDigestFunc != nil {
+		return m.layerByDigestFunc(hash)
+	}
+	mockImg := &mockImage{}
+	return mockImg.LayerByDigest(hash)
+}
+
+func (m *mockImageWithManifest) ConfigName() (v1.Hash, error) {
+	if m.configNameFunc != nil {
+		return m.configNameFunc()
+	}
+	mockImg := &mockImage{}
+	return mockImg.ConfigName()
+}
+
+func (m *mockImageWithManifest) RawConfigFile() ([]byte, error) {
+	if m.rawConfigFileFunc != nil {
+		return m.rawConfigFileFunc()
+	}
+	mockImg := &mockImage{}
+	return mockImg.RawConfigFile()
+}
+
+// Mock layer for testing
+type mockLayer struct{}
+
+func (m *mockLayer) Digest() (v1.Hash, error)             { return v1.Hash{}, nil }
+func (m *mockLayer) DiffID() (v1.Hash, error)             { return v1.Hash{}, nil }
+func (m *mockLayer) Compressed() (io.ReadCloser, error)   { return nil, nil }
+func (m *mockLayer) Uncompressed() (io.ReadCloser, error) { return nil, nil }
+func (m *mockLayer) Size() (int64, error)                 { return 0, nil }
+func (m *mockLayer) MediaType() (types.MediaType, error)  { return "", nil }

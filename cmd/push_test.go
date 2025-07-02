@@ -41,7 +41,7 @@ contexts:
 		artifactBuilder := bundler.NewMockArtifact()
 		artifactBuilder.InitializeFunc = func(injector di.Injector) error { return nil }
 		artifactBuilder.AddFileFunc = func(path string, content []byte) error { return nil }
-		artifactBuilder.PushFunc = func(registry string, tag string) error { return nil }
+		artifactBuilder.PushFunc = func(registryBase string, repoName string, tag string) error { return nil }
 
 		// Create mock template bundler
 		templateBundler := bundler.NewMockBundler()
@@ -123,6 +123,24 @@ func TestPushCmd(t *testing.T) {
 			t.Error("Expected error, got nil")
 		}
 		expectedError := "registry is required: windsor push registry/repo[:tag]"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorInvalidRegistryFormat", func(t *testing.T) {
+		// Given a properly configured push environment
+		mocks := setupPushMocks(t)
+
+		// When executing the push command with invalid registry format (no repository path)
+		rootCmd.SetArgs([]string{"push", "registry.example.com"})
+		err := Execute(mocks.Controller)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		expectedError := "invalid registry format: must include repository path (e.g., registry.com/namespace/repo)"
 		if err.Error() != expectedError {
 			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
@@ -214,7 +232,7 @@ func TestPushCmd(t *testing.T) {
 	t.Run("ErrorArtifactPushFails", func(t *testing.T) {
 		// Given a push environment with failing artifact push
 		mocks := setupPushMocks(t)
-		mocks.ArtifactBuilder.PushFunc = func(registry string, tag string) error {
+		mocks.ArtifactBuilder.PushFunc = func(registryBase string, repoName string, tag string) error {
 			return fmt.Errorf("push to registry failed")
 		}
 
@@ -299,8 +317,8 @@ func TestPushCmd(t *testing.T) {
 		mocks := setupPushMocks(t)
 		var receivedRegistry, receivedTag string
 
-		mocks.ArtifactBuilder.PushFunc = func(registry string, tag string) error {
-			receivedRegistry = registry
+		mocks.ArtifactBuilder.PushFunc = func(registryBase string, repoName string, tag string) error {
+			receivedRegistry = fmt.Sprintf("%s/%s", registryBase, repoName)
 			receivedTag = tag
 			return nil
 		}
@@ -328,7 +346,7 @@ func TestPushCmd(t *testing.T) {
 		mocks := setupPushMocks(t)
 		var receivedTag string
 
-		mocks.ArtifactBuilder.PushFunc = func(registry string, tag string) error {
+		mocks.ArtifactBuilder.PushFunc = func(registryBase string, repoName string, tag string) error {
 			receivedTag = tag
 			return nil
 		}
@@ -362,6 +380,99 @@ func TestPushCmd(t *testing.T) {
 		// Then no error should be returned (empty bundlers list is valid)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("EdgeCaseColonAtBeginning", func(t *testing.T) {
+		// Given a properly configured push environment
+		mocks := setupPushMocks(t)
+		var receivedRegistry, receivedTag string
+
+		mocks.ArtifactBuilder.PushFunc = func(registryBase string, repoName string, tag string) error {
+			receivedRegistry = fmt.Sprintf("%s/%s", registryBase, repoName)
+			receivedTag = tag
+			return nil
+		}
+
+		// When executing with colon at beginning (should not extract tag)
+		rootCmd.SetArgs([]string{"push", ":registry.example.com/repo"})
+		err := Execute(mocks.Controller)
+
+		// Then no error should be returned (colon at beginning is not treated as tag separator)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And no tag should be extracted
+		if receivedTag != "" {
+			t.Errorf("Expected empty tag, got %s", receivedTag)
+		}
+
+		// And registry should include the colon
+		if receivedRegistry != ":registry.example.com/repo" {
+			t.Errorf("Expected registry ':registry.example.com/repo', got %s", receivedRegistry)
+		}
+	})
+
+	t.Run("EdgeCaseColonAtEnd", func(t *testing.T) {
+		// Given a properly configured push environment
+		mocks := setupPushMocks(t)
+		var receivedRegistry, receivedTag string
+
+		mocks.ArtifactBuilder.PushFunc = func(registryBase string, repoName string, tag string) error {
+			receivedRegistry = fmt.Sprintf("%s/%s", registryBase, repoName)
+			receivedTag = tag
+			return nil
+		}
+
+		// When executing with colon at end (should not extract tag)
+		rootCmd.SetArgs([]string{"push", "registry.example.com/repo:"})
+		err := Execute(mocks.Controller)
+
+		// Then no error should be returned (colon at end means no tag)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And no tag should be extracted
+		if receivedTag != "" {
+			t.Errorf("Expected empty tag, got %s", receivedTag)
+		}
+
+		// And registry should be parsed correctly
+		if receivedRegistry != "registry.example.com/repo:" {
+			t.Errorf("Expected registry 'registry.example.com/repo:', got %s", receivedRegistry)
+		}
+	})
+
+	t.Run("EdgeCaseMultipleColons", func(t *testing.T) {
+		// Given a properly configured push environment
+		mocks := setupPushMocks(t)
+		var receivedRegistry, receivedTag string
+
+		mocks.ArtifactBuilder.PushFunc = func(registryBase string, repoName string, tag string) error {
+			receivedRegistry = fmt.Sprintf("%s/%s", registryBase, repoName)
+			receivedTag = tag
+			return nil
+		}
+
+		// When executing with multiple colons (should extract from last one)
+		rootCmd.SetArgs([]string{"push", "registry.example.com:5000/repo:v1.0.0"})
+		err := Execute(mocks.Controller)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And tag should be extracted from last colon
+		if receivedTag != "v1.0.0" {
+			t.Errorf("Expected tag 'v1.0.0', got %s", receivedTag)
+		}
+
+		// And registry should not include the tag
+		if receivedRegistry != "registry.example.com:5000/repo" {
+			t.Errorf("Expected registry 'registry.example.com:5000/repo', got %s", receivedRegistry)
 		}
 	})
 }
