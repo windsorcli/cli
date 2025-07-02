@@ -369,8 +369,12 @@ func (a *ArtifactBuilder) createTarballInMemory(metadata []byte) ([]byte, error)
 		}
 	}
 
-	tarWriter.Close()
-	gzipWriter.Close()
+	if err := tarWriter.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close tar writer: %w", err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close gzip writer: %w", err)
+	}
 
 	return buf.Bytes(), nil
 }

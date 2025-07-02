@@ -1682,6 +1682,30 @@ func TestArtifactBuilder_createTarballInMemory(t *testing.T) {
 			t.Errorf("Expected file content error, got: %v", err)
 		}
 	})
+
+	t.Run("ErrorWhenTarWriterCloseFails", func(t *testing.T) {
+		// Given a builder with files
+		builder, mocks := setup(t)
+		builder.AddFile("test.txt", []byte("content"))
+
+		// Mock tar writer to fail on Close
+		mocks.Shims.NewTarWriter = func(w io.Writer) TarWriter {
+			return &mockTarWriter{
+				closeFunc: func() error {
+					return fmt.Errorf("tar writer close failed")
+				},
+			}
+		}
+
+		// When creating tarball in memory
+		_, err := builder.createTarballInMemory([]byte("metadata"))
+
+		// Then should get tar writer close error
+		if err == nil || !strings.Contains(err.Error(), "failed to close tar writer") {
+			t.Errorf("Expected tar writer close error, got: %v", err)
+		}
+	})
+
 }
 
 // =============================================================================
