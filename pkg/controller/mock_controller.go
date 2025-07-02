@@ -5,6 +5,7 @@ import (
 
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
 	"github.com/windsorcli/cli/pkg/blueprint"
+	"github.com/windsorcli/cli/pkg/bundler"
 	"github.com/windsorcli/cli/pkg/cluster"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
@@ -47,6 +48,8 @@ type MockController struct {
 	ResolveKubernetesManagerFunc   func() kubernetes.KubernetesManager
 	ResolveKubernetesClientFunc    func() kubernetes.KubernetesClient
 	ResolveClusterClientFunc       func() cluster.ClusterClient
+	ResolveArtifactBuilderFunc     func() bundler.Artifact
+	ResolveAllBundlersFunc         func() []bundler.Bundler
 	WriteConfigurationFilesFunc    func() error
 	SetEnvironmentVariablesFunc    func() error
 }
@@ -201,6 +204,17 @@ func NewMockConstructors() ComponentConstructors {
 		// Cluster components
 		NewTalosClusterClient: func(injector di.Injector) *cluster.TalosClusterClient {
 			return cluster.NewTalosClusterClient(injector)
+		},
+
+		// Bundler components
+		NewArtifactBuilder: func(injector di.Injector) bundler.Artifact {
+			return bundler.NewMockArtifact()
+		},
+		NewTemplateBundler: func(injector di.Injector) bundler.Bundler {
+			return bundler.NewMockBundler()
+		},
+		NewKustomizeBundler: func(injector di.Injector) bundler.Bundler {
+			return bundler.NewMockBundler()
 		},
 	}
 }
@@ -398,6 +412,22 @@ func (m *MockController) ResolveClusterClient() cluster.ClusterClient {
 		return m.ResolveClusterClientFunc()
 	}
 	return m.BaseController.ResolveClusterClient()
+}
+
+// ResolveArtifactBuilder implements the Controller interface
+func (m *MockController) ResolveArtifactBuilder() bundler.Artifact {
+	if m.ResolveArtifactBuilderFunc != nil {
+		return m.ResolveArtifactBuilderFunc()
+	}
+	return m.BaseController.ResolveArtifactBuilder()
+}
+
+// ResolveAllBundlers implements the Controller interface
+func (m *MockController) ResolveAllBundlers() []bundler.Bundler {
+	if m.ResolveAllBundlersFunc != nil {
+		return m.ResolveAllBundlersFunc()
+	}
+	return m.BaseController.ResolveAllBundlers()
 }
 
 // Ensure MockController implements Controller

@@ -2,11 +2,17 @@ package bundler
 
 import (
 	"archive/tar"
+	"bytes"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/google/go-containerregistry/pkg/name"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/stream"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -68,24 +74,29 @@ type Artifact interface {
 	Initialize(injector di.Injector) error
 	AddFile(path string, content []byte) error
 	Create(outputPath string, tag string) (string, error)
+	Push(registry string, tag string) error
 }
 
 // =============================================================================
 // ArtifactBuilder Implementation
 // =============================================================================
 
-// ArtifactBuilder implements the Artifact interface for blueprint artifacts
+// ArtifactBuilder implements the Artifact interface
 type ArtifactBuilder struct {
-	shims *Shims
-	shell shell.Shell
-	files map[string][]byte
+	files       map[string][]byte
+	shims       *Shims
+	shell       shell.Shell
+	tarballPath string
+	metadata    BlueprintMetadataInput
 }
 
 // =============================================================================
 // Constructor
 // =============================================================================
 
-// NewArtifactBuilder creates a new ArtifactBuilder instance
+// NewArtifactBuilder creates a new ArtifactBuilder instance with default configuration.
+// Initializes an empty file map for storing artifact contents and sets up default shims
+// for system operations. The returned builder is ready for dependency injection and file operations.
 func NewArtifactBuilder() *ArtifactBuilder {
 	return &ArtifactBuilder{
 		shims: NewShims(),
@@ -97,7 +108,10 @@ func NewArtifactBuilder() *ArtifactBuilder {
 // Public Methods
 // =============================================================================
 
-// Initialize initializes the ArtifactBuilder with dependency injection
+// Initialize sets up the ArtifactBuilder with dependency injection and resolves required dependencies.
+// Extracts the shell dependency from the injector for git operations and command execution.
+// The shell is used for retrieving git provenance and builder information during metadata generation.
+// Returns an error if the shell cannot be resolved from the injector.
 func (a *ArtifactBuilder) Initialize(injector di.Injector) error {
 	if injector != nil {
 		shell, ok := injector.Resolve("shell").(shell.Shell)
@@ -109,23 +123,109 @@ func (a *ArtifactBuilder) Initialize(injector di.Injector) error {
 	return nil
 }
 
-// AddFile adds a file with the given path and content to the artifact
+// AddFile stores a file with the specified path and content in the artifact for later packaging.
+// Files are held in memory until Create() or Push() is called. The path becomes the relative
+// path within the generated tar.gz archive. Multiple calls with the same path will overwrite
+// the previous content. Special handling exists for "_templates/metadata.yaml" during packaging.
 func (a *ArtifactBuilder) AddFile(path string, content []byte) error {
 	a.files[path] = content
 	return nil
 }
 
-// Create generates a tar.gz artifact from stored files and metadata.
+// Create generates a compressed tar.gz artifact file from stored files and metadata with optional tag override.
 // Accepts optional tag in "name:version" format to override metadata.yaml values.
 // Tag takes precedence over existing metadata. If no metadata.yaml exists, tag is required.
 // OutputPath can be file or directory - generates filename from metadata if directory.
 // Creates compressed tar.gz with all files plus generated metadata.yaml at root.
+// Returns the final output path of the created artifact file.
 func (a *ArtifactBuilder) Create(outputPath string, tag string) (string, error) {
+	finalName, finalVersion, metadata, err := a.parseTagAndResolveMetadata(tag)
+	if err != nil {
+		return "", err
+	}
+
+	finalOutputPath := a.resolveOutputPath(outputPath, finalName, finalVersion)
+
+	err = a.createTarballToDisk(finalOutputPath, metadata)
+	if err != nil {
+		return "", err
+	}
+
+	a.tarballPath = finalOutputPath
+	a.metadata.Name = finalName
+	a.metadata.Version = finalVersion
+
+	return finalOutputPath, nil
+}
+
+// Push creates and uploads a FluxCD-compatible OCI artifact to the specified registry entirely in-memory.
+// The registry parameter should be in format "registry.example.com/namespace/name" or "registry.example.com:port/namespace/name".
+// The tag parameter should be in format "name:version" to override metadata, or empty to use existing metadata.
+// Creates a FluxCD-compatible OCI artifact entirely in-memory without touching the filesystem.
+// Uses FluxCD-specific media types and annotations for full compatibility with FluxCD OCI repositories.
+// Returns an error if registry format is invalid, tag format is incorrect, or push operation fails.
+func (a *ArtifactBuilder) Push(registry string, tag string) error {
+	finalName, finalVersion, metadata, err := a.parseTagAndResolveMetadata(tag)
+	if err != nil {
+		return err
+	}
+
+	var repoName, tagName string
+	if tag != "" {
+		parts := strings.Split(tag, ":")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return fmt.Errorf("invalid tag format: %s (expected format: name:version)", tag)
+		}
+		repoName = parts[0]
+		tagName = parts[1]
+	} else {
+		repoName = finalName
+		tagName = finalVersion
+	}
+
+	fullRepo := fmt.Sprintf("%s/%s", registry, repoName)
+
+	ref, err := name.ParseReference(fmt.Sprintf("%s:%s", fullRepo, tagName))
+	if err != nil {
+		return fmt.Errorf("invalid repository reference: %w", err)
+	}
+
+	tarballContent, err := a.createTarballInMemory(metadata)
+	if err != nil {
+		return fmt.Errorf("failed to create tarball in memory: %w", err)
+	}
+
+	layer := stream.NewLayer(io.NopCloser(bytes.NewReader(tarballContent)))
+
+	img, err := a.createFluxCDCompatibleImage(layer, repoName, tagName)
+	if err != nil {
+		return fmt.Errorf("failed to create FluxCD-compatible OCI image: %w", err)
+	}
+
+	err = remote.Write(ref, img)
+	if err != nil {
+		return fmt.Errorf("failed to push artifact to registry: %w", err)
+	}
+
+	return nil
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// parseTagAndResolveMetadata extracts name and version from tag parameter or metadata file and generates final metadata.
+// Handles tag parsing in "name:version" format and validates both components are non-empty.
+// Loads existing metadata.yaml from files if present and parses it as BlueprintMetadataInput.
+// Tag parameters take precedence over metadata file values for name and version.
+// Requires either tag parameters or metadata file to provide name and version.
+// Returns final name, version, and complete marshaled metadata ready for embedding in artifacts.
+func (a *ArtifactBuilder) parseTagAndResolveMetadata(tag string) (string, string, []byte, error) {
 	var tagName, tagVersion string
 	if tag != "" {
 		parts := strings.Split(tag, ":")
 		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			return "", fmt.Errorf("tag must be in format 'name:version', got: %s", tag)
+			return "", "", nil, fmt.Errorf("tag must be in format 'name:version', got: %s", tag)
 		}
 		tagName = parts[0]
 		tagVersion = parts[1]
@@ -136,7 +236,7 @@ func (a *ArtifactBuilder) Create(outputPath string, tag string) (string, error) 
 
 	if hasMetadata {
 		if err := a.shims.YamlUnmarshal(metadataData, &input); err != nil {
-			return "", fmt.Errorf("failed to parse metadata.yaml: %w", err)
+			return "", "", nil, fmt.Errorf("failed to parse metadata.yaml: %w", err)
 		}
 	}
 
@@ -151,22 +251,85 @@ func (a *ArtifactBuilder) Create(outputPath string, tag string) (string, error) 
 	}
 
 	if finalName == "" {
-		return "", fmt.Errorf("name is required: provide via tag parameter or metadata.yaml")
+		return "", "", nil, fmt.Errorf("name is required: provide via tag parameter or metadata.yaml")
 	}
 	if finalVersion == "" {
-		return "", fmt.Errorf("version is required: provide via tag parameter or metadata.yaml")
+		return "", "", nil, fmt.Errorf("version is required: provide via tag parameter or metadata.yaml")
 	}
-
-	finalOutputPath := a.resolveOutputPath(outputPath, finalName, finalVersion)
 
 	metadata, err := a.generateMetadataWithNameVersion(input, finalName, finalVersion)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate metadata: %w", err)
+		return "", "", nil, fmt.Errorf("failed to generate metadata: %w", err)
 	}
 
-	outputFile, err := a.shims.Create(finalOutputPath)
+	return finalName, finalVersion, metadata, nil
+}
+
+// createTarballInMemory builds a compressed tar.gz archive in memory and returns the complete content as bytes.
+// Creates a gzip-compressed tar archive containing all stored files plus generated metadata.yaml.
+// The metadata.yaml file is always written first at the root of the archive.
+// Skips any existing "_templates/metadata.yaml" file to avoid duplication.
+// All files are written with 0644 permissions in the archive.
+// Returns the complete archive as a byte slice for in-memory operations like OCI push.
+func (a *ArtifactBuilder) createTarballInMemory(metadata []byte) ([]byte, error) {
+	var buf bytes.Buffer
+
+	gzipWriter := a.shims.NewGzipWriter(&buf)
+	defer gzipWriter.Close()
+
+	tarWriter := a.shims.NewTarWriter(gzipWriter)
+	defer tarWriter.Close()
+
+	metadataHeader := &tar.Header{
+		Name: "metadata.yaml",
+		Mode: 0644,
+		Size: int64(len(metadata)),
+	}
+
+	if err := tarWriter.WriteHeader(metadataHeader); err != nil {
+		return nil, fmt.Errorf("failed to write metadata header: %w", err)
+	}
+
+	if _, err := tarWriter.Write(metadata); err != nil {
+		return nil, fmt.Errorf("failed to write metadata: %w", err)
+	}
+
+	for path, content := range a.files {
+		if path == "_templates/metadata.yaml" {
+			continue
+		}
+
+		header := &tar.Header{
+			Name: path,
+			Mode: 0644,
+			Size: int64(len(content)),
+		}
+
+		if err := tarWriter.WriteHeader(header); err != nil {
+			return nil, fmt.Errorf("failed to write header for %s: %w", path, err)
+		}
+
+		if _, err := tarWriter.Write(content); err != nil {
+			return nil, fmt.Errorf("failed to write content for %s: %w", path, err)
+		}
+	}
+
+	tarWriter.Close()
+	gzipWriter.Close()
+
+	return buf.Bytes(), nil
+}
+
+// createTarballToDisk builds a compressed tar.gz archive and writes it directly to the specified file path.
+// Creates the output file at the specified path and writes a gzip-compressed tar archive.
+// The metadata.yaml file is always written first at the root of the archive.
+// Skips any existing "_templates/metadata.yaml" file to avoid duplication.
+// All files are written with 0644 permissions in the archive.
+// Properly closes writers to ensure all data is flushed to disk before returning.
+func (a *ArtifactBuilder) createTarballToDisk(outputPath string, metadata []byte) error {
+	outputFile, err := a.shims.Create(outputPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to create output file: %w", err)
+		return fmt.Errorf("failed to create output file: %w", err)
 	}
 	defer outputFile.Close()
 
@@ -183,11 +346,11 @@ func (a *ArtifactBuilder) Create(outputPath string, tag string) (string, error) 
 	}
 
 	if err := tarWriter.WriteHeader(metadataHeader); err != nil {
-		return "", fmt.Errorf("failed to write metadata header: %w", err)
+		return fmt.Errorf("failed to write metadata header: %w", err)
 	}
 
 	if _, err := tarWriter.Write(metadata); err != nil {
-		return "", fmt.Errorf("failed to write metadata: %w", err)
+		return fmt.Errorf("failed to write metadata: %w", err)
 	}
 
 	for path, content := range a.files {
@@ -202,25 +365,75 @@ func (a *ArtifactBuilder) Create(outputPath string, tag string) (string, error) 
 		}
 
 		if err := tarWriter.WriteHeader(header); err != nil {
-			return "", fmt.Errorf("failed to write header for %s: %w", path, err)
+			return fmt.Errorf("failed to write header for %s: %w", path, err)
 		}
 
 		if _, err := tarWriter.Write(content); err != nil {
-			return "", fmt.Errorf("failed to write content for %s: %w", path, err)
+			return fmt.Errorf("failed to write content for %s: %w", path, err)
 		}
 	}
 
-	return finalOutputPath, nil
+	return nil
 }
 
-// =============================================================================
-// Private Methods
-// =============================================================================
+// createFluxCDCompatibleImage constructs an OCI image from a layer with FluxCD-specific media types and annotations.
+// Creates a FluxCD-compatible config file with empty JSON content as required by FluxCD.
+// Sets architecture to amd64 and OS to linux, though FluxCD doesn't enforce these for config artifacts.
+// Applies FluxCD-specific media types: manifest v1+json and flux config v1+json.
+// Adds comprehensive OCI annotations including creation time, source, revision, title, and version.
+// Returns a complete OCI image ready for pushing to FluxCD-compatible registries.
+func (a *ArtifactBuilder) createFluxCDCompatibleImage(layer v1.Layer, repoName, tagName string) (v1.Image, error) {
+	configFile := &v1.ConfigFile{
+		Architecture: "amd64",
+		OS:           "linux",
+		Config: v1.Config{
+			Labels: map[string]string{
+				"org.opencontainers.image.title":       repoName,
+				"org.opencontainers.image.description": fmt.Sprintf("FluxCD artifact for %s", repoName),
+			},
+		},
+		RootFS: v1.RootFS{
+			Type: "layers",
+		},
+		History: []v1.History{
+			{
+				Created: v1.Time{Time: time.Now()},
+				Comment: "FluxCD artifact layer",
+			},
+		},
+	}
 
-// resolveOutputPath determines the final output path for the artifact.
+	img, err := a.shims.AppendLayers(a.shims.EmptyImage(), layer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to append layer to image: %w", err)
+	}
+
+	img, err = a.shims.ConfigFile(img, configFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to set config file: %w", err)
+	}
+
+	img = a.shims.MediaType(img, "application/vnd.oci.image.manifest.v1+json")
+	img = a.shims.ConfigMediaType(img, "application/vnd.cncf.flux.config.v1+json")
+
+	annotations := map[string]string{
+		"org.opencontainers.image.created":  time.Now().UTC().Format(time.RFC3339),
+		"org.opencontainers.image.source":   "windsor-cli",
+		"org.opencontainers.image.revision": "latest",
+		"org.opencontainers.image.title":    repoName,
+		"org.opencontainers.image.version":  tagName,
+	}
+
+	img = a.shims.Annotations(img, annotations)
+
+	return img, nil
+}
+
+// resolveOutputPath determines the final output file path based on the provided path and artifact metadata.
 // If outputPath is a directory or ends with slash, generates filename from name and version in that directory.
 // If outputPath appears to be a directory path (no extension), generates filename from name and version.
 // Otherwise uses outputPath as-is for the filename (user provided explicit filename).
+// Generated filenames follow the pattern: {name}-{version}.tar.gz.
 func (a *ArtifactBuilder) resolveOutputPath(outputPath, name, version string) string {
 	filename := fmt.Sprintf("%s-%s.tar.gz", name, version)
 
@@ -239,65 +452,85 @@ func (a *ArtifactBuilder) resolveOutputPath(outputPath, name, version string) st
 	return outputPath
 }
 
-// generateMetadataWithNameVersion creates metadata for bundled artifacts with final name and version.
-// It combines input metadata with git provenance and builder information, then marshals
+// generateMetadataWithNameVersion creates complete blueprint metadata by merging input metadata with name and version.
+// Combines input metadata with git provenance and builder information, then marshals
 // the complete metadata structure to YAML for embedding in the artifact.
+// Git provenance and builder info are best-effort - failures result in empty values rather than errors.
+// Includes timestamp in RFC3339 format for artifact creation tracking.
+// Returns marshaled YAML bytes ready for inclusion in tar archives.
 func (a *ArtifactBuilder) generateMetadataWithNameVersion(input BlueprintMetadataInput, name, version string) ([]byte, error) {
-	gitInfo, _ := a.getGitProvenance()
-	builderInfo, _ := a.getBuilderInfo()
+	gitProvenance, err := a.getGitProvenance()
+	if err != nil {
+		gitProvenance = GitProvenance{}
+	}
+
+	builderInfo, err := a.getBuilderInfo()
+	if err != nil {
+		builderInfo = BuilderInfo{}
+	}
 
 	metadata := BlueprintMetadata{
 		Name:        name,
-		Version:     version,
 		Description: input.Description,
+		Version:     version,
 		Author:      input.Author,
 		Tags:        input.Tags,
 		Homepage:    input.Homepage,
 		License:     input.License,
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
-		Git:         gitInfo,
+		Git:         gitProvenance,
 		Builder:     builderInfo,
 	}
 
 	return a.shims.YamlMarshal(metadata)
 }
 
-// getGitProvenance extracts git repository information for provenance tracking.
-// All git operations are best-effort and failures are ignored since git provenance is optional.
-// Returns empty values for any git operations that fail.
+// getGitProvenance retrieves git repository information including commit SHA, tag, and remote URL.
+// Extracts git repository information for provenance tracking using shell commands.
+// Requires shell dependency to be available for git command execution.
+// Gets current commit SHA, attempts to find exact tag match for HEAD, and retrieves origin URL.
+// Tag lookup uses exact match only - returns empty string if HEAD is not tagged.
+// All git operations return errors if commands fail, unlike the best-effort approach in some functions.
 func (a *ArtifactBuilder) getGitProvenance() (GitProvenance, error) {
-	var gitInfo GitProvenance
-
-	if commitSHA, err := a.shell.ExecSilent("git", "rev-parse", "HEAD"); err == nil {
-		gitInfo.CommitSHA = strings.TrimSpace(commitSHA)
+	commitSHA, err := a.shell.ExecSilent("git", "rev-parse", "HEAD")
+	if err != nil {
+		return GitProvenance{}, fmt.Errorf("failed to get commit SHA: %w", err)
 	}
 
-	if tag, err := a.shell.ExecSilent("git", "tag", "--points-at", "HEAD"); err == nil {
-		gitInfo.Tag = strings.TrimSpace(tag)
+	tag, _ := a.shell.ExecSilent("git", "describe", "--tags", "--exact-match", "HEAD")
+
+	remoteURL, err := a.shell.ExecSilent("git", "config", "--get", "remote.origin.url")
+	if err != nil {
+		remoteURL = ""
 	}
 
-	if remoteURL, err := a.shell.ExecSilent("git", "config", "--get", "remote.origin.url"); err == nil {
-		gitInfo.RemoteURL = strings.TrimSpace(remoteURL)
-	}
-
-	return gitInfo, nil
+	return GitProvenance{
+		CommitSHA: strings.TrimSpace(commitSHA),
+		Tag:       strings.TrimSpace(tag),
+		RemoteURL: strings.TrimSpace(remoteURL),
+	}, nil
 }
 
-// getBuilderInfo extracts information about who/what built the artifact.
-// It retrieves git user name and email configuration. All git operations are
-// best-effort and failures are ignored since builder info is optional.
+// getBuilderInfo retrieves information about the current user building the artifact.
+// Extracts information about who/what built the artifact using git configuration.
+// Retrieves git user name and email configuration from git global or repository config.
+// Returns empty strings for missing configuration rather than errors for optional builder info.
+// Used for audit trails and artifact attribution in generated metadata.
 func (a *ArtifactBuilder) getBuilderInfo() (BuilderInfo, error) {
-	var builderInfo BuilderInfo
-
-	if user, err := a.shell.ExecSilent("git", "config", "user.name"); err == nil {
-		builderInfo.User = strings.TrimSpace(user)
+	user, err := a.shell.ExecSilent("git", "config", "--get", "user.name")
+	if err != nil {
+		user = ""
 	}
 
-	if email, err := a.shell.ExecSilent("git", "config", "user.email"); err == nil {
-		builderInfo.Email = strings.TrimSpace(email)
+	email, err := a.shell.ExecSilent("git", "config", "--get", "user.email")
+	if err != nil {
+		email = ""
 	}
 
-	return builderInfo, nil
+	return BuilderInfo{
+		User:  strings.TrimSpace(user),
+		Email: strings.TrimSpace(email),
+	}, nil
 }
 
 // Ensure ArtifactBuilder implements Artifact interface
