@@ -10,23 +10,24 @@ import (
 // bundleCmd represents the bundle command
 var bundleCmd = &cobra.Command{
 	Use:   "bundle",
-	Short: "Bundle blueprints into distributable artifacts",
-	Long: `Bundle blueprints into distributable artifacts for deployment.
+	Short: "Bundle blueprints into a .tar.gz archive",
+	Long: `Bundle your Windsor blueprints into a compressed archive for distribution.
 
-This command packages your Windsor blueprints into compressed archives that can be
-distributed and deployed to target environments. The bundling process includes:
+This command packages your blueprints into a .tar.gz file that can be shared,
+stored, or deployed to target environments.
 
-- Template bundling: Packages Jsonnet templates from contexts/_template/
-- Kustomize bundling: Packages Kustomize configurations
-- Metadata generation: Creates deployment metadata with build information
-- Archive creation: Compresses everything into .tar.gz format
+Examples:
+  # Bundle with automatic naming
+  windsor bundle -t myapp:v1.0.0
 
-The resulting artifacts are compatible with FluxCD OCI registries and other
-deployment systems that support compressed archives.
+  # Bundle to specific file
+  windsor bundle -t myapp:v1.0.0 -o myapp-v1.0.0.tar.gz
 
-Tag format is required as "name:version". If metadata.yaml
-exists, tag values override metadata values. Tag is required if no metadata.yaml
-exists or if metadata.yaml lacks name/version fields.`,
+  # Bundle to directory (filename auto-generated)
+  windsor bundle -t myapp:v1.0.0 -o ./dist/
+
+  # Bundle using metadata.yaml for name/version
+  windsor bundle`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
