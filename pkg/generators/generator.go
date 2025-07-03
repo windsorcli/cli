@@ -3,6 +3,7 @@ package generators
 import (
 	"fmt"
 
+	bundler "github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
@@ -37,6 +38,7 @@ type BaseGenerator struct {
 	blueprintHandler blueprint.BlueprintHandler
 	shell            shell.Shell
 	shims            *Shims
+	artifactBuilder  bundler.Artifact
 }
 
 // =============================================================================
@@ -56,7 +58,7 @@ func NewGenerator(injector di.Injector) *BaseGenerator {
 // =============================================================================
 
 // Initialize sets up the BaseGenerator by resolving and storing required dependencies.
-// It ensures that the config handler, blueprint handler, and shell are properly initialized.
+// It ensures that the config handler, blueprint handler, shell, and artifact builder are properly initialized.
 func (g *BaseGenerator) Initialize() error {
 	configHandler, ok := g.injector.Resolve("configHandler").(config.ConfigHandler)
 	if !ok {
@@ -75,6 +77,12 @@ func (g *BaseGenerator) Initialize() error {
 		return fmt.Errorf("failed to resolve shell instance")
 	}
 	g.shell = shellInstance
+
+	artifactBuilder, ok := g.injector.Resolve("artifactBuilder").(bundler.Artifact)
+	if !ok {
+		return fmt.Errorf("failed to resolve artifact builder")
+	}
+	g.artifactBuilder = artifactBuilder
 
 	return nil
 }

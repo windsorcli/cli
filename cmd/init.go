@@ -218,6 +218,7 @@ var initCmd = &cobra.Command{
 			Blueprint:   true,
 			Cluster:     true,
 			Generators:  true,
+			Bundler:     true,
 			Stack:       true,
 			Reset:       reset,
 			CommandName: cmd.Name(),

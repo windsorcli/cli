@@ -78,7 +78,6 @@ func (g *TerraformGenerator) Write(overwrite ...bool) error {
 	}
 	g.reset = shouldOverwrite
 
-	// Preload all OCI artifacts before processing components
 	ociArtifacts, err := g.preloadOCIArtifacts()
 	if err != nil {
 		return fmt.Errorf("failed to preload OCI artifacts: %w", err)
@@ -257,7 +256,7 @@ func (g *TerraformGenerator) processJsonnetTemplate(templateFile, contextName st
 	}
 
 	componentPath := strings.TrimSuffix(relPath, ".jsonnet")
-	componentPath = strings.ReplaceAll(componentPath, "\\", "/") // Windows fix
+	componentPath = strings.ReplaceAll(componentPath, "\\", "/")
 	templateValues[componentPath] = values
 
 	return nil
@@ -390,15 +389,9 @@ func (g *TerraformGenerator) extractOCIModule(source, path string, ociArtifacts 
 		return fullModulePath, nil
 	}
 
-	var artifactData []byte
-	if cachedData, exists := ociArtifacts[cacheKey]; exists {
-		artifactData = cachedData
-	} else {
-		artifactData, err = g.downloadOCIArtifact(registry, repository, tag)
-		if err != nil {
-			return "", fmt.Errorf("failed to download OCI artifact: %w", err)
-		}
-		ociArtifacts[cacheKey] = artifactData
+	artifactData, exists := ociArtifacts[cacheKey]
+	if !exists {
+		return "", fmt.Errorf("OCI artifact %s not found in cache", cacheKey)
 	}
 
 	if err := g.extractModuleFromArtifact(artifactData, path, extractionKey); err != nil {
@@ -406,47 +399,6 @@ func (g *TerraformGenerator) extractOCIModule(source, path string, ociArtifacts 
 	}
 
 	return fullModulePath, nil
-}
-
-// downloadOCIArtifact downloads an OCI artifact and returns the tar.gz data.
-// It provides OCI registry communication, image retrieval, and layer extraction.
-// The function handles OCI reference parsing, remote image access, and data streaming.
-// It ensures proper resource cleanup and memory-efficient artifact data retrieval.
-func (g *TerraformGenerator) downloadOCIArtifact(registry, repository, tag string) ([]byte, error) {
-	ref := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
-
-	parsedRef, err := g.shims.ParseReference(ref)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse reference %s: %w", ref, err)
-	}
-
-	img, err := g.shims.RemoteImage(parsedRef)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get image: %w", err)
-	}
-
-	layers, err := g.shims.ImageLayers(img)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get image layers: %w", err)
-	}
-
-	if len(layers) == 0 {
-		return nil, fmt.Errorf("no layers found in image")
-	}
-
-	layer := layers[0]
-	reader, err := g.shims.LayerUncompressed(layer)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get layer reader: %w", err)
-	}
-	defer reader.Close()
-
-	data, err := g.shims.ReadAll(reader)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read layer data: %w", err)
-	}
-
-	return data, nil
 }
 
 // extractModuleFromArtifact extracts a specific terraform module from cached artifact data directly to .oci_extracted.
@@ -1207,54 +1159,20 @@ func (g *TerraformGenerator) parseOCIRef(ociRef string) (registry, repository, t
 // It returns a map of cached artifacts keyed by their registry/repository:tag identifier.
 func (g *TerraformGenerator) preloadOCIArtifacts() (map[string][]byte, error) {
 	sources := g.blueprintHandler.GetSources()
-	ociArtifacts := make(map[string][]byte)
+	var ociRefs []string
 
-	uniqueOCISources := make(map[string]bool)
 	for _, source := range sources {
 		if strings.HasPrefix(source.Url, "oci://") {
-			uniqueOCISources[source.Url] = true
+			ociRefs = append(ociRefs, source.Url)
 		}
 	}
 
-	if len(uniqueOCISources) == 0 {
-		return ociArtifacts, nil
+	if len(ociRefs) == 0 {
+		return make(map[string][]byte), nil
 	}
 
-	message := "📦 Loading OCI sources"
-	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
-	spin.Suffix = " " + message
-	spin.Start()
-
-	defer func() {
-		spin.Stop()
-		fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
-	}()
-
-	for _, source := range sources {
-		if !strings.HasPrefix(source.Url, "oci://") {
-			continue
-		}
-
-		registry, repository, tag, err := g.parseOCIRef(source.Url)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse OCI reference for source %s: %w", source.Name, err)
-		}
-
-		cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
-
-		if _, exists := ociArtifacts[cacheKey]; exists {
-			continue
-		}
-
-		artifactData, err := g.downloadOCIArtifact(registry, repository, tag)
-		if err != nil {
-			return nil, fmt.Errorf("failed to download OCI artifact for source %s: %w", source.Name, err)
-		}
-
-		ociArtifacts[cacheKey] = artifactData
-	}
-
-	return ociArtifacts, nil
+	// Use the injected artifact builder to download all OCI artifacts
+	return g.artifactBuilder.Pull(ociRefs)
 }
 
 // =============================================================================

@@ -1,4 +1,4 @@
-package bundler
+package artifact
 
 import (
 	"fmt"

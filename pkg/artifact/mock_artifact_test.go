@@ -1,6 +1,7 @@
-package bundler
+package artifact
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
@@ -184,6 +185,166 @@ func TestMockArtifact_Push(t *testing.T) {
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected nil error, got %v", err)
+		}
+	})
+}
+
+func TestMockArtifact_Pull(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a MockArtifact with PullFunc set
+		mock := NewMockArtifact()
+		expectedArtifacts := map[string][]byte{
+			"registry.example.com/repo:v1.0.0": []byte("test artifact data"),
+		}
+		mock.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
+			return expectedArtifacts, nil
+		}
+
+		// When Pull is called
+		ociRefs := []string{"oci://registry.example.com/repo:v1.0.0"}
+		artifacts, err := mock.Pull(ociRefs)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And the expected artifacts should be returned
+		if len(artifacts) != len(expectedArtifacts) {
+			t.Errorf("expected %d artifacts, got %d", len(expectedArtifacts), len(artifacts))
+		}
+
+		for key, expectedData := range expectedArtifacts {
+			if actualData, exists := artifacts[key]; !exists {
+				t.Errorf("expected artifact %s to exist", key)
+			} else if string(actualData) != string(expectedData) {
+				t.Errorf("expected artifact data %s, got %s", expectedData, actualData)
+			}
+		}
+	})
+
+	t.Run("ErrorFromPullFunc", func(t *testing.T) {
+		// Given a MockArtifact with PullFunc that returns an error
+		mock := NewMockArtifact()
+		expectedError := fmt.Errorf("mock pull error")
+		mock.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
+			return nil, expectedError
+		}
+
+		// When Pull is called
+		ociRefs := []string{"oci://registry.example.com/repo:v1.0.0"}
+		artifacts, err := mock.Pull(ociRefs)
+
+		// Then the expected error should be returned
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("expected error %v, got %v", expectedError, err)
+		}
+
+		// And artifacts should be nil
+		if artifacts != nil {
+			t.Errorf("expected nil artifacts, got %v", artifacts)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a MockArtifact with no PullFunc set
+		mock := NewMockArtifact()
+
+		// When Pull is called
+		ociRefs := []string{"oci://registry.example.com/repo:v1.0.0"}
+		artifacts, err := mock.Pull(ociRefs)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And an empty map should be returned
+		if artifacts == nil {
+			t.Errorf("expected empty map, got nil")
+		}
+		if len(artifacts) != 0 {
+			t.Errorf("expected empty map, got %d items", len(artifacts))
+		}
+	})
+
+	t.Run("VerifyPullFuncParameters", func(t *testing.T) {
+		// Given a MockArtifact with PullFunc that verifies parameters
+		mock := NewMockArtifact()
+		var receivedOCIRefs []string
+		mock.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
+			receivedOCIRefs = ociRefs
+			return make(map[string][]byte), nil
+		}
+
+		// When Pull is called with specific parameters
+		expectedOCIRefs := []string{
+			"oci://registry.example.com/repo1:v1.0.0",
+			"oci://registry.example.com/repo2:v2.0.0",
+		}
+		_, err := mock.Pull(expectedOCIRefs)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And the PullFunc should receive the correct parameters
+		if len(receivedOCIRefs) != len(expectedOCIRefs) {
+			t.Errorf("expected %d OCI refs, got %d", len(expectedOCIRefs), len(receivedOCIRefs))
+		}
+
+		for i, expected := range expectedOCIRefs {
+			if i >= len(receivedOCIRefs) || receivedOCIRefs[i] != expected {
+				t.Errorf("expected OCI ref %s at index %d, got %s", expected, i, receivedOCIRefs[i])
+			}
+		}
+	})
+
+	t.Run("MultipleCallsWithDifferentBehavior", func(t *testing.T) {
+		// Given a MockArtifact with PullFunc that changes behavior
+		mock := NewMockArtifact()
+		callCount := 0
+		mock.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
+			callCount++
+			if callCount == 1 {
+				return map[string][]byte{
+					"registry.example.com/repo:v1.0.0": []byte("first call data"),
+				}, nil
+			}
+			return map[string][]byte{
+				"registry.example.com/repo:v1.0.0": []byte("second call data"),
+			}, nil
+		}
+
+		// When Pull is called multiple times
+		ociRefs := []string{"oci://registry.example.com/repo:v1.0.0"}
+
+		artifacts1, err1 := mock.Pull(ociRefs)
+		if err1 != nil {
+			t.Errorf("expected no error on first call, got %v", err1)
+		}
+
+		artifacts2, err2 := mock.Pull(ociRefs)
+		if err2 != nil {
+			t.Errorf("expected no error on second call, got %v", err2)
+		}
+
+		// Then each call should return different data
+		key := "registry.example.com/repo:v1.0.0"
+		if string(artifacts1[key]) != "first call data" {
+			t.Errorf("expected first call data, got %s", artifacts1[key])
+		}
+		if string(artifacts2[key]) != "second call data" {
+			t.Errorf("expected second call data, got %s", artifacts2[key])
+		}
+
+		// And both calls should have been made
+		if callCount != 2 {
+			t.Errorf("expected 2 calls, got %d", callCount)
 		}
 	})
 }

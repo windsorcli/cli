@@ -1,7 +1,8 @@
-package bundler
+package artifact
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"fmt"
 	"io"
@@ -2372,3 +2373,624 @@ func (m *mockLayer) Compressed() (io.ReadCloser, error)   { return nil, nil }
 func (m *mockLayer) Uncompressed() (io.ReadCloser, error) { return nil, nil }
 func (m *mockLayer) Size() (int64, error)                 { return 0, nil }
 func (m *mockLayer) MediaType() (types.MediaType, error)  { return "", nil }
+
+func TestArtifactBuilder_parseOCIRef(t *testing.T) {
+	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder()
+		builder.shims = mocks.Shims
+		if err := builder.Initialize(mocks.Injector); err != nil {
+			t.Fatalf("failed to initialize ArtifactBuilder: %v", err)
+		}
+		return builder, mocks
+	}
+
+	t.Run("ValidOCIReference", func(t *testing.T) {
+		// Given an ArtifactBuilder
+		builder, _ := setup(t)
+
+		// When parseOCIRef is called with valid OCI reference
+		registry, repository, tag, err := builder.parseOCIRef("oci://registry.example.com/my-repo:v1.0.0")
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And the components should be parsed correctly
+		if registry != "registry.example.com" {
+			t.Errorf("expected registry 'registry.example.com', got %s", registry)
+		}
+		if repository != "my-repo" {
+			t.Errorf("expected repository 'my-repo', got %s", repository)
+		}
+		if tag != "v1.0.0" {
+			t.Errorf("expected tag 'v1.0.0', got %s", tag)
+		}
+	})
+
+	t.Run("InvalidOCIPrefix", func(t *testing.T) {
+		// Given an ArtifactBuilder
+		builder, _ := setup(t)
+
+		// When parseOCIRef is called with invalid prefix
+		_, _, _, err := builder.parseOCIRef("https://registry.example.com/my-repo:v1.0.0")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should contain the expected message
+		expectedError := "invalid OCI reference format: https://registry.example.com/my-repo:v1.0.0"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("MissingTag", func(t *testing.T) {
+		// Given an ArtifactBuilder
+		builder, _ := setup(t)
+
+		// When parseOCIRef is called with missing tag
+		_, _, _, err := builder.parseOCIRef("oci://registry.example.com/my-repo")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should contain the expected message
+		expectedError := "invalid OCI reference format, expected registry/repository:tag: oci://registry.example.com/my-repo"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("MissingRepository", func(t *testing.T) {
+		// Given an ArtifactBuilder
+		builder, _ := setup(t)
+
+		// When parseOCIRef is called with missing repository
+		_, _, _, err := builder.parseOCIRef("oci://registry.example.com:v1.0.0")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should contain the expected message
+		expectedError := "invalid OCI reference format, expected registry/repository:tag: oci://registry.example.com:v1.0.0"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("NestedRepositoryPath", func(t *testing.T) {
+		// Given an ArtifactBuilder
+		builder, _ := setup(t)
+
+		// When parseOCIRef is called with nested repository path
+		registry, repository, tag, err := builder.parseOCIRef("oci://registry.example.com/organization/my-repo:v1.0.0")
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And the components should be parsed correctly
+		if registry != "registry.example.com" {
+			t.Errorf("expected registry 'registry.example.com', got %s", registry)
+		}
+		if repository != "organization/my-repo" {
+			t.Errorf("expected repository 'organization/my-repo', got %s", repository)
+		}
+		if tag != "v1.0.0" {
+			t.Errorf("expected tag 'v1.0.0', got %s", tag)
+		}
+	})
+}
+
+func TestArtifactBuilder_downloadOCIArtifact(t *testing.T) {
+	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder()
+		builder.shims = mocks.Shims
+		if err := builder.Initialize(mocks.Injector); err != nil {
+			t.Fatalf("failed to initialize ArtifactBuilder: %v", err)
+		}
+		return builder, mocks
+	}
+
+	t.Run("ParseReferenceSuccess", func(t *testing.T) {
+		// Given an ArtifactBuilder with successful parse but failing remote
+		builder, mocks := setup(t)
+
+		mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return nil, nil // Success
+		}
+
+		mocks.Shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return nil, fmt.Errorf("remote image error") // Fail at next step
+		}
+
+		// When downloadOCIArtifact is called
+		_, err := builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
+
+		// Then it should fail at remote image step
+		if err == nil {
+			t.Error("expected error for remote image failure")
+		}
+		if !strings.Contains(err.Error(), "failed to get image") {
+			t.Errorf("expected remote image error, got %v", err)
+		}
+	})
+
+	t.Run("ParseReferenceError", func(t *testing.T) {
+		// Given an ArtifactBuilder with parse reference error
+		builder, mocks := setup(t)
+
+		mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return nil, fmt.Errorf("parse error")
+		}
+
+		// When downloadOCIArtifact is called
+		_, err := builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
+
+		// Then it should return parse reference error
+		if err == nil {
+			t.Error("expected error for parse reference failure")
+		}
+		if !strings.Contains(err.Error(), "failed to parse reference") {
+			t.Errorf("expected parse reference error, got %v", err)
+		}
+	})
+
+	t.Run("RemoteImageError", func(t *testing.T) {
+		// Given an ArtifactBuilder with remote image error
+		builder, mocks := setup(t)
+
+		mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return nil, nil
+		}
+
+		mocks.Shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return nil, fmt.Errorf("remote error")
+		}
+
+		// When downloadOCIArtifact is called
+		_, err := builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
+
+		// Then it should return remote image error
+		if err == nil {
+			t.Error("expected error for remote image failure")
+		}
+		if !strings.Contains(err.Error(), "failed to get image") {
+			t.Errorf("expected remote image error, got %v", err)
+		}
+	})
+
+	t.Run("ImageLayersError", func(t *testing.T) {
+		// Given an ArtifactBuilder with image layers error
+		builder, mocks := setup(t)
+
+		mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return nil, nil
+		}
+
+		mocks.Shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return nil, nil
+		}
+
+		mocks.Shims.ImageLayers = func(img v1.Image) ([]v1.Layer, error) {
+			return nil, fmt.Errorf("layers error")
+		}
+
+		// When downloadOCIArtifact is called
+		_, err := builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
+
+		// Then it should return image layers error
+		if err == nil {
+			t.Error("expected error for image layers failure")
+		}
+		if !strings.Contains(err.Error(), "failed to get image layers") {
+			t.Errorf("expected image layers error, got %v", err)
+		}
+	})
+}
+
+func TestArtifactBuilder_Pull(t *testing.T) {
+	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder()
+		builder.shims = mocks.Shims
+
+		// Set up OCI mocks
+		mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return nil, nil
+		}
+
+		mocks.Shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return nil, nil
+		}
+
+		mocks.Shims.ImageLayers = func(img v1.Image) ([]v1.Layer, error) {
+			return []v1.Layer{&mockLayer{}}, nil
+		}
+
+		mocks.Shims.LayerUncompressed = func(layer v1.Layer) (io.ReadCloser, error) {
+			data := []byte("test artifact data")
+			return io.NopCloser(strings.NewReader(string(data))), nil
+		}
+
+		mocks.Shims.ReadAll = func(r io.Reader) ([]byte, error) {
+			return []byte("test artifact data"), nil
+		}
+
+		if err := builder.Initialize(mocks.Injector); err != nil {
+			t.Fatalf("failed to initialize ArtifactBuilder: %v", err)
+		}
+		return builder, mocks
+	}
+
+	t.Run("EmptyList", func(t *testing.T) {
+		// Given an ArtifactBuilder with mocks
+		builder, _ := setup(t)
+
+		// When Pull is called with empty list
+		artifacts, err := builder.Pull([]string{})
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And an empty map should be returned
+		if len(artifacts) != 0 {
+			t.Errorf("expected empty artifacts map, got %d items", len(artifacts))
+		}
+	})
+
+	t.Run("NonOCIReferences", func(t *testing.T) {
+		// Given an ArtifactBuilder with mocks
+		builder, _ := setup(t)
+
+		// When Pull is called with non-OCI references
+		artifacts, err := builder.Pull([]string{
+			"https://github.com/example/repo.git",
+			"file:///local/path",
+		})
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And an empty map should be returned
+		if len(artifacts) != 0 {
+			t.Errorf("expected empty artifacts map, got %d items", len(artifacts))
+		}
+	})
+
+	t.Run("SingleOCIReferenceSuccess", func(t *testing.T) {
+		// Given an ArtifactBuilder with mocks
+		builder, _ := setup(t)
+
+		// When Pull is called with one OCI reference
+		artifacts, err := builder.Pull([]string{"oci://registry.example.com/my-repo:v1.0.0"})
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And the artifacts map should contain the cached data
+		expectedKey := "registry.example.com/my-repo:v1.0.0"
+		if len(artifacts) != 1 {
+			t.Errorf("expected 1 artifact, got %d", len(artifacts))
+		}
+		expectedData := []byte("test artifact data")
+		if string(artifacts[expectedKey]) != string(expectedData) {
+			t.Errorf("expected artifact data to match test data")
+		}
+	})
+
+	t.Run("MultipleOCIReferencesDifferentArtifacts", func(t *testing.T) {
+		// Given an ArtifactBuilder with mocks
+		builder, mocks := setup(t)
+
+		// And mocks that return different data based on calls
+		downloadCallCount := 0
+		mocks.Shims.LayerUncompressed = func(layer v1.Layer) (io.ReadCloser, error) {
+			downloadCallCount++
+			data := fmt.Sprintf("test artifact data %d", downloadCallCount)
+			return io.NopCloser(strings.NewReader(data)), nil
+		}
+
+		mocks.Shims.ReadAll = func(r io.Reader) ([]byte, error) {
+			data, err := io.ReadAll(r)
+			return data, err
+		}
+
+		// When Pull is called with multiple different OCI references
+		artifacts, err := builder.Pull([]string{
+			"oci://registry.example.com/repo1:v1.0.0",
+			"oci://registry.example.com/repo2:v2.0.0",
+		})
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And the artifacts map should contain both entries
+		if len(artifacts) != 2 {
+			t.Errorf("expected 2 artifacts, got %d", len(artifacts))
+		}
+
+		// And both downloads should have happened
+		if downloadCallCount != 2 {
+			t.Errorf("expected 2 download calls, got %d", downloadCallCount)
+		}
+
+		// And both artifacts should be present
+		key1 := "registry.example.com/repo1:v1.0.0"
+		key2 := "registry.example.com/repo2:v2.0.0"
+		if _, exists := artifacts[key1]; !exists {
+			t.Errorf("expected artifact %s to exist", key1)
+		}
+		if _, exists := artifacts[key2]; !exists {
+			t.Errorf("expected artifact %s to exist", key2)
+		}
+	})
+
+	t.Run("MultipleOCIReferencesSameArtifact", func(t *testing.T) {
+		// Given an ArtifactBuilder with mocks
+		builder, mocks := setup(t)
+
+		// And mocks that track download calls
+		testData := "test artifact data"
+		downloadCallCount := 0
+		mocks.Shims.LayerUncompressed = func(layer v1.Layer) (io.ReadCloser, error) {
+			downloadCallCount++
+			return io.NopCloser(strings.NewReader(testData)), nil
+		}
+
+		mocks.Shims.ReadAll = func(r io.Reader) ([]byte, error) {
+			data, err := io.ReadAll(r)
+			return data, err
+		}
+
+		// When Pull is called with duplicate OCI references
+		artifacts, err := builder.Pull([]string{
+			"oci://registry.example.com/my-repo:v1.0.0",
+			"oci://registry.example.com/my-repo:v1.0.0",
+		})
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And the artifacts map should contain only one entry (deduplicated)
+		if len(artifacts) != 1 {
+			t.Errorf("expected 1 artifact, got %d", len(artifacts))
+		}
+
+		// And the download should only happen once (caching works)
+		if downloadCallCount != 1 {
+			t.Errorf("expected 1 download call, got %d", downloadCallCount)
+		}
+
+		expectedKey := "registry.example.com/my-repo:v1.0.0"
+		if string(artifacts[expectedKey]) != testData {
+			t.Errorf("expected artifact data to match test data")
+		}
+	})
+
+	t.Run("ErrorParsingOCIReference", func(t *testing.T) {
+		// Given an ArtifactBuilder with mocks
+		builder, _ := setup(t)
+
+		// When Pull is called with invalid OCI reference (missing repository part)
+		_, err := builder.Pull([]string{"oci://registry.example.com:v1.0.0"})
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should mention parsing
+		if !strings.Contains(err.Error(), "failed to parse OCI reference") {
+			t.Errorf("expected parse error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorDownloadingArtifact", func(t *testing.T) {
+		// Given an ArtifactBuilder with mocks that fail at download
+		builder, mocks := setup(t)
+
+		mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return nil, fmt.Errorf("download error")
+		}
+
+		// When Pull is called with valid OCI reference but download fails
+		_, err := builder.Pull([]string{"oci://registry.example.com/my-repo:v1.0.0"})
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should mention download failure
+		if !strings.Contains(err.Error(), "failed to download OCI artifact") {
+			t.Errorf("expected download error, got %v", err)
+		}
+	})
+
+	t.Run("CachingPreventsRedundantDownloads", func(t *testing.T) {
+		// Given an ArtifactBuilder with mocked dependencies
+		builder := NewArtifactBuilder()
+		injector := di.NewInjector()
+		shell := shell.NewMockShell()
+		injector.Register("shell", shell)
+		err := builder.Initialize(injector)
+		if err != nil {
+			t.Fatalf("failed to initialize builder: %v", err)
+		}
+
+		// And download counter to track calls
+		downloadCount := 0
+		builder.shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return &mockReference{}, nil
+		}
+		builder.shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return &mockImage{}, nil
+		}
+		builder.shims.ImageLayers = func(img v1.Image) ([]v1.Layer, error) {
+			return []v1.Layer{&mockLayer{}}, nil
+		}
+		builder.shims.LayerUncompressed = func(layer v1.Layer) (io.ReadCloser, error) {
+			downloadCount++
+			data := []byte("test artifact data")
+			return io.NopCloser(bytes.NewReader(data)), nil
+		}
+		builder.shims.ReadAll = func(r io.Reader) ([]byte, error) {
+			return io.ReadAll(r)
+		}
+
+		ociRefs := []string{
+			"oci://registry.example.com/my-repo:v1.0.0",
+			"oci://registry.example.com/my-repo:v1.0.0", // Same artifact - should be cached
+		}
+
+		// When Pull is called the first time
+		artifacts1, err := builder.Pull(ociRefs)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And one artifact should be returned
+		if len(artifacts1) != 1 {
+			t.Errorf("expected 1 artifact, got %d", len(artifacts1))
+		}
+
+		// And download should have happened once
+		if downloadCount != 1 {
+			t.Errorf("expected 1 download call, got %d", downloadCount)
+		}
+
+		// When Pull is called again with the same artifacts
+		artifacts2, err := builder.Pull(ociRefs)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And one artifact should be returned
+		if len(artifacts2) != 1 {
+			t.Errorf("expected 1 artifact, got %d", len(artifacts2))
+		}
+
+		// And download should NOT have happened again (still 1)
+		if downloadCount != 1 {
+			t.Errorf("expected 1 download call total (cached), got %d", downloadCount)
+		}
+
+		// And the artifact data should be identical
+		expectedKey := "registry.example.com/my-repo:v1.0.0"
+		if !bytes.Equal(artifacts1[expectedKey], artifacts2[expectedKey]) {
+			t.Errorf("cached artifact data should be identical")
+		}
+	})
+
+	t.Run("CachingWorksWithMixedNewAndCachedArtifacts", func(t *testing.T) {
+		// Given an ArtifactBuilder with mocked dependencies
+		builder := NewArtifactBuilder()
+		injector := di.NewInjector()
+		shell := shell.NewMockShell()
+		injector.Register("shell", shell)
+		err := builder.Initialize(injector)
+		if err != nil {
+			t.Fatalf("failed to initialize builder: %v", err)
+		}
+
+		// And download counter to track calls
+		downloadCount := 0
+		builder.shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return &mockReference{}, nil
+		}
+		builder.shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return &mockImage{}, nil
+		}
+		builder.shims.ImageLayers = func(img v1.Image) ([]v1.Layer, error) {
+			return []v1.Layer{&mockLayer{}}, nil
+		}
+		builder.shims.LayerUncompressed = func(layer v1.Layer) (io.ReadCloser, error) {
+			downloadCount++
+			data := []byte(fmt.Sprintf("test artifact data %d", downloadCount))
+			return io.NopCloser(bytes.NewReader(data)), nil
+		}
+		builder.shims.ReadAll = func(r io.Reader) ([]byte, error) {
+			return io.ReadAll(r)
+		}
+
+		// When Pull is called with one artifact
+		artifacts1, err := builder.Pull([]string{"oci://registry.example.com/repo1:v1.0.0"})
+		if err != nil {
+			t.Fatalf("failed to pull first artifact: %v", err)
+		}
+
+		// Then one download should have occurred
+		if downloadCount != 1 {
+			t.Errorf("expected 1 download call, got %d", downloadCount)
+		}
+
+		// When Pull is called with the cached artifact plus a new one
+		artifacts2, err := builder.Pull([]string{
+			"oci://registry.example.com/repo1:v1.0.0", // Cached
+			"oci://registry.example.com/repo2:v2.0.0", // New
+		})
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And two artifacts should be returned
+		if len(artifacts2) != 2 {
+			t.Errorf("expected 2 artifacts, got %d", len(artifacts2))
+		}
+
+		// And only one additional download should have occurred (total 2)
+		if downloadCount != 2 {
+			t.Errorf("expected 2 download calls total, got %d", downloadCount)
+		}
+
+		// And both cached and new artifacts should be present
+		key1 := "registry.example.com/repo1:v1.0.0"
+		key2 := "registry.example.com/repo2:v2.0.0"
+		if _, exists := artifacts2[key1]; !exists {
+			t.Errorf("expected cached artifact %s to exist", key1)
+		}
+		if _, exists := artifacts2[key2]; !exists {
+			t.Errorf("expected new artifact %s to exist", key2)
+		}
+
+		// And the cached artifact should be identical to the first call
+		if !bytes.Equal(artifacts1[key1], artifacts2[key1]) {
+			t.Errorf("cached artifact data should be identical")
+		}
+	})
+}
+
+type mockReference struct{}
+
+func (m *mockReference) Context() name.Repository   { return name.Repository{} }
+func (m *mockReference) Identifier() string         { return "" }
+func (m *mockReference) Name() string               { return "" }
+func (m *mockReference) String() string             { return "" }
+func (m *mockReference) Scope(action string) string { return "" }

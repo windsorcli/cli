@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/bundler"
+	"github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/di"
 )
@@ -17,9 +17,9 @@ import (
 // Extend Mocks with additional fields needed for bundle command tests
 type BundleMocks struct {
 	*Mocks
-	ArtifactBuilder  *bundler.MockArtifact
-	TemplateBundler  *bundler.MockBundler
-	KustomizeBundler *bundler.MockBundler
+	ArtifactBuilder  *artifact.MockArtifact
+	TemplateBundler  *artifact.MockBundler
+	KustomizeBundler *artifact.MockBundler
 }
 
 // =============================================================================
@@ -39,7 +39,7 @@ contexts:
 		mocks := setupMocks(t, opts)
 
 		// Create mock artifact builder
-		artifactBuilder := bundler.NewMockArtifact()
+		artifactBuilder := artifact.NewMockArtifact()
 		artifactBuilder.InitializeFunc = func(injector di.Injector) error { return nil }
 		artifactBuilder.AddFileFunc = func(path string, content []byte, mode os.FileMode) error { return nil }
 		artifactBuilder.CreateFunc = func(outputPath string, tag string) (string, error) {
@@ -50,14 +50,14 @@ contexts:
 		}
 
 		// Create mock template bundler
-		templateBundler := bundler.NewMockBundler()
+		templateBundler := artifact.NewMockBundler()
 		templateBundler.InitializeFunc = func(injector di.Injector) error { return nil }
-		templateBundler.BundleFunc = func(artifact bundler.Artifact) error { return nil }
+		templateBundler.BundleFunc = func(art artifact.Artifact) error { return nil }
 
 		// Create mock kustomize bundler
-		kustomizeBundler := bundler.NewMockBundler()
+		kustomizeBundler := artifact.NewMockBundler()
 		kustomizeBundler.InitializeFunc = func(injector di.Injector) error { return nil }
-		kustomizeBundler.BundleFunc = func(artifact bundler.Artifact) error { return nil }
+		kustomizeBundler.BundleFunc = func(art artifact.Artifact) error { return nil }
 
 		// Set up controller mocks
 		mocks.Controller.InitializeWithRequirementsFunc = func(req controller.Requirements) error {
@@ -188,7 +188,7 @@ func TestBundleCmd(t *testing.T) {
 	t.Run("ErrorTemplateBundlerFails", func(t *testing.T) {
 		// Given a bundle environment with failing template bundler
 		mocks := setupBundleMocks(t)
-		mocks.TemplateBundler.BundleFunc = func(artifact bundler.Artifact) error {
+		mocks.TemplateBundler.BundleFunc = func(artifact artifact.Artifact) error {
 			return fmt.Errorf("template bundling failed")
 		}
 
@@ -209,7 +209,7 @@ func TestBundleCmd(t *testing.T) {
 	t.Run("ErrorKustomizeBundlerFails", func(t *testing.T) {
 		// Given a bundle environment with failing kustomize bundler
 		mocks := setupBundleMocks(t)
-		mocks.KustomizeBundler.BundleFunc = func(artifact bundler.Artifact) error {
+		mocks.KustomizeBundler.BundleFunc = func(artifact artifact.Artifact) error {
 			return fmt.Errorf("kustomize bundling failed")
 		}
 
@@ -283,11 +283,11 @@ func TestBundleCmd(t *testing.T) {
 		templateBundlerCalled := false
 		kustomizeBundlerCalled := false
 
-		mocks.TemplateBundler.BundleFunc = func(artifact bundler.Artifact) error {
+		mocks.TemplateBundler.BundleFunc = func(artifact artifact.Artifact) error {
 			templateBundlerCalled = true
 			return nil
 		}
-		mocks.KustomizeBundler.BundleFunc = func(artifact bundler.Artifact) error {
+		mocks.KustomizeBundler.BundleFunc = func(artifact artifact.Artifact) error {
 			kustomizeBundlerCalled = true
 			return nil
 		}
@@ -350,7 +350,7 @@ func TestBundleCmd(t *testing.T) {
 		bundleCmd.Flags().StringP("tag", "t", "", "Tag in 'name:version' format (required if no metadata.yaml or missing name/version)")
 
 		// Create a fresh artifact builder to avoid state contamination
-		freshArtifactBuilder := bundler.NewMockArtifact()
+		freshArtifactBuilder := artifact.NewMockArtifact()
 		freshArtifactBuilder.InitializeFunc = func(injector di.Injector) error { return nil }
 		freshArtifactBuilder.AddFileFunc = func(path string, content []byte, mode os.FileMode) error { return nil }
 		freshArtifactBuilder.CreateFunc = func(outputPath string, tag string) (string, error) {
@@ -385,7 +385,7 @@ func TestBundleCmd(t *testing.T) {
 		bundleCmd.Flags().StringP("tag", "t", "", "Tag in 'name:version' format (required if no metadata.yaml or missing name/version)")
 
 		// Create a fresh artifact builder to avoid state contamination
-		freshArtifactBuilder := bundler.NewMockArtifact()
+		freshArtifactBuilder := artifact.NewMockArtifact()
 		freshArtifactBuilder.InitializeFunc = func(injector di.Injector) error { return nil }
 		freshArtifactBuilder.AddFileFunc = func(path string, content []byte, mode os.FileMode) error { return nil }
 		freshArtifactBuilder.CreateFunc = func(outputPath string, tag string) (string, error) {

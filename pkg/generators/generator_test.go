@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	bundler "github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
@@ -96,6 +97,17 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	// Create a new mock blueprint handler
 	mockBlueprintHandler := blueprint.NewMockBlueprintHandler(injector)
 	injector.Register("blueprintHandler", mockBlueprintHandler)
+
+	// Create a new mock artifact builder
+	mockArtifactBuilder := bundler.NewMockArtifact()
+	// Set up default Pull behavior to return empty map
+	mockArtifactBuilder.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
+		return make(map[string][]byte), nil
+	}
+	if err := mockArtifactBuilder.Initialize(injector); err != nil {
+		t.Fatalf("failed to initialize artifact builder: %v", err)
+	}
+	injector.Register("artifactBuilder", mockArtifactBuilder)
 
 	// Mock the GetTerraformComponents method
 	mockBlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {

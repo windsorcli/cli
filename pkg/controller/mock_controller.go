@@ -4,8 +4,8 @@ import (
 	"net"
 
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
+	bundler "github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/blueprint"
-	"github.com/windsorcli/cli/pkg/bundler"
 	"github.com/windsorcli/cli/pkg/cluster"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"

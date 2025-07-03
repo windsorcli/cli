@@ -1,4 +1,4 @@
-package bundler
+package artifact
 
 import (
 	"os"
@@ -21,6 +21,7 @@ type MockArtifact struct {
 	AddFileFunc    func(path string, content []byte, mode os.FileMode) error
 	CreateFunc     func(outputPath string, tag string) (string, error)
 	PushFunc       func(registryBase string, repoName string, tag string) error
+	PullFunc       func(ociRefs []string) (map[string][]byte, error)
 }
 
 // =============================================================================
@@ -66,6 +67,14 @@ func (m *MockArtifact) Push(registryBase string, repoName string, tag string) er
 		return m.PushFunc(registryBase, repoName, tag)
 	}
 	return nil
+}
+
+// Pull calls the mock PullFunc if set, otherwise returns empty map and nil error
+func (m *MockArtifact) Pull(ociRefs []string) (map[string][]byte, error) {
+	if m.PullFunc != nil {
+		return m.PullFunc(ociRefs)
+	}
+	return make(map[string][]byte), nil
 }
 
 // Ensure MockArtifact implements Artifact interface
