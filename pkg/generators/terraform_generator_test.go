@@ -15,10 +15,7 @@ import (
 	"time"
 
 	"github.com/goccy/go-yaml"
-	"github.com/google/go-containerregistry/pkg/name"
-	v1 "github.com/google/go-containerregistry/pkg/v1"
-	"github.com/google/go-containerregistry/pkg/v1/remote"
-	"github.com/google/go-containerregistry/pkg/v1/types"
+
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
@@ -57,101 +54,6 @@ func (s *simpleDirEntry) Info() (fs.FileInfo, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-// Mock types for OCI testing
-type mockReference struct{}
-
-func (m *mockReference) Context() name.Repository {
-	return name.Repository{}
-}
-
-func (m *mockReference) Identifier() string {
-	return "v1.0.0"
-}
-
-func (m *mockReference) Name() string {
-	return "registry.example.com/my-repo:v1.0.0"
-}
-
-func (m *mockReference) String() string {
-	return "registry.example.com/my-repo:v1.0.0"
-}
-
-func (m *mockReference) Scope(action string) string {
-	return ""
-}
-
-type mockImage struct{}
-
-func (m *mockImage) Layers() ([]v1.Layer, error) {
-	return []v1.Layer{&mockLayer{}}, nil
-}
-
-func (m *mockImage) MediaType() (types.MediaType, error) {
-	return "", nil
-}
-
-func (m *mockImage) Size() (int64, error) {
-	return 0, nil
-}
-
-func (m *mockImage) ConfigName() (v1.Hash, error) {
-	return v1.Hash{}, nil
-}
-
-func (m *mockImage) ConfigFile() (*v1.ConfigFile, error) {
-	return nil, nil
-}
-
-func (m *mockImage) RawConfigFile() ([]byte, error) {
-	return nil, nil
-}
-
-func (m *mockImage) Digest() (v1.Hash, error) {
-	return v1.Hash{}, nil
-}
-
-func (m *mockImage) Manifest() (*v1.Manifest, error) {
-	return nil, nil
-}
-
-func (m *mockImage) RawManifest() ([]byte, error) {
-	return nil, nil
-}
-
-func (m *mockImage) LayerByDigest(hash v1.Hash) (v1.Layer, error) {
-	return &mockLayer{}, nil
-}
-
-func (m *mockImage) LayerByDiffID(hash v1.Hash) (v1.Layer, error) {
-	return &mockLayer{}, nil
-}
-
-type mockLayer struct{}
-
-func (m *mockLayer) Digest() (v1.Hash, error) {
-	return v1.Hash{}, nil
-}
-
-func (m *mockLayer) DiffID() (v1.Hash, error) {
-	return v1.Hash{}, nil
-}
-
-func (m *mockLayer) Compressed() (io.ReadCloser, error) {
-	return nil, nil
-}
-
-func (m *mockLayer) Uncompressed() (io.ReadCloser, error) {
-	return nil, nil
-}
-
-func (m *mockLayer) Size() (int64, error) {
-	return 0, nil
-}
-
-func (m *mockLayer) MediaType() (types.MediaType, error) {
-	return "", nil
-}
-
 // mockFileInfo implements os.FileInfo for testing
 type mockFileInfo struct {
 	name  string
@@ -186,24 +88,6 @@ func createMockFile() (*os.File, error) {
 
 // setupTerraformGeneratorMocks extends base mocks with terraform generator specific mocking
 func setupTerraformGeneratorMocks(mocks *Mocks) {
-	// OCI-related mocks
-	mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
-		return &mockReference{}, nil
-	}
-	mocks.Shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
-		return &mockImage{}, nil
-	}
-	mocks.Shims.ImageLayers = func(img v1.Image) ([]v1.Layer, error) {
-		return []v1.Layer{&mockLayer{}}, nil
-	}
-	mocks.Shims.LayerUncompressed = func(layer v1.Layer) (io.ReadCloser, error) {
-		testData := []byte("test artifact data")
-		return io.NopCloser(bytes.NewReader(testData)), nil
-	}
-	mocks.Shims.ReadAll = func(r io.Reader) ([]byte, error) {
-		return io.ReadAll(r)
-	}
-
 	// Tar extraction mocks
 	mocks.Shims.NewBytesReader = func(data []byte) io.Reader {
 		return bytes.NewReader(data)
