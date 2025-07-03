@@ -71,14 +71,19 @@ sources:
     url: github.com/windsorcli/core
     ref:
       tag: v0.3.0
+  - name: oci-source
+    url: oci://ghcr.io/windsorcli/core:v0.3.0
+    # No ref needed for OCI - version is in the URL
 ```
 
 | Field        | Type       | Description                                      |
 |--------------|------------|--------------------------------------------------|
 | `name`       | `string`   | Identifies the source.                           |
-| `url`        | `string`   | The source location.                             |
-| `ref`        | `Reference`| Details the branch, tag, or commit to use.       |
+| `url`        | `string`   | The source location. Supports Git URLs and OCI URLs (oci://registry/repo:tag). |
+| `ref`        | `Reference`| Details the branch, tag, or commit to use. Not needed for OCI URLs with embedded tags. |
 | `secretName` | `string`   | The secret for source access.                    |
+
+**Note:** For OCI sources, the URL should include the tag/version directly (e.g., `oci://registry.example.com/repo:v1.0.0`). The `ref` field is optional for OCI sources when the tag is specified in the URL.
 
 ### Reference
 A reference to a specific git state or version
@@ -184,6 +189,8 @@ sources:
   url: github.com/windsorcli/core
   ref:
     branch: main
+- name: oci-source
+  url: oci://ghcr.io/windsorcli/core:v0.3.0
 terraform:
 - path: cluster/talos
 - path: gitops/flux

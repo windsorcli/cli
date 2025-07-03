@@ -2090,6 +2090,15 @@ func TestArtifactBuilder_createFluxCDCompatibleImage(t *testing.T) {
 		// Given a builder with failing AppendLayers
 		builder, mocks := setup(t)
 
+		// Mock git provenance to succeed but AppendLayers to fail
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			cmd := strings.Join(append([]string{command}, args...), " ")
+			if strings.Contains(cmd, "git rev-parse HEAD") {
+				return "abc123", nil
+			}
+			return "", nil
+		}
+
 		mocks.Shims.AppendLayers = func(base v1.Image, layers ...v1.Layer) (v1.Image, error) {
 			return nil, fmt.Errorf("append layers failed")
 		}
@@ -2106,6 +2115,20 @@ func TestArtifactBuilder_createFluxCDCompatibleImage(t *testing.T) {
 	t.Run("SuccessWithValidLayer", func(t *testing.T) {
 		// Given a builder with successful shim operations
 		builder, mocks := setup(t)
+
+		// Mock git provenance to return test data
+		expectedCommitSHA := "abc123def456"
+		expectedRemoteURL := "https://github.com/user/repo.git"
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			cmd := strings.Join(append([]string{command}, args...), " ")
+			if strings.Contains(cmd, "git rev-parse HEAD") {
+				return expectedCommitSHA, nil
+			}
+			if strings.Contains(cmd, "git config --get remote.origin.url") {
+				return expectedRemoteURL, nil
+			}
+			return "", nil
+		}
 
 		// Mock successful image creation
 		mockImage := &mockImage{}
@@ -2128,7 +2151,13 @@ func TestArtifactBuilder_createFluxCDCompatibleImage(t *testing.T) {
 		}
 		mocks.Shims.MediaType = func(img v1.Image, mt types.MediaType) v1.Image { return mockImage }
 		mocks.Shims.ConfigMediaType = func(img v1.Image, mt types.MediaType) v1.Image { return mockImage }
-		mocks.Shims.Annotations = func(img v1.Image, anns map[string]string) v1.Image { return mockImage }
+
+		// Capture annotations to verify revision and source are set correctly
+		var capturedAnnotations map[string]string
+		mocks.Shims.Annotations = func(img v1.Image, anns map[string]string) v1.Image {
+			capturedAnnotations = anns
+			return mockImage
+		}
 
 		// When creating FluxCD compatible image
 		img, err := builder.createFluxCDCompatibleImage(nil, "test-repo", "v1.0.0")
@@ -2139,6 +2168,130 @@ func TestArtifactBuilder_createFluxCDCompatibleImage(t *testing.T) {
 		}
 		if img == nil {
 			t.Error("Expected to receive a non-nil image")
+		}
+
+		// And revision annotation should be set to the commit SHA
+		if capturedAnnotations["org.opencontainers.image.revision"] != expectedCommitSHA {
+			t.Errorf("Expected revision annotation to be '%s', got '%s'",
+				expectedCommitSHA, capturedAnnotations["org.opencontainers.image.revision"])
+		}
+
+		// And source annotation should be set to the remote URL
+		if capturedAnnotations["org.opencontainers.image.source"] != expectedRemoteURL {
+			t.Errorf("Expected source annotation to be '%s', got '%s'",
+				expectedRemoteURL, capturedAnnotations["org.opencontainers.image.source"])
+		}
+	})
+
+	t.Run("SuccessWithGitProvenanceFallback", func(t *testing.T) {
+		// Given a builder where git provenance fails
+		builder, mocks := setup(t)
+
+		// Mock git provenance to fail
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			return "", fmt.Errorf("git command failed")
+		}
+
+		// Mock successful image creation
+		mockImage := &mockImage{}
+		mocks.Shims.EmptyImage = func() v1.Image { return mockImage }
+		mocks.Shims.AppendLayers = func(base v1.Image, layers ...v1.Layer) (v1.Image, error) {
+			return mockImage, nil
+		}
+		mocks.Shims.ConfigFile = func(img v1.Image, cfg *v1.ConfigFile) (v1.Image, error) {
+			return mockImage, nil
+		}
+		mocks.Shims.MediaType = func(img v1.Image, mt types.MediaType) v1.Image { return mockImage }
+		mocks.Shims.ConfigMediaType = func(img v1.Image, mt types.MediaType) v1.Image { return mockImage }
+
+		// Capture annotations to verify fallback revision and source
+		var capturedAnnotations map[string]string
+		mocks.Shims.Annotations = func(img v1.Image, anns map[string]string) v1.Image {
+			capturedAnnotations = anns
+			return mockImage
+		}
+
+		// When creating FluxCD compatible image
+		img, err := builder.createFluxCDCompatibleImage(nil, "test-repo", "v1.0.0")
+
+		// Then should succeed
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+		if img == nil {
+			t.Error("Expected to receive a non-nil image")
+		}
+
+		// And revision annotation should fall back to "unknown"
+		if capturedAnnotations["org.opencontainers.image.revision"] != "unknown" {
+			t.Errorf("Expected revision annotation to be 'unknown', got '%s'",
+				capturedAnnotations["org.opencontainers.image.revision"])
+		}
+
+		// And source annotation should fall back to "unknown"
+		if capturedAnnotations["org.opencontainers.image.source"] != "unknown" {
+			t.Errorf("Expected source annotation to be 'unknown', got '%s'",
+				capturedAnnotations["org.opencontainers.image.source"])
+		}
+	})
+
+	t.Run("SuccessWithEmptyCommitSHA", func(t *testing.T) {
+		// Given a builder where git returns empty commit SHA but valid remote URL
+		builder, mocks := setup(t)
+
+		expectedRemoteURL := "https://github.com/user/empty-sha-repo.git"
+		// Mock git provenance to return empty commit SHA but valid remote URL
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			cmd := strings.Join(append([]string{command}, args...), " ")
+			if strings.Contains(cmd, "git rev-parse HEAD") {
+				return "   ", nil // whitespace only
+			}
+			if strings.Contains(cmd, "git config --get remote.origin.url") {
+				return expectedRemoteURL, nil
+			}
+			return "", nil
+		}
+
+		// Mock successful image creation
+		mockImage := &mockImage{}
+		mocks.Shims.EmptyImage = func() v1.Image { return mockImage }
+		mocks.Shims.AppendLayers = func(base v1.Image, layers ...v1.Layer) (v1.Image, error) {
+			return mockImage, nil
+		}
+		mocks.Shims.ConfigFile = func(img v1.Image, cfg *v1.ConfigFile) (v1.Image, error) {
+			return mockImage, nil
+		}
+		mocks.Shims.MediaType = func(img v1.Image, mt types.MediaType) v1.Image { return mockImage }
+		mocks.Shims.ConfigMediaType = func(img v1.Image, mt types.MediaType) v1.Image { return mockImage }
+
+		// Capture annotations to verify fallback revision but valid source
+		var capturedAnnotations map[string]string
+		mocks.Shims.Annotations = func(img v1.Image, anns map[string]string) v1.Image {
+			capturedAnnotations = anns
+			return mockImage
+		}
+
+		// When creating FluxCD compatible image
+		img, err := builder.createFluxCDCompatibleImage(nil, "test-repo", "v1.0.0")
+
+		// Then should succeed
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+		if img == nil {
+			t.Error("Expected to receive a non-nil image")
+		}
+
+		// And revision annotation should fall back to "unknown" since trimmed SHA is empty
+		if capturedAnnotations["org.opencontainers.image.revision"] != "unknown" {
+			t.Errorf("Expected revision annotation to be 'unknown', got '%s'",
+				capturedAnnotations["org.opencontainers.image.revision"])
+		}
+
+		// And source annotation should be set to the remote URL
+		if capturedAnnotations["org.opencontainers.image.source"] != expectedRemoteURL {
+			t.Errorf("Expected source annotation to be '%s', got '%s'",
+				expectedRemoteURL, capturedAnnotations["org.opencontainers.image.source"])
 		}
 	})
 }

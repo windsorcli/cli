@@ -442,6 +442,21 @@ func (a *ArtifactBuilder) createTarballToDisk(outputPath string, metadata []byte
 // Adds comprehensive OCI annotations including creation time, source, revision, title, and version.
 // Returns a complete OCI image ready for pushing to FluxCD-compatible registries.
 func (a *ArtifactBuilder) createFluxCDCompatibleImage(layer v1.Layer, repoName, tagName string) (v1.Image, error) {
+	gitProvenance, err := a.getGitProvenance()
+	if err != nil {
+		gitProvenance = GitProvenance{}
+	}
+
+	revision := gitProvenance.CommitSHA
+	if revision == "" {
+		revision = "unknown"
+	}
+
+	source := gitProvenance.RemoteURL
+	if source == "" {
+		source = "unknown"
+	}
+
 	configFile := &v1.ConfigFile{
 		Architecture: "amd64",
 		OS:           "linux",
@@ -477,8 +492,8 @@ func (a *ArtifactBuilder) createFluxCDCompatibleImage(layer v1.Layer, repoName, 
 
 	annotations := map[string]string{
 		"org.opencontainers.image.created":  time.Now().UTC().Format(time.RFC3339),
-		"org.opencontainers.image.source":   "windsor-cli",
-		"org.opencontainers.image.revision": "latest",
+		"org.opencontainers.image.source":   source,
+		"org.opencontainers.image.revision": revision,
 		"org.opencontainers.image.title":    repoName,
 		"org.opencontainers.image.version":  tagName,
 	}
