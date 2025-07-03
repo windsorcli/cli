@@ -178,6 +178,11 @@ func (m *mockDirEntry) Info() (os.FileInfo, error) {
 	return &mockFileInfo{name: m.name, isDir: m.isDir}, nil
 }
 
+// createMockFile creates a temporary file that can be used in tests
+func createMockFile() (*os.File, error) {
+	return os.CreateTemp("", "mock-test-file-*")
+}
+
 // setupTerraformGeneratorMocks extends base mocks with terraform generator specific mocking
 func setupTerraformGeneratorMocks(mocks *Mocks) {
 	// OCI-related mocks
@@ -3411,8 +3416,8 @@ func TestTerraformGenerator_extractOCIModule(t *testing.T) {
 			t.Errorf("expected no error, got %v", err)
 		}
 		expectedPath := "/tmp/project/.windsor/.oci_extracted/registry.example.com-modules-v1.0.0/terraform/test/module"
-		if result != expectedPath {
-			t.Errorf("expected path %s, got %s", expectedPath, result)
+		if filepath.ToSlash(result) != expectedPath {
+			t.Errorf("expected path %s, got %s", expectedPath, filepath.ToSlash(result))
 		}
 	})
 
@@ -3483,8 +3488,8 @@ func TestTerraformGenerator_extractOCIModule(t *testing.T) {
 			t.Errorf("expected no error, got %v", err)
 		}
 		expectedPath := "/tmp/project/.windsor/.oci_extracted/registry.example.com-modules-v1.0.0/terraform/test/module"
-		if result != expectedPath {
-			t.Errorf("expected path %s, got %s", expectedPath, result)
+		if filepath.ToSlash(result) != expectedPath {
+			t.Errorf("expected path %s, got %s", expectedPath, filepath.ToSlash(result))
 		}
 	})
 }
@@ -4764,7 +4769,7 @@ func TestTerraformGenerator_extractModuleFromArtifact(t *testing.T) {
 		mocks.Shims.Create = func(path string) (*os.File, error) {
 			extractedFiles = append(extractedFiles, path)
 			// Return a mock file that doesn't actually write to disk
-			return &os.File{}, nil
+			return createMockFile()
 		}
 		mocks.Shims.Copy = func(dst io.Writer, src io.Reader) (int64, error) {
 			return 100, nil // Simulate successful copy
@@ -4791,8 +4796,9 @@ func TestTerraformGenerator_extractModuleFromArtifact(t *testing.T) {
 			t.Errorf("expected %d files extracted, got %d", len(expectedFiles), len(extractedFiles))
 		}
 		for _, extractedFile := range extractedFiles {
-			if !expectedFiles[extractedFile] {
-				t.Errorf("unexpected file extracted: %q", extractedFile)
+			normalizedPath := filepath.ToSlash(extractedFile)
+			if !expectedFiles[normalizedPath] {
+				t.Errorf("unexpected file extracted: %q", normalizedPath)
 			}
 		}
 
@@ -4800,7 +4806,7 @@ func TestTerraformGenerator_extractModuleFromArtifact(t *testing.T) {
 		expectedDir := "/project/.windsor/.oci_extracted/test-extraction-key/terraform/test/module"
 		found := false
 		for _, dir := range createdDirs {
-			if dir == expectedDir {
+			if filepath.ToSlash(dir) == expectedDir {
 				found = true
 				break
 			}
@@ -4829,7 +4835,7 @@ func TestTerraformGenerator_extractModuleFromArtifact(t *testing.T) {
 		}
 		mocks.Shims.Create = func(path string) (*os.File, error) {
 			extractedFiles = append(extractedFiles, path)
-			return &os.File{}, nil
+			return createMockFile()
 		}
 		mocks.Shims.Copy = func(dst io.Writer, src io.Reader) (int64, error) {
 			return 100, nil
@@ -4850,7 +4856,7 @@ func TestTerraformGenerator_extractModuleFromArtifact(t *testing.T) {
 		if len(extractedFiles) != 1 {
 			t.Errorf("expected 1 file extracted, got %d", len(extractedFiles))
 		}
-		if len(extractedFiles) > 0 && extractedFiles[0] != "/project/.windsor/.oci_extracted/test-extraction-key/terraform/test/module/main.tf" {
+		if len(extractedFiles) > 0 && filepath.ToSlash(extractedFiles[0]) != "/project/.windsor/.oci_extracted/test-extraction-key/terraform/test/module/main.tf" {
 			t.Errorf("expected only test/module/main.tf to be extracted, got %v", extractedFiles)
 		}
 	})
@@ -4932,7 +4938,7 @@ func TestTerraformGenerator_extractModuleFromArtifact(t *testing.T) {
 			return nil
 		}
 		mocks.Shims.Create = func(path string) (*os.File, error) {
-			return &os.File{}, nil
+			return createMockFile()
 		}
 		mocks.Shims.Copy = func(dst io.Writer, src io.Reader) (int64, error) {
 			return 0, fmt.Errorf("write error")
@@ -5008,7 +5014,7 @@ func TestTerraformGenerator_extractModuleFromArtifact(t *testing.T) {
 			return nil
 		}
 		mocks.Shims.Create = func(path string) (*os.File, error) {
-			return &os.File{}, nil
+			return createMockFile()
 		}
 		mocks.Shims.Copy = func(dst io.Writer, src io.Reader) (int64, error) {
 			return 100, nil
@@ -5036,8 +5042,9 @@ func TestTerraformGenerator_extractModuleFromArtifact(t *testing.T) {
 
 		// And permissions should be preserved (the test tar data creates files with 0644)
 		for path, mode := range chmodCalls {
-			if !strings.Contains(path, "/project/.windsor/.oci_extracted/test-extraction-key/terraform/test/module/") {
-				t.Errorf("unexpected file path in chmod call: %s", path)
+			normalizedPath := filepath.ToSlash(path)
+			if !strings.Contains(normalizedPath, "/project/.windsor/.oci_extracted/test-extraction-key/terraform/test/module/") {
+				t.Errorf("unexpected file path in chmod call: %s", normalizedPath)
 			}
 			// createTestTarData creates regular files with 0644 mode
 			// but .sh files get execute permissions added (0755)
@@ -5068,7 +5075,7 @@ func TestTerraformGenerator_extractModuleFromArtifact(t *testing.T) {
 			return nil
 		}
 		mocks.Shims.Create = func(path string) (*os.File, error) {
-			return &os.File{}, nil
+			return createMockFile()
 		}
 		mocks.Shims.Copy = func(dst io.Writer, src io.Reader) (int64, error) {
 			return 100, nil

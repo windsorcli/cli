@@ -498,12 +498,18 @@ func (g *TerraformGenerator) extractModuleFromArtifact(artifactData []byte, modu
 		}
 
 		_, err = g.shims.Copy(file, tarReader)
-		file.Close()
+		if closeErr := file.Close(); closeErr != nil {
+			return fmt.Errorf("failed to close file %s: %w", destPath, closeErr)
+		}
 		if err != nil {
 			return fmt.Errorf("failed to write file %s: %w", destPath, err)
 		}
 
-		fileMode := os.FileMode(header.Mode)
+		modeValue := header.Mode & 0777
+		if modeValue < 0 || modeValue > 0777 {
+			return fmt.Errorf("invalid file mode %o for %s", header.Mode, destPath)
+		}
+		fileMode := os.FileMode(uint32(modeValue))
 
 		if strings.HasSuffix(destPath, ".sh") {
 			fileMode |= 0111
