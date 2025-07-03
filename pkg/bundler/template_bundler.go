@@ -66,7 +66,7 @@ func (t *TemplateBundler) Bundle(artifact Artifact) error {
 		}
 
 		artifactPath := "_template/" + filepath.ToSlash(relPath)
-		return artifact.AddFile(artifactPath, data)
+		return artifact.AddFile(artifactPath, data, info.Mode())
 	})
 }
 

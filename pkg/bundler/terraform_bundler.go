@@ -82,7 +82,7 @@ func (t *TerraformBundler) Bundle(artifact Artifact) error {
 		}
 
 		artifactPath := "terraform/" + filepath.ToSlash(relPath)
-		return artifact.AddFile(artifactPath, data)
+		return artifact.AddFile(artifactPath, data, info.Mode())
 	})
 }
 

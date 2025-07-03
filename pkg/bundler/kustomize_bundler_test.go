@@ -56,7 +56,7 @@ func TestKustomizeBundler_Bundle(t *testing.T) {
 
 		// Set up mocks to simulate finding kustomize files
 		filesAdded := make(map[string][]byte)
-		mocks.Artifact.AddFileFunc = func(path string, content []byte) error {
+		mocks.Artifact.AddFileFunc = func(path string, content []byte, mode os.FileMode) error {
 			filesAdded[path] = content
 			return nil
 		}
@@ -145,7 +145,7 @@ func TestKustomizeBundler_Bundle(t *testing.T) {
 		}
 
 		filesAdded := make([]string, 0)
-		mocks.Artifact.AddFileFunc = func(path string, content []byte) error {
+		mocks.Artifact.AddFileFunc = func(path string, content []byte, mode os.FileMode) error {
 			filesAdded = append(filesAdded, path)
 			return nil
 		}
@@ -264,7 +264,7 @@ func TestKustomizeBundler_Bundle(t *testing.T) {
 		bundler.shims.ReadFile = func(filename string) ([]byte, error) {
 			return []byte("content"), nil
 		}
-		mocks.Artifact.AddFileFunc = func(path string, content []byte) error {
+		mocks.Artifact.AddFileFunc = func(path string, content []byte, mode os.FileMode) error {
 			return fmt.Errorf("artifact storage full")
 		}
 
@@ -285,7 +285,7 @@ func TestKustomizeBundler_Bundle(t *testing.T) {
 		bundler, mocks := setup(t)
 
 		filesAdded := make([]string, 0)
-		mocks.Artifact.AddFileFunc = func(path string, content []byte) error {
+		mocks.Artifact.AddFileFunc = func(path string, content []byte, mode os.FileMode) error {
 			filesAdded = append(filesAdded, path)
 			return nil
 		}
@@ -335,7 +335,7 @@ func TestKustomizeBundler_Bundle(t *testing.T) {
 		bundler, mocks := setup(t)
 
 		filesAdded := make([]string, 0)
-		mocks.Artifact.AddFileFunc = func(path string, content []byte) error {
+		mocks.Artifact.AddFileFunc = func(path string, content []byte, mode os.FileMode) error {
 			filesAdded = append(filesAdded, path)
 			return nil
 		}

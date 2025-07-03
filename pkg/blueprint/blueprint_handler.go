@@ -685,7 +685,7 @@ func (b *BaseBlueprintHandler) processBlueprintTemplate(outputPath, content, con
 // Private Methods
 // =============================================================================
 
-// resolveComponentSources processes each Terraform component's source field, expanding it into a full
+// resolveComponentSources transforms component source names into fully qualified
 // URL with path prefix and reference information based on the associated source configuration.
 func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *blueprintv1alpha1.Blueprint) {
 	resolvedComponents := make([]blueprintv1alpha1.TerraformComponent, len(blueprint.TerraformComponents))
@@ -694,6 +694,11 @@ func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *blueprintv1alp
 	for i, component := range resolvedComponents {
 		for _, source := range blueprint.Sources {
 			if component.Source == source.Name {
+				// Skip URL resolution for OCI sources - let terraform generator handle them
+				if strings.HasPrefix(source.Url, "oci://") {
+					break
+				}
+
 				pathPrefix := source.PathPrefix
 				if pathPrefix == "" {
 					pathPrefix = "terraform"
@@ -731,7 +736,8 @@ func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *blueprintv1alpha
 	for i, component := range resolvedComponents {
 		componentCopy := component
 
-		if b.isValidTerraformRemoteSource(componentCopy.Source) {
+		// Check if this is a remote source (Git URL) or OCI source
+		if b.isValidTerraformRemoteSource(componentCopy.Source) || b.isOCISource(componentCopy.Source) {
 			componentCopy.FullPath = filepath.Join(projectRoot, ".windsor", ".tf_modules", componentCopy.Path)
 		} else {
 			componentCopy.FullPath = filepath.Join(projectRoot, "terraform", componentCopy.Path)

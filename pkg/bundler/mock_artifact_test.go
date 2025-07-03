@@ -1,6 +1,7 @@
 package bundler
 
 import (
+	"os"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/di"
@@ -64,13 +65,13 @@ func TestMockArtifact_AddFile(t *testing.T) {
 		// Given a mock with a custom add file function
 		mock := NewMockArtifact()
 		called := false
-		mock.AddFileFunc = func(path string, content []byte) error {
+		mock.AddFileFunc = func(path string, content []byte, mode os.FileMode) error {
 			called = true
 			return nil
 		}
 
 		// When calling AddFile
-		err := mock.AddFile("test/path", []byte("content"))
+		err := mock.AddFile("test/path", []byte("content"), 0644)
 
 		// Then the mock function should be called
 		if !called {
@@ -86,7 +87,7 @@ func TestMockArtifact_AddFile(t *testing.T) {
 		mock := NewMockArtifact()
 
 		// When calling AddFile
-		err := mock.AddFile("test/path", []byte("content"))
+		err := mock.AddFile("test/path", []byte("content"), 0644)
 
 		// Then no error should be returned
 		if err != nil {

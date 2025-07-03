@@ -23,7 +23,7 @@ import (
 type Mocks struct {
 	Injector         di.Injector
 	ConfigHandler    config.ConfigHandler
-	BlueprintHandler blueprint.MockBlueprintHandler
+	BlueprintHandler *blueprint.MockBlueprintHandler
 	Shell            *shell.MockShell
 	Shims            *Shims
 }
@@ -144,9 +144,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	shims.MkdirAll = func(path string, perm fs.FileMode) error {
 		return os.MkdirAll(path, perm)
 	}
-	shims.TempDir = func(_, _ string) (string, error) {
-		return t.TempDir(), nil
-	}
 	shims.RemoveAll = func(path string) error {
 		return os.RemoveAll(path)
 	}
@@ -210,7 +207,7 @@ output "local_output1" {
 	mocks := &Mocks{
 		Injector:         injector,
 		ConfigHandler:    configHandler,
-		BlueprintHandler: *mockBlueprintHandler,
+		BlueprintHandler: mockBlueprintHandler,
 		Shell:            mockShell,
 		Shims:            shims,
 	}
