@@ -216,6 +216,9 @@ func NewMockConstructors() ComponentConstructors {
 		NewKustomizeBundler: func(injector di.Injector) bundler.Bundler {
 			return bundler.NewMockBundler()
 		},
+		NewTerraformBundler: func(injector di.Injector) bundler.Bundler {
+			return bundler.NewMockBundler()
+		},
 	}
 }
 

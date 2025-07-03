@@ -134,7 +134,7 @@ func TestKustomizeBundler_Bundle(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorWhenKustomizeDirectoryNotFound", func(t *testing.T) {
+	t.Run("HandlesWhenKustomizeDirectoryNotFound", func(t *testing.T) {
 		// Given a kustomize bundler with missing kustomize directory
 		bundler, mocks := setup(t)
 		bundler.shims.Stat = func(name string) (os.FileInfo, error) {
@@ -144,16 +144,23 @@ func TestKustomizeBundler_Bundle(t *testing.T) {
 			return &mockFileInfo{name: name, isDir: true}, nil
 		}
 
+		filesAdded := make([]string, 0)
+		mocks.Artifact.AddFileFunc = func(path string, content []byte) error {
+			filesAdded = append(filesAdded, path)
+			return nil
+		}
+
 		// When calling Bundle
 		err := bundler.Bundle(mocks.Artifact)
 
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error when kustomize directory not found")
+		// Then no error should be returned (graceful handling)
+		if err != nil {
+			t.Errorf("Expected nil error when kustomize directory not found, got %v", err)
 		}
-		expectedMsg := "kustomize directory not found: kustomize"
-		if err.Error() != expectedMsg {
-			t.Errorf("Expected error %q, got %q", expectedMsg, err.Error())
+
+		// And no files should be added
+		if len(filesAdded) != 0 {
+			t.Errorf("Expected 0 files added when directory not found, got %d", len(filesAdded))
 		}
 	})
 

@@ -543,5 +543,23 @@ func TestNewMockConstructors(t *testing.T) {
 		if windsorStack == nil {
 			t.Error("expected NewWindsorStack to return non-nil")
 		}
+
+		// Test bundler constructors
+		artifactBuilder := constructors.NewArtifactBuilder(injector)
+		if artifactBuilder == nil {
+			t.Error("expected NewArtifactBuilder to return non-nil")
+		}
+		templateBundler := constructors.NewTemplateBundler(injector)
+		if templateBundler == nil {
+			t.Error("expected NewTemplateBundler to return non-nil")
+		}
+		kustomizeBundler := constructors.NewKustomizeBundler(injector)
+		if kustomizeBundler == nil {
+			t.Error("expected NewKustomizeBundler to return non-nil")
+		}
+		terraformBundler := constructors.NewTerraformBundler(injector)
+		if terraformBundler == nil {
+			t.Error("expected NewTerraformBundler to return non-nil")
+		}
 	})
 }

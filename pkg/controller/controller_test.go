@@ -362,6 +362,13 @@ func TestNewController(t *testing.T) {
 				}
 				return nil
 			},
+			"NewTerraformBundler": func() error {
+				bundler := controller.constructors.NewTerraformBundler(mocks.Injector)
+				if bundler == nil {
+					return fmt.Errorf("NewTerraformBundler returned nil")
+				}
+				return nil
+			},
 		}
 		// When each constructor is tested
 		for name, test := range constructorTests {
@@ -4139,26 +4146,32 @@ func TestBaseController_ResolveAllBundlers(t *testing.T) {
 		controller, mocks := setup(t)
 		templateBundler := &bundler.MockBundler{}
 		kustomizeBundler := &bundler.MockBundler{}
+		terraformBundler := &bundler.MockBundler{}
 		mocks.Injector.Register("templateBundler", templateBundler)
 		mocks.Injector.Register("kustomizeBundler", kustomizeBundler)
+		mocks.Injector.Register("terraformBundler", terraformBundler)
 
 		// When resolving all bundlers
 		bundlers := controller.ResolveAllBundlers()
 
 		// Then all registered bundlers should be returned
-		if len(bundlers) != 2 {
-			t.Errorf("Expected 2 bundlers, got %d", len(bundlers))
+		if len(bundlers) != 3 {
+			t.Errorf("Expected 3 bundlers, got %d", len(bundlers))
 		}
 
-		// And the bundlers should include both registered ones
+		// And the bundlers should include all registered ones
 		foundTemplate := false
 		foundKustomize := false
+		foundTerraform := false
 		for _, b := range bundlers {
 			if b == templateBundler {
 				foundTemplate = true
 			}
 			if b == kustomizeBundler {
 				foundKustomize = true
+			}
+			if b == terraformBundler {
+				foundTerraform = true
 			}
 		}
 
@@ -4167,6 +4180,9 @@ func TestBaseController_ResolveAllBundlers(t *testing.T) {
 		}
 		if !foundKustomize {
 			t.Error("Expected kustomize bundler to be in returned bundlers")
+		}
+		if !foundTerraform {
+			t.Error("Expected terraform bundler to be in returned bundlers")
 		}
 	})
 
@@ -4520,12 +4536,110 @@ func TestBaseController_createBundlerComponents(t *testing.T) {
 		}
 	})
 
+	t.Run("CreatesTerraformBundlerWhenRequired", func(t *testing.T) {
+		// Given bundler is required and no existing terraform bundler
+		controller, mocks := setup(t)
+		mockTerraformBundler := &bundler.MockBundler{}
+		controller.constructors.NewTerraformBundler = func(di.Injector) bundler.Bundler {
+			return mockTerraformBundler
+		}
+
+		// When creating bundler components
+		err := controller.createBundlerComponents(Requirements{
+			Bundler: true,
+		})
+
+		// Then terraform bundler should be created and registered
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		resolvedBundler := mocks.Injector.Resolve("terraformBundler")
+		if resolvedBundler != mockTerraformBundler {
+			t.Error("Expected terraform bundler to be registered")
+		}
+	})
+
+	t.Run("DoesNotCreateTerraformBundlerWhenAlreadyExists", func(t *testing.T) {
+		// Given bundler is required and terraform bundler already exists
+		controller, mocks := setup(t)
+		existingBundler := &bundler.MockBundler{}
+		mocks.Injector.Register("terraformBundler", existingBundler)
+
+		// Track if constructor is called
+		constructorCalled := false
+		controller.constructors.NewTerraformBundler = func(di.Injector) bundler.Bundler {
+			constructorCalled = true
+			return &bundler.MockBundler{}
+		}
+
+		// When creating bundler components
+		err := controller.createBundlerComponents(Requirements{
+			Bundler: true,
+		})
+
+		// Then constructor should not be called
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if constructorCalled {
+			t.Error("Expected terraform bundler constructor not to be called when bundler already exists")
+		}
+
+		// And existing bundler should remain
+		resolvedBundler := mocks.Injector.Resolve("terraformBundler")
+		if resolvedBundler != existingBundler {
+			t.Error("Expected existing terraform bundler to remain")
+		}
+	})
+
+	t.Run("HandlesNilTerraformBundlerConstructor", func(t *testing.T) {
+		// Given bundler is required but terraform bundler constructor is nil
+		controller, _ := setup(t)
+		controller.constructors.NewTerraformBundler = nil
+
+		// When creating bundler components
+		err := controller.createBundlerComponents(Requirements{
+			Bundler: true,
+		})
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error when terraform bundler constructor is nil")
+		}
+		if !strings.Contains(err.Error(), "NewTerraformBundler constructor is nil") {
+			t.Errorf("Expected error about nil constructor, got %v", err)
+		}
+	})
+
+	t.Run("HandlesNilTerraformBundlerFromConstructor", func(t *testing.T) {
+		// Given terraform bundler constructor returns nil
+		controller, _ := setup(t)
+		controller.constructors.NewTerraformBundler = func(di.Injector) bundler.Bundler {
+			return nil
+		}
+
+		// When creating bundler components
+		err := controller.createBundlerComponents(Requirements{
+			Bundler: true,
+		})
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error when terraform bundler constructor returns nil")
+		}
+		if !strings.Contains(err.Error(), "NewTerraformBundler returned nil") {
+			t.Errorf("Expected error about nil terraform bundler, got %v", err)
+		}
+	})
+
 	t.Run("CreatesAllBundlerComponentsSuccessfully", func(t *testing.T) {
 		// Given bundler is required and all constructors are valid
 		controller, mocks := setup(t)
 		mockArtifactBuilder := &bundler.MockArtifact{}
 		mockTemplateBundler := &bundler.MockBundler{}
 		mockKustomizeBundler := &bundler.MockBundler{}
+		mockTerraformBundler := &bundler.MockBundler{}
 
 		controller.constructors.NewArtifactBuilder = func(di.Injector) bundler.Artifact {
 			return mockArtifactBuilder
@@ -4535,6 +4649,9 @@ func TestBaseController_createBundlerComponents(t *testing.T) {
 		}
 		controller.constructors.NewKustomizeBundler = func(di.Injector) bundler.Bundler {
 			return mockKustomizeBundler
+		}
+		controller.constructors.NewTerraformBundler = func(di.Injector) bundler.Bundler {
+			return mockTerraformBundler
 		}
 
 		// When creating bundler components
@@ -4556,6 +4673,9 @@ func TestBaseController_createBundlerComponents(t *testing.T) {
 		}
 		if bundler := mocks.Injector.Resolve("kustomizeBundler"); bundler != mockKustomizeBundler {
 			t.Error("Expected kustomize bundler to be registered")
+		}
+		if bundler := mocks.Injector.Resolve("terraformBundler"); bundler != mockTerraformBundler {
+			t.Error("Expected terraform bundler to be registered")
 		}
 	})
 }
@@ -4593,6 +4713,7 @@ func TestBaseController_BundlerRequirementIntegration(t *testing.T) {
 		mockArtifactBuilder := &bundler.MockArtifact{}
 		mockTemplateBundler := &bundler.MockBundler{}
 		mockKustomizeBundler := &bundler.MockBundler{}
+		mockTerraformBundler := &bundler.MockBundler{}
 
 		controller.constructors.NewArtifactBuilder = func(di.Injector) bundler.Artifact {
 			return mockArtifactBuilder
@@ -4602,6 +4723,9 @@ func TestBaseController_BundlerRequirementIntegration(t *testing.T) {
 		}
 		controller.constructors.NewKustomizeBundler = func(di.Injector) bundler.Bundler {
 			return mockKustomizeBundler
+		}
+		controller.constructors.NewTerraformBundler = func(di.Injector) bundler.Bundler {
+			return mockTerraformBundler
 		}
 
 		// Set requirements before creating components
@@ -4628,6 +4752,9 @@ func TestBaseController_BundlerRequirementIntegration(t *testing.T) {
 		if bundler := mocks.Injector.Resolve("kustomizeBundler"); bundler == nil {
 			t.Error("Expected kustomize bundler to be created during CreateComponents")
 		}
+		if bundler := mocks.Injector.Resolve("terraformBundler"); bundler == nil {
+			t.Error("Expected terraform bundler to be created during CreateComponents")
+		}
 	})
 
 	t.Run("InitializeWithRequirementsHandlesBundlerRequirement", func(t *testing.T) {
@@ -4636,6 +4763,7 @@ func TestBaseController_BundlerRequirementIntegration(t *testing.T) {
 		mockArtifactBuilder := &bundler.MockArtifact{}
 		mockTemplateBundler := &bundler.MockBundler{}
 		mockKustomizeBundler := &bundler.MockBundler{}
+		mockTerraformBundler := &bundler.MockBundler{}
 
 		controller.constructors.NewArtifactBuilder = func(di.Injector) bundler.Artifact {
 			return mockArtifactBuilder
@@ -4645,6 +4773,9 @@ func TestBaseController_BundlerRequirementIntegration(t *testing.T) {
 		}
 		controller.constructors.NewKustomizeBundler = func(di.Injector) bundler.Bundler {
 			return mockKustomizeBundler
+		}
+		controller.constructors.NewTerraformBundler = func(di.Injector) bundler.Bundler {
+			return mockTerraformBundler
 		}
 
 		// When initializing with bundler requirements

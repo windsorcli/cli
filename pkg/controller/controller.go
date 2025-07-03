@@ -122,6 +122,7 @@ type ComponentConstructors struct {
 	NewArtifactBuilder  func(di.Injector) bundler.Artifact
 	NewTemplateBundler  func(di.Injector) bundler.Bundler
 	NewKustomizeBundler func(di.Injector) bundler.Bundler
+	NewTerraformBundler func(di.Injector) bundler.Bundler
 }
 
 // Requirements defines the operational requirements for the controller
@@ -293,6 +294,9 @@ func NewDefaultConstructors() ComponentConstructors {
 		},
 		NewKustomizeBundler: func(injector di.Injector) bundler.Bundler {
 			return bundler.NewKustomizeBundler()
+		},
+		NewTerraformBundler: func(injector di.Injector) bundler.Bundler {
+			return bundler.NewTerraformBundler()
 		},
 	}
 }
@@ -1295,6 +1299,8 @@ func (c *BaseController) createBundlerComponents(req Requirements) error {
 			existingBundlerNames["templateBundler"] = true
 		} else if c.injector.Resolve("kustomizeBundler") == bundler {
 			existingBundlerNames["kustomizeBundler"] = true
+		} else if c.injector.Resolve("terraformBundler") == bundler {
+			existingBundlerNames["terraformBundler"] = true
 		}
 	}
 
@@ -1320,6 +1326,18 @@ func (c *BaseController) createBundlerComponents(req Requirements) error {
 			return fmt.Errorf("NewKustomizeBundler returned nil")
 		}
 		c.injector.Register("kustomizeBundler", kustomizeBundler)
+	}
+
+	// Create terraform bundler if not exists
+	if !existingBundlerNames["terraformBundler"] {
+		if c.constructors.NewTerraformBundler == nil {
+			return fmt.Errorf("NewTerraformBundler constructor is nil")
+		}
+		terraformBundler := c.constructors.NewTerraformBundler(c.injector)
+		if terraformBundler == nil {
+			return fmt.Errorf("NewTerraformBundler returned nil")
+		}
+		c.injector.Register("terraformBundler", terraformBundler)
 	}
 
 	return nil
