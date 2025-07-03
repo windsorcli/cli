@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // The TerraformBundler handles bundling of terraform manifests and related files.
@@ -40,6 +41,13 @@ func NewTerraformBundler() *TerraformBundler {
 // If the directory exists, it walks through all files preserving the directory structure.
 // Each file is read and added to the artifact maintaining the original terraform path structure.
 // Directories are skipped and only regular files are processed for bundling.
+// The bundler ignores .terraform directories and filters out common terraform files that should not be bundled:
+// - *_override.tf and *.tf.json override files
+// - *.tfstate and *.tfstate.* state files
+// - *.tfvars and *.tfvars.json variable files (often contain sensitive data)
+// - crash.log and crash.*.log files
+// - .terraformrc and terraform.rc CLI config files
+// - *.tfplan plan output files
 func (t *TerraformBundler) Bundle(artifact Artifact) error {
 	terraformSource := "terraform"
 
@@ -53,6 +61,13 @@ func (t *TerraformBundler) Bundle(artifact Artifact) error {
 		}
 
 		if info.IsDir() {
+			if info.Name() == ".terraform" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if t.shouldSkipFile(info.Name()) {
 			return nil
 		}
 
@@ -69,6 +84,46 @@ func (t *TerraformBundler) Bundle(artifact Artifact) error {
 		artifactPath := "terraform/" + filepath.ToSlash(relPath)
 		return artifact.AddFile(artifactPath, data)
 	})
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// shouldSkipFile determines if a file should be excluded from bundling.
+// Files are skipped to avoid including sensitive data, temporary files, and configuration overrides.
+// This includes state files, variable files, plan files, override files, and crash logs.
+func (t *TerraformBundler) shouldSkipFile(filename string) bool {
+	if strings.HasSuffix(filename, "_override.tf") ||
+		strings.HasSuffix(filename, "_override.tf.json") ||
+		filename == "override.tf" ||
+		filename == "override.tf.json" {
+		return true
+	}
+
+	if strings.HasSuffix(filename, ".tfstate") ||
+		strings.Contains(filename, ".tfstate.") {
+		return true
+	}
+
+	if strings.HasSuffix(filename, ".tfvars") ||
+		strings.HasSuffix(filename, ".tfvars.json") {
+		return true
+	}
+
+	if strings.HasSuffix(filename, ".tfplan") {
+		return true
+	}
+
+	if filename == ".terraformrc" || filename == "terraform.rc" {
+		return true
+	}
+
+	if filename == "crash.log" || strings.HasPrefix(filename, "crash.") && strings.HasSuffix(filename, ".log") {
+		return true
+	}
+
+	return false
 }
 
 // Ensure TerraformBundler implements Bundler interface

@@ -53,8 +53,6 @@ func TestTerraformBundler_Bundle(t *testing.T) {
 	t.Run("SuccessWithValidTerraformFiles", func(t *testing.T) {
 		// Given a terraform bundler with valid terraform files
 		bundler, mocks := setup(t)
-
-		// Set up mocks to simulate finding terraform files
 		filesAdded := make(map[string][]byte)
 		mocks.Artifact.AddFileFunc = func(path string, content []byte) error {
 			filesAdded[path] = content
@@ -62,8 +60,7 @@ func TestTerraformBundler_Bundle(t *testing.T) {
 		}
 
 		bundler.shims.Walk = func(root string, fn filepath.WalkFunc) error {
-			// Simulate finding multiple files in terraform directory
-			// Use filepath.Join to ensure cross-platform compatibility
+			fn("terraform", &mockFileInfo{name: "terraform", isDir: true}, nil)
 			fn(filepath.Join("terraform", "main.tf"), &mockFileInfo{name: "main.tf", isDir: false}, nil)
 			fn(filepath.Join("terraform", "variables.tf"), &mockFileInfo{name: "variables.tf", isDir: false}, nil)
 			fn(filepath.Join("terraform", "outputs.tf"), &mockFileInfo{name: "outputs.tf", isDir: false}, nil)
@@ -86,10 +83,8 @@ func TestTerraformBundler_Bundle(t *testing.T) {
 				return "outputs.tf", nil
 			case filepath.Join("terraform", "modules", "vpc", "main.tf"):
 				return filepath.Join("modules", "vpc", "main.tf"), nil
-			case filepath.Join("terraform", "environments", "prod", "terraform.tfvars"):
-				return filepath.Join("environments", "prod", "terraform.tfvars"), nil
 			default:
-				return "", fmt.Errorf("unexpected path: %s", targpath)
+				return "", fmt.Errorf("unexpected path (should have been filtered): %s", targpath)
 			}
 		}
 
@@ -103,10 +98,8 @@ func TestTerraformBundler_Bundle(t *testing.T) {
 				return []byte("output \"instance_id\" {\n  value = aws_instance.example.id\n}"), nil
 			case filepath.Join("terraform", "modules", "vpc", "main.tf"):
 				return []byte("resource \"aws_vpc\" \"main\" {\n  cidr_block = \"10.0.0.0/16\"\n}"), nil
-			case filepath.Join("terraform", "environments", "prod", "terraform.tfvars"):
-				return []byte("instance_type = \"t3.medium\"\nregion = \"us-west-2\""), nil
 			default:
-				return nil, fmt.Errorf("unexpected file: %s", filename)
+				return nil, fmt.Errorf("unexpected file should not be read (should have been filtered): %s", filename)
 			}
 		}
 
@@ -118,13 +111,12 @@ func TestTerraformBundler_Bundle(t *testing.T) {
 			t.Errorf("Expected nil error, got %v", err)
 		}
 
-		// And files should be added with correct paths
+		// And files should be added with correct paths (excluding .tfvars files for security)
 		expectedFiles := map[string]string{
-			"terraform/main.tf":                            "resource \"aws_instance\" \"example\" {\n  ami = \"ami-12345\"\n}",
-			"terraform/variables.tf":                       "variable \"instance_type\" {\n  type = string\n  default = \"t2.micro\"\n}",
-			"terraform/outputs.tf":                         "output \"instance_id\" {\n  value = aws_instance.example.id\n}",
-			"terraform/modules/vpc/main.tf":                "resource \"aws_vpc\" \"main\" {\n  cidr_block = \"10.0.0.0/16\"\n}",
-			"terraform/environments/prod/terraform.tfvars": "instance_type = \"t3.medium\"\nregion = \"us-west-2\"",
+			"terraform/main.tf":             "resource \"aws_instance\" \"example\" {\n  ami = \"ami-12345\"\n}",
+			"terraform/variables.tf":        "variable \"instance_type\" {\n  type = string\n  default = \"t2.micro\"\n}",
+			"terraform/outputs.tf":          "output \"instance_id\" {\n  value = aws_instance.example.id\n}",
+			"terraform/modules/vpc/main.tf": "resource \"aws_vpc\" \"main\" {\n  cidr_block = \"10.0.0.0/16\"\n}",
 		}
 
 		for expectedPath, expectedContent := range expectedFiles {
@@ -135,9 +127,338 @@ func TestTerraformBundler_Bundle(t *testing.T) {
 			}
 		}
 
-		// And directories should be skipped (only 5 files should be added)
-		if len(filesAdded) != 5 {
-			t.Errorf("Expected 5 files to be added, got %d", len(filesAdded))
+		// And directories should be skipped (only 4 files should be added, .tfvars files are filtered out)
+		if len(filesAdded) != 4 {
+			t.Errorf("Expected 4 files to be added, got %d", len(filesAdded))
+		}
+	})
+
+	t.Run("SkipsTerraformDirectoriesAndOverrideFiles", func(t *testing.T) {
+		// Given a terraform bundler with .terraform directories and override files
+		bundler, mocks := setup(t)
+		filesAdded := make(map[string][]byte)
+		mocks.Artifact.AddFileFunc = func(path string, content []byte) error {
+			filesAdded[path] = content
+			return nil
+		}
+
+		walkCallCount := 0
+		bundler.shims.Walk = func(root string, fn filepath.WalkFunc) error {
+			walkCallCount++
+
+			// Simulate directory traversal with .terraform directories and override files
+			if err := fn("terraform", &mockFileInfo{name: "terraform", isDir: true}, nil); err != nil {
+				return err
+			}
+			if err := fn(filepath.Join("terraform", "main.tf"), &mockFileInfo{name: "main.tf", isDir: false}, nil); err != nil {
+				return err
+			}
+			if err := fn(filepath.Join("terraform", "backend_override.tf"), &mockFileInfo{name: "backend_override.tf", isDir: false}, nil); err != nil {
+				return err
+			}
+			if err := fn(filepath.Join("terraform", "local_override.tf"), &mockFileInfo{name: "local_override.tf", isDir: false}, nil); err != nil {
+				return err
+			}
+			// Test .terraform directory - this should be skipped
+			if err := fn(filepath.Join("terraform", ".terraform"), &mockFileInfo{name: ".terraform", isDir: true}, nil); err != nil {
+				if err == filepath.SkipDir {
+					// This is expected behavior - continue with the rest of the files
+				} else {
+					return err
+				}
+			}
+			if err := fn(filepath.Join("terraform", "variables.tf"), &mockFileInfo{name: "variables.tf", isDir: false}, nil); err != nil {
+				return err
+			}
+			return nil
+		}
+
+		bundler.shims.FilepathRel = func(basepath, targpath string) (string, error) {
+			switch targpath {
+			case filepath.Join("terraform", "main.tf"):
+				return "main.tf", nil
+			case filepath.Join("terraform", "variables.tf"):
+				return "variables.tf", nil
+			case filepath.Join("terraform", "backend_override.tf"):
+				return "backend_override.tf", nil
+			case filepath.Join("terraform", "local_override.tf"):
+				return "local_override.tf", nil
+			default:
+				return "", fmt.Errorf("unexpected path: %s", targpath)
+			}
+		}
+
+		bundler.shims.ReadFile = func(filename string) ([]byte, error) {
+			switch filename {
+			case filepath.Join("terraform", "main.tf"):
+				return []byte("resource \"aws_instance\" \"example\" {}"), nil
+			case filepath.Join("terraform", "variables.tf"):
+				return []byte("variable \"instance_type\" {}"), nil
+			default:
+				return nil, fmt.Errorf("unexpected file should not be read: %s", filename)
+			}
+		}
+
+		// When calling Bundle
+		err := bundler.Bundle(mocks.Artifact)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected nil error, got %v", err)
+		}
+
+		// And only non-override files should be added (override files should be skipped)
+		expectedFiles := map[string]string{
+			"terraform/main.tf":      "resource \"aws_instance\" \"example\" {}",
+			"terraform/variables.tf": "variable \"instance_type\" {}",
+		}
+
+		for expectedPath, expectedContent := range expectedFiles {
+			if content, exists := filesAdded[expectedPath]; !exists {
+				t.Errorf("Expected file %s to be added", expectedPath)
+			} else if string(content) != expectedContent {
+				t.Errorf("Expected content %q for %s, got %q", expectedContent, expectedPath, string(content))
+			}
+		}
+
+		// And override files should not be included
+		overrideFiles := []string{
+			"terraform/backend_override.tf",
+			"terraform/local_override.tf",
+		}
+		for _, overrideFile := range overrideFiles {
+			if _, exists := filesAdded[overrideFile]; exists {
+				t.Errorf("Override file %s should not be added", overrideFile)
+			}
+		}
+
+		// And only the expected files should be added (2 files)
+		if len(filesAdded) != 2 {
+			t.Errorf("Expected 2 files to be added, got %d", len(filesAdded))
+			for path := range filesAdded {
+				t.Logf("Added file: %s", path)
+			}
+		}
+	})
+
+	t.Run("SkipsTerraformDirectoryCompletely", func(t *testing.T) {
+		// Given a terraform bundler with .terraform directory containing files
+		bundler, mocks := setup(t)
+		filesAdded := make(map[string][]byte)
+		mocks.Artifact.AddFileFunc = func(path string, content []byte) error {
+			filesAdded[path] = content
+			return nil
+		}
+
+		bundler.shims.Walk = func(root string, fn filepath.WalkFunc) error {
+			// Simulate directory traversal
+			if err := fn("terraform", &mockFileInfo{name: "terraform", isDir: true}, nil); err != nil {
+				return err
+			}
+			if err := fn(filepath.Join("terraform", "main.tf"), &mockFileInfo{name: "main.tf", isDir: false}, nil); err != nil {
+				return err
+			}
+			// Test .terraform directory - should return SkipDir to skip entire directory
+			if err := fn(filepath.Join("terraform", ".terraform"), &mockFileInfo{name: ".terraform", isDir: true}, nil); err != nil {
+				if err == filepath.SkipDir {
+					// .terraform directory should be skipped completely, don't traverse its contents
+					return nil
+				}
+				return err
+			}
+			// These files should NOT be called because .terraform directory should be skipped
+			// If they are called, the test should fail
+			if err := fn(filepath.Join("terraform", ".terraform", "providers"), &mockFileInfo{name: "providers", isDir: true}, nil); err != nil {
+				return err
+			}
+			if err := fn(filepath.Join("terraform", ".terraform", "terraform.tfstate"), &mockFileInfo{name: "terraform.tfstate", isDir: false}, nil); err != nil {
+				return err
+			}
+			return nil
+		}
+
+		bundler.shims.FilepathRel = func(basepath, targpath string) (string, error) {
+			switch targpath {
+			case filepath.Join("terraform", "main.tf"):
+				return "main.tf", nil
+			default:
+				return "", fmt.Errorf("unexpected path: %s", targpath)
+			}
+		}
+
+		bundler.shims.ReadFile = func(filename string) ([]byte, error) {
+			switch filename {
+			case filepath.Join("terraform", "main.tf"):
+				return []byte("resource \"aws_instance\" \"example\" {}"), nil
+			default:
+				return nil, fmt.Errorf("unexpected file should not be read: %s", filename)
+			}
+		}
+
+		// When calling Bundle
+		err := bundler.Bundle(mocks.Artifact)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected nil error, got %v", err)
+		}
+
+		// And only main.tf should be added (.terraform directory should be completely skipped)
+		expectedFiles := map[string]string{
+			"terraform/main.tf": "resource \"aws_instance\" \"example\" {}",
+		}
+
+		for expectedPath, expectedContent := range expectedFiles {
+			if content, exists := filesAdded[expectedPath]; !exists {
+				t.Errorf("Expected file %s to be added", expectedPath)
+			} else if string(content) != expectedContent {
+				t.Errorf("Expected content %q for %s, got %q", expectedContent, expectedPath, string(content))
+			}
+		}
+
+		// And only 1 file should be added
+		if len(filesAdded) != 1 {
+			t.Errorf("Expected 1 file to be added, got %d", len(filesAdded))
+			for path := range filesAdded {
+				t.Logf("Added file: %s", path)
+			}
+		}
+	})
+
+	t.Run("FiltersCommonTerraformIgnorePatterns", func(t *testing.T) {
+		// Given a terraform bundler with various terraform files including ones that should be filtered
+		bundler, mocks := setup(t)
+		filesAdded := make(map[string][]byte)
+		mocks.Artifact.AddFileFunc = func(path string, content []byte) error {
+			filesAdded[path] = content
+			return nil
+		}
+
+		bundler.shims.Walk = func(root string, fn filepath.WalkFunc) error {
+			// Simulate walking through terraform directory with various file types
+			files := []struct {
+				path   string
+				name   string
+				isDir  bool
+				should string // "include" or "exclude"
+			}{
+				{"terraform", "terraform", true, "skip-dir"},
+				{"terraform/main.tf", "main.tf", false, "include"},
+				{"terraform/variables.tf", "variables.tf", false, "include"},
+				{"terraform/outputs.tf", "outputs.tf", false, "include"},
+				{"terraform/.terraform.lock.hcl", ".terraform.lock.hcl", false, "include"}, // Lock files should be included!
+				{"terraform/terraform.tfvars", "terraform.tfvars", false, "exclude"},
+				{"terraform/prod.tfvars", "prod.tfvars", false, "exclude"},
+				{"terraform/secrets.tfvars.json", "secrets.tfvars.json", false, "exclude"},
+				{"terraform/terraform.tfstate", "terraform.tfstate", false, "exclude"},
+				{"terraform/terraform.tfstate.backup", "terraform.tfstate.backup", false, "exclude"},
+				{"terraform/prod.tfstate", "prod.tfstate", false, "exclude"},
+				{"terraform/plan.tfplan", "plan.tfplan", false, "exclude"},
+				{"terraform/terraform.tfplan", "terraform.tfplan", false, "exclude"},
+				{"terraform/backend_override.tf", "backend_override.tf", false, "exclude"},
+				{"terraform/local_override.tf", "local_override.tf", false, "exclude"},
+				{"terraform/override.tf", "override.tf", false, "exclude"},
+				{"terraform/override.tf.json", "override.tf.json", false, "exclude"},
+				{"terraform/test_override.tf.json", "test_override.tf.json", false, "exclude"},
+				{"terraform/.terraformrc", ".terraformrc", false, "exclude"},
+				{"terraform/terraform.rc", "terraform.rc", false, "exclude"},
+				{"terraform/crash.log", "crash.log", false, "exclude"},
+				{"terraform/crash.20241205.log", "crash.20241205.log", false, "exclude"},
+				{"terraform/modules", "modules", true, "skip-dir"},
+				{"terraform/modules/vpc", "vpc", true, "skip-dir"},
+				{"terraform/modules/vpc/main.tf", "main.tf", false, "include"},
+			}
+
+			for _, file := range files {
+				err := fn(file.path, &mockFileInfo{name: file.name, isDir: file.isDir}, nil)
+				if err != nil && err != filepath.SkipDir {
+					return err
+				}
+			}
+			return nil
+		}
+
+		bundler.shims.FilepathRel = func(basepath, targpath string) (string, error) {
+			// Return relative path for files that should be included
+			includeFiles := map[string]string{
+				filepath.Join("terraform", "main.tf"):                   "main.tf",
+				filepath.Join("terraform", "variables.tf"):              "variables.tf",
+				filepath.Join("terraform", "outputs.tf"):                "outputs.tf",
+				filepath.Join("terraform", ".terraform.lock.hcl"):       ".terraform.lock.hcl",
+				filepath.Join("terraform", "modules", "vpc", "main.tf"): "modules/vpc/main.tf",
+			}
+			if relPath, exists := includeFiles[targpath]; exists {
+				return relPath, nil
+			}
+			return "", fmt.Errorf("unexpected path (should have been filtered): %s", targpath)
+		}
+
+		bundler.shims.ReadFile = func(filename string) ([]byte, error) {
+			// Return content for files that should be included
+			contentMap := map[string]string{
+				filepath.Join("terraform", "main.tf"):                   "resource \"aws_instance\" \"example\" {}",
+				filepath.Join("terraform", "variables.tf"):              "variable \"instance_type\" {}",
+				filepath.Join("terraform", "outputs.tf"):                "output \"instance_id\" {}",
+				filepath.Join("terraform", ".terraform.lock.hcl"):       "# Lock file content",
+				filepath.Join("terraform", "modules", "vpc", "main.tf"): "module vpc content",
+			}
+			if content, exists := contentMap[filename]; exists {
+				return []byte(content), nil
+			}
+			return nil, fmt.Errorf("unexpected file should not be read (should have been filtered): %s", filename)
+		}
+
+		// When calling Bundle
+		err := bundler.Bundle(mocks.Artifact)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected nil error, got %v", err)
+		}
+
+		// And only files that should be included are added
+		expectedFiles := map[string]string{
+			"terraform/main.tf":             "resource \"aws_instance\" \"example\" {}",
+			"terraform/variables.tf":        "variable \"instance_type\" {}",
+			"terraform/outputs.tf":          "output \"instance_id\" {}",
+			"terraform/.terraform.lock.hcl": "# Lock file content",
+			"terraform/modules/vpc/main.tf": "module vpc content",
+		}
+
+		for expectedPath, expectedContent := range expectedFiles {
+			if content, exists := filesAdded[expectedPath]; !exists {
+				t.Errorf("Expected file %s to be added", expectedPath)
+			} else if string(content) != expectedContent {
+				t.Errorf("Expected content %q for %s, got %q", expectedContent, expectedPath, string(content))
+			}
+		}
+
+		// And no unwanted files should be included
+		if len(filesAdded) != len(expectedFiles) {
+			t.Errorf("Expected %d files to be added, got %d", len(expectedFiles), len(filesAdded))
+			for path := range filesAdded {
+				t.Logf("Added file: %s", path)
+			}
+		}
+
+		// Verify specific files are NOT included
+		excludedFiles := []string{
+			"terraform/terraform.tfvars",
+			"terraform/prod.tfvars",
+			"terraform/secrets.tfvars.json",
+			"terraform/terraform.tfstate",
+			"terraform/terraform.tfstate.backup",
+			"terraform/plan.tfplan",
+			"terraform/backend_override.tf",
+			"terraform/override.tf",
+			"terraform/.terraformrc",
+			"terraform/crash.log",
+		}
+
+		for _, excludedFile := range excludedFiles {
+			if _, exists := filesAdded[excludedFile]; exists {
+				t.Errorf("File %s should have been excluded but was included", excludedFile)
+			}
 		}
 	})
 
