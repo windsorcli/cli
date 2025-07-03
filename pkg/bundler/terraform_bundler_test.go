@@ -380,12 +380,19 @@ func TestTerraformBundler_Bundle(t *testing.T) {
 
 		bundler.shims.FilepathRel = func(basepath, targpath string) (string, error) {
 			// Return relative path for files that should be included
+			// Handle both Unix-style and Windows-style paths for cross-platform compatibility
 			includeFiles := map[string]string{
 				filepath.Join("terraform", "main.tf"):                   "main.tf",
 				filepath.Join("terraform", "variables.tf"):              "variables.tf",
 				filepath.Join("terraform", "outputs.tf"):                "outputs.tf",
 				filepath.Join("terraform", ".terraform.lock.hcl"):       ".terraform.lock.hcl",
 				filepath.Join("terraform", "modules", "vpc", "main.tf"): "modules/vpc/main.tf",
+				// Also handle forward-slash versions for cross-platform compatibility
+				"terraform/main.tf":             "main.tf",
+				"terraform/variables.tf":        "variables.tf",
+				"terraform/outputs.tf":          "outputs.tf",
+				"terraform/.terraform.lock.hcl": ".terraform.lock.hcl",
+				"terraform/modules/vpc/main.tf": "modules/vpc/main.tf",
 			}
 			if relPath, exists := includeFiles[targpath]; exists {
 				return relPath, nil
@@ -395,12 +402,19 @@ func TestTerraformBundler_Bundle(t *testing.T) {
 
 		bundler.shims.ReadFile = func(filename string) ([]byte, error) {
 			// Return content for files that should be included
+			// Handle both Unix-style and Windows-style paths for cross-platform compatibility
 			contentMap := map[string]string{
 				filepath.Join("terraform", "main.tf"):                   "resource \"aws_instance\" \"example\" {}",
 				filepath.Join("terraform", "variables.tf"):              "variable \"instance_type\" {}",
 				filepath.Join("terraform", "outputs.tf"):                "output \"instance_id\" {}",
 				filepath.Join("terraform", ".terraform.lock.hcl"):       "# Lock file content",
 				filepath.Join("terraform", "modules", "vpc", "main.tf"): "module vpc content",
+				// Also handle forward-slash versions for cross-platform compatibility
+				"terraform/main.tf":             "resource \"aws_instance\" \"example\" {}",
+				"terraform/variables.tf":        "variable \"instance_type\" {}",
+				"terraform/outputs.tf":          "output \"instance_id\" {}",
+				"terraform/.terraform.lock.hcl": "# Lock file content",
+				"terraform/modules/vpc/main.tf": "module vpc content",
 			}
 			if content, exists := contentMap[filename]; exists {
 				return []byte(content), nil
