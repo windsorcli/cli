@@ -29,6 +29,7 @@ type MockKubernetesManager struct {
 	SuspendKustomizationFunc            func(name, namespace string) error
 	SuspendHelmReleaseFunc              func(name, namespace string) error
 	ApplyGitRepositoryFunc              func(repo *sourcev1.GitRepository) error
+	ApplyOCIRepositoryFunc              func(repo *sourcev1.OCIRepository) error
 	WaitForKustomizationsDeletedFunc    func(message string, names ...string) error
 	CheckGitRepositoryStatusFunc        func() error
 }
@@ -138,6 +139,14 @@ func (m *MockKubernetesManager) SuspendHelmRelease(name, namespace string) error
 func (m *MockKubernetesManager) ApplyGitRepository(repo *sourcev1.GitRepository) error {
 	if m.ApplyGitRepositoryFunc != nil {
 		return m.ApplyGitRepositoryFunc(repo)
+	}
+	return nil
+}
+
+// ApplyOCIRepository implements KubernetesManager interface
+func (m *MockKubernetesManager) ApplyOCIRepository(repo *sourcev1.OCIRepository) error {
+	if m.ApplyOCIRepositoryFunc != nil {
+		return m.ApplyOCIRepositoryFunc(repo)
 	}
 	return nil
 }

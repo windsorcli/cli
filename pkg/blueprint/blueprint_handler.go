@@ -230,7 +230,7 @@ func (b *BaseBlueprintHandler) Install() error {
 		return fmt.Errorf("failed to create namespace: %w", err)
 	}
 
-	// Apply GitRepository for the main repository
+	// Apply blueprint repository
 	if b.blueprint.Repository.Url != "" {
 		source := blueprintv1alpha1.Source{
 			Name:       b.blueprint.Metadata.Name,
@@ -238,19 +238,19 @@ func (b *BaseBlueprintHandler) Install() error {
 			Ref:        b.blueprint.Repository.Ref,
 			SecretName: b.blueprint.Repository.SecretName,
 		}
-		if err := b.applyGitRepository(source, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+		if err := b.applySourceRepository(source, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
-			return fmt.Errorf("failed to apply main repository: %w", err)
+			return fmt.Errorf("failed to apply blueprint repository: %w", err)
 		}
 	}
 
-	// Apply GitRepositories for sources
+	// Apply other sources
 	for _, source := range b.blueprint.Sources {
-		if err := b.applyGitRepository(source, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+		if err := b.applySourceRepository(source, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
-			return fmt.Errorf("failed to apply source repository %s: %w", source.Name, err)
+			return fmt.Errorf("failed to apply source %s: %w", source.Name, err)
 		}
 	}
 
@@ -505,15 +505,11 @@ func (b *BaseBlueprintHandler) ProcessContextTemplates(contextName string, reset
 		return fmt.Errorf("error creating context directory: %w", err)
 	}
 
-	// Check for --blueprint flag first (highest priority)
-	// If --blueprint is specified, use embedded templates and ignore _template directory
 	blueprintValue := b.configHandler.GetString("blueprint")
 	if blueprintValue != "" {
 		return b.generateDefaultBlueprint(contextDir, contextName, resetMode)
 	}
 
-	// Check for _template directory (second priority)
-	// Only used if --blueprint flag is not specified
 	templateDir := filepath.Join(projectRoot, "contexts", "_template")
 	if _, err := b.shims.Stat(templateDir); err == nil {
 		return b.processTemplateDirectory(templateDir, contextDir, contextName, resetMode)
@@ -537,11 +533,13 @@ func (b *BaseBlueprintHandler) processTemplateDirectory(templateDir, contextDir,
 		}
 	}
 
-	// No blueprint template found, generate default
 	return b.generateDefaultBlueprint(contextDir, contextName, resetMode)
 }
 
-// processJsonnetTemplate processes a single blueprint jsonnet template
+// processJsonnetTemplate reads and evaluates a jsonnet template file to generate blueprint configuration.
+// It loads the template file, marshals the current context configuration to JSON for use as template data,
+// evaluates the jsonnet template with the context data injected via ExtCode, and processes the resulting
+// blueprint content through the standard blueprint template processing pipeline.
 func (b *BaseBlueprintHandler) processJsonnetTemplate(templateFile, contextDir, contextName string, resetMode bool) error {
 	jsonnetData, err := b.shims.ReadFile(templateFile)
 	if err != nil {
@@ -565,9 +563,6 @@ func (b *BaseBlueprintHandler) processJsonnetTemplate(templateFile, contextDir, 
 		return fmt.Errorf("error marshalling context map to JSON: %w", err)
 	}
 
-	// Use ExtCode to make context available via std.extVar("context")
-	// Templates must include: local context = std.extVar("context");
-	// This follows standard jsonnet patterns and is explicit and debuggable
 	vm := b.shims.NewJsonnetVM()
 	vm.ExtCode("context", string(contextJSON))
 	evaluatedContent, err := vm.EvaluateAnonymousSnippet(templateFile, string(jsonnetData))
@@ -655,8 +650,10 @@ func (b *BaseBlueprintHandler) generateDefaultBlueprint(contextDir, contextName 
 	return nil
 }
 
-// processBlueprintTemplate validates blueprint template output against the Blueprint schema
-// and writes it as a properly formatted blueprint.yaml file
+// processBlueprintTemplate validates blueprint template output against the Blueprint schema,
+// applies context-specific metadata overrides, and writes the result as a properly formatted
+// blueprint.yaml file. It ensures template content conforms to the Blueprint schema before
+// persisting to disk and automatically sets the blueprint name and description based on context.
 func (b *BaseBlueprintHandler) processBlueprintTemplate(outputPath, content, contextName string, resetMode bool) error {
 	if !resetMode {
 		if _, err := b.shims.Stat(outputPath); err == nil {
@@ -664,23 +661,19 @@ func (b *BaseBlueprintHandler) processBlueprintTemplate(outputPath, content, con
 		}
 	}
 
-	// Validate blueprint content against schema
 	var testBlueprint blueprintv1alpha1.Blueprint
 	if err := b.processBlueprintData([]byte(content), &testBlueprint); err != nil {
 		return fmt.Errorf("error validating blueprint template: %w", err)
 	}
 
-	// Override metadata with context-specific values
 	testBlueprint.Metadata.Name = contextName
 	testBlueprint.Metadata.Description = fmt.Sprintf("This blueprint outlines resources in the %s context", contextName)
 
-	// Convert JSON content to YAML format
 	yamlData, err := b.shims.YamlMarshal(testBlueprint)
 	if err != nil {
 		return fmt.Errorf("error converting blueprint to YAML: %w", err)
 	}
 
-	// Write validated blueprint content as YAML
 	if err := b.shims.WriteFile(outputPath, yamlData, 0644); err != nil {
 		return fmt.Errorf("error writing blueprint file: %w", err)
 	}
@@ -894,6 +887,14 @@ func (b *BaseBlueprintHandler) loadPlatformTemplate(platform string) ([]byte, er
 	}
 }
 
+// applySourceRepository routes to the appropriate source handler based on URL type
+func (b *BaseBlueprintHandler) applySourceRepository(source blueprintv1alpha1.Source, namespace string) error {
+	if strings.HasPrefix(source.Url, "oci://") {
+		return b.applyOCIRepository(source, namespace)
+	}
+	return b.applyGitRepository(source, namespace)
+}
+
 // applyGitRepository creates or updates a GitRepository resource in the cluster. It normalizes
 // the repository URL format, configures standard intervals and timeouts, and handles secret
 // references for private repositories.
@@ -936,6 +937,66 @@ func (b *BaseBlueprintHandler) applyGitRepository(source blueprintv1alpha1.Sourc
 	}
 
 	return b.kubernetesManager.ApplyGitRepository(gitRepo)
+}
+
+// applyOCIRepository creates or updates an OCIRepository resource in the cluster. It handles
+// OCI URL parsing, configures standard intervals and timeouts, and handles secret references
+// for private registries. The OCI URL should include the tag/version (e.g., oci://registry/repo:tag).
+func (b *BaseBlueprintHandler) applyOCIRepository(source blueprintv1alpha1.Source, namespace string) error {
+	ociURL := source.Url
+	var ref *sourcev1.OCIRepositoryRef
+
+	if lastColon := strings.LastIndex(ociURL, ":"); lastColon > len("oci://") {
+		if tagPart := ociURL[lastColon+1:]; tagPart != "" && !strings.Contains(tagPart, "/") {
+			ociURL = ociURL[:lastColon]
+			ref = &sourcev1.OCIRepositoryRef{
+				Tag: tagPart,
+			}
+		}
+	}
+
+	if ref == nil && (source.Ref.Tag != "" || source.Ref.SemVer != "" || source.Ref.Commit != "") {
+		ref = &sourcev1.OCIRepositoryRef{
+			Tag:    source.Ref.Tag,
+			SemVer: source.Ref.SemVer,
+			Digest: source.Ref.Commit,
+		}
+	}
+
+	if ref == nil {
+		ref = &sourcev1.OCIRepositoryRef{
+			Tag: "latest",
+		}
+	}
+
+	ociRepo := &sourcev1.OCIRepository{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "OCIRepository",
+			APIVersion: "source.toolkit.fluxcd.io/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      source.Name,
+			Namespace: namespace,
+		},
+		Spec: sourcev1.OCIRepositorySpec{
+			URL: ociURL,
+			Interval: metav1.Duration{
+				Duration: constants.DEFAULT_FLUX_SOURCE_INTERVAL,
+			},
+			Timeout: &metav1.Duration{
+				Duration: constants.DEFAULT_FLUX_SOURCE_TIMEOUT,
+			},
+			Reference: ref,
+		},
+	}
+
+	if source.SecretName != "" {
+		ociRepo.Spec.SecretRef = &meta.LocalObjectReference{
+			Name: source.SecretName,
+		}
+	}
+
+	return b.kubernetesManager.ApplyOCIRepository(ociRepo)
 }
 
 // applyConfigMap creates or updates a ConfigMap in the cluster containing context-specific
@@ -1085,6 +1146,7 @@ func (b *BaseBlueprintHandler) deleteNamespace(name string) error {
 // It handles conversion of dependsOn, patches, and postBuild configurations
 // It maps blueprint fields to their Flux kustomization equivalents
 // It maintains namespace context and preserves all configuration options
+// It automatically detects OCI sources and sets the appropriate SourceRef kind
 func (b *BaseBlueprintHandler) toKubernetesKustomization(k blueprintv1alpha1.Kustomization, namespace string) kustomizev1.Kustomization {
 	dependsOn := make([]meta.NamespacedObjectReference, len(k.DependsOn))
 	for i, dep := range k.DependsOn {
@@ -1130,6 +1192,11 @@ func (b *BaseBlueprintHandler) toKubernetesKustomization(k blueprintv1alpha1.Kus
 		prune = *k.Prune
 	}
 
+	sourceKind := "GitRepository"
+	if b.isOCISource(k.Source) {
+		sourceKind = "OCIRepository"
+	}
+
 	return kustomizev1.Kustomization{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Kustomization",
@@ -1141,7 +1208,7 @@ func (b *BaseBlueprintHandler) toKubernetesKustomization(k blueprintv1alpha1.Kus
 		},
 		Spec: kustomizev1.KustomizationSpec{
 			SourceRef: kustomizev1.CrossNamespaceSourceReference{
-				Kind: "GitRepository",
+				Kind: sourceKind,
 				Name: k.Source,
 			},
 			Path:          k.Path,
@@ -1157,4 +1224,20 @@ func (b *BaseBlueprintHandler) toKubernetesKustomization(k blueprintv1alpha1.Kus
 			Prune:         prune,
 		},
 	}
+}
+
+// isOCISource determines whether a given source name corresponds to an OCI repository
+// source by examining the URL prefix of the blueprint's main repository and any additional sources
+func (b *BaseBlueprintHandler) isOCISource(sourceName string) bool {
+	if sourceName == b.blueprint.Metadata.Name && strings.HasPrefix(b.blueprint.Repository.Url, "oci://") {
+		return true
+	}
+
+	for _, source := range b.blueprint.Sources {
+		if source.Name == sourceName && strings.HasPrefix(source.Url, "oci://") {
+			return true
+		}
+	}
+
+	return false
 }
