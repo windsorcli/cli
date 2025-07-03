@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/briandowns/spinner"
 	"github.com/google/go-jsonnet"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -76,6 +78,12 @@ func (g *TerraformGenerator) Write(overwrite ...bool) error {
 	}
 	g.reset = shouldOverwrite
 
+	// Preload all OCI artifacts before processing components
+	ociArtifacts, err := g.preloadOCIArtifacts()
+	if err != nil {
+		return fmt.Errorf("failed to preload OCI artifacts: %w", err)
+	}
+
 	components := g.blueprintHandler.GetTerraformComponents()
 
 	templateValues, err := g.processTemplates(shouldOverwrite)
@@ -119,7 +127,7 @@ func (g *TerraformGenerator) Write(overwrite ...bool) error {
 
 	for _, component := range components {
 		if component.Source != "" {
-			if err := g.generateModuleShim(component); err != nil {
+			if err := g.generateModuleShim(component, ociArtifacts); err != nil {
 				return fmt.Errorf("failed to generate module shim: %w", err)
 			}
 		}
@@ -257,33 +265,253 @@ func (g *TerraformGenerator) processJsonnetTemplate(templateFile, contextName st
 
 // generateModuleShim creates a local reference to a remote Terraform module.
 // It provides a shim layer that maintains module configuration while allowing Windsor to manage it.
-// The function orchestrates the creation of main.tf, variables.tf, and outputs.tf files.
-// It ensures proper module initialization and state management.
-func (g *TerraformGenerator) generateModuleShim(component blueprintv1alpha1.TerraformComponent) error {
+// The function orchestrates the creation of main.tf, variables.tf, and outputs.tf files for module initialization,
+// handling both OCI and standard source types with proper path resolution and state management.
+func (g *TerraformGenerator) generateModuleShim(component blueprintv1alpha1.TerraformComponent, ociArtifacts map[string][]byte) error {
 	moduleDir := component.FullPath
 	if err := g.shims.MkdirAll(moduleDir, 0755); err != nil {
 		return fmt.Errorf("failed to create module directory: %w", err)
 	}
 
-	if err := g.writeShimMainTf(moduleDir, component.Source); err != nil {
+	var resolvedSource string
+	var modulePath string
+	var err error
+
+	if g.isOCISource(component.Source) {
+		extractedPath, err := g.extractOCIModule(component.Source, component.Path, ociArtifacts)
+		if err != nil {
+			return fmt.Errorf("failed to extract OCI module: %w", err)
+		}
+
+		relPath, err := g.shims.FilepathRel(moduleDir, extractedPath)
+		if err != nil {
+			return fmt.Errorf("failed to calculate relative path: %w", err)
+		}
+
+		resolvedSource = relPath
+		modulePath = extractedPath
+	} else {
+		resolvedSource = component.Source
+		modulePath = moduleDir
+	}
+
+	if err := g.writeShimMainTf(moduleDir, resolvedSource); err != nil {
 		return err
 	}
 
-	if err := g.shims.Chdir(moduleDir); err != nil {
-		return fmt.Errorf("failed to change to module directory: %w", err)
+	if !g.isOCISource(component.Source) {
+		if err := g.shims.Chdir(moduleDir); err != nil {
+			return fmt.Errorf("failed to change to module directory: %w", err)
+		}
+
+		modulePath, err = g.initializeTerraformModule(component)
+		if err != nil {
+			return err
+		}
 	}
 
-	modulePath, err := g.initializeTerraformModule(component)
-	if err != nil {
-		return err
-	}
-
-	if err := g.writeShimVariablesTf(moduleDir, modulePath, component.Source); err != nil {
+	if err := g.writeShimVariablesTf(moduleDir, modulePath, resolvedSource); err != nil {
 		return err
 	}
 
 	if err := g.writeShimOutputsTf(moduleDir, modulePath); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// isOCISource determines if a source reference points to an OCI artifact by checking for OCI URL patterns
+// and resolving source names through the blueprint handler. It handles both direct OCI URLs and named
+// source references that map to OCI repositories, while excluding already-resolved extraction paths.
+func (g *TerraformGenerator) isOCISource(source string) bool {
+	if strings.Contains(source, ".oci_extracted") {
+		return false
+	}
+
+	if strings.HasPrefix(source, "oci://") {
+		return true
+	}
+
+	sources := g.blueprintHandler.GetSources()
+	for _, src := range sources {
+		if src.Name == source && strings.HasPrefix(src.Url, "oci://") {
+			return true
+		}
+	}
+
+	return false
+}
+
+// extractOCIModule extracts a specific terraform module from an OCI artifact.
+// It handles OCI URL resolution, artifact caching, and module path extraction.
+// The function manages the complete lifecycle from source lookup to module deployment,
+// ensuring efficient caching and proper directory structure for terraform modules.
+func (g *TerraformGenerator) extractOCIModule(source, path string, ociArtifacts map[string][]byte) (string, error) {
+	message := fmt.Sprintf("📥 Loading component %s", path)
+
+	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+	spin.Suffix = " " + message
+	spin.Start()
+
+	defer func() {
+		spin.Stop()
+		fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
+	}()
+
+	sources := g.blueprintHandler.GetSources()
+	var ociURL string
+	for _, src := range sources {
+		if src.Name == source {
+			ociURL = src.Url
+			break
+		}
+	}
+
+	if ociURL == "" {
+		return "", fmt.Errorf("source %s not found", source)
+	}
+
+	registry, repository, tag, err := g.parseOCIRef(ociURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse OCI reference: %w", err)
+	}
+
+	cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+
+	projectRoot, err := g.shell.GetProjectRoot()
+	if err != nil {
+		return "", fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	extractionKey := fmt.Sprintf("%s-%s-%s", registry, repository, tag)
+	fullModulePath := filepath.Join(projectRoot, ".windsor", ".oci_extracted", extractionKey, "terraform", path)
+	if _, err := g.shims.Stat(fullModulePath); err == nil {
+		return fullModulePath, nil
+	}
+
+	var artifactData []byte
+	if cachedData, exists := ociArtifacts[cacheKey]; exists {
+		artifactData = cachedData
+	} else {
+		artifactData, err = g.downloadOCIArtifact(registry, repository, tag)
+		if err != nil {
+			return "", fmt.Errorf("failed to download OCI artifact: %w", err)
+		}
+		ociArtifacts[cacheKey] = artifactData
+	}
+
+	if err := g.extractModuleFromArtifact(artifactData, path, extractionKey); err != nil {
+		return "", fmt.Errorf("failed to extract module from artifact: %w", err)
+	}
+
+	return fullModulePath, nil
+}
+
+// downloadOCIArtifact downloads an OCI artifact and returns the tar.gz data.
+// It provides OCI registry communication, image retrieval, and layer extraction.
+// The function handles OCI reference parsing, remote image access, and data streaming.
+// It ensures proper resource cleanup and memory-efficient artifact data retrieval.
+func (g *TerraformGenerator) downloadOCIArtifact(registry, repository, tag string) ([]byte, error) {
+	ref := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+
+	parsedRef, err := g.shims.ParseReference(ref)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse reference %s: %w", ref, err)
+	}
+
+	img, err := g.shims.RemoteImage(parsedRef)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get image: %w", err)
+	}
+
+	layers, err := g.shims.ImageLayers(img)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get image layers: %w", err)
+	}
+
+	if len(layers) == 0 {
+		return nil, fmt.Errorf("no layers found in image")
+	}
+
+	layer := layers[0]
+	reader, err := g.shims.LayerUncompressed(layer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get layer reader: %w", err)
+	}
+	defer reader.Close()
+
+	data, err := g.shims.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read layer data: %w", err)
+	}
+
+	return data, nil
+}
+
+// extractModuleFromArtifact extracts a specific terraform module from cached artifact data directly to .oci_extracted.
+// It provides selective tar stream processing, directory structure creation, and file permission management.
+// The function handles OCI artifact data extraction, module file deployment, and executable script permissions.
+// It ensures proper file system operations with error handling and maintains original tar header permissions.
+func (g *TerraformGenerator) extractModuleFromArtifact(artifactData []byte, modulePath, extractionKey string) error {
+	projectRoot, err := g.shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	reader := g.shims.NewBytesReader(artifactData)
+	tarReader := g.shims.NewTarReader(reader)
+	targetPrefix := "terraform/" + modulePath
+
+	extractionDir := filepath.Join(projectRoot, ".windsor", ".oci_extracted", extractionKey)
+
+	for {
+		header, err := tarReader.Next()
+		if err == g.shims.EOFError() {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("failed to read tar header: %w", err)
+		}
+
+		if !strings.HasPrefix(header.Name, targetPrefix) {
+			continue
+		}
+
+		relativePath := strings.TrimPrefix(header.Name, "terraform/")
+		destPath := filepath.Join(extractionDir, "terraform", relativePath)
+
+		if header.Typeflag == g.shims.TypeDir() {
+			if err := g.shims.MkdirAll(destPath, 0755); err != nil {
+				return fmt.Errorf("failed to create directory %s: %w", destPath, err)
+			}
+			continue
+		}
+
+		if err := g.shims.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			return fmt.Errorf("failed to create parent directory for %s: %w", destPath, err)
+		}
+
+		file, err := g.shims.Create(destPath)
+		if err != nil {
+			return fmt.Errorf("failed to create file %s: %w", destPath, err)
+		}
+
+		_, err = g.shims.Copy(file, tarReader)
+		file.Close()
+		if err != nil {
+			return fmt.Errorf("failed to write file %s: %w", destPath, err)
+		}
+
+		fileMode := os.FileMode(header.Mode)
+
+		if strings.HasSuffix(destPath, ".sh") {
+			fileMode |= 0111
+		}
+
+		if err := g.shims.Chmod(destPath, fileMode); err != nil {
+			return fmt.Errorf("failed to set file permissions for %s: %w", destPath, err)
+		}
 	}
 
 	return nil
@@ -448,10 +676,10 @@ func (g *TerraformGenerator) writeShimVariablesTf(moduleDir, modulePath, source 
 	return nil
 }
 
-// writeShimOutputsTf creates the outputs.tf file for the shim module.
-// It provides output definition extraction and shim generation.
-// The function creates references to module.main outputs while preserving descriptions.
-// It handles file reading, parsing, and writing with proper error handling.
+// writeShimOutputsTf creates the outputs.tf file for the shim module by extracting output definitions from the source module.
+// It provides output definition extraction and shim generation that preserves descriptions while creating references to module.main outputs.
+// The function ensures proper HCL syntax and maintains consistent output structure for terraform modules.
+// It handles file reading, parsing, and writing with comprehensive error handling for module compatibility.
 func (g *TerraformGenerator) writeShimOutputsTf(moduleDir, modulePath string) error {
 	outputsPath := filepath.Join(modulePath, "outputs.tf")
 	if _, err := g.shims.Stat(outputsPath); err == nil {
@@ -476,12 +704,10 @@ func (g *TerraformGenerator) writeShimOutputsTf(moduleDir, modulePath string) er
 					shimBlock := shimBody.AppendNewBlock("output", []string{outputName})
 					shimBlockBody := shimBlock.Body()
 
-					// Copy description if present
 					if attr := block.Body().GetAttribute("description"); attr != nil {
 						shimBlockBody.SetAttributeRaw("description", attr.Expr().BuildTokens(nil))
 					}
 
-					// Set value to reference module.main output
 					shimBlockBody.SetAttributeTraversal("value", hcl.Traversal{
 						hcl.TraverseRoot{Name: "module"},
 						hcl.TraverseAttr{Name: "main"},
@@ -749,7 +975,7 @@ func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedV
 				continue
 			}
 		}
-		// If no default, just comment null
+
 		body.AppendUnstructuredTokens(hclwrite.Tokens{
 			{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("# %s = null", info.Name))},
 		})
@@ -781,7 +1007,6 @@ func writeHeredoc(body *hclwrite.Body, name string, content string) {
 // Handles descriptions, sensitive flags, multi-line strings, and object/map formatting.
 // Ensures correct HCL syntax for all supported value types.
 func writeVariable(body *hclwrite.Body, name string, value any, variables []VariableInfo) {
-	// Find variable info
 	var info *VariableInfo
 	for _, v := range variables {
 		if v.Name == name {
@@ -790,7 +1015,6 @@ func writeVariable(body *hclwrite.Body, name string, value any, variables []Vari
 		}
 	}
 
-	// Write description if available
 	if info != nil && info.Description != "" {
 		body.AppendUnstructuredTokens(hclwrite.Tokens{
 			{Type: hclsyntax.TokenComment, Bytes: []byte("# " + info.Description)},
@@ -798,7 +1022,6 @@ func writeVariable(body *hclwrite.Body, name string, value any, variables []Vari
 		body.AppendNewline()
 	}
 
-	// Handle sensitive variables
 	if info != nil && info.Sensitive {
 		body.AppendUnstructuredTokens(hclwrite.Tokens{
 			{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("# %s = \"(sensitive)\"", name))},
@@ -814,7 +1037,6 @@ func writeVariable(body *hclwrite.Body, name string, value any, variables []Vari
 			return
 		}
 	case map[string]any:
-		// Render as HCL object assignment, not heredoc
 		rendered := formatValue(v)
 		assignment := fmt.Sprintf("%s = %s", name, rendered)
 		body.AppendUnstructuredTokens(hclwrite.Tokens{
@@ -824,7 +1046,6 @@ func writeVariable(body *hclwrite.Body, name string, value any, variables []Vari
 		return
 	}
 
-	// Write normal variable
 	body.SetAttributeValue(name, convertToCtyValue(value))
 }
 
@@ -946,6 +1167,88 @@ func convertFromCtyValue(val cty.Value) any {
 	default:
 		return nil
 	}
+}
+
+// parseOCIRef parses an OCI reference into registry, repository, and tag components.
+// It validates the OCI reference format and extracts the individual components for artifact resolution.
+func (g *TerraformGenerator) parseOCIRef(ociRef string) (registry, repository, tag string, err error) {
+	if !strings.HasPrefix(ociRef, "oci://") {
+		return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
+	}
+
+	ref := strings.TrimPrefix(ociRef, "oci://")
+
+	parts := strings.Split(ref, ":")
+	if len(parts) != 2 {
+		return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef)
+	}
+
+	repoWithRegistry := parts[0]
+	tag = parts[1]
+
+	repoParts := strings.SplitN(repoWithRegistry, "/", 2)
+	if len(repoParts) != 2 {
+		return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef)
+	}
+
+	registry = repoParts[0]
+	repository = repoParts[1]
+
+	return registry, repository, tag, nil
+}
+
+// preloadOCIArtifacts analyzes all blueprint sources and downloads unique OCI artifacts upfront.
+// It returns a map of cached artifacts keyed by their registry/repository:tag identifier.
+func (g *TerraformGenerator) preloadOCIArtifacts() (map[string][]byte, error) {
+	sources := g.blueprintHandler.GetSources()
+	ociArtifacts := make(map[string][]byte)
+
+	uniqueOCISources := make(map[string]bool)
+	for _, source := range sources {
+		if strings.HasPrefix(source.Url, "oci://") {
+			uniqueOCISources[source.Url] = true
+		}
+	}
+
+	if len(uniqueOCISources) == 0 {
+		return ociArtifacts, nil
+	}
+
+	message := "📦 Loading OCI sources"
+	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+	spin.Suffix = " " + message
+	spin.Start()
+
+	defer func() {
+		spin.Stop()
+		fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
+	}()
+
+	for _, source := range sources {
+		if !strings.HasPrefix(source.Url, "oci://") {
+			continue
+		}
+
+		registry, repository, tag, err := g.parseOCIRef(source.Url)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse OCI reference for source %s: %w", source.Name, err)
+		}
+
+		cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+
+		if _, exists := ociArtifacts[cacheKey]; exists {
+			continue
+		}
+
+		artifactData, err := g.downloadOCIArtifact(registry, repository, tag)
+		if err != nil {
+			return nil, fmt.Errorf("failed to download OCI artifact for source %s: %w", source.Name, err)
+		}
+
+		ociArtifacts[cacheKey] = artifactData
+	}
+
+	return ociArtifacts, nil
 }
 
 // =============================================================================

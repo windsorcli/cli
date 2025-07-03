@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/bundler"
@@ -40,7 +41,7 @@ contexts:
 		// Create mock artifact builder
 		artifactBuilder := bundler.NewMockArtifact()
 		artifactBuilder.InitializeFunc = func(injector di.Injector) error { return nil }
-		artifactBuilder.AddFileFunc = func(path string, content []byte) error { return nil }
+		artifactBuilder.AddFileFunc = func(path string, content []byte, mode os.FileMode) error { return nil }
 		artifactBuilder.CreateFunc = func(outputPath string, tag string) (string, error) {
 			if tag != "" {
 				return "test-v1.0.0.tar.gz", nil
@@ -351,7 +352,7 @@ func TestBundleCmd(t *testing.T) {
 		// Create a fresh artifact builder to avoid state contamination
 		freshArtifactBuilder := bundler.NewMockArtifact()
 		freshArtifactBuilder.InitializeFunc = func(injector di.Injector) error { return nil }
-		freshArtifactBuilder.AddFileFunc = func(path string, content []byte) error { return nil }
+		freshArtifactBuilder.AddFileFunc = func(path string, content []byte, mode os.FileMode) error { return nil }
 		freshArtifactBuilder.CreateFunc = func(outputPath string, tag string) (string, error) {
 			receivedOutputPath = outputPath
 			return "test-result.tar.gz", nil
@@ -386,7 +387,7 @@ func TestBundleCmd(t *testing.T) {
 		// Create a fresh artifact builder to avoid state contamination
 		freshArtifactBuilder := bundler.NewMockArtifact()
 		freshArtifactBuilder.InitializeFunc = func(injector di.Injector) error { return nil }
-		freshArtifactBuilder.AddFileFunc = func(path string, content []byte) error { return nil }
+		freshArtifactBuilder.AddFileFunc = func(path string, content []byte, mode os.FileMode) error { return nil }
 		freshArtifactBuilder.CreateFunc = func(outputPath string, tag string) (string, error) {
 			receivedTag = tag
 			return "test-result.tar.gz", nil

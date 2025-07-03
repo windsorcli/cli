@@ -1,6 +1,8 @@
 package bundler
 
 import (
+	"os"
+
 	"github.com/windsorcli/cli/pkg/di"
 )
 
@@ -16,7 +18,7 @@ import (
 // MockArtifact is a mock implementation of the Artifact interface
 type MockArtifact struct {
 	InitializeFunc func(injector di.Injector) error
-	AddFileFunc    func(path string, content []byte) error
+	AddFileFunc    func(path string, content []byte, mode os.FileMode) error
 	CreateFunc     func(outputPath string, tag string) (string, error)
 	PushFunc       func(registryBase string, repoName string, tag string) error
 }
@@ -43,9 +45,9 @@ func (m *MockArtifact) Initialize(injector di.Injector) error {
 }
 
 // AddFile calls the mock AddFileFunc if set, otherwise returns nil
-func (m *MockArtifact) AddFile(path string, content []byte) error {
+func (m *MockArtifact) AddFile(path string, content []byte, mode os.FileMode) error {
 	if m.AddFileFunc != nil {
-		return m.AddFileFunc(path, content)
+		return m.AddFileFunc(path, content, mode)
 	}
 	return nil
 }

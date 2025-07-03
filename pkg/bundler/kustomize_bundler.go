@@ -67,7 +67,7 @@ func (k *KustomizeBundler) Bundle(artifact Artifact) error {
 		}
 
 		artifactPath := "kustomize/" + filepath.ToSlash(relPath)
-		return artifact.AddFile(artifactPath, data)
+		return artifact.AddFile(artifactPath, data, info.Mode())
 	})
 }
 

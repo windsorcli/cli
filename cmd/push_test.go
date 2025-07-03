@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/bundler"
@@ -40,7 +41,7 @@ contexts:
 		// Create mock artifact builder
 		artifactBuilder := bundler.NewMockArtifact()
 		artifactBuilder.InitializeFunc = func(injector di.Injector) error { return nil }
-		artifactBuilder.AddFileFunc = func(path string, content []byte) error { return nil }
+		artifactBuilder.AddFileFunc = func(path string, content []byte, mode os.FileMode) error { return nil }
 		artifactBuilder.PushFunc = func(registryBase string, repoName string, tag string) error { return nil }
 
 		// Create mock template bundler

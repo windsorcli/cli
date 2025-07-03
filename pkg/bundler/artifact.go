@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -73,7 +74,7 @@ type BlueprintMetadataInput struct {
 // Artifact defines the interface for artifact creation operations
 type Artifact interface {
 	Initialize(injector di.Injector) error
-	AddFile(path string, content []byte) error
+	AddFile(path string, content []byte, mode os.FileMode) error
 	Create(outputPath string, tag string) (string, error)
 	Push(registryBase string, repoName string, tag string) error
 }
@@ -82,9 +83,15 @@ type Artifact interface {
 // ArtifactBuilder Implementation
 // =============================================================================
 
+// FileInfo holds file content and permission information
+type FileInfo struct {
+	Content []byte
+	Mode    os.FileMode
+}
+
 // ArtifactBuilder implements the Artifact interface
 type ArtifactBuilder struct {
-	files       map[string][]byte
+	files       map[string]FileInfo
 	shims       *Shims
 	shell       shell.Shell
 	tarballPath string
@@ -101,7 +108,7 @@ type ArtifactBuilder struct {
 func NewArtifactBuilder() *ArtifactBuilder {
 	return &ArtifactBuilder{
 		shims: NewShims(),
-		files: make(map[string][]byte),
+		files: make(map[string]FileInfo),
 	}
 }
 
@@ -128,8 +135,11 @@ func (a *ArtifactBuilder) Initialize(injector di.Injector) error {
 // Files are held in memory until Create() or Push() is called. The path becomes the relative
 // path within the generated tar.gz archive. Multiple calls with the same path will overwrite
 // the previous content. Special handling exists for "_templates/metadata.yaml" during packaging.
-func (a *ArtifactBuilder) AddFile(path string, content []byte) error {
-	a.files[path] = content
+func (a *ArtifactBuilder) AddFile(path string, content []byte, mode os.FileMode) error {
+	a.files[path] = FileInfo{
+		Content: content,
+		Mode:    mode,
+	}
 	return nil
 }
 
@@ -278,11 +288,11 @@ func (a *ArtifactBuilder) parseTagAndResolveMetadata(repoName, tag string) (stri
 		}
 	}
 
-	metadataData, hasMetadata := a.files["_templates/metadata.yaml"]
+	metadataFileInfo, hasMetadata := a.files["_templates/metadata.yaml"]
 	var input BlueprintMetadataInput
 
 	if hasMetadata {
-		if err := a.shims.YamlUnmarshal(metadataData, &input); err != nil {
+		if err := a.shims.YamlUnmarshal(metadataFileInfo.Content, &input); err != nil {
 			return "", "", nil, fmt.Errorf("failed to parse metadata.yaml: %w", err)
 		}
 	}
@@ -349,22 +359,22 @@ func (a *ArtifactBuilder) createTarballInMemory(metadata []byte) ([]byte, error)
 		return nil, fmt.Errorf("failed to write metadata: %w", err)
 	}
 
-	for path, content := range a.files {
+	for path, fileInfo := range a.files {
 		if path == "_templates/metadata.yaml" {
 			continue
 		}
 
 		header := &tar.Header{
 			Name: path,
-			Mode: 0644,
-			Size: int64(len(content)),
+			Mode: int64(fileInfo.Mode),
+			Size: int64(len(fileInfo.Content)),
 		}
 
 		if err := tarWriter.WriteHeader(header); err != nil {
 			return nil, fmt.Errorf("failed to write header for %s: %w", path, err)
 		}
 
-		if _, err := tarWriter.Write(content); err != nil {
+		if _, err := tarWriter.Write(fileInfo.Content); err != nil {
 			return nil, fmt.Errorf("failed to write content for %s: %w", path, err)
 		}
 	}
@@ -412,22 +422,22 @@ func (a *ArtifactBuilder) createTarballToDisk(outputPath string, metadata []byte
 		return fmt.Errorf("failed to write metadata: %w", err)
 	}
 
-	for path, content := range a.files {
+	for path, fileInfo := range a.files {
 		if path == "_templates/metadata.yaml" {
 			continue
 		}
 
 		header := &tar.Header{
 			Name: path,
-			Mode: 0644,
-			Size: int64(len(content)),
+			Mode: int64(fileInfo.Mode),
+			Size: int64(len(fileInfo.Content)),
 		}
 
 		if err := tarWriter.WriteHeader(header); err != nil {
 			return fmt.Errorf("failed to write header for %s: %w", path, err)
 		}
 
-		if _, err := tarWriter.Write(content); err != nil {
+		if _, err := tarWriter.Write(fileInfo.Content); err != nil {
 			return fmt.Errorf("failed to write content for %s: %w", path, err)
 		}
 	}

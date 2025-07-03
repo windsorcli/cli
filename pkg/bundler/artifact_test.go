@@ -356,7 +356,7 @@ func TestArtifactBuilder_AddFile(t *testing.T) {
 		// When adding a file
 		testPath := "test/file.txt"
 		testContent := []byte("test content")
-		err := builder.AddFile(testPath, testContent)
+		err := builder.AddFile(testPath, testContent, 0644)
 
 		// Then no error should be returned
 		if err != nil {
@@ -367,10 +367,10 @@ func TestArtifactBuilder_AddFile(t *testing.T) {
 		if len(builder.files) != 1 {
 			t.Errorf("Expected 1 file, got %d", len(builder.files))
 		}
-		if content, exists := builder.files[testPath]; !exists {
+		if fileInfo, exists := builder.files[testPath]; !exists {
 			t.Error("Expected file to be stored")
-		} else if string(content) != string(testContent) {
-			t.Errorf("Expected content %s, got %s", testContent, content)
+		} else if string(fileInfo.Content) != string(testContent) {
+			t.Errorf("Expected content %s, got %s", testContent, fileInfo.Content)
 		}
 	})
 
@@ -386,7 +386,7 @@ func TestArtifactBuilder_AddFile(t *testing.T) {
 		}
 
 		for path, content := range files {
-			err := builder.AddFile(path, content)
+			err := builder.AddFile(path, content, 0644)
 			if err != nil {
 				t.Errorf("Unexpected error adding file %s: %v", path, err)
 			}
@@ -398,10 +398,10 @@ func TestArtifactBuilder_AddFile(t *testing.T) {
 		}
 
 		for path, expectedContent := range files {
-			if actualContent, exists := builder.files[path]; !exists {
+			if actualFileInfo, exists := builder.files[path]; !exists {
 				t.Errorf("Expected file %s to be stored", path)
-			} else if string(actualContent) != string(expectedContent) {
-				t.Errorf("Expected content %s for file %s, got %s", expectedContent, path, actualContent)
+			} else if string(actualFileInfo.Content) != string(expectedContent) {
+				t.Errorf("Expected content %s for file %s, got %s", expectedContent, path, actualFileInfo.Content)
 			}
 		}
 	})
@@ -448,7 +448,7 @@ name: myproject
 version: v2.0.0
 description: A test project
 `)
-		builder.AddFile("_templates/metadata.yaml", metadataContent)
+		builder.AddFile("_templates/metadata.yaml", metadataContent, 0644)
 
 		// Override YamlUnmarshal to parse the metadata
 		builder.shims.YamlUnmarshal = func(data []byte, v any) error {
@@ -481,7 +481,7 @@ description: A test project
 		builder, _ := setup(t)
 
 		// Add metadata file with different values
-		builder.AddFile("_templates/metadata.yaml", []byte("metadata"))
+		builder.AddFile("_templates/metadata.yaml", []byte("metadata"), 0644)
 		builder.shims.YamlUnmarshal = func(data []byte, v any) error {
 			if metadata, ok := v.(*BlueprintMetadataInput); ok {
 				metadata.Name = "frommetadata"
@@ -549,7 +549,7 @@ description: A test project
 		// Given a builder with metadata containing only name
 		builder, _ := setup(t)
 
-		builder.AddFile("_templates/metadata.yaml", []byte("metadata"))
+		builder.AddFile("_templates/metadata.yaml", []byte("metadata"), 0644)
 		builder.shims.YamlUnmarshal = func(data []byte, v any) error {
 			if metadata, ok := v.(*BlueprintMetadataInput); ok {
 				metadata.Name = "testproject"
@@ -574,7 +574,7 @@ description: A test project
 		// Given a builder with invalid metadata
 		builder, _ := setup(t)
 
-		builder.AddFile("_templates/metadata.yaml", []byte("invalid yaml"))
+		builder.AddFile("_templates/metadata.yaml", []byte("invalid yaml"), 0644)
 		builder.shims.YamlUnmarshal = func(data []byte, v any) error {
 			return fmt.Errorf("yaml parse error")
 		}
@@ -711,7 +711,7 @@ description: A test project
 	t.Run("ErrorWhenFileHeaderWriteFails", func(t *testing.T) {
 		// Given a builder with files and failing file header write
 		builder, _ := setup(t)
-		builder.AddFile("test.txt", []byte("content"))
+		builder.AddFile("test.txt", []byte("content"), 0644)
 
 		mockTarWriter := &mockTarWriter{
 			writeHeaderFunc: func(hdr *tar.Header) error {
@@ -744,7 +744,7 @@ description: A test project
 	t.Run("ErrorWhenFileContentWriteFails", func(t *testing.T) {
 		// Given a builder with files and failing file content write
 		builder, _ := setup(t)
-		builder.AddFile("test.txt", []byte("content"))
+		builder.AddFile("test.txt", []byte("content"), 0644)
 
 		writeCount := 0
 		mockTarWriter := &mockTarWriter{
@@ -780,8 +780,8 @@ description: A test project
 	t.Run("SkipsMetadataFileInFileLoop", func(t *testing.T) {
 		// Given a builder with metadata file and other files
 		builder, _ := setup(t)
-		builder.AddFile("_templates/metadata.yaml", []byte("metadata content"))
-		builder.AddFile("other.txt", []byte("other content"))
+		builder.AddFile("_templates/metadata.yaml", []byte("metadata content"), 0644)
+		builder.AddFile("other.txt", []byte("other content"), 0644)
 
 		filesWritten := make(map[string]bool)
 		mockTarWriter := &mockTarWriter{
@@ -844,7 +844,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			input.Version = "1.0.0"
 			return nil
 		}
-		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"))
+		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
 		_, err := builder.Create("test.tar.gz", "")
 		if err != nil {
 			t.Fatalf("Failed to create artifact: %v", err)
@@ -874,7 +874,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			// Return empty metadata (no name or version)
 			return nil
 		}
-		builder.AddFile("_templates/metadata.yaml", []byte(""))
+		builder.AddFile("_templates/metadata.yaml", []byte(""), 0644)
 
 		// When pushing with empty repoName (simulates Create method scenario)
 		err := builder.Push("registry.example.com", "", "")
@@ -894,7 +894,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			// No version set
 			return nil
 		}
-		builder.AddFile("_templates/metadata.yaml", []byte("name: test"))
+		builder.AddFile("_templates/metadata.yaml", []byte("name: test"), 0644)
 
 		// When pushing without providing tag
 		err := builder.Push("registry.example.com", "test", "")
@@ -912,7 +912,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			return nil, fmt.Errorf("mock implementation error")
 		}
 
-		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"))
+		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
 
 		// When pushing
 		err := builder.Push("registry.example.com", "myapp", "2.0.0")
@@ -942,8 +942,8 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			return nil, fmt.Errorf("expected test termination")
 		}
 
-		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"))
-		builder.AddFile("test.txt", []byte("test content"))
+		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
+		builder.AddFile("test.txt", []byte("test content"), 0644)
 
 		// When pushing (this should work entirely in-memory)
 		err := builder.Push("registry.example.com", "test", "1.0.0")
@@ -972,7 +972,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			}
 		}
 
-		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"))
+		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
 
 		// When pushing
 		err := builder.Push("registry.example.com", "test", "1.0.0")
@@ -993,7 +993,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			input.Version = "1.0.0"
 			return nil
 		}
-		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"))
+		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
 
 		// When pushing with invalid registry format (contains invalid characters)
 		err := builder.Push("invalid registry format with spaces", "test", "1.0.0")
@@ -1023,7 +1023,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			return nil, fmt.Errorf("config file mutation failed")
 		}
 
-		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"))
+		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
 
 		// When pushing
 		err := builder.Push("registry.example.com", "test", "1.0.0")
@@ -1047,7 +1047,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			return nil, fmt.Errorf("expected test termination")
 		}
 
-		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"))
+		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
 
 		// When pushing with empty tag (should use version from metadata)
 		err := builder.Push("registry.example.com", "test", "")
@@ -1088,7 +1088,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			return mockImg
 		}
 
-		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"))
+		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
 
 		// When pushing
 		err := builder.Push("registry.example.com", "test", "1.0.0")
@@ -1142,7 +1142,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			return mockImg
 		}
 
-		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"))
+		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
 
 		// When pushing
 		err := builder.Push("registry.example.com", "test", "1.0.0")
@@ -1188,7 +1188,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			return mockImg
 		}
 
-		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"))
+		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
 
 		// When pushing
 		err := builder.Push("registry.example.com", "test", "1.0.0")
@@ -1240,7 +1240,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			return mockImg
 		}
 
-		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"))
+		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
 
 		// When pushing (assuming remote.Get will fail for config, triggering upload path)
 		err := builder.Push("registry.example.com", "test", "1.0.0")
@@ -1261,7 +1261,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			// Return empty input so tag parsing is tested
 			return nil
 		}
-		builder.AddFile("_templates/metadata.yaml", []byte(""))
+		builder.AddFile("_templates/metadata.yaml", []byte(""), 0644)
 
 		// When creating with tag containing multiple colons (should fail in Create method)
 		_, err := builder.Create("test.tar.gz", "name:version:extra")
@@ -1280,7 +1280,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
 			return nil
 		}
-		builder.AddFile("_templates/metadata.yaml", []byte(""))
+		builder.AddFile("_templates/metadata.yaml", []byte(""), 0644)
 
 		// When creating with tag having empty parts (should fail in Create method)
 		invalidTags := []string{":version", "name:", ":"}
@@ -1303,7 +1303,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			input.Version = "1.0.0"
 			return nil
 		}
-		builder.AddFile("_templates/metadata.yaml", []byte("version: 1.0.0"))
+		builder.AddFile("_templates/metadata.yaml", []byte("version: 1.0.0"), 0644)
 
 		// Mock to terminate early after metadata resolution
 		mocks.Shims.AppendLayers = func(base v1.Image, layers ...v1.Layer) (v1.Image, error) {
@@ -1349,7 +1349,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			return mockImg
 		}
 
-		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"))
+		builder.AddFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
 
 		// When pushing with empty tag (should construct URL without tag)
 		err := builder.Push("registry.example.com", "test", "")
@@ -1369,7 +1369,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			return fmt.Errorf("layer upload failed")
 		}
 
-		builder.AddFile("file.txt", []byte("content"))
+		builder.AddFile("file.txt", []byte("content"), 0644)
 
 		// When calling Push
 		err := builder.Push("registry.example.com", "test", "1.0.0")
@@ -1392,7 +1392,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			return fmt.Errorf("manifest upload failed")
 		}
 
-		builder.AddFile("file.txt", []byte("content"))
+		builder.AddFile("file.txt", []byte("content"), 0644)
 
 		// When calling Push
 		err := builder.Push("registry.example.com", "test", "1.0.0")
@@ -1415,7 +1415,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			return &remote.Descriptor{}, nil
 		}
 
-		builder.AddFile("file.txt", []byte("content"))
+		builder.AddFile("file.txt", []byte("content"), 0644)
 
 		// When calling Push
 		err := builder.Push("registry.example.com", "test", "1.0.0")
@@ -1439,7 +1439,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			return nil
 		}
 
-		builder.AddFile("file.txt", []byte("content"))
+		builder.AddFile("file.txt", []byte("content"), 0644)
 
 		// When calling Push
 		err := builder.Push("registry.example.com", "test", "1.0.0")
@@ -1469,7 +1469,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			return fmt.Errorf("config upload failed")
 		}
 
-		builder.AddFile("file.txt", []byte("content"))
+		builder.AddFile("file.txt", []byte("content"), 0644)
 
 		// When calling Push
 		err := builder.Push("registry.example.com", "test", "1.0.0")
@@ -1581,7 +1581,7 @@ func TestArtifactBuilder_createTarballInMemory(t *testing.T) {
 	t.Run("ErrorWhenTarWriterWriteHeaderFails", func(t *testing.T) {
 		// Given a builder with files
 		builder, mocks := setup(t)
-		builder.AddFile("test.txt", []byte("content"))
+		builder.AddFile("test.txt", []byte("content"), 0644)
 
 		// Mock tar writer to fail on WriteHeader
 		mocks.Shims.NewTarWriter = func(w io.Writer) TarWriter {
@@ -1604,7 +1604,7 @@ func TestArtifactBuilder_createTarballInMemory(t *testing.T) {
 	t.Run("ErrorWhenTarWriterWriteFails", func(t *testing.T) {
 		// Given a builder with files
 		builder, mocks := setup(t)
-		builder.AddFile("test.txt", []byte("content"))
+		builder.AddFile("test.txt", []byte("content"), 0644)
 
 		// Mock tar writer to fail on Write
 		mocks.Shims.NewTarWriter = func(w io.Writer) TarWriter {
@@ -1627,7 +1627,7 @@ func TestArtifactBuilder_createTarballInMemory(t *testing.T) {
 	t.Run("ErrorWhenFileHeaderWriteFails", func(t *testing.T) {
 		// Given a builder with files
 		builder, mocks := setup(t)
-		builder.AddFile("test.txt", []byte("content"))
+		builder.AddFile("test.txt", []byte("content"), 0644)
 
 		headerCount := 0
 		// Mock tar writer to fail on second WriteHeader (for file)
@@ -1658,7 +1658,7 @@ func TestArtifactBuilder_createTarballInMemory(t *testing.T) {
 	t.Run("ErrorWhenFileContentWriteFails", func(t *testing.T) {
 		// Given a builder with files
 		builder, mocks := setup(t)
-		builder.AddFile("test.txt", []byte("content"))
+		builder.AddFile("test.txt", []byte("content"), 0644)
 
 		writeCount := 0
 		// Mock tar writer to fail on second Write (for file content)
@@ -1686,7 +1686,7 @@ func TestArtifactBuilder_createTarballInMemory(t *testing.T) {
 	t.Run("ErrorWhenTarWriterCloseFails", func(t *testing.T) {
 		// Given a builder with files
 		builder, mocks := setup(t)
-		builder.AddFile("test.txt", []byte("content"))
+		builder.AddFile("test.txt", []byte("content"), 0644)
 
 		// Mock tar writer to fail on Close
 		mocks.Shims.NewTarWriter = func(w io.Writer) TarWriter {
