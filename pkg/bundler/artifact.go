@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/briandowns/spinner"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -77,6 +78,7 @@ type Artifact interface {
 	AddFile(path string, content []byte, mode os.FileMode) error
 	Create(outputPath string, tag string) (string, error)
 	Push(registryBase string, repoName string, tag string) error
+	Pull(ociRefs []string) (map[string][]byte, error)
 }
 
 // =============================================================================
@@ -96,6 +98,7 @@ type ArtifactBuilder struct {
 	shell       shell.Shell
 	tarballPath string
 	metadata    BlueprintMetadataInput
+	ociCache    map[string][]byte // Cache for downloaded OCI artifacts
 }
 
 // =============================================================================
@@ -107,8 +110,9 @@ type ArtifactBuilder struct {
 // for system operations. The returned builder is ready for dependency injection and file operations.
 func NewArtifactBuilder() *ArtifactBuilder {
 	return &ArtifactBuilder{
-		shims: NewShims(),
-		files: make(map[string]FileInfo),
+		shims:    NewShims(),
+		files:    make(map[string]FileInfo),
+		ociCache: make(map[string][]byte),
 	}
 }
 
@@ -254,6 +258,72 @@ func (a *ArtifactBuilder) Push(registryBase string, repoName string, tag string)
 	}
 
 	return nil
+}
+
+// Pull downloads and extracts OCI artifacts in memory for use by other components.
+// It takes a slice of OCI references and downloads unique artifacts, returning a map
+// of cached artifacts keyed by their registry/repository:tag identifier.
+// The method provides efficient caching to avoid duplicate downloads of the same artifact.
+func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
+	ociArtifacts := make(map[string][]byte)
+
+	uniqueOCIRefs := make(map[string]bool)
+	for _, ref := range ociRefs {
+		if strings.HasPrefix(ref, "oci://") {
+			uniqueOCIRefs[ref] = true
+		}
+	}
+
+	if len(uniqueOCIRefs) == 0 {
+		return ociArtifacts, nil
+	}
+
+	var artifactsToDownload []string
+	for ref := range uniqueOCIRefs {
+		registry, repository, tag, err := a.parseOCIRef(ref)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse OCI reference %s: %w", ref, err)
+		}
+
+		cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+
+		if cachedData, exists := a.ociCache[cacheKey]; exists {
+			ociArtifacts[cacheKey] = cachedData
+		} else {
+			artifactsToDownload = append(artifactsToDownload, ref)
+		}
+	}
+
+	if len(artifactsToDownload) > 0 {
+		message := "📦 Loading OCI sources"
+		spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+		spin.Suffix = " " + message
+		spin.Start()
+
+		defer func() {
+			spin.Stop()
+			fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
+		}()
+
+		for _, ref := range artifactsToDownload {
+			registry, repository, tag, err := a.parseOCIRef(ref)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse OCI reference %s: %w", ref, err)
+			}
+
+			cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+
+			artifactData, err := a.downloadOCIArtifact(registry, repository, tag)
+			if err != nil {
+				return nil, fmt.Errorf("failed to download OCI artifact %s: %w", ref, err)
+			}
+
+			a.ociCache[cacheKey] = artifactData
+			ociArtifacts[cacheKey] = artifactData
+		}
+	}
+
+	return ociArtifacts, nil
 }
 
 // =============================================================================
@@ -615,6 +685,77 @@ func (a *ArtifactBuilder) getBuilderInfo() (BuilderInfo, error) {
 		User:  strings.TrimSpace(user),
 		Email: strings.TrimSpace(email),
 	}, nil
+}
+
+// parseOCIRef parses an OCI reference into registry, repository, and tag components.
+// Validates OCI reference format and extracts registry, repository, and tag parts.
+// Requires OCI reference to follow the format "oci://registry/repository:tag".
+// Returns individual components for separate handling in OCI operations.
+func (a *ArtifactBuilder) parseOCIRef(ociRef string) (registry, repository, tag string, err error) {
+	if !strings.HasPrefix(ociRef, "oci://") {
+		return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
+	}
+
+	ref := strings.TrimPrefix(ociRef, "oci://")
+
+	parts := strings.Split(ref, ":")
+	if len(parts) != 2 {
+		return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef)
+	}
+
+	repoWithRegistry := parts[0]
+	tag = parts[1]
+
+	repoParts := strings.SplitN(repoWithRegistry, "/", 2)
+	if len(repoParts) != 2 {
+		return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef)
+	}
+
+	registry = repoParts[0]
+	repository = repoParts[1]
+
+	return registry, repository, tag, nil
+}
+
+// downloadOCIArtifact downloads an OCI artifact and returns the tar.gz data.
+// Constructs an OCI reference from registry, repository, and tag components.
+// Downloads the first layer of the OCI image which contains the artifact data.
+// Returns the uncompressed layer data as bytes for further processing.
+func (a *ArtifactBuilder) downloadOCIArtifact(registry, repository, tag string) ([]byte, error) {
+	ref := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+
+	parsedRef, err := a.shims.ParseReference(ref)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse reference %s: %w", ref, err)
+	}
+
+	img, err := a.shims.RemoteImage(parsedRef)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get image: %w", err)
+	}
+
+	layers, err := a.shims.ImageLayers(img)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get image layers: %w", err)
+	}
+
+	if len(layers) == 0 {
+		return nil, fmt.Errorf("no layers found in image")
+	}
+
+	layer := layers[0]
+	reader, err := a.shims.LayerUncompressed(layer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get layer reader: %w", err)
+	}
+	defer reader.Close()
+
+	data, err := a.shims.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read layer data: %w", err)
+	}
+
+	return data, nil
 }
 
 // Ensure ArtifactBuilder implements Artifact interface

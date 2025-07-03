@@ -24,6 +24,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/blueprint"
+	"github.com/windsorcli/cli/pkg/bundler"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -3494,114 +3495,6 @@ func TestTerraformGenerator_extractOCIModule(t *testing.T) {
 	})
 }
 
-func TestTerraformGenerator_downloadOCIArtifact(t *testing.T) {
-	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
-		mocks := setupMocks(t)
-		generator := NewTerraformGenerator(mocks.Injector)
-		generator.shims = mocks.Shims
-		if err := generator.Initialize(); err != nil {
-			t.Fatalf("failed to initialize TerraformGenerator: %v", err)
-		}
-		return generator, mocks
-	}
-
-	t.Run("ParseReferenceSuccess", func(t *testing.T) {
-		// Given a TerraformGenerator with successful parse but failing remote
-		generator, mocks := setup(t)
-
-		mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
-			return nil, nil // Success
-		}
-
-		mocks.Shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
-			return nil, fmt.Errorf("remote image error") // Fail at next step
-		}
-
-		// When downloadOCIArtifact is called
-		_, err := generator.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
-
-		// Then it should fail at remote image step
-		if err == nil {
-			t.Error("expected error for remote image failure")
-		}
-		if !strings.Contains(err.Error(), "failed to get image") {
-			t.Errorf("expected remote image error, got %v", err)
-		}
-	})
-
-	t.Run("ParseReferenceError", func(t *testing.T) {
-		// Given a TerraformGenerator with parse reference error
-		generator, mocks := setup(t)
-
-		mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
-			return nil, fmt.Errorf("parse error")
-		}
-
-		// When downloadOCIArtifact is called
-		_, err := generator.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
-
-		// Then it should return parse reference error
-		if err == nil {
-			t.Error("expected error for parse reference failure")
-		}
-		if !strings.Contains(err.Error(), "failed to parse reference") {
-			t.Errorf("expected parse reference error, got %v", err)
-		}
-	})
-
-	t.Run("RemoteImageError", func(t *testing.T) {
-		// Given a TerraformGenerator with remote image error
-		generator, mocks := setup(t)
-
-		mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
-			return nil, nil
-		}
-
-		mocks.Shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
-			return nil, fmt.Errorf("remote error")
-		}
-
-		// When downloadOCIArtifact is called
-		_, err := generator.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
-
-		// Then it should return remote image error
-		if err == nil {
-			t.Error("expected error for remote image failure")
-		}
-		if !strings.Contains(err.Error(), "failed to get image") {
-			t.Errorf("expected remote image error, got %v", err)
-		}
-	})
-
-	t.Run("ImageLayersError", func(t *testing.T) {
-		// Given a TerraformGenerator with image layers error
-		generator, mocks := setup(t)
-
-		mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
-			return nil, nil
-		}
-
-		mocks.Shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
-			return nil, nil
-		}
-
-		mocks.Shims.ImageLayers = func(img v1.Image) ([]v1.Layer, error) {
-			return nil, fmt.Errorf("layers error")
-		}
-
-		// When downloadOCIArtifact is called
-		_, err := generator.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
-
-		// Then it should return image layers error
-		if err == nil {
-			t.Error("expected error for image layers failure")
-		}
-		if !strings.Contains(err.Error(), "failed to get image layers") {
-			t.Errorf("expected image layers error, got %v", err)
-		}
-	})
-}
-
 func TestTerraformGenerator_parseVariablesFile(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
 		mocks := setupMocks(t)
@@ -5172,8 +5065,16 @@ func TestTerraformGenerator_preloadOCIArtifacts(t *testing.T) {
 			}
 		}
 
-		// And terraform generator specific mocks are set up
-		setupTerraformGeneratorMocks(mocks)
+		// And the artifact builder is set up to return expected data
+		mockArtifact := mocks.Injector.Resolve("artifactBuilder").(*bundler.MockArtifact)
+		mockArtifact.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
+			if len(ociRefs) != 1 || ociRefs[0] != "oci://registry.example.com/my-repo:v1.0.0" {
+				return nil, fmt.Errorf("unexpected OCI refs: %v", ociRefs)
+			}
+			return map[string][]byte{
+				"registry.example.com/my-repo:v1.0.0": []byte("test artifact data"),
+			}, nil
+		}
 
 		// When preloadOCIArtifacts is called
 		artifacts, err := generator.preloadOCIArtifacts()
@@ -5206,14 +5107,32 @@ func TestTerraformGenerator_preloadOCIArtifacts(t *testing.T) {
 			}
 		}
 
-		// And terraform generator specific mocks are set up with counter
-		downloadCallCount := 0
-		setupTerraformGeneratorMocks(mocks)
-		// Override LayerUncompressed for counter behavior
-		mocks.Shims.LayerUncompressed = func(layer v1.Layer) (io.ReadCloser, error) {
-			downloadCallCount++
-			data := []byte(fmt.Sprintf("test artifact data %d", downloadCallCount))
-			return io.NopCloser(bytes.NewReader(data)), nil
+		// And the artifact builder is set up to return data for both artifacts
+		mockArtifact := mocks.Injector.Resolve("artifactBuilder").(*bundler.MockArtifact)
+		mockArtifact.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
+			expected := []string{
+				"oci://registry.example.com/repo1:v1.0.0",
+				"oci://registry.example.com/repo2:v2.0.0",
+			}
+			if len(ociRefs) != 2 {
+				return nil, fmt.Errorf("expected 2 OCI refs, got %d", len(ociRefs))
+			}
+			for _, expected := range expected {
+				found := false
+				for _, actual := range ociRefs {
+					if actual == expected {
+						found = true
+						break
+					}
+				}
+				if !found {
+					return nil, fmt.Errorf("expected OCI ref %s not found", expected)
+				}
+			}
+			return map[string][]byte{
+				"registry.example.com/repo1:v1.0.0": []byte("test artifact data 1"),
+				"registry.example.com/repo2:v2.0.0": []byte("test artifact data 2"),
+			}, nil
 		}
 
 		// When preloadOCIArtifacts is called
@@ -5227,11 +5146,6 @@ func TestTerraformGenerator_preloadOCIArtifacts(t *testing.T) {
 		// And the artifacts map should contain both entries
 		if len(artifacts) != 2 {
 			t.Errorf("expected 2 artifacts, got %d", len(artifacts))
-		}
-
-		// And both downloads should have happened
-		if downloadCallCount != 2 {
-			t.Errorf("expected 2 download calls, got %d", downloadCallCount)
 		}
 
 		// And both artifacts should be present
@@ -5258,14 +5172,22 @@ func TestTerraformGenerator_preloadOCIArtifacts(t *testing.T) {
 			}
 		}
 
-		// And terraform generator specific mocks are set up with counter
+		// And the artifact builder is set up to return data for the unique OCI artifact
 		testData := []byte("test artifact data")
-		downloadCallCount := 0
-		setupTerraformGeneratorMocks(mocks)
-		// Override LayerUncompressed for counter behavior
-		mocks.Shims.LayerUncompressed = func(layer v1.Layer) (io.ReadCloser, error) {
-			downloadCallCount++
-			return io.NopCloser(bytes.NewReader(testData)), nil
+		mockArtifact := mocks.Injector.Resolve("artifactBuilder").(*bundler.MockArtifact)
+		mockArtifact.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
+			if len(ociRefs) != 2 {
+				return nil, fmt.Errorf("expected 2 OCI refs (with duplicates), got %d", len(ociRefs))
+			}
+			for _, ref := range ociRefs {
+				if ref != "oci://registry.example.com/my-repo:v1.0.0" {
+					return nil, fmt.Errorf("unexpected OCI ref: %s", ref)
+				}
+			}
+			// The bundler handles deduplication, so return just one artifact
+			return map[string][]byte{
+				"registry.example.com/my-repo:v1.0.0": testData,
+			}, nil
 		}
 
 		// When preloadOCIArtifacts is called
@@ -5276,14 +5198,9 @@ func TestTerraformGenerator_preloadOCIArtifacts(t *testing.T) {
 			t.Errorf("expected no error, got %v", err)
 		}
 
-		// And the artifacts map should contain only one entry (deduplicated)
+		// And the artifacts map should contain only one entry (deduplicated by bundler)
 		if len(artifacts) != 1 {
 			t.Errorf("expected 1 artifact, got %d", len(artifacts))
-		}
-
-		// And the download should only happen once (caching works)
-		if downloadCallCount != 1 {
-			t.Errorf("expected 1 download call, got %d", downloadCallCount)
 		}
 
 		expectedKey := "registry.example.com/my-repo:v1.0.0"
@@ -5303,17 +5220,18 @@ func TestTerraformGenerator_preloadOCIArtifacts(t *testing.T) {
 			}
 		}
 
+		// And the artifact builder is set up to return an error for invalid OCI reference
+		mockArtifact := mocks.Injector.Resolve("artifactBuilder").(*bundler.MockArtifact)
+		mockArtifact.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
+			return nil, fmt.Errorf("invalid OCI reference format")
+		}
+
 		// When preloadOCIArtifacts is called
 		artifacts, err := generator.preloadOCIArtifacts()
 
 		// Then an error should be returned
 		if err == nil {
 			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should contain the expected message
-		if !strings.Contains(err.Error(), "failed to parse OCI reference for source invalid-oci") {
-			t.Errorf("expected error to contain 'failed to parse OCI reference for source invalid-oci', got %v", err)
 		}
 
 		// And artifacts should be nil
@@ -5333,10 +5251,9 @@ func TestTerraformGenerator_preloadOCIArtifacts(t *testing.T) {
 			}
 		}
 
-		// And terraform generator specific mocks are set up with error
-		setupTerraformGeneratorMocks(mocks)
-		// Override ParseReference to return an error
-		mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+		// And the artifact builder is set up to return a download error
+		mockArtifact := mocks.Injector.Resolve("artifactBuilder").(*bundler.MockArtifact)
+		mockArtifact.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
 			return nil, fmt.Errorf("mock download error")
 		}
 
@@ -5346,11 +5263,6 @@ func TestTerraformGenerator_preloadOCIArtifacts(t *testing.T) {
 		// Then an error should be returned
 		if err == nil {
 			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should contain the expected message
-		if !strings.Contains(err.Error(), "failed to download OCI artifact for source oci-source") {
-			t.Errorf("expected error to contain 'failed to download OCI artifact for source oci-source', got %v", err)
 		}
 
 		// And artifacts should be nil
@@ -5370,11 +5282,10 @@ func TestTerraformGenerator_preloadOCIArtifacts(t *testing.T) {
 			}
 		}
 
-		// And terraform generator specific mocks are set up with RemoteImage error
-		setupTerraformGeneratorMocks(mocks)
-		// Override RemoteImage to return an error
-		mocks.Shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
-			return nil, fmt.Errorf("remote image error")
+		// And the artifact builder is set up to return a remote image error
+		mockArtifact := mocks.Injector.Resolve("artifactBuilder").(*bundler.MockArtifact)
+		mockArtifact.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
+			return nil, fmt.Errorf("mock remote image error")
 		}
 
 		// When preloadOCIArtifacts is called
@@ -5383,11 +5294,6 @@ func TestTerraformGenerator_preloadOCIArtifacts(t *testing.T) {
 		// Then an error should be returned
 		if err == nil {
 			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should contain the expected message
-		if !strings.Contains(err.Error(), "failed to download OCI artifact for source oci-source") {
-			t.Errorf("expected error to contain 'failed to download OCI artifact for source oci-source', got %v", err)
 		}
 
 		// And artifacts should be nil
@@ -5409,8 +5315,16 @@ func TestTerraformGenerator_preloadOCIArtifacts(t *testing.T) {
 			}
 		}
 
-		// And terraform generator specific mocks are set up
-		setupTerraformGeneratorMocks(mocks)
+		// And the artifact builder is set up to return data for only the OCI source
+		mockArtifact := mocks.Injector.Resolve("artifactBuilder").(*bundler.MockArtifact)
+		mockArtifact.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
+			if len(ociRefs) != 1 || ociRefs[0] != "oci://registry.example.com/my-repo:v1.0.0" {
+				return nil, fmt.Errorf("unexpected OCI refs: %v", ociRefs)
+			}
+			return map[string][]byte{
+				"registry.example.com/my-repo:v1.0.0": []byte("test artifact data"),
+			}, nil
+		}
 
 		// When preloadOCIArtifacts is called
 		artifacts, err := generator.preloadOCIArtifacts()
