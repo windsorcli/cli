@@ -36,14 +36,15 @@ func NewKustomizeBundler() *KustomizeBundler {
 // =============================================================================
 
 // Bundle adds all files from kustomize directory to the artifact by recursively walking the directory tree.
-// It validates that the kustomize directory exists, then walks through all files preserving the directory structure.
+// It checks if the kustomize directory exists and returns nil if not found (graceful handling).
+// If the directory exists, it walks through all files preserving the directory structure.
 // Each file is read and added to the artifact maintaining the original kustomize path structure.
 // Directories are skipped and only regular files are processed for bundling.
 func (k *KustomizeBundler) Bundle(artifact Artifact) error {
 	kustomizeSource := "kustomize"
 
 	if _, err := k.shims.Stat(kustomizeSource); os.IsNotExist(err) {
-		return fmt.Errorf("kustomize directory not found: %s", kustomizeSource)
+		return nil
 	}
 
 	return k.shims.Walk(kustomizeSource, func(path string, info os.FileInfo, err error) error {
