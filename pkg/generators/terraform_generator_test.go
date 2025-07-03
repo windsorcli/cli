@@ -20,8 +20,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	bundler "github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/blueprint"
-	"github.com/windsorcli/cli/pkg/bundler"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/zclconf/go-cty/cty"
 )
