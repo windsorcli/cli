@@ -38,6 +38,7 @@ var upCmd = &cobra.Command{
 			Blueprint:    true,
 			Cluster:      true,
 			Generators:   true,
+			Bundler:      true,
 			Stack:        true,
 			CommandName:  cmd.Name(),
 			Flags: map[string]bool{
