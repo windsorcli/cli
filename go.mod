@@ -18,7 +18,7 @@ require (
 	github.com/google/go-jsonnet v0.21.0
 	github.com/hashicorp/hcl/v2 v2.23.0
 	github.com/shirou/gopsutil v3.21.11+incompatible
-	github.com/siderolabs/talos/pkg/machinery v1.10.4
+	github.com/siderolabs/talos/pkg/machinery v1.10.5
 	github.com/spf13/cobra v1.9.1
 	github.com/zclconf/go-cty v1.16.3
 	golang.org/x/crypto v0.39.0
