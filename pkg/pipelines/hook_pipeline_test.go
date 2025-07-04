@@ -66,7 +66,7 @@ func setupHookMocks(t *testing.T, opts ...*HookSetupOptions) *HookMocks {
 		mockShell.InstallHookFunc = func(shellName string) error { return nil }
 	}
 
-	shims := setupShims(t)
+	shims := setupHookShims(t)
 
 	return &HookMocks{
 		Injector:      injector,
@@ -76,7 +76,7 @@ func setupHookMocks(t *testing.T, opts ...*HookSetupOptions) *HookMocks {
 	}
 }
 
-func setupShims(t *testing.T) *Shims {
+func setupHookShims(t *testing.T) *Shims {
 	t.Helper()
 	return &Shims{
 		Stat: func(name string) (os.FileInfo, error) {
@@ -270,7 +270,7 @@ func TestHookPipeline_Initialize(t *testing.T) {
 				return shell.NewMockShell()
 			},
 			NewShims: func() *Shims {
-				return setupShims(t)
+				return setupHookShims(t)
 			},
 		}
 
