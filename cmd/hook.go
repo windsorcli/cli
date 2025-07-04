@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
-	ctrl "github.com/windsorcli/cli/pkg/controller"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/pipelines"
 )
 
 var hookCmd = &cobra.Command{
@@ -17,18 +19,29 @@ var hookCmd = &cobra.Command{
 			return fmt.Errorf("No shell name provided")
 		}
 
-		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
+		// Create dependency injector
+		injector := di.NewInjector()
 
-		// Initialize with requirements
-		if err := controller.InitializeWithRequirements(ctrl.Requirements{
-			CommandName: cmd.Name(),
-		}); err != nil {
+		// Create hook pipeline
+		pipeline := pipelines.NewHookPipeline()
+
+		// Initialize the pipeline
+		if err := pipeline.Initialize(injector); err != nil {
 			return fmt.Errorf("Error initializing: %w", err)
 		}
 
-		shell := controller.ResolveShell()
+		// Create execution context with shell type
+		ctx := context.WithValue(cmd.Context(), "shellType", args[0])
+		if verbose {
+			ctx = context.WithValue(ctx, "verbose", true)
+		}
 
-		return shell.InstallHook(args[0])
+		// Execute the pipeline
+		if err := pipeline.Execute(ctx); err != nil {
+			return fmt.Errorf("Error executing hook pipeline: %w", err)
+		}
+
+		return nil
 	},
 }
 
