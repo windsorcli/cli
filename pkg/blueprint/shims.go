@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"regexp"
+	"time"
 
 	"github.com/goccy/go-yaml"
 	"github.com/google/go-jsonnet"
@@ -32,9 +33,15 @@ type Shims struct {
 	MkdirAll  func(string, os.FileMode) error
 	Stat      func(string) (os.FileInfo, error)
 	ReadFile  func(string) ([]byte, error)
+	ReadDir   func(string) ([]os.DirEntry, error)
 
 	// Utility shims
 	RegexpMatchString func(pattern string, s string) (bool, error)
+
+	// Timing shims
+	TimeAfter  func(time.Duration) <-chan time.Time
+	NewTicker  func(time.Duration) *time.Ticker
+	TickerStop func(*time.Ticker)
 
 	// Kubernetes shims
 	ClientcmdBuildConfigFromFlags func(masterUrl, kubeconfigPath string) (*rest.Config, error)
@@ -63,9 +70,15 @@ func NewShims() *Shims {
 		MkdirAll:  os.MkdirAll,
 		Stat:      os.Stat,
 		ReadFile:  os.ReadFile,
+		ReadDir:   os.ReadDir,
 
 		// Utility shims
 		RegexpMatchString: regexp.MatchString,
+
+		// Timing shims
+		TimeAfter:  time.After,
+		NewTicker:  time.NewTicker,
+		TickerStop: func(t *time.Ticker) { t.Stop() },
 
 		// Kubernetes shims
 		ClientcmdBuildConfigFromFlags: clientcmd.BuildConfigFromFlags,

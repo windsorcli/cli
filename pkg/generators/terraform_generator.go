@@ -1,13 +1,16 @@
 package generators
 
 import (
-	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/briandowns/spinner"
+	"github.com/google/go-jsonnet"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
@@ -64,21 +67,38 @@ func NewTerraformGenerator(injector di.Injector) *TerraformGenerator {
 // Public Methods
 // =============================================================================
 
-// Write generates Terraform configuration files for all components in the blueprint.
-// It creates the necessary directory structure and writes three types of files:
-// 1. main.tf - Contains module source and variable references
-// 2. variables.tf - Defines all variables used by the module
-// 3. .tfvars - Contains actual variable values for each context
-// The function preserves existing values in .tfvars files while adding new ones.
-// When reset is enabled, it removes existing .terraform state directories to force reinitialization.
-// For components with remote sources, it generates module shims that provide local references.
+// Write generates Terraform configuration files including module shims and tfvars files for all components.
+// It processes jsonnet templates from contexts/_template/terraform directory to merge template values into
+// blueprint terraform components, then handles components by generating module shims for remote sources and
+// creating corresponding tfvars files. The function manages terraform state cleanup on reset.
 func (g *TerraformGenerator) Write(overwrite ...bool) error {
 	shouldOverwrite := false
 	if len(overwrite) > 0 {
 		shouldOverwrite = overwrite[0]
 	}
 	g.reset = shouldOverwrite
+
+	ociArtifacts, err := g.preloadOCIArtifacts()
+	if err != nil {
+		return fmt.Errorf("failed to preload OCI artifacts: %w", err)
+	}
+
 	components := g.blueprintHandler.GetTerraformComponents()
+
+	templateValues, err := g.processTemplates(shouldOverwrite)
+	if err != nil {
+		return fmt.Errorf("failed to process terraform templates: %w", err)
+	}
+
+	for i, component := range components {
+		if values, exists := templateValues[component.Path]; exists {
+			if component.Values == nil {
+				component.Values = make(map[string]any)
+			}
+			maps.Copy(component.Values, values)
+			components[i] = component
+		}
+	}
 
 	projectRoot, err := g.shell.GetProjectRoot()
 	if err != nil {
@@ -106,7 +126,7 @@ func (g *TerraformGenerator) Write(overwrite ...bool) error {
 
 	for _, component := range components {
 		if component.Source != "" {
-			if err := g.generateModuleShim(component); err != nil {
+			if err := g.generateModuleShim(component, ociArtifacts); err != nil {
 				return fmt.Errorf("failed to generate module shim: %w", err)
 			}
 		}
@@ -123,35 +143,333 @@ func (g *TerraformGenerator) Write(overwrite ...bool) error {
 // Private Methods
 // =============================================================================
 
+// processTemplates discovers and processes jsonnet template files from the contexts/_template/terraform directory.
+// It checks for template directory existence, retrieves the current context configuration, and recursively
+// walks through template files to generate corresponding .tfvars files. The function handles template
+// discovery, context resolution, and delegates actual processing to walkTemplateDirectory.
+func (g *TerraformGenerator) processTemplates(reset bool) (map[string]map[string]any, error) {
+	projectRoot, err := g.shell.GetProjectRoot()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	templateDir := filepath.Join(projectRoot, "contexts", "_template", "terraform")
+
+	if _, err := g.shims.Stat(templateDir); os.IsNotExist(err) {
+		return nil, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to check template directory: %w", err)
+	}
+
+	contextPath, err := g.configHandler.GetConfigRoot()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get config root: %w", err)
+	}
+
+	contextName := g.configHandler.GetString("context")
+	if contextName == "" {
+		contextName = os.Getenv("WINDSOR_CONTEXT")
+	}
+
+	templateValues := make(map[string]map[string]any)
+
+	return templateValues, g.walkTemplateDirectory(templateDir, contextPath, contextName, reset, templateValues)
+}
+
+// walkTemplateDirectory recursively traverses the template directory structure and processes jsonnet files.
+// It handles both files and subdirectories, maintaining the directory structure in the output location.
+// For each .jsonnet file found, it delegates processing to processJsonnetTemplate to collect template
+// values that will be merged into terraform components.
+func (g *TerraformGenerator) walkTemplateDirectory(templateDir, contextPath, contextName string, reset bool, templateValues map[string]map[string]any) error {
+	entries, err := g.shims.ReadDir(templateDir)
+	if err != nil {
+		return fmt.Errorf("failed to read template directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		entryPath := filepath.Join(templateDir, entry.Name())
+
+		if entry.IsDir() {
+			if err := g.walkTemplateDirectory(entryPath, contextPath, contextName, reset, templateValues); err != nil {
+				return err
+			}
+		} else if strings.HasSuffix(entry.Name(), ".jsonnet") {
+			if err := g.processJsonnetTemplate(entryPath, contextName, templateValues); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// processJsonnetTemplate processes a jsonnet template file and collects generated values
+// for merging into blueprint terraform components. It evaluates the template with context data
+// made available via std.extVar("context"), then stores the result in templateValues using
+// the relative path from the template directory as the key.
+// Templates must include: local context = std.extVar("context"); to access context data.
+func (g *TerraformGenerator) processJsonnetTemplate(templateFile, contextName string, templateValues map[string]map[string]any) error {
+	templateContent, err := g.shims.ReadFile(templateFile)
+	if err != nil {
+		return fmt.Errorf("error reading template file %s: %w", templateFile, err)
+	}
+
+	config := g.configHandler.GetConfig()
+
+	contextYAML, err := g.configHandler.YamlMarshalWithDefinedPaths(config)
+	if err != nil {
+		return fmt.Errorf("error marshalling context to YAML: %w", err)
+	}
+
+	var contextMap map[string]any = make(map[string]any)
+	if err := g.shims.YamlUnmarshal(contextYAML, &contextMap); err != nil {
+		return fmt.Errorf("error unmarshalling context YAML: %w", err)
+	}
+
+	contextMap["name"] = contextName
+	contextJSON, err := g.shims.JsonMarshal(contextMap)
+	if err != nil {
+		return fmt.Errorf("error marshalling context map to JSON: %w", err)
+	}
+
+	vm := jsonnet.MakeVM()
+	vm.ExtCode("context", string(contextJSON))
+	result, err := vm.EvaluateAnonymousSnippet("template.jsonnet", string(templateContent))
+	if err != nil {
+		return fmt.Errorf("error evaluating jsonnet template %s: %w", templateFile, err)
+	}
+
+	var values map[string]any
+	if err := g.shims.JsonUnmarshal([]byte(result), &values); err != nil {
+		return fmt.Errorf("jsonnet template must output valid JSON: %w", err)
+	}
+
+	projectRoot, err := g.shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	templateDir := filepath.Join(projectRoot, "contexts", "_template", "terraform")
+	relPath, err := g.shims.FilepathRel(templateDir, templateFile)
+	if err != nil {
+		return fmt.Errorf("failed to calculate relative path: %w", err)
+	}
+
+	componentPath := strings.TrimSuffix(relPath, ".jsonnet")
+	componentPath = strings.ReplaceAll(componentPath, "\\", "/")
+	templateValues[componentPath] = values
+
+	return nil
+}
+
 // generateModuleShim creates a local reference to a remote Terraform module.
 // It provides a shim layer that maintains module configuration while allowing Windsor to manage it.
-// The function orchestrates the creation of main.tf, variables.tf, and outputs.tf files.
-// It ensures proper module initialization and state management.
-func (g *TerraformGenerator) generateModuleShim(component blueprintv1alpha1.TerraformComponent) error {
+// The function orchestrates the creation of main.tf, variables.tf, and outputs.tf files for module initialization,
+// handling both OCI and standard source types with proper path resolution and state management.
+func (g *TerraformGenerator) generateModuleShim(component blueprintv1alpha1.TerraformComponent, ociArtifacts map[string][]byte) error {
 	moduleDir := component.FullPath
 	if err := g.shims.MkdirAll(moduleDir, 0755); err != nil {
 		return fmt.Errorf("failed to create module directory: %w", err)
 	}
 
-	if err := g.writeShimMainTf(moduleDir, component.Source); err != nil {
+	var resolvedSource string
+	var modulePath string
+	var err error
+
+	if g.isOCISource(component.Source) {
+		extractedPath, err := g.extractOCIModule(component.Source, component.Path, ociArtifacts)
+		if err != nil {
+			return fmt.Errorf("failed to extract OCI module: %w", err)
+		}
+
+		relPath, err := g.shims.FilepathRel(moduleDir, extractedPath)
+		if err != nil {
+			return fmt.Errorf("failed to calculate relative path: %w", err)
+		}
+
+		resolvedSource = relPath
+		modulePath = extractedPath
+	} else {
+		resolvedSource = component.Source
+		modulePath = moduleDir
+	}
+
+	if err := g.writeShimMainTf(moduleDir, resolvedSource); err != nil {
 		return err
 	}
 
-	if err := g.shims.Chdir(moduleDir); err != nil {
-		return fmt.Errorf("failed to change to module directory: %w", err)
+	if !g.isOCISource(component.Source) {
+		if err := g.shims.Chdir(moduleDir); err != nil {
+			return fmt.Errorf("failed to change to module directory: %w", err)
+		}
+
+		modulePath, err = g.initializeTerraformModule(component)
+		if err != nil {
+			return err
+		}
 	}
 
-	modulePath, err := g.initializeTerraformModule(component)
-	if err != nil {
-		return err
-	}
-
-	if err := g.writeShimVariablesTf(moduleDir, modulePath, component.Source); err != nil {
+	if err := g.writeShimVariablesTf(moduleDir, modulePath, resolvedSource); err != nil {
 		return err
 	}
 
 	if err := g.writeShimOutputsTf(moduleDir, modulePath); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// isOCISource determines if a source reference points to an OCI artifact by checking for OCI URL patterns
+// and resolving source names through the blueprint handler. It handles both direct OCI URLs and named
+// source references that map to OCI repositories, while excluding already-resolved extraction paths.
+func (g *TerraformGenerator) isOCISource(source string) bool {
+	if strings.Contains(source, ".oci_extracted") {
+		return false
+	}
+
+	if strings.HasPrefix(source, "oci://") {
+		return true
+	}
+
+	sources := g.blueprintHandler.GetSources()
+	for _, src := range sources {
+		if src.Name == source && strings.HasPrefix(src.Url, "oci://") {
+			return true
+		}
+	}
+
+	return false
+}
+
+// extractOCIModule extracts a specific terraform module from an OCI artifact.
+// It handles OCI URL resolution, artifact caching, and module path extraction.
+// The function manages the complete lifecycle from source lookup to module deployment,
+// ensuring efficient caching and proper directory structure for terraform modules.
+func (g *TerraformGenerator) extractOCIModule(source, path string, ociArtifacts map[string][]byte) (string, error) {
+	message := fmt.Sprintf("📥 Loading component %s", path)
+
+	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+	spin.Suffix = " " + message
+	spin.Start()
+
+	defer func() {
+		spin.Stop()
+		fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
+	}()
+
+	sources := g.blueprintHandler.GetSources()
+	var ociURL string
+	for _, src := range sources {
+		if src.Name == source {
+			ociURL = src.Url
+			break
+		}
+	}
+
+	if ociURL == "" {
+		return "", fmt.Errorf("source %s not found", source)
+	}
+
+	registry, repository, tag, err := g.parseOCIRef(ociURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse OCI reference: %w", err)
+	}
+
+	cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+
+	projectRoot, err := g.shell.GetProjectRoot()
+	if err != nil {
+		return "", fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	extractionKey := fmt.Sprintf("%s-%s-%s", registry, repository, tag)
+	fullModulePath := filepath.Join(projectRoot, ".windsor", ".oci_extracted", extractionKey, "terraform", path)
+	if _, err := g.shims.Stat(fullModulePath); err == nil {
+		return fullModulePath, nil
+	}
+
+	artifactData, exists := ociArtifacts[cacheKey]
+	if !exists {
+		return "", fmt.Errorf("OCI artifact %s not found in cache", cacheKey)
+	}
+
+	if err := g.extractModuleFromArtifact(artifactData, path, extractionKey); err != nil {
+		return "", fmt.Errorf("failed to extract module from artifact: %w", err)
+	}
+
+	return fullModulePath, nil
+}
+
+// extractModuleFromArtifact extracts a specific terraform module from cached artifact data directly to .oci_extracted.
+// It provides selective tar stream processing, directory structure creation, and file permission management.
+// The function handles OCI artifact data extraction, module file deployment, and executable script permissions.
+// It ensures proper file system operations with error handling and maintains original tar header permissions.
+func (g *TerraformGenerator) extractModuleFromArtifact(artifactData []byte, modulePath, extractionKey string) error {
+	projectRoot, err := g.shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	reader := g.shims.NewBytesReader(artifactData)
+	tarReader := g.shims.NewTarReader(reader)
+	targetPrefix := "terraform/" + modulePath
+
+	extractionDir := filepath.Join(projectRoot, ".windsor", ".oci_extracted", extractionKey)
+
+	for {
+		header, err := tarReader.Next()
+		if err == g.shims.EOFError() {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("failed to read tar header: %w", err)
+		}
+
+		if !strings.HasPrefix(header.Name, targetPrefix) {
+			continue
+		}
+
+		relativePath := strings.TrimPrefix(header.Name, "terraform/")
+		destPath := filepath.Join(extractionDir, "terraform", relativePath)
+
+		if header.Typeflag == g.shims.TypeDir() {
+			if err := g.shims.MkdirAll(destPath, 0755); err != nil {
+				return fmt.Errorf("failed to create directory %s: %w", destPath, err)
+			}
+			continue
+		}
+
+		if err := g.shims.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			return fmt.Errorf("failed to create parent directory for %s: %w", destPath, err)
+		}
+
+		file, err := g.shims.Create(destPath)
+		if err != nil {
+			return fmt.Errorf("failed to create file %s: %w", destPath, err)
+		}
+
+		_, err = g.shims.Copy(file, tarReader)
+		if closeErr := file.Close(); closeErr != nil {
+			return fmt.Errorf("failed to close file %s: %w", destPath, closeErr)
+		}
+		if err != nil {
+			return fmt.Errorf("failed to write file %s: %w", destPath, err)
+		}
+
+		modeValue := header.Mode & 0777
+		if modeValue < 0 || modeValue > 0777 {
+			return fmt.Errorf("invalid file mode %o for %s", header.Mode, destPath)
+		}
+		fileMode := os.FileMode(uint32(modeValue))
+
+		if strings.HasSuffix(destPath, ".sh") {
+			fileMode |= 0111
+		}
+
+		if err := g.shims.Chmod(destPath, fileMode); err != nil {
+			return fmt.Errorf("failed to set file permissions for %s: %w", destPath, err)
+		}
 	}
 
 	return nil
@@ -208,7 +526,7 @@ func (g *TerraformGenerator) initializeTerraformModule(component blueprintv1alph
 			continue
 		}
 		var initOutput TerraformInitOutput
-		if err := json.Unmarshal([]byte(line), &initOutput); err != nil {
+		if err := g.shims.JsonUnmarshal([]byte(line), &initOutput); err != nil {
 			continue
 		}
 		if initOutput.Type == "log" {
@@ -316,10 +634,10 @@ func (g *TerraformGenerator) writeShimVariablesTf(moduleDir, modulePath, source 
 	return nil
 }
 
-// writeShimOutputsTf creates the outputs.tf file for the shim module.
-// It provides output definition extraction and shim generation.
-// The function creates references to module.main outputs while preserving descriptions.
-// It handles file reading, parsing, and writing with proper error handling.
+// writeShimOutputsTf creates the outputs.tf file for the shim module by extracting output definitions from the source module.
+// It provides output definition extraction and shim generation that preserves descriptions while creating references to module.main outputs.
+// The function ensures proper HCL syntax and maintains consistent output structure for terraform modules.
+// It handles file reading, parsing, and writing with comprehensive error handling for module compatibility.
 func (g *TerraformGenerator) writeShimOutputsTf(moduleDir, modulePath string) error {
 	outputsPath := filepath.Join(modulePath, "outputs.tf")
 	if _, err := g.shims.Stat(outputsPath); err == nil {
@@ -344,12 +662,10 @@ func (g *TerraformGenerator) writeShimOutputsTf(moduleDir, modulePath string) er
 					shimBlock := shimBody.AppendNewBlock("output", []string{outputName})
 					shimBlockBody := shimBlock.Body()
 
-					// Copy description if present
 					if attr := block.Body().GetAttribute("description"); attr != nil {
 						shimBlockBody.SetAttributeRaw("description", attr.Expr().BuildTokens(nil))
 					}
 
-					// Set value to reference module.main output
 					shimBlockBody.SetAttributeTraversal("value", hcl.Traversal{
 						hcl.TraverseRoot{Name: "module"},
 						hcl.TraverseAttr{Name: "main"},
@@ -617,7 +933,7 @@ func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedV
 				continue
 			}
 		}
-		// If no default, just comment null
+
 		body.AppendUnstructuredTokens(hclwrite.Tokens{
 			{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("# %s = null", info.Name))},
 		})
@@ -649,7 +965,6 @@ func writeHeredoc(body *hclwrite.Body, name string, content string) {
 // Handles descriptions, sensitive flags, multi-line strings, and object/map formatting.
 // Ensures correct HCL syntax for all supported value types.
 func writeVariable(body *hclwrite.Body, name string, value any, variables []VariableInfo) {
-	// Find variable info
 	var info *VariableInfo
 	for _, v := range variables {
 		if v.Name == name {
@@ -658,7 +973,6 @@ func writeVariable(body *hclwrite.Body, name string, value any, variables []Vari
 		}
 	}
 
-	// Write description if available
 	if info != nil && info.Description != "" {
 		body.AppendUnstructuredTokens(hclwrite.Tokens{
 			{Type: hclsyntax.TokenComment, Bytes: []byte("# " + info.Description)},
@@ -666,7 +980,6 @@ func writeVariable(body *hclwrite.Body, name string, value any, variables []Vari
 		body.AppendNewline()
 	}
 
-	// Handle sensitive variables
 	if info != nil && info.Sensitive {
 		body.AppendUnstructuredTokens(hclwrite.Tokens{
 			{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("# %s = \"(sensitive)\"", name))},
@@ -682,7 +995,6 @@ func writeVariable(body *hclwrite.Body, name string, value any, variables []Vari
 			return
 		}
 	case map[string]any:
-		// Render as HCL object assignment, not heredoc
 		rendered := formatValue(v)
 		assignment := fmt.Sprintf("%s = %s", name, rendered)
 		body.AppendUnstructuredTokens(hclwrite.Tokens{
@@ -692,7 +1004,6 @@ func writeVariable(body *hclwrite.Body, name string, value any, variables []Vari
 		return
 	}
 
-	// Write normal variable
 	body.SetAttributeValue(name, convertToCtyValue(value))
 }
 
@@ -814,6 +1125,54 @@ func convertFromCtyValue(val cty.Value) any {
 	default:
 		return nil
 	}
+}
+
+// parseOCIRef parses an OCI reference into registry, repository, and tag components.
+// It validates the OCI reference format and extracts the individual components for artifact resolution.
+func (g *TerraformGenerator) parseOCIRef(ociRef string) (registry, repository, tag string, err error) {
+	if !strings.HasPrefix(ociRef, "oci://") {
+		return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
+	}
+
+	ref := strings.TrimPrefix(ociRef, "oci://")
+
+	parts := strings.Split(ref, ":")
+	if len(parts) != 2 {
+		return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef)
+	}
+
+	repoWithRegistry := parts[0]
+	tag = parts[1]
+
+	repoParts := strings.SplitN(repoWithRegistry, "/", 2)
+	if len(repoParts) != 2 {
+		return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef)
+	}
+
+	registry = repoParts[0]
+	repository = repoParts[1]
+
+	return registry, repository, tag, nil
+}
+
+// preloadOCIArtifacts analyzes all blueprint sources and downloads unique OCI artifacts upfront.
+// It returns a map of cached artifacts keyed by their registry/repository:tag identifier.
+func (g *TerraformGenerator) preloadOCIArtifacts() (map[string][]byte, error) {
+	sources := g.blueprintHandler.GetSources()
+	var ociRefs []string
+
+	for _, source := range sources {
+		if strings.HasPrefix(source.Url, "oci://") {
+			ociRefs = append(ociRefs, source.Url)
+		}
+	}
+
+	if len(ociRefs) == 0 {
+		return make(map[string][]byte), nil
+	}
+
+	// Use the injected artifact builder to download all OCI artifacts
+	return g.artifactBuilder.Pull(ociRefs)
 }
 
 // =============================================================================

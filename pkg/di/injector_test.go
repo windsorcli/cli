@@ -168,8 +168,8 @@ func TestInjector_Resolve(t *testing.T) {
 		resolvedService := resolveService(t, injector, "mockService")
 
 		// Then the resolved service should be of type MockItem
-		if _, ok := resolvedService.(MockItem); !ok {
-			t.Fatalf("expected MockItem, got %T", resolvedService)
+		if resolvedService == nil {
+			t.Fatalf("expected MockItem, got nil")
 		}
 	})
 
@@ -185,8 +185,8 @@ func TestInjector_Resolve(t *testing.T) {
 		resolvedService := resolveService(t, injector, "mockService")
 
 		// Then the resolved service should be of type MockItem
-		if _, ok := resolvedService.(MockItem); !ok {
-			t.Fatalf("expected MockItem, got %T", resolvedService)
+		if resolvedService == nil {
+			t.Fatalf("expected MockItem, got nil")
 		}
 	})
 

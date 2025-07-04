@@ -447,7 +447,14 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 }
 
 func TestOnePasswordSDKSecretsProvider_ParseSecrets(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
+	// setup creates and initializes a OnePasswordSDKSecretsProvider for testing
+	setup := func(t *testing.T) (*Mocks, *OnePasswordSDKSecretsProvider) {
+		t.Helper()
+
+		// Set environment variable
+		os.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "test-token")
+		t.Cleanup(func() { os.Unsetenv("OP_SERVICE_ACCOUNT_TOKEN") })
+
 		// Setup mocks
 		mocks := setupMocks(t)
 
@@ -457,17 +464,20 @@ func TestOnePasswordSDKSecretsProvider_ParseSecrets(t *testing.T) {
 			ID:   "test-id",
 		}
 
-		// Create the provider
+		// Create and initialize the provider
 		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Injector)
+		err := provider.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize provider: %v", err)
+		}
 
-		// Set environment variable
-		os.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "test-token")
-		defer os.Unsetenv("OP_SERVICE_ACCOUNT_TOKEN")
+		return mocks, provider
+	}
 
-		// Set the provider to unlocked state
+	t.Run("Success", func(t *testing.T) {
+		// Given a provider with unlocked state and mock 1Password client configured
+		_, provider := setup(t)
 		provider.unlocked = true
-
-		// Set up the shims to use our mock
 		provider.shims.NewOnePasswordClient = func(ctx context.Context, opts ...onepassword.ClientOption) (*onepassword.Client, error) {
 			return &onepassword.Client{}, nil
 		}
@@ -475,173 +485,95 @@ func TestOnePasswordSDKSecretsProvider_ParseSecrets(t *testing.T) {
 			return "secret-value", nil
 		}
 
-		// Test with standard notation
+		// When parsing input containing a valid 1Password secret reference
 		input := "This is a secret: ${{ op.test-id.test-secret.password }}"
-		expectedOutput := "This is a secret: secret-value"
-
 		output, err := provider.ParseSecrets(input)
 
-		// Verify the result
+		// Then the secret reference should be replaced with the actual secret value
+		expectedOutput := "This is a secret: secret-value"
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-
 		if output != expectedOutput {
 			t.Errorf("Expected output to be '%s', got '%s'", expectedOutput, output)
 		}
 	})
 
 	t.Run("EmptyInput", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupMocks(t)
+		// Given a provider with no special configuration
+		_, provider := setup(t)
 
-		// Create a test vault
-		vault := secretsConfigType.OnePasswordVault{
-			Name: "test-vault",
-			ID:   "test-id",
-		}
-
-		// Create the provider
-		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Injector)
-
-		// Set environment variable
-		os.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "test-token")
-		defer os.Unsetenv("OP_SERVICE_ACCOUNT_TOKEN")
-
-		// Test with empty input
+		// When parsing an empty input string
 		input := ""
 		output, err := provider.ParseSecrets(input)
 
-		// Verify the result
+		// Then the output should remain empty and unchanged
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-
 		if output != input {
 			t.Errorf("Expected output to be '%s', got '%s'", input, output)
 		}
 	})
 
 	t.Run("InvalidFormat", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupMocks(t)
+		// Given a provider with no special configuration
+		_, provider := setup(t)
 
-		// Create a test vault
-		vault := secretsConfigType.OnePasswordVault{
-			Name: "test-vault",
-			ID:   "test-id",
-		}
-
-		// Create the provider
-		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Injector)
-
-		// Set environment variable
-		os.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "test-token")
-		defer os.Unsetenv("OP_SERVICE_ACCOUNT_TOKEN")
-
-		// Test with invalid format (missing field)
+		// When parsing input with an invalid secret reference format (missing field)
 		input := "This is a secret: ${{ op.test-id.test-secret }}"
-		expectedOutput := "This is a secret: <ERROR: invalid key path: test-id.test-secret>"
-
 		output, err := provider.ParseSecrets(input)
 
-		// Verify the result
+		// Then the invalid reference should be replaced with an error message
+		expectedOutput := "This is a secret: <ERROR: invalid key path: test-id.test-secret>"
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-
 		if output != expectedOutput {
 			t.Errorf("Expected output to be '%s', got '%s'", expectedOutput, output)
 		}
 	})
 
 	t.Run("MalformedJSON", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupMocks(t)
+		// Given a provider with no special configuration
+		_, provider := setup(t)
 
-		// Create a test vault
-		vault := secretsConfigType.OnePasswordVault{
-			Name: "test-vault",
-			ID:   "test-id",
-		}
-
-		// Create the provider
-		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Injector)
-
-		// Set environment variable
-		os.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "test-token")
-		defer os.Unsetenv("OP_SERVICE_ACCOUNT_TOKEN")
-
-		// Test with malformed JSON (missing closing brace)
+		// When parsing input with malformed JSON syntax (missing closing brace)
 		input := "This is a secret: ${{ op.test-id.test-secret.password"
-		expectedOutput := "This is a secret: ${{ op.test-id.test-secret.password"
-
 		output, err := provider.ParseSecrets(input)
 
-		// Verify the result
+		// Then the malformed reference should be left unchanged
+		expectedOutput := "This is a secret: ${{ op.test-id.test-secret.password"
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-
 		if output != expectedOutput {
 			t.Errorf("Expected output to be '%s', got '%s'", expectedOutput, output)
 		}
 	})
 
 	t.Run("MismatchedVaultID", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupMocks(t)
+		// Given a provider configured for vault "test-id"
+		_, provider := setup(t)
 
-		// Create a test vault
-		vault := secretsConfigType.OnePasswordVault{
-			Name: "test-vault",
-			ID:   "test-id",
-		}
-
-		// Create the provider
-		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Injector)
-
-		// Set environment variable
-		os.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "test-token")
-		defer os.Unsetenv("OP_SERVICE_ACCOUNT_TOKEN")
-
-		// Test with wrong vault ID
+		// When parsing input with a secret reference for a different vault ID
 		input := "This is a secret: ${{ op.wrong-id.test-secret.password }}"
-		expectedOutput := "This is a secret: ${{ op.wrong-id.test-secret.password }}"
-
 		output, err := provider.ParseSecrets(input)
 
-		// Verify the result
+		// Then the mismatched reference should be left unchanged
+		expectedOutput := "This is a secret: ${{ op.wrong-id.test-secret.password }}"
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-
 		if output != expectedOutput {
 			t.Errorf("Expected output to be '%s', got '%s'", expectedOutput, output)
 		}
 	})
 
 	t.Run("SecretNotFound", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupMocks(t)
-
-		// Create a test vault
-		vault := secretsConfigType.OnePasswordVault{
-			Name: "test-vault",
-			ID:   "test-id",
-		}
-
-		// Create the provider
-		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Injector)
-
-		// Set environment variable
-		os.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "test-token")
-		defer os.Unsetenv("OP_SERVICE_ACCOUNT_TOKEN")
-
-		// Set the provider to unlocked state
+		// Given a provider with unlocked state and mock client that simulates secret not found
+		_, provider := setup(t)
 		provider.unlocked = true
-
-		// Set up the shims to use our mock
 		provider.shims.NewOnePasswordClient = func(ctx context.Context, opts ...onepassword.ClientOption) (*onepassword.Client, error) {
 			return &onepassword.Client{}, nil
 		}
@@ -649,17 +581,15 @@ func TestOnePasswordSDKSecretsProvider_ParseSecrets(t *testing.T) {
 			return "", errors.New("secret not found")
 		}
 
-		// Test with a secret that doesn't exist
+		// When parsing input with a reference to a nonexistent secret
 		input := "This is a secret: ${{ op.test-id.nonexistent-secret.password }}"
-		expectedOutput := "This is a secret: <ERROR: failed to resolve: nonexistent-secret.password: failed to resolve secret: secret not found>"
-
 		output, err := provider.ParseSecrets(input)
 
-		// Verify the result
+		// Then the reference should be replaced with an error message indicating the secret was not found
+		expectedOutput := "This is a secret: <ERROR: failed to resolve: nonexistent-secret.password: failed to resolve secret: secret not found>"
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-
 		if output != expectedOutput {
 			t.Errorf("Expected output to be '%s', got '%s'", expectedOutput, output)
 		}

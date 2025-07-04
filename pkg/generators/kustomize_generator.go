@@ -55,7 +55,7 @@ func (g *KustomizeGenerator) Write(overwrite ...bool) error {
 		return nil
 	}
 
-	kustomization := map[string]interface{}{
+	kustomization := map[string]any{
 		"apiVersion": "kustomize.config.k8s.io/v1beta1",
 		"kind":       "Kustomization",
 		"resources":  []string{},

@@ -153,8 +153,8 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 		})
 
 		// Then the output should contain the expected alias and unalias commands
-		expectedAliasLine := fmt.Sprintf("alias ALIAS1=\"command1\"\n")
-		expectedUnaliasLine := fmt.Sprintf("unalias ALIAS2\n")
+		expectedAliasLine := "alias ALIAS1=\"command1\"\n"
+		expectedUnaliasLine := "unalias ALIAS2\n"
 
 		if !strings.Contains(output, expectedAliasLine) {
 			t.Errorf("PrintAlias() output missing expected line: %v", expectedAliasLine)

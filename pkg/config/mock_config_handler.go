@@ -7,27 +7,28 @@ import (
 
 // MockConfigHandler is a mock implementation of the ConfigHandler interface
 type MockConfigHandler struct {
-	InitializeFunc         func() error
-	LoadConfigFunc         func(path string) error
-	LoadConfigStringFunc   func(content string) error
-	IsLoadedFunc           func() bool
-	GetStringFunc          func(key string, defaultValue ...string) string
-	GetIntFunc             func(key string, defaultValue ...int) int
-	GetBoolFunc            func(key string, defaultValue ...bool) bool
-	GetStringSliceFunc     func(key string, defaultValue ...[]string) []string
-	GetStringMapFunc       func(key string, defaultValue ...map[string]string) map[string]string
-	SetFunc                func(key string, value any) error
-	SetContextValueFunc    func(key string, value any) error
-	SaveConfigFunc         func(path string, overwrite ...bool) error
-	GetFunc                func(key string) any
-	SetDefaultFunc         func(context v1alpha1.Context) error
-	GetConfigFunc          func() *v1alpha1.Context
-	GetContextFunc         func() string
-	SetContextFunc         func(context string) error
-	GetConfigRootFunc      func() (string, error)
-	CleanFunc              func() error
-	SetSecretsProviderFunc func(provider secrets.SecretsProvider)
-	GenerateContextIDFunc  func() error
+	InitializeFunc                  func() error
+	LoadConfigFunc                  func(path string) error
+	LoadConfigStringFunc            func(content string) error
+	IsLoadedFunc                    func() bool
+	GetStringFunc                   func(key string, defaultValue ...string) string
+	GetIntFunc                      func(key string, defaultValue ...int) int
+	GetBoolFunc                     func(key string, defaultValue ...bool) bool
+	GetStringSliceFunc              func(key string, defaultValue ...[]string) []string
+	GetStringMapFunc                func(key string, defaultValue ...map[string]string) map[string]string
+	SetFunc                         func(key string, value any) error
+	SetContextValueFunc             func(key string, value any) error
+	SaveConfigFunc                  func(path string, overwrite ...bool) error
+	GetFunc                         func(key string) any
+	SetDefaultFunc                  func(context v1alpha1.Context) error
+	GetConfigFunc                   func() *v1alpha1.Context
+	GetContextFunc                  func() string
+	SetContextFunc                  func(context string) error
+	GetConfigRootFunc               func() (string, error)
+	CleanFunc                       func() error
+	SetSecretsProviderFunc          func(provider secrets.SecretsProvider)
+	GenerateContextIDFunc           func() error
+	YamlMarshalWithDefinedPathsFunc func(v any) ([]byte, error)
 }
 
 // =============================================================================
@@ -223,6 +224,14 @@ func (m *MockConfigHandler) GenerateContextID() error {
 		return m.GenerateContextIDFunc()
 	}
 	return nil
+}
+
+// YamlMarshalWithDefinedPaths calls the mock YamlMarshalWithDefinedPathsFunc if set, otherwise returns a reasonable default
+func (m *MockConfigHandler) YamlMarshalWithDefinedPaths(v any) ([]byte, error) {
+	if m.YamlMarshalWithDefinedPathsFunc != nil {
+		return m.YamlMarshalWithDefinedPathsFunc(v)
+	}
+	return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
 }
 
 // Ensure MockConfigHandler implements ConfigHandler

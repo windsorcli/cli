@@ -521,7 +521,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("SetVMDriverError", func(t *testing.T) {
 		// Create a mock config handler that returns an error for vm.driver
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			if key == "vm.driver" {
 				return fmt.Errorf("failed to set vm driver")
 			}
@@ -691,7 +691,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("SetFlagError", func(t *testing.T) {
 		// Create a mock config handler that returns an error
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			return fmt.Errorf("failed to set config value for %s", key)
 		}
 		mockConfigHandler.GetContextFunc = func() string {
@@ -885,7 +885,7 @@ func TestInitCmd_PlatformFlag(t *testing.T) {
 	for _, tc := range platforms {
 		t.Run(tc.name, func(t *testing.T) {
 			// Use a real map-backed mock config handler
-			store := make(map[string]interface{})
+			store := make(map[string]any)
 			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
 				store[key] = value

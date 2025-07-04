@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
+	bundler "github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/cluster"
 	"github.com/windsorcli/cli/pkg/config"
@@ -57,6 +58,8 @@ type Controller interface {
 	ResolveContainerRuntime() virt.ContainerRuntime
 	ResolveStack() stack.Stack
 	ResolveAllGenerators() []generators.Generator
+	ResolveArtifactBuilder() bundler.Artifact
+	ResolveAllBundlers() []bundler.Bundler
 	WriteConfigurationFiles() error
 	SetEnvironmentVariables() error
 	ResolveKubernetesManager() kubernetes.KubernetesManager
@@ -115,6 +118,11 @@ type ComponentConstructors struct {
 	NewWindsorStack func(di.Injector) stack.Stack
 
 	NewTalosClusterClient func(di.Injector) *cluster.TalosClusterClient
+
+	NewArtifactBuilder  func(di.Injector) bundler.Artifact
+	NewTemplateBundler  func(di.Injector) bundler.Bundler
+	NewKustomizeBundler func(di.Injector) bundler.Bundler
+	NewTerraformBundler func(di.Injector) bundler.Bundler
 }
 
 // Requirements defines the operational requirements for the controller
@@ -144,6 +152,7 @@ type Requirements struct {
 	Blueprint  bool // Needs blueprint handling
 	Generators bool // Needs code generation
 	Stack      bool // Needs stack components
+	Bundler    bool // Needs bundler and artifact functionality
 
 	// Command info for context-specific decisions
 	CommandName string          // Name of the command
@@ -276,6 +285,19 @@ func NewDefaultConstructors() ComponentConstructors {
 		NewTalosClusterClient: func(injector di.Injector) *cluster.TalosClusterClient {
 			return cluster.NewTalosClusterClient(injector)
 		},
+
+		NewArtifactBuilder: func(injector di.Injector) bundler.Artifact {
+			return bundler.NewArtifactBuilder()
+		},
+		NewTemplateBundler: func(injector di.Injector) bundler.Bundler {
+			return bundler.NewTemplateBundler()
+		},
+		NewKustomizeBundler: func(injector di.Injector) bundler.Bundler {
+			return bundler.NewKustomizeBundler()
+		},
+		NewTerraformBundler: func(injector di.Injector) bundler.Bundler {
+			return bundler.NewTerraformBundler()
+		},
 	}
 }
 
@@ -316,6 +338,7 @@ func (c *BaseController) CreateComponents() error {
 		{"network", c.createNetworkComponents},
 		{"stack", c.createStackComponent},
 		{"blueprint", c.createBlueprintComponent},
+		{"bundler", c.createBundlerComponents},
 	}
 
 	for _, cc := range componentCreators {
@@ -418,6 +441,22 @@ func (c *BaseController) InitializeComponents() error {
 		}
 	}
 
+	artifactBuilder := c.ResolveArtifactBuilder()
+	if artifactBuilder != nil {
+		if err := artifactBuilder.Initialize(c.injector); err != nil {
+			return fmt.Errorf("error initializing artifact builder: %w", err)
+		}
+	}
+
+	bundlers := c.ResolveAllBundlers()
+	if len(bundlers) > 0 {
+		for _, bundler := range bundlers {
+			if err := bundler.Initialize(c.injector); err != nil {
+				return fmt.Errorf("error initializing bundler: %w", err)
+			}
+		}
+	}
+
 	stack := c.ResolveStack()
 	if stack != nil {
 		if err := stack.Initialize(); err != nil {
@@ -452,15 +491,6 @@ func (c *BaseController) WriteConfigurationFiles() error {
 		if toolsManager != nil {
 			if err := toolsManager.WriteManifest(); err != nil {
 				return fmt.Errorf("error writing tools manifest: %w", err)
-			}
-		}
-	}
-
-	if req.Blueprint {
-		blueprintHandler := c.ResolveBlueprintHandler()
-		if blueprintHandler != nil {
-			if err := blueprintHandler.WriteConfig(req.Reset); err != nil {
-				return fmt.Errorf("error writing blueprint config: %w", err)
 			}
 		}
 	}
@@ -665,6 +695,26 @@ func (c *BaseController) ResolveAllGenerators() []generators.Generator {
 		generatorsInstances = append(generatorsInstances, generatorInstance)
 	}
 	return generatorsInstances
+}
+
+// ResolveArtifactBuilder returns the artifact builder component
+// It retrieves the artifact builder from the dependency injection container
+func (c *BaseController) ResolveArtifactBuilder() bundler.Artifact {
+	instance := c.injector.Resolve("artifactBuilder")
+	artifactBuilder, _ := instance.(bundler.Artifact)
+	return artifactBuilder
+}
+
+// ResolveAllBundlers returns all configured bundlers
+// It retrieves all bundlers from the dependency injection container
+func (c *BaseController) ResolveAllBundlers() []bundler.Bundler {
+	instances, _ := c.injector.ResolveAll((*bundler.Bundler)(nil))
+	bundlerInstances := make([]bundler.Bundler, 0, len(instances))
+	for _, instance := range instances {
+		bundlerInstance, _ := instance.(bundler.Bundler)
+		bundlerInstances = append(bundlerInstances, bundlerInstance)
+	}
+	return bundlerInstances
 }
 
 // SetEnvironmentVariables configures the environment for all components
@@ -1215,6 +1265,79 @@ func (c *BaseController) createClusterComponents(req Requirements) error {
 		}
 
 		c.injector.Register("clusterClient", talosClient)
+	}
+
+	return nil
+}
+
+// createBundlerComponents creates bundler components if required
+// It sets up the artifact builder and all bundlers for blueprint packaging
+func (c *BaseController) createBundlerComponents(req Requirements) error {
+	if !req.Bundler {
+		return nil
+	}
+
+	// Create artifact builder if not already exists
+	if existingArtifactBuilder := c.ResolveArtifactBuilder(); existingArtifactBuilder == nil {
+		if c.constructors.NewArtifactBuilder == nil {
+			return fmt.Errorf("NewArtifactBuilder constructor is nil")
+		}
+		artifactBuilder := c.constructors.NewArtifactBuilder(c.injector)
+		if artifactBuilder == nil {
+			return fmt.Errorf("NewArtifactBuilder returned nil")
+		}
+		c.injector.Register("artifactBuilder", artifactBuilder)
+	}
+
+	// Create bundlers if not already exist
+	existingBundlers := c.ResolveAllBundlers()
+	existingBundlerNames := make(map[string]bool)
+
+	// Track existing bundlers
+	for _, bundler := range existingBundlers {
+		if c.injector.Resolve("templateBundler") == bundler {
+			existingBundlerNames["templateBundler"] = true
+		} else if c.injector.Resolve("kustomizeBundler") == bundler {
+			existingBundlerNames["kustomizeBundler"] = true
+		} else if c.injector.Resolve("terraformBundler") == bundler {
+			existingBundlerNames["terraformBundler"] = true
+		}
+	}
+
+	// Create template bundler if not exists
+	if !existingBundlerNames["templateBundler"] {
+		if c.constructors.NewTemplateBundler == nil {
+			return fmt.Errorf("NewTemplateBundler constructor is nil")
+		}
+		templateBundler := c.constructors.NewTemplateBundler(c.injector)
+		if templateBundler == nil {
+			return fmt.Errorf("NewTemplateBundler returned nil")
+		}
+		c.injector.Register("templateBundler", templateBundler)
+	}
+
+	// Create kustomize bundler if not exists
+	if !existingBundlerNames["kustomizeBundler"] {
+		if c.constructors.NewKustomizeBundler == nil {
+			return fmt.Errorf("NewKustomizeBundler constructor is nil")
+		}
+		kustomizeBundler := c.constructors.NewKustomizeBundler(c.injector)
+		if kustomizeBundler == nil {
+			return fmt.Errorf("NewKustomizeBundler returned nil")
+		}
+		c.injector.Register("kustomizeBundler", kustomizeBundler)
+	}
+
+	// Create terraform bundler if not exists
+	if !existingBundlerNames["terraformBundler"] {
+		if c.constructors.NewTerraformBundler == nil {
+			return fmt.Errorf("NewTerraformBundler constructor is nil")
+		}
+		terraformBundler := c.constructors.NewTerraformBundler(c.injector)
+		if terraformBundler == nil {
+			return fmt.Errorf("NewTerraformBundler returned nil")
+		}
+		c.injector.Register("terraformBundler", terraformBundler)
 	}
 
 	return nil

@@ -40,6 +40,7 @@ type KubernetesManager interface {
 	SuspendKustomization(name, namespace string) error
 	SuspendHelmRelease(name, namespace string) error
 	ApplyGitRepository(repo *sourcev1.GitRepository) error
+	ApplyOCIRepository(repo *sourcev1.OCIRepository) error
 	WaitForKustomizationsDeleted(message string, names ...string) error
 	CheckGitRepositoryStatus() error
 	GetKustomizationStatus(names []string) (map[string]bool, error)
@@ -367,6 +368,33 @@ func (k *BaseKubernetesManager) ApplyGitRepository(repo *sourcev1.GitRepository)
 	return k.applyWithRetry(gvr, obj, opts)
 }
 
+// ApplyOCIRepository creates or updates an OCIRepository resource using SSA
+func (k *BaseKubernetesManager) ApplyOCIRepository(repo *sourcev1.OCIRepository) error {
+	obj := &unstructured.Unstructured{}
+	unstructuredMap, err := k.shims.ToUnstructured(repo)
+	if err != nil {
+		return fmt.Errorf("failed to convert ocirepository to unstructured: %w", err)
+	}
+	obj.Object = unstructuredMap
+
+	if err := validateFields(obj); err != nil {
+		return fmt.Errorf("invalid ocirepository fields: %w", err)
+	}
+
+	gvr := schema.GroupVersionResource{
+		Group:    "source.toolkit.fluxcd.io",
+		Version:  "v1",
+		Resource: "ocirepositories",
+	}
+
+	opts := metav1.ApplyOptions{
+		FieldManager: "windsor-cli",
+		Force:        false,
+	}
+
+	return k.applyWithRetry(gvr, obj, opts)
+}
+
 // WaitForKustomizationsDeleted waits for the specified kustomizations to be deleted.
 func (k *BaseKubernetesManager) WaitForKustomizationsDeleted(message string, names ...string) error {
 	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
@@ -406,20 +434,21 @@ func (k *BaseKubernetesManager) WaitForKustomizationsDeleted(message string, nam
 	}
 }
 
-// CheckGitRepositoryStatus checks the status of all GitRepository resources
+// CheckGitRepositoryStatus checks the status of all GitRepository and OCIRepository resources
 func (k *BaseKubernetesManager) CheckGitRepositoryStatus() error {
-	gvr := schema.GroupVersionResource{
+	// Check GitRepositories
+	gitGvr := schema.GroupVersionResource{
 		Group:    "source.toolkit.fluxcd.io",
 		Version:  "v1",
 		Resource: "gitrepositories",
 	}
 
-	objList, err := k.client.ListResources(gvr, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)
+	gitObjList, err := k.client.ListResources(gitGvr, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)
 	if err != nil {
 		return fmt.Errorf("failed to list git repositories: %w", err)
 	}
 
-	for _, obj := range objList.Items {
+	for _, obj := range gitObjList.Items {
 		var gitRepo sourcev1.GitRepository
 		if err := k.shims.FromUnstructured(obj.UnstructuredContent(), &gitRepo); err != nil {
 			return fmt.Errorf("failed to convert git repository %s: %w", gitRepo.Name, err)
@@ -428,6 +457,31 @@ func (k *BaseKubernetesManager) CheckGitRepositoryStatus() error {
 		for _, condition := range gitRepo.Status.Conditions {
 			if condition.Type == "Ready" && condition.Status == "False" {
 				return fmt.Errorf("%s: %s", gitRepo.Name, condition.Message)
+			}
+		}
+	}
+
+	// Check OCIRepositories
+	ociGvr := schema.GroupVersionResource{
+		Group:    "source.toolkit.fluxcd.io",
+		Version:  "v1",
+		Resource: "ocirepositories",
+	}
+
+	ociObjList, err := k.client.ListResources(ociGvr, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)
+	if err != nil {
+		return fmt.Errorf("failed to list oci repositories: %w", err)
+	}
+
+	for _, obj := range ociObjList.Items {
+		var ociRepo sourcev1.OCIRepository
+		if err := k.shims.FromUnstructured(obj.UnstructuredContent(), &ociRepo); err != nil {
+			return fmt.Errorf("failed to convert oci repository %s: %w", ociRepo.Name, err)
+		}
+
+		for _, condition := range ociRepo.Status.Conditions {
+			if condition.Type == "Ready" && condition.Status == "False" {
+				return fmt.Errorf("%s: %s", ociRepo.Name, condition.Message)
 			}
 		}
 	}

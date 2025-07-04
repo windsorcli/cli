@@ -56,13 +56,13 @@ func setupShims(t *testing.T) *Shims {
 	shims.Rename = func(oldpath, newpath string) error {
 		return nil
 	}
-	shims.YamlMarshal = func(in interface{}) ([]byte, error) {
+	shims.YamlMarshal = func(in any) ([]byte, error) {
 		return []byte{}, nil
 	}
-	shims.YamlUnmarshal = func(in []byte, out interface{}) error {
+	shims.YamlUnmarshal = func(in []byte, out any) error {
 		return nil
 	}
-	shims.JsonUnmarshal = func(data []byte, v interface{}) error {
+	shims.JsonUnmarshal = func(data []byte, v any) error {
 		return nil
 	}
 	shims.UserHomeDir = func() (string, error) {

@@ -61,7 +61,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 func setupShims(t *testing.T) *Shims {
 	t.Helper()
 	shims := NewShims()
-	shims.ToUnstructured = func(obj interface{}) (map[string]interface{}, error) {
+	shims.ToUnstructured = func(obj any) (map[string]any, error) {
 		return nil, fmt.Errorf("forced conversion error")
 	}
 	return shims
@@ -136,7 +136,7 @@ func TestBaseKubernetesManager_ApplyKustomization(t *testing.T) {
 
 	t.Run("UnstructuredConversionError", func(t *testing.T) {
 		manager := setup(t)
-		manager.shims.ToUnstructured = func(obj interface{}) (map[string]interface{}, error) {
+		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return nil, fmt.Errorf("forced conversion error")
 		}
 
@@ -242,10 +242,10 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		client := NewMockKubernetesClient()
 		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
-				Object: map[string]interface{}{
-					"status": map[string]interface{}{
-						"conditions": []interface{}{
-							map[string]interface{}{
+				Object: map[string]any{
+					"status": map[string]any{
+						"conditions": []any{
+							map[string]any{
 								"type":   "Ready",
 								"status": "True",
 							},
@@ -267,10 +267,10 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		client := NewMockKubernetesClient()
 		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
-				Object: map[string]interface{}{
-					"status": map[string]interface{}{
-						"conditions": []interface{}{
-							map[string]interface{}{
+				Object: map[string]any{
+					"status": map[string]any{
+						"conditions": []any{
+							map[string]any{
 								"type":   "Ready",
 								"status": "False",
 							},
@@ -292,7 +292,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		client := NewMockKubernetesClient()
 		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
-				Object: map[string]interface{}{},
+				Object: map[string]any{},
 			}, nil
 		}
 		manager.client = client
@@ -308,10 +308,10 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		client := NewMockKubernetesClient()
 		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
-				Object: map[string]interface{}{
-					"status": map[string]interface{}{
-						"conditions": []interface{}{
-							map[string]interface{}{
+				Object: map[string]any{
+					"status": map[string]any{
+						"conditions": []any{
+							map[string]any{
 								"type":   "Ready",
 								"status": "True",
 							},
@@ -322,7 +322,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		}
 		manager.client = client
 
-		manager.shims.FromUnstructured = func(obj map[string]interface{}, target interface{}) error {
+		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return fmt.Errorf("forced conversion error")
 		}
 
@@ -337,8 +337,8 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		client := NewMockKubernetesClient()
 		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
-				Object: map[string]interface{}{
-					"status": map[string]interface{}{},
+				Object: map[string]any{
+					"status": map[string]any{},
 				},
 			}, nil
 		}
@@ -355,10 +355,10 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		client := NewMockKubernetesClient()
 		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
-				Object: map[string]interface{}{
-					"status": map[string]interface{}{
-						"conditions": []interface{}{
-							map[string]interface{}{
+				Object: map[string]any{
+					"status": map[string]any{
+						"conditions": []any{
+							map[string]any{
 								"type":   "NotReady",
 								"status": "True",
 							},
@@ -380,10 +380,10 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		client := NewMockKubernetesClient()
 		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
-				Object: map[string]interface{}{
-					"status": map[string]interface{}{
-						"conditions": []interface{}{
-							map[string]interface{}{
+				Object: map[string]any{
+					"status": map[string]any{
+						"conditions": []any{
+							map[string]any{
 								"type":   "Ready",
 								"status": "False",
 							},
@@ -522,9 +522,9 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 		client := NewMockKubernetesClient()
 		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
-				Object: map[string]interface{}{
+				Object: map[string]any{
 					"kind": "ConfigMap",
-					"spec": map[string]interface{}{
+					"spec": map[string]any{
 						"immutable": true,
 					},
 				},
@@ -580,9 +580,9 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 		manager := setup(t)
 		// Patch shims to remove name from metadata
 		origToUnstructured := manager.shims.ToUnstructured
-		manager.shims.ToUnstructured = func(obj interface{}) (map[string]interface{}, error) {
+		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			m, _ := origToUnstructured(obj)
-			if meta, ok := m["metadata"].(map[string]interface{}); ok {
+			if meta, ok := m["metadata"].(map[string]any); ok {
 				delete(meta, "name")
 			}
 			return m, nil
@@ -633,9 +633,9 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 		client := NewMockKubernetesClient()
 		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
-				Object: map[string]interface{}{
+				Object: map[string]any{
 					"kind": "ConfigMap",
-					"spec": map[string]interface{}{"immutable": true},
+					"spec": map[string]any{"immutable": true},
 				},
 			}, nil
 		}
@@ -651,7 +651,7 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 
 	t.Run("ToUnstructuredError", func(t *testing.T) {
 		manager := setup(t)
-		manager.shims.ToUnstructured = func(obj interface{}) (map[string]interface{}, error) {
+		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return nil, fmt.Errorf("forced toUnstructured error")
 		}
 		err := manager.ApplyConfigMap("test-configmap", "test-namespace", map[string]string{"k": "v"})
@@ -674,15 +674,15 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
-						Object: map[string]interface{}{
+						Object: map[string]any{
 							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
 							"kind":       "Kustomization",
-							"metadata": map[string]interface{}{
+							"metadata": map[string]any{
 								"name": "k1",
 							},
-							"status": map[string]interface{}{
-								"conditions": []interface{}{
-									map[string]interface{}{
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{
 										"type":   "Ready",
 										"status": "True",
 									},
@@ -694,7 +694,7 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 			}, nil
 		}
 		manager.client = client
-		manager.shims.FromUnstructured = func(obj map[string]interface{}, target interface{}) error {
+		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return fmt.Errorf("forced conversion error")
 		}
 
@@ -724,15 +724,15 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
-						Object: map[string]interface{}{
+						Object: map[string]any{
 							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
 							"kind":       "Kustomization",
-							"metadata": map[string]interface{}{
+							"metadata": map[string]any{
 								"name": "k1",
 							},
-							"status": map[string]interface{}{
-								"conditions": []interface{}{
-									map[string]interface{}{
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{
 										"type":   "Ready",
 										"status": "False",
 									},
@@ -768,15 +768,15 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
-						Object: map[string]interface{}{
+						Object: map[string]any{
 							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
 							"kind":       "Kustomization",
-							"metadata": map[string]interface{}{
+							"metadata": map[string]any{
 								"name": "k1",
 							},
-							"status": map[string]interface{}{
-								"conditions": []interface{}{
-									map[string]interface{}{
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{
 										"type":    "Ready",
 										"status":  "False",
 										"reason":  "ReconciliationFailed",
@@ -817,15 +817,15 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
-						Object: map[string]interface{}{
+						Object: map[string]any{
 							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
 							"kind":       "Kustomization",
-							"metadata": map[string]interface{}{
+							"metadata": map[string]any{
 								"name": "k1",
 							},
-							"status": map[string]interface{}{
-								"conditions": []interface{}{
-									map[string]interface{}{
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{
 										"type":   "Ready",
 										"status": "True",
 									},
@@ -852,10 +852,10 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 
 	t.Run("ValidateFieldsError_MissingSpec", func(t *testing.T) {
 		obj := &unstructured.Unstructured{
-			Object: map[string]interface{}{
+			Object: map[string]any{
 				"apiVersion": "v1",
 				"kind":       "Deployment",
-				"metadata": map[string]interface{}{
+				"metadata": map[string]any{
 					"name": "foo",
 				},
 			},
@@ -868,11 +868,11 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 
 	t.Run("ValidateFieldsError_MissingMetadataName", func(t *testing.T) {
 		obj := &unstructured.Unstructured{
-			Object: map[string]interface{}{
+			Object: map[string]any{
 				"apiVersion": "v1",
 				"kind":       "Deployment",
-				"metadata":   map[string]interface{}{},
-				"spec":       map[string]interface{}{},
+				"metadata":   map[string]any{},
+				"spec":       map[string]any{},
 			},
 		}
 		err := validateFields(obj)
@@ -883,13 +883,13 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 
 	t.Run("ValidateFieldsError_EmptyMetadataName", func(t *testing.T) {
 		obj := &unstructured.Unstructured{
-			Object: map[string]interface{}{
+			Object: map[string]any{
 				"apiVersion": "v1",
 				"kind":       "Deployment",
-				"metadata": map[string]interface{}{
+				"metadata": map[string]any{
 					"name": " ",
 				},
-				"spec": map[string]interface{}{},
+				"spec": map[string]any{},
 			},
 		}
 		err := validateFields(obj)
@@ -900,10 +900,10 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 
 	t.Run("ValidateFieldsError_ConfigMapMissingData", func(t *testing.T) {
 		obj := &unstructured.Unstructured{
-			Object: map[string]interface{}{
+			Object: map[string]any{
 				"apiVersion": "v1",
 				"kind":       "ConfigMap",
-				"metadata": map[string]interface{}{
+				"metadata": map[string]any{
 					"name": "foo",
 				},
 			},
@@ -916,10 +916,10 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 
 	t.Run("ValidateFieldsError_ConfigMapDataNil", func(t *testing.T) {
 		obj := &unstructured.Unstructured{
-			Object: map[string]interface{}{
+			Object: map[string]any{
 				"apiVersion": "v1",
 				"kind":       "ConfigMap",
-				"metadata": map[string]interface{}{
+				"metadata": map[string]any{
 					"name": "foo",
 				},
 				"data": nil,
@@ -933,10 +933,10 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 
 	t.Run("ValidateFieldsError_ConfigMapDataEmptyStringMap", func(t *testing.T) {
 		obj := &unstructured.Unstructured{
-			Object: map[string]interface{}{
+			Object: map[string]any{
 				"apiVersion": "v1",
 				"kind":       "ConfigMap",
-				"metadata": map[string]interface{}{
+				"metadata": map[string]any{
 					"name": "foo",
 				},
 				"data": map[string]string{},
@@ -950,13 +950,13 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 
 	t.Run("ValidateFieldsError_ConfigMapDataEmptyAnyMap", func(t *testing.T) {
 		obj := &unstructured.Unstructured{
-			Object: map[string]interface{}{
+			Object: map[string]any{
 				"apiVersion": "v1",
 				"kind":       "ConfigMap",
-				"metadata": map[string]interface{}{
+				"metadata": map[string]any{
 					"name": "foo",
 				},
-				"data": map[string]interface{}{},
+				"data": map[string]any{},
 			},
 		}
 		err := validateFields(obj)
@@ -967,9 +967,9 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 
 	t.Run("IsImmutableConfigMap_WrongKind", func(t *testing.T) {
 		obj := &unstructured.Unstructured{
-			Object: map[string]interface{}{
+			Object: map[string]any{
 				"kind": "Deployment",
-				"spec": map[string]interface{}{"immutable": true},
+				"spec": map[string]any{"immutable": true},
 			},
 		}
 		if isImmutableConfigMap(obj) {
@@ -979,7 +979,7 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 
 	t.Run("IsImmutableConfigMap_MissingSpec", func(t *testing.T) {
 		obj := &unstructured.Unstructured{
-			Object: map[string]interface{}{
+			Object: map[string]any{
 				"kind": "ConfigMap",
 			},
 		}
@@ -990,9 +990,9 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 
 	t.Run("IsImmutableConfigMap_ImmutableFalse", func(t *testing.T) {
 		obj := &unstructured.Unstructured{
-			Object: map[string]interface{}{
+			Object: map[string]any{
 				"kind": "ConfigMap",
-				"spec": map[string]interface{}{"immutable": false},
+				"spec": map[string]any{"immutable": false},
 			},
 		}
 		if isImmutableConfigMap(obj) {
@@ -1002,9 +1002,9 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 
 	t.Run("IsImmutableConfigMap_ImmutableTrue", func(t *testing.T) {
 		obj := &unstructured.Unstructured{
-			Object: map[string]interface{}{
+			Object: map[string]any{
 				"kind": "ConfigMap",
-				"spec": map[string]interface{}{"immutable": true},
+				"spec": map[string]any{"immutable": true},
 			},
 		}
 		if !isImmutableConfigMap(obj) {
@@ -1031,13 +1031,13 @@ func TestBaseKubernetesManager_GetHelmReleasesForKustomization(t *testing.T) {
 		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			if gvr.Group == "kustomize.toolkit.fluxcd.io" && gvr.Resource == "kustomizations" {
 				return &unstructured.Unstructured{
-					Object: map[string]interface{}{
+					Object: map[string]any{
 						"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
 						"kind":       "Kustomization",
-						"status": map[string]interface{}{
-							"inventory": map[string]interface{}{
-								"entries": []interface{}{
-									map[string]interface{}{
+						"status": map[string]any{
+							"inventory": map[string]any{
+								"entries": []any{
+									map[string]any{
 										"id": "test-namespace_test-release_helm.toolkit.fluxcd.io_HelmRelease",
 									},
 								},
@@ -1048,10 +1048,10 @@ func TestBaseKubernetesManager_GetHelmReleasesForKustomization(t *testing.T) {
 			}
 			if gvr.Group == "helm.toolkit.fluxcd.io" && gvr.Resource == "helmreleases" {
 				return &unstructured.Unstructured{
-					Object: map[string]interface{}{
+					Object: map[string]any{
 						"apiVersion": "helm.toolkit.fluxcd.io/v2",
 						"kind":       "HelmRelease",
-						"metadata": map[string]interface{}{
+						"metadata": map[string]any{
 							"name":      "test-release",
 							"namespace": "test-namespace",
 						},
@@ -1093,11 +1093,11 @@ func TestBaseKubernetesManager_GetHelmReleasesForKustomization(t *testing.T) {
 		client := NewMockKubernetesClient()
 		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
-				Object: map[string]interface{}{},
+				Object: map[string]any{},
 			}, nil
 		}
 		manager.client = client
-		manager.shims.FromUnstructured = func(obj map[string]interface{}, target interface{}) error {
+		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return fmt.Errorf("forced conversion error")
 		}
 		_, err := manager.GetHelmReleasesForKustomization("test-kustomization", "test-namespace")
@@ -1312,7 +1312,7 @@ func TestBaseKubernetesManager_ApplyGitRepository(t *testing.T) {
 
 	t.Run("ToUnstructuredError", func(t *testing.T) {
 		manager := setup(t)
-		manager.shims.ToUnstructured = func(obj interface{}) (map[string]interface{}, error) {
+		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return nil, fmt.Errorf("forced conversion error")
 		}
 
@@ -1337,10 +1337,10 @@ func TestBaseKubernetesManager_ApplyGitRepository(t *testing.T) {
 
 	t.Run("ValidateFieldsError", func(t *testing.T) {
 		manager := setup(t)
-		manager.shims.ToUnstructured = func(obj interface{}) (map[string]interface{}, error) {
-			return map[string]interface{}{
-				"metadata": map[string]interface{}{},
-				"spec":     map[string]interface{}{},
+		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+			return map[string]any{
+				"metadata": map[string]any{},
+				"spec":     map[string]any{},
 			}, nil
 		}
 
@@ -1478,15 +1478,15 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
-						Object: map[string]interface{}{
+						Object: map[string]any{
 							"apiVersion": "source.toolkit.fluxcd.io/v1",
 							"kind":       "GitRepository",
-							"metadata": map[string]interface{}{
+							"metadata": map[string]any{
 								"name": "repo1",
 							},
-							"status": map[string]interface{}{
-								"conditions": []interface{}{
-									map[string]interface{}{
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{
 										"type":    "Ready",
 										"status":  "True",
 										"message": "Ready",
@@ -1544,15 +1544,15 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
-						Object: map[string]interface{}{
+						Object: map[string]any{
 							"apiVersion": "source.toolkit.fluxcd.io/v1",
 							"kind":       "GitRepository",
-							"metadata": map[string]interface{}{
+							"metadata": map[string]any{
 								"name": "repo1",
 							},
-							"status": map[string]interface{}{
-								"conditions": []interface{}{
-									map[string]interface{}{
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{
 										"type":    "Ready",
 										"status":  "True",
 										"message": "Ready",
@@ -1565,7 +1565,7 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 			}, nil
 		}
 		manager.client = client
-		manager.shims.FromUnstructured = func(obj map[string]interface{}, target interface{}) error {
+		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return fmt.Errorf("forced conversion error")
 		}
 
@@ -1592,15 +1592,15 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
-						Object: map[string]interface{}{
+						Object: map[string]any{
 							"apiVersion": "source.toolkit.fluxcd.io/v1",
 							"kind":       "GitRepository",
-							"metadata": map[string]interface{}{
+							"metadata": map[string]any{
 								"name": "repo1",
 							},
-							"status": map[string]interface{}{
-								"conditions": []interface{}{
-									map[string]interface{}{
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{
 										"type":    "Ready",
 										"status":  "False",
 										"message": "repo not ready",
@@ -1639,15 +1639,15 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
-						Object: map[string]interface{}{
+						Object: map[string]any{
 							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
 							"kind":       "Kustomization",
-							"metadata": map[string]interface{}{
+							"metadata": map[string]any{
 								"name": "k1",
 							},
-							"status": map[string]interface{}{
-								"conditions": []interface{}{
-									map[string]interface{}{
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{
 										"type":   "Ready",
 										"status": "True",
 									},
@@ -1710,15 +1710,15 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
-						Object: map[string]interface{}{
+						Object: map[string]any{
 							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
 							"kind":       "Kustomization",
-							"metadata": map[string]interface{}{
+							"metadata": map[string]any{
 								"name": "k1",
 							},
-							"status": map[string]interface{}{
-								"conditions": []interface{}{
-									map[string]interface{}{
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{
 										"type":   "Ready",
 										"status": "True",
 									},
@@ -1730,7 +1730,7 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 			}, nil
 		}
 		manager.client = client
-		manager.shims.FromUnstructured = func(obj map[string]interface{}, target interface{}) error {
+		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return fmt.Errorf("forced conversion error")
 		}
 
@@ -1760,15 +1760,15 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
-						Object: map[string]interface{}{
+						Object: map[string]any{
 							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
 							"kind":       "Kustomization",
-							"metadata": map[string]interface{}{
+							"metadata": map[string]any{
 								"name": "k1",
 							},
-							"status": map[string]interface{}{
-								"conditions": []interface{}{
-									map[string]interface{}{
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{
 										"type":   "Ready",
 										"status": "False",
 									},
@@ -1804,15 +1804,15 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
-						Object: map[string]interface{}{
+						Object: map[string]any{
 							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
 							"kind":       "Kustomization",
-							"metadata": map[string]interface{}{
+							"metadata": map[string]any{
 								"name": "k1",
 							},
-							"status": map[string]interface{}{
-								"conditions": []interface{}{
-									map[string]interface{}{
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{
 										"type":    "Ready",
 										"status":  "False",
 										"reason":  "ReconciliationFailed",
@@ -1853,15 +1853,15 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
-						Object: map[string]interface{}{
+						Object: map[string]any{
 							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
 							"kind":       "Kustomization",
-							"metadata": map[string]interface{}{
+							"metadata": map[string]any{
 								"name": "k1",
 							},
-							"status": map[string]interface{}{
-								"conditions": []interface{}{
-									map[string]interface{}{
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{
 										"type":   "Ready",
 										"status": "True",
 									},

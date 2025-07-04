@@ -1,6 +1,7 @@
 package generators
 
 import (
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	bundler "github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
@@ -22,7 +24,7 @@ import (
 type Mocks struct {
 	Injector         di.Injector
 	ConfigHandler    config.ConfigHandler
-	BlueprintHandler blueprint.MockBlueprintHandler
+	BlueprintHandler *blueprint.MockBlueprintHandler
 	Shell            *shell.MockShell
 	Shims            *Shims
 }
@@ -96,6 +98,17 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	mockBlueprintHandler := blueprint.NewMockBlueprintHandler(injector)
 	injector.Register("blueprintHandler", mockBlueprintHandler)
 
+	// Create a new mock artifact builder
+	mockArtifactBuilder := bundler.NewMockArtifact()
+	// Set up default Pull behavior to return empty map
+	mockArtifactBuilder.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
+		return make(map[string][]byte), nil
+	}
+	if err := mockArtifactBuilder.Initialize(injector); err != nil {
+		t.Fatalf("failed to initialize artifact builder: %v", err)
+	}
+	injector.Register("artifactBuilder", mockArtifactBuilder)
+
 	// Mock the GetTerraformComponents method
 	mockBlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
 		// Common components setup
@@ -142,9 +155,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	}
 	shims.MkdirAll = func(path string, perm fs.FileMode) error {
 		return os.MkdirAll(path, perm)
-	}
-	shims.TempDir = func(_, _ string) (string, error) {
-		return t.TempDir(), nil
 	}
 	shims.RemoveAll = func(path string) error {
 		return os.RemoveAll(path)
@@ -196,6 +206,12 @@ output "local_output1" {
 
 		return []byte{}, nil
 	}
+	shims.JsonUnmarshal = func(data []byte, v any) error {
+		return json.Unmarshal(data, v)
+	}
+	shims.FilepathRel = func(basepath, targpath string) (string, error) {
+		return filepath.Rel(basepath, targpath)
+	}
 
 	configHandler.Initialize()
 
@@ -203,7 +219,7 @@ output "local_output1" {
 	mocks := &Mocks{
 		Injector:         injector,
 		ConfigHandler:    configHandler,
-		BlueprintHandler: *mockBlueprintHandler,
+		BlueprintHandler: mockBlueprintHandler,
 		Shell:            mockShell,
 		Shims:            shims,
 	}
