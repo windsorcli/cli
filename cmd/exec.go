@@ -1,11 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
-	"maps"
 
 	"github.com/spf13/cobra"
-	ctrl "github.com/windsorcli/cli/pkg/controller"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/pipelines"
 )
 
 var execCmd = &cobra.Command{
@@ -18,71 +19,25 @@ var execCmd = &cobra.Command{
 			return fmt.Errorf("no command provided")
 		}
 
-		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
+		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		// Initialize with requirements
-		if err := controller.InitializeWithRequirements(ctrl.Requirements{
-			ConfigLoaded: true,
-			Env:          true,
-			Secrets:      true,
-			VM:           true,
-			Containers:   true,
-			Network:      true,
-			Services:     true,
-			CommandName:  cmd.Name(),
-			Flags: map[string]bool{
-				"verbose": verbose,
-			},
-		}); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
-		}
-
-		// Load secrets
-		secretsProviders := controller.ResolveAllSecretsProviders()
-		if len(secretsProviders) > 0 {
-			for _, secretsProvider := range secretsProviders {
-				if err := secretsProvider.LoadSecrets(); err != nil {
-					return fmt.Errorf("Error loading secrets: %w", err)
-				}
+		var pipeline pipelines.Pipeline
+		if existingPipeline := injector.Resolve("execPipeline"); existingPipeline != nil {
+			pipeline = existingPipeline.(pipelines.Pipeline)
+		} else {
+			pipeline = pipelines.NewExecPipeline()
+			if err := pipeline.Initialize(injector); err != nil {
+				return fmt.Errorf("failed to initialize exec pipeline: %w", err)
 			}
 		}
 
-		// Resolve all environment printers using the controller
-		envPrinters := controller.ResolveAllEnvPrinters()
-
-		// Collect environment variables from all printers
-		envVars := make(map[string]string)
-		for _, envPrinter := range envPrinters {
-			vars, err := envPrinter.GetEnvVars()
-			if err != nil {
-				return fmt.Errorf("Error getting environment variables: %w", err)
-			}
-			maps.Copy(envVars, vars)
-			if err := envPrinter.PostEnvHook(); err != nil {
-				return fmt.Errorf("Error executing PostEnvHook: %w", err)
-			}
+		ctx := context.Background()
+		ctx = context.WithValue(ctx, "command", args[0])
+		if len(args) > 1 {
+			ctx = context.WithValue(ctx, "args", args[1:])
 		}
 
-		// Set environment variables for the command
-		for k, v := range envVars {
-			if err := shims.Setenv(k, v); err != nil {
-				return fmt.Errorf("Error setting environment variable %q: %w", k, err)
-			}
-		}
-
-		// Resolve the shell instance using the controller
-		shellInstance := controller.ResolveShell()
-		if shellInstance == nil {
-			return fmt.Errorf("No shell found")
-		}
-
-		// Execute the command using the resolved shell instance
-		_, err := shellInstance.Exec(args[0], args[1:]...)
-		if err != nil {
-			return fmt.Errorf("command execution failed: %w", err)
-		}
-
-		return nil
+		return pipeline.Execute(ctx)
 	},
 }
 
