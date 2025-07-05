@@ -97,7 +97,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	mockShell.CheckResetFlagsFunc = func() (bool, error) {
 		return false, nil
 	}
-	mockShell.ResetFunc = func() {}
+	mockShell.ResetFunc = func(...bool) {}
 	injector.Register("shell", mockShell)
 
 	// Create and register mock secrets provider

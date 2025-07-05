@@ -2170,6 +2170,63 @@ func TestShell_Reset(t *testing.T) {
 		// Note: We can't directly verify the unset operations since they're system calls
 		// The test coverage will show that these code paths were executed
 	})
+
+	t.Run("QuietModeDoesNotPrintCommands", func(t *testing.T) {
+		// Given a shell with managed environment variables and aliases
+		shell, mocks := setup(t)
+
+		// Mock environment variables
+		mocks.Shims.Getenv = func(key string) string {
+			switch key {
+			case "WINDSOR_MANAGED_ENV":
+				return "ENV1, ENV2, ENV3"
+			case "WINDSOR_MANAGED_ALIAS":
+				return "ALIAS1, ALIAS2, ALIAS3"
+			default:
+				return ""
+			}
+		}
+
+		// When resetting with quiet=true
+		output := captureStdout(t, func() {
+			shell.Reset(true)
+		})
+
+		// Then no shell commands should be printed
+		if output != "" {
+			t.Errorf("Expected no output in quiet mode, got: %v", output)
+		}
+	})
+
+	t.Run("NonQuietModePrintsCommands", func(t *testing.T) {
+		// Given a shell with managed environment variables and aliases
+		shell, mocks := setup(t)
+
+		// Mock environment variables
+		mocks.Shims.Getenv = func(key string) string {
+			switch key {
+			case "WINDSOR_MANAGED_ENV":
+				return "ENV1, ENV2, ENV3"
+			case "WINDSOR_MANAGED_ALIAS":
+				return "ALIAS1, ALIAS2, ALIAS3"
+			default:
+				return ""
+			}
+		}
+
+		// When resetting with quiet=false
+		output := captureStdout(t, func() {
+			shell.Reset(false)
+		})
+
+		// Then shell commands should be printed
+		if !strings.Contains(output, "unset ENV1 ENV2 ENV3") {
+			t.Errorf("Expected unset command to be printed, got: %v", output)
+		}
+		if !strings.Contains(output, "unalias ALIAS1") {
+			t.Errorf("Expected unalias command to be printed, got: %v", output)
+		}
+	})
 }
 
 func TestShell_ResetSessionToken(t *testing.T) {

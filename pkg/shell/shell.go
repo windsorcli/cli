@@ -61,7 +61,7 @@ type Shell interface {
 	WriteResetToken() (string, error)
 	GetSessionToken() (string, error)
 	CheckResetFlags() (bool, error)
-	Reset()
+	Reset(quiet ...bool)
 	RegisterSecret(value string)
 }
 
@@ -542,10 +542,13 @@ func (s *DefaultShell) RegisterSecret(value string) {
 // It uses the environment variables "WINDSOR_MANAGED_ENV" and "WINDSOR_MANAGED_ALIAS"
 // to retrieve the previous set of managed environment variables and aliases, respectively.
 // These environment variables represent the previous set of managed values that need to be reset.
-func (s *DefaultShell) Reset() {
+// The optional quiet parameter controls whether shell commands are printed during reset.
+func (s *DefaultShell) Reset(quiet ...bool) {
+	isQuiet := len(quiet) > 0 && quiet[0]
+
 	var managedEnvs []string
 	if envStr := s.shims.Getenv("WINDSOR_MANAGED_ENV"); envStr != "" {
-		for _, env := range strings.Split(envStr, ",") {
+		for env := range strings.SplitSeq(envStr, ",") {
 			env = strings.TrimSpace(env)
 			if env != "" {
 				managedEnvs = append(managedEnvs, env)
@@ -556,7 +559,7 @@ func (s *DefaultShell) Reset() {
 
 	var managedAliases []string
 	if aliasStr := s.shims.Getenv("WINDSOR_MANAGED_ALIAS"); aliasStr != "" {
-		for _, alias := range strings.Split(aliasStr, ",") {
+		for alias := range strings.SplitSeq(aliasStr, ",") {
 			alias = strings.TrimSpace(alias)
 			if alias != "" {
 				managedAliases = append(managedAliases, alias)
@@ -564,11 +567,13 @@ func (s *DefaultShell) Reset() {
 		}
 	}
 
-	if len(managedEnvs) > 0 {
-		s.UnsetEnvs(managedEnvs)
-	}
-	if len(managedAliases) > 0 {
-		s.UnsetAlias(managedAliases)
+	if !isQuiet {
+		if len(managedEnvs) > 0 {
+			s.UnsetEnvs(managedEnvs)
+		}
+		if len(managedAliases) > 0 {
+			s.UnsetAlias(managedAliases)
+		}
 	}
 }
 
