@@ -2219,12 +2219,14 @@ func TestShell_Reset(t *testing.T) {
 			shell.Reset(false)
 		})
 
-		// Then shell commands should be printed
-		if !strings.Contains(output, "unset ENV1 ENV2 ENV3") {
-			t.Errorf("Expected unset command to be printed, got: %v", output)
+		// Then shell commands should be printed (platform-specific)
+		// Unix: "unset ENV1 ENV2 ENV3" / Windows: "Remove-Item Env:ENV1"
+		if !strings.Contains(output, "unset ENV1 ENV2 ENV3") && !strings.Contains(output, "Remove-Item Env:ENV1") {
+			t.Errorf("Expected environment unset command to be printed, got: %v", output)
 		}
-		if !strings.Contains(output, "unalias ALIAS1") {
-			t.Errorf("Expected unalias command to be printed, got: %v", output)
+		// Unix: "unalias ALIAS1" / Windows: "Remove-Item Alias:ALIAS1"
+		if !strings.Contains(output, "unalias ALIAS1") && !strings.Contains(output, "Remove-Item Alias:ALIAS1") {
+			t.Errorf("Expected alias unset command to be printed, got: %v", output)
 		}
 	})
 }
