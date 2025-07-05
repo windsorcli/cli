@@ -31,9 +31,11 @@ func TestExecCmd(t *testing.T) {
 		os.Chdir(tmpDir)
 
 		injector := di.NewInjector()
-		mockPipeline := pipelines.NewMockExecPipeline()
+		mockEnvPipeline := pipelines.NewMockBasePipeline()
+		mockExecPipeline := pipelines.NewMockBasePipeline()
 
-		injector.Register("execPipeline", mockPipeline)
+		injector.Register("envPipeline", mockEnvPipeline)
+		injector.Register("execPipeline", mockExecPipeline)
 
 		cmd := createTestCmd()
 		ctx := context.WithValue(context.Background(), injectorKey, injector)
@@ -58,9 +60,11 @@ func TestExecCmd(t *testing.T) {
 		os.Chdir(tmpDir)
 
 		injector := di.NewInjector()
-		mockPipeline := pipelines.NewMockExecPipeline()
+		mockEnvPipeline := pipelines.NewMockBasePipeline()
+		mockExecPipeline := pipelines.NewMockBasePipeline()
 
-		injector.Register("execPipeline", mockPipeline)
+		injector.Register("envPipeline", mockEnvPipeline)
+		injector.Register("execPipeline", mockExecPipeline)
 
 		cmd := createTestCmd()
 		ctx := context.WithValue(context.Background(), injectorKey, injector)
@@ -81,7 +85,7 @@ func TestExecCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("PipelineExecutionError", func(t *testing.T) {
+	t.Run("EnvPipelineExecutionError", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		originalDir, _ := os.Getwd()
 		defer func() {
@@ -90,12 +94,14 @@ func TestExecCmd(t *testing.T) {
 		os.Chdir(tmpDir)
 
 		injector := di.NewInjector()
-		mockPipeline := pipelines.NewMockExecPipeline()
-		mockPipeline.ExecuteFunc = func(context.Context) error {
-			return fmt.Errorf("pipeline execution failed")
+		mockEnvPipeline := pipelines.NewMockBasePipeline()
+		mockEnvPipeline.ExecuteFunc = func(context.Context) error {
+			return fmt.Errorf("env pipeline execution failed")
 		}
+		mockExecPipeline := pipelines.NewMockBasePipeline()
 
-		injector.Register("execPipeline", mockPipeline)
+		injector.Register("envPipeline", mockEnvPipeline)
+		injector.Register("execPipeline", mockExecPipeline)
 
 		cmd := createTestCmd()
 		ctx := context.WithValue(context.Background(), injectorKey, injector)
@@ -110,13 +116,13 @@ func TestExecCmd(t *testing.T) {
 			t.Error("Expected error, got nil")
 		}
 
-		expectedError := "pipeline execution failed"
+		expectedError := "failed to set up environment: env pipeline execution failed"
 		if err.Error() != expectedError {
 			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
-	t.Run("WithArguments", func(t *testing.T) {
+	t.Run("ExecPipelineExecutionError", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		originalDir, _ := os.Getwd()
 		defer func() {
@@ -125,20 +131,113 @@ func TestExecCmd(t *testing.T) {
 		os.Chdir(tmpDir)
 
 		injector := di.NewInjector()
-		mockPipeline := pipelines.NewMockExecPipeline()
-		var capturedContext context.Context
-		mockPipeline.ExecuteFunc = func(ctx context.Context) error {
-			capturedContext = ctx
-			return nil
+		mockEnvPipeline := pipelines.NewMockBasePipeline()
+		mockExecPipeline := pipelines.NewMockBasePipeline()
+		mockExecPipeline.ExecuteFunc = func(context.Context) error {
+			return fmt.Errorf("exec pipeline execution failed")
 		}
 
-		injector.Register("execPipeline", mockPipeline)
+		injector.Register("envPipeline", mockEnvPipeline)
+		injector.Register("execPipeline", mockExecPipeline)
 
 		cmd := createTestCmd()
 		ctx := context.WithValue(context.Background(), injectorKey, injector)
 		cmd.SetContext(ctx)
 
-		args := []string{"echo", "hello", "world"}
+		args := []string{"echo", "hello"}
+		cmd.SetArgs(args)
+
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+
+		expectedError := "failed to execute command: exec pipeline execution failed"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ContextValuesPassedCorrectly", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		originalDir, _ := os.Getwd()
+		defer func() {
+			os.Chdir(originalDir)
+		}()
+		os.Chdir(tmpDir)
+
+		injector := di.NewInjector()
+
+		// Capture context values passed to pipelines
+		var envContext, execContext context.Context
+
+		mockEnvPipeline := pipelines.NewMockBasePipeline()
+		mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error {
+			envContext = ctx
+			return nil
+		}
+
+		mockExecPipeline := pipelines.NewMockBasePipeline()
+		mockExecPipeline.ExecuteFunc = func(ctx context.Context) error {
+			execContext = ctx
+			return nil
+		}
+
+		injector.Register("envPipeline", mockEnvPipeline)
+		injector.Register("execPipeline", mockExecPipeline)
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		cmd.SetContext(ctx)
+
+		args := []string{"test-command", "arg1", "arg2"}
+		cmd.SetArgs(args)
+
+		err := cmd.Execute()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Verify env pipeline context
+		if envContext.Value("quiet") != true {
+			t.Error("Expected env pipeline to receive quiet=true")
+		}
+		if envContext.Value("decrypt") != true {
+			t.Error("Expected env pipeline to receive decrypt=true")
+		}
+
+		// Verify exec pipeline context
+		if execContext.Value("command") != "test-command" {
+			t.Errorf("Expected exec pipeline to receive command='test-command', got %v", execContext.Value("command"))
+		}
+		ctxArgs := execContext.Value("args")
+		if ctxArgs == nil {
+			t.Error("Expected exec pipeline to receive args")
+		} else {
+			argsSlice := ctxArgs.([]string)
+			if len(argsSlice) != 2 || argsSlice[0] != "arg1" || argsSlice[1] != "arg2" {
+				t.Errorf("Expected exec pipeline to receive args=['arg1', 'arg2'], got %v", argsSlice)
+			}
+		}
+	})
+
+	t.Run("PipelineCreationAndRegistration", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		originalDir, _ := os.Getwd()
+		defer func() {
+			os.Chdir(originalDir)
+		}()
+		os.Chdir(tmpDir)
+
+		// Test with empty injector to force pipeline creation
+		injector := di.NewInjector()
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		cmd.SetContext(ctx)
+
+		args := []string{"echo", "hello"}
 		cmd.SetArgs(args)
 
 		err := cmd.Execute()
@@ -147,14 +246,104 @@ func TestExecCmd(t *testing.T) {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		command := capturedContext.Value("command").(string)
-		if command != "echo" {
-			t.Errorf("Expected command 'echo', got %q", command)
+		// Verify both pipelines were created and registered
+		envPipeline := injector.Resolve("envPipeline")
+		if envPipeline == nil {
+			t.Error("Expected env pipeline to be registered")
 		}
 
-		cmdArgs := capturedContext.Value("args").([]string)
-		if len(cmdArgs) != 2 || cmdArgs[0] != "hello" || cmdArgs[1] != "world" {
-			t.Errorf("Expected args ['hello', 'world'], got %v", cmdArgs)
+		execPipeline := injector.Resolve("execPipeline")
+		if execPipeline == nil {
+			t.Error("Expected exec pipeline to be registered")
+		}
+	})
+
+	t.Run("SingleArgumentCommand", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		originalDir, _ := os.Getwd()
+		defer func() {
+			os.Chdir(originalDir)
+		}()
+		os.Chdir(tmpDir)
+
+		injector := di.NewInjector()
+
+		var execContext context.Context
+		mockEnvPipeline := pipelines.NewMockBasePipeline()
+		mockExecPipeline := pipelines.NewMockBasePipeline()
+		mockExecPipeline.ExecuteFunc = func(ctx context.Context) error {
+			execContext = ctx
+			return nil
+		}
+
+		injector.Register("envPipeline", mockEnvPipeline)
+		injector.Register("execPipeline", mockExecPipeline)
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		cmd.SetContext(ctx)
+
+		args := []string{"single-command"}
+		cmd.SetArgs(args)
+
+		err := cmd.Execute()
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify command is set correctly
+		command := execContext.Value("command")
+		if command != "single-command" {
+			t.Errorf("Expected command to be 'single-command', got %v", command)
+		}
+
+		// Verify args context value is not set for single command
+		ctxArgs := execContext.Value("args")
+		if ctxArgs != nil {
+			t.Errorf("Expected args to be nil for single command, got %v", ctxArgs)
+		}
+	})
+
+	t.Run("PipelineReuseWhenAlreadyRegistered", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		originalDir, _ := os.Getwd()
+		defer func() {
+			os.Chdir(originalDir)
+		}()
+		os.Chdir(tmpDir)
+
+		injector := di.NewInjector()
+
+		// Pre-register pipelines
+		originalEnvPipeline := pipelines.NewMockBasePipeline()
+		originalExecPipeline := pipelines.NewMockBasePipeline()
+
+		injector.Register("envPipeline", originalEnvPipeline)
+		injector.Register("execPipeline", originalExecPipeline)
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		cmd.SetContext(ctx)
+
+		args := []string{"echo", "hello"}
+		cmd.SetArgs(args)
+
+		err := cmd.Execute()
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify same pipeline instances are reused
+		envPipeline := injector.Resolve("envPipeline")
+		if envPipeline != originalEnvPipeline {
+			t.Error("Expected to reuse existing env pipeline")
+		}
+
+		execPipeline := injector.Resolve("execPipeline")
+		if execPipeline != originalExecPipeline {
+			t.Error("Expected to reuse existing exec pipeline")
 		}
 	})
 }

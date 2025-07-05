@@ -5,20 +5,73 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
-	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
-	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/env"
-	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/shell"
 )
+
+// mockFileInfo is a simple mock implementation of os.FileInfo for testing
+type mockFileInfo struct {
+	name string
+}
+
+func (m *mockFileInfo) Name() string       { return m.name }
+func (m *mockFileInfo) Size() int64        { return 0 }
+func (m *mockFileInfo) Mode() os.FileMode  { return 0644 }
+func (m *mockFileInfo) ModTime() time.Time { return time.Time{} }
+func (m *mockFileInfo) IsDir() bool        { return false }
+func (m *mockFileInfo) Sys() interface{}   { return nil }
+
+func TestNewExecPipeline(t *testing.T) {
+	t.Run("CreatesWithDefaultConstructors", func(t *testing.T) {
+		pipeline := NewExecPipeline()
+
+		if pipeline == nil {
+			t.Fatal("Expected pipeline to not be nil")
+		}
+
+		if pipeline.constructors.NewShell == nil {
+			t.Error("Expected NewShell constructor to be set")
+		}
+	})
+
+	t.Run("CreatesWithCustomConstructors", func(t *testing.T) {
+		constructors := ExecConstructors{
+			NewShell: func(di.Injector) shell.Shell {
+				return shell.NewMockShell()
+			},
+		}
+
+		pipeline := NewExecPipeline(constructors)
+
+		if pipeline == nil {
+			t.Fatal("Expected pipeline to not be nil")
+		}
+
+		if pipeline.constructors.NewShell == nil {
+			t.Error("Expected NewShell constructor to be set")
+		}
+	})
+}
 
 func TestExecPipeline_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		injector := di.NewInjector()
-		pipeline := NewExecPipeline()
 
+		// Create mock shell
+		mockShell := shell.NewMockShell()
+		mockShell.InitializeFunc = func() error {
+			return nil
+		}
+
+		constructors := ExecConstructors{
+			NewShell: func(di.Injector) shell.Shell {
+				return mockShell
+			},
+		}
+
+		pipeline := NewExecPipeline(constructors)
 		err := pipeline.Initialize(injector)
 
 		if err != nil {
@@ -26,54 +79,18 @@ func TestExecPipeline_Initialize(t *testing.T) {
 		}
 	})
 
-	t.Run("ConfigHandlerInitializationError", func(t *testing.T) {
-		injector := di.NewInjector()
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.InitializeFunc = func() error {
-			return fmt.Errorf("config handler initialization failed")
-		}
-
-		constructors := ExecConstructors{
-			NewConfigHandler: func(di.Injector) config.ConfigHandler {
-				return mockConfigHandler
-			},
-			NewShell: func(injector di.Injector) shell.Shell {
-				return shell.NewMockShell()
-			},
-			NewShims: func() *Shims {
-				return NewShims()
-			},
-		}
-
-		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector)
-
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		expectedError := "failed to initialize config handler: config handler initialization failed"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
 	t.Run("ShellInitializationError", func(t *testing.T) {
 		injector := di.NewInjector()
+
+		// Create mock shell that fails initialization
 		mockShell := shell.NewMockShell()
 		mockShell.InitializeFunc = func() error {
 			return fmt.Errorf("shell initialization failed")
 		}
 
 		constructors := ExecConstructors{
-			NewConfigHandler: func(injector di.Injector) config.ConfigHandler {
-				return config.NewMockConfigHandler()
-			},
 			NewShell: func(di.Injector) shell.Shell {
 				return mockShell
-			},
-			NewShims: func() *Shims {
-				return NewShims()
 			},
 		}
 
@@ -90,105 +107,12 @@ func TestExecPipeline_Initialize(t *testing.T) {
 		}
 	})
 
-	t.Run("SecretsProviderInitializationError", func(t *testing.T) {
+	t.Run("UsesExistingShell", func(t *testing.T) {
 		injector := di.NewInjector()
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
-		}
 
-		mockSecretsProvider := secrets.NewMockSecretsProvider(injector)
-		mockSecretsProvider.InitializeFunc = func() error {
-			return fmt.Errorf("secrets provider initialization failed")
-		}
-
-		mockShims := &Shims{
-			Stat: func(name string) (os.FileInfo, error) {
-				if name == "/test/config/secrets.enc.yaml" {
-					return nil, nil
-				}
-				return nil, os.ErrNotExist
-			},
-		}
-
-		constructors := ExecConstructors{
-			NewConfigHandler: func(di.Injector) config.ConfigHandler {
-				return mockConfigHandler
-			},
-			NewShell: func(injector di.Injector) shell.Shell {
-				return shell.NewMockShell()
-			},
-			NewSopsSecretsProvider: func(string, di.Injector) secrets.SecretsProvider {
-				return mockSecretsProvider
-			},
-			NewShims: func() *Shims {
-				return mockShims
-			},
-		}
-
-		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector)
-
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		expectedError := "failed to initialize secrets provider: secrets provider initialization failed"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("EnvPrinterInitializationError", func(t *testing.T) {
-		injector := di.NewInjector()
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			return key == "aws.enabled"
-		}
-
-		mockEnvPrinter := env.NewMockEnvPrinter()
-		mockEnvPrinter.InitializeFunc = func() error {
-			return fmt.Errorf("env printer initialization failed")
-		}
-
-		constructors := ExecConstructors{
-			NewConfigHandler: func(di.Injector) config.ConfigHandler {
-				return mockConfigHandler
-			},
-			NewShell: func(injector di.Injector) shell.Shell {
-				return shell.NewMockShell()
-			},
-			NewAwsEnvPrinter: func(di.Injector) env.EnvPrinter {
-				return mockEnvPrinter
-			},
-			NewWindsorEnvPrinter: func(di.Injector) env.EnvPrinter {
-				return env.NewMockEnvPrinter()
-			},
-			NewShims: func() *Shims {
-				return NewShims()
-			},
-		}
-
-		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector)
-
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		expectedError := "failed to initialize env printer: env printer initialization failed"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ReuseExistingComponents", func(t *testing.T) {
-		injector := di.NewInjector()
+		// Register existing shell
 		existingShell := shell.NewMockShell()
-		existingConfigHandler := config.NewMockConfigHandler()
-
 		injector.Register("shell", existingShell)
-		injector.Register("configHandler", existingConfigHandler)
 
 		pipeline := NewExecPipeline()
 		err := pipeline.Initialize(injector)
@@ -198,11 +122,7 @@ func TestExecPipeline_Initialize(t *testing.T) {
 		}
 
 		if pipeline.shell != existingShell {
-			t.Error("Expected to reuse existing shell")
-		}
-
-		if pipeline.configHandler != existingConfigHandler {
-			t.Error("Expected to reuse existing config handler")
+			t.Error("Expected pipeline to use existing shell")
 		}
 	})
 }
@@ -210,32 +130,20 @@ func TestExecPipeline_Initialize(t *testing.T) {
 func TestExecPipeline_Execute(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		injector := di.NewInjector()
+
+		// Create mock shell
 		mockShell := shell.NewMockShell()
+		var capturedCommand string
+		var capturedArgs []string
 		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
+			capturedCommand = command
+			capturedArgs = args
 			return "output", nil
 		}
 
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockEnvPrinter := env.NewMockEnvPrinter()
-		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
-			return map[string]string{"TEST_VAR": "test_value"}, nil
-		}
-		mockEnvPrinter.PostEnvHookFunc = func() error {
-			return nil
-		}
-
 		constructors := ExecConstructors{
-			NewConfigHandler: func(di.Injector) config.ConfigHandler {
-				return mockConfigHandler
-			},
 			NewShell: func(di.Injector) shell.Shell {
 				return mockShell
-			},
-			NewWindsorEnvPrinter: func(di.Injector) env.EnvPrinter {
-				return mockEnvPrinter
-			},
-			NewShims: func() *Shims {
-				return NewShims()
 			},
 		}
 
@@ -254,268 +162,89 @@ func TestExecPipeline_Execute(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-	})
 
-	t.Run("NoCommandProvided", func(t *testing.T) {
-		injector := di.NewInjector()
-		pipeline := NewExecPipeline()
-		err := pipeline.Initialize(injector)
-		if err != nil {
-			t.Fatalf("Failed to initialize pipeline: %v", err)
+		if capturedCommand != "test-command" {
+			t.Errorf("Expected command 'test-command', got %q", capturedCommand)
 		}
 
-		ctx := context.Background()
-
-		err = pipeline.Execute(ctx)
-
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		expectedError := "no command provided"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		if len(capturedArgs) != 2 || capturedArgs[0] != "arg1" || capturedArgs[1] != "arg2" {
+			t.Errorf("Expected args ['arg1', 'arg2'], got %v", capturedArgs)
 		}
 	})
 
-	t.Run("SecretsLoadError", func(t *testing.T) {
+	t.Run("NoCommandInContext", func(t *testing.T) {
 		injector := di.NewInjector()
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
-		}
 
-		mockSecretsProvider := secrets.NewMockSecretsProvider(injector)
-		mockSecretsProvider.LoadSecretsFunc = func() error {
-			return fmt.Errorf("secrets load failed")
-		}
-
-		mockShims := &Shims{
-			Stat: func(name string) (os.FileInfo, error) {
-				if name == "/test/config/secrets.enc.yaml" {
-					return nil, nil
-				}
-				return nil, os.ErrNotExist
-			},
-		}
-
-		constructors := ExecConstructors{
-			NewConfigHandler: func(di.Injector) config.ConfigHandler {
-				return mockConfigHandler
-			},
-			NewShell: func(injector di.Injector) shell.Shell {
-				return shell.NewMockShell()
-			},
-			NewSopsSecretsProvider: func(string, di.Injector) secrets.SecretsProvider {
-				return mockSecretsProvider
-			},
-			NewWindsorEnvPrinter: func(di.Injector) env.EnvPrinter {
-				return env.NewMockEnvPrinter()
-			},
-			NewShims: func() *Shims {
-				return mockShims
-			},
-		}
-
-		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector)
-		if err != nil {
-			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
-
-		ctx := context.Background()
-		ctx = context.WithValue(ctx, "command", "test-command")
-
-		err = pipeline.Execute(ctx)
-
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		expectedError := "error loading secrets: secrets load failed"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("GetEnvVarsError", func(t *testing.T) {
-		injector := di.NewInjector()
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockEnvPrinter := env.NewMockEnvPrinter()
-		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
-			return nil, fmt.Errorf("get env vars failed")
-		}
-
-		constructors := ExecConstructors{
-			NewConfigHandler: func(di.Injector) config.ConfigHandler {
-				return mockConfigHandler
-			},
-			NewShell: func(injector di.Injector) shell.Shell {
-				return shell.NewMockShell()
-			},
-			NewWindsorEnvPrinter: func(di.Injector) env.EnvPrinter {
-				return mockEnvPrinter
-			},
-			NewShims: func() *Shims {
-				return NewShims()
-			},
-		}
-
-		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector)
-		if err != nil {
-			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
-
-		ctx := context.Background()
-		ctx = context.WithValue(ctx, "command", "test-command")
-
-		err = pipeline.Execute(ctx)
-
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		expectedError := "error getting environment variables: get env vars failed"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("PostEnvHookError", func(t *testing.T) {
-		injector := di.NewInjector()
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockEnvPrinter := env.NewMockEnvPrinter()
-		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
-			return map[string]string{"TEST_VAR": "test_value"}, nil
-		}
-		mockEnvPrinter.PostEnvHookFunc = func() error {
-			return fmt.Errorf("post env hook failed")
-		}
-
-		constructors := ExecConstructors{
-			NewConfigHandler: func(di.Injector) config.ConfigHandler {
-				return mockConfigHandler
-			},
-			NewShell: func(injector di.Injector) shell.Shell {
-				return shell.NewMockShell()
-			},
-			NewWindsorEnvPrinter: func(di.Injector) env.EnvPrinter {
-				return mockEnvPrinter
-			},
-			NewShims: func() *Shims {
-				return NewShims()
-			},
-		}
-
-		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector)
-		if err != nil {
-			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
-
-		ctx := context.Background()
-		ctx = context.WithValue(ctx, "command", "test-command")
-
-		err = pipeline.Execute(ctx)
-
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		expectedError := "error executing PostEnvHook: post env hook failed"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("SetenvError", func(t *testing.T) {
-		injector := di.NewInjector()
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
-		}
-		mockEnvPrinter := env.NewMockEnvPrinter()
-		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
-			return map[string]string{"TEST_VAR": "test_value"}, nil
-		}
-		mockEnvPrinter.PostEnvHookFunc = func() error {
-			return nil
-		}
-
-		mockShims := &Shims{
-			Setenv: func(key, value string) error {
-				return fmt.Errorf("setenv failed")
-			},
-			Stat: func(name string) (os.FileInfo, error) {
-				return nil, os.ErrNotExist
-			},
-		}
-
-		constructors := ExecConstructors{
-			NewConfigHandler: func(di.Injector) config.ConfigHandler {
-				return mockConfigHandler
-			},
-			NewShell: func(injector di.Injector) shell.Shell {
-				return shell.NewMockShell()
-			},
-			NewWindsorEnvPrinter: func(di.Injector) env.EnvPrinter {
-				return mockEnvPrinter
-			},
-			NewShims: func() *Shims {
-				return mockShims
-			},
-		}
-
-		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector)
-		if err != nil {
-			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
-
-		ctx := context.Background()
-		ctx = context.WithValue(ctx, "command", "test-command")
-
-		err = pipeline.Execute(ctx)
-
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		expectedError := "error setting environment variable \"TEST_VAR\": setenv failed"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ShellExecError", func(t *testing.T) {
-		injector := di.NewInjector()
 		mockShell := shell.NewMockShell()
-		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
-			return "", fmt.Errorf("exec failed")
-		}
-
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockEnvPrinter := env.NewMockEnvPrinter()
-		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
-			return map[string]string{"TEST_VAR": "test_value"}, nil
-		}
-		mockEnvPrinter.PostEnvHookFunc = func() error {
-			return nil
-		}
-
 		constructors := ExecConstructors{
-			NewConfigHandler: func(di.Injector) config.ConfigHandler {
-				return mockConfigHandler
-			},
 			NewShell: func(di.Injector) shell.Shell {
 				return mockShell
 			},
-			NewWindsorEnvPrinter: func(di.Injector) env.EnvPrinter {
-				return mockEnvPrinter
+		}
+
+		pipeline := NewExecPipeline(constructors)
+		err := pipeline.Initialize(injector)
+		if err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
+
+		ctx := context.Background()
+
+		err = pipeline.Execute(ctx)
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+
+		expectedError := "no command provided in context"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("EmptyCommandInContext", func(t *testing.T) {
+		injector := di.NewInjector()
+
+		mockShell := shell.NewMockShell()
+		constructors := ExecConstructors{
+			NewShell: func(di.Injector) shell.Shell {
+				return mockShell
 			},
-			NewShims: func() *Shims {
-				return NewShims()
+		}
+
+		pipeline := NewExecPipeline(constructors)
+		err := pipeline.Initialize(injector)
+		if err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
+
+		ctx := context.Background()
+		ctx = context.WithValue(ctx, "command", "")
+
+		err = pipeline.Execute(ctx)
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+
+		expectedError := "no command provided in context"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ShellExecutionError", func(t *testing.T) {
+		injector := di.NewInjector()
+
+		// Create mock shell that fails execution
+		mockShell := shell.NewMockShell()
+		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
+			return "", fmt.Errorf("command execution failed")
+		}
+
+		constructors := ExecConstructors{
+			NewShell: func(di.Injector) shell.Shell {
+				return mockShell
 			},
 		}
 
@@ -527,7 +256,6 @@ func TestExecPipeline_Execute(t *testing.T) {
 
 		ctx := context.Background()
 		ctx = context.WithValue(ctx, "command", "test-command")
-		ctx = context.WithValue(ctx, "args", []string{"arg1"})
 
 		err = pipeline.Execute(ctx)
 
@@ -535,246 +263,52 @@ func TestExecPipeline_Execute(t *testing.T) {
 			t.Error("Expected error, got nil")
 		}
 
-		expectedError := "command execution failed: exec failed"
+		expectedError := "command execution failed: command execution failed"
 		if err.Error() != expectedError {
 			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
-}
 
-func TestExecPipeline_createSecretsProviders(t *testing.T) {
-	t.Run("NoSecretsFiles", func(t *testing.T) {
+	t.Run("NoArgsInContext", func(t *testing.T) {
 		injector := di.NewInjector()
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
-		}
 
-		mockShims := &Shims{
-			Stat: func(name string) (os.FileInfo, error) {
-				return nil, os.ErrNotExist
-			},
+		// Create mock shell
+		mockShell := shell.NewMockShell()
+		var capturedCommand string
+		var capturedArgs []string
+		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
+			capturedCommand = command
+			capturedArgs = args
+			return "output", nil
 		}
 
 		constructors := ExecConstructors{
-			NewConfigHandler: func(di.Injector) config.ConfigHandler {
-				return mockConfigHandler
-			},
-			NewShell: func(injector di.Injector) shell.Shell {
-				return shell.NewMockShell()
-			},
-			NewShims: func() *Shims {
-				return mockShims
+			NewShell: func(di.Injector) shell.Shell {
+				return mockShell
 			},
 		}
 
 		pipeline := NewExecPipeline(constructors)
 		err := pipeline.Initialize(injector)
+		if err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
+
+		ctx := context.Background()
+		ctx = context.WithValue(ctx, "command", "test-command")
+
+		err = pipeline.Execute(ctx)
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		if len(pipeline.secretsProviders) != 0 {
-			t.Errorf("Expected 0 secrets providers, got %d", len(pipeline.secretsProviders))
-		}
-	})
-
-	t.Run("SopsSecretsProvider", func(t *testing.T) {
-		injector := di.NewInjector()
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
+		if capturedCommand != "test-command" {
+			t.Errorf("Expected command 'test-command', got %q", capturedCommand)
 		}
 
-		mockShims := &Shims{
-			Stat: func(name string) (os.FileInfo, error) {
-				if name == "/test/config/secrets.enc.yaml" {
-					return nil, nil
-				}
-				return nil, os.ErrNotExist
-			},
-		}
-
-		constructors := ExecConstructors{
-			NewConfigHandler: func(di.Injector) config.ConfigHandler {
-				return mockConfigHandler
-			},
-			NewShell: func(injector di.Injector) shell.Shell {
-				return shell.NewMockShell()
-			},
-			NewSopsSecretsProvider: func(string, di.Injector) secrets.SecretsProvider {
-				return secrets.NewMockSecretsProvider(injector)
-			},
-			NewShims: func() *Shims {
-				return mockShims
-			},
-		}
-
-		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector)
-
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-
-		if len(pipeline.secretsProviders) != 1 {
-			t.Errorf("Expected 1 secrets provider, got %d", len(pipeline.secretsProviders))
-		}
-	})
-
-	t.Run("OnePasswordSecretsProvider", func(t *testing.T) {
-		injector := di.NewInjector()
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
-		}
-		mockConfigHandler.GetContextFunc = func() string {
-			return "test"
-		}
-		mockConfigHandler.GetFunc = func(key string) any {
-			if key == "contexts.test.secrets.onepassword.vaults" {
-				return map[string]secretsConfigType.OnePasswordVault{
-					"vault1": {URL: "https://test.1password.com"},
-				}
-			}
-			return nil
-		}
-
-		mockShims := &Shims{
-			Stat: func(name string) (os.FileInfo, error) {
-				return nil, os.ErrNotExist
-			},
-			Getenv: func(key string) string {
-				if key == "OP_SERVICE_ACCOUNT_TOKEN" {
-					return "token"
-				}
-				return ""
-			},
-		}
-
-		constructors := ExecConstructors{
-			NewConfigHandler: func(di.Injector) config.ConfigHandler {
-				return mockConfigHandler
-			},
-			NewShell: func(injector di.Injector) shell.Shell {
-				return shell.NewMockShell()
-			},
-			NewOnePasswordSDKSecretsProvider: func(secretsConfigType.OnePasswordVault, di.Injector) secrets.SecretsProvider {
-				return secrets.NewMockSecretsProvider(injector)
-			},
-			NewShims: func() *Shims {
-				return mockShims
-			},
-		}
-
-		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector)
-
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-
-		if len(pipeline.secretsProviders) != 1 {
-			t.Errorf("Expected 1 secrets provider, got %d", len(pipeline.secretsProviders))
-		}
-	})
-}
-
-func TestExecPipeline_createEnvPrinters(t *testing.T) {
-	t.Run("AllEnvPrintersEnabled", func(t *testing.T) {
-		injector := di.NewInjector()
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			return true
-		}
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "cluster.driver" {
-				return "talos"
-			}
-			return ""
-		}
-
-		constructors := ExecConstructors{
-			NewConfigHandler: func(di.Injector) config.ConfigHandler {
-				return mockConfigHandler
-			},
-			NewShell: func(injector di.Injector) shell.Shell {
-				return shell.NewMockShell()
-			},
-			NewAwsEnvPrinter: func(di.Injector) env.EnvPrinter {
-				return env.NewMockEnvPrinter()
-			},
-			NewAzureEnvPrinter: func(di.Injector) env.EnvPrinter {
-				return env.NewMockEnvPrinter()
-			},
-			NewDockerEnvPrinter: func(di.Injector) env.EnvPrinter {
-				return env.NewMockEnvPrinter()
-			},
-			NewKubeEnvPrinter: func(di.Injector) env.EnvPrinter {
-				return env.NewMockEnvPrinter()
-			},
-			NewOmniEnvPrinter: func(di.Injector) env.EnvPrinter {
-				return env.NewMockEnvPrinter()
-			},
-			NewTalosEnvPrinter: func(di.Injector) env.EnvPrinter {
-				return env.NewMockEnvPrinter()
-			},
-			NewTerraformEnvPrinter: func(di.Injector) env.EnvPrinter {
-				return env.NewMockEnvPrinter()
-			},
-			NewWindsorEnvPrinter: func(di.Injector) env.EnvPrinter {
-				return env.NewMockEnvPrinter()
-			},
-			NewShims: func() *Shims {
-				return NewShims()
-			},
-		}
-
-		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector)
-
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-
-		expectedCount := 8
-		if len(pipeline.envPrinters) != expectedCount {
-			t.Errorf("Expected %d env printers, got %d", expectedCount, len(pipeline.envPrinters))
-		}
-	})
-
-	t.Run("OnlyWindsorEnvPrinter", func(t *testing.T) {
-		injector := di.NewInjector()
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			return false
-		}
-
-		constructors := ExecConstructors{
-			NewConfigHandler: func(di.Injector) config.ConfigHandler {
-				return mockConfigHandler
-			},
-			NewShell: func(injector di.Injector) shell.Shell {
-				return shell.NewMockShell()
-			},
-			NewWindsorEnvPrinter: func(di.Injector) env.EnvPrinter {
-				return env.NewMockEnvPrinter()
-			},
-			NewShims: func() *Shims {
-				return NewShims()
-			},
-		}
-
-		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector)
-
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-
-		if len(pipeline.envPrinters) != 1 {
-			t.Errorf("Expected 1 env printer, got %d", len(pipeline.envPrinters))
+		if len(capturedArgs) != 0 {
+			t.Errorf("Expected no args, got %v", capturedArgs)
 		}
 	})
 }
