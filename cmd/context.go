@@ -16,8 +16,8 @@ var getContextCmd = &cobra.Command{
 	Long:         "Retrieve and display the current context from the configuration",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Create dependency injector
-		injector := di.NewInjector()
+		// Get shared dependency injector from context
+		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
 		// Create context pipeline
 		pipeline := pipelines.NewContextPipeline()
@@ -52,8 +52,8 @@ var setContextCmd = &cobra.Command{
 	Long:  "Set the current context in the configuration and save it",
 	Args:  cobra.ExactArgs(1), // Ensure exactly one argument is provided
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Create dependency injector
-		injector := di.NewInjector()
+		// Get shared dependency injector from context
+		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
 		// Create context pipeline
 		pipeline := pipelines.NewContextPipeline()

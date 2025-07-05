@@ -15,8 +15,8 @@ var envCmd = &cobra.Command{
 	Long:         "Output commands to set environment variables for the application.",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Create dependency injector
-		injector := di.NewInjector()
+		// Get shared dependency injector from context
+		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
 		// Create env pipeline
 		pipeline := pipelines.NewEnvPipeline()

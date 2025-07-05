@@ -19,8 +19,8 @@ var hookCmd = &cobra.Command{
 			return fmt.Errorf("No shell name provided")
 		}
 
-		// Create dependency injector
-		injector := di.NewInjector()
+		// Get shared dependency injector from context
+		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
 		// Create hook pipeline
 		pipeline := pipelines.NewHookPipeline()
