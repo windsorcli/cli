@@ -15,6 +15,7 @@ var verbose bool
 type contextKey string
 
 const controllerKey = contextKey("controller")
+const injectorKey = contextKey("injector")
 
 var shims = NewShims()
 
@@ -24,13 +25,18 @@ var shims = NewShims()
 // establishing the dependency injection container and controller context.
 func Execute(controllers ...controller.Controller) error {
 	var ctrl controller.Controller
+	var injector di.Injector
 	if len(controllers) > 0 {
 		ctrl = controllers[0]
+		// Extract injector from controller if possible
+		// For now, we'll create a new one since the controller interface doesn't expose the injector
+		injector = di.NewInjector()
 	} else {
-		injector := di.NewInjector()
+		injector = di.NewInjector()
 		ctrl = controller.NewController(injector)
 	}
 	ctx := context.WithValue(context.Background(), controllerKey, ctrl)
+	ctx = context.WithValue(ctx, injectorKey, injector)
 	return rootCmd.ExecuteContext(ctx)
 }
 
