@@ -1092,7 +1092,7 @@ func TestMockShell_Reset(t *testing.T) {
 		// Given a mock shell with ResetFunc set
 		mockShell := setupMockShellMocks(t)
 		called := false
-		mockShell.ResetFunc = func() {
+		mockShell.ResetFunc = func(...bool) {
 			called = true
 		}
 

@@ -183,8 +183,8 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 		})
 
 		// Then the output should contain the expected alias and remove alias commands
-		expectedAliasLine := fmt.Sprintf("Set-Alias -Name ALIAS1 -Value \"command1\"\n")
-		expectedRemoveAliasLine := fmt.Sprintf("Remove-Item Alias:ALIAS2\n")
+		expectedAliasLine := "Set-Alias -Name ALIAS1 -Value \"command1\"\n"
+		expectedRemoveAliasLine := "Remove-Item Alias:ALIAS2\n"
 
 		if !strings.Contains(output, expectedAliasLine) {
 			t.Errorf("PrintAlias() output missing expected line: %v", expectedAliasLine)

@@ -3,6 +3,7 @@ package pipelines
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -179,15 +180,16 @@ func (p *EnvPipeline) Initialize(injector di.Injector) error {
 	return nil
 }
 
-// Execute runs the environment variable printing logic by first checking if the
-// current directory is trusted, then handling session reset if needed, and finally
-// printing environment variables from all configured printers with their post hooks.
+// Execute runs the environment variable logic by checking directory trust status,
+// handling session reset, loading secrets if requested, collecting and injecting
+// environment variables into the process, and printing them unless in quiet mode.
 func (p *EnvPipeline) Execute(ctx context.Context) error {
 	isTrusted := p.shell.CheckTrustedDirectory() == nil
 	hook, _ := ctx.Value("hook").(bool)
+	quiet, _ := ctx.Value("quiet").(bool)
 
 	if !isTrusted {
-		p.shell.Reset()
+		p.shell.Reset(quiet)
 		if !hook {
 			fmt.Fprintf(os.Stderr, "\033[33mWarning: You are not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve.\033[0m\n")
 		}
@@ -210,22 +212,28 @@ func (p *EnvPipeline) Execute(ctx context.Context) error {
 		}
 	}
 
-	var firstError error
+	if err := p.collectAndSetEnvVars(); err != nil {
+		return fmt.Errorf("failed to collect and set environment variables: %w", err)
+	}
 
-	for _, envPrinter := range p.envPrinters {
-		if err := envPrinter.Print(); err != nil && firstError == nil {
-			firstError = fmt.Errorf("failed to print env vars: %w", err)
+	if !quiet {
+		var firstError error
+		for _, envPrinter := range p.envPrinters {
+			if err := envPrinter.Print(); err != nil && firstError == nil {
+				firstError = fmt.Errorf("failed to print env vars: %w", err)
+			}
+
+			if err := envPrinter.PostEnvHook(); err != nil && firstError == nil {
+				firstError = fmt.Errorf("failed to execute post env hook: %w", err)
+			}
 		}
 
-		if err := envPrinter.PostEnvHook(); err != nil && firstError == nil {
-			firstError = fmt.Errorf("failed to execute post env hook: %w", err)
+		verbose, _ := ctx.Value("verbose").(bool)
+		if verbose {
+			return firstError
 		}
 	}
 
-	verbose, _ := ctx.Value("verbose").(bool)
-	if verbose {
-		return firstError
-	}
 	return nil
 }
 
@@ -338,6 +346,29 @@ func (p *EnvPipeline) createEnvPrinters(injector di.Injector) error {
 			envPrinter := config.constructor(injector)
 			p.envPrinters = append(p.envPrinters, envPrinter)
 			injector.Register(config.key, envPrinter)
+		}
+	}
+
+	return nil
+}
+
+// collectAndSetEnvVars collects environment variables from all registered env printers
+// and sets them in the current process environment. This ensures that environment
+// variables are always available for both printing and command execution.
+func (p *EnvPipeline) collectAndSetEnvVars() error {
+	allEnvVars := make(map[string]string)
+	for _, envPrinter := range p.envPrinters {
+		envVars, err := envPrinter.GetEnvVars()
+		if err != nil {
+			continue
+		}
+
+		maps.Copy(allEnvVars, envVars)
+	}
+
+	for key, value := range allEnvVars {
+		if err := p.shims.Setenv(key, value); err != nil {
+			return fmt.Errorf("failed to set environment variable %s: %w", key, err)
 		}
 	}
 

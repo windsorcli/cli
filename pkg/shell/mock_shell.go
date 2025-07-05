@@ -34,7 +34,7 @@ type MockShell struct {
 	WriteResetTokenFunc            func() (string, error)
 	GetSessionTokenFunc            func() (string, error)
 	CheckResetFlagsFunc            func() (bool, error)
-	ResetFunc                      func()
+	ResetFunc                      func(...bool)
 	RegisterSecretFunc             func(value string)
 }
 
@@ -194,9 +194,9 @@ func (s *MockShell) CheckResetFlags() (bool, error) {
 }
 
 // Reset calls the custom ResetFunc if provided.
-func (s *MockShell) Reset() {
+func (s *MockShell) Reset(quiet ...bool) {
 	if s.ResetFunc != nil {
-		s.ResetFunc()
+		s.ResetFunc(quiet...)
 	}
 }
 
