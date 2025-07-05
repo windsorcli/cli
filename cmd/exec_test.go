@@ -1,412 +1,160 @@
 package cmd
 
 import (
-	"bytes"
+	"context"
 	"fmt"
+	"os"
 	"testing"
 
-	ctrl "github.com/windsorcli/cli/pkg/controller"
-	"github.com/windsorcli/cli/pkg/env"
-	"github.com/windsorcli/cli/pkg/secrets"
-	"github.com/windsorcli/cli/pkg/shell"
+	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/pipelines"
 )
 
 func TestExecCmd(t *testing.T) {
-	setup := func(t *testing.T, opts ...*SetupOptions) (*Mocks, *bytes.Buffer, *bytes.Buffer) {
-		t.Helper()
-		mocks := setupMocks(t, opts...)
-		stdout, stderr := captureOutput(t)
-		rootCmd.SetOut(stdout)
-		rootCmd.SetErr(stderr)
-
-		// Setup common mocks
-		mockShell := shell.NewMockShell()
-		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
-			return "command output", nil
+	createTestCmd := func() *cobra.Command {
+		return &cobra.Command{
+			Use:          "exec -- [command]",
+			Short:        "Execute a shell command with environment variables",
+			Long:         "Execute a shell command with environment variables set for the application.",
+			SilenceUsage: true,
+			RunE:         execCmd.RunE,
 		}
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
-			return mockShell
-		}
-
-		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Injector)
-		mockSecretsProvider.LoadSecretsFunc = func() error {
-			return nil
-		}
-		mocks.Controller.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
-			return []secrets.SecretsProvider{mockSecretsProvider}
-		}
-
-		mockEnvPrinter := env.NewMockEnvPrinter()
-		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
-			return map[string]string{"TEST_VAR": "test_value"}, nil
-		}
-		mockEnvPrinter.PostEnvHookFunc = func() error {
-			return nil
-		}
-		mocks.Controller.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
-			return []env.EnvPrinter{mockEnvPrinter}
-		}
-
-		return mocks, stdout, stderr
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks, _, stderr := setup(t, &SetupOptions{
-			ConfigStr: `
-contexts:
-  default:
-    tools:
-      enabled: true`,
-		})
+		tmpDir := t.TempDir()
+		originalDir, _ := os.Getwd()
+		defer func() {
+			os.Chdir(originalDir)
+		}()
+		os.Chdir(tmpDir)
 
-		rootCmd.SetArgs([]string{"exec", "--", "test-command", "arg1"})
+		injector := di.NewInjector()
+		mockPipeline := pipelines.NewMockExecPipeline()
 
-		// When executing the command
-		err := Execute(mocks.Controller)
+		injector.Register("execPipeline", mockPipeline)
 
-		// Then no error should occur
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		cmd.SetContext(ctx)
+
+		args := []string{"echo", "hello"}
+		cmd.SetArgs(args)
+
+		err := cmd.Execute()
+
 		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
-
-		// And stderr should be empty
-		if stderr.String() != "" {
-			t.Error("Expected empty stderr")
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
-	t.Run("NoCommand", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks, _, _ := setup(t)
+	t.Run("NoCommandProvided", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		originalDir, _ := os.Getwd()
+		defer func() {
+			os.Chdir(originalDir)
+		}()
+		os.Chdir(tmpDir)
 
-		rootCmd.SetArgs([]string{"exec", "--"})
+		injector := di.NewInjector()
+		mockPipeline := pipelines.NewMockExecPipeline()
 
-		// When executing the command without a command
-		err := Execute(mocks.Controller)
+		injector.Register("execPipeline", mockPipeline)
 
-		// Then an error should occur
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		cmd.SetContext(ctx)
+
+		args := []string{}
+		cmd.SetArgs(args)
+
+		err := cmd.Execute()
+
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
 
-		// And error should contain usage message
 		expectedError := "no command provided"
 		if err.Error() != expectedError {
 			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
-	t.Run("InitializationError", func(t *testing.T) {
-		// Given a set of mocks with initialization error
-		mocks, _, _ := setup(t)
+	t.Run("PipelineExecutionError", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		originalDir, _ := os.Getwd()
+		defer func() {
+			os.Chdir(originalDir)
+		}()
+		os.Chdir(tmpDir)
 
-		// Mock controller to return initialization error
-		mocks.Controller.InitializeWithRequirementsFunc = func(req ctrl.Requirements) error {
-			return fmt.Errorf("initialization failed")
+		injector := di.NewInjector()
+		mockPipeline := pipelines.NewMockExecPipeline()
+		mockPipeline.ExecuteFunc = func(context.Context) error {
+			return fmt.Errorf("pipeline execution failed")
 		}
 
-		rootCmd.SetArgs([]string{"exec", "--", "test-command"})
+		injector.Register("execPipeline", mockPipeline)
 
-		// When executing the command
-		err := Execute(mocks.Controller)
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		cmd.SetContext(ctx)
 
-		// Then an error should occur
+		args := []string{"echo", "hello"}
+		cmd.SetArgs(args)
+
+		err := cmd.Execute()
+
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
 
-		// And error should contain initialization message
-		expectedError := "Error initializing: initialization failed"
+		expectedError := "pipeline execution failed"
 		if err.Error() != expectedError {
 			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
-	t.Run("LoadSecretsError", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks, _, _ := setup(t, &SetupOptions{
-			ConfigStr: `
-contexts:
-  default:
-    tools:
-      enabled: true`,
-		})
+	t.Run("WithArguments", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		originalDir, _ := os.Getwd()
+		defer func() {
+			os.Chdir(originalDir)
+		}()
+		os.Chdir(tmpDir)
 
-		// Override secrets provider to return error
-		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Injector)
-		mockSecretsProvider.LoadSecretsFunc = func() error {
-			return fmt.Errorf("secrets loading failed")
-		}
-		mocks.Controller.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
-			return []secrets.SecretsProvider{mockSecretsProvider}
-		}
-
-		rootCmd.SetArgs([]string{"exec", "--", "test-command"})
-
-		// When executing the command
-		err := Execute(mocks.Controller)
-
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		// And error should contain secrets error message
-		expectedError := "Error loading secrets: secrets loading failed"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("GetEnvVarsError", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks, _, _ := setup(t, &SetupOptions{
-			ConfigStr: `
-contexts:
-  default:
-    tools:
-      enabled: true`,
-		})
-
-		// Override env printer to return error
-		mockEnvPrinter := env.NewMockEnvPrinter()
-		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
-			return nil, fmt.Errorf("env vars error")
-		}
-		mocks.Controller.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
-			return []env.EnvPrinter{mockEnvPrinter}
-		}
-
-		rootCmd.SetArgs([]string{"exec", "--", "test-command"})
-
-		// When executing the command
-		err := Execute(mocks.Controller)
-
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		// And error should contain env vars error message
-		expectedError := "Error getting environment variables: env vars error"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("PostEnvHookError", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks, _, _ := setup(t, &SetupOptions{
-			ConfigStr: `
-contexts:
-  default:
-    tools:
-      enabled: true`,
-		})
-
-		// Override env printer to return error in PostEnvHook
-		mockEnvPrinter := env.NewMockEnvPrinter()
-		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
-			return map[string]string{"TEST_VAR": "test_value"}, nil
-		}
-		mockEnvPrinter.PostEnvHookFunc = func() error {
-			return fmt.Errorf("post env hook error")
-		}
-		mocks.Controller.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
-			return []env.EnvPrinter{mockEnvPrinter}
-		}
-
-		rootCmd.SetArgs([]string{"exec", "--", "test-command"})
-
-		// When executing the command
-		err := Execute(mocks.Controller)
-
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		// And error should contain post env hook error message
-		expectedError := "Error executing PostEnvHook: post env hook error"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("NoShellFound", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks, _, _ := setup(t, &SetupOptions{
-			ConfigStr: `
-contexts:
-  default:
-    tools:
-      enabled: true`,
-		})
-
-		// Override shell to return nil
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+		injector := di.NewInjector()
+		mockPipeline := pipelines.NewMockExecPipeline()
+		var capturedContext context.Context
+		mockPipeline.ExecuteFunc = func(ctx context.Context) error {
+			capturedContext = ctx
 			return nil
 		}
 
-		rootCmd.SetArgs([]string{"exec", "--", "test-command"})
+		injector.Register("execPipeline", mockPipeline)
 
-		// When executing the command
-		err := Execute(mocks.Controller)
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		cmd.SetContext(ctx)
 
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
+		args := []string{"echo", "hello", "world"}
+		cmd.SetArgs(args)
+
+		err := cmd.Execute()
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// And error should contain no shell message
-		expectedError := "No shell found"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ExecError", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks, _, _ := setup(t, &SetupOptions{
-			ConfigStr: `
-contexts:
-  default:
-    tools:
-      enabled: true`,
-		})
-
-		// Override shell to return exec error
-		mockShell := shell.NewMockShell()
-		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
-			return "", fmt.Errorf("exec failed")
-		}
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
-			return mockShell
+		command := capturedContext.Value("command").(string)
+		if command != "echo" {
+			t.Errorf("Expected command 'echo', got %q", command)
 		}
 
-		rootCmd.SetArgs([]string{"exec", "--", "test-command"})
-
-		// When executing the command
-		err := Execute(mocks.Controller)
-
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		// And error should contain exec error message
-		expectedError := "command execution failed: exec failed"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("SecretsLoadingError", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks, _, _ := setup(t, &SetupOptions{
-			ConfigStr: `
-contexts:
-  default:
-    tools:
-      enabled: true`,
-		})
-
-		// Override secrets provider to return error
-		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Injector)
-		mockSecretsProvider.LoadSecretsFunc = func() error {
-			return fmt.Errorf("secrets loading failed")
-		}
-		mocks.Controller.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
-			return []secrets.SecretsProvider{mockSecretsProvider}
-		}
-
-		rootCmd.SetArgs([]string{"exec", "--", "test-command"})
-
-		// When executing the command
-		err := Execute(mocks.Controller)
-
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		// And error should contain secrets loading message
-		expectedError := "Error loading secrets: secrets loading failed"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ShellExecutionError", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks, _, _ := setup(t, &SetupOptions{
-			ConfigStr: `
-contexts:
-  default:
-    tools:
-      enabled: true`,
-		})
-
-		// Override shell to return execution error
-		mockShell := shell.NewMockShell()
-		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
-			return "", fmt.Errorf("command execution failed")
-		}
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
-			return mockShell
-		}
-
-		rootCmd.SetArgs([]string{"exec", "--", "test-command"})
-
-		// When executing the command
-		err := Execute(mocks.Controller)
-
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		// And error should contain command execution error message
-		expectedError := "command execution failed: command execution failed"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("SetenvError", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks, _, _ := setup(t, &SetupOptions{
-			ConfigStr: `
-contexts:
-  default:
-    tools:
-      enabled: true`,
-		})
-
-		// Store original shims and replace with mock
-		originalShims := shims
-		shims = &Shims{
-			Setenv: func(key, value string) error {
-				return fmt.Errorf("setenv failed")
-			},
-		}
-		defer func() { shims = originalShims }()
-
-		rootCmd.SetArgs([]string{"exec", "--", "test-command"})
-
-		// When executing the command
-		err := Execute(mocks.Controller)
-
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		// And error should contain setenv error message
-		expectedError := "Error setting environment variable \"TEST_VAR\": setenv failed"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		cmdArgs := capturedContext.Value("args").([]string)
+		if len(cmdArgs) != 2 || cmdArgs[0] != "hello" || cmdArgs[1] != "world" {
+			t.Errorf("Expected args ['hello', 'world'], got %v", cmdArgs)
 		}
 	})
 }
