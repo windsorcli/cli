@@ -1,85 +1,69 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
-	"maps"
 
 	"github.com/spf13/cobra"
-	ctrl "github.com/windsorcli/cli/pkg/controller"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/pipelines"
 )
 
+// execCmd represents the exec command
 var execCmd = &cobra.Command{
-	Use:          "exec -- [command]",
-	Short:        "Execute a shell command with environment variables",
-	Long:         "Execute a shell command with environment variables set for the application.",
-	SilenceUsage: true,
+	Use:   "exec [command] [args...]",
+	Short: "Execute a command with environment variables",
+	Long:  "Execute a command with environment variables loaded from configuration and secrets",
+	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Safety check for arguments
 		if len(args) == 0 {
 			return fmt.Errorf("no command provided")
 		}
 
-		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
+		// Get shared dependency injector from context
+		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		// Initialize with requirements
-		if err := controller.InitializeWithRequirements(ctrl.Requirements{
-			ConfigLoaded: true,
-			Env:          true,
-			Secrets:      true,
-			VM:           true,
-			Containers:   true,
-			Network:      true,
-			Services:     true,
-			CommandName:  cmd.Name(),
-			Flags: map[string]bool{
-				"verbose": verbose,
-			},
-		}); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
-		}
-
-		// Load secrets
-		secretsProviders := controller.ResolveAllSecretsProviders()
-		if len(secretsProviders) > 0 {
-			for _, secretsProvider := range secretsProviders {
-				if err := secretsProvider.LoadSecrets(); err != nil {
-					return fmt.Errorf("Error loading secrets: %w", err)
-				}
+		// First, run the env pipeline in quiet mode to set up environment variables
+		var envPipeline pipelines.Pipeline
+		if existing := injector.Resolve("envPipeline"); existing != nil {
+			envPipeline = existing.(pipelines.Pipeline)
+		} else {
+			envPipeline = pipelines.NewEnvPipeline()
+			if err := envPipeline.Initialize(injector); err != nil {
+				return fmt.Errorf("failed to initialize env pipeline: %w", err)
 			}
+			injector.Register("envPipeline", envPipeline)
 		}
 
-		// Resolve all environment printers using the controller
-		envPrinters := controller.ResolveAllEnvPrinters()
+		// Execute env pipeline in quiet mode (inject environment variables without printing)
+		envCtx := context.WithValue(cmd.Context(), "quiet", true)
+		envCtx = context.WithValue(envCtx, "decrypt", true)
+		if err := envPipeline.Execute(envCtx); err != nil {
+			return fmt.Errorf("failed to set up environment: %w", err)
+		}
 
-		// Collect environment variables from all printers
-		envVars := make(map[string]string)
-		for _, envPrinter := range envPrinters {
-			vars, err := envPrinter.GetEnvVars()
-			if err != nil {
-				return fmt.Errorf("Error getting environment variables: %w", err)
+		// Then, run the exec pipeline to execute the command
+		var execPipeline pipelines.Pipeline
+		if existing := injector.Resolve("execPipeline"); existing != nil {
+			execPipeline = existing.(pipelines.Pipeline)
+		} else {
+			execPipeline = pipelines.NewExecPipeline()
+			if err := execPipeline.Initialize(injector); err != nil {
+				return fmt.Errorf("failed to initialize exec pipeline: %w", err)
 			}
-			maps.Copy(envVars, vars)
-			if err := envPrinter.PostEnvHook(); err != nil {
-				return fmt.Errorf("Error executing PostEnvHook: %w", err)
-			}
+			injector.Register("execPipeline", execPipeline)
 		}
 
-		// Set environment variables for the command
-		for k, v := range envVars {
-			if err := shims.Setenv(k, v); err != nil {
-				return fmt.Errorf("Error setting environment variable %q: %w", k, err)
-			}
+		// Create execution context with command and arguments
+		execCtx := context.WithValue(cmd.Context(), "command", args[0])
+		if len(args) > 1 {
+			execCtx = context.WithValue(execCtx, "args", args[1:])
 		}
 
-		// Resolve the shell instance using the controller
-		shellInstance := controller.ResolveShell()
-		if shellInstance == nil {
-			return fmt.Errorf("No shell found")
-		}
-
-		// Execute the command using the resolved shell instance
-		_, err := shellInstance.Exec(args[0], args[1:]...)
-		if err != nil {
-			return fmt.Errorf("command execution failed: %w", err)
+		// Execute the command
+		if err := execPipeline.Execute(execCtx); err != nil {
+			return fmt.Errorf("failed to execute command: %w", err)
 		}
 
 		return nil
