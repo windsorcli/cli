@@ -101,7 +101,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	mockShell.CheckResetFlagsFunc = func() (bool, error) {
 		return false, nil
 	}
-	mockShell.ResetFunc = func() {}
+	mockShell.ResetFunc = func(...bool) {}
 	injector.Register("shell", mockShell)
 
 	// Create config handler
@@ -891,6 +891,125 @@ contexts:
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("QuietModeInjectsEnvironmentVariables", func(t *testing.T) {
+		// Set context for configuration
+		os.Setenv("WINDSOR_CONTEXT", "test")
+		t.Cleanup(func() { os.Unsetenv("WINDSOR_CONTEXT") })
+
+		// Given a pipeline with env printers that return environment variables
+		pipeline, mocks := setup(t, &SetupOptions{
+			ConfigStr: `
+contexts:
+  test:
+    terraform:
+      enabled: true
+`,
+		})
+		mocks.WindsorEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return map[string]string{
+				"WINDSOR_VAR": "windsor_value",
+			}, nil
+		}
+		mocks.TerraformEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return map[string]string{
+				"TF_VAR": "terraform_value",
+			}, nil
+		}
+
+		// Track environment variables set via shims
+		setEnvVars := make(map[string]string)
+		mocks.Shims.Setenv = func(key, value string) error {
+			setEnvVars[key] = value
+			return nil
+		}
+
+		// When executing the pipeline in quiet mode
+		ctx := context.WithValue(context.Background(), "quiet", true)
+		err := pipeline.Execute(ctx)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And environment variables should be set via shims
+		if value, ok := setEnvVars["WINDSOR_VAR"]; !ok || value != "windsor_value" {
+			t.Errorf("Expected WINDSOR_VAR to be set to 'windsor_value', got %q", value)
+		}
+		if value, ok := setEnvVars["TF_VAR"]; !ok || value != "terraform_value" {
+			t.Errorf("Expected TF_VAR to be set to 'terraform_value', got %q", value)
+		}
+	})
+
+	t.Run("QuietModeSkipsPrinting", func(t *testing.T) {
+		// Given a pipeline with env printers
+		pipeline, mocks := setup(t)
+		printCalled := false
+		mocks.WindsorEnvPrinter.PrintFunc = func() error {
+			printCalled = true
+			return nil
+		}
+		mocks.WindsorEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return map[string]string{
+				"TEST_VAR": "test_value",
+			}, nil
+		}
+
+		// When executing the pipeline in quiet mode
+		ctx := context.WithValue(context.Background(), "quiet", true)
+		err := pipeline.Execute(ctx)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And Print should not be called
+		if printCalled {
+			t.Error("Expected Print not to be called in quiet mode")
+		}
+	})
+
+	t.Run("NormalModeInjectsAndPrints", func(t *testing.T) {
+		// Given a pipeline with env printers
+		pipeline, mocks := setup(t)
+		printCalled := false
+		mocks.WindsorEnvPrinter.PrintFunc = func() error {
+			printCalled = true
+			return nil
+		}
+		mocks.WindsorEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return map[string]string{
+				"NORMAL_VAR": "normal_value",
+			}, nil
+		}
+
+		// Track environment variables set via shims
+		setEnvVars := make(map[string]string)
+		mocks.Shims.Setenv = func(key, value string) error {
+			setEnvVars[key] = value
+			return nil
+		}
+
+		// When executing the pipeline in normal mode (not quiet)
+		err := pipeline.Execute(context.Background())
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And environment variables should be injected
+		if value, ok := setEnvVars["NORMAL_VAR"]; !ok || value != "normal_value" {
+			t.Errorf("Expected NORMAL_VAR to be set to 'normal_value', got %q", value)
+		}
+
+		// And Print should be called
+		if !printCalled {
+			t.Error("Expected Print to be called in normal mode")
 		}
 	})
 }

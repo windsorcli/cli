@@ -580,7 +580,7 @@ func TestBaseEnvPrinter_Reset(t *testing.T) {
 
 		// And a mock Reset function
 		resetCalled := false
-		mocks.Shell.ResetFunc = func() {
+		mocks.Shell.ResetFunc = func(...bool) {
 			resetCalled = true
 		}
 
@@ -607,7 +607,7 @@ func TestBaseEnvPrinter_Reset(t *testing.T) {
 
 		// And a mock Reset function
 		resetCalled := false
-		mocks.Shell.ResetFunc = func() {
+		mocks.Shell.ResetFunc = func(...bool) {
 			resetCalled = true
 		}
 
@@ -632,7 +632,7 @@ func TestBaseEnvPrinter_Reset(t *testing.T) {
 
 		// And a mock Reset function
 		resetCalled := false
-		mocks.Shell.ResetFunc = func() {
+		mocks.Shell.ResetFunc = func(...bool) {
 			resetCalled = true
 		}
 

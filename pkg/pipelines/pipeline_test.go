@@ -138,7 +138,7 @@ func TestBasePipeline_handleSessionReset(t *testing.T) {
 			return false, nil
 		}
 		resetCalled := false
-		mockShell.ResetFunc = func() {
+		mockShell.ResetFunc = func(...bool) {
 			resetCalled = true
 		}
 
@@ -171,7 +171,7 @@ func TestBasePipeline_handleSessionReset(t *testing.T) {
 			return true, nil
 		}
 		resetCalled := false
-		mockShell.ResetFunc = func() {
+		mockShell.ResetFunc = func(...bool) {
 			resetCalled = true
 		}
 
@@ -204,7 +204,7 @@ func TestBasePipeline_handleSessionReset(t *testing.T) {
 			return false, nil
 		}
 		resetCalled := false
-		mockShell.ResetFunc = func() {
+		mockShell.ResetFunc = func(...bool) {
 			resetCalled = true
 		}
 
@@ -256,7 +256,7 @@ func TestBasePipeline_handleSessionReset(t *testing.T) {
 		mockShell.CheckResetFlagsFunc = func() (bool, error) {
 			return true, nil
 		}
-		mockShell.ResetFunc = func() {}
+		mockShell.ResetFunc = func(...bool) {}
 
 		// When handling session reset
 		err := pipeline.handleSessionReset()
