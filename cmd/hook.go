@@ -26,7 +26,7 @@ var hookCmd = &cobra.Command{
 		pipeline := pipelines.NewHookPipeline()
 
 		// Initialize the pipeline
-		if err := pipeline.Initialize(injector); err != nil {
+		if err := pipeline.Initialize(injector, cmd.Context()); err != nil {
 			return fmt.Errorf("Error initializing: %w", err)
 		}
 

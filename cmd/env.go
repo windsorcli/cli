@@ -25,11 +25,6 @@ var envCmd = &cobra.Command{
 		hook, _ := cmd.Flags().GetBool("hook")
 		decrypt, _ := cmd.Flags().GetBool("decrypt")
 
-		// Initialize the pipeline with appropriate configuration
-		if err := pipeline.Initialize(injector); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
-		}
-
 		// Create execution context with flags
 		ctx := cmd.Context()
 		if decrypt {
@@ -40,6 +35,11 @@ var envCmd = &cobra.Command{
 		}
 		if hook {
 			ctx = context.WithValue(ctx, "hook", true)
+		}
+
+		// Initialize the pipeline with appropriate configuration
+		if err := pipeline.Initialize(injector, ctx); err != nil {
+			return fmt.Errorf("Error initializing: %w", err)
 		}
 
 		// Execute the pipeline

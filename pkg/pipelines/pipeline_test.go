@@ -53,7 +53,7 @@ func TestBasePipeline_Initialize(t *testing.T) {
 		pipeline, injector := setupBasePipeline(t)
 
 		// When initializing the pipeline
-		err := pipeline.Initialize(injector)
+		err := pipeline.Initialize(injector, context.Background())
 
 		// Then no error should be returned
 		if err != nil {
@@ -68,7 +68,7 @@ func TestBasePipeline_Execute(t *testing.T) {
 		pipeline, injector := setupBasePipeline(t)
 
 		// When initializing and executing the pipeline
-		err := pipeline.Initialize(injector)
+		err := pipeline.Initialize(injector, context.Background())
 		if err != nil {
 			t.Fatalf("Initialize failed: %v", err)
 		}
