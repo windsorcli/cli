@@ -195,9 +195,32 @@ func TestTerraformGenerator_Write(t *testing.T) {
 		// Given a TerraformGenerator with mocks
 		generator, mocks := setup(t)
 
-		// And MkdirAll is mocked to return an error
+		// And a component with source that will trigger module directory creation
+		component := blueprintv1alpha1.TerraformComponent{
+			Source:   "fake-source",
+			Path:     "test-component",
+			FullPath: "/tmp/terraform/test-component",
+		}
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{component}
+		}
+
+		// And MkdirAll is mocked to return an error for module directory creation
 		mocks.Shims.MkdirAll = func(_ string, _ fs.FileMode) error {
 			return fmt.Errorf("mock error creating directory")
+		}
+
+		// Mock processTemplates to succeed
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/tmp", nil
+		}
+
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/tmp/context", nil
 		}
 
 		// When Write is called
@@ -209,7 +232,7 @@ func TestTerraformGenerator_Write(t *testing.T) {
 		}
 
 		// And the error should match the expected error
-		expectedError := "failed to create terraform directory: mock error creating directory"
+		expectedError := "failed to generate module shim: failed to create module directory: mock error creating directory"
 		if err.Error() != expectedError {
 			t.Errorf("expected error %s, got %s", expectedError, err.Error())
 		}
