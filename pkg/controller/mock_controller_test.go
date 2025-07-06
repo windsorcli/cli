@@ -441,10 +441,6 @@ func TestNewMockConstructors(t *testing.T) {
 		if terraformGenerator == nil {
 			t.Error("expected NewTerraformGenerator to return non-nil")
 		}
-		kustomizeGenerator := constructors.NewKustomizeGenerator(injector)
-		if kustomizeGenerator == nil {
-			t.Error("expected NewKustomizeGenerator to return non-nil")
-		}
 
 		// Test env printer constructors
 		awsEnvPrinter := constructors.NewAwsEnvPrinter(injector)

@@ -59,7 +59,7 @@ func NewExecPipeline(constructors ...ExecConstructors) *ExecPipeline {
 // =============================================================================
 
 // Initialize creates and registers the shell component for command execution.
-func (p *ExecPipeline) Initialize(injector di.Injector) error {
+func (p *ExecPipeline) Initialize(injector di.Injector, ctx context.Context) error {
 	p.injector = injector
 
 	if existing := injector.Resolve("shell"); existing != nil {

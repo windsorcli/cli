@@ -21,7 +21,7 @@ import (
 
 // Pipeline defines the interface for all command pipelines
 type Pipeline interface {
-	Initialize(injector di.Injector) error
+	Initialize(injector di.Injector, ctx context.Context) error
 	Execute(ctx context.Context) error
 }
 
@@ -46,7 +46,7 @@ func NewBasePipeline() *BasePipeline {
 // =============================================================================
 
 // Initialize provides a default implementation that can be overridden by specific pipelines
-func (p *BasePipeline) Initialize(injector di.Injector) error {
+func (p *BasePipeline) Initialize(injector di.Injector, ctx context.Context) error {
 	return nil
 }
 

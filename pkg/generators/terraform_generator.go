@@ -100,11 +100,6 @@ func (g *TerraformGenerator) Write(overwrite ...bool) error {
 		}
 	}
 
-	projectRoot, err := g.shell.GetProjectRoot()
-	if err != nil {
-		return fmt.Errorf("failed to get project root: %w", err)
-	}
-
 	contextPath, err := g.configHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("failed to get config root: %w", err)
@@ -117,11 +112,6 @@ func (g *TerraformGenerator) Write(overwrite ...bool) error {
 				return fmt.Errorf("failed to remove .terraform directory: %w", err)
 			}
 		}
-	}
-
-	terraformFolderPath := filepath.Join(projectRoot, "terraform")
-	if err := g.shims.MkdirAll(terraformFolderPath, 0755); err != nil {
-		return fmt.Errorf("failed to create terraform directory: %w", err)
 	}
 
 	for _, component := range components {

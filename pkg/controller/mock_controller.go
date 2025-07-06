@@ -100,9 +100,7 @@ func NewMockConstructors() ComponentConstructors {
 		NewTerraformGenerator: func(injector di.Injector) generators.Generator {
 			return generators.NewMockGenerator()
 		},
-		NewKustomizeGenerator: func(injector di.Injector) generators.Generator {
-			return generators.NewMockGenerator()
-		},
+
 		NewToolsManager: func(injector di.Injector) tools.ToolsManager {
 			return tools.NewMockToolsManager()
 		},

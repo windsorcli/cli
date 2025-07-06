@@ -195,7 +195,7 @@ func TestHookPipeline_Initialize(t *testing.T) {
 		pipeline, _ := setup(t)
 
 		// When initializing the pipeline
-		err := pipeline.Initialize(di.NewMockInjector())
+		err := pipeline.Initialize(di.NewMockInjector(), context.Background())
 
 		// Then no error should be returned
 		if err != nil {
@@ -216,7 +216,7 @@ func TestHookPipeline_Initialize(t *testing.T) {
 		})
 
 		// When initializing the pipeline
-		err := pipeline.Initialize(mocks.Injector)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		// Then an error should be returned
 		if err == nil {
@@ -235,7 +235,7 @@ func TestHookPipeline_Initialize(t *testing.T) {
 		}
 
 		// When initializing the pipeline
-		err := pipeline.Initialize(mocks.Injector)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		// Then an error should be returned
 		if err == nil {
@@ -277,7 +277,7 @@ func TestHookPipeline_Initialize(t *testing.T) {
 		pipeline := NewHookPipeline(constructors)
 
 		// When initializing the pipeline
-		err := pipeline.Initialize(injector)
+		err := pipeline.Initialize(injector, context.Background())
 
 		// Then no error should be returned
 		if err != nil {
@@ -304,7 +304,7 @@ func TestHookPipeline_Execute(t *testing.T) {
 		t.Helper()
 		mocks := setupHookMocks(t, opts...)
 		pipeline := setupHookPipeline(t, mocks)
-		err := pipeline.Initialize(mocks.Injector)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 		if err != nil {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
 		}

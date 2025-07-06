@@ -244,7 +244,7 @@ contexts:
 `,
 		})
 
-		err := pipeline.Initialize(di.NewMockInjector())
+		err := pipeline.Initialize(di.NewMockInjector(), context.Background())
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -257,7 +257,7 @@ contexts:
 			return fmt.Errorf("config initialization failed")
 		}
 
-		err := pipeline.Initialize(mocks.Injector)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		if err == nil {
 			t.Fatal("Expected error, got nil")
@@ -273,7 +273,7 @@ contexts:
 			return fmt.Errorf("shell initialization failed")
 		}
 
-		err := pipeline.Initialize(mocks.Injector)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		if err == nil {
 			t.Fatal("Expected error, got nil")
@@ -289,7 +289,7 @@ contexts:
 			return fmt.Errorf("tools manager initialization failed")
 		}
 
-		err := pipeline.Initialize(mocks.Injector)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		if err == nil {
 			t.Fatal("Expected error, got nil")
@@ -305,7 +305,7 @@ contexts:
 			return "", fmt.Errorf("project root error")
 		}
 
-		err := pipeline.Initialize(mocks.Injector)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		if err == nil {
 			t.Fatal("Expected error, got nil")
@@ -361,7 +361,7 @@ contexts:
 
 		pipeline := NewCheckPipeline(constructors)
 
-		err := pipeline.Initialize(injector)
+		err := pipeline.Initialize(injector, context.Background())
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -391,7 +391,7 @@ func TestCheckPipeline_Execute(t *testing.T) {
 		t.Helper()
 		mocks := setupCheckMocks(t, opts...)
 		pipeline := setupCheckPipeline(t, mocks)
-		err := pipeline.Initialize(mocks.Injector)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 		if err != nil {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
 		}
