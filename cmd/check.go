@@ -29,11 +29,6 @@ var checkCmd = &cobra.Command{
 		// Create check pipeline
 		pipeline := pipelines.NewCheckPipeline()
 
-		// Initialize the pipeline
-		if err := pipeline.Initialize(injector); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
-		}
-
 		// Create output function
 		outputFunc := func(output string) {
 			fmt.Fprintln(cmd.OutOrStdout(), output)
@@ -42,6 +37,11 @@ var checkCmd = &cobra.Command{
 		// Create execution context with operation and output function
 		ctx := context.WithValue(cmd.Context(), "operation", "tools")
 		ctx = context.WithValue(ctx, "output", outputFunc)
+
+		// Initialize the pipeline
+		if err := pipeline.Initialize(injector, ctx); err != nil {
+			return fmt.Errorf("Error initializing: %w", err)
+		}
 
 		// Execute the pipeline
 		if err := pipeline.Execute(ctx); err != nil {
@@ -64,11 +64,6 @@ var checkNodeHealthCmd = &cobra.Command{
 		// Create check pipeline
 		pipeline := pipelines.NewCheckPipeline()
 
-		// Initialize the pipeline
-		if err := pipeline.Initialize(injector); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
-		}
-
 		// Require nodes to be specified
 		if len(nodeHealthNodes) == 0 {
 			return fmt.Errorf("No nodes specified. Use --nodes flag to specify nodes to check")
@@ -90,6 +85,11 @@ var checkNodeHealthCmd = &cobra.Command{
 		ctx = context.WithValue(ctx, "timeout", nodeHealthTimeout)
 		ctx = context.WithValue(ctx, "version", nodeHealthVersion)
 		ctx = context.WithValue(ctx, "output", outputFunc)
+
+		// Initialize the pipeline
+		if err := pipeline.Initialize(injector, ctx); err != nil {
+			return fmt.Errorf("Error initializing: %w", err)
+		}
 
 		// Execute the pipeline
 		if err := pipeline.Execute(ctx); err != nil {

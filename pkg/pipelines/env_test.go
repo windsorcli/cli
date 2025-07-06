@@ -401,7 +401,7 @@ contexts:
 		})
 
 		// When initializing the pipeline
-		err := pipeline.Initialize(di.NewMockInjector())
+		err := pipeline.Initialize(di.NewMockInjector(), context.Background())
 
 		// Then no error should be returned
 		if err != nil {
@@ -423,7 +423,7 @@ contexts:
 		})
 
 		// When initializing the pipeline
-		err := pipeline.Initialize(mocks.Injector)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		// Then an error should be returned
 		if err == nil {
@@ -442,7 +442,7 @@ contexts:
 		}
 
 		// When initializing the pipeline
-		err := pipeline.Initialize(mocks.Injector)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		// Then an error should be returned
 		if err == nil {
@@ -467,7 +467,7 @@ contexts:
 		}
 
 		// When initializing the pipeline
-		err := pipeline.Initialize(mocks.Injector)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		// Then an error should be returned
 		if err == nil {
@@ -486,7 +486,7 @@ contexts:
 		}
 
 		// When initializing the pipeline
-		err := pipeline.Initialize(mocks.Injector)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		// Then an error should be returned
 		if err == nil {
@@ -509,7 +509,7 @@ contexts:
 		})
 
 		// When initializing the pipeline
-		err := pipeline.Initialize(mocks.Injector)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		// Then an error should be returned
 		if err == nil {
@@ -528,7 +528,7 @@ contexts:
 		}
 
 		// When initializing the pipeline
-		err := pipeline.Initialize(mocks.Injector)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		// Then no error should be returned
 		if err != nil {
@@ -544,7 +544,7 @@ contexts:
 		}
 
 		// When initializing the pipeline
-		err := pipeline.Initialize(mocks.Injector)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		// Then no error should be returned and no secrets providers should exist
 		if err != nil {
@@ -560,7 +560,7 @@ contexts:
 		pipeline, _ := setup(t)
 
 		// When initializing the pipeline
-		err := pipeline.Initialize(di.NewMockInjector())
+		err := pipeline.Initialize(di.NewMockInjector(), context.Background())
 
 		// Then no error should be returned
 		if err != nil {
@@ -638,7 +638,7 @@ contexts:
 		pipeline := NewEnvPipeline(constructors)
 
 		// When initializing the pipeline
-		err := pipeline.Initialize(injector)
+		err := pipeline.Initialize(injector, context.Background())
 
 		// Then no error should be returned
 		if err != nil {
@@ -665,7 +665,7 @@ func TestPipeline_Execute(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t, opts...)
 		pipeline := setupPipeline(t, mocks)
-		err := pipeline.Initialize(mocks.Injector)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 		if err != nil {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
 		}
@@ -782,7 +782,7 @@ contexts:
 				return nil, os.ErrNotExist
 			}
 			pipeline := setupPipeline(t, mocks)
-			err := pipeline.Initialize(mocks.Injector)
+			err := pipeline.Initialize(mocks.Injector, context.Background())
 			if err != nil {
 				t.Fatalf("Failed to initialize pipeline: %v", err)
 			}
@@ -1181,7 +1181,7 @@ contexts:
 `,
 		})
 
-		err := pipeline.Initialize(mocks.Injector)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		// Then all env printers should be created (aws, azure, docker, kube, talos, terraform, windsor)
 		if err != nil {
@@ -1210,7 +1210,7 @@ contexts:
 `,
 		})
 
-		err := pipeline.Initialize(mocks.Injector)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		// Then only Windsor env printer should be created
 		if err != nil {

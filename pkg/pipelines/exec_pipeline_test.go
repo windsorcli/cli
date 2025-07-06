@@ -72,7 +72,7 @@ func TestExecPipeline_Initialize(t *testing.T) {
 		}
 
 		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector)
+		err := pipeline.Initialize(injector, context.Background())
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -95,7 +95,7 @@ func TestExecPipeline_Initialize(t *testing.T) {
 		}
 
 		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector)
+		err := pipeline.Initialize(injector, context.Background())
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -115,7 +115,7 @@ func TestExecPipeline_Initialize(t *testing.T) {
 		injector.Register("shell", existingShell)
 
 		pipeline := NewExecPipeline()
-		err := pipeline.Initialize(injector)
+		err := pipeline.Initialize(injector, context.Background())
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -148,7 +148,7 @@ func TestExecPipeline_Execute(t *testing.T) {
 		}
 
 		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector)
+		err := pipeline.Initialize(injector, context.Background())
 		if err != nil {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
 		}
@@ -183,7 +183,7 @@ func TestExecPipeline_Execute(t *testing.T) {
 		}
 
 		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector)
+		err := pipeline.Initialize(injector, context.Background())
 		if err != nil {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
 		}
@@ -213,7 +213,7 @@ func TestExecPipeline_Execute(t *testing.T) {
 		}
 
 		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector)
+		err := pipeline.Initialize(injector, context.Background())
 		if err != nil {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
 		}
@@ -249,7 +249,7 @@ func TestExecPipeline_Execute(t *testing.T) {
 		}
 
 		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector)
+		err := pipeline.Initialize(injector, context.Background())
 		if err != nil {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
 		}
@@ -289,7 +289,7 @@ func TestExecPipeline_Execute(t *testing.T) {
 		}
 
 		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector)
+		err := pipeline.Initialize(injector, context.Background())
 		if err != nil {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
 		}

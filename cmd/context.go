@@ -22,11 +22,6 @@ var getContextCmd = &cobra.Command{
 		// Create context pipeline
 		pipeline := pipelines.NewContextPipeline()
 
-		// Initialize the pipeline
-		if err := pipeline.Initialize(injector); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
-		}
-
 		// Create output function
 		outputFunc := func(output string) {
 			fmt.Fprintln(cmd.OutOrStdout(), output)
@@ -35,6 +30,11 @@ var getContextCmd = &cobra.Command{
 		// Create execution context with operation and output function
 		ctx := context.WithValue(cmd.Context(), "operation", "get")
 		ctx = context.WithValue(ctx, "output", outputFunc)
+
+		// Initialize the pipeline
+		if err := pipeline.Initialize(injector, ctx); err != nil {
+			return fmt.Errorf("Error initializing: %w", err)
+		}
 
 		// Execute the pipeline
 		if err := pipeline.Execute(ctx); err != nil {
@@ -58,11 +58,6 @@ var setContextCmd = &cobra.Command{
 		// Create context pipeline
 		pipeline := pipelines.NewContextPipeline()
 
-		// Initialize the pipeline
-		if err := pipeline.Initialize(injector); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
-		}
-
 		// Create output function
 		outputFunc := func(output string) {
 			fmt.Fprintln(cmd.OutOrStdout(), output)
@@ -72,6 +67,11 @@ var setContextCmd = &cobra.Command{
 		ctx := context.WithValue(cmd.Context(), "operation", "set")
 		ctx = context.WithValue(ctx, "contextName", args[0])
 		ctx = context.WithValue(ctx, "output", outputFunc)
+
+		// Initialize the pipeline
+		if err := pipeline.Initialize(injector, ctx); err != nil {
+			return fmt.Errorf("Error initializing: %w", err)
+		}
 
 		// Execute the pipeline
 		if err := pipeline.Execute(ctx); err != nil {

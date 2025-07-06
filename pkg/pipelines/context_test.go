@@ -225,7 +225,7 @@ contexts:
 `,
 		})
 
-		err := pipeline.Initialize(di.NewMockInjector())
+		err := pipeline.Initialize(di.NewMockInjector(), context.Background())
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -243,7 +243,7 @@ contexts:
 			ConfigHandler: mockConfigHandler,
 		})
 
-		err := pipeline.Initialize(mocks.Injector)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		if err == nil {
 			t.Fatal("Expected error, got nil")
@@ -259,7 +259,7 @@ contexts:
 			return fmt.Errorf("shell initialization failed")
 		}
 
-		err := pipeline.Initialize(mocks.Injector)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		if err == nil {
 			t.Fatal("Expected error, got nil")
@@ -299,7 +299,7 @@ contexts:
 
 		pipeline := NewContextPipeline(constructors)
 
-		err := pipeline.Initialize(injector)
+		err := pipeline.Initialize(injector, context.Background())
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -323,7 +323,7 @@ func TestContextPipeline_Execute(t *testing.T) {
 		t.Helper()
 		mocks := setupContextMocks(t, opts...)
 		pipeline := setupContextPipeline(t, mocks)
-		err := pipeline.Initialize(mocks.Injector)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 		if err != nil {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
 		}
@@ -438,7 +438,7 @@ func TestContextPipeline_executeGet(t *testing.T) {
 		t.Helper()
 		mocks := setupContextMocks(t, opts...)
 		pipeline := setupContextPipeline(t, mocks)
-		err := pipeline.Initialize(mocks.Injector)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 		if err != nil {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
 		}
@@ -486,7 +486,7 @@ func TestContextPipeline_executeSet(t *testing.T) {
 		t.Helper()
 		mocks := setupContextMocks(t, opts...)
 		pipeline := setupContextPipeline(t, mocks)
-		err := pipeline.Initialize(mocks.Injector)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 		if err != nil {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
 		}

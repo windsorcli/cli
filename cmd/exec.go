@@ -30,7 +30,7 @@ var execCmd = &cobra.Command{
 			envPipeline = existing.(pipelines.Pipeline)
 		} else {
 			envPipeline = pipelines.NewEnvPipeline()
-			if err := envPipeline.Initialize(injector); err != nil {
+			if err := envPipeline.Initialize(injector, cmd.Context()); err != nil {
 				return fmt.Errorf("failed to initialize env pipeline: %w", err)
 			}
 			injector.Register("envPipeline", envPipeline)
@@ -49,7 +49,7 @@ var execCmd = &cobra.Command{
 			execPipeline = existing.(pipelines.Pipeline)
 		} else {
 			execPipeline = pipelines.NewExecPipeline()
-			if err := execPipeline.Initialize(injector); err != nil {
+			if err := execPipeline.Initialize(injector, cmd.Context()); err != nil {
 				return fmt.Errorf("failed to initialize exec pipeline: %w", err)
 			}
 			injector.Register("execPipeline", execPipeline)

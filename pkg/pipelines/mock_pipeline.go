@@ -8,7 +8,7 @@ import (
 
 // MockBasePipeline is a mock implementation of the Pipeline interface
 type MockBasePipeline struct {
-	InitializeFunc func(injector di.Injector) error
+	InitializeFunc func(injector di.Injector, ctx context.Context) error
 	ExecuteFunc    func(ctx context.Context) error
 }
 
@@ -26,9 +26,9 @@ func NewMockBasePipeline() *MockBasePipeline {
 // =============================================================================
 
 // Initialize calls the mock InitializeFunc if set, otherwise returns nil
-func (m *MockBasePipeline) Initialize(injector di.Injector) error {
+func (m *MockBasePipeline) Initialize(injector di.Injector, ctx context.Context) error {
 	if m.InitializeFunc != nil {
-		return m.InitializeFunc(injector)
+		return m.InitializeFunc(injector, ctx)
 	}
 	return nil
 }

@@ -71,7 +71,7 @@ func NewHookPipeline(constructors ...HookConstructors) *HookPipeline {
 // Initialize creates and registers all required components for the hook pipeline.
 // It sets up the config handler and shell in the correct order, registering each component
 // with the dependency injector and initializing them sequentially to ensure proper dependency resolution.
-func (p *HookPipeline) Initialize(injector di.Injector) error {
+func (p *HookPipeline) Initialize(injector di.Injector, ctx context.Context) error {
 	p.shims = p.constructors.NewShims()
 
 	if existing := injector.Resolve("shell"); existing != nil {

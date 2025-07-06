@@ -126,7 +126,7 @@ func NewEnvPipeline(constructors ...EnvConstructors) *EnvPipeline {
 // It sets up the config handler, shell, secrets providers, and environment printers
 // in the correct order, registering each component with the dependency injector
 // and initializing them sequentially to ensure proper dependency resolution.
-func (p *EnvPipeline) Initialize(injector di.Injector) error {
+func (p *EnvPipeline) Initialize(injector di.Injector, ctx context.Context) error {
 	p.shims = p.constructors.NewShims()
 
 	if existing := injector.Resolve("shell"); existing != nil {
