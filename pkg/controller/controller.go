@@ -84,7 +84,6 @@ type ComponentConstructors struct {
 	NewGitGenerator       func(di.Injector) generators.Generator
 	NewBlueprintHandler   func(di.Injector) blueprint.BlueprintHandler
 	NewTerraformGenerator func(di.Injector) generators.Generator
-	NewKustomizeGenerator func(di.Injector) generators.Generator
 	NewToolsManager       func(di.Injector) tools.ToolsManager
 	NewKubernetesManager  func(di.Injector) kubernetes.KubernetesManager
 	NewKubernetesClient   func(di.Injector) kubernetes.KubernetesClient
@@ -196,9 +195,7 @@ func NewDefaultConstructors() ComponentConstructors {
 		NewTerraformGenerator: func(injector di.Injector) generators.Generator {
 			return generators.NewTerraformGenerator(injector)
 		},
-		NewKustomizeGenerator: func(injector di.Injector) generators.Generator {
-			return generators.NewKustomizeGenerator(injector)
-		},
+
 		NewToolsManager: func(injector di.Injector) tools.ToolsManager {
 			return tools.NewToolsManager(injector)
 		},
@@ -956,10 +953,6 @@ func (c *BaseController) createGeneratorsComponents(req Requirements) error {
 			c.injector.Register("terraformGenerator", terraformGenerator)
 		}
 
-		if !existingGeneratorNames["kustomizeGenerator"] {
-			kustomizeGenerator := c.constructors.NewKustomizeGenerator(c.injector)
-			c.injector.Register("kustomizeGenerator", kustomizeGenerator)
-		}
 	}
 
 	return nil

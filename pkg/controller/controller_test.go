@@ -166,13 +166,7 @@ func TestNewController(t *testing.T) {
 				}
 				return nil
 			},
-			"NewKustomizeGenerator": func() error {
-				generator := controller.constructors.NewKustomizeGenerator(mocks.Injector)
-				if generator == nil {
-					return fmt.Errorf("NewKustomizeGenerator returned nil")
-				}
-				return nil
-			},
+
 			"NewToolsManager": func() error {
 				manager := controller.constructors.NewToolsManager(mocks.Injector)
 				if manager == nil {
@@ -2572,18 +2566,14 @@ func TestBaseController_createGeneratorsComponents(t *testing.T) {
 		}
 	})
 
-	t.Run("CreatesTerraformAndKustomizeGeneratorsWhenBlueprintRequired", func(t *testing.T) {
-		// Given a controller with mocked terraform and kustomize generators
+	t.Run("CreatesTerraformGeneratorWhenBlueprintRequired", func(t *testing.T) {
+		// Given a controller with mocked terraform generator
 		controller, mocks := setup(t)
 
-		// Mock generators
+		// Mock generator
 		mockTerraformGenerator := generators.NewMockGenerator()
-		mockKustomizeGenerator := generators.NewMockGenerator()
 		controller.constructors.NewTerraformGenerator = func(di.Injector) generators.Generator {
 			return mockTerraformGenerator
-		}
-		controller.constructors.NewKustomizeGenerator = func(di.Injector) generators.Generator {
-			return mockKustomizeGenerator
 		}
 
 		// When creating generator components with generators and blueprint enabled
@@ -2592,17 +2582,14 @@ func TestBaseController_createGeneratorsComponents(t *testing.T) {
 			Blueprint:  true,
 		})
 
-		// Then no error should be returned and both generators should be registered
+		// Then no error should be returned and terraform generator should be registered
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// Verify generators were created
+		// Verify generator was created
 		if resolved := mocks.Injector.Resolve("terraformGenerator"); resolved != mockTerraformGenerator {
 			t.Error("Expected terraform generator to be registered")
-		}
-		if resolved := mocks.Injector.Resolve("kustomizeGenerator"); resolved != mockKustomizeGenerator {
-			t.Error("Expected kustomize generator to be registered")
 		}
 	})
 
