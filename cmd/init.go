@@ -19,6 +19,7 @@ var (
 	initDockerCompose bool
 	initTalos         bool
 	initSetFlags      []string
+	initReset         bool
 )
 
 var initCmd = &cobra.Command{
@@ -37,7 +38,7 @@ var initCmd = &cobra.Command{
 			envPipeline = existing.(pipelines.Pipeline)
 		} else {
 			envPipeline = pipelines.NewEnvPipeline()
-			if err := envPipeline.Initialize(injector); err != nil {
+			if err := envPipeline.Initialize(injector, cmd.Context()); err != nil {
 				return fmt.Errorf("failed to initialize env pipeline: %w", err)
 			}
 			injector.Register("envPipeline", envPipeline)
@@ -56,7 +57,7 @@ var initCmd = &cobra.Command{
 			initPipeline = existing.(pipelines.Pipeline)
 		} else {
 			initPipeline = pipelines.NewInitPipeline()
-			if err := initPipeline.Initialize(injector); err != nil {
+			if err := initPipeline.Initialize(injector, cmd.Context()); err != nil {
 				return fmt.Errorf("Error initializing: %w", err)
 			}
 			injector.Register("initPipeline", initPipeline)
@@ -71,24 +72,22 @@ var initCmd = &cobra.Command{
 			ctx = context.WithValue(ctx, "verbose", true)
 		}
 
-		// Pass flag values through context
-		flagValues := map[string]interface{}{
-			"blueprint":      initBlueprint,
-			"terraform":      initTerraform,
-			"k8s":            initK8s,
-			"colima":         initColima,
-			"aws":            initAws,
-			"azure":          initAzure,
-			"docker-compose": initDockerCompose,
-			"talos":          initTalos,
-		}
-		ctx = context.WithValue(ctx, "flagValues", flagValues)
+		// Pass individual flags through context
+		ctx = context.WithValue(ctx, "reset", initReset)
+		ctx = context.WithValue(ctx, "blueprint", initBlueprint)
+		ctx = context.WithValue(ctx, "terraform", initTerraform)
+		ctx = context.WithValue(ctx, "k8s", initK8s)
+		ctx = context.WithValue(ctx, "colima", initColima)
+		ctx = context.WithValue(ctx, "aws", initAws)
+		ctx = context.WithValue(ctx, "azure", initAzure)
+		ctx = context.WithValue(ctx, "docker-compose", initDockerCompose)
+		ctx = context.WithValue(ctx, "talos", initTalos)
 
 		// Pass changed flags information
 		changedFlags := make(map[string]bool)
 		for _, flagName := range []string{
 			"blueprint", "terraform", "k8s", "colima",
-			"aws", "azure", "docker-compose", "talos",
+			"aws", "azure", "docker-compose", "talos", "reset",
 		} {
 			changedFlags[flagName] = cmd.Flags().Changed(flagName)
 		}
@@ -117,6 +116,7 @@ func init() {
 	initCmd.Flags().BoolVar(&initAzure, "azure", false, "Enable Azure platform")
 	initCmd.Flags().BoolVar(&initDockerCompose, "docker-compose", true, "Enable Docker Compose")
 	initCmd.Flags().BoolVar(&initTalos, "talos", false, "Enable Talos")
+	initCmd.Flags().BoolVar(&initReset, "reset", false, "Reset configuration and overwrite existing files")
 	initCmd.Flags().StringSliceVar(&initSetFlags, "set", []string{}, "Override configuration values. Example: --set dns.enabled=false --set cluster.endpoint=https://localhost:6443")
 	rootCmd.AddCommand(initCmd)
 }

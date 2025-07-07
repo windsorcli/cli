@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -104,10 +105,23 @@ func (y *YamlConfigHandler) SaveConfig(path string, overwrite ...bool) error {
 		}
 	}
 
-	// Ensure the config version is set to "v1alpha1" before saving
-	y.config.Version = "v1alpha1"
+	// Create a new config with the merged context
+	saveConfig := v1alpha1.Config{
+		Version:  "v1alpha1",
+		Contexts: make(map[string]*v1alpha1.Context),
+	}
 
-	data, err := y.shims.YamlMarshal(y.config)
+	maps.Copy(saveConfig.Contexts, y.config.Contexts)
+
+	// Set the current context to the merged config (includes defaults)
+	currentContext := y.GetContext()
+	if currentContext != "" {
+		mergedConfig := y.GetConfig()
+		saveConfig.Contexts[currentContext] = mergedConfig
+	}
+
+	// Use the standard YAML marshaler to omit empty fields
+	data, err := y.shims.YamlMarshal(saveConfig)
 	if err != nil {
 		return fmt.Errorf("error marshalling yaml: %w", err)
 	}

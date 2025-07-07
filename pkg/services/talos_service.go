@@ -82,13 +82,6 @@ func (s *TalosService) SetAddress(address string) error {
 		nodeType = "controlplanes"
 	}
 
-	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.hostname", nodeType, s.name), s.GetHostname()); err != nil {
-		return err
-	}
-	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.node", nodeType, s.name), s.GetHostname()); err != nil {
-		return err
-	}
-
 	portLock.Lock()
 	defer portLock.Unlock()
 
@@ -105,9 +98,8 @@ func (s *TalosService) SetAddress(address string) error {
 		endpointAddress = "127.0.0.1"
 	}
 
-	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.endpoint", nodeType, s.name), fmt.Sprintf("%s:%d", endpointAddress, port)); err != nil {
-		return err
-	}
+	hostname := s.GetHostname()
+	endpoint := fmt.Sprintf("%s:%d", endpointAddress, port)
 
 	hostPorts := s.configHandler.GetStringSlice(fmt.Sprintf("cluster.%s.hostports", nodeType), []string{})
 
@@ -129,6 +121,16 @@ func (s *TalosService) SetAddress(address string) error {
 		hostPortsCopy[i] = fmt.Sprintf("%d:%d/%s", hostPort, nodePort, protocol)
 	}
 
+	// Set individual fields in the node configuration
+	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.hostname", nodeType, s.name), hostname); err != nil {
+		return err
+	}
+	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.node", nodeType, s.name), hostname); err != nil {
+		return err
+	}
+	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.endpoint", nodeType, s.name), endpoint); err != nil {
+		return err
+	}
 	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.hostports", nodeType, s.name), hostPortsCopy); err != nil {
 		return err
 	}

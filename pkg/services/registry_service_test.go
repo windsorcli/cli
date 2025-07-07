@@ -408,6 +408,17 @@ contexts:
 		service.Initialize()
 		service.SetName("registry")
 
+		// And mock configuration
+		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
+				Docker: &docker.DockerConfig{
+					Registries: map[string]docker.RegistryConfig{
+						"registry": {},
+					},
+				},
+			}
+		}
+
 		// And mock error when setting hostname
 		mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			return fmt.Errorf("mock error setting hostname")

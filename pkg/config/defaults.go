@@ -159,3 +159,14 @@ var DefaultConfig_Full = v1alpha1.Context{
 		},
 	},
 }
+
+// DefaultConfig_Full_Remote is for non-local contexts with --talos flag
+// It includes cluster configuration but excludes network/DNS settings
+var DefaultConfig_Full_Remote = v1alpha1.Context{
+	Blueprint:   ptrString("full"),
+	Environment: map[string]string{},
+	Docker:      commonDockerConfig.Copy(),
+	Git:         commonGitConfig.Copy(),
+	Terraform:   commonTerraformConfig.Copy(),
+	Cluster:     commonClusterConfig.Copy(),
+}

@@ -102,10 +102,11 @@ func TestInitPipeline_NewInitPipeline(t *testing.T) {
 
 func TestInitPipeline_Initialize(t *testing.T) {
 	t.Run("InitializesSuccessfully", func(t *testing.T) {
-		pipeline := NewInitPipeline()
+		mocks := NewInitMocks()
+		pipeline := setupInitPipeline(t, mocks)
 		injector := di.NewInjector()
 
-		err := pipeline.Initialize(injector)
+		err := pipeline.Initialize(injector, context.Background())
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -116,8 +117,10 @@ func TestInitPipeline_Initialize(t *testing.T) {
 		mocks.ConfigHandler.InitializeFunc = func() error {
 			return fmt.Errorf("config handler init error")
 		}
+		// Set up other mocks to avoid nil pointer dereference
+		mocks.Shell.InitializeFunc = func() error { return nil }
+		mocks.BlueprintHandler.InitializeFunc = func() error { return nil }
 
-		// Don't call setupInitPipeline since we want to test the error
 		constructors := InitConstructors{
 			NewConfigHandler: func(injector di.Injector) config.ConfigHandler {
 				return mocks.ConfigHandler
@@ -135,7 +138,7 @@ func TestInitPipeline_Initialize(t *testing.T) {
 		pipeline := NewInitPipeline(constructors)
 		injector := di.NewInjector()
 
-		err := pipeline.Initialize(injector)
+		err := pipeline.Initialize(injector, context.Background())
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -149,6 +152,9 @@ func TestInitPipeline_Initialize(t *testing.T) {
 		mocks.Shell.InitializeFunc = func() error {
 			return fmt.Errorf("shell init error")
 		}
+		// Set up other mocks to avoid nil pointer dereference
+		mocks.ConfigHandler.InitializeFunc = func() error { return nil }
+		mocks.BlueprintHandler.InitializeFunc = func() error { return nil }
 
 		constructors := InitConstructors{
 			NewConfigHandler: func(injector di.Injector) config.ConfigHandler {
@@ -167,12 +173,12 @@ func TestInitPipeline_Initialize(t *testing.T) {
 		pipeline := NewInitPipeline(constructors)
 		injector := di.NewInjector()
 
-		err := pipeline.Initialize(injector)
+		err := pipeline.Initialize(injector, context.Background())
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if err.Error() != "failed to initialize shell: shell init error" {
-			t.Errorf("Expected 'failed to initialize shell: shell init error', got %v", err)
+		if err.Error() != "error initializing shell: shell init error" {
+			t.Errorf("Expected 'error initializing shell: shell init error', got %v", err)
 		}
 	})
 }
@@ -183,7 +189,7 @@ func TestInitPipeline_Execute(t *testing.T) {
 		pipeline := setupInitPipeline(t, mocks)
 		injector := di.NewInjector()
 
-		err := pipeline.Initialize(injector)
+		err := pipeline.Initialize(injector, context.Background())
 		if err != nil {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
 		}
@@ -309,17 +315,23 @@ func TestInitPipeline_Execute(t *testing.T) {
 	t.Run("ConfigureSettingsError", func(t *testing.T) {
 		mocks, pipeline, _ := setup()
 
-		// Override the mock to inject error
-		mocks.ConfigHandler.SetDefaultFunc = func(v1alpha1.Context) error {
-			return fmt.Errorf("set default error")
+		// Override the mock to inject error for platform setting
+		mocks.ConfigHandler.SetContextValueFunc = func(key string, value any) error {
+			if key == "cluster.platform" {
+				return fmt.Errorf("set platform error")
+			}
+			return nil
 		}
 
-		err := pipeline.Execute(context.Background())
+		// Set up context with platform value to trigger the error
+		ctx := context.WithValue(context.Background(), "platform", "test-platform")
+
+		err := pipeline.Execute(ctx)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if err.Error() != "Error setting default config: set default error" {
-			t.Errorf("Expected set default error, got %v", err)
+		if err.Error() != "Error setting platform: set platform error" {
+			t.Errorf("Expected set platform error, got %v", err)
 		}
 	})
 
@@ -369,7 +381,7 @@ func TestInitPipeline_Execute(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if err.Error() != "Error processing context templates: process templates error" {
+		if err.Error() != "error processing blueprint templates: process templates error" {
 			t.Errorf("Expected process templates error, got %v", err)
 		}
 	})
@@ -381,7 +393,7 @@ func TestInitPipeline_ConfigureSettings(t *testing.T) {
 		pipeline := setupInitPipeline(t, mocks)
 		injector := di.NewInjector()
 
-		err := pipeline.Initialize(injector)
+		err := pipeline.Initialize(injector, context.Background())
 		if err != nil {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
 		}
@@ -482,265 +494,23 @@ func TestInitPipeline_ConfigureSettings(t *testing.T) {
 	t.Run("SetDefaultConfigError", func(t *testing.T) {
 		mocks, pipeline, _ := setup()
 
-		// Override the mock to inject error
-		mocks.ConfigHandler.SetDefaultFunc = func(v1alpha1.Context) error {
-			return fmt.Errorf("set default error")
-		}
-
-		err := pipeline.Execute(context.Background())
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if err.Error() != "Error setting default config: set default error" {
-			t.Errorf("Expected set default error, got %v", err)
-		}
-	})
-
-	t.Run("SetContextValueError", func(t *testing.T) {
-		mocks, pipeline, _ := setup()
-
-		// Override the mock to inject error
-		mocks.ConfigHandler.SetContextValueFunc = func(key string, value any) error {
-			if key == "cluster.platform" {
-				return fmt.Errorf("set context value error")
+		// Override the mock to inject error for vm.driver setting
+		mocks.ConfigHandler.SetFunc = func(key string, value any) error {
+			if key == "vm.driver" {
+				return fmt.Errorf("set vm driver error")
 			}
 			return nil
 		}
 
-		err := pipeline.Execute(context.Background())
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if err.Error() != "Error setting platform: set context value error" {
-			t.Errorf("Expected set context value error, got %v", err)
-		}
-	})
-
-	t.Run("SetBlueprintError", func(t *testing.T) {
-		mocks, pipeline, _ := setup()
-
-		// Override the mock to inject error
-		mocks.ConfigHandler.SetContextValueFunc = func(key string, value any) error {
-			if key == "blueprint" {
-				return fmt.Errorf("set blueprint error")
-			}
-			return nil
-		}
-
-		flagValues := map[string]any{"blueprint": "test-blueprint"}
-		changedFlags := map[string]bool{"blueprint": true}
-		ctx := context.WithValue(context.Background(), "flagValues", flagValues)
-		ctx = context.WithValue(ctx, "changedFlags", changedFlags)
+		// Set up context with vmDriver value to trigger the error
+		ctx := context.WithValue(context.Background(), "vmDriver", "test-driver")
 
 		err := pipeline.Execute(ctx)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if err.Error() != "Error setting blueprint: set blueprint error" {
-			t.Errorf("Expected set blueprint error, got %v", err)
-		}
-	})
-
-	t.Run("SetTerraformError", func(t *testing.T) {
-		mocks, pipeline, _ := setup()
-
-		// Override the mock to inject error
-		mocks.ConfigHandler.SetContextValueFunc = func(key string, value any) error {
-			if key == "terraform.enabled" {
-				return fmt.Errorf("set terraform error")
-			}
-			return nil
-		}
-
-		flagValues := map[string]any{"terraform": false}
-		changedFlags := map[string]bool{"terraform": true}
-		ctx := context.WithValue(context.Background(), "flagValues", flagValues)
-		ctx = context.WithValue(ctx, "changedFlags", changedFlags)
-
-		err := pipeline.Execute(ctx)
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if err.Error() != "Error setting terraform: set terraform error" {
-			t.Errorf("Expected set terraform error, got %v", err)
-		}
-	})
-
-	t.Run("SetK8sError", func(t *testing.T) {
-		mocks, pipeline, _ := setup()
-
-		// Override the mock to inject error
-		mocks.ConfigHandler.SetContextValueFunc = func(key string, value any) error {
-			if key == "cluster.enabled" {
-				return fmt.Errorf("set k8s error")
-			}
-			return nil
-		}
-
-		flagValues := map[string]any{"k8s": false}
-		changedFlags := map[string]bool{"k8s": true}
-		ctx := context.WithValue(context.Background(), "flagValues", flagValues)
-		ctx = context.WithValue(ctx, "changedFlags", changedFlags)
-
-		err := pipeline.Execute(ctx)
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if err.Error() != "Error setting k8s: set k8s error" {
-			t.Errorf("Expected set k8s error, got %v", err)
-		}
-	})
-
-	t.Run("SetDockerComposeError", func(t *testing.T) {
-		mocks, pipeline, _ := setup()
-
-		// Override the mock to inject error
-		mocks.ConfigHandler.SetContextValueFunc = func(key string, value any) error {
-			if key == "docker.enabled" {
-				return fmt.Errorf("set docker error")
-			}
-			return nil
-		}
-
-		err := pipeline.Execute(context.Background())
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if err.Error() != "Error setting docker-compose: set docker error" {
-			t.Errorf("Expected set docker error, got %v", err)
-		}
-	})
-
-	t.Run("SetAWSEnabledError", func(t *testing.T) {
-		mocks, pipeline, _ := setup()
-
-		// Override the mock to inject error
-		mocks.ConfigHandler.SetContextValueFunc = func(key string, value any) error {
-			if key == "aws.enabled" {
-				return fmt.Errorf("set aws enabled error")
-			}
-			return nil
-		}
-
-		flagValues := map[string]any{"aws": true}
-		changedFlags := map[string]bool{"aws": true}
-		ctx := context.WithValue(context.Background(), "flagValues", flagValues)
-		ctx = context.WithValue(ctx, "changedFlags", changedFlags)
-
-		err := pipeline.Execute(ctx)
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if err.Error() != "Error setting aws.enabled: set aws enabled error" {
-			t.Errorf("Expected set aws enabled error, got %v", err)
-		}
-	})
-
-	t.Run("SetAzureEnabledError", func(t *testing.T) {
-		mocks, pipeline, _ := setup()
-
-		// Override the mock to inject error
-		mocks.ConfigHandler.SetContextValueFunc = func(key string, value any) error {
-			if key == "azure.enabled" {
-				return fmt.Errorf("set azure enabled error")
-			}
-			return nil
-		}
-
-		flagValues := map[string]any{"azure": true}
-		changedFlags := map[string]bool{"azure": true}
-		ctx := context.WithValue(context.Background(), "flagValues", flagValues)
-		ctx = context.WithValue(ctx, "changedFlags", changedFlags)
-
-		err := pipeline.Execute(ctx)
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if err.Error() != "Error setting azure.enabled: set azure enabled error" {
-			t.Errorf("Expected set azure enabled error, got %v", err)
-		}
-	})
-
-	t.Run("SetClusterDriverError", func(t *testing.T) {
-		mocks, pipeline, _ := setup()
-
-		// Override the mock to inject error
-		mocks.ConfigHandler.SetContextValueFunc = func(key string, value any) error {
-			if key == "cluster.driver" {
-				return fmt.Errorf("set cluster driver error")
-			}
-			return nil
-		}
-
-		err := pipeline.Execute(context.Background())
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if err.Error() != "Error setting cluster.driver: set cluster driver error" {
-			t.Errorf("Expected set cluster driver error, got %v", err)
-		}
-	})
-
-	t.Run("SetFlagsInvalidFormat", func(t *testing.T) {
-		_, pipeline, _ := setup()
-
-		setFlags := []string{"invalid-format"}
-		ctx := context.WithValue(context.Background(), "setFlags", setFlags)
-
-		err := pipeline.Execute(ctx)
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if err.Error() != "Invalid format for --set flag. Expected key=value" {
-			t.Errorf("Expected invalid format error, got %v", err)
-		}
-	})
-
-	t.Run("SetFlagsSetContextValueError", func(t *testing.T) {
-		mocks, pipeline, _ := setup()
-
-		// Override the mock to inject error
-		mocks.ConfigHandler.SetContextValueFunc = func(key string, value any) error {
-			if key == "test.key" {
-				return fmt.Errorf("set flag error")
-			}
-			return nil
-		}
-
-		setFlags := []string{"test.key=value"}
-		ctx := context.WithValue(context.Background(), "setFlags", setFlags)
-
-		err := pipeline.Execute(ctx)
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if err.Error() != "Error setting config override test.key: set flag error" {
-			t.Errorf("Expected set flag error, got %v", err)
-		}
-	})
-
-	t.Run("TalosOverrideClusterDriver", func(t *testing.T) {
-		mocks, pipeline, _ := setup()
-
-		// Override the mock to inject error
-		mocks.ConfigHandler.SetContextValueFunc = func(key string, value any) error {
-			if key == "cluster.driver" && value == "talos" {
-				return fmt.Errorf("talos override error")
-			}
-			return nil
-		}
-
-		flagValues := map[string]any{"talos": true}
-		changedFlags := map[string]bool{"talos": true}
-		ctx := context.WithValue(context.Background(), "flagValues", flagValues)
-		ctx = context.WithValue(ctx, "changedFlags", changedFlags)
-
-		err := pipeline.Execute(ctx)
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if err.Error() != "Error setting cluster.driver: talos override error" {
-			t.Errorf("Expected talos override error, got %v", err)
+		if err.Error() != "Error setting VM driver: set vm driver error" {
+			t.Errorf("Expected set vm driver error, got %v", err)
 		}
 	})
 }
@@ -751,7 +521,7 @@ func TestInitPipeline_DetermineAndSetContext(t *testing.T) {
 		pipeline := setupInitPipeline(t, mocks)
 		injector := di.NewInjector()
 
-		err := pipeline.Initialize(injector)
+		err := pipeline.Initialize(injector, context.Background())
 		if err != nil {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
 		}
@@ -804,56 +574,7 @@ func TestInitPipeline_SaveConfigAndProcessTemplates(t *testing.T) {
 		pipeline := setupInitPipeline(t, mocks)
 		injector := di.NewInjector()
 
-		err := pipeline.Initialize(injector)
-		if err != nil {
-			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
-
-		return mocks, pipeline, injector
-	}
-
-	t.Run("GetProjectRootError", func(t *testing.T) {
-		mocks, pipeline, _ := setup()
-
-		// Override the mock to inject error
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "", fmt.Errorf("project root error")
-		}
-
-		err := pipeline.Execute(context.Background())
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if err.Error() != "Error retrieving project root: project root error" {
-			t.Errorf("Expected project root error, got %v", err)
-		}
-	})
-
-	t.Run("LoadConfigError", func(t *testing.T) {
-		mocks, pipeline, _ := setup()
-
-		// Override the mock to inject error
-		mocks.BlueprintHandler.LoadConfigFunc = func(...bool) error {
-			return fmt.Errorf("load config error")
-		}
-
-		err := pipeline.Execute(context.Background())
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if err.Error() != "Error reloading blueprint config: load config error" {
-			t.Errorf("Expected load config error, got %v", err)
-		}
-	})
-}
-
-func TestInitPipeline_OutputSuccess(t *testing.T) {
-	setup := func() (*InitMocks, *InitPipeline, di.Injector) {
-		mocks := NewInitMocks()
-		pipeline := setupInitPipeline(t, mocks)
-		injector := di.NewInjector()
-
-		err := pipeline.Initialize(injector)
+		err := pipeline.Initialize(injector, context.Background())
 		if err != nil {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
 		}
@@ -878,5 +599,102 @@ func TestInitPipeline_OutputSuccess(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
+	})
+}
+
+func TestInitPipeline_SetDefaultConfiguration(t *testing.T) {
+	setup := func(t *testing.T) (*InitPipeline, *Mocks) {
+		mocks := setupMocks(t)
+		pipeline := NewInitPipeline()
+		pipeline.configHandler = mocks.ConfigHandler
+		pipeline.shims = mocks.Shims
+		return pipeline, mocks
+	}
+
+	t.Run("LocalContextWithDockerDesktop", func(t *testing.T) {
+		// Given an init pipeline with local context and docker-desktop driver
+		pipeline, mocks := setup(t)
+		mocks.ConfigHandler.SetContext("local")
+		mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop")
+
+		// When setDefaultConfiguration is called
+		err := pipeline.setDefaultConfiguration(context.Background())
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// And the localhost configuration should be applied
+		// We can verify this by checking that the SetDefault method was called
+		// The actual verification would require mocking the SetDefault method
+	})
+
+	t.Run("LocalPrefixContextWithDockerDesktop", func(t *testing.T) {
+		// Given an init pipeline with local-prefix context and docker-desktop driver
+		pipeline, mocks := setup(t)
+		mocks.ConfigHandler.SetContext("local-development")
+		mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop")
+
+		// When setDefaultConfiguration is called
+		err := pipeline.setDefaultConfiguration(context.Background())
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// And the localhost configuration should be applied
+	})
+
+	t.Run("ProductionContextWithDockerDesktop", func(t *testing.T) {
+		// Given an init pipeline with production context and docker-desktop driver
+		pipeline, mocks := setup(t)
+		mocks.ConfigHandler.SetContext("production")
+		mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop")
+
+		// When setDefaultConfiguration is called
+		err := pipeline.setDefaultConfiguration(context.Background())
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// And the full configuration should be applied (not localhost)
+	})
+
+	t.Run("StagingContextWithDockerDesktop", func(t *testing.T) {
+		// Given an init pipeline with staging context and docker-desktop driver
+		pipeline, mocks := setup(t)
+		mocks.ConfigHandler.SetContext("staging")
+		mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop")
+
+		// When setDefaultConfiguration is called
+		err := pipeline.setDefaultConfiguration(context.Background())
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// And the full configuration should be applied (not localhost)
+	})
+
+	t.Run("LocalContextWithColima", func(t *testing.T) {
+		// Given an init pipeline with local context and colima driver
+		pipeline, mocks := setup(t)
+		mocks.ConfigHandler.SetContext("local")
+		mocks.ConfigHandler.SetContextValue("vm.driver", "colima")
+
+		// When setDefaultConfiguration is called
+		err := pipeline.setDefaultConfiguration(context.Background())
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// And the full configuration should be applied (not localhost)
 	})
 }

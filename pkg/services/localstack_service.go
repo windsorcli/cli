@@ -54,7 +54,7 @@ func (s *LocalstackService) GetComposeConfig() (*types.Config, error) {
 
 	// Get the localstack services to enable
 	servicesList := ""
-	if contextConfig.AWS.Localstack.Services != nil {
+	if contextConfig.AWS != nil && contextConfig.AWS.Localstack != nil && contextConfig.AWS.Localstack.Services != nil {
 		servicesList = strings.Join(contextConfig.AWS.Localstack.Services, ",")
 	}
 

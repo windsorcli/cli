@@ -355,22 +355,6 @@ func TestConfig_Merge(t *testing.T) {
 		}
 	})
 
-	t.Run("MergeWithProjectName", func(t *testing.T) {
-		base := &Context{
-			ProjectName: ptrString("BaseProject"),
-		}
-
-		overlay := &Context{
-			ProjectName: ptrString("OverlayProject"),
-		}
-
-		base.Merge(overlay)
-
-		if base.ProjectName == nil || *base.ProjectName != "OverlayProject" {
-			t.Errorf("ProjectName mismatch: expected 'OverlayProject', got '%s'", *base.ProjectName)
-		}
-	})
-
 	t.Run("MergeWithID", func(t *testing.T) {
 		base := &Context{
 			ID: ptrString("base-id"),

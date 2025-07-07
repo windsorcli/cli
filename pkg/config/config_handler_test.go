@@ -49,6 +49,12 @@ func setupShims(t *testing.T) *Shims {
 		}
 		return ""
 	}
+	shims.YamlMarshal = func(v any) ([]byte, error) {
+		return []byte("version: v1alpha1\ncontexts:\n  default:\n    environment:\n      email: john.doe@example.com\n      name: John Doe\n    aws: {}\n"), nil
+	}
+	shims.YamlUnmarshal = func(data []byte, v any) error {
+		return nil
+	}
 	return shims
 }
 

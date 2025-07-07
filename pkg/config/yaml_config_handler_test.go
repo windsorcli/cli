@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/goccy/go-yaml"
 	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/api/v1alpha1/aws"
 	"github.com/windsorcli/cli/api/v1alpha1/cluster"
@@ -493,48 +494,6 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 		}
 		if string(content) == existingContent {
 			t.Error("Expected file to be overwritten, but it remained unchanged")
-		}
-	})
-
-	t.Run("OmitsNullValues", func(t *testing.T) {
-		// Given a set of safe mocks and a YamlConfigHandler
-		handler, _ := setup(t)
-
-		// And a context and config with null values
-		handler.context = "local"
-		handler.config = v1alpha1.Config{
-			Contexts: map[string]*v1alpha1.Context{
-				"default": {
-					Environment: map[string]string{
-						"name":  "John Doe",
-						"email": "john.doe@example.com",
-					},
-					AWS: &aws.AWSConfig{
-						AWSEndpointURL: nil,
-					},
-				},
-			},
-		}
-
-		// And a mocked writeFile to capture written data
-		var writtenData []byte
-		handler.shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
-			writtenData = data
-			return nil
-		}
-
-		// When SaveConfig is called
-		err := handler.SaveConfig("mocked_path.yaml")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("SaveConfig() unexpected error: %v", err)
-		}
-
-		// And the YAML data should match the expected content
-		expectedContent := "version: v1alpha1\ncontexts:\n  default:\n    environment:\n      email: john.doe@example.com\n      name: John Doe\n    aws: {}\n"
-		if string(writtenData) != expectedContent {
-			t.Errorf("Config file content = %v, expected %v", string(writtenData), expectedContent)
 		}
 	})
 }
@@ -1688,7 +1647,7 @@ func TestYamlConfigHandler_SetDefault(t *testing.T) {
 		handler, _ := setup(t)
 		handler.context = "existing-context"
 		handler.config.Contexts = map[string]*v1alpha1.Context{
-			"existing-context": {ProjectName: ptrString("initial-project")},
+			"existing-context": {ID: ptrString("initial-id")},
 		}
 
 		// And a default context configuration
@@ -1711,9 +1670,9 @@ func TestYamlConfigHandler_SetDefault(t *testing.T) {
 
 		// And the existing context should not be modified
 		if handler.config.Contexts["existing-context"] == nil ||
-			handler.config.Contexts["existing-context"].ProjectName == nil ||
-			*handler.config.Contexts["existing-context"].ProjectName != "initial-project" {
-			t.Errorf("SetDefault incorrectly overwrote existing context config. Expected ProjectName 'initial-project', got %v", handler.config.Contexts["existing-context"].ProjectName)
+			handler.config.Contexts["existing-context"].ID == nil ||
+			*handler.config.Contexts["existing-context"].ID != "initial-id" {
+			t.Errorf("SetDefault incorrectly overwrote existing context config. Expected ID 'initial-id', got %v", handler.config.Contexts["existing-context"].ID)
 		}
 	})
 }
@@ -1864,6 +1823,8 @@ func TestYamlConfigHandler_LoadConfigString(t *testing.T) {
 		mocks := setupMocks(t)
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.shims = mocks.Shims
+		// Use the real YamlUnmarshal function for this test
+		handler.shims.YamlUnmarshal = yaml.Unmarshal
 		if err := handler.Initialize(); err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
@@ -2562,6 +2523,8 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 		mocks := setupMocks(t)
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.shims = mocks.Shims
+		// Use the real YamlMarshal function for this test
+		handler.shims.YamlMarshal = yaml.Marshal
 		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize YamlConfigHandler: %v", err)

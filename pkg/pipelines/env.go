@@ -374,3 +374,9 @@ func (p *EnvPipeline) collectAndSetEnvVars() error {
 
 	return nil
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
+var _ Pipeline = (*EnvPipeline)(nil)

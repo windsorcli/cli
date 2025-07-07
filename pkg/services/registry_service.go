@@ -53,6 +53,12 @@ func NewRegistryService(injector di.Injector) *RegistryService {
 // If no matching registry is found, it returns an error.
 func (s *RegistryService) GetComposeConfig() (*types.Config, error) {
 	contextConfig := s.configHandler.GetConfig()
+
+	// Check if Docker configuration exists
+	if contextConfig.Docker == nil || contextConfig.Docker.Registries == nil {
+		return &types.Config{Services: types.Services{}}, nil
+	}
+
 	registries := contextConfig.Docker.Registries
 
 	if registry, exists := registries[s.name]; exists {
@@ -76,12 +82,14 @@ func (s *RegistryService) SetAddress(address string) error {
 
 	hostName := s.GetHostname()
 
-	err := s.configHandler.SetContextValue(fmt.Sprintf("docker.registries[%s].hostname", s.name), hostName)
-	if err != nil {
-		return fmt.Errorf("failed to set hostname for registry %s: %w", s.name, err)
+	// Get the existing registry configuration
+	contextConfig := s.configHandler.GetConfig()
+	if contextConfig.Docker == nil || contextConfig.Docker.Registries == nil {
+		// No Docker configuration, skip registry setup
+		return s.BaseService.SetAddress(address)
 	}
 
-	registryConfig := s.configHandler.GetConfig().Docker.Registries[s.name]
+	registryConfig := contextConfig.Docker.Registries[s.name]
 	hostPort := 0
 
 	if registryConfig.HostPort != 0 {
@@ -93,7 +101,7 @@ func (s *RegistryService) SetAddress(address string) error {
 		if localRegistry == nil {
 			localRegistry = s
 			hostPort = constants.REGISTRY_DEFAULT_HOST_PORT
-			err = s.configHandler.SetContextValue("docker.registry_url", hostName)
+			err := s.configHandler.SetContextValue("docker.registry_url", hostName)
 			if err != nil {
 				return fmt.Errorf("failed to set registry URL for registry %s: %w", s.name, err)
 			}
@@ -105,9 +113,17 @@ func (s *RegistryService) SetAddress(address string) error {
 
 	if hostPort != 0 {
 		s.hostPort = hostPort
-		err := s.configHandler.SetContextValue(fmt.Sprintf("docker.registries[%s].hostport", s.name), hostPort)
-		if err != nil {
-			return fmt.Errorf("failed to set host port for registry %s: %w", s.name, err)
+	}
+
+	// Set individual fields in the registry configuration using bracket notation for names with dots
+	registryPath := fmt.Sprintf("docker.registries[%s]", s.name)
+	if err := s.configHandler.SetContextValue(fmt.Sprintf("%s.hostname", registryPath), hostName); err != nil {
+		return fmt.Errorf("failed to set hostname for registry %s: %w", s.name, err)
+	}
+
+	if hostPort != 0 {
+		if err := s.configHandler.SetContextValue(fmt.Sprintf("%s.hostport", registryPath), hostPort); err != nil {
+			return fmt.Errorf("failed to set hostport for registry %s: %w", s.name, err)
 		}
 	}
 
