@@ -2664,7 +2664,7 @@ func TestTerraformGenerator_writeTfvarsFile(t *testing.T) {
 		// And a component with values
 		component := blueprintv1alpha1.TerraformComponent{
 			Path: "module/path1",
-			Values: map[string]interface{}{
+			Values: map[string]any{
 				"test": "value",
 			},
 		}
@@ -2696,7 +2696,7 @@ func TestTerraformGenerator_writeTfvarsFile(t *testing.T) {
 		// And a component with values
 		component := blueprintv1alpha1.TerraformComponent{
 			Path: "module/path1",
-			Values: map[string]interface{}{
+			Values: map[string]any{
 				"test": "value",
 			},
 		}
@@ -2740,7 +2740,7 @@ func TestTerraformGenerator_writeTfvarsFile(t *testing.T) {
 		component := blueprintv1alpha1.TerraformComponent{
 			Path:     "module/path1",
 			FullPath: "original/full/path",
-			Values: map[string]interface{}{
+			Values: map[string]any{
 				"test": "value",
 			},
 		}
@@ -2789,7 +2789,7 @@ func TestTerraformGenerator_writeTfvarsFile(t *testing.T) {
 		component := blueprintv1alpha1.TerraformComponent{
 			Path:     "module/path1",
 			FullPath: "original/full/path",
-			Values: map[string]interface{}{
+			Values: map[string]any{
 				"test": "value",
 			},
 		}

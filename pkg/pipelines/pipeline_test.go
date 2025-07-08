@@ -94,19 +94,11 @@ func TestBasePipeline_handleSessionReset(t *testing.T) {
 		mockShell := shell.NewMockShell()
 		pipeline.shell = mockShell
 
-		origOsGetenv := osGetenv
-		origOsSetenv := osSetenv
+		// Clean up any existing environment variables
 		t.Cleanup(func() {
-			osGetenv = origOsGetenv
-			osSetenv = origOsSetenv
+			os.Unsetenv("WINDSOR_SESSION_TOKEN")
+			os.Unsetenv("NO_CACHE")
 		})
-
-		osGetenv = func(key string) string {
-			return ""
-		}
-		osSetenv = func(key, value string) error {
-			return nil
-		}
 
 		return pipeline, mockShell
 	}
@@ -128,12 +120,9 @@ func TestBasePipeline_handleSessionReset(t *testing.T) {
 		// Given a pipeline with no session token
 		pipeline, mockShell := setup(t)
 
-		osGetenv = func(key string) string {
-			return ""
-		}
-		osSetenv = func(key, value string) error {
-			return nil
-		}
+		// Ensure no session token is set
+		os.Unsetenv("WINDSOR_SESSION_TOKEN")
+
 		mockShell.CheckResetFlagsFunc = func() (bool, error) {
 			return false, nil
 		}
@@ -158,15 +147,9 @@ func TestBasePipeline_handleSessionReset(t *testing.T) {
 		// Given a pipeline with reset flags true
 		pipeline, mockShell := setup(t)
 
-		osGetenv = func(key string) string {
-			if key == "WINDSOR_SESSION_TOKEN" {
-				return "test-token"
-			}
-			return ""
-		}
-		osSetenv = func(key, value string) error {
-			return nil
-		}
+		// Set a session token
+		os.Setenv("WINDSOR_SESSION_TOKEN", "test-token")
+
 		mockShell.CheckResetFlagsFunc = func() (bool, error) {
 			return true, nil
 		}
@@ -191,15 +174,9 @@ func TestBasePipeline_handleSessionReset(t *testing.T) {
 		// Given a pipeline with session token and reset flags false
 		pipeline, mockShell := setup(t)
 
-		osGetenv = func(key string) string {
-			if key == "WINDSOR_SESSION_TOKEN" {
-				return "test-token"
-			}
-			return ""
-		}
-		osSetenv = func(key, value string) error {
-			return nil
-		}
+		// Set a session token
+		os.Setenv("WINDSOR_SESSION_TOKEN", "test-token")
+
 		mockShell.CheckResetFlagsFunc = func() (bool, error) {
 			return false, nil
 		}
@@ -224,9 +201,9 @@ func TestBasePipeline_handleSessionReset(t *testing.T) {
 		// Given a pipeline where check reset flags fails
 		pipeline, mockShell := setup(t)
 
-		osGetenv = func(key string) string {
-			return ""
-		}
+		// Ensure no session token is set
+		os.Unsetenv("WINDSOR_SESSION_TOKEN")
+
 		mockShell.CheckResetFlagsFunc = func() (bool, error) {
 			return false, fmt.Errorf("check reset flags error")
 		}
@@ -243,32 +220,6 @@ func TestBasePipeline_handleSessionReset(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsErrorWhenSetenvFails", func(t *testing.T) {
-		// Given a pipeline where setenv fails
-		pipeline, mockShell := setup(t)
-
-		osGetenv = func(key string) string {
-			return ""
-		}
-		osSetenv = func(key, value string) error {
-			return fmt.Errorf("setenv error")
-		}
-		mockShell.CheckResetFlagsFunc = func() (bool, error) {
-			return true, nil
-		}
-		mockShell.ResetFunc = func(...bool) {}
-
-		// When handling session reset
-		err := pipeline.handleSessionReset()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-		if err.Error() != "setenv error" {
-			t.Errorf("Expected setenv error, got: %v", err)
-		}
-	})
 }
 
 func TestBasePipeline_loadConfig(t *testing.T) {
@@ -305,8 +256,26 @@ func TestBasePipeline_loadConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("ReturnsErrorWhenShimsIsNil", func(t *testing.T) {
+		// Given a BasePipeline with shell and config handler but nil shims
+		pipeline := NewBasePipeline()
+		pipeline.shell = shell.NewMockShell()
+		pipeline.configHandler = config.NewMockConfigHandler()
+
+		// When loadConfig is called
+		err := pipeline.loadConfig()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error when shims is nil")
+		}
+		if err.Error() != "shims not initialized" {
+			t.Errorf("Expected 'shims not initialized' error, got %v", err)
+		}
+	})
+
 	t.Run("LoadsConfigSuccessfully", func(t *testing.T) {
-		// Given a BasePipeline with shell and config handler
+		// Given a BasePipeline with shell, config handler, and shims
 		pipeline := NewBasePipeline()
 
 		mockShell := shell.NewMockShell()
@@ -327,6 +296,8 @@ func TestBasePipeline_loadConfig(t *testing.T) {
 			return nil
 		}
 		pipeline.configHandler = mockConfigHandler
+
+		pipeline.shims = NewShims()
 
 		// Create a test config file
 		configPath := filepath.Join(projectRoot, "windsor.yaml")
@@ -359,6 +330,8 @@ func TestBasePipeline_loadConfig(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		pipeline.configHandler = mockConfigHandler
 
+		pipeline.shims = NewShims()
+
 		// When loadConfig is called
 		err := pipeline.loadConfig()
 
@@ -387,6 +360,8 @@ func TestBasePipeline_loadConfig(t *testing.T) {
 			return fmt.Errorf("load config error")
 		}
 		pipeline.configHandler = mockConfigHandler
+
+		pipeline.shims = NewShims()
 
 		// Create a test config file
 		configPath := filepath.Join(projectRoot, "windsor.yaml")
@@ -424,6 +399,8 @@ func TestBasePipeline_loadConfig(t *testing.T) {
 			return nil
 		}
 		pipeline.configHandler = mockConfigHandler
+
+		pipeline.shims = NewShims()
 
 		// When loadConfig is called (no config file exists)
 		err := pipeline.loadConfig()

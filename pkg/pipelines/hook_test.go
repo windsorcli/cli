@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -17,16 +16,14 @@ import (
 // =============================================================================
 
 type HookMocks struct {
-	Injector      di.Injector
-	ConfigHandler *config.MockConfigHandler
-	Shell         *shell.MockShell
-	Shims         *Shims
+	Injector di.Injector
+	Shell    *shell.MockShell
+	Shims    *Shims
 }
 
 type HookSetupOptions struct {
-	Injector      di.Injector
-	ConfigHandler *config.MockConfigHandler
-	Shell         *shell.MockShell
+	Injector di.Injector
+	Shell    *shell.MockShell
 }
 
 func setupHookMocks(t *testing.T, opts ...*HookSetupOptions) *HookMocks {
@@ -46,16 +43,6 @@ func setupHookMocks(t *testing.T, opts ...*HookSetupOptions) *HookMocks {
 		injector = di.NewMockInjector()
 	}
 
-	var configHandler *config.MockConfigHandler
-	if options.ConfigHandler != nil {
-		configHandler = options.ConfigHandler
-	} else {
-		configHandler = config.NewMockConfigHandler()
-		configHandler.InitializeFunc = func() error { return nil }
-		configHandler.GetContextFunc = func() string { return "test-context" }
-		configHandler.GetConfigRootFunc = func() (string, error) { return t.TempDir(), nil }
-	}
-
 	var mockShell *shell.MockShell
 	if options.Shell != nil {
 		mockShell = options.Shell
@@ -69,10 +56,9 @@ func setupHookMocks(t *testing.T, opts ...*HookSetupOptions) *HookMocks {
 	shims := setupHookShims(t)
 
 	return &HookMocks{
-		Injector:      injector,
-		ConfigHandler: configHandler,
-		Shell:         mockShell,
-		Shims:         shims,
+		Injector: injector,
+		Shell:    mockShell,
+		Shims:    shims,
 	}
 }
 
@@ -95,9 +81,6 @@ func setupHookPipeline(t *testing.T, mocks *HookMocks) *HookPipeline {
 	t.Helper()
 
 	constructors := HookConstructors{
-		NewConfigHandler: func(di.Injector) config.ConfigHandler {
-			return mocks.ConfigHandler
-		},
 		NewShell: func(di.Injector) shell.Shell {
 			return mocks.Shell
 		},
@@ -127,15 +110,6 @@ func TestNewHookPipeline(t *testing.T) {
 		// And all default constructors should be set and functional
 		injector := di.NewMockInjector()
 
-		if pipeline.constructors.NewConfigHandler == nil {
-			t.Error("Expected NewConfigHandler constructor to be set")
-		} else {
-			configHandler := pipeline.constructors.NewConfigHandler(injector)
-			if configHandler == nil {
-				t.Error("Expected NewConfigHandler to return a non-nil config handler")
-			}
-		}
-
 		if pipeline.constructors.NewShell == nil {
 			t.Error("Expected NewShell constructor to be set")
 		} else {
@@ -158,8 +132,8 @@ func TestNewHookPipeline(t *testing.T) {
 	t.Run("CreatesWithCustomConstructors", func(t *testing.T) {
 		// Given custom constructors
 		constructors := HookConstructors{
-			NewConfigHandler: func(di.Injector) config.ConfigHandler {
-				return config.NewMockConfigHandler()
+			NewShell: func(di.Injector) shell.Shell {
+				return shell.NewMockShell()
 			},
 		}
 
@@ -172,8 +146,8 @@ func TestNewHookPipeline(t *testing.T) {
 		}
 
 		// And custom constructor should be used
-		if pipeline.constructors.NewConfigHandler == nil {
-			t.Error("Expected NewConfigHandler constructor to be set")
+		if pipeline.constructors.NewShell == nil {
+			t.Error("Expected NewShell constructor to be set")
 		}
 	})
 }
@@ -203,30 +177,6 @@ func TestHookPipeline_Initialize(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsErrorWhenConfigHandlerInitializeFails", func(t *testing.T) {
-		// Given a config handler that fails to initialize
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.InitializeFunc = func() error {
-			return fmt.Errorf("config initialization failed")
-		}
-
-		pipeline, mocks := setup(t, &HookSetupOptions{
-			Injector:      di.NewMockInjector(),
-			ConfigHandler: mockConfigHandler,
-		})
-
-		// When initializing the pipeline
-		err := pipeline.Initialize(mocks.Injector, context.Background())
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to initialize config handler") {
-			t.Errorf("Expected config handler error, got: %v", err)
-		}
-	})
-
 	t.Run("ReturnsErrorWhenShellInitializeFails", func(t *testing.T) {
 		// Given a shell that fails to initialize
 		pipeline, mocks := setup(t)
@@ -247,24 +197,16 @@ func TestHookPipeline_Initialize(t *testing.T) {
 	})
 
 	t.Run("ReusesExistingComponentsFromDIContainer", func(t *testing.T) {
-		// Given a DI container with pre-existing shell and config handler
+		// Given a DI container with pre-existing shell
 		injector := di.NewMockInjector()
 
 		existingShell := shell.NewMockShell()
 		existingShell.InitializeFunc = func() error { return nil }
 		injector.Register("shell", existingShell)
 
-		existingConfigHandler := config.NewMockConfigHandler()
-		existingConfigHandler.InitializeFunc = func() error { return nil }
-		injector.Register("configHandler", existingConfigHandler)
-
 		// And a pipeline with custom constructors that should NOT be called
 		constructorsCalled := false
 		constructors := HookConstructors{
-			NewConfigHandler: func(di.Injector) config.ConfigHandler {
-				constructorsCalled = true
-				return config.NewMockConfigHandler()
-			},
 			NewShell: func(di.Injector) shell.Shell {
 				constructorsCalled = true
 				return shell.NewMockShell()
@@ -292,9 +234,6 @@ func TestHookPipeline_Initialize(t *testing.T) {
 		// And the pipeline should use the existing components
 		if pipeline.shell != existingShell {
 			t.Error("Expected pipeline to use existing shell from DI container")
-		}
-		if pipeline.configHandler != existingConfigHandler {
-			t.Error("Expected pipeline to use existing config handler from DI container")
 		}
 	})
 }

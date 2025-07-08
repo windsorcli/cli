@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
@@ -455,12 +457,31 @@ contexts:
 
 	t.Run("ReturnsErrorWhenSecretsProviderInitializeFails", func(t *testing.T) {
 		// Given a secrets provider that fails to initialize
-		pipeline, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "default"
+		}
+		mockConfigHandler.InitializeFunc = func() error {
+			return nil
+		}
+
+		pipeline, mocks := setup(t, &SetupOptions{
+			ConfigHandler: mockConfigHandler,
+		})
 		mocks.SopsSecretsProvider.InitializeFunc = func() error {
 			return fmt.Errorf("secrets provider initialization failed")
 		}
+
+		statCalled := false
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if contains(name, "secrets.enc.yaml") {
+			statCalled = true
+			t.Logf("Stat called with: %s", name)
+			if name == filepath.Join(tmpDir, "secrets.enc.yaml") {
+				t.Logf("Found secrets file: %s", name)
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -475,6 +496,10 @@ contexts:
 		}
 		if !contains(err.Error(), "failed to initialize secrets provider") {
 			t.Errorf("Expected secrets provider error, got: %v", err)
+		}
+
+		if !statCalled {
+			t.Error("Expected Stat to be called")
 		}
 	})
 
@@ -731,7 +756,7 @@ contexts:
 		// Given a pipeline with secrets and decrypt flag
 		pipeline, mocks := setup(t)
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if contains(name, "secrets.enc.yaml") {
+			if strings.HasSuffix(name, "secrets.enc.yaml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -776,7 +801,7 @@ contexts:
 				return fmt.Errorf("secrets load failed")
 			}
 			mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-				if contains(name, "secrets.enc.yaml") {
+				if strings.HasSuffix(name, "secrets.enc.yaml") {
 					return nil, nil
 				}
 				return nil, os.ErrNotExist
@@ -813,7 +838,7 @@ contexts:
 			return fmt.Errorf("secrets load failed")
 		}
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if contains(name, "secrets.enc.yaml") {
+			if strings.HasSuffix(name, "secrets.enc.yaml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -1035,7 +1060,7 @@ func TestPipeline_createSecretsProviders(t *testing.T) {
 		// Given a pipeline with SOPS secrets file
 		pipeline, mocks := setup(t)
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if contains(name, "secrets.enc.yaml") {
+			if strings.HasSuffix(name, "secrets.enc.yaml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -1056,7 +1081,7 @@ func TestPipeline_createSecretsProviders(t *testing.T) {
 		// Given a pipeline with SOPS secrets file with .yml extension
 		pipeline, mocks := setup(t)
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if contains(name, "secrets.enc.yml") {
+			if strings.HasSuffix(name, "secrets.enc.yml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist

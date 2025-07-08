@@ -27,8 +27,6 @@ type ExecPipeline struct {
 	BasePipeline
 
 	constructors ExecConstructors
-	shell        shell.Shell
-	injector     di.Injector
 }
 
 // =============================================================================
@@ -60,15 +58,11 @@ func NewExecPipeline(constructors ...ExecConstructors) *ExecPipeline {
 
 // Initialize creates and registers the shell component for command execution.
 func (p *ExecPipeline) Initialize(injector di.Injector, ctx context.Context) error {
-	p.injector = injector
-
-	if existing := injector.Resolve("shell"); existing != nil {
-		p.shell = existing.(shell.Shell)
-	} else {
-		p.shell = p.constructors.NewShell(injector)
-		injector.Register("shell", p.shell)
+	if err := p.BasePipeline.Initialize(injector, ctx); err != nil {
+		return err
 	}
-	p.BasePipeline.shell = p.shell
+
+	p.shell = resolveOrCreateDependency(injector, "shell", p.constructors.NewShell)
 
 	if err := p.shell.Initialize(); err != nil {
 		return fmt.Errorf("failed to initialize shell: %w", err)
@@ -97,3 +91,9 @@ func (p *ExecPipeline) Execute(ctx context.Context) error {
 
 	return nil
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
+var _ Pipeline = (*ExecPipeline)(nil)
