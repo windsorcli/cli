@@ -36,11 +36,8 @@ type CheckPipeline struct {
 
 	constructors CheckConstructors
 
-	configHandler config.ConfigHandler
-	shell         shell.Shell
 	toolsManager  tools.ToolsManager
 	clusterClient cluster.ClusterClient
-	shims         *Shims
 }
 
 // =============================================================================
@@ -87,37 +84,16 @@ func NewCheckPipeline(constructors ...CheckConstructors) *CheckPipeline {
 // registering each component with the dependency injector and initializing them sequentially
 // to ensure proper dependency resolution.
 func (p *CheckPipeline) Initialize(injector di.Injector, ctx context.Context) error {
+	if err := p.BasePipeline.Initialize(injector, ctx); err != nil {
+		return err
+	}
+
 	p.shims = p.constructors.NewShims()
 
-	if existing := injector.Resolve("shell"); existing != nil {
-		p.shell = existing.(shell.Shell)
-	} else {
-		p.shell = p.constructors.NewShell(injector)
-		injector.Register("shell", p.shell)
-	}
-	p.BasePipeline.shell = p.shell
-
-	if existing := injector.Resolve("configHandler"); existing != nil {
-		p.configHandler = existing.(config.ConfigHandler)
-	} else {
-		p.configHandler = p.constructors.NewConfigHandler(injector)
-		injector.Register("configHandler", p.configHandler)
-	}
-	p.BasePipeline.configHandler = p.configHandler
-
-	if existing := injector.Resolve("toolsManager"); existing != nil {
-		p.toolsManager = existing.(tools.ToolsManager)
-	} else {
-		p.toolsManager = p.constructors.NewToolsManager(injector)
-		injector.Register("toolsManager", p.toolsManager)
-	}
-
-	if existing := injector.Resolve("clusterClient"); existing != nil {
-		p.clusterClient = existing.(cluster.ClusterClient)
-	} else {
-		p.clusterClient = p.constructors.NewClusterClient(injector)
-		injector.Register("clusterClient", p.clusterClient)
-	}
+	p.shell = resolveOrCreateDependency(injector, "shell", p.constructors.NewShell)
+	p.configHandler = resolveOrCreateDependency(injector, "configHandler", p.constructors.NewConfigHandler)
+	p.toolsManager = resolveOrCreateDependency(injector, "toolsManager", p.constructors.NewToolsManager)
+	p.clusterClient = resolveOrCreateDependency(injector, "clusterClient", p.constructors.NewClusterClient)
 
 	if err := p.shell.Initialize(); err != nil {
 		return fmt.Errorf("failed to initialize shell: %w", err)
@@ -253,3 +229,9 @@ func (p *CheckPipeline) executeNodeHealthCheck(ctx context.Context) error {
 
 	return nil
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
+var _ Pipeline = (*CheckPipeline)(nil)

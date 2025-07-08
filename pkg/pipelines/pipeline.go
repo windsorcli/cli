@@ -3,6 +3,7 @@ package pipelines
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/windsorcli/cli/pkg/config"
@@ -30,6 +31,8 @@ type Pipeline interface {
 type BasePipeline struct {
 	shell         shell.Shell
 	configHandler config.ConfigHandler
+	shims         *Shims
+	injector      di.Injector
 }
 
 // =============================================================================
@@ -47,6 +50,8 @@ func NewBasePipeline() *BasePipeline {
 
 // Initialize provides a default implementation that can be overridden by specific pipelines
 func (p *BasePipeline) Initialize(injector di.Injector, ctx context.Context) error {
+	p.injector = injector
+
 	return nil
 }
 
@@ -66,7 +71,7 @@ func (p *BasePipeline) handleSessionReset() error {
 		return nil
 	}
 
-	hasSessionToken := osGetenv("WINDSOR_SESSION_TOKEN") != ""
+	hasSessionToken := os.Getenv("WINDSOR_SESSION_TOKEN") != ""
 
 	shouldReset, err := p.shell.CheckResetFlags()
 	if err != nil {
@@ -80,7 +85,7 @@ func (p *BasePipeline) handleSessionReset() error {
 	if shouldReset {
 		p.shell.Reset()
 
-		if err := osSetenv("NO_CACHE", "true"); err != nil {
+		if err := os.Setenv("NO_CACHE", "true"); err != nil {
 			return err
 		}
 	}
@@ -97,6 +102,9 @@ func (p *BasePipeline) loadConfig() error {
 	if p.configHandler == nil {
 		return fmt.Errorf("config handler not initialized")
 	}
+	if p.shims == nil {
+		return fmt.Errorf("shims not initialized")
+	}
 
 	projectRoot, err := p.shell.GetProjectRoot()
 	if err != nil {
@@ -107,10 +115,9 @@ func (p *BasePipeline) loadConfig() error {
 	ymlPath := filepath.Join(projectRoot, "windsor.yml")
 
 	var cliConfigPath string
-	shims := NewShims()
-	if _, err := shims.Stat(yamlPath); err == nil {
+	if _, err := p.shims.Stat(yamlPath); err == nil {
 		cliConfigPath = yamlPath
-	} else if _, err := shims.Stat(ymlPath); err == nil {
+	} else if _, err := p.shims.Stat(ymlPath); err == nil {
 		cliConfigPath = ymlPath
 	}
 
@@ -121,4 +128,22 @@ func (p *BasePipeline) loadConfig() error {
 	}
 
 	return nil
+}
+
+// resolveOrCreateDependency is a generic helper that resolves or creates a dependency
+// using the provided constructor function, eliminating repetitive dependency resolution code.
+func resolveOrCreateDependency[T any](
+	injector di.Injector,
+	name string,
+	constructor func(di.Injector) T,
+) T {
+	if existing := injector.Resolve(name); existing != nil {
+		if dep, ok := existing.(T); ok {
+			return dep
+		}
+	}
+
+	dep := constructor(injector)
+	injector.Register(name, dep)
+	return dep
 }

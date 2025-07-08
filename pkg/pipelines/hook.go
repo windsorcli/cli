@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -19,9 +18,8 @@ import (
 
 // HookConstructors defines constructor functions for HookPipeline dependencies
 type HookConstructors struct {
-	NewConfigHandler func(di.Injector) config.ConfigHandler
-	NewShell         func(di.Injector) shell.Shell
-	NewShims         func() *Shims
+	NewShell func(di.Injector) shell.Shell
+	NewShims func() *Shims
 }
 
 // HookPipeline provides shell hook installation functionality
@@ -29,10 +27,6 @@ type HookPipeline struct {
 	BasePipeline
 
 	constructors HookConstructors
-
-	configHandler config.ConfigHandler
-	shell         shell.Shell
-	shims         *Shims
 }
 
 // =============================================================================
@@ -46,9 +40,6 @@ func NewHookPipeline(constructors ...HookConstructors) *HookPipeline {
 		ctors = constructors[0]
 	} else {
 		ctors = HookConstructors{
-			NewConfigHandler: func(injector di.Injector) config.ConfigHandler {
-				return config.NewYamlConfigHandler(injector)
-			},
 			NewShell: func(injector di.Injector) shell.Shell {
 				return shell.NewDefaultShell(injector)
 			},
@@ -69,33 +60,19 @@ func NewHookPipeline(constructors ...HookConstructors) *HookPipeline {
 // =============================================================================
 
 // Initialize creates and registers all required components for the hook pipeline.
-// It sets up the config handler and shell in the correct order, registering each component
+// It sets up the shell in the correct order, registering each component
 // with the dependency injector and initializing them sequentially to ensure proper dependency resolution.
 func (p *HookPipeline) Initialize(injector di.Injector, ctx context.Context) error {
+	if err := p.BasePipeline.Initialize(injector, ctx); err != nil {
+		return err
+	}
+
 	p.shims = p.constructors.NewShims()
 
-	if existing := injector.Resolve("shell"); existing != nil {
-		p.shell = existing.(shell.Shell)
-	} else {
-		p.shell = p.constructors.NewShell(injector)
-		injector.Register("shell", p.shell)
-	}
-	p.BasePipeline.shell = p.shell
-
-	if existing := injector.Resolve("configHandler"); existing != nil {
-		p.configHandler = existing.(config.ConfigHandler)
-	} else {
-		p.configHandler = p.constructors.NewConfigHandler(injector)
-		injector.Register("configHandler", p.configHandler)
-	}
-	p.BasePipeline.configHandler = p.configHandler
+	p.shell = resolveOrCreateDependency(injector, "shell", p.constructors.NewShell)
 
 	if err := p.shell.Initialize(); err != nil {
 		return fmt.Errorf("failed to initialize shell: %w", err)
-	}
-
-	if err := p.configHandler.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize config handler: %w", err)
 	}
 
 	return nil
@@ -117,3 +94,9 @@ func (p *HookPipeline) Execute(ctx context.Context) error {
 
 	return p.shell.InstallHook(shellName)
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
+var _ Pipeline = (*HookPipeline)(nil)
