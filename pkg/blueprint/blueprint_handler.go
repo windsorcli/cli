@@ -115,10 +115,6 @@ func (b *BaseBlueprintHandler) Initialize() error {
 	}
 	b.projectRoot = projectRoot
 
-	if err := b.configHandler.SetContextValue("projectName", filepath.Base(projectRoot)); err != nil {
-		return fmt.Errorf("error setting project name in config: %w", err)
-	}
-
 	return nil
 }
 
@@ -558,6 +554,7 @@ func (b *BaseBlueprintHandler) processJsonnetTemplate(templateFile, contextDir, 
 	}
 
 	contextMap["name"] = contextName
+	contextMap["projectName"] = filepath.Base(b.projectRoot)
 	contextJSON, err := b.shims.JsonMarshal(contextMap)
 	if err != nil {
 		return fmt.Errorf("error marshalling context map to JSON: %w", err)
@@ -604,6 +601,7 @@ func (b *BaseBlueprintHandler) generateDefaultBlueprint(contextDir, contextName 
 				return fmt.Errorf("error unmarshalling context YAML: %w", err)
 			}
 			contextMap["name"] = contextName
+			contextMap["projectName"] = filepath.Base(b.projectRoot)
 
 			// --blueprint flag controls the context.blueprint field value
 			// Only set if explicitly provided via --blueprint flag

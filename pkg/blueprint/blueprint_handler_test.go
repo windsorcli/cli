@@ -529,33 +529,6 @@ func TestBlueprintHandler_Initialize(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorSettingProjectNameInConfig", func(t *testing.T) {
-		// Given a handler with mock config handler that returns error on SetContextValue
-		mockConfigHandler := &config.MockConfigHandler{
-			SetContextValueFunc: func(key string, value any) error {
-				return fmt.Errorf("set context value error")
-			},
-		}
-
-		// Create setup options with the custom config handler
-		opts := &SetupOptions{
-			ConfigHandler: mockConfigHandler,
-		}
-		mocks := setupMocks(t, opts)
-		handler := NewBlueprintHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-
-		// When calling Initialize
-		err := handler.Initialize()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error setting project name in config") {
-			t.Errorf("Expected project name setting error, got: %v", err)
-		}
-	})
 }
 
 func TestBlueprintHandler_LoadConfig(t *testing.T) {
