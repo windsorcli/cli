@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -233,6 +234,83 @@ func TestGitGenerator_Write(t *testing.T) {
 		expectedError := "failed to write to .gitignore: mock error writing .gitignore"
 		if err.Error() != expectedError {
 			t.Errorf("expected error %s, got %s", expectedError, err.Error())
+		}
+	})
+
+	t.Run("HandlesCommentedOutLines", func(t *testing.T) {
+		// Given a GitGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And GetProjectRoot is mocked to return a specific path
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return filepath.Join("mock", "project", "root"), nil
+		}
+
+		// And ReadFile is mocked to return content with various commented out Windsor entries
+		commentedContent := "existing content\n# .aws/\n # .aws/\n#    .aws/\n## .aws/\n#\t.aws/\n# .aws/   \n#contexts/**/.terraform/\n#    contexts/**/.terraform/   "
+		commentedContent = strings.ReplaceAll(commentedContent, "#\t.aws/", "#\t.aws/")
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			expectedPath := filepath.Join("mock", "project", "root", ".gitignore")
+			if path == expectedPath {
+				return []byte(commentedContent), nil
+			}
+			return nil, fmt.Errorf("unexpected file read: %s", path)
+		}
+
+		// And WriteFile is mocked to verify the content
+		var writtenContent []byte
+		mocks.Shims.WriteFile = func(path string, content []byte, _ fs.FileMode) error {
+			writtenContent = content
+			return nil
+		}
+
+		// When Write is called
+		err := generator.Write()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And the content should preserve all commented lines and not add uncommented duplicates
+		actualContent := string(writtenContent)
+		commentVariants := []string{
+			"# .aws/",
+			" # .aws/",
+			"#    .aws/",
+			"## .aws/",
+			"#\t.aws/",
+			"# .aws/   ",
+			"#contexts/**/.terraform/",
+			"#    contexts/**/.terraform/   ",
+		}
+		commentVariants[4] = "#\t.aws/"
+		for i, variant := range commentVariants {
+			if i == 4 {
+				variant = "#\t.aws/"
+			}
+			if !strings.Contains(actualContent, variant) {
+				t.Errorf("expected content to preserve commented variant: %q", variant)
+			}
+		}
+
+		// Check that uncommented versions are NOT added when any commented version exists
+		lines := strings.Split(actualContent, "\n")
+		hasUncommentedAws := false
+		hasUncommentedTerraform := false
+		for _, line := range lines {
+			if strings.TrimSpace(line) == ".aws/" {
+				hasUncommentedAws = true
+			}
+			if strings.TrimSpace(line) == "contexts/**/.terraform/" {
+				hasUncommentedTerraform = true
+			}
+		}
+		if hasUncommentedAws {
+			t.Errorf("expected content to not add uncommented .aws/ when any commented version exists")
+		}
+		if hasUncommentedTerraform {
+			t.Errorf("expected content to not add uncommented contexts/**/.terraform/ when any commented version exists")
 		}
 	})
 }
