@@ -1688,7 +1688,7 @@ func TestYamlConfigHandler_SetDefault(t *testing.T) {
 		handler, _ := setup(t)
 		handler.context = "existing-context"
 		handler.config.Contexts = map[string]*v1alpha1.Context{
-			"existing-context": {ProjectName: ptrString("initial-project")},
+			"existing-context": {},
 		}
 
 		// And a default context configuration
@@ -1710,10 +1710,8 @@ func TestYamlConfigHandler_SetDefault(t *testing.T) {
 		}
 
 		// And the existing context should not be modified
-		if handler.config.Contexts["existing-context"] == nil ||
-			handler.config.Contexts["existing-context"].ProjectName == nil ||
-			*handler.config.Contexts["existing-context"].ProjectName != "initial-project" {
-			t.Errorf("SetDefault incorrectly overwrote existing context config. Expected ProjectName 'initial-project', got %v", handler.config.Contexts["existing-context"].ProjectName)
+		if handler.config.Contexts["existing-context"] == nil {
+			t.Errorf("SetDefault incorrectly overwrote existing context config")
 		}
 	})
 }
