@@ -3,10 +3,6 @@ package pipelines
 import (
 	"context"
 	"fmt"
-
-	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/shell"
 )
 
 // The ContextPipeline is a specialized component that manages context operations functionality.
@@ -18,80 +14,27 @@ import (
 // Types
 // =============================================================================
 
-// ContextConstructors defines constructor functions for ContextPipeline dependencies
-type ContextConstructors struct {
-	NewConfigHandler func(di.Injector) config.ConfigHandler
-	NewShell         func(di.Injector) shell.Shell
-	NewShims         func() *Shims
-}
-
 // ContextPipeline provides context management functionality
+// It embeds BasePipeline and manages context-specific dependencies
+// for Windsor CLI context operations.
 type ContextPipeline struct {
 	BasePipeline
-
-	constructors ContextConstructors
 }
 
 // =============================================================================
 // Constructor
 // =============================================================================
 
-// NewContextPipeline creates a new ContextPipeline instance with optional constructors
-func NewContextPipeline(constructors ...ContextConstructors) *ContextPipeline {
-	var ctors ContextConstructors
-	if len(constructors) > 0 {
-		ctors = constructors[0]
-	} else {
-		ctors = ContextConstructors{
-			NewConfigHandler: func(injector di.Injector) config.ConfigHandler {
-				return config.NewYamlConfigHandler(injector)
-			},
-			NewShell: func(injector di.Injector) shell.Shell {
-				return shell.NewDefaultShell(injector)
-			},
-			NewShims: func() *Shims {
-				return NewShims()
-			},
-		}
-	}
-
+// NewContextPipeline creates a new ContextPipeline instance
+func NewContextPipeline() *ContextPipeline {
 	return &ContextPipeline{
 		BasePipeline: *NewBasePipeline(),
-		constructors: ctors,
 	}
 }
 
 // =============================================================================
 // Public Methods
 // =============================================================================
-
-// Initialize creates and registers all required components for the context pipeline.
-// It sets up the config handler and shell in the correct order, registering each component
-// with the dependency injector and initializing them sequentially to ensure proper dependency resolution.
-func (p *ContextPipeline) Initialize(injector di.Injector, ctx context.Context) error {
-	if err := p.BasePipeline.Initialize(injector, ctx); err != nil {
-		return err
-	}
-
-	p.shims = p.constructors.NewShims()
-
-	p.shell = resolveOrCreateDependency(injector, "shell", p.constructors.NewShell)
-	p.configHandler = resolveOrCreateDependency(injector, "configHandler", p.constructors.NewConfigHandler)
-
-	if err := p.shell.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize shell: %w", err)
-	}
-
-	if err := p.configHandler.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize config handler: %w", err)
-	}
-
-	if err := p.loadConfig(); err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	return nil
-}
 
 // Execute runs the context management logic based on the operation type.
 // It supports both "get" and "set" operations specified through the context.

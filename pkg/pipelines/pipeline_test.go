@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/api/v1alpha1/docker"
+	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -31,12 +34,9 @@ func setupBasePipeline(t *testing.T) (*BasePipeline, di.Injector) {
 // =============================================================================
 
 func TestNewBasePipeline(t *testing.T) {
-	t.Run("CreatesBasePipeline", func(t *testing.T) {
-		// Given a new base pipeline is created
-		// When creating a new base pipeline
+	t.Run("CreatesWithDefaults", func(t *testing.T) {
 		pipeline := NewBasePipeline()
 
-		// Then the pipeline should be created successfully
 		if pipeline == nil {
 			t.Fatal("Expected pipeline to not be nil")
 		}
@@ -220,6 +220,80 @@ func TestBasePipeline_handleSessionReset(t *testing.T) {
 		}
 	})
 
+	t.Run("HandlesSessionResetWithNoSessionToken", func(t *testing.T) {
+		// Given a base pipeline with no session token
+		pipeline := NewBasePipeline()
+
+		mockShell := shell.NewMockShell()
+		mockShell.CheckResetFlagsFunc = func() (bool, error) {
+			return false, nil
+		}
+		mockShell.ResetFunc = func(args ...bool) {
+			// Reset called
+		}
+		pipeline.shell = mockShell
+
+		// Ensure no session token is set
+		originalToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+		os.Unsetenv("WINDSOR_SESSION_TOKEN")
+		defer func() {
+			if originalToken != "" {
+				os.Setenv("WINDSOR_SESSION_TOKEN", originalToken)
+			}
+		}()
+
+		// When handling session reset
+		err := pipeline.handleSessionReset()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("HandlesSessionResetWithSessionToken", func(t *testing.T) {
+		// Given a base pipeline with session token
+		pipeline := NewBasePipeline()
+
+		mockShell := shell.NewMockShell()
+		mockShell.CheckResetFlagsFunc = func() (bool, error) {
+			return false, nil
+		}
+		pipeline.shell = mockShell
+
+		// Set session token
+		originalToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+		os.Setenv("WINDSOR_SESSION_TOKEN", "test-token")
+		defer func() {
+			if originalToken != "" {
+				os.Setenv("WINDSOR_SESSION_TOKEN", originalToken)
+			} else {
+				os.Unsetenv("WINDSOR_SESSION_TOKEN")
+			}
+		}()
+
+		// When handling session reset
+		err := pipeline.handleSessionReset()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("HandlesSessionResetWithNilShell", func(t *testing.T) {
+		// Given a base pipeline with nil shell
+		pipeline := NewBasePipeline()
+		pipeline.shell = nil
+
+		// When handling session reset
+		err := pipeline.handleSessionReset()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
 }
 
 func TestBasePipeline_loadConfig(t *testing.T) {
@@ -411,6 +485,567 @@ func TestBasePipeline_loadConfig(t *testing.T) {
 		}
 		if loadConfigCalled {
 			t.Error("Expected loadConfig not to be called when no config file exists")
+		}
+	})
+}
+
+// =============================================================================
+// Test Private Methods - withEnvPrinters
+// =============================================================================
+
+func TestBasePipeline_withEnvPrinters(t *testing.T) {
+	t.Run("CreatesWindsorEnvPrinterByDefault", func(t *testing.T) {
+		// Given a base pipeline with minimal configuration
+		pipeline := NewBasePipeline()
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+		pipeline.configHandler = mockConfigHandler
+		pipeline.injector = di.NewInjector()
+
+		// When creating env printers
+		envPrinters, err := pipeline.withEnvPrinters()
+
+		// Then no error should be returned and Windsor env printer should be created
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(envPrinters) != 1 {
+			t.Errorf("Expected 1 env printer, got %d", len(envPrinters))
+		}
+	})
+
+	t.Run("CreatesMultipleEnvPrintersWhenEnabled", func(t *testing.T) {
+		// Given a base pipeline with multiple services enabled
+		pipeline := NewBasePipeline()
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			switch key {
+			case "aws.enabled":
+				return true
+			case "azure.enabled":
+				return true
+			case "docker.enabled":
+				return true
+			case "cluster.enabled":
+				return true
+			case "terraform.enabled":
+				return true
+			default:
+				return false
+			}
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "cluster.provider":
+				return "talos"
+			default:
+				return ""
+			}
+		}
+		pipeline.configHandler = mockConfigHandler
+		pipeline.injector = di.NewInjector()
+
+		// When creating env printers
+		envPrinters, err := pipeline.withEnvPrinters()
+
+		// Then no error should be returned and multiple env printers should be created
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		// Should have AWS, Azure, Docker, Kube, Talos, Terraform, and Windsor
+		if len(envPrinters) != 7 {
+			t.Errorf("Expected 7 env printers, got %d", len(envPrinters))
+		}
+	})
+
+	t.Run("CreatesOmniAndTalosEnvPrintersWhenOmniProvider", func(t *testing.T) {
+		// Given a base pipeline with omni cluster provider
+		pipeline := NewBasePipeline()
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "cluster.provider":
+				return "omni"
+			default:
+				return ""
+			}
+		}
+		pipeline.configHandler = mockConfigHandler
+		pipeline.injector = di.NewInjector()
+
+		// When creating env printers
+		envPrinters, err := pipeline.withEnvPrinters()
+
+		// Then no error should be returned and Omni, Talos, and Windsor env printers should be created
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		// Should have Omni, Talos, and Windsor
+		if len(envPrinters) != 3 {
+			t.Errorf("Expected 3 env printers, got %d", len(envPrinters))
+		}
+	})
+
+	t.Run("ReturnsErrorWhenConfigHandlerIsNil", func(t *testing.T) {
+		// Given a base pipeline with nil config handler
+		pipeline := NewBasePipeline()
+		pipeline.configHandler = nil
+
+		// When creating env printers
+		envPrinters, err := pipeline.withEnvPrinters()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "config handler not initialized" {
+			t.Errorf("Expected 'config handler not initialized', got: %v", err)
+		}
+		if envPrinters != nil {
+			t.Error("Expected nil env printers")
+		}
+	})
+}
+
+// =============================================================================
+// Test Private Methods - withSecretsProviders
+// =============================================================================
+
+func TestBasePipeline_withSecretsProviders(t *testing.T) {
+	t.Run("ReturnsEmptyWhenNoSecretsConfigured", func(t *testing.T) {
+		// Given a base pipeline with no secrets configuration
+		pipeline := NewBasePipeline()
+
+		tmpDir := t.TempDir()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "test-context"
+		}
+		mockConfigHandler.GetFunc = func(key string) any {
+			return nil
+		}
+		pipeline.configHandler = mockConfigHandler
+		pipeline.shims = NewShims()
+
+		// When creating secrets providers
+		secretsProviders, err := pipeline.withSecretsProviders()
+
+		// Then no error should be returned and no providers should be created
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(secretsProviders) != 0 {
+			t.Errorf("Expected 0 secrets providers, got %d", len(secretsProviders))
+		}
+	})
+
+	t.Run("CreatesSopsProviderWhenSecretsFileExists", func(t *testing.T) {
+		// Given a base pipeline with secrets file
+		pipeline := NewBasePipeline()
+
+		tmpDir := t.TempDir()
+		secretsFile := filepath.Join(tmpDir, "secrets.enc.yaml")
+		if err := os.WriteFile(secretsFile, []byte("test"), 0644); err != nil {
+			t.Fatalf("Failed to create secrets file: %v", err)
+		}
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "test-context"
+		}
+		mockConfigHandler.GetFunc = func(key string) any {
+			return nil
+		}
+		pipeline.configHandler = mockConfigHandler
+		pipeline.shims = NewShims()
+		pipeline.injector = di.NewInjector()
+
+		// When creating secrets providers
+		secretsProviders, err := pipeline.withSecretsProviders()
+
+		// Then no error should be returned and SOPS provider should be created
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(secretsProviders) != 1 {
+			t.Errorf("Expected 1 secrets provider, got %d", len(secretsProviders))
+		}
+	})
+
+	t.Run("ReturnsErrorWhenConfigHandlerIsNil", func(t *testing.T) {
+		// Given a base pipeline with nil config handler
+		pipeline := NewBasePipeline()
+		pipeline.configHandler = nil
+
+		// When creating secrets providers
+		secretsProviders, err := pipeline.withSecretsProviders()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "config handler not initialized" {
+			t.Errorf("Expected 'config handler not initialized', got: %v", err)
+		}
+		if secretsProviders != nil {
+			t.Error("Expected nil secrets providers")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenGetConfigRootFails", func(t *testing.T) {
+		// Given a base pipeline with failing config root
+		pipeline := NewBasePipeline()
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("config root error")
+		}
+		pipeline.configHandler = mockConfigHandler
+
+		// When creating secrets providers
+		secretsProviders, err := pipeline.withSecretsProviders()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error getting config root") {
+			t.Errorf("Expected 'error getting config root' in error, got: %v", err)
+		}
+		if secretsProviders != nil {
+			t.Error("Expected nil secrets providers")
+		}
+	})
+
+	t.Run("CreatesOnePasswordSDKProviderWhenServiceAccountTokenSet", func(t *testing.T) {
+		// Given a base pipeline with OnePassword vaults and service account token
+		pipeline := NewBasePipeline()
+
+		tmpDir := t.TempDir()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "test-context"
+		}
+		mockConfigHandler.GetFunc = func(key string) any {
+			if key == "contexts.test-context.secrets.onepassword.vaults" {
+				return map[string]secretsConfigType.OnePasswordVault{
+					"vault1": {
+						Name: "test-vault",
+					},
+				}
+			}
+			return nil
+		}
+		pipeline.configHandler = mockConfigHandler
+
+		mockShims := NewShims()
+		// Override Getenv to simulate service account token
+		originalGetenv := mockShims.Getenv
+		mockShims.Getenv = func(key string) string {
+			if key == "OP_SERVICE_ACCOUNT_TOKEN" {
+				return "test-token"
+			}
+			return originalGetenv(key)
+		}
+		pipeline.shims = mockShims
+		pipeline.injector = di.NewInjector()
+
+		// When creating secrets providers
+		secretsProviders, err := pipeline.withSecretsProviders()
+
+		// Then no error should be returned and OnePassword SDK provider should be created
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(secretsProviders) != 1 {
+			t.Errorf("Expected 1 secrets provider, got %d", len(secretsProviders))
+		}
+	})
+
+	t.Run("CreatesOnePasswordCLIProviderWhenNoServiceAccountToken", func(t *testing.T) {
+		// Given a base pipeline with OnePassword vaults and no service account token
+		pipeline := NewBasePipeline()
+
+		tmpDir := t.TempDir()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "test-context"
+		}
+		mockConfigHandler.GetFunc = func(key string) any {
+			if key == "contexts.test-context.secrets.onepassword.vaults" {
+				return map[string]secretsConfigType.OnePasswordVault{
+					"vault1": {
+						Name: "test-vault",
+					},
+				}
+			}
+			return nil
+		}
+		pipeline.configHandler = mockConfigHandler
+
+		mockShims := NewShims()
+		// Override Getenv to simulate no service account token
+		originalGetenv := mockShims.Getenv
+		mockShims.Getenv = func(key string) string {
+			if key == "OP_SERVICE_ACCOUNT_TOKEN" {
+				return ""
+			}
+			return originalGetenv(key)
+		}
+		pipeline.shims = mockShims
+		pipeline.injector = di.NewInjector()
+
+		// When creating secrets providers
+		secretsProviders, err := pipeline.withSecretsProviders()
+
+		// Then no error should be returned and OnePassword CLI provider should be created
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(secretsProviders) != 1 {
+			t.Errorf("Expected 1 secrets provider, got %d", len(secretsProviders))
+		}
+	})
+
+	t.Run("CreatesSecretsProviderForSecretsDotEncDotYmlFile", func(t *testing.T) {
+		// Given a base pipeline with secrets.enc.yml file
+		pipeline := NewBasePipeline()
+
+		tmpDir := t.TempDir()
+		secretsFile := filepath.Join(tmpDir, "secrets.enc.yml")
+		if err := os.WriteFile(secretsFile, []byte("test"), 0644); err != nil {
+			t.Fatalf("Failed to create secrets file: %v", err)
+		}
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "test-context"
+		}
+		mockConfigHandler.GetFunc = func(key string) any {
+			return nil
+		}
+		pipeline.configHandler = mockConfigHandler
+		pipeline.shims = NewShims()
+		pipeline.injector = di.NewInjector()
+
+		// When creating secrets providers
+		secretsProviders, err := pipeline.withSecretsProviders()
+
+		// Then no error should be returned and SOPS provider should be created
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(secretsProviders) != 1 {
+			t.Errorf("Expected 1 secrets provider, got %d", len(secretsProviders))
+		}
+	})
+}
+
+// =============================================================================
+// Test Private Methods - withServices
+// =============================================================================
+
+func TestBasePipeline_withServices(t *testing.T) {
+	t.Run("ReturnsEmptyWhenDockerDisabled", func(t *testing.T) {
+		// Given a base pipeline with Docker disabled
+		pipeline := NewBasePipeline()
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "docker.enabled" {
+				return false
+			}
+			return false
+		}
+		pipeline.configHandler = mockConfigHandler
+
+		// When creating services
+		services, err := pipeline.withServices()
+
+		// Then no error should be returned and no services should be created
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(services) != 0 {
+			t.Errorf("Expected 0 services, got %d", len(services))
+		}
+	})
+
+	t.Run("CreatesMultipleServicesWhenDockerEnabled", func(t *testing.T) {
+		// Given a base pipeline with Docker and multiple services enabled
+		pipeline := NewBasePipeline()
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			switch key {
+			case "docker.enabled":
+				return true
+			case "dns.enabled":
+				return true
+			case "git.livereload.enabled":
+				return true
+			case "aws.localstack.enabled":
+				return true
+			default:
+				return false
+			}
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "cluster.provider":
+				return "talos"
+			default:
+				return ""
+			}
+		}
+		mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) int {
+			switch key {
+			case "cluster.control_plane.count":
+				return 2
+			case "cluster.worker.count":
+				return 3
+			default:
+				return 1
+			}
+		}
+		pipeline.configHandler = mockConfigHandler
+		pipeline.injector = di.NewInjector()
+
+		// When creating services
+		services, err := pipeline.withServices()
+
+		// Then no error should be returned and multiple services should be created
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		// Should have DNS, Git, AWS, 2 control plane, and 3 worker services
+		if len(services) != 8 {
+			t.Errorf("Expected 8 services, got %d", len(services))
+		}
+	})
+
+	t.Run("CreatesRegistryServicesWhenDockerRegistriesConfigured", func(t *testing.T) {
+		// Given a base pipeline with Docker registries configured
+		pipeline := NewBasePipeline()
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "docker.enabled" {
+				return true
+			}
+			return false
+		}
+		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
+				Docker: &docker.DockerConfig{
+					Registries: map[string]docker.RegistryConfig{
+						"registry1": {},
+						"registry2": {},
+					},
+				},
+			}
+		}
+		pipeline.configHandler = mockConfigHandler
+		pipeline.injector = di.NewInjector()
+
+		// When creating services
+		services, err := pipeline.withServices()
+
+		// Then no error should be returned and registry services should be created
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(services) != 2 {
+			t.Errorf("Expected 2 services, got %d", len(services))
+		}
+	})
+
+	t.Run("CreatesOmniClusterServices", func(t *testing.T) {
+		// Given a base pipeline with Omni cluster provider
+		pipeline := NewBasePipeline()
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "docker.enabled" {
+				return true
+			}
+			return false
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.provider" {
+				return "omni"
+			}
+			return ""
+		}
+		mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) int {
+			switch key {
+			case "cluster.control_plane.count":
+				return 1
+			case "cluster.worker.count":
+				return 2
+			default:
+				return 1
+			}
+		}
+		pipeline.configHandler = mockConfigHandler
+		pipeline.injector = di.NewInjector()
+
+		// When creating services
+		services, err := pipeline.withServices()
+
+		// Then no error should be returned and cluster services should be created
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		// Should have 1 control plane and 2 worker services
+		if len(services) != 3 {
+			t.Errorf("Expected 3 services, got %d", len(services))
+		}
+	})
+
+	t.Run("ReturnsErrorWhenConfigHandlerIsNil", func(t *testing.T) {
+		// Given a base pipeline with nil config handler
+		pipeline := NewBasePipeline()
+		pipeline.configHandler = nil
+
+		// When creating services
+		services, err := pipeline.withServices()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "config handler not initialized" {
+			t.Errorf("Expected 'config handler not initialized', got: %v", err)
+		}
+		if services != nil {
+			t.Error("Expected nil services")
 		}
 	})
 }

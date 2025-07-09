@@ -53,7 +53,9 @@ func NewWindsorEnvPrinter(injector di.Injector) *WindsorEnvPrinter {
 // Public Methods
 // =============================================================================
 
-// Initialize sets up the WindsorEnvPrinter, including resolving secrets providers.
+// Initialize performs dependency injection setup, resolves shell and configuration components,
+// and initializes base functionality. It resolves secrets providers from the dependency injection
+// container and handles environment variable management setup with proper error handling and validation.
 func (e *WindsorEnvPrinter) Initialize() error {
 	if err := e.BaseEnvPrinter.Initialize(); err != nil {
 		return fmt.Errorf("failed to initialize BaseEnvPrinter: %w", err)

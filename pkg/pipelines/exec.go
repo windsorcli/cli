@@ -3,9 +3,6 @@ package pipelines
 import (
 	"context"
 	"fmt"
-
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/shell"
 )
 
 // The ExecPipeline is a specialized component that manages command execution with environment injection.
@@ -17,59 +14,25 @@ import (
 // Types
 // =============================================================================
 
-// ExecConstructors defines constructor functions for ExecPipeline dependencies
-type ExecConstructors struct {
-	NewShell func(di.Injector) shell.Shell
-}
-
 // ExecPipeline provides command execution functionality with environment injection
 type ExecPipeline struct {
 	BasePipeline
-
-	constructors ExecConstructors
 }
 
 // =============================================================================
 // Constructor
 // =============================================================================
 
-// NewExecPipeline creates a new ExecPipeline instance with optional constructors
-func NewExecPipeline(constructors ...ExecConstructors) *ExecPipeline {
-	var ctors ExecConstructors
-	if len(constructors) > 0 {
-		ctors = constructors[0]
-	} else {
-		ctors = ExecConstructors{
-			NewShell: func(injector di.Injector) shell.Shell {
-				return shell.NewDefaultShell(injector)
-			},
-		}
-	}
-
+// NewExecPipeline creates a new ExecPipeline instance
+func NewExecPipeline() *ExecPipeline {
 	return &ExecPipeline{
 		BasePipeline: *NewBasePipeline(),
-		constructors: ctors,
 	}
 }
 
 // =============================================================================
 // Public Methods
 // =============================================================================
-
-// Initialize creates and registers the shell component for command execution.
-func (p *ExecPipeline) Initialize(injector di.Injector, ctx context.Context) error {
-	if err := p.BasePipeline.Initialize(injector, ctx); err != nil {
-		return err
-	}
-
-	p.shell = resolveOrCreateDependency(injector, "shell", p.constructors.NewShell)
-
-	if err := p.shell.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize shell: %w", err)
-	}
-
-	return nil
-}
 
 // Execute executes the command with the provided arguments.
 // It expects the command and optional arguments to be provided in the context.

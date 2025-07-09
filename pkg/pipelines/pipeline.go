@@ -6,15 +6,21 @@ import (
 	"os"
 	"path/filepath"
 
+	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
+	"github.com/windsorcli/cli/pkg/cluster"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
+	envpkg "github.com/windsorcli/cli/pkg/env"
+	"github.com/windsorcli/cli/pkg/secrets"
+	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
+	"github.com/windsorcli/cli/pkg/tools"
 )
 
 // The BasePipeline is a foundational component that provides common pipeline functionality for command execution.
 // It provides a unified interface for pipeline execution with dependency injection support,
 // serving as the base implementation for all command-specific pipelines in the Windsor CLI system.
-// The BasePipeline facilitates standardized command execution patterns with constructor-based dependency injection.
+// The BasePipeline facilitates standardized command execution patterns with direct dependency injection.
 
 // =============================================================================
 // Types
@@ -27,7 +33,7 @@ type Pipeline interface {
 }
 
 // BasePipeline provides common pipeline functionality including config loading
-// Specific pipelines should embed this and add their own constructor dependencies
+// Specific pipelines should embed this and add their own dependencies
 type BasePipeline struct {
 	shell         shell.Shell
 	configHandler config.ConfigHandler
@@ -48,9 +54,27 @@ func NewBasePipeline() *BasePipeline {
 // Public Methods
 // =============================================================================
 
-// Initialize provides a default implementation that can be overridden by specific pipelines
+// Initialize sets up the base pipeline components including dependency injection container,
+// shell interface, configuration handler, and shims. It resolves dependencies from the DI
+// container and initializes core components required for pipeline execution.
 func (p *BasePipeline) Initialize(injector di.Injector, ctx context.Context) error {
 	p.injector = injector
+
+	p.shell = p.withShell()
+	p.configHandler = p.withConfigHandler()
+	p.shims = p.withShims()
+
+	if err := p.shell.Initialize(); err != nil {
+		return fmt.Errorf("failed to initialize shell: %w", err)
+	}
+
+	if err := p.configHandler.Initialize(); err != nil {
+		return fmt.Errorf("failed to initialize config handler: %w", err)
+	}
+
+	if err := p.loadConfig(); err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
 
 	return nil
 }
@@ -61,8 +85,76 @@ func (p *BasePipeline) Execute(ctx context.Context) error {
 }
 
 // =============================================================================
-// Protected Methods
+// Private Methods
 // =============================================================================
+
+// withShell resolves or creates shell from DI container
+func (p *BasePipeline) withShell() shell.Shell {
+	if existing := p.injector.Resolve("shell"); existing != nil {
+		if shell, ok := existing.(shell.Shell); ok {
+			p.shell = shell
+			return shell
+		}
+	}
+
+	p.shell = shell.NewDefaultShell(p.injector)
+	p.injector.Register("shell", p.shell)
+	return p.shell
+}
+
+// withConfigHandler resolves or creates config handler from DI container
+func (p *BasePipeline) withConfigHandler() config.ConfigHandler {
+	if existing := p.injector.Resolve("configHandler"); existing != nil {
+		if configHandler, ok := existing.(config.ConfigHandler); ok {
+			p.configHandler = configHandler
+			return configHandler
+		}
+	}
+
+	p.configHandler = config.NewYamlConfigHandler(p.injector)
+	p.injector.Register("configHandler", p.configHandler)
+	return p.configHandler
+}
+
+// withShims resolves or creates shims from DI container
+func (p *BasePipeline) withShims() *Shims {
+	if existing := p.injector.Resolve("shims"); existing != nil {
+		if shims, ok := existing.(*Shims); ok {
+			p.shims = shims
+			return shims
+		}
+	}
+
+	p.shims = NewShims()
+	p.injector.Register("shims", p.shims)
+	return p.shims
+}
+
+// withToolsManager resolves or creates tools manager from DI container
+func (p *BasePipeline) withToolsManager() tools.ToolsManager {
+	if existing := p.injector.Resolve("toolsManager"); existing != nil {
+		if toolsManager, ok := existing.(tools.ToolsManager); ok {
+			return toolsManager
+		}
+	}
+
+	toolsManager := tools.NewToolsManager(p.injector)
+	p.injector.Register("toolsManager", toolsManager)
+	return toolsManager
+}
+
+// withClusterClient resolves or creates cluster client from DI container
+func (p *BasePipeline) withClusterClient() cluster.ClusterClient {
+	if existing := p.injector.Resolve("clusterClient"); existing != nil {
+		if clusterClient, ok := existing.(cluster.ClusterClient); ok {
+			return clusterClient
+		}
+	}
+
+	clusterClient := cluster.NewTalosClusterClient(p.injector)
+	p.injector.Register("clusterClient", clusterClient)
+	return clusterClient
+}
 
 // handleSessionReset checks session state and performs reset if needed.
 // This is a common pattern used by multiple commands (env, exec, context, init).
@@ -130,20 +222,151 @@ func (p *BasePipeline) loadConfig() error {
 	return nil
 }
 
-// resolveOrCreateDependency is a generic helper that resolves or creates a dependency
-// using the provided constructor function, eliminating repetitive dependency resolution code.
-func resolveOrCreateDependency[T any](
-	injector di.Injector,
-	name string,
-	constructor func(di.Injector) T,
-) T {
-	if existing := injector.Resolve(name); existing != nil {
-		if dep, ok := existing.(T); ok {
-			return dep
+// withEnvPrinters creates environment printers based on configuration
+func (p *BasePipeline) withEnvPrinters() ([]envpkg.EnvPrinter, error) {
+	if p.configHandler == nil {
+		return nil, fmt.Errorf("config handler not initialized")
+	}
+
+	var envPrinters []envpkg.EnvPrinter
+
+	if p.configHandler.GetBool("aws.enabled", false) {
+		envPrinters = append(envPrinters, envpkg.NewAwsEnvPrinter(p.injector))
+	}
+
+	if p.configHandler.GetBool("azure.enabled", false) {
+		envPrinters = append(envPrinters, envpkg.NewAzureEnvPrinter(p.injector))
+	}
+
+	if p.configHandler.GetBool("docker.enabled", false) {
+		envPrinters = append(envPrinters, envpkg.NewDockerEnvPrinter(p.injector))
+	}
+
+	if p.configHandler.GetBool("cluster.enabled", false) {
+		envPrinters = append(envPrinters, envpkg.NewKubeEnvPrinter(p.injector))
+	}
+
+	clusterProvider := p.configHandler.GetString("cluster.provider", "")
+	if clusterProvider == "talos" {
+		envPrinters = append(envPrinters, envpkg.NewTalosEnvPrinter(p.injector))
+	}
+
+	if clusterProvider == "omni" {
+		envPrinters = append(envPrinters, envpkg.NewOmniEnvPrinter(p.injector))
+		envPrinters = append(envPrinters, envpkg.NewTalosEnvPrinter(p.injector))
+	}
+
+	if p.configHandler.GetBool("terraform.enabled", false) {
+		envPrinters = append(envPrinters, envpkg.NewTerraformEnvPrinter(p.injector))
+	}
+
+	envPrinters = append(envPrinters, envpkg.NewWindsorEnvPrinter(p.injector))
+
+	return envPrinters, nil
+}
+
+// withSecretsProviders creates secrets providers based on configuration
+func (p *BasePipeline) withSecretsProviders() ([]secrets.SecretsProvider, error) {
+	if p.configHandler == nil {
+		return nil, fmt.Errorf("config handler not initialized")
+	}
+
+	var secretsProviders []secrets.SecretsProvider
+
+	configRoot, err := p.configHandler.GetConfigRoot()
+	if err != nil {
+		return nil, fmt.Errorf("error getting config root: %w", err)
+	}
+
+	secretsFilePaths := []string{"secrets.enc.yaml", "secrets.enc.yml"}
+	for _, filePath := range secretsFilePaths {
+		if _, err := p.shims.Stat(filepath.Join(configRoot, filePath)); err == nil {
+			secretsProviders = append(secretsProviders, secrets.NewSopsSecretsProvider(configRoot, p.injector))
+			break
 		}
 	}
 
-	dep := constructor(injector)
-	injector.Register(name, dep)
-	return dep
+	contextName := p.configHandler.GetContext()
+	vaults, ok := p.configHandler.Get(fmt.Sprintf("contexts.%s.secrets.onepassword.vaults", contextName)).(map[string]secretsConfigType.OnePasswordVault)
+	if ok && len(vaults) > 0 {
+		useSDK := p.shims.Getenv("OP_SERVICE_ACCOUNT_TOKEN") != ""
+
+		for key, vault := range vaults {
+			vaultCopy := vault
+			vaultCopy.ID = key
+
+			if useSDK {
+				secretsProviders = append(secretsProviders, secrets.NewOnePasswordSDKSecretsProvider(vaultCopy, p.injector))
+			} else {
+				secretsProviders = append(secretsProviders, secrets.NewOnePasswordCLISecretsProvider(vaultCopy, p.injector))
+			}
+		}
+	}
+
+	return secretsProviders, nil
 }
+
+// withServices creates services based on configuration
+func (p *BasePipeline) withServices() ([]services.Service, error) {
+	if p.configHandler == nil {
+		return nil, fmt.Errorf("config handler not initialized")
+	}
+
+	var serviceList []services.Service
+
+	if !p.configHandler.GetBool("docker.enabled", false) {
+		return serviceList, nil
+	}
+
+	if p.configHandler.GetBool("dns.enabled", false) {
+		service := services.NewDNSService(p.injector)
+		service.SetName("dns")
+		serviceList = append(serviceList, service)
+	}
+
+	if p.configHandler.GetBool("git.livereload.enabled", false) {
+		service := services.NewGitLivereloadService(p.injector)
+		service.SetName("git")
+		serviceList = append(serviceList, service)
+	}
+
+	if p.configHandler.GetBool("aws.localstack.enabled", false) {
+		service := services.NewLocalstackService(p.injector)
+		service.SetName("aws")
+		serviceList = append(serviceList, service)
+	}
+
+	contextConfig := p.configHandler.GetConfig()
+	if contextConfig.Docker != nil && contextConfig.Docker.Registries != nil {
+		for key := range contextConfig.Docker.Registries {
+			service := services.NewRegistryService(p.injector)
+			service.SetName(key)
+			serviceList = append(serviceList, service)
+		}
+	}
+
+	clusterProvider := p.configHandler.GetString("cluster.provider", "")
+	if clusterProvider == "talos" || clusterProvider == "omni" {
+		controlPlaneCount := p.configHandler.GetInt("cluster.control_plane.count", 1)
+		for i := 0; i < controlPlaneCount; i++ {
+			service := services.NewTalosService(p.injector, "controlplane")
+			service.SetName(fmt.Sprintf("controlplane%d", i))
+			serviceList = append(serviceList, service)
+		}
+
+		workerCount := p.configHandler.GetInt("cluster.worker.count", 1)
+		for i := 0; i < workerCount; i++ {
+			service := services.NewTalosService(p.injector, "worker")
+			service.SetName(fmt.Sprintf("worker%d", i))
+			serviceList = append(serviceList, service)
+		}
+	}
+
+	return serviceList, nil
+}
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
+var _ Pipeline = (*BasePipeline)(nil)

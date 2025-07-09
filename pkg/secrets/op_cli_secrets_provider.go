@@ -30,9 +30,8 @@ type OnePasswordCLISecretsProvider struct {
 
 // NewOnePasswordCLISecretsProvider creates a new OnePasswordCLISecretsProvider instance
 func NewOnePasswordCLISecretsProvider(vault secretsConfigType.OnePasswordVault, injector di.Injector) *OnePasswordCLISecretsProvider {
-	baseProvider := NewBaseSecretsProvider(injector)
 	return &OnePasswordCLISecretsProvider{
-		BaseSecretsProvider: *baseProvider,
+		BaseSecretsProvider: *NewBaseSecretsProvider(injector),
 		vault:               vault,
 	}
 }

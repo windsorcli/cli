@@ -3,312 +3,222 @@ package pipelines
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
-	"time"
 
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
-// mockFileInfo is a simple mock implementation of os.FileInfo for testing
-type mockFileInfo struct {
-	name string
+// =============================================================================
+// Test Setup
+// =============================================================================
+
+func setupExecPipeline(t *testing.T) *ExecPipeline {
+	t.Helper()
+
+	pipeline := NewExecPipeline()
+
+	return pipeline
 }
 
-func (m *mockFileInfo) Name() string       { return m.name }
-func (m *mockFileInfo) Size() int64        { return 0 }
-func (m *mockFileInfo) Mode() os.FileMode  { return 0644 }
-func (m *mockFileInfo) ModTime() time.Time { return time.Time{} }
-func (m *mockFileInfo) IsDir() bool        { return false }
-func (m *mockFileInfo) Sys() any           { return nil }
+// =============================================================================
+// Test Constructor
+// =============================================================================
 
 func TestNewExecPipeline(t *testing.T) {
-	t.Run("CreatesWithDefaultConstructors", func(t *testing.T) {
+	t.Run("CreatesWithDefaults", func(t *testing.T) {
+		// Given creating a new exec pipeline
 		pipeline := NewExecPipeline()
 
+		// Then pipeline should not be nil
 		if pipeline == nil {
 			t.Fatal("Expected pipeline to not be nil")
-		}
-
-		if pipeline.constructors.NewShell == nil {
-			t.Error("Expected NewShell constructor to be set")
-		}
-	})
-
-	t.Run("CreatesWithCustomConstructors", func(t *testing.T) {
-		constructors := ExecConstructors{
-			NewShell: func(di.Injector) shell.Shell {
-				return shell.NewMockShell()
-			},
-		}
-
-		pipeline := NewExecPipeline(constructors)
-
-		if pipeline == nil {
-			t.Fatal("Expected pipeline to not be nil")
-		}
-
-		if pipeline.constructors.NewShell == nil {
-			t.Error("Expected NewShell constructor to be set")
 		}
 	})
 }
 
-func TestExecPipeline_Initialize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		injector := di.NewInjector()
-
-		// Create mock shell
-		mockShell := shell.NewMockShell()
-		mockShell.InitializeFunc = func() error {
-			return nil
-		}
-
-		constructors := ExecConstructors{
-			NewShell: func(di.Injector) shell.Shell {
-				return mockShell
-			},
-		}
-
-		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector, context.Background())
-
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ShellInitializationError", func(t *testing.T) {
-		injector := di.NewInjector()
-
-		// Create mock shell that fails initialization
-		mockShell := shell.NewMockShell()
-		mockShell.InitializeFunc = func() error {
-			return fmt.Errorf("shell initialization failed")
-		}
-
-		constructors := ExecConstructors{
-			NewShell: func(di.Injector) shell.Shell {
-				return mockShell
-			},
-		}
-
-		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector, context.Background())
-
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		expectedError := "failed to initialize shell: shell initialization failed"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("UsesExistingShell", func(t *testing.T) {
-		injector := di.NewInjector()
-
-		// Register existing shell
-		existingShell := shell.NewMockShell()
-		injector.Register("shell", existingShell)
-
-		pipeline := NewExecPipeline()
-		err := pipeline.Initialize(injector, context.Background())
-
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-
-		if pipeline.shell != existingShell {
-			t.Error("Expected pipeline to use existing shell")
-		}
-	})
-}
+// =============================================================================
+// Test Public Methods
+// =============================================================================
 
 func TestExecPipeline_Execute(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		injector := di.NewInjector()
+	t.Run("ExecutesCommandSuccessfully", func(t *testing.T) {
+		// Given an exec pipeline with a mock shell
+		pipeline := setupExecPipeline(t)
 
-		// Create mock shell
 		mockShell := shell.NewMockShell()
+		execCalled := false
 		var capturedCommand string
 		var capturedArgs []string
 		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
+			execCalled = true
 			capturedCommand = command
 			capturedArgs = args
-			return "output", nil
+			return "command output", nil
 		}
+		pipeline.shell = mockShell
 
-		constructors := ExecConstructors{
-			NewShell: func(di.Injector) shell.Shell {
-				return mockShell
-			},
-		}
-
-		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector, context.Background())
-		if err != nil {
-			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
-
-		ctx := context.Background()
-		ctx = context.WithValue(ctx, "command", "test-command")
+		ctx := context.WithValue(context.Background(), "command", "test-command")
 		ctx = context.WithValue(ctx, "args", []string{"arg1", "arg2"})
 
-		err = pipeline.Execute(ctx)
+		// When executing the pipeline
+		err := pipeline.Execute(ctx)
 
+		// Then no error should be returned and command should be executed
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-
-		if capturedCommand != "test-command" {
-			t.Errorf("Expected command 'test-command', got %q", capturedCommand)
+		if !execCalled {
+			t.Error("Expected shell.Exec to be called")
 		}
-
+		if capturedCommand != "test-command" {
+			t.Errorf("Expected command 'test-command', got '%s'", capturedCommand)
+		}
 		if len(capturedArgs) != 2 || capturedArgs[0] != "arg1" || capturedArgs[1] != "arg2" {
 			t.Errorf("Expected args ['arg1', 'arg2'], got %v", capturedArgs)
 		}
 	})
 
-	t.Run("NoCommandInContext", func(t *testing.T) {
-		injector := di.NewInjector()
+	t.Run("ExecutesCommandWithoutArgs", func(t *testing.T) {
+		// Given an exec pipeline with a mock shell and no args
+		pipeline := setupExecPipeline(t)
 
 		mockShell := shell.NewMockShell()
-		constructors := ExecConstructors{
-			NewShell: func(di.Injector) shell.Shell {
-				return mockShell
-			},
-		}
-
-		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector, context.Background())
-		if err != nil {
-			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
-
-		ctx := context.Background()
-
-		err = pipeline.Execute(ctx)
-
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		expectedError := "no command provided in context"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("EmptyCommandInContext", func(t *testing.T) {
-		injector := di.NewInjector()
-
-		mockShell := shell.NewMockShell()
-		constructors := ExecConstructors{
-			NewShell: func(di.Injector) shell.Shell {
-				return mockShell
-			},
-		}
-
-		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector, context.Background())
-		if err != nil {
-			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
-
-		ctx := context.Background()
-		ctx = context.WithValue(ctx, "command", "")
-
-		err = pipeline.Execute(ctx)
-
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		expectedError := "no command provided in context"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ShellExecutionError", func(t *testing.T) {
-		injector := di.NewInjector()
-
-		// Create mock shell that fails execution
-		mockShell := shell.NewMockShell()
-		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
-			return "", fmt.Errorf("command execution failed")
-		}
-
-		constructors := ExecConstructors{
-			NewShell: func(di.Injector) shell.Shell {
-				return mockShell
-			},
-		}
-
-		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector, context.Background())
-		if err != nil {
-			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
-
-		ctx := context.Background()
-		ctx = context.WithValue(ctx, "command", "test-command")
-
-		err = pipeline.Execute(ctx)
-
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		expectedError := "command execution failed: command execution failed"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("NoArgsInContext", func(t *testing.T) {
-		injector := di.NewInjector()
-
-		// Create mock shell
-		mockShell := shell.NewMockShell()
+		execCalled := false
 		var capturedCommand string
 		var capturedArgs []string
 		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
+			execCalled = true
 			capturedCommand = command
 			capturedArgs = args
-			return "output", nil
+			return "command output", nil
 		}
+		pipeline.shell = mockShell
 
-		constructors := ExecConstructors{
-			NewShell: func(di.Injector) shell.Shell {
-				return mockShell
-			},
-		}
+		ctx := context.WithValue(context.Background(), "command", "test-command")
 
-		pipeline := NewExecPipeline(constructors)
-		err := pipeline.Initialize(injector, context.Background())
-		if err != nil {
-			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
+		// When executing the pipeline
+		err := pipeline.Execute(ctx)
 
-		ctx := context.Background()
-		ctx = context.WithValue(ctx, "command", "test-command")
-
-		err = pipeline.Execute(ctx)
-
+		// Then no error should be returned and command should be executed
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-
-		if capturedCommand != "test-command" {
-			t.Errorf("Expected command 'test-command', got %q", capturedCommand)
+		if !execCalled {
+			t.Error("Expected shell.Exec to be called")
 		}
-
+		if capturedCommand != "test-command" {
+			t.Errorf("Expected command 'test-command', got '%s'", capturedCommand)
+		}
 		if len(capturedArgs) != 0 {
 			t.Errorf("Expected no args, got %v", capturedArgs)
 		}
+	})
+
+	t.Run("ReturnsErrorWhenNoCommandProvided", func(t *testing.T) {
+		// Given an exec pipeline with no command in context
+		pipeline := setupExecPipeline(t)
+
+		mockShell := shell.NewMockShell()
+		pipeline.shell = mockShell
+
+		ctx := context.Background()
+
+		// When executing the pipeline
+		err := pipeline.Execute(ctx)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "no command provided in context" {
+			t.Errorf("Expected 'no command provided in context', got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenCommandIsEmpty", func(t *testing.T) {
+		// Given an exec pipeline with empty command
+		pipeline := setupExecPipeline(t)
+
+		mockShell := shell.NewMockShell()
+		pipeline.shell = mockShell
+
+		ctx := context.WithValue(context.Background(), "command", "")
+
+		// When executing the pipeline
+		err := pipeline.Execute(ctx)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "no command provided in context" {
+			t.Errorf("Expected 'no command provided in context', got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenCommandIsNotString", func(t *testing.T) {
+		// Given an exec pipeline with non-string command
+		pipeline := setupExecPipeline(t)
+
+		mockShell := shell.NewMockShell()
+		pipeline.shell = mockShell
+
+		ctx := context.WithValue(context.Background(), "command", 123)
+
+		// When executing the pipeline
+		err := pipeline.Execute(ctx)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "no command provided in context" {
+			t.Errorf("Expected 'no command provided in context', got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenShellExecFails", func(t *testing.T) {
+		// Given an exec pipeline with failing shell exec
+		pipeline := setupExecPipeline(t)
+
+		mockShell := shell.NewMockShell()
+		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
+			return "", fmt.Errorf("exec failed")
+		}
+		pipeline.shell = mockShell
+
+		ctx := context.WithValue(context.Background(), "command", "test-command")
+
+		// When executing the pipeline
+		err := pipeline.Execute(ctx)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "command execution failed: exec failed" {
+			t.Errorf("Expected 'command execution failed: exec failed', got: %v", err)
+		}
+	})
+
+	t.Run("HandlesArgsAsNonSliceType", func(t *testing.T) {
+		// Given an exec pipeline with args as non-slice type
+		pipeline := setupExecPipeline(t)
+
+		mockShell := shell.NewMockShell()
+		pipeline.shell = mockShell
+
+		ctx := context.WithValue(context.Background(), "command", "test-command")
+		ctx = context.WithValue(ctx, "args", "not-a-slice")
+
+		// When executing the pipeline
+		// Then it should panic due to invalid type assertion
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic due to invalid type assertion")
+			}
+		}()
+
+		pipeline.Execute(ctx)
 	})
 }
