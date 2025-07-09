@@ -128,19 +128,11 @@ func setupContextMocks(t *testing.T, opts ...*ContextSetupOptions) *ContextMocks
 func setupContextPipeline(t *testing.T, mocks *ContextMocks) *ContextPipeline {
 	t.Helper()
 
-	constructors := ContextConstructors{
-		NewConfigHandler: func(di.Injector) config.ConfigHandler {
-			return mocks.ConfigHandler
-		},
-		NewShell: func(di.Injector) shell.Shell {
-			return mocks.Shell
-		},
-		NewShims: func() *Shims {
-			return mocks.Shims
-		},
-	}
+	mocks.Injector.Register("configHandler", mocks.ConfigHandler)
+	mocks.Injector.Register("shell", mocks.Shell)
+	mocks.Injector.Register("shims", mocks.Shims)
 
-	return NewContextPipeline(constructors)
+	return NewContextPipeline()
 }
 
 // =============================================================================
@@ -148,58 +140,33 @@ func setupContextPipeline(t *testing.T, mocks *ContextMocks) *ContextPipeline {
 // =============================================================================
 
 func TestNewContextPipeline(t *testing.T) {
-	t.Run("CreatesWithDefaultConstructors", func(t *testing.T) {
+	t.Run("CreatesWithDefaults", func(t *testing.T) {
 		pipeline := NewContextPipeline()
 
 		if pipeline == nil {
 			t.Fatal("Expected pipeline to not be nil")
 		}
-
-		injector := di.NewMockInjector()
-
-		if pipeline.constructors.NewConfigHandler == nil {
-			t.Error("Expected NewConfigHandler constructor to be set")
-		} else {
-			configHandler := pipeline.constructors.NewConfigHandler(injector)
-			if configHandler == nil {
-				t.Error("Expected NewConfigHandler to return a non-nil config handler")
-			}
-		}
-
-		if pipeline.constructors.NewShell == nil {
-			t.Error("Expected NewShell constructor to be set")
-		} else {
-			shell := pipeline.constructors.NewShell(injector)
-			if shell == nil {
-				t.Error("Expected NewShell to return a non-nil shell")
-			}
-		}
-
-		if pipeline.constructors.NewShims == nil {
-			t.Error("Expected NewShims constructor to be set")
-		} else {
-			shims := pipeline.constructors.NewShims()
-			if shims == nil {
-				t.Error("Expected NewShims to return a non-nil shims")
-			}
-		}
 	})
 
-	t.Run("CreatesWithCustomConstructors", func(t *testing.T) {
-		constructors := ContextConstructors{
-			NewConfigHandler: func(di.Injector) config.ConfigHandler {
-				return config.NewMockConfigHandler()
-			},
+	t.Run("InitializesCorrectly", func(t *testing.T) {
+		injector := di.NewMockInjector()
+
+		pipeline := NewContextPipeline()
+
+		err := pipeline.Initialize(injector, context.Background())
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 
-		pipeline := NewContextPipeline(constructors)
-
-		if pipeline == nil {
-			t.Fatal("Expected pipeline to not be nil")
+		if pipeline.shell == nil {
+			t.Error("Expected shell to be initialized")
 		}
-
-		if pipeline.constructors.NewConfigHandler == nil {
-			t.Error("Expected NewConfigHandler constructor to be set")
+		if pipeline.configHandler == nil {
+			t.Error("Expected configHandler to be initialized")
+		}
+		if pipeline.shims == nil {
+			t.Error("Expected shims to be initialized")
 		}
 	})
 }
@@ -269,53 +236,6 @@ contexts:
 		}
 	})
 
-	t.Run("ReusesExistingComponentsFromDIContainer", func(t *testing.T) {
-		injector := di.NewMockInjector()
-
-		existingShell := shell.NewMockShell()
-		existingShell.InitializeFunc = func() error { return nil }
-		existingShell.GetProjectRootFunc = func() (string, error) { return t.TempDir(), nil }
-		injector.Register("shell", existingShell)
-
-		existingConfigHandler := config.NewMockConfigHandler()
-		existingConfigHandler.InitializeFunc = func() error { return nil }
-		existingConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-		injector.Register("configHandler", existingConfigHandler)
-
-		constructorsCalled := false
-		constructors := ContextConstructors{
-			NewConfigHandler: func(di.Injector) config.ConfigHandler {
-				constructorsCalled = true
-				return config.NewMockConfigHandler()
-			},
-			NewShell: func(di.Injector) shell.Shell {
-				constructorsCalled = true
-				return shell.NewMockShell()
-			},
-			NewShims: func() *Shims {
-				return setupContextShims(t)
-			},
-		}
-
-		pipeline := NewContextPipeline(constructors)
-
-		err := pipeline.Initialize(injector, context.Background())
-
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-
-		if constructorsCalled {
-			t.Error("Expected constructors not to be called when components exist in DI container")
-		}
-
-		if pipeline.shell != existingShell {
-			t.Error("Expected pipeline to use existing shell from DI container")
-		}
-		if pipeline.configHandler != existingConfigHandler {
-			t.Error("Expected pipeline to use existing config handler from DI container")
-		}
-	})
 }
 
 func TestContextPipeline_Execute(t *testing.T) {

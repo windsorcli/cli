@@ -110,25 +110,13 @@ func setupCheckShims(t *testing.T) *Shims {
 func setupCheckPipeline(t *testing.T, mocks *CheckMocks) *CheckPipeline {
 	t.Helper()
 
-	constructors := CheckConstructors{
-		NewConfigHandler: func(di.Injector) config.ConfigHandler {
-			return mocks.ConfigHandler
-		},
-		NewShell: func(di.Injector) shell.Shell {
-			return mocks.Shell
-		},
-		NewToolsManager: func(di.Injector) tools.ToolsManager {
-			return mocks.ToolsManager
-		},
-		NewClusterClient: func(di.Injector) cluster.ClusterClient {
-			return mocks.ClusterClient
-		},
-		NewShims: func() *Shims {
-			return mocks.Shims
-		},
-	}
+	mocks.Injector.Register("configHandler", mocks.ConfigHandler)
+	mocks.Injector.Register("shell", mocks.Shell)
+	mocks.Injector.Register("toolsManager", mocks.ToolsManager)
+	mocks.Injector.Register("clusterClient", mocks.ClusterClient)
+	mocks.Injector.Register("shims", mocks.Shims)
 
-	return NewCheckPipeline(constructors)
+	return NewCheckPipeline()
 }
 
 func checkContains(str, substr string) bool {
@@ -150,74 +138,11 @@ func checkContains(str, substr string) bool {
 // =============================================================================
 
 func TestNewCheckPipeline(t *testing.T) {
-	t.Run("CreatesWithDefaultConstructors", func(t *testing.T) {
+	t.Run("CreatesWithDefaults", func(t *testing.T) {
 		pipeline := NewCheckPipeline()
 
 		if pipeline == nil {
 			t.Fatal("Expected pipeline to not be nil")
-		}
-
-		if pipeline.constructors.NewConfigHandler == nil {
-			t.Error("Expected NewConfigHandler constructor to be set")
-		} else {
-			handler := pipeline.constructors.NewConfigHandler(di.NewMockInjector())
-			if handler == nil {
-				t.Error("Expected NewConfigHandler to return a non-nil handler")
-			}
-		}
-
-		if pipeline.constructors.NewShell == nil {
-			t.Error("Expected NewShell constructor to be set")
-		} else {
-			shell := pipeline.constructors.NewShell(di.NewMockInjector())
-			if shell == nil {
-				t.Error("Expected NewShell to return a non-nil shell")
-			}
-		}
-
-		if pipeline.constructors.NewToolsManager == nil {
-			t.Error("Expected NewToolsManager constructor to be set")
-		} else {
-			manager := pipeline.constructors.NewToolsManager(di.NewMockInjector())
-			if manager == nil {
-				t.Error("Expected NewToolsManager to return a non-nil manager")
-			}
-		}
-
-		if pipeline.constructors.NewClusterClient == nil {
-			t.Error("Expected NewClusterClient constructor to be set")
-		} else {
-			client := pipeline.constructors.NewClusterClient(di.NewMockInjector())
-			if client == nil {
-				t.Error("Expected NewClusterClient to return a non-nil client")
-			}
-		}
-
-		if pipeline.constructors.NewShims == nil {
-			t.Error("Expected NewShims constructor to be set")
-		} else {
-			shims := pipeline.constructors.NewShims()
-			if shims == nil {
-				t.Error("Expected NewShims to return a non-nil shims")
-			}
-		}
-	})
-
-	t.Run("CreatesWithCustomConstructors", func(t *testing.T) {
-		constructors := CheckConstructors{
-			NewConfigHandler: func(di.Injector) config.ConfigHandler {
-				return config.NewMockConfigHandler()
-			},
-		}
-
-		pipeline := NewCheckPipeline(constructors)
-
-		if pipeline == nil {
-			t.Fatal("Expected pipeline to not be nil")
-		}
-
-		if pipeline.constructors.NewConfigHandler == nil {
-			t.Error("Expected NewConfigHandler constructor to be set")
 		}
 	})
 }
@@ -319,14 +244,10 @@ contexts:
 		injector := di.NewMockInjector()
 
 		existingShell := shell.NewMockShell()
-		existingShell.InitializeFunc = func() error { return nil }
-		existingShell.GetProjectRootFunc = func() (string, error) { return t.TempDir(), nil }
 		injector.Register("shell", existingShell)
 
 		existingConfigHandler := config.NewMockConfigHandler()
 		existingConfigHandler.InitializeFunc = func() error { return nil }
-		existingConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-		existingConfigHandler.IsLoadedFunc = func() bool { return true }
 		injector.Register("configHandler", existingConfigHandler)
 
 		existingToolsManager := tools.NewMockToolsManager()
@@ -336,39 +257,12 @@ contexts:
 		existingClusterClient := cluster.NewMockClusterClient()
 		injector.Register("clusterClient", existingClusterClient)
 
-		constructorsCalled := false
-		constructors := CheckConstructors{
-			NewConfigHandler: func(di.Injector) config.ConfigHandler {
-				constructorsCalled = true
-				return config.NewMockConfigHandler()
-			},
-			NewShell: func(di.Injector) shell.Shell {
-				constructorsCalled = true
-				return shell.NewMockShell()
-			},
-			NewToolsManager: func(di.Injector) tools.ToolsManager {
-				constructorsCalled = true
-				return tools.NewMockToolsManager()
-			},
-			NewClusterClient: func(di.Injector) cluster.ClusterClient {
-				constructorsCalled = true
-				return cluster.NewMockClusterClient()
-			},
-			NewShims: func() *Shims {
-				return setupCheckShims(t)
-			},
-		}
-
-		pipeline := NewCheckPipeline(constructors)
+		pipeline := NewCheckPipeline()
 
 		err := pipeline.Initialize(injector, context.Background())
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
-		}
-
-		if constructorsCalled {
-			t.Error("Expected constructors not to be called when components exist in DI container")
 		}
 
 		if pipeline.shell != existingShell {

@@ -6,9 +6,7 @@ import (
 	"time"
 
 	"github.com/windsorcli/cli/pkg/cluster"
-	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/tools"
 )
 
@@ -21,20 +19,9 @@ import (
 // Types
 // =============================================================================
 
-// CheckConstructors defines constructor functions for CheckPipeline dependencies
-type CheckConstructors struct {
-	NewConfigHandler func(di.Injector) config.ConfigHandler
-	NewShell         func(di.Injector) shell.Shell
-	NewToolsManager  func(di.Injector) tools.ToolsManager
-	NewClusterClient func(di.Injector) cluster.ClusterClient
-	NewShims         func() *Shims
-}
-
 // CheckPipeline provides tool checking and node health checking functionality
 type CheckPipeline struct {
 	BasePipeline
-
-	constructors CheckConstructors
 
 	toolsManager  tools.ToolsManager
 	clusterClient cluster.ClusterClient
@@ -44,34 +31,10 @@ type CheckPipeline struct {
 // Constructor
 // =============================================================================
 
-// NewCheckPipeline creates a new CheckPipeline instance with optional constructors
-func NewCheckPipeline(constructors ...CheckConstructors) *CheckPipeline {
-	var ctors CheckConstructors
-	if len(constructors) > 0 {
-		ctors = constructors[0]
-	} else {
-		ctors = CheckConstructors{
-			NewConfigHandler: func(injector di.Injector) config.ConfigHandler {
-				return config.NewYamlConfigHandler(injector)
-			},
-			NewShell: func(injector di.Injector) shell.Shell {
-				return shell.NewDefaultShell(injector)
-			},
-			NewToolsManager: func(injector di.Injector) tools.ToolsManager {
-				return tools.NewToolsManager(injector)
-			},
-			NewClusterClient: func(injector di.Injector) cluster.ClusterClient {
-				return cluster.NewTalosClusterClient(injector)
-			},
-			NewShims: func() *Shims {
-				return NewShims()
-			},
-		}
-	}
-
+// NewCheckPipeline creates a new CheckPipeline instance
+func NewCheckPipeline() *CheckPipeline {
 	return &CheckPipeline{
 		BasePipeline: *NewBasePipeline(),
-		constructors: ctors,
 	}
 }
 
@@ -79,36 +42,21 @@ func NewCheckPipeline(constructors ...CheckConstructors) *CheckPipeline {
 // Public Methods
 // =============================================================================
 
-// Initialize creates and registers all required components for the check pipeline.
-// It sets up the config handler, shell, tools manager, and cluster client in the correct order,
-// registering each component with the dependency injector and initializing them sequentially
-// to ensure proper dependency resolution.
+// Initialize creates and registers the required components for the check pipeline including
+// tools manager and cluster client dependencies. It validates component initialization
+// and ensures proper setup for both tool checking and node health monitoring operations.
 func (p *CheckPipeline) Initialize(injector di.Injector, ctx context.Context) error {
 	if err := p.BasePipeline.Initialize(injector, ctx); err != nil {
 		return err
 	}
 
-	p.shims = p.constructors.NewShims()
+	p.toolsManager = p.withToolsManager()
+	p.clusterClient = p.withClusterClient()
 
-	p.shell = resolveOrCreateDependency(injector, "shell", p.constructors.NewShell)
-	p.configHandler = resolveOrCreateDependency(injector, "configHandler", p.constructors.NewConfigHandler)
-	p.toolsManager = resolveOrCreateDependency(injector, "toolsManager", p.constructors.NewToolsManager)
-	p.clusterClient = resolveOrCreateDependency(injector, "clusterClient", p.constructors.NewClusterClient)
-
-	if err := p.shell.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize shell: %w", err)
-	}
-
-	if err := p.configHandler.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize config handler: %w", err)
-	}
-
-	if err := p.loadConfig(); err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	if err := p.toolsManager.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize tools manager: %w", err)
+	if p.toolsManager != nil {
+		if err := p.toolsManager.Initialize(); err != nil {
+			return fmt.Errorf("failed to initialize tools manager: %w", err)
+		}
 	}
 
 	return nil

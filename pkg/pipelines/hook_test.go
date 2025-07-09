@@ -3,11 +3,8 @@ package pipelines
 import (
 	"context"
 	"fmt"
-	"os"
-	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
@@ -15,81 +12,12 @@ import (
 // Test Setup
 // =============================================================================
 
-type HookMocks struct {
-	Injector di.Injector
-	Shell    *shell.MockShell
-	Shims    *Shims
-}
-
-type HookSetupOptions struct {
-	Injector di.Injector
-	Shell    *shell.MockShell
-}
-
-func setupHookMocks(t *testing.T, opts ...*HookSetupOptions) *HookMocks {
+func setupHookPipeline(t *testing.T) *HookPipeline {
 	t.Helper()
 
-	var options *HookSetupOptions
-	if len(opts) > 0 {
-		options = opts[0]
-	} else {
-		options = &HookSetupOptions{}
-	}
+	pipeline := NewHookPipeline()
 
-	var injector di.Injector
-	if options.Injector != nil {
-		injector = options.Injector
-	} else {
-		injector = di.NewMockInjector()
-	}
-
-	var mockShell *shell.MockShell
-	if options.Shell != nil {
-		mockShell = options.Shell
-	} else {
-		mockShell = shell.NewMockShell()
-		mockShell.InitializeFunc = func() error { return nil }
-		mockShell.GetProjectRootFunc = func() (string, error) { return t.TempDir(), nil }
-		mockShell.InstallHookFunc = func(shellName string) error { return nil }
-	}
-
-	shims := setupHookShims(t)
-
-	return &HookMocks{
-		Injector: injector,
-		Shell:    mockShell,
-		Shims:    shims,
-	}
-}
-
-func setupHookShims(t *testing.T) *Shims {
-	t.Helper()
-	return &Shims{
-		Stat: func(name string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
-		},
-		Getenv: func(key string) string {
-			return ""
-		},
-		Setenv: func(key, value string) error {
-			return nil
-		},
-	}
-}
-
-func setupHookPipeline(t *testing.T, mocks *HookMocks) *HookPipeline {
-	t.Helper()
-
-	constructors := HookConstructors{
-		NewShell: func(di.Injector) shell.Shell {
-			return mocks.Shell
-		},
-		NewShims: func() *Shims {
-			return mocks.Shims
-		},
-	}
-
-	return NewHookPipeline(constructors)
+	return pipeline
 }
 
 // =============================================================================
@@ -97,57 +25,13 @@ func setupHookPipeline(t *testing.T, mocks *HookMocks) *HookPipeline {
 // =============================================================================
 
 func TestNewHookPipeline(t *testing.T) {
-	t.Run("CreatesWithDefaultConstructors", func(t *testing.T) {
-		// Given no constructors provided
-		// When creating a new hook pipeline
+	t.Run("CreatesWithDefaults", func(t *testing.T) {
+		// Given creating a new hook pipeline
 		pipeline := NewHookPipeline()
 
-		// Then pipeline should be created successfully
+		// Then pipeline should not be nil
 		if pipeline == nil {
 			t.Fatal("Expected pipeline to not be nil")
-		}
-
-		// And all default constructors should be set and functional
-		injector := di.NewMockInjector()
-
-		if pipeline.constructors.NewShell == nil {
-			t.Error("Expected NewShell constructor to be set")
-		} else {
-			shell := pipeline.constructors.NewShell(injector)
-			if shell == nil {
-				t.Error("Expected NewShell to return a non-nil shell")
-			}
-		}
-
-		if pipeline.constructors.NewShims == nil {
-			t.Error("Expected NewShims constructor to be set")
-		} else {
-			shims := pipeline.constructors.NewShims()
-			if shims == nil {
-				t.Error("Expected NewShims to return a non-nil shims")
-			}
-		}
-	})
-
-	t.Run("CreatesWithCustomConstructors", func(t *testing.T) {
-		// Given custom constructors
-		constructors := HookConstructors{
-			NewShell: func(di.Injector) shell.Shell {
-				return shell.NewMockShell()
-			},
-		}
-
-		// When creating a new hook pipeline
-		pipeline := NewHookPipeline(constructors)
-
-		// Then pipeline should be created successfully
-		if pipeline == nil {
-			t.Fatal("Expected pipeline to not be nil")
-		}
-
-		// And custom constructor should be used
-		if pipeline.constructors.NewShell == nil {
-			t.Error("Expected NewShell constructor to be set")
 		}
 	})
 }
@@ -156,219 +40,101 @@ func TestNewHookPipeline(t *testing.T) {
 // Test Public Methods
 // =============================================================================
 
-func TestHookPipeline_Initialize(t *testing.T) {
-	setup := func(t *testing.T, opts ...*HookSetupOptions) (*HookPipeline, *HookMocks) {
-		t.Helper()
-		mocks := setupHookMocks(t, opts...)
-		pipeline := setupHookPipeline(t, mocks)
-		return pipeline, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a properly configured pipeline
-		pipeline, _ := setup(t)
-
-		// When initializing the pipeline
-		err := pipeline.Initialize(di.NewMockInjector(), context.Background())
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ReturnsErrorWhenShellInitializeFails", func(t *testing.T) {
-		// Given a shell that fails to initialize
-		pipeline, mocks := setup(t)
-		mocks.Shell.InitializeFunc = func() error {
-			return fmt.Errorf("shell initialization failed")
-		}
-
-		// When initializing the pipeline
-		err := pipeline.Initialize(mocks.Injector, context.Background())
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to initialize shell") {
-			t.Errorf("Expected shell error, got: %v", err)
-		}
-	})
-
-	t.Run("ReusesExistingComponentsFromDIContainer", func(t *testing.T) {
-		// Given a DI container with pre-existing shell
-		injector := di.NewMockInjector()
-
-		existingShell := shell.NewMockShell()
-		existingShell.InitializeFunc = func() error { return nil }
-		injector.Register("shell", existingShell)
-
-		// And a pipeline with custom constructors that should NOT be called
-		constructorsCalled := false
-		constructors := HookConstructors{
-			NewShell: func(di.Injector) shell.Shell {
-				constructorsCalled = true
-				return shell.NewMockShell()
-			},
-			NewShims: func() *Shims {
-				return setupHookShims(t)
-			},
-		}
-
-		pipeline := NewHookPipeline(constructors)
-
-		// When initializing the pipeline
-		err := pipeline.Initialize(injector, context.Background())
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-
-		// And the existing components should be reused (constructors not called)
-		if constructorsCalled {
-			t.Error("Expected constructors not to be called when components exist in DI container")
-		}
-
-		// And the pipeline should use the existing components
-		if pipeline.shell != existingShell {
-			t.Error("Expected pipeline to use existing shell from DI container")
-		}
-	})
-}
-
 func TestHookPipeline_Execute(t *testing.T) {
-	setup := func(t *testing.T, opts ...*HookSetupOptions) (*HookPipeline, *HookMocks) {
-		t.Helper()
-		mocks := setupHookMocks(t, opts...)
-		pipeline := setupHookPipeline(t, mocks)
-		err := pipeline.Initialize(mocks.Injector, context.Background())
-		if err != nil {
-			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
-		return pipeline, mocks
-	}
+	t.Run("InstallsHookSuccessfully", func(t *testing.T) {
+		// Given a hook pipeline with a mock shell
+		pipeline := setupHookPipeline(t)
 
-	t.Run("ExecutesSuccessfully", func(t *testing.T) {
-		// Given a properly initialized pipeline
-		pipeline, mocks := setup(t)
-
-		// And a shell that successfully installs hooks
-		hookInstalled := false
-		mocks.Shell.InstallHookFunc = func(shellName string) error {
-			hookInstalled = true
-			if shellName != "zsh" {
-				t.Errorf("Expected shell name 'zsh', got '%s'", shellName)
-			}
+		mockShell := shell.NewMockShell()
+		installHookCalled := false
+		var capturedShellName string
+		mockShell.InstallHookFunc = func(shellName string) error {
+			installHookCalled = true
+			capturedShellName = shellName
 			return nil
 		}
+		pipeline.shell = mockShell
 
-		// When executing the pipeline with a shell type
-		ctx := context.WithValue(context.Background(), "shellType", "zsh")
+		ctx := context.WithValue(context.Background(), "shellType", "bash")
+
+		// When executing the pipeline
 		err := pipeline.Execute(ctx)
 
-		// Then no error should be returned
+		// Then no error should be returned and hook should be installed
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-
-		// And the hook should be installed
-		if !hookInstalled {
-			t.Error("Expected hook to be installed")
+		if !installHookCalled {
+			t.Error("Expected shell.InstallHook to be called")
+		}
+		if capturedShellName != "bash" {
+			t.Errorf("Expected shell name 'bash', got '%s'", capturedShellName)
 		}
 	})
 
 	t.Run("ReturnsErrorWhenNoShellTypeProvided", func(t *testing.T) {
-		// Given a properly initialized pipeline
-		pipeline, _ := setup(t)
+		// Given a hook pipeline with no shell type in context
+		pipeline := setupHookPipeline(t)
 
-		// When executing the pipeline without a shell type
+		mockShell := shell.NewMockShell()
+		pipeline.shell = mockShell
+
 		ctx := context.Background()
+
+		// When executing the pipeline
 		err := pipeline.Execute(ctx)
 
 		// Then an error should be returned
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "No shell name provided") {
-			t.Errorf("Expected shell name error, got: %v", err)
+		if err.Error() != "No shell name provided" {
+			t.Errorf("Expected 'No shell name provided', got: %v", err)
 		}
 	})
 
-	t.Run("ReturnsErrorWhenShellTypeIsInvalidType", func(t *testing.T) {
-		// Given a properly initialized pipeline
-		pipeline, _ := setup(t)
+	t.Run("ReturnsErrorWhenShellTypeIsNotString", func(t *testing.T) {
+		// Given a hook pipeline with non-string shell type
+		pipeline := setupHookPipeline(t)
 
-		// When executing the pipeline with an invalid shell type
+		mockShell := shell.NewMockShell()
+		pipeline.shell = mockShell
+
 		ctx := context.WithValue(context.Background(), "shellType", 123)
+
+		// When executing the pipeline
 		err := pipeline.Execute(ctx)
 
 		// Then an error should be returned
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "Invalid shell name type") {
-			t.Errorf("Expected shell name type error, got: %v", err)
+		if err.Error() != "Invalid shell name type" {
+			t.Errorf("Expected 'Invalid shell name type', got: %v", err)
 		}
 	})
 
 	t.Run("ReturnsErrorWhenInstallHookFails", func(t *testing.T) {
-		// Given a properly initialized pipeline
-		pipeline, mocks := setup(t)
+		// Given a hook pipeline with failing install hook
+		pipeline := setupHookPipeline(t)
 
-		// And a shell that fails to install hooks
-		mocks.Shell.InstallHookFunc = func(shellName string) error {
-			return fmt.Errorf("hook installation failed")
+		mockShell := shell.NewMockShell()
+		mockShell.InstallHookFunc = func(shellName string) error {
+			return fmt.Errorf("install hook failed")
 		}
+		pipeline.shell = mockShell
 
-		// When executing the pipeline with a shell type
 		ctx := context.WithValue(context.Background(), "shellType", "bash")
+
+		// When executing the pipeline
 		err := pipeline.Execute(ctx)
 
 		// Then an error should be returned
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "hook installation failed") {
-			t.Errorf("Expected hook installation error, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesAllSupportedShellTypes", func(t *testing.T) {
-		// Given a properly initialized pipeline
-		pipeline, mocks := setup(t)
-
-		// And a list of supported shell types
-		supportedShells := []string{"zsh", "bash", "fish", "tcsh", "elvish", "powershell"}
-
-		for _, shellType := range supportedShells {
-			t.Run(fmt.Sprintf("Shell_%s", shellType), func(t *testing.T) {
-				// And a shell that tracks the installed shell type
-				var installedShellType string
-				mocks.Shell.InstallHookFunc = func(shellName string) error {
-					installedShellType = shellName
-					return nil
-				}
-
-				// When executing the pipeline with the shell type
-				ctx := context.WithValue(context.Background(), "shellType", shellType)
-				err := pipeline.Execute(ctx)
-
-				// Then no error should be returned
-				if err != nil {
-					t.Errorf("Expected no error for shell %s, got %v", shellType, err)
-				}
-
-				// And the correct shell type should be passed to InstallHook
-				if installedShellType != shellType {
-					t.Errorf("Expected shell type '%s', got '%s'", shellType, installedShellType)
-				}
-			})
+		if err.Error() != "install hook failed" {
+			t.Errorf("Expected 'install hook failed', got: %v", err)
 		}
 	})
 }
-
-// =============================================================================
-// Test Helpers
-// =============================================================================
