@@ -17,7 +17,7 @@ packages:
 - name: siderolabs/omni/omni@v0.51.0
 - name: kubernetes/kubectl@v1.33.2
 - name: go-task/task@v3.44.0
-- name: golang/go@go1.24.4
+- name: golang/go@go1.24.5
 - name: getsops/sops@v3.9.0
 - name: abiosoft/colima@v0.8.1
 - name: lima-vm/lima@v1.1.1
@@ -27,7 +27,7 @@ packages:
 - name: google/go-jsonnet@v0.21.0
 - name: mikefarah/yq@v4.45.4
 - name: goreleaser/goreleaser@v2.10.2
-- name: helm/helm@v3.18.3
+- name: helm/helm@v3.18.4
 - name: 1password/cli@v2.30.3
 - name: fluxcd/flux2@v2.6.4
 - name: aws/aws-cli@2.27.49
