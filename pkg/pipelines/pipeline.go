@@ -292,7 +292,6 @@ func (p *BasePipeline) withSecretsProviders() ([]secrets.SecretsProvider, error)
 		useSDK := p.shims.Getenv("OP_SERVICE_ACCOUNT_TOKEN") != ""
 
 		for key, vault := range vaults {
-			// Fix: Create a new vault instance to properly set the ID
 			vaultCopy := vault
 			vaultCopy.ID = key
 
