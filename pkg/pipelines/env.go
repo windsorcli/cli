@@ -60,6 +60,13 @@ func (p *EnvPipeline) Initialize(injector di.Injector, ctx context.Context) erro
 	}
 	p.secretsProviders = secretsProviders
 
+	// Register secrets providers in the dependency injection container
+	// so that environment printers can find them
+	for i, secretsProvider := range p.secretsProviders {
+		providerKey := fmt.Sprintf("secretsProvider_%d", i)
+		p.injector.Register(providerKey, secretsProvider)
+	}
+
 	for _, secretsProvider := range p.secretsProviders {
 		if err := secretsProvider.Initialize(); err != nil {
 			return fmt.Errorf("failed to initialize secrets provider: %w", err)
@@ -113,17 +120,29 @@ func (p *EnvPipeline) Execute(ctx context.Context) error {
 		}
 	}
 
-	if err := p.collectAndSetEnvVars(); err != nil {
-		return fmt.Errorf("failed to collect and set environment variables: %w", err)
+	allEnvVars := make(map[string]string)
+	for _, envPrinter := range p.envPrinters {
+		envVars, err := envPrinter.GetEnvVars()
+		if err != nil {
+			return fmt.Errorf("error getting environment variables: %w", err)
+		}
+
+		for key, value := range envVars {
+			allEnvVars[key] = value
+		}
+	}
+
+	for key, value := range allEnvVars {
+		if err := os.Setenv(key, value); err != nil {
+			return fmt.Errorf("error setting environment variable %s: %w", key, err)
+		}
 	}
 
 	if !quiet {
+		p.shell.PrintEnvVars(allEnvVars)
+
 		var firstError error
 		for _, envPrinter := range p.envPrinters {
-			if err := envPrinter.Print(); err != nil && firstError == nil {
-				firstError = fmt.Errorf("failed to print env vars: %w", err)
-			}
-
 			if err := envPrinter.PostEnvHook(); err != nil && firstError == nil {
 				firstError = fmt.Errorf("failed to execute post env hook: %w", err)
 			}
@@ -141,23 +160,6 @@ func (p *EnvPipeline) Execute(ctx context.Context) error {
 // =============================================================================
 // Private Methods
 // =============================================================================
-
-// collectAndSetEnvVars collects environment variables from all configured environment printers
-// and sets them in the process environment
-func (p *EnvPipeline) collectAndSetEnvVars() error {
-	for _, envPrinter := range p.envPrinters {
-		envVars, err := envPrinter.GetEnvVars()
-		if err != nil {
-			return fmt.Errorf("error getting environment variables: %w", err)
-		}
-		for key, value := range envVars {
-			if err := os.Setenv(key, value); err != nil {
-				return fmt.Errorf("error setting environment variable %s: %w", key, err)
-			}
-		}
-	}
-	return nil
-}
 
 // =============================================================================
 // Interface Compliance

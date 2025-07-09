@@ -3,8 +3,6 @@ package pipelines
 import (
 	"context"
 	"fmt"
-	"os"
-	"strings"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
@@ -443,7 +441,7 @@ func TestEnvPipeline_Execute(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsErrorWhenCollectAndSetEnvVarsFails", func(t *testing.T) {
+	t.Run("ReturnsErrorWhenGetEnvVarsFails", func(t *testing.T) {
 		// Given an env pipeline with failing env vars collection
 		pipeline, mockShell, _ := setup(t)
 
@@ -464,7 +462,7 @@ func TestEnvPipeline_Execute(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		if err.Error() != "failed to collect and set environment variables: error getting environment variables: env vars error" {
+		if err.Error() != "error getting environment variables: env vars error" {
 			t.Errorf("Expected env vars error, got: %v", err)
 		}
 	})
@@ -477,12 +475,12 @@ func TestEnvPipeline_Execute(t *testing.T) {
 			return nil
 		}
 
-		mockEnvPrinter := env.NewMockEnvPrinter()
 		printCalled := false
-		mockEnvPrinter.PrintFunc = func() error {
+		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) {
 			printCalled = true
-			return nil
 		}
+
+		mockEnvPrinter := env.NewMockEnvPrinter()
 		postEnvHookCalled := false
 		mockEnvPrinter.PostEnvHookFunc = func() error {
 			postEnvHookCalled = true
@@ -518,12 +516,12 @@ func TestEnvPipeline_Execute(t *testing.T) {
 			return nil
 		}
 
-		mockEnvPrinter := env.NewMockEnvPrinter()
 		printCalled := false
-		mockEnvPrinter.PrintFunc = func() error {
+		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) {
 			printCalled = true
-			return nil
 		}
+
+		mockEnvPrinter := env.NewMockEnvPrinter()
 		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
 			return map[string]string{}, nil
 		}
@@ -543,17 +541,19 @@ func TestEnvPipeline_Execute(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsErrorWhenPrintFailsInVerboseMode", func(t *testing.T) {
-		// Given an env pipeline with failing print in verbose mode
+	t.Run("ReturnsErrorWhenPostEnvHookFailsInVerboseMode", func(t *testing.T) {
+		// Given an env pipeline with failing post env hook in verbose mode
 		pipeline, mockShell, _ := setup(t)
 
 		mockShell.CheckTrustedDirectoryFunc = func() error {
 			return nil
 		}
 
+		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) {}
+
 		mockEnvPrinter := env.NewMockEnvPrinter()
-		mockEnvPrinter.PrintFunc = func() error {
-			return fmt.Errorf("print error")
+		mockEnvPrinter.PostEnvHookFunc = func() error {
+			return fmt.Errorf("post env hook error")
 		}
 		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
 			return map[string]string{}, nil
@@ -570,25 +570,24 @@ func TestEnvPipeline_Execute(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		if err.Error() != "failed to print env vars: print error" {
-			t.Errorf("Expected print error, got: %v", err)
+		if err.Error() != "failed to execute post env hook: post env hook error" {
+			t.Errorf("Expected post env hook error, got: %v", err)
 		}
 	})
 
-	t.Run("IgnoresPrintErrorInNonVerboseMode", func(t *testing.T) {
-		// Given an env pipeline with failing print in non-verbose mode
+	t.Run("IgnoresPostEnvHookErrorInNonVerboseMode", func(t *testing.T) {
+		// Given an env pipeline with failing post env hook in non-verbose mode
 		pipeline, mockShell, _ := setup(t)
 
 		mockShell.CheckTrustedDirectoryFunc = func() error {
 			return nil
 		}
 
+		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) {}
+
 		mockEnvPrinter := env.NewMockEnvPrinter()
-		mockEnvPrinter.PrintFunc = func() error {
-			return fmt.Errorf("print error")
-		}
 		mockEnvPrinter.PostEnvHookFunc = func() error {
-			return nil
+			return fmt.Errorf("post env hook error")
 		}
 		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
 			return map[string]string{}, nil
@@ -612,53 +611,4 @@ func TestEnvPipeline_Execute(t *testing.T) {
 // Test Private Methods
 // =============================================================================
 
-func TestEnvPipeline_collectAndSetEnvVars(t *testing.T) {
-	t.Run("CollectsAndSetsEnvVarsSuccessfully", func(t *testing.T) {
-		// Given an env pipeline with mock env printers
-		pipeline := NewEnvPipeline()
-
-		mockEnvPrinter := env.NewMockEnvPrinter()
-		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
-			return map[string]string{
-				"TEST_VAR": "test_value",
-			}, nil
-		}
-		pipeline.envPrinters = []env.EnvPrinter{mockEnvPrinter}
-
-		// When collecting and setting env vars
-		err := pipeline.collectAndSetEnvVars()
-
-		// Then no error should be returned and env var should be set
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if os.Getenv("TEST_VAR") != "test_value" {
-			t.Errorf("Expected TEST_VAR to be 'test_value', got '%s'", os.Getenv("TEST_VAR"))
-		}
-
-		// Cleanup
-		os.Unsetenv("TEST_VAR")
-	})
-
-	t.Run("ReturnsErrorWhenGetEnvVarsFails", func(t *testing.T) {
-		// Given an env pipeline with failing env printer
-		pipeline := NewEnvPipeline()
-
-		mockEnvPrinter := env.NewMockEnvPrinter()
-		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
-			return nil, fmt.Errorf("get env vars failed")
-		}
-		pipeline.envPrinters = []env.EnvPrinter{mockEnvPrinter}
-
-		// When collecting and setting env vars
-		err := pipeline.collectAndSetEnvVars()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error getting environment variables") {
-			t.Errorf("Expected 'error getting environment variables' in error, got: %v", err)
-		}
-	})
-}
+// NOTE: collectAndSetEnvVars functionality is now integrated into Execute method

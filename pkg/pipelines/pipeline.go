@@ -292,12 +292,14 @@ func (p *BasePipeline) withSecretsProviders() ([]secrets.SecretsProvider, error)
 		useSDK := p.shims.Getenv("OP_SERVICE_ACCOUNT_TOKEN") != ""
 
 		for key, vault := range vaults {
-			vault.ID = key
+			// Fix: Create a new vault instance to properly set the ID
+			vaultCopy := vault
+			vaultCopy.ID = key
 
 			if useSDK {
-				secretsProviders = append(secretsProviders, secrets.NewOnePasswordSDKSecretsProvider(vault, p.injector))
+				secretsProviders = append(secretsProviders, secrets.NewOnePasswordSDKSecretsProvider(vaultCopy, p.injector))
 			} else {
-				secretsProviders = append(secretsProviders, secrets.NewOnePasswordCLISecretsProvider(vault, p.injector))
+				secretsProviders = append(secretsProviders, secrets.NewOnePasswordCLISecretsProvider(vaultCopy, p.injector))
 			}
 		}
 	}
