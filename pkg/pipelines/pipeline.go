@@ -7,14 +7,20 @@ import (
 	"path/filepath"
 
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
+	bundler "github.com/windsorcli/cli/pkg/artifact"
+	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/cluster"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	envpkg "github.com/windsorcli/cli/pkg/env"
+	"github.com/windsorcli/cli/pkg/generators"
+	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
+	"github.com/windsorcli/cli/pkg/stack"
 	"github.com/windsorcli/cli/pkg/tools"
+	"github.com/windsorcli/cli/pkg/virt"
 )
 
 // The BasePipeline is a foundational component that provides common pipeline functionality for command execution.
@@ -154,6 +160,150 @@ func (p *BasePipeline) withClusterClient() cluster.ClusterClient {
 	clusterClient := cluster.NewTalosClusterClient(p.injector)
 	p.injector.Register("clusterClient", clusterClient)
 	return clusterClient
+}
+
+// withBlueprintHandler resolves or creates blueprint handler from DI container
+func (p *BasePipeline) withBlueprintHandler() blueprint.BlueprintHandler {
+	if existing := p.injector.Resolve("blueprintHandler"); existing != nil {
+		if handler, ok := existing.(blueprint.BlueprintHandler); ok {
+			return handler
+		}
+	}
+
+	handler := blueprint.NewBlueprintHandler(p.injector)
+	p.injector.Register("blueprintHandler", handler)
+	return handler
+}
+
+// withStack resolves or creates stack from DI container
+func (p *BasePipeline) withStack() stack.Stack {
+	if existing := p.injector.Resolve("stack"); existing != nil {
+		if stack, ok := existing.(stack.Stack); ok {
+			return stack
+		}
+	}
+
+	stack := stack.NewWindsorStack(p.injector)
+	p.injector.Register("stack", stack)
+	return stack
+}
+
+// withGenerators creates generators based on configuration
+func (p *BasePipeline) withGenerators() ([]generators.Generator, error) {
+	var generatorList []generators.Generator
+
+	// Git generator
+	gitGenerator := generators.NewGitGenerator(p.injector)
+	p.injector.Register("gitGenerator", gitGenerator)
+	generatorList = append(generatorList, gitGenerator)
+
+	// Terraform generator
+	terraformGenerator := generators.NewTerraformGenerator(p.injector)
+	p.injector.Register("terraformGenerator", terraformGenerator)
+	generatorList = append(generatorList, terraformGenerator)
+
+	return generatorList, nil
+}
+
+// withArtifactBuilder resolves or creates artifact builder from DI container
+func (p *BasePipeline) withArtifactBuilder() bundler.Artifact {
+	if existing := p.injector.Resolve("artifactBuilder"); existing != nil {
+		if builder, ok := existing.(bundler.Artifact); ok {
+			return builder
+		}
+	}
+
+	builder := bundler.NewArtifactBuilder()
+	p.injector.Register("artifactBuilder", builder)
+	return builder
+}
+
+// withBundlers creates bundlers based on configuration
+func (p *BasePipeline) withBundlers() ([]bundler.Bundler, error) {
+	var bundlerList []bundler.Bundler
+
+	// Template bundler
+	templateBundler := bundler.NewTemplateBundler()
+	p.injector.Register("templateBundler", templateBundler)
+	bundlerList = append(bundlerList, templateBundler)
+
+	// Kustomize bundler
+	kustomizeBundler := bundler.NewKustomizeBundler()
+	p.injector.Register("kustomizeBundler", kustomizeBundler)
+	bundlerList = append(bundlerList, kustomizeBundler)
+
+	// Terraform bundler
+	terraformBundler := bundler.NewTerraformBundler()
+	p.injector.Register("terraformBundler", terraformBundler)
+	bundlerList = append(bundlerList, terraformBundler)
+
+	return bundlerList, nil
+}
+
+// withVirtualMachine resolves or creates virtual machine from DI container
+func (p *BasePipeline) withVirtualMachine() virt.VirtualMachine {
+	vmDriver := p.configHandler.GetString("vm.driver")
+	if vmDriver == "" {
+		return nil
+	}
+
+	if existing := p.injector.Resolve("virtualMachine"); existing != nil {
+		if vm, ok := existing.(virt.VirtualMachine); ok {
+			return vm
+		}
+	}
+
+	if vmDriver == "colima" {
+		vm := virt.NewColimaVirt(p.injector)
+		p.injector.Register("virtualMachine", vm)
+		return vm
+	}
+
+	return nil
+}
+
+// withContainerRuntime resolves or creates container runtime from DI container
+func (p *BasePipeline) withContainerRuntime() virt.ContainerRuntime {
+	if existing := p.injector.Resolve("containerRuntime"); existing != nil {
+		if containerRuntime, ok := existing.(virt.ContainerRuntime); ok {
+			return containerRuntime
+		}
+	}
+
+	// Only create docker runtime if docker is enabled
+	if !p.configHandler.GetBool("docker.enabled", false) {
+		return nil
+	}
+
+	containerRuntime := virt.NewDockerVirt(p.injector)
+	p.injector.Register("containerRuntime", containerRuntime)
+	return containerRuntime
+}
+
+// withKubernetesClient resolves or creates kubernetes client from DI container
+func (p *BasePipeline) withKubernetesClient() kubernetes.KubernetesClient {
+	if existing := p.injector.Resolve("kubernetesClient"); existing != nil {
+		if kubernetesClient, ok := existing.(kubernetes.KubernetesClient); ok {
+			return kubernetesClient
+		}
+	}
+
+	kubernetesClient := kubernetes.NewDynamicKubernetesClient()
+	p.injector.Register("kubernetesClient", kubernetesClient)
+	return kubernetesClient
+}
+
+// withKubernetesManager resolves or creates kubernetes manager from DI container
+func (p *BasePipeline) withKubernetesManager() kubernetes.KubernetesManager {
+	if existing := p.injector.Resolve("kubernetesManager"); existing != nil {
+		if kubernetesManager, ok := existing.(kubernetes.KubernetesManager); ok {
+			return kubernetesManager
+		}
+	}
+
+	kubernetesManager := kubernetes.NewKubernetesManager(p.injector)
+	p.injector.Register("kubernetesManager", kubernetesManager)
+	return kubernetesManager
 }
 
 // handleSessionReset checks session state and performs reset if needed.
@@ -306,7 +456,6 @@ func (p *BasePipeline) withSecretsProviders() ([]secrets.SecretsProvider, error)
 	return secretsProviders, nil
 }
 
-// withServices creates services based on configuration
 func (p *BasePipeline) withServices() ([]services.Service, error) {
 	if p.configHandler == nil {
 		return nil, fmt.Errorf("config handler not initialized")

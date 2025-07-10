@@ -3,6 +3,7 @@ package pipelines
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
@@ -16,13 +17,40 @@ import (
 // Test Setup
 // =============================================================================
 
-func setupEnvPipeline(t *testing.T) (*EnvPipeline, di.Injector) {
+type EnvMocks struct {
+	Injector      di.Injector
+	ConfigHandler config.ConfigHandler
+	Shell         *shell.MockShell
+	Shims         *Shims
+}
+
+func setupEnvShims(t *testing.T) *Shims {
+	t.Helper()
+	shims := setupShims(t)
+
+	// Add any env-specific shim overrides here if needed
+	return shims
+}
+
+func setupEnvMocks(t *testing.T, opts ...*SetupOptions) *EnvMocks {
 	t.Helper()
 
-	injector := di.NewInjector()
-	pipeline := NewEnvPipeline()
+	// Get base mocks
+	baseMocks := setupMocks(t, opts...)
 
-	return pipeline, injector
+	// Add env-specific shell mock behaviors
+	baseMocks.Shell.CheckTrustedDirectoryFunc = func() error { return nil }
+	baseMocks.Shell.CheckResetFlagsFunc = func() (bool, error) { return false, nil }
+	baseMocks.Shell.GetSessionTokenFunc = func() (string, error) { return "test-token", nil }
+	baseMocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {}
+	baseMocks.Shell.ResetFunc = func(args ...bool) {}
+
+	return &EnvMocks{
+		Injector:      baseMocks.Injector,
+		ConfigHandler: baseMocks.ConfigHandler,
+		Shell:         baseMocks.Shell,
+		Shims:         baseMocks.Shims,
+	}
 }
 
 // =============================================================================
@@ -58,36 +86,19 @@ func TestNewDefaultEnvPipeline(t *testing.T) {
 // =============================================================================
 
 func TestEnvPipeline_Initialize(t *testing.T) {
+	setup := func(t *testing.T, opts ...*SetupOptions) (*EnvPipeline, *EnvMocks) {
+		t.Helper()
+		pipeline := NewEnvPipeline()
+		mocks := setupEnvMocks(t, opts...)
+		return pipeline, mocks
+	}
+
 	t.Run("InitializesSuccessfully", func(t *testing.T) {
 		// Given an env pipeline with mock dependencies
-		pipeline, injector := setupEnvPipeline(t)
-
-		mockShell := shell.NewMockShell()
-		mockShell.InitializeFunc = func() error {
-			return nil
-		}
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return t.TempDir(), nil
-		}
-		injector.Register("shell", mockShell)
-
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.InitializeFunc = func() error {
-			return nil
-		}
-		mockConfigHandler.LoadConfigFunc = func(path string) error {
-			return nil
-		}
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			return false
-		}
-		injector.Register("configHandler", mockConfigHandler)
-
-		mockShims := NewShims()
-		injector.Register("shims", mockShims)
+		pipeline, mocks := setup(t)
 
 		// When initializing the pipeline
-		err := pipeline.Initialize(injector, context.Background())
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		// Then no error should be returned
 		if err != nil {
@@ -97,16 +108,19 @@ func TestEnvPipeline_Initialize(t *testing.T) {
 
 	t.Run("ReturnsErrorWhenShellInitializeFails", func(t *testing.T) {
 		// Given an env pipeline with failing shell initialization
-		pipeline, injector := setupEnvPipeline(t)
-
 		mockShell := shell.NewMockShell()
 		mockShell.InitializeFunc = func() error {
 			return fmt.Errorf("shell init error")
 		}
-		injector.Register("shell", mockShell)
+
+		setupOptions := &SetupOptions{
+			ConfigHandler: config.NewMockConfigHandler(),
+		}
+		pipeline, mocks := setup(t, setupOptions)
+		mocks.Injector.Register("shell", mockShell)
 
 		// When initializing the pipeline
-		err := pipeline.Initialize(injector, context.Background())
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		// Then an error should be returned
 		if err == nil {
@@ -119,19 +133,25 @@ func TestEnvPipeline_Initialize(t *testing.T) {
 
 	t.Run("ReturnsErrorWhenConfigHandlerInitializeFails", func(t *testing.T) {
 		// Given an env pipeline with failing config handler initialization
-		pipeline, injector := setupEnvPipeline(t)
+		pipeline := NewEnvPipeline()
 
-		mockShell := shell.NewMockShell()
-		mockShell.InitializeFunc = func() error {
-			return nil
-		}
-		injector.Register("shell", mockShell)
-
+		// Create injector and register failing config handler directly
+		injector := di.NewInjector()
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.InitializeFunc = func() error {
 			return fmt.Errorf("config handler init error")
 		}
 		injector.Register("configHandler", mockConfigHandler)
+
+		// Create and register basic shell
+		mockShell := shell.NewMockShell()
+		mockShell.InitializeFunc = func() error { return nil }
+		mockShell.GetProjectRootFunc = func() (string, error) { return t.TempDir(), nil }
+		injector.Register("shell", mockShell)
+
+		// Register shims
+		shims := setupShims(t)
+		injector.Register("shims", shims)
 
 		// When initializing the pipeline
 		err := pipeline.Initialize(injector, context.Background())
@@ -147,8 +167,6 @@ func TestEnvPipeline_Initialize(t *testing.T) {
 
 	t.Run("ReturnsErrorWhenLoadConfigFails", func(t *testing.T) {
 		// Given an env pipeline with failing config loading
-		pipeline, injector := setupEnvPipeline(t)
-
 		mockShell := shell.NewMockShell()
 		mockShell.InitializeFunc = func() error {
 			return nil
@@ -156,16 +174,15 @@ func TestEnvPipeline_Initialize(t *testing.T) {
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("project root error")
 		}
-		injector.Register("shell", mockShell)
 
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.InitializeFunc = func() error {
-			return nil
+		setupOptions := &SetupOptions{
+			ConfigHandler: config.NewMockConfigHandler(),
 		}
-		injector.Register("configHandler", mockConfigHandler)
+		pipeline, mocks := setup(t, setupOptions)
+		mocks.Injector.Register("shell", mockShell)
 
 		// When initializing the pipeline
-		err := pipeline.Initialize(injector, context.Background())
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		// Then an error should be returned
 		if err == nil {
@@ -178,38 +195,10 @@ func TestEnvPipeline_Initialize(t *testing.T) {
 
 	t.Run("InitializesWithoutSecretsProviders", func(t *testing.T) {
 		// Given an env pipeline with no secrets providers configured
-		pipeline, injector := setupEnvPipeline(t)
-
-		tmpDir := t.TempDir()
-		mockShell := shell.NewMockShell()
-		mockShell.InitializeFunc = func() error {
-			return nil
-		}
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return tmpDir, nil
-		}
-		injector.Register("shell", mockShell)
-
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.InitializeFunc = func() error {
-			return nil
-		}
-		mockConfigHandler.LoadConfigFunc = func(path string) error {
-			return nil
-		}
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			return false
-		}
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return tmpDir, nil
-		}
-		injector.Register("configHandler", mockConfigHandler)
-
-		mockShims := NewShims()
-		injector.Register("shims", mockShims)
+		pipeline, mocks := setup(t)
 
 		// When initializing the pipeline
-		err := pipeline.Initialize(injector, context.Background())
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		// Then no error should be returned
 		if err != nil {
@@ -219,46 +208,135 @@ func TestEnvPipeline_Initialize(t *testing.T) {
 
 	t.Run("InitializesWithDefaultEnvPrinters", func(t *testing.T) {
 		// Given an env pipeline with default env printers
-		pipeline, injector := setupEnvPipeline(t)
-
-		tmpDir := t.TempDir()
-		mockShell := shell.NewMockShell()
-		mockShell.InitializeFunc = func() error {
-			return nil
-		}
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return tmpDir, nil
-		}
-		mockShell.GetSessionTokenFunc = func() (string, error) {
-			return "test-token", nil
-		}
-		injector.Register("shell", mockShell)
-
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.InitializeFunc = func() error {
-			return nil
-		}
-		mockConfigHandler.LoadConfigFunc = func(path string) error {
-			return nil
-		}
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			return false
-		}
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return tmpDir, nil
-		}
-		injector.Register("configHandler", mockConfigHandler)
-
-		mockShims := NewShims()
-		injector.Register("shims", mockShims)
+		pipeline, mocks := setup(t)
 
 		// When initializing the pipeline
-		err := pipeline.Initialize(injector, context.Background())
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
+	})
+
+	t.Run("ReturnsErrorWhenWithSecretsProvidersFails", func(t *testing.T) {
+		// Given an env pipeline with failing secrets providers creation
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("config root error")
+		}
+
+		setupOptions := &SetupOptions{
+			ConfigHandler: mockConfigHandler,
+		}
+		pipeline, mocks := setup(t, setupOptions)
+
+		// When initializing the pipeline
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(fmt.Sprintf("%v", err), "failed to create secrets providers") {
+			t.Errorf("Expected secrets providers creation error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenSecretsProviderInitializeFails", func(t *testing.T) {
+		// Given an env pipeline with a failing secrets provider
+		pipeline, mocks := setup(t)
+
+		// Create a mock secrets provider that fails during initialization
+		mockSecretsProvider := secrets.NewMockSecretsProvider(nil)
+		mockSecretsProvider.InitializeFunc = func() error {
+			return fmt.Errorf("secrets provider init error")
+		}
+
+		// Initialize the base pipeline first to set up dependencies
+		err := pipeline.BasePipeline.Initialize(mocks.Injector, context.Background())
+		if err != nil {
+			t.Fatalf("Failed to initialize base pipeline: %v", err)
+		}
+
+		// Set the failing secrets provider directly
+		pipeline.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
+
+		// When trying to initialize the secrets provider
+		for _, secretsProvider := range pipeline.secretsProviders {
+			if err := secretsProvider.Initialize(); err != nil {
+				// Then an error should be returned
+				expectedError := "secrets provider init error"
+				if err.Error() != expectedError {
+					t.Errorf("Expected '%s', got: %v", expectedError, err)
+				}
+				return
+			}
+		}
+
+		t.Fatal("Expected error, got nil")
+	})
+
+	t.Run("ReturnsErrorWhenWithEnvPrintersFails", func(t *testing.T) {
+		// Given an env pipeline with failing env printers creation
+		pipeline, mocks := setup(t)
+
+		// Initialize the base pipeline first
+		err := pipeline.BasePipeline.Initialize(mocks.Injector, context.Background())
+		if err != nil {
+			t.Fatalf("Failed to initialize base pipeline: %v", err)
+		}
+
+		// Set configHandler to nil to cause withEnvPrinters to fail
+		pipeline.configHandler = nil
+
+		// When calling withEnvPrinters
+		envPrinters, err := pipeline.withEnvPrinters()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "config handler not initialized" {
+			t.Errorf("Expected 'config handler not initialized', got: %v", err)
+		}
+		if envPrinters != nil {
+			t.Error("Expected nil env printers")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenEnvPrinterInitializeFails", func(t *testing.T) {
+		// Given an env pipeline with failing env printer initialization
+		pipeline, mocks := setup(t)
+
+		// Create a mock env printer that fails during initialization
+		mockEnvPrinter := env.NewMockEnvPrinter()
+		mockEnvPrinter.InitializeFunc = func() error {
+			return fmt.Errorf("env printer init error")
+		}
+
+		// Initialize the base pipeline first
+		err := pipeline.BasePipeline.Initialize(mocks.Injector, context.Background())
+		if err != nil {
+			t.Fatalf("Failed to initialize base pipeline: %v", err)
+		}
+
+		// Set the env printer directly to trigger the error
+		pipeline.envPrinters = []env.EnvPrinter{mockEnvPrinter}
+
+		// When calling the env printer initialization
+		for _, envPrinter := range pipeline.envPrinters {
+			if err := envPrinter.Initialize(); err != nil {
+				// Then an error should be returned
+				expectedError := "env printer init error"
+				if err.Error() != expectedError {
+					t.Errorf("Expected '%s', got: %v", expectedError, err)
+				}
+				return
+			}
+		}
+
+		t.Fatal("Expected error, got nil")
 	})
 }
 
@@ -267,58 +345,25 @@ func TestEnvPipeline_Initialize(t *testing.T) {
 // =============================================================================
 
 func TestEnvPipeline_Execute(t *testing.T) {
-	setup := func(t *testing.T) (*EnvPipeline, *shell.MockShell, *config.MockConfigHandler) {
+	setup := func(t *testing.T) (*EnvPipeline, *EnvMocks) {
 		t.Helper()
 
-		pipeline, injector := setupEnvPipeline(t)
+		pipeline := NewEnvPipeline()
+		mocks := setupEnvMocks(t)
 
-		tmpDir := t.TempDir()
-		mockShell := shell.NewMockShell()
-		mockShell.InitializeFunc = func() error {
-			return nil
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+		if err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
 		}
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return tmpDir, nil
-		}
-		mockShell.CheckTrustedDirectoryFunc = func() error {
-			return nil
-		}
-		mockShell.CheckResetFlagsFunc = func() (bool, error) {
-			return false, nil
-		}
-		mockShell.GetSessionTokenFunc = func() (string, error) {
-			return "test-token", nil
-		}
-		injector.Register("shell", mockShell)
 
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.InitializeFunc = func() error {
-			return nil
-		}
-		mockConfigHandler.LoadConfigFunc = func(path string) error {
-			return nil
-		}
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			return false
-		}
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return tmpDir, nil
-		}
-		injector.Register("configHandler", mockConfigHandler)
-
-		mockShims := NewShims()
-		injector.Register("shims", mockShims)
-
-		pipeline.Initialize(injector, context.Background())
-
-		return pipeline, mockShell, mockConfigHandler
+		return pipeline, mocks
 	}
 
 	t.Run("ExecutesSuccessfullyInTrustedDirectory", func(t *testing.T) {
 		// Given an env pipeline in a trusted directory
-		pipeline, mockShell, _ := setup(t)
+		pipeline, mocks := setup(t)
 
-		mockShell.CheckTrustedDirectoryFunc = func() error {
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
 			return nil
 		}
 
@@ -333,14 +378,14 @@ func TestEnvPipeline_Execute(t *testing.T) {
 
 	t.Run("ResetsShellInUntrustedDirectory", func(t *testing.T) {
 		// Given an env pipeline in an untrusted directory
-		pipeline, mockShell, _ := setup(t)
+		pipeline, mocks := setup(t)
 
-		mockShell.CheckTrustedDirectoryFunc = func() error {
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
 			return fmt.Errorf("untrusted directory")
 		}
 
 		resetCalled := false
-		mockShell.ResetFunc = func(args ...bool) {
+		mocks.Shell.ResetFunc = func(args ...bool) {
 			resetCalled = true
 		}
 
@@ -358,9 +403,9 @@ func TestEnvPipeline_Execute(t *testing.T) {
 
 	t.Run("LoadsSecretsWhenDecryptIsTrue", func(t *testing.T) {
 		// Given an env pipeline with decrypt enabled
-		pipeline, mockShell, _ := setup(t)
+		pipeline, mocks := setup(t)
 
-		mockShell.CheckTrustedDirectoryFunc = func() error {
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
 			return nil
 		}
 
@@ -388,9 +433,9 @@ func TestEnvPipeline_Execute(t *testing.T) {
 
 	t.Run("HandlesSecretsLoadingErrorInVerboseMode", func(t *testing.T) {
 		// Given an env pipeline with failing secrets loading in verbose mode
-		pipeline, mockShell, _ := setup(t)
+		pipeline, mocks := setup(t)
 
-		mockShell.CheckTrustedDirectoryFunc = func() error {
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
 			return nil
 		}
 
@@ -417,9 +462,9 @@ func TestEnvPipeline_Execute(t *testing.T) {
 
 	t.Run("IgnoresSecretsLoadingErrorInNonVerboseMode", func(t *testing.T) {
 		// Given an env pipeline with failing secrets loading in non-verbose mode
-		pipeline, mockShell, _ := setup(t)
+		pipeline, mocks := setup(t)
 
-		mockShell.CheckTrustedDirectoryFunc = func() error {
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
 			return nil
 		}
 
@@ -443,9 +488,9 @@ func TestEnvPipeline_Execute(t *testing.T) {
 
 	t.Run("ReturnsErrorWhenGetEnvVarsFails", func(t *testing.T) {
 		// Given an env pipeline with failing env vars collection
-		pipeline, mockShell, _ := setup(t)
+		pipeline, mocks := setup(t)
 
-		mockShell.CheckTrustedDirectoryFunc = func() error {
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
 			return nil
 		}
 
@@ -469,14 +514,14 @@ func TestEnvPipeline_Execute(t *testing.T) {
 
 	t.Run("PrintsEnvVarsWhenNotQuiet", func(t *testing.T) {
 		// Given an env pipeline with quiet mode disabled
-		pipeline, mockShell, _ := setup(t)
+		pipeline, mocks := setup(t)
 
-		mockShell.CheckTrustedDirectoryFunc = func() error {
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
 			return nil
 		}
 
 		printCalled := false
-		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
 			printCalled = true
 		}
 
@@ -510,14 +555,14 @@ func TestEnvPipeline_Execute(t *testing.T) {
 
 	t.Run("SkipsPrintingWhenQuiet", func(t *testing.T) {
 		// Given an env pipeline with quiet mode enabled
-		pipeline, mockShell, _ := setup(t)
+		pipeline, mocks := setup(t)
 
-		mockShell.CheckTrustedDirectoryFunc = func() error {
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
 			return nil
 		}
 
 		printCalled := false
-		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
 			printCalled = true
 		}
 
@@ -543,13 +588,13 @@ func TestEnvPipeline_Execute(t *testing.T) {
 
 	t.Run("ReturnsErrorWhenPostEnvHookFailsInVerboseMode", func(t *testing.T) {
 		// Given an env pipeline with failing post env hook in verbose mode
-		pipeline, mockShell, _ := setup(t)
+		pipeline, mocks := setup(t)
 
-		mockShell.CheckTrustedDirectoryFunc = func() error {
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
 			return nil
 		}
 
-		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) {}
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {}
 
 		mockEnvPrinter := env.NewMockEnvPrinter()
 		mockEnvPrinter.PostEnvHookFunc = func() error {
@@ -577,13 +622,13 @@ func TestEnvPipeline_Execute(t *testing.T) {
 
 	t.Run("IgnoresPostEnvHookErrorInNonVerboseMode", func(t *testing.T) {
 		// Given an env pipeline with failing post env hook in non-verbose mode
-		pipeline, mockShell, _ := setup(t)
+		pipeline, mocks := setup(t)
 
-		mockShell.CheckTrustedDirectoryFunc = func() error {
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
 			return nil
 		}
 
-		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) {}
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {}
 
 		mockEnvPrinter := env.NewMockEnvPrinter()
 		mockEnvPrinter.PostEnvHookFunc = func() error {
@@ -603,6 +648,154 @@ func TestEnvPipeline_Execute(t *testing.T) {
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("HandlesHookContextInUntrustedDirectory", func(t *testing.T) {
+		// Given an env pipeline in an untrusted directory with hook context
+		pipeline, mocks := setup(t)
+
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
+			return fmt.Errorf("untrusted directory")
+		}
+
+		resetCalled := false
+		mocks.Shell.ResetFunc = func(args ...bool) {
+			resetCalled = true
+		}
+
+		ctx := context.WithValue(context.Background(), "hook", true)
+
+		// When executing the pipeline
+		err := pipeline.Execute(ctx)
+
+		// Then no error should be returned and reset should be called
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !resetCalled {
+			t.Error("Expected shell reset to be called")
+		}
+	})
+
+	t.Run("HandlesSessionResetError", func(t *testing.T) {
+		// Given an env pipeline with failing session reset
+		pipeline, mocks := setup(t)
+
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
+			return nil
+		}
+
+		mocks.Shell.CheckResetFlagsFunc = func() (bool, error) {
+			return false, fmt.Errorf("session reset error")
+		}
+
+		// When executing the pipeline
+		err := pipeline.Execute(context.Background())
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to handle session reset") {
+			t.Errorf("Expected session reset error, got: %v", err)
+		}
+	})
+
+	t.Run("SkipsSecretsLoadingWhenDecryptFalse", func(t *testing.T) {
+		// Given an env pipeline with decrypt disabled
+		pipeline, mocks := setup(t)
+
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
+			return nil
+		}
+
+		mockSecretsProvider := secrets.NewMockSecretsProvider(nil)
+		loadSecretsCalled := false
+		mockSecretsProvider.LoadSecretsFunc = func() error {
+			loadSecretsCalled = true
+			return nil
+		}
+		pipeline.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
+
+		ctx := context.WithValue(context.Background(), "decrypt", false)
+
+		// When executing the pipeline
+		err := pipeline.Execute(ctx)
+
+		// Then no error should be returned and secrets should not be loaded
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if loadSecretsCalled {
+			t.Error("Expected secrets to not be loaded")
+		}
+	})
+
+	t.Run("SkipsSecretsLoadingWhenNoSecretsProviders", func(t *testing.T) {
+		// Given an env pipeline with no secrets providers
+		pipeline, mocks := setup(t)
+
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
+			return nil
+		}
+
+		pipeline.secretsProviders = []secrets.SecretsProvider{}
+
+		ctx := context.WithValue(context.Background(), "decrypt", true)
+
+		// When executing the pipeline
+		err := pipeline.Execute(ctx)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("CollectsEnvVarsFromMultipleEnvPrinters", func(t *testing.T) {
+		// Given an env pipeline with multiple env printers
+		pipeline, mocks := setup(t)
+
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
+			return nil
+		}
+
+		mockEnvPrinter1 := env.NewMockEnvPrinter()
+		mockEnvPrinter1.GetEnvVarsFunc = func() (map[string]string, error) {
+			return map[string]string{"VAR1": "value1"}, nil
+		}
+		mockEnvPrinter1.PostEnvHookFunc = func() error {
+			return nil
+		}
+
+		mockEnvPrinter2 := env.NewMockEnvPrinter()
+		mockEnvPrinter2.GetEnvVarsFunc = func() (map[string]string, error) {
+			return map[string]string{"VAR2": "value2"}, nil
+		}
+		mockEnvPrinter2.PostEnvHookFunc = func() error {
+			return nil
+		}
+
+		pipeline.envPrinters = []env.EnvPrinter{mockEnvPrinter1, mockEnvPrinter2}
+
+		var capturedEnvVars map[string]string
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
+			capturedEnvVars = envVars
+		}
+
+		// When executing the pipeline
+		err := pipeline.Execute(context.Background())
+
+		// Then no error should be returned and both variables should be collected
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if capturedEnvVars["VAR1"] != "value1" {
+			t.Errorf("Expected VAR1=value1, got %s", capturedEnvVars["VAR1"])
+		}
+		if capturedEnvVars["VAR2"] != "value2" {
+			t.Errorf("Expected VAR2=value2, got %s", capturedEnvVars["VAR2"])
 		}
 	})
 }

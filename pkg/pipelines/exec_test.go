@@ -5,19 +5,44 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/shell"
+	"github.com/windsorcli/cli/pkg/config"
 )
 
 // =============================================================================
 // Test Setup
 // =============================================================================
 
-func setupExecPipeline(t *testing.T) *ExecPipeline {
+type ExecMocks struct {
+	*Mocks
+}
+
+func setupExecShims(t *testing.T) *Shims {
+	t.Helper()
+	return setupShims(t)
+}
+
+func setupExecMocks(t *testing.T, opts ...*SetupOptions) *ExecMocks {
 	t.Helper()
 
-	pipeline := NewExecPipeline()
+	// Create setup options, preserving any provided options
+	setupOptions := &SetupOptions{}
+	if len(opts) > 0 && opts[0] != nil {
+		setupOptions = opts[0]
+	}
 
-	return pipeline
+	// Only create a default mock config handler if one wasn't provided
+	if setupOptions.ConfigHandler == nil {
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.InitializeFunc = func() error { return nil }
+		mockConfigHandler.IsLoadedFunc = func() bool { return true } // Default to loaded
+		setupOptions.ConfigHandler = mockConfigHandler
+	}
+
+	baseMocks := setupMocks(t, setupOptions)
+
+	return &ExecMocks{
+		Mocks: baseMocks,
+	}
 }
 
 // =============================================================================
@@ -41,21 +66,33 @@ func TestNewExecPipeline(t *testing.T) {
 // =============================================================================
 
 func TestExecPipeline_Execute(t *testing.T) {
+	setup := func(t *testing.T, opts ...*SetupOptions) (*ExecPipeline, *ExecMocks) {
+		t.Helper()
+		pipeline := NewExecPipeline()
+		mocks := setupExecMocks(t, opts...)
+
+		// Initialize the pipeline
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+		if err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
+
+		return pipeline, mocks
+	}
+
 	t.Run("ExecutesCommandSuccessfully", func(t *testing.T) {
 		// Given an exec pipeline with a mock shell
-		pipeline := setupExecPipeline(t)
+		pipeline, mocks := setup(t)
 
-		mockShell := shell.NewMockShell()
 		execCalled := false
 		var capturedCommand string
 		var capturedArgs []string
-		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
+		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
 			execCalled = true
 			capturedCommand = command
 			capturedArgs = args
 			return "command output", nil
 		}
-		pipeline.shell = mockShell
 
 		ctx := context.WithValue(context.Background(), "command", "test-command")
 		ctx = context.WithValue(ctx, "args", []string{"arg1", "arg2"})
@@ -80,19 +117,17 @@ func TestExecPipeline_Execute(t *testing.T) {
 
 	t.Run("ExecutesCommandWithoutArgs", func(t *testing.T) {
 		// Given an exec pipeline with a mock shell and no args
-		pipeline := setupExecPipeline(t)
+		pipeline, mocks := setup(t)
 
-		mockShell := shell.NewMockShell()
 		execCalled := false
 		var capturedCommand string
 		var capturedArgs []string
-		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
+		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
 			execCalled = true
 			capturedCommand = command
 			capturedArgs = args
 			return "command output", nil
 		}
-		pipeline.shell = mockShell
 
 		ctx := context.WithValue(context.Background(), "command", "test-command")
 
@@ -116,10 +151,7 @@ func TestExecPipeline_Execute(t *testing.T) {
 
 	t.Run("ReturnsErrorWhenNoCommandProvided", func(t *testing.T) {
 		// Given an exec pipeline with no command in context
-		pipeline := setupExecPipeline(t)
-
-		mockShell := shell.NewMockShell()
-		pipeline.shell = mockShell
+		pipeline, _ := setup(t)
 
 		ctx := context.Background()
 
@@ -137,10 +169,7 @@ func TestExecPipeline_Execute(t *testing.T) {
 
 	t.Run("ReturnsErrorWhenCommandIsEmpty", func(t *testing.T) {
 		// Given an exec pipeline with empty command
-		pipeline := setupExecPipeline(t)
-
-		mockShell := shell.NewMockShell()
-		pipeline.shell = mockShell
+		pipeline, _ := setup(t)
 
 		ctx := context.WithValue(context.Background(), "command", "")
 
@@ -158,10 +187,7 @@ func TestExecPipeline_Execute(t *testing.T) {
 
 	t.Run("ReturnsErrorWhenCommandIsNotString", func(t *testing.T) {
 		// Given an exec pipeline with non-string command
-		pipeline := setupExecPipeline(t)
-
-		mockShell := shell.NewMockShell()
-		pipeline.shell = mockShell
+		pipeline, _ := setup(t)
 
 		ctx := context.WithValue(context.Background(), "command", 123)
 
@@ -179,13 +205,11 @@ func TestExecPipeline_Execute(t *testing.T) {
 
 	t.Run("ReturnsErrorWhenShellExecFails", func(t *testing.T) {
 		// Given an exec pipeline with failing shell exec
-		pipeline := setupExecPipeline(t)
+		pipeline, mocks := setup(t)
 
-		mockShell := shell.NewMockShell()
-		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
+		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
 			return "", fmt.Errorf("exec failed")
 		}
-		pipeline.shell = mockShell
 
 		ctx := context.WithValue(context.Background(), "command", "test-command")
 
@@ -203,10 +227,7 @@ func TestExecPipeline_Execute(t *testing.T) {
 
 	t.Run("HandlesArgsAsNonSliceType", func(t *testing.T) {
 		// Given an exec pipeline with args as non-slice type
-		pipeline := setupExecPipeline(t)
-
-		mockShell := shell.NewMockShell()
-		pipeline.shell = mockShell
+		pipeline, _ := setup(t)
 
 		ctx := context.WithValue(context.Background(), "command", "test-command")
 		ctx = context.WithValue(ctx, "args", "not-a-slice")
