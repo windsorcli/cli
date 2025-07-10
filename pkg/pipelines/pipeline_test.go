@@ -11,22 +11,134 @@ import (
 	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
+	bundler "github.com/windsorcli/cli/pkg/artifact"
+	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/shell"
+	"github.com/windsorcli/cli/pkg/stack"
+	"github.com/windsorcli/cli/pkg/virt"
 )
 
 // =============================================================================
 // Test Setup
 // =============================================================================
 
-func setupBasePipeline(t *testing.T) (*BasePipeline, di.Injector) {
+type Mocks struct {
+	Injector      di.Injector
+	ConfigHandler config.ConfigHandler
+	Shell         *shell.MockShell
+	Shims         *Shims
+}
+
+type SetupOptions struct {
+	Injector      di.Injector
+	ConfigHandler config.ConfigHandler
+	ConfigStr     string
+}
+
+func setupShims(t *testing.T) *Shims {
+	t.Helper()
+	shims := NewShims()
+
+	shims.Stat = func(name string) (os.FileInfo, error) {
+		return nil, os.ErrNotExist // Default to file not found
+	}
+
+	shims.Getenv = func(key string) string {
+		return "" // Default to empty string
+	}
+
+	return shims
+}
+
+func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	t.Helper()
 
-	injector := di.NewInjector()
-	pipeline := NewBasePipeline()
+	// Store original directory and create temp dir
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get working directory: %v", err)
+	}
 
-	return pipeline, injector
+	tmpDir := t.TempDir()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Failed to change to temp directory: %v", err)
+	}
+
+	// Set project root environment variable
+	t.Setenv("WINDSOR_PROJECT_ROOT", tmpDir)
+
+	// Register cleanup to restore original state
+	t.Cleanup(func() {
+		os.Unsetenv("WINDSOR_PROJECT_ROOT")
+		if err := os.Chdir(origDir); err != nil {
+			t.Logf("Warning: Failed to change back to original directory: %v", err)
+		}
+	})
+
+	// Create injector if not provided
+	var injector di.Injector
+	if len(opts) > 0 && opts[0].Injector != nil {
+		injector = opts[0].Injector
+	} else {
+		injector = di.NewInjector()
+	}
+
+	// Create and register mock shell
+	mockShell := shell.NewMockShell()
+	mockShell.InitializeFunc = func() error { return nil }
+	mockShell.GetProjectRootFunc = func() (string, error) { return tmpDir, nil }
+	injector.Register("shell", mockShell)
+
+	// Create config handler if not provided
+	var configHandler config.ConfigHandler
+	if len(opts) > 0 && opts[0].ConfigHandler != nil {
+		configHandler = opts[0].ConfigHandler
+	} else {
+		configHandler = config.NewYamlConfigHandler(injector)
+	}
+	injector.Register("configHandler", configHandler)
+
+	// Initialize config handler
+	if err := configHandler.Initialize(); err != nil {
+		t.Fatalf("Failed to initialize config handler: %v", err)
+	}
+
+	configHandler.SetContext("mock-context")
+
+	// Load base config
+	configYAML := `
+apiVersion: v1alpha1
+contexts:
+  mock-context:
+    dns:
+      domain: mock.domain.com
+    network:
+      cidr_block: 10.0.0.0/24`
+
+	if err := configHandler.LoadConfigString(configYAML); err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	// Load optional config if provided
+	if len(opts) > 0 && opts[0].ConfigStr != "" {
+		if err := configHandler.LoadConfigString(opts[0].ConfigStr); err != nil {
+			t.Fatalf("Failed to load config string: %v", err)
+		}
+	}
+
+	// Register shims
+	shims := setupShims(t)
+	injector.Register("shims", shims)
+
+	return &Mocks{
+		Injector:      injector,
+		ConfigHandler: configHandler,
+		Shell:         mockShell,
+		Shims:         shims,
+	}
 }
 
 // =============================================================================
@@ -48,12 +160,18 @@ func TestNewBasePipeline(t *testing.T) {
 // =============================================================================
 
 func TestBasePipeline_Initialize(t *testing.T) {
+	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
+		pipeline := NewBasePipeline()
+		mocks := setupMocks(t)
+		return pipeline, mocks
+	}
+
 	t.Run("InitializeReturnsNilByDefault", func(t *testing.T) {
 		// Given a base pipeline
-		pipeline, injector := setupBasePipeline(t)
+		pipeline, mocks := setup(t)
 
 		// When initializing the pipeline
-		err := pipeline.Initialize(injector, context.Background())
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		// Then no error should be returned
 		if err != nil {
@@ -63,12 +181,19 @@ func TestBasePipeline_Initialize(t *testing.T) {
 }
 
 func TestBasePipeline_Execute(t *testing.T) {
+	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
+		pipeline := NewBasePipeline()
+		mocks := setupMocks(t)
+		return pipeline, mocks
+	}
+
 	t.Run("ExecuteReturnsNilByDefault", func(t *testing.T) {
+
 		// Given a base pipeline
-		pipeline, injector := setupBasePipeline(t)
+		pipeline, mocks := setup(t)
 
 		// When initializing and executing the pipeline
-		err := pipeline.Initialize(injector, context.Background())
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 		if err != nil {
 			t.Fatalf("Initialize failed: %v", err)
 		}
@@ -623,11 +748,13 @@ func TestBasePipeline_withEnvPrinters(t *testing.T) {
 // =============================================================================
 
 func TestBasePipeline_withSecretsProviders(t *testing.T) {
-	t.Run("ReturnsEmptyWhenNoSecretsConfigured", func(t *testing.T) {
-		// Given a base pipeline with no secrets configuration
+	setup := func(t *testing.T) (*BasePipeline, *Mocks, string) {
 		pipeline := NewBasePipeline()
 
+		// Create temp directory for secrets files
 		tmpDir := t.TempDir()
+
+		// Create mock config handler
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return tmpDir, nil
@@ -638,8 +765,22 @@ func TestBasePipeline_withSecretsProviders(t *testing.T) {
 		mockConfigHandler.GetFunc = func(key string) any {
 			return nil
 		}
+
+		// Create setup options with mock config handler
+		opts := &SetupOptions{
+			ConfigHandler: mockConfigHandler,
+		}
+		mocks := setupMocks(t, opts)
+
 		pipeline.configHandler = mockConfigHandler
-		pipeline.shims = NewShims()
+		pipeline.shims = mocks.Shims
+		pipeline.injector = mocks.Injector
+		return pipeline, mocks, tmpDir
+	}
+
+	t.Run("ReturnsEmptyWhenNoSecretsConfigured", func(t *testing.T) {
+		// Given a base pipeline with no secrets configuration
+		pipeline, _, _ := setup(t)
 
 		// When creating secrets providers
 		secretsProviders, err := pipeline.withSecretsProviders()
@@ -655,27 +796,21 @@ func TestBasePipeline_withSecretsProviders(t *testing.T) {
 
 	t.Run("CreatesSopsProviderWhenSecretsFileExists", func(t *testing.T) {
 		// Given a base pipeline with secrets file
-		pipeline := NewBasePipeline()
+		pipeline, mocks, tmpDir := setup(t)
 
-		tmpDir := t.TempDir()
+		// Create secrets file
 		secretsFile := filepath.Join(tmpDir, "secrets.enc.yaml")
 		if err := os.WriteFile(secretsFile, []byte("test"), 0644); err != nil {
 			t.Fatalf("Failed to create secrets file: %v", err)
 		}
 
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return tmpDir, nil
+		// Configure shims to return file exists for secrets file
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == secretsFile {
+				return os.Stat(secretsFile) // Return actual file info
+			}
+			return nil, os.ErrNotExist
 		}
-		mockConfigHandler.GetContextFunc = func() string {
-			return "test-context"
-		}
-		mockConfigHandler.GetFunc = func(key string) any {
-			return nil
-		}
-		pipeline.configHandler = mockConfigHandler
-		pipeline.shims = NewShims()
-		pipeline.injector = di.NewInjector()
 
 		// When creating secrets providers
 		secretsProviders, err := pipeline.withSecretsProviders()
@@ -691,7 +826,7 @@ func TestBasePipeline_withSecretsProviders(t *testing.T) {
 
 	t.Run("ReturnsErrorWhenConfigHandlerIsNil", func(t *testing.T) {
 		// Given a base pipeline with nil config handler
-		pipeline := NewBasePipeline()
+		pipeline, _, _ := setup(t)
 		pipeline.configHandler = nil
 
 		// When creating secrets providers
@@ -711,13 +846,13 @@ func TestBasePipeline_withSecretsProviders(t *testing.T) {
 
 	t.Run("ReturnsErrorWhenGetConfigRootFails", func(t *testing.T) {
 		// Given a base pipeline with failing config root
-		pipeline := NewBasePipeline()
+		pipeline, mocks, _ := setup(t)
 
-		mockConfigHandler := config.NewMockConfigHandler()
+		// Configure mock to fail on GetConfigRoot
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("config root error")
 		}
-		pipeline.configHandler = mockConfigHandler
 
 		// When creating secrets providers
 		secretsProviders, err := pipeline.withSecretsProviders()
@@ -736,16 +871,10 @@ func TestBasePipeline_withSecretsProviders(t *testing.T) {
 
 	t.Run("CreatesOnePasswordSDKProviderWhenServiceAccountTokenSet", func(t *testing.T) {
 		// Given a base pipeline with OnePassword vaults and service account token
-		pipeline := NewBasePipeline()
+		pipeline, mocks, _ := setup(t)
 
-		tmpDir := t.TempDir()
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return tmpDir, nil
-		}
-		mockConfigHandler.GetContextFunc = func() string {
-			return "test-context"
-		}
+		// Configure OnePassword vaults
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetFunc = func(key string) any {
 			if key == "contexts.test-context.secrets.onepassword.vaults" {
 				return map[string]secretsConfigType.OnePasswordVault{
@@ -756,19 +885,14 @@ func TestBasePipeline_withSecretsProviders(t *testing.T) {
 			}
 			return nil
 		}
-		pipeline.configHandler = mockConfigHandler
 
-		mockShims := NewShims()
-		// Override Getenv to simulate service account token
-		originalGetenv := mockShims.Getenv
-		mockShims.Getenv = func(key string) string {
+		// Configure service account token
+		mocks.Shims.Getenv = func(key string) string {
 			if key == "OP_SERVICE_ACCOUNT_TOKEN" {
 				return "test-token"
 			}
-			return originalGetenv(key)
+			return ""
 		}
-		pipeline.shims = mockShims
-		pipeline.injector = di.NewInjector()
 
 		// When creating secrets providers
 		secretsProviders, err := pipeline.withSecretsProviders()
@@ -784,16 +908,10 @@ func TestBasePipeline_withSecretsProviders(t *testing.T) {
 
 	t.Run("CreatesOnePasswordCLIProviderWhenNoServiceAccountToken", func(t *testing.T) {
 		// Given a base pipeline with OnePassword vaults and no service account token
-		pipeline := NewBasePipeline()
+		pipeline, mocks, _ := setup(t)
 
-		tmpDir := t.TempDir()
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return tmpDir, nil
-		}
-		mockConfigHandler.GetContextFunc = func() string {
-			return "test-context"
-		}
+		// Configure OnePassword vaults
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetFunc = func(key string) any {
 			if key == "contexts.test-context.secrets.onepassword.vaults" {
 				return map[string]secretsConfigType.OnePasswordVault{
@@ -804,19 +922,8 @@ func TestBasePipeline_withSecretsProviders(t *testing.T) {
 			}
 			return nil
 		}
-		pipeline.configHandler = mockConfigHandler
 
-		mockShims := NewShims()
-		// Override Getenv to simulate no service account token
-		originalGetenv := mockShims.Getenv
-		mockShims.Getenv = func(key string) string {
-			if key == "OP_SERVICE_ACCOUNT_TOKEN" {
-				return ""
-			}
-			return originalGetenv(key)
-		}
-		pipeline.shims = mockShims
-		pipeline.injector = di.NewInjector()
+		// Configure no service account token (already set to "" in setup)
 
 		// When creating secrets providers
 		secretsProviders, err := pipeline.withSecretsProviders()
@@ -832,27 +939,21 @@ func TestBasePipeline_withSecretsProviders(t *testing.T) {
 
 	t.Run("CreatesSecretsProviderForSecretsDotEncDotYmlFile", func(t *testing.T) {
 		// Given a base pipeline with secrets.enc.yml file
-		pipeline := NewBasePipeline()
+		pipeline, mocks, tmpDir := setup(t)
 
-		tmpDir := t.TempDir()
+		// Create secrets.enc.yml file
 		secretsFile := filepath.Join(tmpDir, "secrets.enc.yml")
 		if err := os.WriteFile(secretsFile, []byte("test"), 0644); err != nil {
 			t.Fatalf("Failed to create secrets file: %v", err)
 		}
 
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return tmpDir, nil
+		// Configure shims to return file exists for secrets file
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == secretsFile {
+				return os.Stat(secretsFile) // Return actual file info
+			}
+			return nil, os.ErrNotExist
 		}
-		mockConfigHandler.GetContextFunc = func() string {
-			return "test-context"
-		}
-		mockConfigHandler.GetFunc = func(key string) any {
-			return nil
-		}
-		pipeline.configHandler = mockConfigHandler
-		pipeline.shims = NewShims()
-		pipeline.injector = di.NewInjector()
 
 		// When creating secrets providers
 		secretsProviders, err := pipeline.withSecretsProviders()
@@ -863,6 +964,540 @@ func TestBasePipeline_withSecretsProviders(t *testing.T) {
 		}
 		if len(secretsProviders) != 1 {
 			t.Errorf("Expected 1 secrets provider, got %d", len(secretsProviders))
+		}
+	})
+}
+
+// =============================================================================
+// Test Private Methods - withBlueprintHandler
+// =============================================================================
+
+func TestBasePipeline_withBlueprintHandler(t *testing.T) {
+	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
+		pipeline := NewBasePipeline()
+		mocks := setupMocks(t)
+		pipeline.injector = mocks.Injector
+		return pipeline, mocks
+	}
+
+	t.Run("CreatesNewBlueprintHandlerWhenNotRegistered", func(t *testing.T) {
+		// Given a pipeline without blueprint handler
+		pipeline, _ := setup(t)
+
+		// When getting blueprint handler
+		handler := pipeline.withBlueprintHandler()
+
+		// Then a new handler should be created and registered
+		if handler == nil {
+			t.Error("Expected blueprint handler to be created")
+		}
+
+		registered := pipeline.injector.Resolve("blueprintHandler")
+		if registered == nil {
+			t.Error("Expected blueprint handler to be registered")
+		}
+	})
+
+	t.Run("ReusesExistingBlueprintHandlerWhenRegistered", func(t *testing.T) {
+		// Given a pipeline with existing blueprint handler
+		pipeline, mocks := setup(t)
+		existingHandler := blueprint.NewBlueprintHandler(mocks.Injector)
+		pipeline.injector.Register("blueprintHandler", existingHandler)
+
+		// When getting blueprint handler
+		handler := pipeline.withBlueprintHandler()
+
+		// Then the existing handler should be returned
+		if handler != existingHandler {
+			t.Error("Expected existing blueprint handler to be reused")
+		}
+	})
+
+	t.Run("CreatesNewHandlerWhenRegisteredValueIsNotBlueprintHandler", func(t *testing.T) {
+		// Given a pipeline with wrong type registered
+		pipeline, _ := setup(t)
+		pipeline.injector.Register("blueprintHandler", "not-a-handler")
+
+		// When getting blueprint handler
+		handler := pipeline.withBlueprintHandler()
+
+		// Then a new handler should be created
+		if handler == nil {
+			t.Error("Expected blueprint handler to be created")
+		}
+	})
+}
+
+// =============================================================================
+// Test Private Methods - withStack
+// =============================================================================
+
+func TestBasePipeline_withStack(t *testing.T) {
+	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
+		pipeline := NewBasePipeline()
+		mocks := setupMocks(t)
+		pipeline.injector = mocks.Injector
+		return pipeline, mocks
+	}
+
+	t.Run("CreatesNewStackWhenNotRegistered", func(t *testing.T) {
+		// Given a pipeline without stack
+		pipeline, _ := setup(t)
+
+		// When getting stack
+		stackInstance := pipeline.withStack()
+
+		// Then a new stack should be created and registered
+		if stackInstance == nil {
+			t.Error("Expected stack to be created")
+		}
+
+		registered := pipeline.injector.Resolve("stack")
+		if registered == nil {
+			t.Error("Expected stack to be registered")
+		}
+	})
+
+	t.Run("ReusesExistingStackWhenRegistered", func(t *testing.T) {
+		// Given a pipeline with existing stack
+		pipeline, mocks := setup(t)
+		existingStack := stack.NewWindsorStack(mocks.Injector)
+		pipeline.injector.Register("stack", existingStack)
+
+		// When getting stack
+		stackInstance := pipeline.withStack()
+
+		// Then the existing stack should be returned
+		if stackInstance != existingStack {
+			t.Error("Expected existing stack to be reused")
+		}
+	})
+
+	t.Run("CreatesNewStackWhenRegisteredValueIsNotStack", func(t *testing.T) {
+		// Given a pipeline with wrong type registered
+		pipeline, _ := setup(t)
+		pipeline.injector.Register("stack", "not-a-stack")
+
+		// When getting stack
+		stackInstance := pipeline.withStack()
+
+		// Then a new stack should be created
+		if stackInstance == nil {
+			t.Error("Expected stack to be created")
+		}
+	})
+}
+
+// =============================================================================
+// Test Private Methods - withArtifactBuilder
+// =============================================================================
+
+func TestBasePipeline_withArtifactBuilder(t *testing.T) {
+	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
+		pipeline := NewBasePipeline()
+		mocks := setupMocks(t)
+		pipeline.injector = mocks.Injector
+		return pipeline, mocks
+	}
+
+	t.Run("CreatesNewArtifactBuilderWhenNotRegistered", func(t *testing.T) {
+		// Given a pipeline without artifact builder
+		pipeline, _ := setup(t)
+
+		// When getting artifact builder
+		builder := pipeline.withArtifactBuilder()
+
+		// Then a new builder should be created and registered
+		if builder == nil {
+			t.Error("Expected artifact builder to be created")
+		}
+
+		registered := pipeline.injector.Resolve("artifactBuilder")
+		if registered == nil {
+			t.Error("Expected artifact builder to be registered")
+		}
+	})
+
+	t.Run("ReusesExistingArtifactBuilderWhenRegistered", func(t *testing.T) {
+		// Given a pipeline with existing artifact builder
+		pipeline, _ := setup(t)
+		existingBuilder := bundler.NewArtifactBuilder()
+		pipeline.injector.Register("artifactBuilder", existingBuilder)
+
+		// When getting artifact builder
+		builder := pipeline.withArtifactBuilder()
+
+		// Then the existing builder should be returned
+		if builder != existingBuilder {
+			t.Error("Expected existing artifact builder to be reused")
+		}
+	})
+
+	t.Run("CreatesNewBuilderWhenRegisteredValueIsNotArtifactBuilder", func(t *testing.T) {
+		// Given a pipeline with wrong type registered
+		pipeline, _ := setup(t)
+		pipeline.injector.Register("artifactBuilder", "not-a-builder")
+
+		// When getting artifact builder
+		builder := pipeline.withArtifactBuilder()
+
+		// Then a new builder should be created
+		if builder == nil {
+			t.Error("Expected artifact builder to be created")
+		}
+	})
+}
+
+// =============================================================================
+// Test Private Methods - withVirtualMachine
+// =============================================================================
+
+func TestBasePipeline_withVirtualMachine(t *testing.T) {
+	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
+		pipeline := NewBasePipeline()
+
+		// Create mock config handler
+		mockConfigHandler := config.NewMockConfigHandler()
+		opts := &SetupOptions{
+			ConfigHandler: mockConfigHandler,
+		}
+		mocks := setupMocks(t, opts)
+
+		pipeline.injector = mocks.Injector
+		pipeline.configHandler = mockConfigHandler
+		return pipeline, mocks
+	}
+
+	t.Run("ReturnsNilWhenNoVMDriverConfigured", func(t *testing.T) {
+		// Given a pipeline with no VM driver configured
+		pipeline, _ := setup(t)
+		mockConfigHandler := pipeline.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return ""
+			}
+			return ""
+		}
+
+		// When getting virtual machine
+		vm := pipeline.withVirtualMachine()
+
+		// Then nil should be returned
+		if vm != nil {
+			t.Error("Expected nil virtual machine when no driver configured")
+		}
+	})
+
+	t.Run("CreatesColimaVMWhenColimaDriverConfigured", func(t *testing.T) {
+		// Given a pipeline with colima driver configured
+		pipeline, _ := setup(t)
+		mockConfigHandler := pipeline.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "colima"
+			}
+			return ""
+		}
+
+		// When getting virtual machine
+		vm := pipeline.withVirtualMachine()
+
+		// Then colima VM should be created and registered
+		if vm == nil {
+			t.Error("Expected colima virtual machine to be created")
+		}
+
+		registered := pipeline.injector.Resolve("virtualMachine")
+		if registered == nil {
+			t.Error("Expected virtual machine to be registered")
+		}
+	})
+
+	t.Run("ReturnsNilWhenUnsupportedVMDriverConfigured", func(t *testing.T) {
+		// Given a pipeline with unsupported VM driver configured
+		pipeline, _ := setup(t)
+		mockConfigHandler := pipeline.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "unsupported"
+			}
+			return ""
+		}
+
+		// When getting virtual machine
+		vm := pipeline.withVirtualMachine()
+
+		// Then nil should be returned
+		if vm != nil {
+			t.Error("Expected nil virtual machine for unsupported driver")
+		}
+	})
+
+	t.Run("ReusesExistingVMWhenRegistered", func(t *testing.T) {
+		// Given a pipeline with existing VM
+		pipeline, mocks := setup(t)
+		mockConfigHandler := pipeline.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "colima"
+			}
+			return ""
+		}
+
+		existingVM := virt.NewColimaVirt(mocks.Injector)
+		pipeline.injector.Register("virtualMachine", existingVM)
+
+		// When getting virtual machine
+		vm := pipeline.withVirtualMachine()
+
+		// Then the existing VM should be returned
+		if vm != existingVM {
+			t.Error("Expected existing virtual machine to be reused")
+		}
+	})
+
+	t.Run("CreatesNewVMWhenRegisteredValueIsNotVirtualMachine", func(t *testing.T) {
+		// Given a pipeline with wrong type registered
+		pipeline, _ := setup(t)
+		mockConfigHandler := pipeline.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "colima"
+			}
+			return ""
+		}
+
+		pipeline.injector.Register("virtualMachine", "not-a-vm")
+
+		// When getting virtual machine
+		vm := pipeline.withVirtualMachine()
+
+		// Then a new VM should be created
+		if vm == nil {
+			t.Error("Expected virtual machine to be created")
+		}
+	})
+}
+
+// =============================================================================
+// Test Private Methods - withContainerRuntime
+// =============================================================================
+
+func TestBasePipeline_withContainerRuntime(t *testing.T) {
+	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
+		pipeline := NewBasePipeline()
+
+		// Create mock config handler
+		mockConfigHandler := config.NewMockConfigHandler()
+		opts := &SetupOptions{
+			ConfigHandler: mockConfigHandler,
+		}
+		mocks := setupMocks(t, opts)
+
+		pipeline.injector = mocks.Injector
+		pipeline.configHandler = mockConfigHandler
+		return pipeline, mocks
+	}
+
+	t.Run("ReturnsNilWhenDockerDisabled", func(t *testing.T) {
+		// Given a pipeline with docker disabled
+		pipeline, _ := setup(t)
+		mockConfigHandler := pipeline.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "docker.enabled" {
+				return false
+			}
+			return false
+		}
+
+		// When getting container runtime
+		runtime := pipeline.withContainerRuntime()
+
+		// Then nil should be returned
+		if runtime != nil {
+			t.Error("Expected nil container runtime when docker disabled")
+		}
+	})
+
+	t.Run("CreatesDockerRuntimeWhenDockerEnabled", func(t *testing.T) {
+		// Given a pipeline with docker enabled
+		pipeline, _ := setup(t)
+		mockConfigHandler := pipeline.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "docker.enabled" {
+				return true
+			}
+			return false
+		}
+
+		// When getting container runtime
+		runtime := pipeline.withContainerRuntime()
+
+		// Then docker runtime should be created and registered
+		if runtime == nil {
+			t.Error("Expected docker container runtime to be created")
+		}
+
+		registered := pipeline.injector.Resolve("containerRuntime")
+		if registered == nil {
+			t.Error("Expected container runtime to be registered")
+		}
+	})
+
+	t.Run("ReusesExistingContainerRuntimeWhenRegistered", func(t *testing.T) {
+		// Given a pipeline with existing container runtime
+		pipeline, mocks := setup(t)
+		existingRuntime := virt.NewDockerVirt(mocks.Injector)
+		pipeline.injector.Register("containerRuntime", existingRuntime)
+
+		// When getting container runtime
+		runtime := pipeline.withContainerRuntime()
+
+		// Then the existing runtime should be returned
+		if runtime != existingRuntime {
+			t.Error("Expected existing container runtime to be reused")
+		}
+	})
+
+	t.Run("CreatesNewRuntimeWhenRegisteredValueIsNotContainerRuntime", func(t *testing.T) {
+		// Given a pipeline with wrong type registered and docker enabled
+		pipeline, _ := setup(t)
+		mockConfigHandler := pipeline.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "docker.enabled" {
+				return true
+			}
+			return false
+		}
+
+		pipeline.injector.Register("containerRuntime", "not-a-runtime")
+
+		// When getting container runtime
+		runtime := pipeline.withContainerRuntime()
+
+		// Then a new runtime should be created
+		if runtime == nil {
+			t.Error("Expected container runtime to be created")
+		}
+	})
+}
+
+// =============================================================================
+// Test Private Methods - withKubernetesClient
+// =============================================================================
+
+func TestBasePipeline_withKubernetesClient(t *testing.T) {
+	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
+		pipeline := NewBasePipeline()
+		mocks := setupMocks(t)
+		pipeline.injector = mocks.Injector
+		return pipeline, mocks
+	}
+
+	t.Run("CreatesNewKubernetesClientWhenNotRegistered", func(t *testing.T) {
+		// Given a pipeline without kubernetes client
+		pipeline, _ := setup(t)
+
+		// When getting kubernetes client
+		client := pipeline.withKubernetesClient()
+
+		// Then a new client should be created and registered
+		if client == nil {
+			t.Error("Expected kubernetes client to be created")
+		}
+
+		registered := pipeline.injector.Resolve("kubernetesClient")
+		if registered == nil {
+			t.Error("Expected kubernetes client to be registered")
+		}
+	})
+
+	t.Run("ReusesExistingKubernetesClientWhenRegistered", func(t *testing.T) {
+		// Given a pipeline with existing kubernetes client
+		pipeline, _ := setup(t)
+		existingClient := kubernetes.NewDynamicKubernetesClient()
+		pipeline.injector.Register("kubernetesClient", existingClient)
+
+		// When getting kubernetes client
+		client := pipeline.withKubernetesClient()
+
+		// Then the existing client should be returned
+		if client != existingClient {
+			t.Error("Expected existing kubernetes client to be reused")
+		}
+	})
+
+	t.Run("CreatesNewClientWhenRegisteredValueIsNotKubernetesClient", func(t *testing.T) {
+		// Given a pipeline with wrong type registered
+		pipeline, _ := setup(t)
+		pipeline.injector.Register("kubernetesClient", "not-a-client")
+
+		// When getting kubernetes client
+		client := pipeline.withKubernetesClient()
+
+		// Then a new client should be created
+		if client == nil {
+			t.Error("Expected kubernetes client to be created")
+		}
+	})
+}
+
+// =============================================================================
+// Test Private Methods - withKubernetesManager
+// =============================================================================
+
+func TestBasePipeline_withKubernetesManager(t *testing.T) {
+	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
+		pipeline := NewBasePipeline()
+		mocks := setupMocks(t)
+		pipeline.injector = mocks.Injector
+		return pipeline, mocks
+	}
+
+	t.Run("CreatesNewKubernetesManagerWhenNotRegistered", func(t *testing.T) {
+		// Given a pipeline without kubernetes manager
+		pipeline, _ := setup(t)
+
+		// When getting kubernetes manager
+		manager := pipeline.withKubernetesManager()
+
+		// Then a new manager should be created and registered
+		if manager == nil {
+			t.Error("Expected kubernetes manager to be created")
+		}
+
+		registered := pipeline.injector.Resolve("kubernetesManager")
+		if registered == nil {
+			t.Error("Expected kubernetes manager to be registered")
+		}
+	})
+
+	t.Run("ReusesExistingKubernetesManagerWhenRegistered", func(t *testing.T) {
+		// Given a pipeline with existing kubernetes manager
+		pipeline, mocks := setup(t)
+		existingManager := kubernetes.NewKubernetesManager(mocks.Injector)
+		pipeline.injector.Register("kubernetesManager", existingManager)
+
+		// When getting kubernetes manager
+		manager := pipeline.withKubernetesManager()
+
+		// Then the existing manager should be returned
+		if manager != existingManager {
+			t.Error("Expected existing kubernetes manager to be reused")
+		}
+	})
+
+	t.Run("CreatesNewManagerWhenRegisteredValueIsNotKubernetesManager", func(t *testing.T) {
+		// Given a pipeline with wrong type registered
+		pipeline, _ := setup(t)
+		pipeline.injector.Register("kubernetesManager", "not-a-manager")
+
+		// When getting kubernetes manager
+		manager := pipeline.withKubernetesManager()
+
+		// Then a new manager should be created
+		if manager == nil {
+			t.Error("Expected kubernetes manager to be created")
 		}
 	})
 }

@@ -60,8 +60,6 @@ func (p *EnvPipeline) Initialize(injector di.Injector, ctx context.Context) erro
 	}
 	p.secretsProviders = secretsProviders
 
-	// Register secrets providers in the dependency injection container
-	// so that environment printers can find them
 	for i, secretsProvider := range p.secretsProviders {
 		providerKey := fmt.Sprintf("secretsProvider_%d", i)
 		p.injector.Register(providerKey, secretsProvider)

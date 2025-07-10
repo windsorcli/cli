@@ -4,20 +4,32 @@ import (
 	"context"
 	"fmt"
 	"testing"
-
-	"github.com/windsorcli/cli/pkg/shell"
 )
 
 // =============================================================================
-// Test Setup
+// Test Setup Infrastructure
 // =============================================================================
 
-func setupHookPipeline(t *testing.T) *HookPipeline {
+// HookMocks extends the base Mocks with hook-specific dependencies
+type HookMocks struct {
+	*Mocks
+}
+
+// setupHookShims creates shims for hook pipeline tests
+func setupHookShims(t *testing.T) *Shims {
+	t.Helper()
+	return setupShims(t)
+}
+
+// setupHookMocks creates mocks for hook pipeline tests
+func setupHookMocks(t *testing.T, opts ...*SetupOptions) *HookMocks {
 	t.Helper()
 
-	pipeline := NewHookPipeline()
+	baseMocks := setupMocks(t, opts...)
 
-	return pipeline
+	return &HookMocks{
+		Mocks: baseMocks,
+	}
 }
 
 // =============================================================================
@@ -37,23 +49,31 @@ func TestNewHookPipeline(t *testing.T) {
 }
 
 // =============================================================================
-// Test Public Methods
+// Test Public Methods - Execute
 // =============================================================================
 
 func TestHookPipeline_Execute(t *testing.T) {
+	setup := func(t *testing.T) (*HookPipeline, *HookMocks) {
+		pipeline := NewHookPipeline()
+		mocks := setupHookMocks(t)
+
+		// Set up the pipeline with mocks
+		pipeline.shell = mocks.Shell
+
+		return pipeline, mocks
+	}
+
 	t.Run("InstallsHookSuccessfully", func(t *testing.T) {
 		// Given a hook pipeline with a mock shell
-		pipeline := setupHookPipeline(t)
+		pipeline, mocks := setup(t)
 
-		mockShell := shell.NewMockShell()
 		installHookCalled := false
 		var capturedShellName string
-		mockShell.InstallHookFunc = func(shellName string) error {
+		mocks.Shell.InstallHookFunc = func(shellName string) error {
 			installHookCalled = true
 			capturedShellName = shellName
 			return nil
 		}
-		pipeline.shell = mockShell
 
 		ctx := context.WithValue(context.Background(), "shellType", "bash")
 
@@ -74,10 +94,7 @@ func TestHookPipeline_Execute(t *testing.T) {
 
 	t.Run("ReturnsErrorWhenNoShellTypeProvided", func(t *testing.T) {
 		// Given a hook pipeline with no shell type in context
-		pipeline := setupHookPipeline(t)
-
-		mockShell := shell.NewMockShell()
-		pipeline.shell = mockShell
+		pipeline, _ := setup(t)
 
 		ctx := context.Background()
 
@@ -95,10 +112,7 @@ func TestHookPipeline_Execute(t *testing.T) {
 
 	t.Run("ReturnsErrorWhenShellTypeIsNotString", func(t *testing.T) {
 		// Given a hook pipeline with non-string shell type
-		pipeline := setupHookPipeline(t)
-
-		mockShell := shell.NewMockShell()
-		pipeline.shell = mockShell
+		pipeline, _ := setup(t)
 
 		ctx := context.WithValue(context.Background(), "shellType", 123)
 
@@ -116,13 +130,11 @@ func TestHookPipeline_Execute(t *testing.T) {
 
 	t.Run("ReturnsErrorWhenInstallHookFails", func(t *testing.T) {
 		// Given a hook pipeline with failing install hook
-		pipeline := setupHookPipeline(t)
+		pipeline, mocks := setup(t)
 
-		mockShell := shell.NewMockShell()
-		mockShell.InstallHookFunc = func(shellName string) error {
+		mocks.Shell.InstallHookFunc = func(shellName string) error {
 			return fmt.Errorf("install hook failed")
 		}
-		pipeline.shell = mockShell
 
 		ctx := context.WithValue(context.Background(), "shellType", "bash")
 
