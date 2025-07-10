@@ -41,7 +41,7 @@ func TestExecCmd(t *testing.T) {
 		ctx := context.WithValue(context.Background(), injectorKey, injector)
 		cmd.SetContext(ctx)
 
-		args := []string{"echo", "hello"}
+		args := []string{"go", "version"}
 		cmd.SetArgs(args)
 
 		err := cmd.Execute()
@@ -107,7 +107,7 @@ func TestExecCmd(t *testing.T) {
 		ctx := context.WithValue(context.Background(), injectorKey, injector)
 		cmd.SetContext(ctx)
 
-		args := []string{"echo", "hello"}
+		args := []string{"go", "version"}
 		cmd.SetArgs(args)
 
 		err := cmd.Execute()
@@ -144,7 +144,7 @@ func TestExecCmd(t *testing.T) {
 		ctx := context.WithValue(context.Background(), injectorKey, injector)
 		cmd.SetContext(ctx)
 
-		args := []string{"echo", "hello"}
+		args := []string{"go", "version"}
 		cmd.SetArgs(args)
 
 		err := cmd.Execute()
@@ -237,7 +237,7 @@ func TestExecCmd(t *testing.T) {
 		ctx := context.WithValue(context.Background(), injectorKey, injector)
 		cmd.SetContext(ctx)
 
-		args := []string{"echo", "hello"}
+		args := []string{"go", "version"}
 		cmd.SetArgs(args)
 
 		err := cmd.Execute()
@@ -326,7 +326,7 @@ func TestExecCmd(t *testing.T) {
 		ctx := context.WithValue(context.Background(), injectorKey, injector)
 		cmd.SetContext(ctx)
 
-		args := []string{"echo", "hello"}
+		args := []string{"go", "version"}
 		cmd.SetArgs(args)
 
 		err := cmd.Execute()
