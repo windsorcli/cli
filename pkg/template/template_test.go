@@ -1,7 +1,6 @@
 package template
 
 import (
-	"os"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
@@ -25,13 +24,6 @@ type SetupOptions struct {
 
 func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	t.Helper()
-
-	tmpDir := t.TempDir()
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatalf("Failed to change to temp directory: %v", err)
-	}
-
-	os.Setenv("WINDSOR_PROJECT_ROOT", tmpDir)
 
 	injector := di.NewInjector()
 	mockShell := shell.NewMockShell()
@@ -68,11 +60,6 @@ contexts:
 			t.Fatalf("Failed to load config string: %v", err)
 		}
 	}
-
-	t.Cleanup(func() {
-		os.Unsetenv("WINDSOR_PROJECT_ROOT")
-		os.Chdir(tmpDir)
-	})
 
 	return &Mocks{
 		Injector:      injector,
