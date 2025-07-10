@@ -15,6 +15,7 @@ import (
 	envpkg "github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/windsorcli/cli/pkg/kubernetes"
+	"github.com/windsorcli/cli/pkg/network"
 	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -78,8 +79,16 @@ func (p *BasePipeline) Initialize(injector di.Injector, ctx context.Context) err
 		return fmt.Errorf("failed to initialize config handler: %w", err)
 	}
 
-	if err := p.loadConfig(); err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+	// Only load existing config if reset flag is not set
+	reset := false
+	if resetValue := ctx.Value("reset"); resetValue != nil {
+		reset = resetValue.(bool)
+	}
+
+	if !reset {
+		if err := p.loadConfig(); err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
 	}
 
 	return nil
@@ -306,6 +315,27 @@ func (p *BasePipeline) withKubernetesManager() kubernetes.KubernetesManager {
 	return kubernetesManager
 }
 
+// withNetworkManager resolves or creates network manager from DI container
+func (p *BasePipeline) withNetworkManager() network.NetworkManager {
+	if existing := p.injector.Resolve("networkManager"); existing != nil {
+		if networkManager, ok := existing.(network.NetworkManager); ok {
+			return networkManager
+		}
+	}
+
+	vmDriver := p.configHandler.GetString("vm.driver")
+	var networkManager network.NetworkManager
+
+	if vmDriver == "colima" {
+		networkManager = network.NewColimaNetworkManager(p.injector)
+	} else {
+		networkManager = network.NewBaseNetworkManager(p.injector)
+	}
+
+	p.injector.Register("networkManager", networkManager)
+	return networkManager
+}
+
 // handleSessionReset checks session state and performs reset if needed.
 // This is a common pattern used by multiple commands (env, exec, context, init).
 func (p *BasePipeline) handleSessionReset() error {
@@ -456,6 +486,9 @@ func (p *BasePipeline) withSecretsProviders() ([]secrets.SecretsProvider, error)
 	return secretsProviders, nil
 }
 
+// withServices creates and configures service instances based on the current configuration.
+// Services are created conditionally based on feature flags and configuration settings.
+// Each service is registered in the DI container with appropriate naming conventions.
 func (p *BasePipeline) withServices() ([]services.Service, error) {
 	if p.configHandler == nil {
 		return nil, fmt.Errorf("config handler not initialized")
@@ -463,25 +496,32 @@ func (p *BasePipeline) withServices() ([]services.Service, error) {
 
 	var serviceList []services.Service
 
-	if !p.configHandler.GetBool("docker.enabled", false) {
+	dockerEnabled := p.configHandler.GetBool("docker.enabled", false)
+	if !dockerEnabled {
 		return serviceList, nil
 	}
 
-	if p.configHandler.GetBool("dns.enabled", false) {
+	dnsEnabled := p.configHandler.GetBool("dns.enabled", false)
+	if dnsEnabled {
 		service := services.NewDNSService(p.injector)
 		service.SetName("dns")
+		p.injector.Register("dnsService", service)
 		serviceList = append(serviceList, service)
 	}
 
-	if p.configHandler.GetBool("git.livereload.enabled", false) {
+	gitEnabled := p.configHandler.GetBool("git.livereload.enabled", false)
+	if gitEnabled {
 		service := services.NewGitLivereloadService(p.injector)
 		service.SetName("git")
+		p.injector.Register("gitLivereloadService", service)
 		serviceList = append(serviceList, service)
 	}
 
-	if p.configHandler.GetBool("aws.localstack.enabled", false) {
+	awsEnabled := p.configHandler.GetBool("aws.localstack.enabled", false)
+	if awsEnabled {
 		service := services.NewLocalstackService(p.injector)
 		service.SetName("aws")
+		p.injector.Register("localstackService", service)
 		serviceList = append(serviceList, service)
 	}
 
@@ -490,24 +530,34 @@ func (p *BasePipeline) withServices() ([]services.Service, error) {
 		for key := range contextConfig.Docker.Registries {
 			service := services.NewRegistryService(p.injector)
 			service.SetName(key)
+			p.injector.Register(fmt.Sprintf("registryService.%s", key), service)
 			serviceList = append(serviceList, service)
 		}
 	}
 
-	clusterProvider := p.configHandler.GetString("cluster.provider", "")
-	if clusterProvider == "talos" || clusterProvider == "omni" {
-		controlPlaneCount := p.configHandler.GetInt("cluster.control_plane.count", 1)
-		for i := 0; i < controlPlaneCount; i++ {
-			service := services.NewTalosService(p.injector, "controlplane")
-			service.SetName(fmt.Sprintf("controlplane%d", i))
-			serviceList = append(serviceList, service)
-		}
+	// Add cluster services (TalosService instances) if cluster is enabled
+	clusterEnabled := p.configHandler.GetBool("cluster.enabled", false)
+	if clusterEnabled {
+		clusterDriver := p.configHandler.GetString("cluster.driver")
+		if clusterDriver == "talos" {
+			controlPlaneCount := p.configHandler.GetInt("cluster.controlplanes.count")
+			workerCount := p.configHandler.GetInt("cluster.workers.count")
 
-		workerCount := p.configHandler.GetInt("cluster.worker.count", 1)
-		for i := 0; i < workerCount; i++ {
-			service := services.NewTalosService(p.injector, "worker")
-			service.SetName(fmt.Sprintf("worker%d", i))
-			serviceList = append(serviceList, service)
+			for i := 1; i <= controlPlaneCount; i++ {
+				controlPlaneService := services.NewTalosService(p.injector, "controlplane")
+				serviceName := fmt.Sprintf("controlplane-%d", i)
+				controlPlaneService.SetName(serviceName)
+				p.injector.Register(fmt.Sprintf("clusterNode.%s", serviceName), controlPlaneService)
+				serviceList = append(serviceList, controlPlaneService)
+			}
+
+			for i := 1; i <= workerCount; i++ {
+				workerService := services.NewTalosService(p.injector, "worker")
+				serviceName := fmt.Sprintf("worker-%d", i)
+				workerService.SetName(serviceName)
+				p.injector.Register(fmt.Sprintf("clusterNode.%s", serviceName), workerService)
+				serviceList = append(serviceList, workerService)
+			}
 		}
 	}
 

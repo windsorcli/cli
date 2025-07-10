@@ -118,7 +118,10 @@ func (y *YamlConfigHandler) SaveConfig(path string, overwrite ...bool) error {
 	return nil
 }
 
-// SetDefault sets the given context configuration as the default.
+// SetDefault sets the given context configuration as the default and merges it with any
+// existing context configuration. If no context exists, the default becomes the context.
+// If a context exists, it merges the default with the existing context, with existing
+// values taking precedence over defaults.
 func (y *YamlConfigHandler) SetDefault(context v1alpha1.Context) error {
 	y.defaultContextConfig = context
 	currentContext := y.GetContext()
@@ -127,6 +130,19 @@ func (y *YamlConfigHandler) SetDefault(context v1alpha1.Context) error {
 
 	if y.Get(contextKey) == nil {
 		return y.Set(contextKey, &context)
+	} else {
+		if y.config.Contexts == nil {
+			y.config.Contexts = make(map[string]*v1alpha1.Context)
+		}
+
+		if y.config.Contexts[currentContext] == nil {
+			y.config.Contexts[currentContext] = &v1alpha1.Context{}
+		}
+
+		defaultCopy := context.DeepCopy()
+		existingCopy := y.config.Contexts[currentContext].DeepCopy()
+		defaultCopy.Merge(existingCopy)
+		y.config.Contexts[currentContext] = defaultCopy
 	}
 
 	return nil
