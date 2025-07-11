@@ -247,7 +247,18 @@ func (h *OCIModuleResolver) extractModuleFromArtifact(artifactData []byte, modul
 			continue
 		}
 
-		destPath := filepath.Join(extractionDir, header.Name)
+		// Validate and sanitize the path to prevent directory traversal
+		sanitizedPath, err := h.validateAndSanitizePath(header.Name)
+		if err != nil {
+			return fmt.Errorf("invalid path in tar archive: %w", err)
+		}
+
+		destPath := filepath.Join(extractionDir, sanitizedPath)
+
+		// Ensure the destination path is still within the extraction directory
+		if !strings.HasPrefix(destPath, extractionDir) {
+			return fmt.Errorf("path traversal attempt detected: %s", header.Name)
+		}
 
 		if header.Typeflag == h.shims.TypeDir() {
 			if err := h.shims.MkdirAll(destPath, 0755); err != nil {
@@ -289,6 +300,19 @@ func (h *OCIModuleResolver) extractModuleFromArtifact(artifactData []byte, modul
 	}
 
 	return nil
+}
+
+// validateAndSanitizePath sanitizes a file path for safe extraction by removing path traversal sequences
+// and rejecting absolute paths. Returns the cleaned path if valid, or an error if the path is unsafe.
+func (h *OCIModuleResolver) validateAndSanitizePath(path string) (string, error) {
+	cleanPath := filepath.Clean(path)
+	if strings.Contains(cleanPath, "..") {
+		return "", fmt.Errorf("path contains directory traversal sequence: %s", path)
+	}
+	if filepath.IsAbs(cleanPath) {
+		return "", fmt.Errorf("absolute paths are not allowed: %s", path)
+	}
+	return cleanPath, nil
 }
 
 // parseOCIRef extracts the registry, repository, and tag components from an OCI reference string.
