@@ -491,7 +491,7 @@ func (p *InitPipeline) prepareTemplateData() (map[string][]byte, error) {
 // walkAndCollectTemplates recursively walks through the template directory and collects all files.
 // It maintains the relative path structure from the template directory root.
 func (p *InitPipeline) walkAndCollectTemplates(templateDir string, templateData map[string][]byte) error {
-	entries, err := os.ReadDir(templateDir)
+	entries, err := p.shims.ReadDir(templateDir)
 	if err != nil {
 		return fmt.Errorf("failed to read template directory: %w", err)
 	}
@@ -504,7 +504,7 @@ func (p *InitPipeline) walkAndCollectTemplates(templateDir string, templateData 
 				return err
 			}
 		} else {
-			content, err := os.ReadFile(entryPath)
+			content, err := p.shims.ReadFile(filepath.Clean(entryPath))
 			if err != nil {
 				return fmt.Errorf("failed to read template file %s: %w", entryPath, err)
 			}
