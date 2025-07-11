@@ -5025,8 +5025,10 @@ func TestTerraformGenerator_Generate(t *testing.T) {
 
 		// And mock Stat to simulate finding variables.tf files
 		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			if strings.Contains(path, "terraform/cluster/variables.tf") ||
-				strings.Contains(path, "terraform/network/variables.tf") {
+			// Normalize path separators for cross-platform compatibility
+			normalizedPath := filepath.ToSlash(path)
+			if strings.Contains(normalizedPath, "terraform/cluster/variables.tf") ||
+				strings.Contains(normalizedPath, "terraform/network/variables.tf") {
 				return &mockFileInfo{name: "variables.tf", isDir: false}, nil // File exists
 			}
 			return nil, os.ErrNotExist
