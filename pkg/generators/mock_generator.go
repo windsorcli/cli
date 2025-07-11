@@ -13,7 +13,7 @@ package generators
 type MockGenerator struct {
 	InitializeFunc func() error
 	WriteFunc      func(overwrite ...bool) error
-	GenerateFunc   func(data map[string]any) error
+	GenerateFunc   func(data map[string]any, overwrite ...bool) error
 }
 
 // =============================================================================
@@ -46,9 +46,9 @@ func (m *MockGenerator) Write(overwrite ...bool) error {
 }
 
 // Generate calls the mock GenerateFunc if set, otherwise returns nil
-func (m *MockGenerator) Generate(data map[string]any) error {
+func (m *MockGenerator) Generate(data map[string]any, overwrite ...bool) error {
 	if m.GenerateFunc != nil {
-		return m.GenerateFunc(data)
+		return m.GenerateFunc(data, overwrite...)
 	}
 	return nil
 }
