@@ -1684,3 +1684,371 @@ func TestBasePipeline_withServices(t *testing.T) {
 		}
 	})
 }
+
+func TestBasePipeline_withTerraformResolvers(t *testing.T) {
+	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
+		pipeline := NewBasePipeline()
+		mocks := setupMocks(t)
+		return pipeline, mocks
+	}
+
+	t.Run("ReturnsEmptyWhenTerraformDisabled", func(t *testing.T) {
+		// Given a pipeline with terraform disabled
+		pipeline, mocks := setup(t)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+		if err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+
+		// When getting terraform resolvers
+		resolvers, err := pipeline.withTerraformResolvers()
+
+		// Then no error should occur and resolvers should be empty
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(resolvers) != 0 {
+			t.Errorf("Expected 0 resolvers, got %d", len(resolvers))
+		}
+	})
+
+	t.Run("CreatesTerraformResolversWhenTerraformEnabled", func(t *testing.T) {
+		// Given a pipeline with terraform enabled
+		pipeline, mocks := setup(t)
+		mocks.ConfigHandler.LoadConfigString(`
+apiVersion: v1alpha1
+contexts:
+  mock-context:
+    terraform:
+      enabled: true`)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+		if err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+
+		// When getting terraform resolvers
+		resolvers, err := pipeline.withTerraformResolvers()
+
+		// Then no error should occur and both resolvers should be created
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(resolvers) != 2 {
+			t.Errorf("Expected 2 resolvers, got %d", len(resolvers))
+		}
+
+		// And resolvers should be registered in the DI container
+		if mocks.Injector.Resolve("standardModuleResolver") == nil {
+			t.Error("Expected standardModuleResolver to be registered")
+		}
+		if mocks.Injector.Resolve("ociModuleResolver") == nil {
+			t.Error("Expected ociModuleResolver to be registered")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenConfigHandlerIsNil", func(t *testing.T) {
+		// Given a pipeline with nil config handler
+		pipeline := NewBasePipeline()
+		pipeline.configHandler = nil
+
+		// When getting terraform resolvers
+		_, err := pipeline.withTerraformResolvers()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "config handler not initialized") {
+			t.Errorf("Expected config handler error, got %v", err)
+		}
+	})
+}
+
+func TestBasePipeline_withTemplateRenderer(t *testing.T) {
+	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
+		pipeline := NewBasePipeline()
+		mocks := setupMocks(t)
+		return pipeline, mocks
+	}
+
+	t.Run("CreatesNewTemplateRendererWhenNotRegistered", func(t *testing.T) {
+		// Given a pipeline without template renderer registered
+		pipeline, mocks := setup(t)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+		if err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+
+		// When getting template renderer
+		renderer := pipeline.withTemplateRenderer()
+
+		// Then a new template renderer should be created
+		if renderer == nil {
+			t.Error("Expected template renderer to not be nil")
+		}
+
+		// And it should be registered in the injector
+		registered := mocks.Injector.Resolve("templateRenderer")
+		if registered == nil {
+			t.Error("Expected template renderer to be registered")
+		}
+	})
+
+	t.Run("ReusesExistingTemplateRendererWhenRegistered", func(t *testing.T) {
+		// Given a pipeline with template renderer already registered
+		pipeline, mocks := setup(t)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+		if err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+
+		// And an existing template renderer
+		existingRenderer := pipeline.withTemplateRenderer()
+
+		// When getting template renderer again
+		renderer := pipeline.withTemplateRenderer()
+
+		// Then the same template renderer should be returned
+		if renderer != existingRenderer {
+			t.Error("Expected to reuse existing template renderer")
+		}
+	})
+}
+
+func TestBasePipeline_withGenerators(t *testing.T) {
+	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
+		pipeline := NewBasePipeline()
+		mocks := setupMocks(t)
+		return pipeline, mocks
+	}
+
+	t.Run("CreatesGenerators", func(t *testing.T) {
+		// Given a pipeline
+		pipeline, mocks := setup(t)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+		if err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+
+		// When getting generators
+		generators, err := pipeline.withGenerators()
+
+		// Then no error should occur and generators should be created
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(generators) == 0 {
+			t.Error("Expected generators to be created")
+		}
+
+		// And git generator should be registered
+		registered := mocks.Injector.Resolve("gitGenerator")
+		if registered == nil {
+			t.Error("Expected git generator to be registered")
+		}
+	})
+
+	t.Run("CreatesTerraformGeneratorWhenTerraformEnabled", func(t *testing.T) {
+		// Given a pipeline with terraform enabled
+		pipeline, mocks := setup(t)
+		mocks.ConfigHandler.LoadConfigString(`
+apiVersion: v1alpha1
+contexts:
+  mock-context:
+    terraform:
+      enabled: true`)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+		if err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+
+		// When getting generators
+		generators, err := pipeline.withGenerators()
+
+		// Then no error should occur and terraform generator should be included
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(generators) < 2 {
+			t.Error("Expected at least 2 generators (git + terraform)")
+		}
+
+		// And terraform generator should be registered
+		registered := mocks.Injector.Resolve("terraformGenerator")
+		if registered == nil {
+			t.Error("Expected terraform generator to be registered")
+		}
+	})
+}
+
+func TestBasePipeline_withBundlers(t *testing.T) {
+	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
+		pipeline := NewBasePipeline()
+		mocks := setupMocks(t)
+		return pipeline, mocks
+	}
+
+	t.Run("CreatesBundlers", func(t *testing.T) {
+		// Given a pipeline
+		pipeline, mocks := setup(t)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+		if err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+
+		// When getting bundlers
+		bundlers, err := pipeline.withBundlers()
+
+		// Then no error should occur and bundlers should be created
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(bundlers) == 0 {
+			t.Error("Expected bundlers to be created")
+		}
+
+		// And bundlers should be registered
+		kustomizeBundler := mocks.Injector.Resolve("kustomizeBundler")
+		if kustomizeBundler == nil {
+			t.Error("Expected kustomize bundler to be registered")
+		}
+		templateBundler := mocks.Injector.Resolve("templateBundler")
+		if templateBundler == nil {
+			t.Error("Expected template bundler to be registered")
+		}
+	})
+
+	t.Run("CreatesTerraformBundlerWhenTerraformEnabled", func(t *testing.T) {
+		// Given a pipeline with terraform enabled
+		pipeline, mocks := setup(t)
+		mocks.ConfigHandler.LoadConfigString(`
+apiVersion: v1alpha1
+contexts:
+  mock-context:
+    terraform:
+      enabled: true`)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+		if err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+
+		// When getting bundlers
+		bundlers, err := pipeline.withBundlers()
+
+		// Then no error should occur and terraform bundler should be included
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(bundlers) < 3 {
+			t.Error("Expected at least 3 bundlers (kustomize + template + terraform)")
+		}
+
+		// And terraform bundler should be registered
+		registered := mocks.Injector.Resolve("terraformBundler")
+		if registered == nil {
+			t.Error("Expected terraform bundler to be registered")
+		}
+	})
+}
+
+func TestBasePipeline_withToolsManager(t *testing.T) {
+	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
+		pipeline := NewBasePipeline()
+		mocks := setupMocks(t)
+		return pipeline, mocks
+	}
+
+	t.Run("CreatesNewToolsManagerWhenNotRegistered", func(t *testing.T) {
+		// Given a pipeline without tools manager registered
+		pipeline, mocks := setup(t)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+		if err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+
+		// When getting tools manager
+		toolsManager := pipeline.withToolsManager()
+
+		// Then a new tools manager should be created
+		if toolsManager == nil {
+			t.Error("Expected tools manager to not be nil")
+		}
+
+		// And it should be registered in the injector
+		registered := mocks.Injector.Resolve("toolsManager")
+		if registered == nil {
+			t.Error("Expected tools manager to be registered")
+		}
+	})
+
+	t.Run("ReusesExistingToolsManagerWhenRegistered", func(t *testing.T) {
+		// Given a pipeline with tools manager already registered
+		pipeline, mocks := setup(t)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+		if err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+
+		// And an existing tools manager
+		existingManager := pipeline.withToolsManager()
+
+		// When getting tools manager again
+		toolsManager := pipeline.withToolsManager()
+
+		// Then the same tools manager should be returned
+		if toolsManager != existingManager {
+			t.Error("Expected to reuse existing tools manager")
+		}
+	})
+}
+
+func TestBasePipeline_withClusterClient(t *testing.T) {
+	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
+		pipeline := NewBasePipeline()
+		mocks := setupMocks(t)
+		return pipeline, mocks
+	}
+
+	t.Run("CreatesNewClusterClientWhenNotRegistered", func(t *testing.T) {
+		// Given a pipeline without cluster client registered
+		pipeline, mocks := setup(t)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+		if err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+
+		// When getting cluster client
+		clusterClient := pipeline.withClusterClient()
+
+		// Then a new cluster client should be created
+		if clusterClient == nil {
+			t.Error("Expected cluster client to not be nil")
+		}
+
+		// And it should be registered in the injector
+		registered := mocks.Injector.Resolve("clusterClient")
+		if registered == nil {
+			t.Error("Expected cluster client to be registered")
+		}
+	})
+
+	t.Run("ReusesExistingClusterClientWhenRegistered", func(t *testing.T) {
+		// Given a pipeline with cluster client already registered
+		pipeline, mocks := setup(t)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+		if err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+
+		// And an existing cluster client
+		existingClient := pipeline.withClusterClient()
+
+		// When getting cluster client again
+		clusterClient := pipeline.withClusterClient()
+
+		// Then the same cluster client should be returned
+		if clusterClient != existingClient {
+			t.Error("Expected to reuse existing cluster client")
+		}
+	})
+}

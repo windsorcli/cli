@@ -20,16 +20,16 @@ type JsonnetTemplate struct {
 // Constructor
 // =============================================================================
 
-// NewJsonnetTemplate creates a new JsonnetTemplate instance with default rules
+// NewJsonnetTemplate constructs a JsonnetTemplate with default processing rules for blueprint and terraform Jsonnet files.
+// It initializes the embedded BaseTemplate and assigns rules for blueprint.jsonnet and terraform/*.jsonnet path handling.
+// The blueprint rule matches the exact "blueprint.jsonnet" filename and generates the "blueprint" key.
+// The terraform rule matches files under the "terraform/" directory with a ".jsonnet" extension and generates keys by stripping the extension.
 func NewJsonnetTemplate(injector di.Injector) *JsonnetTemplate {
 	template := &JsonnetTemplate{
 		BaseTemplate: NewBaseTemplate(injector),
 	}
-
-	// Set up default processing rules
 	template.rules = []ProcessingRule{
 		{
-			// Blueprint rule: exact match for blueprint.jsonnet
 			PathMatcher: func(path string) bool {
 				return path == "blueprint.jsonnet"
 			},
@@ -38,7 +38,6 @@ func NewJsonnetTemplate(injector di.Injector) *JsonnetTemplate {
 			},
 		},
 		{
-			// Terraform rule: files under terraform/ with .jsonnet extension
 			PathMatcher: func(path string) bool {
 				return strings.HasPrefix(path, "terraform/") && strings.HasSuffix(path, ".jsonnet")
 			},
@@ -47,7 +46,6 @@ func NewJsonnetTemplate(injector di.Injector) *JsonnetTemplate {
 			},
 		},
 	}
-
 	return template
 }
 
@@ -60,28 +58,31 @@ func (t *JsonnetTemplate) Initialize() error {
 	return t.BaseTemplate.Initialize()
 }
 
-// Process processes jsonnet templates based on configured rules and adds results to renderedData
+// Process applies configured processing rules to jsonnet templates and populates renderedData with evaluated results.
+// For each template in templateData, the method checks all rules for a matching PathMatcher. If a rule matches,
+// it processes the template using processJsonnetTemplate, stores the result in renderedData under the key generated
+// by the rule's KeyGenerator, and skips further rule checks for that template. Returns an error if processing fails.
 func (t *JsonnetTemplate) Process(templateData map[string][]byte, renderedData map[string]any) error {
 	for templatePath, templateContent := range templateData {
-		// Check each rule to see if it matches this file
 		for _, rule := range t.rules {
 			if rule.PathMatcher(templatePath) {
 				values, err := t.processJsonnetTemplate(string(templateContent))
 				if err != nil {
 					return fmt.Errorf("failed to process jsonnet template %s: %w", templatePath, err)
 				}
-
 				outputKey := rule.KeyGenerator(templatePath)
 				renderedData[outputKey] = values
-				break // Only process with the first matching rule
+				break
 			}
 		}
 	}
-
 	return nil
 }
 
-// processJsonnetTemplate processes a jsonnet template with context data and returns parsed values
+// processJsonnetTemplate evaluates a Jsonnet template with Windsor context and returns the resulting data as a map.
+// It marshals the Windsor configuration to YAML, converts it to a map, injects context and project name,
+// serializes the context to JSON, and evaluates the Jsonnet template with the context as an external variable.
+// The output must be valid JSON and is unmarshaled into a map for downstream use.
 func (t *JsonnetTemplate) processJsonnetTemplate(templateContent string) (map[string]any, error) {
 	config := t.configHandler.GetConfig()
 	contextYAML, err := t.configHandler.YamlMarshalWithDefinedPaths(config)
