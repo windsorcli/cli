@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
@@ -20,6 +21,32 @@ import (
 	"github.com/windsorcli/cli/pkg/stack"
 	"github.com/windsorcli/cli/pkg/virt"
 )
+
+// =============================================================================
+// Centralized Mock Types
+// =============================================================================
+
+type mockInitFileInfo struct {
+	name  string
+	isDir bool
+}
+
+func (m *mockInitFileInfo) Name() string       { return m.name }
+func (m *mockInitFileInfo) Size() int64        { return 0 }
+func (m *mockInitFileInfo) Mode() os.FileMode  { return 0 }
+func (m *mockInitFileInfo) ModTime() time.Time { return time.Time{} }
+func (m *mockInitFileInfo) IsDir() bool        { return m.isDir }
+func (m *mockInitFileInfo) Sys() any           { return nil }
+
+type mockInitDirEntry struct {
+	name  string
+	isDir bool
+}
+
+func (m *mockInitDirEntry) Name() string               { return m.name }
+func (m *mockInitDirEntry) IsDir() bool                { return m.isDir }
+func (m *mockInitDirEntry) Type() os.FileMode          { return 0 }
+func (m *mockInitDirEntry) Info() (os.FileInfo, error) { return nil, nil }
 
 // =============================================================================
 // Test Setup

@@ -9,7 +9,10 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/network"
 	"github.com/windsorcli/cli/pkg/pipelines"
+	"github.com/windsorcli/cli/pkg/shell"
+	"github.com/windsorcli/cli/pkg/ssh"
 )
 
 func TestInitCmd(t *testing.T) {
@@ -211,6 +214,17 @@ func TestInitPipeline(t *testing.T) {
 		injector := di.NewInjector()
 		ctx := context.Background()
 
+		// Set up minimal mocks to avoid SSH client issues
+		mockSSHClient := ssh.NewMockSSHClient()
+		injector.Register("sshClient", mockSSHClient)
+
+		mockSecureShell := shell.NewMockShell(injector)
+		injector.Register("secureShell", mockSecureShell)
+
+		// Set up network interface provider mock
+		mockNetworkInterfaceProvider := network.NewMockNetworkInterfaceProvider()
+		injector.Register("networkInterfaceProvider", mockNetworkInterfaceProvider)
+
 		// When initializing the pipeline
 		err := pipeline.Initialize(injector, ctx)
 
@@ -226,6 +240,17 @@ func TestInitPipeline(t *testing.T) {
 		injector := di.NewInjector()
 		ctx := context.WithValue(context.Background(), "contextName", "test-context")
 
+		// Set up minimal mocks to avoid SSH client issues
+		mockSSHClient := ssh.NewMockSSHClient()
+		injector.Register("sshClient", mockSSHClient)
+
+		mockSecureShell := shell.NewMockShell(injector)
+		injector.Register("secureShell", mockSecureShell)
+
+		// Set up network interface provider mock
+		mockNetworkInterfaceProvider := network.NewMockNetworkInterfaceProvider()
+		injector.Register("networkInterfaceProvider", mockNetworkInterfaceProvider)
+
 		// When initializing the pipeline
 		err := pipeline.Initialize(injector, ctx)
 
@@ -240,6 +265,17 @@ func TestInitPipeline(t *testing.T) {
 		pipeline := pipelines.NewInitPipeline()
 		injector := di.NewInjector()
 		ctx := context.WithValue(context.Background(), "reset", true)
+
+		// Set up minimal mocks to avoid SSH client issues
+		mockSSHClient := ssh.NewMockSSHClient()
+		injector.Register("sshClient", mockSSHClient)
+
+		mockSecureShell := shell.NewMockShell(injector)
+		injector.Register("secureShell", mockSecureShell)
+
+		// Set up network interface provider mock
+		mockNetworkInterfaceProvider := network.NewMockNetworkInterfaceProvider()
+		injector.Register("networkInterfaceProvider", mockNetworkInterfaceProvider)
 
 		// When initializing the pipeline
 		err := pipeline.Initialize(injector, ctx)

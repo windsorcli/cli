@@ -199,19 +199,22 @@ func (p *BasePipeline) withStack() stack.Stack {
 	return stack
 }
 
-// withGenerators creates generators based on configuration
+// withGenerators creates and registers generators including git, terraform, and blueprint generators.
+// Returns a slice of initialized generators or an error if creation fails.
 func (p *BasePipeline) withGenerators() ([]generators.Generator, error) {
 	var generatorList []generators.Generator
 
-	// Git generator
 	gitGenerator := generators.NewGitGenerator(p.injector)
 	p.injector.Register("gitGenerator", gitGenerator)
 	generatorList = append(generatorList, gitGenerator)
 
-	// Terraform generator
 	terraformGenerator := generators.NewTerraformGenerator(p.injector)
 	p.injector.Register("terraformGenerator", terraformGenerator)
 	generatorList = append(generatorList, terraformGenerator)
+
+	blueprintGenerator := generators.NewBlueprintGenerator(p.injector)
+	p.injector.Register("blueprintGenerator", blueprintGenerator)
+	generatorList = append(generatorList, blueprintGenerator)
 
 	return generatorList, nil
 }
@@ -537,29 +540,27 @@ func (p *BasePipeline) withServices() ([]services.Service, error) {
 		}
 	}
 
-	// Add cluster services (TalosService instances) if cluster is enabled
-	clusterEnabled := p.configHandler.GetBool("cluster.enabled", false)
-	if clusterEnabled {
-		clusterDriver := p.configHandler.GetString("cluster.driver")
-		if clusterDriver == "talos" {
-			controlPlaneCount := p.configHandler.GetInt("cluster.controlplanes.count")
-			workerCount := p.configHandler.GetInt("cluster.workers.count")
+	// Add cluster services (TalosService instances) based on cluster provider using tagged switch
+	clusterProvider := p.configHandler.GetString("cluster.provider", "")
+	switch clusterProvider {
+	case "talos", "omni":
+		controlPlaneCount := p.configHandler.GetInt("cluster.control_plane.count")
+		workerCount := p.configHandler.GetInt("cluster.worker.count")
 
-			for i := 1; i <= controlPlaneCount; i++ {
-				controlPlaneService := services.NewTalosService(p.injector, "controlplane")
-				serviceName := fmt.Sprintf("controlplane-%d", i)
-				controlPlaneService.SetName(serviceName)
-				p.injector.Register(fmt.Sprintf("clusterNode.%s", serviceName), controlPlaneService)
-				serviceList = append(serviceList, controlPlaneService)
-			}
+		for i := 1; i <= controlPlaneCount; i++ {
+			controlPlaneService := services.NewTalosService(p.injector, "controlplane")
+			serviceName := fmt.Sprintf("controlplane-%d", i)
+			controlPlaneService.SetName(serviceName)
+			p.injector.Register(fmt.Sprintf("clusterNode.%s", serviceName), controlPlaneService)
+			serviceList = append(serviceList, controlPlaneService)
+		}
 
-			for i := 1; i <= workerCount; i++ {
-				workerService := services.NewTalosService(p.injector, "worker")
-				serviceName := fmt.Sprintf("worker-%d", i)
-				workerService.SetName(serviceName)
-				p.injector.Register(fmt.Sprintf("clusterNode.%s", serviceName), workerService)
-				serviceList = append(serviceList, workerService)
-			}
+		for i := 1; i <= workerCount; i++ {
+			workerService := services.NewTalosService(p.injector, "worker")
+			serviceName := fmt.Sprintf("worker-%d", i)
+			workerService.SetName(serviceName)
+			p.injector.Register(fmt.Sprintf("clusterNode.%s", serviceName), workerService)
+			serviceList = append(serviceList, workerService)
 		}
 	}
 

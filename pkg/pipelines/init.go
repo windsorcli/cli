@@ -1,13 +1,16 @@
 package pipelines
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
-
-	"os"
 
 	bundler "github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/blueprint"
@@ -128,9 +131,7 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 	p.terraformResolvers = terraformResolvers
 
 	p.templateRenderer = p.withTemplateRenderer()
-
 	p.networkManager = p.withNetworkManager()
-
 	p.virtualMachine = p.withVirtualMachine()
 	p.containerRuntime = p.withContainerRuntime()
 
@@ -233,50 +234,64 @@ func (p *InitPipeline) Execute(ctx context.Context) error {
 		return fmt.Errorf("failed to generate context ID: %w", err)
 	}
 
-	if err := p.saveConfiguration(ctx); err != nil {
+	reset := false
+	if resetValue := ctx.Value("reset"); resetValue != nil {
+		reset = resetValue.(bool)
+	}
+
+	if err := p.saveConfiguration(reset); err != nil {
 		return err
 	}
 
-	if err := p.blueprintHandler.LoadConfig(false); err != nil {
-		return fmt.Errorf("Error reloading blueprint config after IP assignment: %w", err)
+	// Phase 1: Template Data Preparation
+	// Prepare template data with priority handling
+	templateData, err := p.prepareTemplateData()
+	if err != nil {
+		return fmt.Errorf("failed to prepare template data: %w", err)
 	}
 
-	// Process template data directly in Execute
-	if p.templateRenderer != nil {
-		projectRoot, err := p.shell.GetProjectRoot()
-		if err != nil {
-			return fmt.Errorf("failed to get project root: %w", err)
+	// Phase 2: Template Processing and Blueprint Generation
+	// Process all template data first, then generate blueprint.yaml if needed
+	var renderedData map[string]any
+	if p.templateRenderer != nil && len(templateData) > 0 {
+		renderedData = make(map[string]any)
+		if err := p.templateRenderer.Process(templateData, renderedData); err != nil {
+			return fmt.Errorf("failed to process template data: %w", err)
 		}
 
-		templateDir := filepath.Join(projectRoot, "contexts", "_template")
-		if _, err := p.shims.Stat(templateDir); err == nil {
-			templateData := make(map[string][]byte)
-
-			// Walk template directory and collect files
-			if err := p.walkAndCollectTemplates(templateDir, templateData); err != nil {
-				return fmt.Errorf("failed to collect template data: %w", err)
-			}
-
-			if len(templateData) > 0 {
-				renderedData := make(map[string]any)
-				if err := p.templateRenderer.Process(templateData, renderedData); err != nil {
-					return fmt.Errorf("failed to process template data: %w", err)
-				}
-
-				// Pass rendered data to generators
-				for _, generator := range p.generators {
-					if err := generator.Generate(renderedData); err != nil {
-						return fmt.Errorf("failed to generate from template data: %w", err)
+		// Generate blueprint.yaml first (if blueprint data exists in templates)
+		if blueprintData, exists := renderedData["blueprint"]; exists {
+			if blueprintGenerator := p.injector.Resolve("blueprintGenerator"); blueprintGenerator != nil {
+				if generator, ok := blueprintGenerator.(generators.Generator); ok {
+					if err := generator.Generate(map[string]any{"blueprint": blueprintData}, reset); err != nil {
+						return fmt.Errorf("failed to generate blueprint from template data: %w", err)
 					}
 				}
 			}
 		}
 	}
 
-	// Process terraform modules directly in Execute
+	// Phase 3: Blueprint Loading
+	// Reload blueprint configuration after potential generation
+	if err := p.blueprintHandler.LoadConfig(false); err != nil {
+		return fmt.Errorf("Error reloading blueprint config after generation: %w", err)
+	}
+
+	// Phase 4: Terraform Module Resolution
+	// Process terraform modules now that blueprint is loaded with terraform components
 	for _, resolver := range p.terraformResolvers {
 		if err := resolver.ProcessModules(); err != nil {
 			return fmt.Errorf("failed to process terraform modules: %w", err)
+		}
+	}
+
+	// Phase 5: Final Generation
+	// Generate remaining files (terraform, kustomize, etc.) now that modules are resolved
+	if len(renderedData) > 0 {
+		for _, generator := range p.generators {
+			if err := generator.Generate(renderedData, reset); err != nil {
+				return fmt.Errorf("failed to generate from template data: %w", err)
+			}
 		}
 	}
 
@@ -368,7 +383,7 @@ func (p *InitPipeline) processPlatformConfiguration(_ context.Context) error {
 }
 
 // saveConfiguration saves the configuration to the appropriate file.
-func (p *InitPipeline) saveConfiguration(ctx context.Context) error {
+func (p *InitPipeline) saveConfiguration(overwrite bool) error {
 	projectRoot, err := p.shell.GetProjectRoot()
 	if err != nil {
 		return fmt.Errorf("Error retrieving project root: %w", err)
@@ -386,16 +401,91 @@ func (p *InitPipeline) saveConfiguration(ctx context.Context) error {
 		cliConfigPath = yamlPath
 	}
 
-	reset := false
-	if resetValue := ctx.Value("reset"); resetValue != nil {
-		reset = resetValue.(bool)
-	}
-
-	if err := p.configHandler.SaveConfig(cliConfigPath, reset); err != nil {
+	if err := p.configHandler.SaveConfig(cliConfigPath, overwrite); err != nil {
 		return fmt.Errorf("Error saving config file: %w", err)
 	}
 
 	return nil
+}
+
+// prepareTemplateData handles the priority system for template input sources:
+// 1. If --blueprint oci://xyz is passed, extract from OCI artifact
+// 2. If contexts/_template folder exists and no --blueprint, load from local directory
+// 3. Otherwise, return empty map to use default blueprint generation
+func (p *InitPipeline) prepareTemplateData() (map[string][]byte, error) {
+	blueprintValue := p.configHandler.GetString("blueprint")
+
+	// Priority 1: OCI blueprint via --blueprint flag
+	if blueprintValue != "" && strings.HasPrefix(blueprintValue, "oci://") {
+		if p.artifactBuilder == nil {
+			return nil, fmt.Errorf("artifact builder not available")
+		}
+
+		artifacts, err := p.artifactBuilder.Pull([]string{blueprintValue})
+		if err != nil {
+			return nil, fmt.Errorf("failed to pull OCI artifact %s: %w", blueprintValue, err)
+		}
+
+		if len(artifacts) == 0 {
+			return nil, fmt.Errorf("no artifacts downloaded from %s", blueprintValue)
+		}
+
+		for _, artifactData := range artifacts {
+			templateData := make(map[string][]byte)
+
+			gzipReader, err := gzip.NewReader(bytes.NewReader(artifactData))
+			if err != nil {
+				return nil, fmt.Errorf("failed to create gzip reader: %w", err)
+			}
+			defer gzipReader.Close()
+
+			tarReader := tar.NewReader(gzipReader)
+
+			for {
+				header, err := tarReader.Next()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					return nil, fmt.Errorf("failed to read tar header: %w", err)
+				}
+
+				if header.Typeflag == tar.TypeReg {
+					content, err := io.ReadAll(tarReader)
+					if err != nil {
+						return nil, fmt.Errorf("failed to read file %s: %w", header.Name, err)
+					}
+
+					// Store with forward slashes for consistent path handling
+					templateData[filepath.ToSlash(header.Name)] = content
+				}
+			}
+
+			return templateData, nil
+		}
+
+		return nil, fmt.Errorf("no valid artifacts found")
+	}
+
+	// Priority 2: Local _template directory (only if no --blueprint flag)
+	if blueprintValue == "" {
+		projectRoot, err := p.shell.GetProjectRoot()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get project root: %w", err)
+		}
+
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
+		if _, err := p.shims.Stat(templateDir); err == nil {
+			templateData := make(map[string][]byte)
+			if err := p.walkAndCollectTemplates(templateDir, templateData); err != nil {
+				return nil, fmt.Errorf("failed to collect local templates: %w", err)
+			}
+			return templateData, nil
+		}
+	}
+
+	// Priority 3: Default behavior (empty map - no template processing occurs)
+	return make(map[string][]byte), nil
 }
 
 // walkAndCollectTemplates recursively walks through the template directory and collects all files.
