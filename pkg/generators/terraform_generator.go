@@ -104,8 +104,14 @@ func (g *TerraformGenerator) Write(overwrite ...bool) error {
 // It consumes template data keyed by "terraform/<module_path>", generating tfvars files at
 // contexts/<context>/terraform/<module_path>.tfvars. The method utilizes the blueprint handler to retrieve
 // TerraformComponents, generates module shims for remote sources, and determines the variables.tf location
-// based on component source presence (remote or local).
-func (g *TerraformGenerator) Generate(data map[string]any) error {
+// based on component source presence (remote or local). The overwrite parameter controls whether existing
+// tfvars files should be overwritten.
+func (g *TerraformGenerator) Generate(data map[string]any, overwrite ...bool) error {
+	shouldOverwrite := g.reset
+	if len(overwrite) > 0 {
+		shouldOverwrite = overwrite[0]
+	}
+
 	contextPath, err := g.configHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("failed to get config root: %w", err)
@@ -127,7 +133,7 @@ func (g *TerraformGenerator) Generate(data map[string]any) error {
 		componentMap[component.Path] = component
 	}
 
-	if g.reset {
+	if shouldOverwrite {
 		terraformStateDir := filepath.Join(contextPath, ".terraform")
 		if _, err := g.shims.Stat(terraformStateDir); err == nil {
 			if err := g.shims.RemoveAll(terraformStateDir); err != nil {

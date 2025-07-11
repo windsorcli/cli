@@ -87,7 +87,7 @@ func TestMockGenerator_Generate(t *testing.T) {
 		mock := NewMockGenerator()
 
 		// And the GenerateFunc is set to return a mock error
-		mock.GenerateFunc = func(data map[string]any) error {
+		mock.GenerateFunc = func(data map[string]any, overwrite ...bool) error {
 			return mockGenerateErr
 		}
 
