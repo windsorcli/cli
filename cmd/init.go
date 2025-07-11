@@ -55,17 +55,17 @@ var initCmd = &cobra.Command{
 		configHandler := injector.Resolve("configHandler").(config.ConfigHandler)
 
 		if initBackend != "" {
-			if err := configHandler.Set("backend", initBackend); err != nil {
+			if err := configHandler.SetContextValue("backend", initBackend); err != nil {
 				return fmt.Errorf("failed to set backend: %w", err)
 			}
 		}
 		if initAwsProfile != "" {
-			if err := configHandler.Set("aws.profile", initAwsProfile); err != nil {
+			if err := configHandler.SetContextValue("aws.profile", initAwsProfile); err != nil {
 				return fmt.Errorf("failed to set aws.profile: %w", err)
 			}
 		}
 		if initAwsEndpointURL != "" {
-			if err := configHandler.Set("aws.endpoint_url", initAwsEndpointURL); err != nil {
+			if err := configHandler.SetContextValue("aws.endpoint_url", initAwsEndpointURL); err != nil {
 				return fmt.Errorf("failed to set aws.endpoint_url: %w", err)
 			}
 		}
@@ -75,47 +75,47 @@ var initCmd = &cobra.Command{
 			}
 		}
 		if initCpu > 0 {
-			if err := configHandler.Set("vm.cpu", initCpu); err != nil {
+			if err := configHandler.SetContextValue("vm.cpu", initCpu); err != nil {
 				return fmt.Errorf("failed to set vm.cpu: %w", err)
 			}
 		}
 		if initDisk > 0 {
-			if err := configHandler.Set("vm.disk", initDisk); err != nil {
+			if err := configHandler.SetContextValue("vm.disk", initDisk); err != nil {
 				return fmt.Errorf("failed to set vm.disk: %w", err)
 			}
 		}
 		if initMemory > 0 {
-			if err := configHandler.Set("vm.memory", initMemory); err != nil {
+			if err := configHandler.SetContextValue("vm.memory", initMemory); err != nil {
 				return fmt.Errorf("failed to set vm.memory: %w", err)
 			}
 		}
 		if initArch != "" {
-			if err := configHandler.Set("vm.arch", initArch); err != nil {
+			if err := configHandler.SetContextValue("vm.arch", initArch); err != nil {
 				return fmt.Errorf("failed to set vm.arch: %w", err)
 			}
 		}
 		if initDocker {
-			if err := configHandler.Set("docker.enabled", true); err != nil {
+			if err := configHandler.SetContextValue("docker.enabled", true); err != nil {
 				return fmt.Errorf("failed to set docker.enabled: %w", err)
 			}
 		}
 		if initGitLivereload {
-			if err := configHandler.Set("git.livereload.enabled", true); err != nil {
+			if err := configHandler.SetContextValue("git.livereload.enabled", true); err != nil {
 				return fmt.Errorf("failed to set git.livereload.enabled: %w", err)
 			}
 		}
 		if initBlueprint != "" {
-			if err := configHandler.Set("blueprint", initBlueprint); err != nil {
+			if err := configHandler.SetContextValue("blueprint", initBlueprint); err != nil {
 				return fmt.Errorf("failed to set blueprint: %w", err)
 			}
 		}
 		if initToolsManager != "" {
-			if err := configHandler.Set("tools.manager", initToolsManager); err != nil {
+			if err := configHandler.SetContextValue("tools.manager", initToolsManager); err != nil {
 				return fmt.Errorf("failed to set tools.manager: %w", err)
 			}
 		}
 		if initPlatform != "" {
-			if err := configHandler.Set("platform", initPlatform); err != nil {
+			if err := configHandler.SetContextValue("platform", initPlatform); err != nil {
 				return fmt.Errorf("failed to set platform: %w", err)
 			}
 		}
@@ -124,7 +124,7 @@ var initCmd = &cobra.Command{
 		for _, setFlag := range initSetFlags {
 			parts := strings.SplitN(setFlag, "=", 2)
 			if len(parts) == 2 {
-				if err := configHandler.Set(parts[0], parts[1]); err != nil {
+				if err := configHandler.SetContextValue(parts[0], parts[1]); err != nil {
 					return fmt.Errorf("failed to set %s: %w", parts[0], err)
 				}
 			}

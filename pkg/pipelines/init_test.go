@@ -17,9 +17,13 @@ import (
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/windsorcli/cli/pkg/kubernetes"
+	"github.com/windsorcli/cli/pkg/network"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
+	"github.com/windsorcli/cli/pkg/template"
+	"github.com/windsorcli/cli/pkg/terraform"
 	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/virt"
 )
@@ -344,6 +348,79 @@ func TestInitPipeline_Initialize(t *testing.T) {
 			t.Errorf("Expected artifact builder init error, got: %v", err)
 		}
 	})
+
+	t.Run("ReturnsErrorWhenTemplateRendererInitializeFails", func(t *testing.T) {
+		// Given an init pipeline with failing template renderer initialization
+		pipeline := NewInitPipeline()
+		mocks := setupInitMocks(t)
+
+		// Create a mock template renderer that fails on initialization
+		mockTemplate := template.NewMockTemplate(mocks.Injector)
+		mockTemplate.InitializeFunc = func() error {
+			return fmt.Errorf("template renderer initialization failed")
+		}
+
+		// Override the template renderer
+		mocks.Injector.Register("templateRenderer", mockTemplate)
+
+		// When initializing the pipeline
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to initialize template renderer") {
+			t.Errorf("Expected template renderer initialization error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenNetworkManagerInitializeFails", func(t *testing.T) {
+		// Given an init pipeline with failing network manager initialization
+		pipeline := NewInitPipeline()
+		mocks := setupInitMocks(t)
+
+		// Create a mock network manager that fails on initialization
+		mockNetworkManager := network.NewMockNetworkManager()
+		mockNetworkManager.InitializeFunc = func() error {
+			return fmt.Errorf("network manager initialization failed")
+		}
+
+		// Override the network manager
+		mocks.Injector.Register("networkManager", mockNetworkManager)
+
+		// When initializing the pipeline
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to initialize network manager") {
+			t.Errorf("Expected network manager initialization error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenContainerRuntimeInitializeFails", func(t *testing.T) {
+		// Given an init pipeline with failing container runtime initialization
+		pipeline, mocks := setup(t)
+
+		// Override container runtime to fail on initialization
+		mocks.ContainerRuntime.InitializeFunc = func() error {
+			return fmt.Errorf("container runtime initialization failed")
+		}
+
+		// When initializing the pipeline
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to initialize container runtime") {
+			t.Errorf("Expected container runtime initialization error, got: %v", err)
+		}
+	})
 }
 
 func TestInitPipeline_Execute(t *testing.T) {
@@ -531,6 +608,251 @@ func TestInitPipeline_Execute(t *testing.T) {
 		}
 		if err.Error() != "failed to generate context ID: generate context ID failed" {
 			t.Errorf("Expected generate context ID error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenPrepareTemplateDataFails", func(t *testing.T) {
+		// Given a pipeline with failing template data preparation
+		pipeline, mocks := setup(t)
+
+		// Mock config handler to return OCI blueprint
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+				if key == "blueprint" {
+					return "oci://test/blueprint:latest"
+				}
+				return ""
+			}
+		}
+
+		// Set artifact builder to nil to cause error
+		pipeline.artifactBuilder = nil
+
+		// When Execute is called
+		err := pipeline.Execute(context.Background())
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to prepare template data") {
+			t.Errorf("Expected prepare template data error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenTemplateRendererFails", func(t *testing.T) {
+		// Given a pipeline with failing template renderer
+		pipeline, mocks := setup(t)
+
+		// Mock template renderer with error
+		mockTemplateRenderer := template.NewMockTemplate(mocks.Injector)
+		mockTemplateRenderer.ProcessFunc = func(templateData map[string][]byte, renderedData map[string]any) error {
+			return fmt.Errorf("template processing failed")
+		}
+		pipeline.templateRenderer = mockTemplateRenderer
+
+		// Setup template data using existing mocks
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return t.TempDir(), nil
+		}
+		pipeline.shims = &Shims{
+			Stat: func(path string) (os.FileInfo, error) {
+				return &mockInitFileInfo{name: "_template", isDir: true}, nil
+			},
+			ReadDir: func(name string) ([]os.DirEntry, error) {
+				return []os.DirEntry{
+					&mockInitDirEntry{name: "test.txt", isDir: false},
+				}, nil
+			},
+			ReadFile: func(name string) ([]byte, error) {
+				return []byte("test content"), nil
+			},
+		}
+
+		// When Execute is called
+		err := pipeline.Execute(context.Background())
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to process template data") {
+			t.Errorf("Expected template processing error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenBlueprintGeneratorFails", func(t *testing.T) {
+		// Given a pipeline with failing blueprint generator
+		pipeline, mocks := setup(t)
+
+		// Mock template renderer to produce blueprint data
+		mockTemplateRenderer := template.NewMockTemplate(mocks.Injector)
+		mockTemplateRenderer.ProcessFunc = func(templateData map[string][]byte, renderedData map[string]any) error {
+			renderedData["blueprint"] = map[string]any{"name": "test-blueprint"}
+			return nil
+		}
+		pipeline.templateRenderer = mockTemplateRenderer
+
+		// Mock blueprint generator with error
+		mockBlueprintGenerator := generators.NewMockGenerator()
+		mockBlueprintGenerator.GenerateFunc = func(data map[string]any, overwrite ...bool) error {
+			return fmt.Errorf("blueprint generation failed")
+		}
+		mocks.Injector.Register("blueprintGenerator", mockBlueprintGenerator)
+
+		// Setup template data using existing mocks
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return t.TempDir(), nil
+		}
+		pipeline.shims = &Shims{
+			Stat: func(path string) (os.FileInfo, error) {
+				return &mockInitFileInfo{name: "_template", isDir: true}, nil
+			},
+			ReadDir: func(name string) ([]os.DirEntry, error) {
+				return []os.DirEntry{
+					&mockInitDirEntry{name: "test.txt", isDir: false},
+				}, nil
+			},
+			ReadFile: func(name string) ([]byte, error) {
+				return []byte("test content"), nil
+			},
+		}
+
+		// When Execute is called
+		err := pipeline.Execute(context.Background())
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to generate blueprint from template data") {
+			t.Errorf("Expected blueprint generation error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenTerraformResolverFails", func(t *testing.T) {
+		// Given a pipeline with failing terraform resolver
+		pipeline, _ := setup(t)
+
+		// Mock terraform resolver with error
+		mockTerraformResolver := terraform.NewMockModuleResolver(di.NewInjector())
+		mockTerraformResolver.ProcessModulesFunc = func() error {
+			return fmt.Errorf("terraform resolver failed")
+		}
+		pipeline.terraformResolvers = []terraform.ModuleResolver{mockTerraformResolver}
+
+		// When Execute is called
+		err := pipeline.Execute(context.Background())
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to process terraform modules") {
+			t.Errorf("Expected terraform modules error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenFinalGeneratorFails", func(t *testing.T) {
+		// Given a pipeline with failing final generator
+		pipeline, mocks := setup(t)
+
+		// Mock template renderer to produce rendered data
+		mockTemplateRenderer := template.NewMockTemplate(di.NewInjector())
+		mockTemplateRenderer.ProcessFunc = func(templateData map[string][]byte, renderedData map[string]any) error {
+			renderedData["test"] = "data"
+			return nil
+		}
+		pipeline.templateRenderer = mockTemplateRenderer
+
+		// Mock generator with error
+		mockGenerator := generators.NewMockGenerator()
+		mockGenerator.GenerateFunc = func(data map[string]any, overwrite ...bool) error {
+			return fmt.Errorf("final generation failed")
+		}
+		pipeline.generators = []generators.Generator{mockGenerator}
+
+		// Setup template data using existing mocks
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return t.TempDir(), nil
+		}
+		pipeline.shims = &Shims{
+			Stat: func(path string) (os.FileInfo, error) {
+				return &mockInitFileInfo{name: "_template", isDir: true}, nil
+			},
+			ReadDir: func(name string) ([]os.DirEntry, error) {
+				return []os.DirEntry{
+					&mockInitDirEntry{name: "test.txt", isDir: false},
+				}, nil
+			},
+			ReadFile: func(name string) ([]byte, error) {
+				return []byte("test content"), nil
+			},
+		}
+
+		// When Execute is called
+		err := pipeline.Execute(context.Background())
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to generate from template data") {
+			t.Errorf("Expected final generation error, got: %v", err)
+		}
+	})
+
+	t.Run("ProcessesResetFlagFromContext", func(t *testing.T) {
+		// Given a pipeline with reset flag in context
+		pipeline, mocks := setup(t)
+		ctx := context.WithValue(context.Background(), "reset", true)
+
+		// Mock template renderer to produce rendered data
+		mockTemplateRenderer := template.NewMockTemplate(di.NewInjector())
+		mockTemplateRenderer.ProcessFunc = func(templateData map[string][]byte, renderedData map[string]any) error {
+			renderedData["test"] = "data"
+			return nil
+		}
+		pipeline.templateRenderer = mockTemplateRenderer
+
+		// Mock generator to verify reset flag is passed
+		mockGenerator := generators.NewMockGenerator()
+		var resetReceived bool
+		mockGenerator.GenerateFunc = func(data map[string]any, overwrite ...bool) error {
+			resetReceived = len(overwrite) > 0 && overwrite[0]
+			return nil
+		}
+		pipeline.generators = []generators.Generator{mockGenerator}
+
+		// Setup template data using existing mocks
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return t.TempDir(), nil
+		}
+		pipeline.shims = &Shims{
+			Stat: func(path string) (os.FileInfo, error) {
+				return &mockInitFileInfo{name: "_template", isDir: true}, nil
+			},
+			ReadDir: func(name string) ([]os.DirEntry, error) {
+				return []os.DirEntry{
+					&mockInitDirEntry{name: "test.txt", isDir: false},
+				}, nil
+			},
+			ReadFile: func(name string) ([]byte, error) {
+				return []byte("test content"), nil
+			},
+		}
+
+		// When Execute is called
+		err := pipeline.Execute(ctx)
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And reset flag should be passed to generator
+		if !resetReceived {
+			t.Error("Expected reset flag to be true")
 		}
 	})
 }
@@ -969,8 +1291,8 @@ func TestInitPipeline_processPlatformConfiguration(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsErrorWhenSetContextValueFails", func(t *testing.T) {
-		// Given a pipeline with failing SetContextValue
+	t.Run("ReturnsErrorWhenSetContextValueFailsForAWS", func(t *testing.T) {
+		// Given a pipeline with failing SetContextValue for AWS
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			switch key {
@@ -1021,6 +1343,291 @@ func TestInitPipeline_processPlatformConfiguration(t *testing.T) {
 		}
 		if err.Error() != "Error setting aws.enabled: set context value failed" {
 			t.Errorf("Expected aws.enabled error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenSetContextValueFailsForAWSClusterDriver", func(t *testing.T) {
+		// Given a pipeline with failing SetContextValue for AWS cluster driver
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "platform":
+				return "aws"
+			case "network.cidr_block":
+				return "10.0.0.0/24"
+			case "network.loadbalancer_ips.start":
+				return "10.0.0.100"
+			case "network.loadbalancer_ips.end":
+				return "10.0.0.200"
+			case "vm.driver":
+				return ""
+			default:
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return ""
+			}
+		}
+		callCount := 0
+		mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
+			callCount++
+			if callCount == 1 {
+				return nil // First call (aws.enabled) succeeds
+			}
+			return fmt.Errorf("set context value failed") // Second call (cluster.driver) fails
+		}
+		mockConfigHandler.SetContextFunc = func(contextName string) error {
+			return nil
+		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "mock-context"
+		}
+
+		options := &SetupOptions{
+			ConfigHandler: mockConfigHandler,
+		}
+
+		pipeline := NewInitPipeline()
+		mocks := setupInitMocks(t, options)
+
+		// Initialize the pipeline manually to set up configHandler
+		pipeline.injector = mocks.Injector
+		pipeline.configHandler = mockConfigHandler
+
+		// When processPlatformConfiguration is called
+		err := pipeline.processPlatformConfiguration(context.Background())
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "Error setting cluster.driver: set context value failed" {
+			t.Errorf("Expected cluster.driver error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenSetContextValueFailsForAzure", func(t *testing.T) {
+		// Given a pipeline with failing SetContextValue for Azure
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "platform":
+				return "azure"
+			case "network.cidr_block":
+				return "10.0.0.0/24"
+			case "network.loadbalancer_ips.start":
+				return "10.0.0.100"
+			case "network.loadbalancer_ips.end":
+				return "10.0.0.200"
+			case "vm.driver":
+				return ""
+			default:
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return ""
+			}
+		}
+		mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
+			return fmt.Errorf("set context value failed")
+		}
+		mockConfigHandler.SetContextFunc = func(contextName string) error {
+			return nil
+		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "mock-context"
+		}
+
+		options := &SetupOptions{
+			ConfigHandler: mockConfigHandler,
+		}
+
+		pipeline := NewInitPipeline()
+		mocks := setupInitMocks(t, options)
+
+		// Initialize the pipeline manually to set up configHandler
+		pipeline.injector = mocks.Injector
+		pipeline.configHandler = mockConfigHandler
+
+		// When processPlatformConfiguration is called
+		err := pipeline.processPlatformConfiguration(context.Background())
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "Error setting azure.enabled: set context value failed" {
+			t.Errorf("Expected azure.enabled error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenSetContextValueFailsForAzureClusterDriver", func(t *testing.T) {
+		// Given a pipeline with failing SetContextValue for Azure cluster driver
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "platform":
+				return "azure"
+			case "network.cidr_block":
+				return "10.0.0.0/24"
+			case "network.loadbalancer_ips.start":
+				return "10.0.0.100"
+			case "network.loadbalancer_ips.end":
+				return "10.0.0.200"
+			case "vm.driver":
+				return ""
+			default:
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return ""
+			}
+		}
+		callCount := 0
+		mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
+			callCount++
+			if callCount == 1 {
+				return nil // First call (azure.enabled) succeeds
+			}
+			return fmt.Errorf("set context value failed") // Second call (cluster.driver) fails
+		}
+		mockConfigHandler.SetContextFunc = func(contextName string) error {
+			return nil
+		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "mock-context"
+		}
+
+		options := &SetupOptions{
+			ConfigHandler: mockConfigHandler,
+		}
+
+		pipeline := NewInitPipeline()
+		mocks := setupInitMocks(t, options)
+
+		// Initialize the pipeline manually to set up configHandler
+		pipeline.injector = mocks.Injector
+		pipeline.configHandler = mockConfigHandler
+
+		// When processPlatformConfiguration is called
+		err := pipeline.processPlatformConfiguration(context.Background())
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "Error setting cluster.driver: set context value failed" {
+			t.Errorf("Expected cluster.driver error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenSetContextValueFailsForMetal", func(t *testing.T) {
+		// Given a pipeline with failing SetContextValue for metal
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "platform":
+				return "metal"
+			case "network.cidr_block":
+				return "10.0.0.0/24"
+			case "network.loadbalancer_ips.start":
+				return "10.0.0.100"
+			case "network.loadbalancer_ips.end":
+				return "10.0.0.200"
+			case "vm.driver":
+				return ""
+			default:
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return ""
+			}
+		}
+		mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
+			return fmt.Errorf("set context value failed")
+		}
+		mockConfigHandler.SetContextFunc = func(contextName string) error {
+			return nil
+		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "mock-context"
+		}
+
+		options := &SetupOptions{
+			ConfigHandler: mockConfigHandler,
+		}
+
+		pipeline := NewInitPipeline()
+		mocks := setupInitMocks(t, options)
+
+		// Initialize the pipeline manually to set up configHandler
+		pipeline.injector = mocks.Injector
+		pipeline.configHandler = mockConfigHandler
+
+		// When processPlatformConfiguration is called
+		err := pipeline.processPlatformConfiguration(context.Background())
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "Error setting cluster.driver: set context value failed" {
+			t.Errorf("Expected cluster.driver error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenSetContextValueFailsForLocal", func(t *testing.T) {
+		// Given a pipeline with failing SetContextValue for local
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "platform":
+				return "local"
+			case "network.cidr_block":
+				return "10.0.0.0/24"
+			case "network.loadbalancer_ips.start":
+				return "10.0.0.100"
+			case "network.loadbalancer_ips.end":
+				return "10.0.0.200"
+			case "vm.driver":
+				return ""
+			default:
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return ""
+			}
+		}
+		mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
+			return fmt.Errorf("set context value failed")
+		}
+		mockConfigHandler.SetContextFunc = func(contextName string) error {
+			return nil
+		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "mock-context"
+		}
+
+		options := &SetupOptions{
+			ConfigHandler: mockConfigHandler,
+		}
+
+		pipeline := NewInitPipeline()
+		mocks := setupInitMocks(t, options)
+
+		// Initialize the pipeline manually to set up configHandler
+		pipeline.injector = mocks.Injector
+		pipeline.configHandler = mockConfigHandler
+
+		// When processPlatformConfiguration is called
+		err := pipeline.processPlatformConfiguration(context.Background())
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "Error setting cluster.driver: set context value failed" {
+			t.Errorf("Expected cluster.driver error, got: %v", err)
 		}
 	})
 }
@@ -1148,35 +1755,82 @@ func TestInitPipeline_writeConfigurationFiles(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsErrorWhenServiceWriteConfigFails", func(t *testing.T) {
-		// Given an init pipeline with failing service
-		pipeline, _ := setup(t)
+	t.Run("ReturnsErrorWhenToolsManagerWriteManifestFails", func(t *testing.T) {
+		// Given an init pipeline with failing tools manager
+		pipeline, mocks := setup(t)
+
+		// Override tools manager to fail on WriteManifest
+		mocks.ToolsManager.WriteManifestFunc = func() error {
+			return fmt.Errorf("tools manager write manifest failed")
+		}
+
+		// Ensure pipeline has the tools manager set
+		pipeline.toolsManager = mocks.ToolsManager
 
 		// When writing configuration files
 		err := pipeline.writeConfigurationFiles()
 
-		// Then no error should be returned (since no services are configured)
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "error writing tools manifest: tools manager write manifest failed" {
+			t.Errorf("Expected tools manager write manifest error, got: %v", err)
 		}
 	})
 
-	t.Run("ReturnsErrorWhenToolsManagerWriteManifestFails", func(t *testing.T) {
-		// Given an init pipeline with failing tools manager
-		pipeline, _ := setup(t)
+	t.Run("ReturnsErrorWhenVirtualMachineWriteConfigFails", func(t *testing.T) {
+		// Given an init pipeline with failing virtual machine
+		pipeline, mocks := setup(t)
+
+		// Override virtual machine to fail on WriteConfig
+		mocks.VirtualMachine.WriteConfigFunc = func() error {
+			return fmt.Errorf("virtual machine write config failed")
+		}
+
+		// Ensure pipeline has the virtual machine set
+		pipeline.virtualMachine = mocks.VirtualMachine
 
 		// When writing configuration files
 		err := pipeline.writeConfigurationFiles()
 
-		// Then no error should be returned (since tools manager is mocked to succeed)
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "error writing virtual machine config: virtual machine write config failed" {
+			t.Errorf("Expected virtual machine write config error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenContainerRuntimeWriteConfigFails", func(t *testing.T) {
+		// Given an init pipeline with failing container runtime
+		pipeline, mocks := setup(t)
+
+		// Override container runtime to fail on WriteConfig
+		mocks.ContainerRuntime.WriteConfigFunc = func() error {
+			return fmt.Errorf("container runtime write config failed")
+		}
+
+		// Ensure pipeline has the container runtime set
+		pipeline.containerRuntime = mocks.ContainerRuntime
+
+		// When writing configuration files
+		err := pipeline.writeConfigurationFiles()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "error writing container runtime config: container runtime write config failed" {
+			t.Errorf("Expected container runtime write config error, got: %v", err)
 		}
 	})
 }
 
 func TestInitPipeline_prepareTemplateData(t *testing.T) {
-	t.Run("prepareTemplateData with OCI blueprint", func(t *testing.T) {
+	t.Run("WithOCIBlueprint", func(t *testing.T) {
+		// Given a pipeline with OCI blueprint configuration
 		pipeline := NewInitPipeline()
 
 		// Create test tarball data
@@ -1197,7 +1851,7 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		}
 		pipeline.artifactBuilder = mockArtifact
 
-		// Mock config handler to return OCI blueprint
+		// Mock config handler
 		mockConfig := config.NewMockConfigHandler()
 		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "blueprint" {
@@ -1207,12 +1861,15 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		}
 		pipeline.configHandler = mockConfig
 
+		// When preparing template data
 		result, err := pipeline.prepareTemplateData()
 
+		// Then no error should occur
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
+		// And result should contain expected files
 		if len(result) != 2 {
 			t.Fatalf("Expected 2 template files, got: %d", len(result))
 		}
@@ -1226,63 +1883,68 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		}
 	})
 
-	t.Run("prepareTemplateData with local template directory", func(t *testing.T) {
+	t.Run("WithLocalTemplateDirectory", func(t *testing.T) {
+		// Given a pipeline with local template directory
 		pipeline := NewInitPipeline()
-
-		// Create temporary directory structure
 		tempDir := t.TempDir()
-		contextDir := filepath.Join(tempDir, "contexts")
-		templateDir := filepath.Join(contextDir, "_template")
+		templateDir := filepath.Join(tempDir, "contexts", "_template")
 
-		if err := os.MkdirAll(templateDir, 0755); err != nil {
-			t.Fatalf("Failed to create template directory: %v", err)
-		}
-
-		// Create test files
-		if err := os.WriteFile(filepath.Join(templateDir, "test.txt"), []byte("test content"), 0644); err != nil {
-			t.Fatalf("Failed to create test file: %v", err)
-		}
-
-		subDir := filepath.Join(templateDir, "subdir")
-		if err := os.MkdirAll(subDir, 0755); err != nil {
-			t.Fatalf("Failed to create subdirectory: %v", err)
-		}
-
-		if err := os.WriteFile(filepath.Join(subDir, "nested.txt"), []byte("nested content"), 0644); err != nil {
-			t.Fatalf("Failed to create nested file: %v", err)
-		}
-
-		// Mock shell to return temp directory as project root
+		// Mock shell
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return tempDir, nil
 		}
 		pipeline.shell = mockShell
 
-		// Mock config handler to return empty blueprint (triggers local template check)
+		// Mock config handler (empty blueprint triggers local check)
 		mockConfig := config.NewMockConfigHandler()
 		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
 			return ""
 		}
 		pipeline.configHandler = mockConfig
 
-		// Mock shims to return nil for Stat (directory exists)
-		mockShims := &Shims{
+		// Mock shims
+		pipeline.shims = &Shims{
 			Stat: func(path string) (os.FileInfo, error) {
 				if path == templateDir {
 					return &mockInitFileInfo{name: "_template", isDir: true}, nil
 				}
 				return nil, fmt.Errorf("file not found")
 			},
+			ReadDir: func(name string) ([]os.DirEntry, error) {
+				if name == templateDir {
+					return []os.DirEntry{
+						&mockInitDirEntry{name: "test.txt", isDir: false},
+						&mockInitDirEntry{name: "subdir", isDir: true},
+					}, nil
+				}
+				if name == filepath.Join(templateDir, "subdir") {
+					return []os.DirEntry{
+						&mockInitDirEntry{name: "nested.txt", isDir: false},
+					}, nil
+				}
+				return nil, fmt.Errorf("directory not found")
+			},
+			ReadFile: func(name string) ([]byte, error) {
+				if name == filepath.Join(templateDir, "test.txt") {
+					return []byte("test content"), nil
+				}
+				if name == filepath.Join(templateDir, "subdir", "nested.txt") {
+					return []byte("nested content"), nil
+				}
+				return nil, fmt.Errorf("file not found")
+			},
 		}
-		pipeline.shims = mockShims
 
+		// When preparing template data
 		result, err := pipeline.prepareTemplateData()
 
+		// Then no error should occur
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
+		// And result should contain expected files
 		if len(result) != 2 {
 			t.Fatalf("Expected 2 template files, got: %d", len(result))
 		}
@@ -1296,44 +1958,48 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		}
 	})
 
-	t.Run("prepareTemplateData with default behavior", func(t *testing.T) {
+	t.Run("WithDefaultBehavior", func(t *testing.T) {
+		// Given a pipeline with no template sources
 		pipeline := NewInitPipeline()
+		tempDir := t.TempDir()
 
-		// Mock config handler to return empty blueprint
+		// Mock config handler
 		mockConfig := config.NewMockConfigHandler()
 		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
 			return ""
 		}
 		pipeline.configHandler = mockConfig
 
-		// Mock shell to return temp directory as project root
-		tempDir := t.TempDir()
+		// Mock shell
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return tempDir, nil
 		}
 		pipeline.shell = mockShell
 
-		// Mock shims to return error for Stat (directory doesn't exist)
-		mockShims := &Shims{
+		// Mock shims (directory doesn't exist)
+		pipeline.shims = &Shims{
 			Stat: func(path string) (os.FileInfo, error) {
 				return nil, fmt.Errorf("file not found")
 			},
 		}
-		pipeline.shims = mockShims
 
+		// When preparing template data
 		result, err := pipeline.prepareTemplateData()
 
+		// Then no error should occur
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
+		// And result should be empty
 		if len(result) != 0 {
 			t.Fatalf("Expected empty map, got: %d items", len(result))
 		}
 	})
 
-	t.Run("prepareTemplateData with OCI blueprint error", func(t *testing.T) {
+	t.Run("WithOCIBlueprintError", func(t *testing.T) {
+		// Given a pipeline with failing OCI artifact builder
 		pipeline := NewInitPipeline()
 
 		// Mock artifact builder with error
@@ -1343,7 +2009,7 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		}
 		pipeline.artifactBuilder = mockArtifact
 
-		// Mock config handler to return OCI blueprint
+		// Mock config handler
 		mockConfig := config.NewMockConfigHandler()
 		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "blueprint" {
@@ -1353,8 +2019,10 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		}
 		pipeline.configHandler = mockConfig
 
+		// When preparing template data
 		_, err := pipeline.prepareTemplateData()
 
+		// Then error should occur
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
@@ -1364,11 +2032,12 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		}
 	})
 
-	t.Run("prepareTemplateData with nil artifact builder", func(t *testing.T) {
+	t.Run("WithNilArtifactBuilder", func(t *testing.T) {
+		// Given a pipeline with nil artifact builder but OCI blueprint
 		pipeline := NewInitPipeline()
 		pipeline.artifactBuilder = nil
 
-		// Mock config handler to return OCI blueprint
+		// Mock config handler
 		mockConfig := config.NewMockConfigHandler()
 		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "blueprint" {
@@ -1378,8 +2047,10 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		}
 		pipeline.configHandler = mockConfig
 
+		// When preparing template data
 		_, err := pipeline.prepareTemplateData()
 
+		// Then error should occur
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
@@ -1388,10 +2059,153 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 			t.Errorf("Expected error about artifact builder, got: %v", err)
 		}
 	})
+
+	t.Run("WithOCIBlueprintNoArtifacts", func(t *testing.T) {
+		// Given a pipeline with OCI blueprint but no artifacts returned
+		pipeline := NewInitPipeline()
+
+		// Mock artifact builder that returns empty map
+		mockArtifact := artifact.NewMockArtifact()
+		mockArtifact.PullFunc = func(refs []string) (map[string][]byte, error) {
+			return map[string][]byte{}, nil
+		}
+		pipeline.artifactBuilder = mockArtifact
+
+		// Mock config handler
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "blueprint" {
+				return "oci://test/blueprint:latest"
+			}
+			return ""
+		}
+		pipeline.configHandler = mockConfig
+
+		// When preparing template data
+		_, err := pipeline.prepareTemplateData()
+
+		// Then error should occur
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "no artifacts downloaded") {
+			t.Errorf("Expected error about no artifacts, got: %v", err)
+		}
+	})
+
+	t.Run("WithOCIBlueprintGzipError", func(t *testing.T) {
+		// Given a pipeline with OCI blueprint but invalid gzip data
+		pipeline := NewInitPipeline()
+
+		// Mock artifact builder that returns invalid gzip data
+		mockArtifact := artifact.NewMockArtifact()
+		mockArtifact.PullFunc = func(refs []string) (map[string][]byte, error) {
+			return map[string][]byte{
+				"test-artifact": []byte("invalid gzip data"),
+			}, nil
+		}
+		pipeline.artifactBuilder = mockArtifact
+
+		// Mock config handler
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "blueprint" {
+				return "oci://test/blueprint:latest"
+			}
+			return ""
+		}
+		pipeline.configHandler = mockConfig
+
+		// When preparing template data
+		_, err := pipeline.prepareTemplateData()
+
+		// Then error should occur
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "failed to create gzip reader") {
+			t.Errorf("Expected error about gzip reader, got: %v", err)
+		}
+	})
+
+	t.Run("WithLocalTemplateGetProjectRootError", func(t *testing.T) {
+		// Given a pipeline with local template but failing GetProjectRoot
+		pipeline := NewInitPipeline()
+
+		// Mock config handler (empty blueprint triggers local check)
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+		pipeline.configHandler = mockConfig
+
+		// Mock shell with failing GetProjectRoot
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("get project root failed")
+		}
+		pipeline.shell = mockShell
+
+		// When preparing template data
+		_, err := pipeline.prepareTemplateData()
+
+		// Then error should occur
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "failed to get project root") {
+			t.Errorf("Expected error about get project root, got: %v", err)
+		}
+	})
+
+	t.Run("WithLocalTemplateWalkError", func(t *testing.T) {
+		// Given a pipeline with local template but failing walkAndCollectTemplates
+		pipeline := NewInitPipeline()
+		tempDir := t.TempDir()
+
+		// Mock config handler (empty blueprint triggers local check)
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+		pipeline.configHandler = mockConfig
+
+		// Mock shell
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+		pipeline.shell = mockShell
+
+		// Mock shims to simulate template directory exists but ReadDir fails
+		pipeline.shims = &Shims{
+			Stat: func(path string) (os.FileInfo, error) {
+				return &mockInitFileInfo{name: "_template", isDir: true}, nil
+			},
+			ReadDir: func(name string) ([]os.DirEntry, error) {
+				return nil, fmt.Errorf("read dir failed")
+			},
+		}
+
+		// When preparing template data
+		_, err := pipeline.prepareTemplateData()
+
+		// Then error should occur
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "failed to collect local templates") {
+			t.Errorf("Expected error about collecting local templates, got: %v", err)
+		}
+	})
 }
 
 func TestInitPipeline_walkAndCollectTemplates(t *testing.T) {
-	t.Run("walkAndCollectTemplates", func(t *testing.T) {
+	t.Run("CollectsTemplatesSuccessfully", func(t *testing.T) {
 		pipeline := NewInitPipeline()
 
 		// Create temporary directory structure
@@ -1423,6 +2237,9 @@ func TestInitPipeline_walkAndCollectTemplates(t *testing.T) {
 		}
 		pipeline.shell = mockShell
 
+		// Initialize shims for file operations
+		pipeline.shims = NewShims()
+
 		templateData := make(map[string][]byte)
 		err := pipeline.walkAndCollectTemplates(templateDir, templateData)
 
@@ -1440,6 +2257,160 @@ func TestInitPipeline_walkAndCollectTemplates(t *testing.T) {
 
 		if string(templateData["subdir/nested.txt"]) != "nested content" {
 			t.Errorf("Expected subdir/nested.txt content 'nested content', got: %s", string(templateData["subdir/nested.txt"]))
+		}
+	})
+
+	t.Run("ReturnsErrorWhenReadDirFails", func(t *testing.T) {
+		// Given a pipeline with failing ReadDir
+		pipeline := NewInitPipeline()
+		tempDir := t.TempDir()
+		templateDir := filepath.Join(tempDir, "contexts", "_template")
+
+		// Mock shell to return temp directory as project root
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+		pipeline.shell = mockShell
+
+		// Setup failing ReadDir
+		pipeline.shims = &Shims{
+			ReadDir: func(name string) ([]os.DirEntry, error) {
+				return nil, fmt.Errorf("read dir failed")
+			},
+		}
+
+		templateData := make(map[string][]byte)
+
+		// When walkAndCollectTemplates is called
+		err := pipeline.walkAndCollectTemplates(templateDir, templateData)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "failed to read template directory: read dir failed" {
+			t.Errorf("Expected read dir error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenReadFileFails", func(t *testing.T) {
+		// Given a pipeline with failing ReadFile
+		pipeline := NewInitPipeline()
+		tempDir := t.TempDir()
+		templateDir := filepath.Join(tempDir, "contexts", "_template")
+
+		// Mock shell to return temp directory as project root
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+		pipeline.shell = mockShell
+
+		// Setup failing ReadFile
+		pipeline.shims = &Shims{
+			ReadDir: func(name string) ([]os.DirEntry, error) {
+				return []os.DirEntry{
+					&mockInitDirEntry{name: "test.txt", isDir: false},
+				}, nil
+			},
+			ReadFile: func(name string) ([]byte, error) {
+				return nil, fmt.Errorf("read file failed")
+			},
+		}
+
+		templateData := make(map[string][]byte)
+
+		// When walkAndCollectTemplates is called
+		err := pipeline.walkAndCollectTemplates(templateDir, templateData)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to read template file") {
+			t.Errorf("Expected read file error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenGetProjectRootFails", func(t *testing.T) {
+		// Given a pipeline with failing GetProjectRoot
+		pipeline := NewInitPipeline()
+		templateDir := "/some/template/dir"
+
+		// Mock shell to fail GetProjectRoot
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("get project root failed")
+		}
+		pipeline.shell = mockShell
+
+		// Setup directory structure
+		pipeline.shims = &Shims{
+			ReadDir: func(name string) ([]os.DirEntry, error) {
+				return []os.DirEntry{
+					&mockInitDirEntry{name: "test.txt", isDir: false},
+				}, nil
+			},
+			ReadFile: func(name string) ([]byte, error) {
+				return []byte("test content"), nil
+			},
+		}
+
+		templateData := make(map[string][]byte)
+
+		// When walkAndCollectTemplates is called
+		err := pipeline.walkAndCollectTemplates(templateDir, templateData)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "failed to get project root: get project root failed" {
+			t.Errorf("Expected get project root error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenRecursiveCallFails", func(t *testing.T) {
+		// Given a pipeline with failing recursive call
+		pipeline := NewInitPipeline()
+		tempDir := t.TempDir()
+		templateDir := filepath.Join(tempDir, "contexts", "_template")
+
+		// Mock shell to return temp directory as project root
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+		pipeline.shell = mockShell
+
+		// Setup failing recursive ReadDir
+		callCount := 0
+		pipeline.shims = &Shims{
+			ReadDir: func(name string) ([]os.DirEntry, error) {
+				callCount++
+				if callCount == 1 {
+					// First call returns directory
+					return []os.DirEntry{
+						&mockInitDirEntry{name: "subdir", isDir: true},
+					}, nil
+				}
+				// Second call (recursive) fails
+				return nil, fmt.Errorf("recursive read dir failed")
+			},
+		}
+
+		templateData := make(map[string][]byte)
+
+		// When walkAndCollectTemplates is called
+		err := pipeline.walkAndCollectTemplates(templateDir, templateData)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "failed to read template directory: recursive read dir failed" {
+			t.Errorf("Expected recursive read dir error, got: %v", err)
 		}
 	})
 }
