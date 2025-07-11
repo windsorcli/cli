@@ -229,10 +229,6 @@ func setupShims(t *testing.T) *Shims {
 		return nil
 	}
 
-	shims.RemoveAll = func(path string) error {
-		return nil
-	}
-
 	return shims
 }
 
@@ -751,9 +747,6 @@ func TestShims_NewShims(t *testing.T) {
 		}
 		if shims.Chmod == nil {
 			t.Error("Expected Chmod to be set")
-		}
-		if shims.RemoveAll == nil {
-			t.Error("Expected RemoveAll to be set")
 		}
 		if shims.Setenv == nil {
 			t.Error("Expected Setenv to be set")
