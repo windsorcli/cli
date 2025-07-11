@@ -87,7 +87,9 @@ func createMockFile() (*os.File, error) {
 }
 
 // setupTerraformGeneratorMocks extends base mocks with terraform generator specific mocking
-func setupTerraformGeneratorMocks(mocks *Mocks) {
+func setupTerraformGeneratorMocks(t *testing.T) *Mocks {
+	mocks := setupMocks(t)
+
 	// Tar extraction mocks
 	mocks.Shims.NewBytesReader = func(data []byte) io.Reader {
 		return bytes.NewReader(data)
@@ -110,6 +112,8 @@ func setupTerraformGeneratorMocks(mocks *Mocks) {
 	mocks.Shims.Chmod = func(name string, mode os.FileMode) error {
 		return nil // Default to successful chmod
 	}
+
+	return mocks
 }
 
 // =============================================================================
@@ -4194,8 +4198,7 @@ func TestTerraformGenerator_parseOCIRef(t *testing.T) {
 
 func TestTerraformGenerator_extractModuleFromArtifact(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
-		mocks := setupMocks(t)
-		setupTerraformGeneratorMocks(mocks) // Add terraform-specific mocks
+		mocks := setupTerraformGeneratorMocks(t)
 		generator := NewTerraformGenerator(mocks.Injector)
 		generator.shims = mocks.Shims
 
@@ -4986,7 +4989,7 @@ func TestTerraformGenerator_preloadOCIArtifacts(t *testing.T) {
 
 func TestTerraformGenerator_Generate(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
-		mocks := setupMocks(t)
+		mocks := setupTerraformGeneratorMocks(t)
 		generator := NewTerraformGenerator(mocks.Injector)
 		generator.shims = mocks.Shims
 		if err := generator.Initialize(); err != nil {
@@ -5095,7 +5098,8 @@ variable "instance_type" {
 		for _, expectedFile := range expectedFiles {
 			found := false
 			for _, writtenFile := range writtenFiles {
-				if writtenFile == expectedFile {
+				// Normalize both paths for cross-platform comparison
+				if filepath.ToSlash(writtenFile) == filepath.ToSlash(expectedFile) {
 					found = true
 					break
 				}
