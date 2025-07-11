@@ -39,7 +39,7 @@ var initCmd = &cobra.Command{
 		injector := di.NewInjector()
 		pipeline := pipelines.NewInitPipeline()
 
-		ctx := context.Background()
+		ctx := cmd.Context()
 
 		// Add context name and reset flag to context (these are needed during Initialize)
 		if len(args) > 0 {
@@ -55,8 +55,8 @@ var initCmd = &cobra.Command{
 		configHandler := injector.Resolve("configHandler").(config.ConfigHandler)
 
 		if initBackend != "" {
-			if err := configHandler.SetContextValue("backend", initBackend); err != nil {
-				return fmt.Errorf("failed to set backend: %w", err)
+			if err := configHandler.SetContextValue("terraform.backend.type", initBackend); err != nil {
+				return fmt.Errorf("failed to set terraform.backend.type: %w", err)
 			}
 		}
 		if initAwsProfile != "" {

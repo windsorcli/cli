@@ -1743,8 +1743,8 @@ func TestTerraformGenerator_generateModuleShim(t *testing.T) {
 			FullPath: "original/full/path",
 		}
 
-		// And ExecProgress is mocked to return an error
-		mocks.Shell.ExecProgressFunc = func(msg string, cmd string, args ...string) (string, error) {
+		// And ExecSilent is mocked to return an error
+		mocks.Shell.ExecSilentFunc = func(cmd string, args ...string) (string, error) {
 			return "", fmt.Errorf("mock error running terraform init")
 		}
 
@@ -2137,8 +2137,8 @@ func TestTerraformGenerator_generateModuleShim(t *testing.T) {
 			generator.shims.WriteFile = originalWriteFile
 		}()
 
-		// And ExecProgress is mocked to return an error
-		mocks.Shell.ExecProgressFunc = func(msg string, cmd string, args ...string) (string, error) {
+		// And ExecSilent is mocked to return an error
+		mocks.Shell.ExecSilentFunc = func(cmd string, args ...string) (string, error) {
 			if cmd == "terraform" && len(args) > 0 && args[0] == "init" {
 				return "", fmt.Errorf("terraform init failed")
 			}

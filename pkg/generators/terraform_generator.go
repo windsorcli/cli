@@ -7,9 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
-	"github.com/briandowns/spinner"
 	"github.com/google/go-jsonnet"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -325,10 +323,9 @@ func (g *TerraformGenerator) processJsonnetTemplate(templateFile, contextName st
 	return nil
 }
 
-// generateModuleShim creates a local reference to a remote Terraform module.
-// It provides a shim layer that maintains module configuration while allowing Windsor to manage it.
-// The function orchestrates the creation of main.tf, variables.tf, and outputs.tf files for module initialization,
-// handling both OCI and standard source types with proper path resolution and state management.
+// generateModuleShim creates a local reference to a remote Terraform module as a shim layer.
+// It generates main.tf, variables.tf, and outputs.tf for module initialization, handling both OCI and standard sources.
+// The function resolves source paths, manages state, and ensures the module is properly initialized for Windsor management.
 func (g *TerraformGenerator) generateModuleShim(component blueprintv1alpha1.TerraformComponent, ociArtifacts map[string][]byte) error {
 	moduleDir := component.FullPath
 	if err := g.shims.MkdirAll(moduleDir, 0755); err != nil {
@@ -394,17 +391,6 @@ func (g *TerraformGenerator) isOCISource(source string) bool {
 // The function manages the complete lifecycle from resolved URL parsing to module deployment,
 // ensuring efficient caching and proper directory structure for terraform modules.
 func (g *TerraformGenerator) extractOCIModule(resolvedSource, componentPath string, ociArtifacts map[string][]byte) (string, error) {
-	message := fmt.Sprintf("📥 Loading component %s", componentPath)
-
-	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
-	spin.Suffix = " " + message
-	spin.Start()
-
-	defer func() {
-		spin.Stop()
-		fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
-	}()
-
 	if !strings.HasPrefix(resolvedSource, "oci://") {
 		return "", fmt.Errorf("invalid resolved OCI source format: %s", resolvedSource)
 	}
@@ -562,8 +548,7 @@ func (g *TerraformGenerator) initializeTerraformModule(component blueprintv1alph
 		return "", fmt.Errorf("failed to set TF_DATA_DIR: %w", err)
 	}
 
-	output, err := g.shell.ExecProgress(
-		fmt.Sprintf("📥 Loading component %s", component.Path),
+	output, err := g.shell.ExecSilent(
 		"terraform",
 		"init",
 		"--backend=false",

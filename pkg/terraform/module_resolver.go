@@ -99,6 +99,16 @@ func (h *BaseModuleResolver) writeShimVariablesTf(moduleDir, modulePath, source 
 	shimBody.SetAttributeRaw("source", hclwrite.TokensForValue(cty.StringVal(source)))
 
 	variablesPath := filepath.Join(modulePath, "variables.tf")
+	if _, err := h.shims.Stat(variablesPath); err != nil {
+		if err := h.shims.WriteFile(filepath.Join(moduleDir, "variables.tf"), []byte{}, 0644); err != nil {
+			return fmt.Errorf("failed to write empty variables.tf: %w", err)
+		}
+		if err := h.shims.WriteFile(filepath.Join(moduleDir, "main.tf"), shimMainContent.Bytes(), 0644); err != nil {
+			return fmt.Errorf("failed to write shim main.tf: %w", err)
+		}
+		return nil
+	}
+
 	variablesContent, err := h.shims.ReadFile(variablesPath)
 	if err != nil {
 		return fmt.Errorf("failed to read variables.tf: %w", err)

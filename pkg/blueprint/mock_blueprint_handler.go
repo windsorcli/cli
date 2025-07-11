@@ -16,6 +16,7 @@ type MockBlueprintHandler struct {
 
 	WaitForKustomizationsFunc   func(message string, names ...string) error
 	ProcessContextTemplatesFunc func(contextName string, reset ...bool) error
+	GetDefaultTemplateDataFunc  func(contextName string) (map[string][]byte, error)
 	InstallFunc                 func() error
 	GetRepositoryFunc           func() blueprintv1alpha1.Repository
 
@@ -125,6 +126,14 @@ func (m *MockBlueprintHandler) ProcessContextTemplates(contextName string, reset
 		return m.ProcessContextTemplatesFunc(contextName, reset...)
 	}
 	return nil
+}
+
+// GetDefaultTemplateData calls the mock GetDefaultTemplateDataFunc if set, otherwise returns empty map
+func (m *MockBlueprintHandler) GetDefaultTemplateData(contextName string) (map[string][]byte, error) {
+	if m.GetDefaultTemplateDataFunc != nil {
+		return m.GetDefaultTemplateDataFunc(contextName)
+	}
+	return map[string][]byte{}, nil
 }
 
 // Ensure MockBlueprintHandler implements BlueprintHandler

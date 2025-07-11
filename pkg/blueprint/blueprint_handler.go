@@ -43,6 +43,7 @@ type BlueprintHandler interface {
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
 	WaitForKustomizations(message string, names ...string) error
 	ProcessContextTemplates(contextName string, reset ...bool) error
+	GetDefaultTemplateData(contextName string) (map[string][]byte, error)
 	Down() error
 }
 
@@ -312,6 +313,32 @@ func (b *BaseBlueprintHandler) GetTerraformComponents() []blueprintv1alpha1.Terr
 	b.resolveComponentPaths(&resolvedBlueprint)
 
 	return resolvedBlueprint.TerraformComponents
+}
+
+// GetDefaultTemplateData generates default template data based on the platform configuration.
+// It uses the embedded platform templates to create a map of template files that can be
+// used by the init pipeline for generating context-specific configurations.
+func (b *BaseBlueprintHandler) GetDefaultTemplateData(contextName string) (map[string][]byte, error) {
+	platform := b.configHandler.GetString("platform")
+	if platform == "" {
+		platform = b.configHandler.GetString("cluster.platform")
+	}
+
+	templateData, err := b.loadPlatformTemplate(platform)
+	if err != nil || len(templateData) == 0 {
+		templateData, err = b.loadPlatformTemplate("default")
+		if err != nil {
+			return nil, fmt.Errorf("error loading default template: %w", err)
+		}
+	}
+
+	if len(templateData) == 0 {
+		return map[string][]byte{}, nil
+	}
+
+	return map[string][]byte{
+		"blueprint.jsonnet": templateData,
+	}, nil
 }
 
 // Down orchestrates the controlled teardown of all kustomizations and their associated resources.

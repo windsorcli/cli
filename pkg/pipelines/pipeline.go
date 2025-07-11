@@ -19,6 +19,7 @@ import (
 	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
+	"github.com/windsorcli/cli/pkg/ssh"
 	"github.com/windsorcli/cli/pkg/stack"
 	"github.com/windsorcli/cli/pkg/template"
 	"github.com/windsorcli/cli/pkg/terraform"
@@ -320,14 +321,34 @@ func (p *BasePipeline) withKubernetesManager() kubernetes.KubernetesManager {
 	return kubernetesManager
 }
 
-// withNetworkManager resolves or creates network manager from DI container
-func (p *BasePipeline) withNetworkManager() network.NetworkManager {
+// withNetworking resolves or creates all networking components from DI container
+func (p *BasePipeline) withNetworking() network.NetworkManager {
+	// Check if network manager already exists
 	if existing := p.injector.Resolve("networkManager"); existing != nil {
 		if networkManager, ok := existing.(network.NetworkManager); ok {
 			return networkManager
 		}
 	}
 
+	// Ensure SSH client is registered
+	if existing := p.injector.Resolve("sshClient"); existing == nil {
+		sshClient := ssh.NewSSHClient()
+		p.injector.Register("sshClient", sshClient)
+	}
+
+	// Ensure secure shell is registered
+	if existing := p.injector.Resolve("secureShell"); existing == nil {
+		secureShell := shell.NewSecureShell(p.injector)
+		p.injector.Register("secureShell", secureShell)
+	}
+
+	// Ensure network interface provider is registered
+	if existing := p.injector.Resolve("networkInterfaceProvider"); existing == nil {
+		networkInterfaceProvider := network.NewNetworkInterfaceProvider()
+		p.injector.Register("networkInterfaceProvider", networkInterfaceProvider)
+	}
+
+	// Create and register network manager
 	vmDriver := p.configHandler.GetString("vm.driver")
 	var networkManager network.NetworkManager
 
@@ -431,12 +452,12 @@ func (p *BasePipeline) withEnvPrinters() ([]envpkg.EnvPrinter, error) {
 		envPrinters = append(envPrinters, envpkg.NewKubeEnvPrinter(p.injector))
 	}
 
-	clusterProvider := p.configHandler.GetString("cluster.provider", "")
-	if clusterProvider == "talos" {
+	clusterDriver := p.configHandler.GetString("cluster.driver", "")
+	if clusterDriver == "talos" {
 		envPrinters = append(envPrinters, envpkg.NewTalosEnvPrinter(p.injector))
 	}
 
-	if clusterProvider == "omni" {
+	if clusterDriver == "omni" {
 		envPrinters = append(envPrinters, envpkg.NewOmniEnvPrinter(p.injector))
 		envPrinters = append(envPrinters, envpkg.NewTalosEnvPrinter(p.injector))
 	}
@@ -540,12 +561,12 @@ func (p *BasePipeline) withServices() ([]services.Service, error) {
 		}
 	}
 
-	// Add cluster services (TalosService instances) based on cluster provider using tagged switch
-	clusterProvider := p.configHandler.GetString("cluster.provider", "")
-	switch clusterProvider {
+	// Add cluster services (TalosService instances) based on cluster driver using tagged switch
+	clusterDriver := p.configHandler.GetString("cluster.driver", "")
+	switch clusterDriver {
 	case "talos", "omni":
-		controlPlaneCount := p.configHandler.GetInt("cluster.control_plane.count")
-		workerCount := p.configHandler.GetInt("cluster.worker.count")
+		controlPlaneCount := p.configHandler.GetInt("cluster.controlplanes.count")
+		workerCount := p.configHandler.GetInt("cluster.workers.count")
 
 		for i := 1; i <= controlPlaneCount; i++ {
 			controlPlaneService := services.NewTalosService(p.injector, "controlplane")

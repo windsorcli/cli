@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -131,7 +130,7 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 	p.terraformResolvers = terraformResolvers
 
 	p.templateRenderer = p.withTemplateRenderer()
-	p.networkManager = p.withNetworkManager()
+	p.networkManager = p.withNetworking()
 	p.virtualMachine = p.withVirtualMachine()
 	p.containerRuntime = p.withContainerRuntime()
 
@@ -197,12 +196,6 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 		}
 	}
 
-	if p.networkManager != nil {
-		if err := p.networkManager.Initialize(); err != nil {
-			return fmt.Errorf("failed to initialize network manager: %w", err)
-		}
-	}
-
 	if p.virtualMachine != nil {
 		if err := p.virtualMachine.Initialize(); err != nil {
 			return fmt.Errorf("failed to initialize virtual machine: %w", err)
@@ -218,9 +211,10 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 	return nil
 }
 
-// Execute runs the init command pipeline including file system operations, configuration saving,
-// template processing, module resolution, and generator execution using the new Generate function.
-// The component initialization has already been completed in Initialize().
+// Execute runs the init pipeline, performing trusted file setup, reset token writing, context ID generation,
+// configuration saving, network manager initialization, template data preparation, template processing and
+// blueprint generation, blueprint loading, terraform module resolution, and final file generation.
+// All component initialization is performed in Initialize(). Phases are executed in strict order.
 func (p *InitPipeline) Execute(ctx context.Context) error {
 	if err := p.shell.AddCurrentDirToTrustedFile(); err != nil {
 		return fmt.Errorf("Error adding current directory to trusted file: %w", err)
@@ -239,27 +233,36 @@ func (p *InitPipeline) Execute(ctx context.Context) error {
 		reset = resetValue.(bool)
 	}
 
+	// Set default configuration before saving
+	contextName := p.determineContextName(ctx)
+	if err := p.setDefaultConfiguration(ctx, contextName); err != nil {
+		return err
+	}
+
 	if err := p.saveConfiguration(reset); err != nil {
 		return err
 	}
 
-	// Phase 1: Template Data Preparation
-	// Prepare template data with priority handling
+	// Network manager phase
+	if p.networkManager != nil {
+		if err := p.networkManager.Initialize(); err != nil {
+			return fmt.Errorf("failed to initialize network manager: %w", err)
+		}
+	}
+
+	// Phase 1: template data preparation
 	templateData, err := p.prepareTemplateData()
 	if err != nil {
 		return fmt.Errorf("failed to prepare template data: %w", err)
 	}
 
-	// Phase 2: Template Processing and Blueprint Generation
-	// Process all template data first, then generate blueprint.yaml if needed
+	// Phase 2: template processing and blueprint generation
 	var renderedData map[string]any
 	if p.templateRenderer != nil && len(templateData) > 0 {
 		renderedData = make(map[string]any)
 		if err := p.templateRenderer.Process(templateData, renderedData); err != nil {
 			return fmt.Errorf("failed to process template data: %w", err)
 		}
-
-		// Generate blueprint.yaml first (if blueprint data exists in templates)
 		if blueprintData, exists := renderedData["blueprint"]; exists {
 			if blueprintGenerator := p.injector.Resolve("blueprintGenerator"); blueprintGenerator != nil {
 				if generator, ok := blueprintGenerator.(generators.Generator); ok {
@@ -271,22 +274,19 @@ func (p *InitPipeline) Execute(ctx context.Context) error {
 		}
 	}
 
-	// Phase 3: Blueprint Loading
-	// Reload blueprint configuration after potential generation
+	// Phase 3: blueprint loading
 	if err := p.blueprintHandler.LoadConfig(false); err != nil {
 		return fmt.Errorf("Error reloading blueprint config after generation: %w", err)
 	}
 
-	// Phase 4: Terraform Module Resolution
-	// Process terraform modules now that blueprint is loaded with terraform components
+	// Phase 4: terraform module resolution
 	for _, resolver := range p.terraformResolvers {
 		if err := resolver.ProcessModules(); err != nil {
 			return fmt.Errorf("failed to process terraform modules: %w", err)
 		}
 	}
 
-	// Phase 5: Final Generation
-	// Generate remaining files (terraform, kustomize, etc.) now that modules are resolved
+	// Phase 5: final generation
 	if len(renderedData) > 0 {
 		for _, generator := range p.generators {
 			if err := generator.Generate(renderedData, reset); err != nil {
@@ -299,7 +299,6 @@ func (p *InitPipeline) Execute(ctx context.Context) error {
 		return err
 	}
 
-	fmt.Fprintln(os.Stderr, "Initialization successful")
 	return nil
 }
 
@@ -341,6 +340,12 @@ func (p *InitPipeline) setDefaultConfiguration(_ context.Context, contextName st
 	default:
 		if err := p.configHandler.SetDefault(config.DefaultConfig); err != nil {
 			return fmt.Errorf("Error setting default config: %w", err)
+		}
+	}
+
+	if vmDriver != "" {
+		if err := p.configHandler.SetContextValue("vm.driver", vmDriver); err != nil {
+			return fmt.Errorf("Error setting vm.driver: %w", err)
 		}
 	}
 
@@ -484,7 +489,13 @@ func (p *InitPipeline) prepareTemplateData() (map[string][]byte, error) {
 		}
 	}
 
-	// Priority 3: Default behavior (empty map - no template processing occurs)
+	// Priority 3: Default platform template data via blueprint handler
+	if p.blueprintHandler != nil {
+		contextName := p.determineContextName(context.Background())
+		return p.blueprintHandler.GetDefaultTemplateData(contextName)
+	}
+
+	// Priority 4: Fallback (empty map - no template processing occurs)
 	return make(map[string][]byte), nil
 }
 

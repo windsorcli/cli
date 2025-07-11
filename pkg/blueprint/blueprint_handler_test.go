@@ -2471,6 +2471,181 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 	})
 }
 
+func TestBlueprintHandler_GetDefaultTemplateData(t *testing.T) {
+	setup := func(t *testing.T) (BlueprintHandler, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		return handler, mocks
+	}
+
+	t.Run("ReturnsDefaultTemplate", func(t *testing.T) {
+		// Given a blueprint handler with default platform
+		handler, mocks := setup(t)
+
+		// Set platform to default
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+				if key == "platform" {
+					return "default"
+				}
+				return ""
+			}
+		}
+
+		// When getting default template data
+		result, err := handler.GetDefaultTemplateData("local")
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And result should contain blueprint.jsonnet
+		if len(result) != 1 {
+			t.Fatalf("Expected 1 template file, got: %d", len(result))
+		}
+
+		if _, exists := result["blueprint.jsonnet"]; !exists {
+			t.Error("Expected blueprint.jsonnet to exist in result")
+		}
+
+		if len(result["blueprint.jsonnet"]) == 0 {
+			t.Error("Expected blueprint.jsonnet to have content")
+		}
+	})
+
+	t.Run("ReturnsLocalTemplate", func(t *testing.T) {
+		// Given a blueprint handler with local platform
+		handler, mocks := setup(t)
+
+		// Set platform to local
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+				if key == "platform" {
+					return "local"
+				}
+				return ""
+			}
+		}
+
+		// When getting default template data
+		result, err := handler.GetDefaultTemplateData("local")
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And result should contain blueprint.jsonnet
+		if len(result) != 1 {
+			t.Fatalf("Expected 1 template file, got: %d", len(result))
+		}
+
+		if _, exists := result["blueprint.jsonnet"]; !exists {
+			t.Error("Expected blueprint.jsonnet to exist in result")
+		}
+	})
+
+	t.Run("ReturnsAWSTemplate", func(t *testing.T) {
+		// Given a blueprint handler with AWS platform
+		handler, mocks := setup(t)
+
+		// Set platform to aws
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+				if key == "platform" {
+					return "aws"
+				}
+				return ""
+			}
+		}
+
+		// When getting default template data
+		result, err := handler.GetDefaultTemplateData("local")
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And result should contain blueprint.jsonnet
+		if len(result) != 1 {
+			t.Fatalf("Expected 1 template file, got: %d", len(result))
+		}
+
+		if _, exists := result["blueprint.jsonnet"]; !exists {
+			t.Error("Expected blueprint.jsonnet to exist in result")
+		}
+	})
+
+	t.Run("FallsBackToDefaultWhenPlatformEmpty", func(t *testing.T) {
+		// Given a blueprint handler with empty platform
+		handler, mocks := setup(t)
+
+		// Set platform to empty
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+				return ""
+			}
+		}
+
+		// When getting default template data
+		result, err := handler.GetDefaultTemplateData("local")
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And result should contain blueprint.jsonnet
+		if len(result) != 1 {
+			t.Fatalf("Expected 1 template file, got: %d", len(result))
+		}
+
+		if _, exists := result["blueprint.jsonnet"]; !exists {
+			t.Error("Expected blueprint.jsonnet to exist in result")
+		}
+	})
+
+	t.Run("FallsBackToDefaultWhenUnknownPlatform", func(t *testing.T) {
+		// Given a blueprint handler with unknown platform
+		handler, mocks := setup(t)
+
+		// Set platform to unknown
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+				if key == "platform" {
+					return "unknown"
+				}
+				return ""
+			}
+		}
+
+		// When getting default template data
+		result, err := handler.GetDefaultTemplateData("local")
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And result should contain default blueprint.jsonnet (fallback behavior)
+		if len(result) != 1 {
+			t.Fatalf("Expected 1 template file, got: %d", len(result))
+		}
+
+		if _, exists := result["blueprint.jsonnet"]; !exists {
+			t.Error("Expected blueprint.jsonnet to exist in result")
+		}
+	})
+}
+
 func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
 		t.Helper()

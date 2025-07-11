@@ -32,7 +32,7 @@ func TestInitCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"init"})
 
 		// When executing the command
-		err := rootCmd.Execute()
+		err := Execute(nil)
 
 		// Close the writer and restore os.Stderr
 		w.Close()
@@ -70,7 +70,7 @@ func TestInitCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"init", "test-context"})
 
 		// When executing the command
-		err := rootCmd.Execute()
+		err := Execute(nil)
 
 		// Close the writer and restore os.Stderr
 		w.Close()
@@ -108,7 +108,7 @@ func TestInitCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"init", "--set", "dns.enabled=false", "--set", "cluster.endpoint=https://localhost:6443"})
 
 		// When executing the command
-		err := rootCmd.Execute()
+		err := Execute(nil)
 
 		// Close the writer and restore os.Stderr
 		w.Close()
@@ -146,7 +146,7 @@ func TestInitCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"init", "--platform", "aws"})
 
 		// When executing the command
-		err := rootCmd.Execute()
+		err := Execute(nil)
 
 		// Close the writer and restore os.Stderr
 		w.Close()
@@ -184,7 +184,7 @@ func TestInitCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"init", "--reset"})
 
 		// When executing the command
-		err := rootCmd.Execute()
+		err := Execute(nil)
 
 		// Close the writer and restore os.Stderr
 		w.Close()
