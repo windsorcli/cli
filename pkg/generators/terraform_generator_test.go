@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -5300,9 +5301,10 @@ func TestTerraformGenerator_validateAndSanitizePath(t *testing.T) {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// And the path should be cleaned
-		if result != "some/valid/path" {
-			t.Errorf("Expected 'some/valid/path', got %s", result)
+		// And the path should be cleaned (normalize path separators for cross-platform)
+		expected := filepath.Join("some", "valid", "path")
+		if result != expected {
+			t.Errorf("Expected %s, got %s", expected, result)
 		}
 	})
 
@@ -5329,7 +5331,14 @@ func TestTerraformGenerator_validateAndSanitizePath(t *testing.T) {
 		generator, _ := setup(t)
 
 		// When validateAndSanitizePath is called with an absolute path
-		result, err := generator.validateAndSanitizePath("/absolute/path")
+		// Use a path that's absolute on both Unix and Windows
+		var testPath string
+		if runtime.GOOS == "windows" {
+			testPath = "C:\\absolute\\path"
+		} else {
+			testPath = "/absolute/path"
+		}
+		result, err := generator.validateAndSanitizePath(testPath)
 
 		// Then an error should occur
 		if err == nil {
@@ -5354,9 +5363,10 @@ func TestTerraformGenerator_validateAndSanitizePath(t *testing.T) {
 			t.Errorf("Expected no error for cleaned path, got %v", err)
 		}
 
-		// And result should be the cleaned path
-		if result != "some/other" {
-			t.Errorf("Expected 'some/other', got %s", result)
+		// And result should be the cleaned path (normalize path separators for cross-platform)
+		expected := filepath.Join("some", "other")
+		if result != expected {
+			t.Errorf("Expected %s, got %s", expected, result)
 		}
 	})
 }
