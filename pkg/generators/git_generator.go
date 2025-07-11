@@ -57,9 +57,18 @@ func NewGitGenerator(injector di.Injector) *GitGenerator {
 // Public Methods
 // =============================================================================
 
-// Write generates the Git configuration files by creating or updating the .gitignore file.
-// It ensures that Windsor-specific entries are added while preserving any existing user-defined entries.
+// Write generates the Git configuration files by delegating to the Generate method.
+// It maintains backward compatibility while Generate handles the actual file generation.
+// The overwrite parameter is currently not used but preserved for interface compatibility.
 func (g *GitGenerator) Write(overwrite ...bool) error {
+	return g.Generate(nil)
+}
+
+// Generate creates the Git configuration files by creating or updating the .gitignore file.
+// It ensures that Windsor-specific entries are added while preserving any existing user-defined entries.
+// For GitGenerator, the data parameter is not used since it always generates the .gitignore file
+// in the project root based on predefined rules.
+func (g *GitGenerator) Generate(data map[string]any) error {
 	projectRoot, err := g.shell.GetProjectRoot()
 	if err != nil {
 		return fmt.Errorf("failed to get project root: %w", err)

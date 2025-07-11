@@ -77,3 +77,39 @@ func TestMockGenerator_Write(t *testing.T) {
 		}
 	})
 }
+
+func TestMockGenerator_Generate(t *testing.T) {
+	// Given a mock generate error
+	mockGenerateErr := fmt.Errorf("mock generate error")
+
+	t.Run("WithFuncSet", func(t *testing.T) {
+		// Given a new MockGenerator
+		mock := NewMockGenerator()
+
+		// And the GenerateFunc is set to return a mock error
+		mock.GenerateFunc = func(data map[string]any) error {
+			return mockGenerateErr
+		}
+
+		// When Generate is called
+		err := mock.Generate(map[string]any{"test": "data"})
+
+		// Then the mock error should be returned
+		if err != mockGenerateErr {
+			t.Errorf("Expected error = %v, got = %v", mockGenerateErr, err)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a new MockGenerator
+		mock := NewMockGenerator()
+
+		// When Generate is called without setting GenerateFunc
+		err := mock.Generate(map[string]any{"test": "data"})
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+	})
+}
