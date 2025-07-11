@@ -314,3 +314,77 @@ func TestGitGenerator_Write(t *testing.T) {
 		}
 	})
 }
+
+func TestGitGenerator_Generate(t *testing.T) {
+	setup := func(t *testing.T) (*GitGenerator, *Mocks) {
+		mocks := setupMocks(t)
+		generator := NewGitGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
+		if err := generator.Initialize(); err != nil {
+			t.Fatalf("failed to initialize GitGenerator: %v", err)
+		}
+		return generator, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a GitGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And GetProjectRoot is mocked to return a specific path
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return filepath.Join("mock", "project", "root"), nil
+		}
+
+		// And ReadFile is mocked to return existing content
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			expectedPath := filepath.Join("mock", "project", "root", ".gitignore")
+			if path == expectedPath {
+				return []byte(gitGenTestExistingContent), nil
+			}
+			return nil, fmt.Errorf("unexpected file read: %s", path)
+		}
+
+		// And WriteFile is mocked to verify the content
+		var writtenPath string
+		var writtenContent []byte
+		mocks.Shims.WriteFile = func(path string, content []byte, _ fs.FileMode) error {
+			writtenPath = path
+			writtenContent = content
+			return nil
+		}
+
+		// When Generate is called with any data (should be ignored)
+		err := generator.Generate(map[string]any{
+			"terraform/some/module": map[string]any{"ignored": "data"},
+		})
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And the file should be written to the correct path
+		expectedPath := filepath.Join("mock", "project", "root", ".gitignore")
+		if writtenPath != expectedPath {
+			t.Errorf("expected filename %s, got %s", expectedPath, writtenPath)
+		}
+
+		// And the content should be correct
+		expectedContent := gitGenTestExpectedContent
+		actualContent := string(writtenContent)
+		if actualContent != expectedContent {
+			// Trim trailing whitespace and newlines for robust comparison
+			trimmedExpected := expectedContent
+			trimmedActual := actualContent
+			for len(trimmedExpected) > 0 && (trimmedExpected[len(trimmedExpected)-1] == '\n' || trimmedExpected[len(trimmedExpected)-1] == '\r') {
+				trimmedExpected = trimmedExpected[:len(trimmedExpected)-1]
+			}
+			for len(trimmedActual) > 0 && (trimmedActual[len(trimmedActual)-1] == '\n' || trimmedActual[len(trimmedActual)-1] == '\r') {
+				trimmedActual = trimmedActual[:len(trimmedActual)-1]
+			}
+			if trimmedActual != trimmedExpected {
+				t.Errorf("expected content %q, got %q", trimmedExpected, trimmedActual)
+			}
+		}
+	})
+}

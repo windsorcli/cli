@@ -67,10 +67,10 @@ func NewTerraformGenerator(injector di.Injector) *TerraformGenerator {
 // Public Methods
 // =============================================================================
 
-// Write generates Terraform configuration files including module shims and tfvars files for all components.
-// It processes jsonnet templates from contexts/_template/terraform directory to merge template values into
-// blueprint terraform components, then handles components by generating module shims for remote sources and
-// creating corresponding tfvars files. The function manages terraform state cleanup on reset.
+// Write generates Terraform configuration files for all components, including module shims and tfvars files.
+// It processes jsonnet templates from the contexts/_template/terraform directory, merges template values into
+// blueprint Terraform components, and delegates file generation to Generate. The reset flag controls Terraform
+// state cleanup and backward compatibility behavior.
 func (g *TerraformGenerator) Write(overwrite ...bool) error {
 	shouldOverwrite := false
 	if len(overwrite) > 0 {
@@ -78,31 +78,53 @@ func (g *TerraformGenerator) Write(overwrite ...bool) error {
 	}
 	g.reset = shouldOverwrite
 
+	templateValues, err := g.processTemplates(shouldOverwrite)
+	if err != nil {
+		return fmt.Errorf("failed to process terraform templates: %w", err)
+	}
+
+	components := g.blueprintHandler.GetTerraformComponents()
+	generateData := make(map[string]any)
+
+	for _, component := range components {
+		componentValues := make(map[string]any)
+		if component.Values != nil {
+			maps.Copy(componentValues, component.Values)
+		}
+		if templateComponentValues, exists := templateValues[component.Path]; exists {
+			maps.Copy(componentValues, templateComponentValues)
+		}
+		generateData["terraform/"+component.Path] = componentValues
+	}
+
+	return g.Generate(generateData)
+}
+
+// Generate produces Terraform configuration files, including module shims and tfvars files, for all blueprint components.
+// It consumes template data keyed by "terraform/<module_path>", generating tfvars files at
+// contexts/<context>/terraform/<module_path>.tfvars. The method utilizes the blueprint handler to retrieve
+// TerraformComponents, generates module shims for remote sources, and determines the variables.tf location
+// based on component source presence (remote or local).
+func (g *TerraformGenerator) Generate(data map[string]any) error {
+	contextPath, err := g.configHandler.GetConfigRoot()
+	if err != nil {
+		return fmt.Errorf("failed to get config root: %w", err)
+	}
+
+	projectRoot, err := g.shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("failed to get project root: %w", err)
+	}
+
 	ociArtifacts, err := g.preloadOCIArtifacts()
 	if err != nil {
 		return fmt.Errorf("failed to preload OCI artifacts: %w", err)
 	}
 
 	components := g.blueprintHandler.GetTerraformComponents()
-
-	templateValues, err := g.processTemplates(shouldOverwrite)
-	if err != nil {
-		return fmt.Errorf("failed to process terraform templates: %w", err)
-	}
-
-	for i, component := range components {
-		if values, exists := templateValues[component.Path]; exists {
-			if component.Values == nil {
-				component.Values = make(map[string]any)
-			}
-			maps.Copy(component.Values, values)
-			components[i] = component
-		}
-	}
-
-	contextPath, err := g.configHandler.GetConfigRoot()
-	if err != nil {
-		return fmt.Errorf("failed to get config root: %w", err)
+	componentMap := make(map[string]blueprintv1alpha1.TerraformComponent)
+	for _, component := range components {
+		componentMap[component.Path] = component
 	}
 
 	if g.reset {
@@ -120,9 +142,54 @@ func (g *TerraformGenerator) Write(overwrite ...bool) error {
 				return fmt.Errorf("failed to generate module shim: %w", err)
 			}
 		}
+	}
 
-		if err := g.writeTfvarsFile(contextPath, component); err != nil {
-			return fmt.Errorf("failed to write tfvars file: %w", err)
+	for componentPath, componentData := range data {
+		if !strings.HasPrefix(componentPath, "terraform/") {
+			continue
+		}
+
+		componentValues, ok := componentData.(map[string]any)
+		if !ok {
+			return fmt.Errorf("invalid data format for component %s: expected map[string]any", componentPath)
+		}
+
+		actualPath := strings.TrimPrefix(componentPath, "terraform/")
+
+		component, exists := componentMap[actualPath]
+		if !exists {
+			return fmt.Errorf("component %s not found in blueprint", actualPath)
+		}
+
+		variablesTfPath, err := g.findVariablesTfFileForComponent(projectRoot, component)
+		if err != nil {
+			return fmt.Errorf("failed to find variables.tf for component %s: %w", componentPath, err)
+		}
+
+		tfvarsFilePath := filepath.Join(contextPath, componentPath+".tfvars")
+
+		if err := g.generateTfvarsFile(tfvarsFilePath, variablesTfPath, componentValues, component.Source); err != nil {
+			return fmt.Errorf("failed to generate tfvars file for component %s: %w", componentPath, err)
+		}
+	}
+
+	for _, component := range components {
+		terraformKey := "terraform/" + component.Path
+		if _, exists := data[terraformKey]; !exists {
+			variablesTfPath, err := g.findVariablesTfFileForComponent(projectRoot, component)
+			if err != nil {
+				return fmt.Errorf("failed to find variables.tf for component %s: %w", component.Path, err)
+			}
+
+			tfvarsFilePath := filepath.Join(contextPath, terraformKey+".tfvars")
+			componentValues := component.Values
+			if componentValues == nil {
+				componentValues = make(map[string]any)
+			}
+
+			if err := g.generateTfvarsFile(tfvarsFilePath, variablesTfPath, componentValues, component.Source); err != nil {
+				return fmt.Errorf("failed to generate tfvars file for component %s: %w", component.Path, err)
+			}
 		}
 	}
 
@@ -310,34 +377,18 @@ func (g *TerraformGenerator) generateModuleShim(component blueprintv1alpha1.Terr
 	return nil
 }
 
-// isOCISource determines if a source reference points to an OCI artifact by checking for OCI URL patterns
-// and resolving source names through the blueprint handler. It handles both direct OCI URLs and named
-// source references that map to OCI repositories, while excluding already-resolved extraction paths.
+// isOCISource determines if a source reference points to an OCI artifact by checking for OCI URL patterns.
+// It handles resolved OCI URLs from the blueprint handler and excludes already-extracted paths.
 func (g *TerraformGenerator) isOCISource(source string) bool {
-	if strings.Contains(source, ".oci_extracted") {
-		return false
-	}
-
-	if strings.HasPrefix(source, "oci://") {
-		return true
-	}
-
-	sources := g.blueprintHandler.GetSources()
-	for _, src := range sources {
-		if src.Name == source && strings.HasPrefix(src.Url, "oci://") {
-			return true
-		}
-	}
-
-	return false
+	return strings.HasPrefix(source, "oci://")
 }
 
 // extractOCIModule extracts a specific terraform module from an OCI artifact.
-// It handles OCI URL resolution, artifact caching, and module path extraction.
-// The function manages the complete lifecycle from source lookup to module deployment,
+// It handles resolved OCI URLs from the blueprint handler, artifact caching, and module path extraction.
+// The function manages the complete lifecycle from resolved URL parsing to module deployment,
 // ensuring efficient caching and proper directory structure for terraform modules.
-func (g *TerraformGenerator) extractOCIModule(source, path string, ociArtifacts map[string][]byte) (string, error) {
-	message := fmt.Sprintf("📥 Loading component %s", path)
+func (g *TerraformGenerator) extractOCIModule(resolvedSource, componentPath string, ociArtifacts map[string][]byte) (string, error) {
+	message := fmt.Sprintf("📥 Loading component %s", componentPath)
 
 	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
 	spin.Suffix = " " + message
@@ -348,20 +399,19 @@ func (g *TerraformGenerator) extractOCIModule(source, path string, ociArtifacts 
 		fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
 	}()
 
-	sources := g.blueprintHandler.GetSources()
-	var ociURL string
-	for _, src := range sources {
-		if src.Name == source {
-			ociURL = src.Url
-			break
-		}
+	if !strings.HasPrefix(resolvedSource, "oci://") {
+		return "", fmt.Errorf("invalid resolved OCI source format: %s", resolvedSource)
 	}
 
-	if ociURL == "" {
-		return "", fmt.Errorf("source %s not found", source)
+	pathSeparatorIdx := strings.Index(resolvedSource[6:], "//")
+	if pathSeparatorIdx == -1 {
+		return "", fmt.Errorf("invalid resolved OCI source format, missing path separator: %s", resolvedSource)
 	}
 
-	registry, repository, tag, err := g.parseOCIRef(ociURL)
+	baseURL := resolvedSource[:6+pathSeparatorIdx]      // oci://registry/repo:tag
+	modulePath := resolvedSource[6+pathSeparatorIdx+2:] // terraform/path/to/module
+
+	registry, repository, tag, err := g.parseOCIRef(baseURL)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse OCI reference: %w", err)
 	}
@@ -374,7 +424,7 @@ func (g *TerraformGenerator) extractOCIModule(source, path string, ociArtifacts 
 	}
 
 	extractionKey := fmt.Sprintf("%s-%s-%s", registry, repository, tag)
-	fullModulePath := filepath.Join(projectRoot, ".windsor", ".oci_extracted", extractionKey, "terraform", path)
+	fullModulePath := filepath.Join(projectRoot, ".windsor", ".oci_extracted", extractionKey, modulePath)
 	if _, err := g.shims.Stat(fullModulePath); err == nil {
 		return fullModulePath, nil
 	}
@@ -384,7 +434,7 @@ func (g *TerraformGenerator) extractOCIModule(source, path string, ociArtifacts 
 		return "", fmt.Errorf("OCI artifact %s not found in cache", cacheKey)
 	}
 
-	if err := g.extractModuleFromArtifact(artifactData, path, extractionKey); err != nil {
+	if err := g.extractModuleFromArtifact(artifactData, modulePath, extractionKey); err != nil {
 		return "", fmt.Errorf("failed to extract module from artifact: %w", err)
 	}
 
@@ -403,7 +453,7 @@ func (g *TerraformGenerator) extractModuleFromArtifact(artifactData []byte, modu
 
 	reader := g.shims.NewBytesReader(artifactData)
 	tarReader := g.shims.NewTarReader(reader)
-	targetPrefix := "terraform/" + modulePath
+	targetPrefix := modulePath
 
 	extractionDir := filepath.Join(projectRoot, ".windsor", ".oci_extracted", extractionKey)
 
@@ -420,8 +470,18 @@ func (g *TerraformGenerator) extractModuleFromArtifact(artifactData []byte, modu
 			continue
 		}
 
-		relativePath := strings.TrimPrefix(header.Name, "terraform/")
-		destPath := filepath.Join(extractionDir, "terraform", relativePath)
+		// Validate and sanitize the path to prevent directory traversal
+		sanitizedPath, err := g.validateAndSanitizePath(header.Name)
+		if err != nil {
+			return fmt.Errorf("invalid path in tar archive: %w", err)
+		}
+
+		destPath := filepath.Join(extractionDir, sanitizedPath)
+
+		// Ensure the destination path is still within the extraction directory
+		if !strings.HasPrefix(destPath, extractionDir) {
+			return fmt.Errorf("path traversal attempt detected: %s", header.Name)
+		}
 
 		if header.Typeflag == g.shims.TypeDir() {
 			if err := g.shims.MkdirAll(destPath, 0755); err != nil {
@@ -510,8 +570,7 @@ func (g *TerraformGenerator) initializeTerraformModule(component blueprintv1alph
 	}
 
 	detectedPath := ""
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
+	for _, line := range strings.Split(output, "\n") {
 		if line == "" {
 			continue
 		}
@@ -721,54 +780,6 @@ func (g *TerraformGenerator) writeModuleFile(dirPath string, component blueprint
 // writeTfvarsFile creates or updates a .tfvars file with variable values for the Terraform module.
 // It uses variables.tf as the basis for variable definitions and allows component.Values to override specific values.
 // The function maintains a header indicating Windsor CLI management and handles module source comments.
-// If the file already exists, it will not be overwritten.
-func (g *TerraformGenerator) writeTfvarsFile(dirPath string, component blueprintv1alpha1.TerraformComponent) error {
-	protectedValues := map[string]bool{
-		"context_path": true,
-		"os_type":      true,
-		"context_id":   true,
-	}
-
-	componentPath := filepath.Join(dirPath, "terraform", component.Path)
-	tfvarsFilePath := componentPath + ".tfvars"
-	variablesTfPath := filepath.Join(component.FullPath, "variables.tf")
-
-	if !g.reset {
-		if err := g.checkExistingTfvarsFile(tfvarsFilePath); err != nil {
-			if err == os.ErrExist {
-				return nil
-			}
-			return err
-		}
-	}
-
-	mergedFile := hclwrite.NewEmptyFile()
-	body := mergedFile.Body()
-
-	addTfvarsHeader(body, component.Source)
-
-	variables, err := g.parseVariablesFile(variablesTfPath, protectedValues)
-	if err != nil {
-		return err
-	}
-
-	if len(component.Values) > 0 {
-		writeComponentValues(body, component.Values, protectedValues, variables)
-	} else {
-		writeDefaultValues(body, variables, component.Values)
-	}
-
-	parentDir := filepath.Dir(tfvarsFilePath)
-	if err := g.shims.MkdirAll(parentDir, 0755); err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
-	}
-
-	if err := g.shims.WriteFile(tfvarsFilePath, mergedFile.Bytes(), 0644); err != nil {
-		return fmt.Errorf("error writing tfvars file: %w", err)
-	}
-
-	return nil
-}
 
 // checkExistingTfvarsFile checks if a tfvars file exists and is readable.
 // Returns os.ErrExist if the file exists and is readable, or an error if the file exists but is not readable.
@@ -1145,24 +1156,120 @@ func (g *TerraformGenerator) parseOCIRef(ociRef string) (registry, repository, t
 	return registry, repository, tag, nil
 }
 
-// preloadOCIArtifacts analyzes all blueprint sources and downloads unique OCI artifacts upfront.
+// preloadOCIArtifacts analyzes all resolved terraform components and downloads unique OCI artifacts upfront.
 // It returns a map of cached artifacts keyed by their registry/repository:tag identifier.
+// The function processes component sources to extract base OCI URLs, removing path separators and
+// duplicate references before bulk downloading through the artifact builder interface.
 func (g *TerraformGenerator) preloadOCIArtifacts() (map[string][]byte, error) {
-	sources := g.blueprintHandler.GetSources()
+	components := g.blueprintHandler.GetTerraformComponents()
 	var ociRefs []string
 
-	for _, source := range sources {
-		if strings.HasPrefix(source.Url, "oci://") {
-			ociRefs = append(ociRefs, source.Url)
+	ociURLs := make(map[string]bool)
+	for _, component := range components {
+		if strings.HasPrefix(component.Source, "oci://") {
+			if idx := strings.Index(component.Source[6:], "//"); idx != -1 {
+				baseURL := component.Source[:6+idx]
+				ociURLs[baseURL] = true
+			} else {
+				ociURLs[component.Source] = true
+			}
 		}
+	}
+
+	for url := range ociURLs {
+		ociRefs = append(ociRefs, url)
 	}
 
 	if len(ociRefs) == 0 {
 		return make(map[string][]byte), nil
 	}
 
-	// Use the injected artifact builder to download all OCI artifacts
 	return g.artifactBuilder.Pull(ociRefs)
+}
+
+// findVariablesTfFileForComponent locates the variables.tf file for a given terraform component.
+// It determines the location based on whether the component has a source:
+// - If component has a source: .windsor/.tf_modules/<path>/variables.tf (generated modules)
+// - If component has no source: terraform/<path>/variables.tf (local modules)
+// Returns the path to the variables.tf file if found, or an error if not found.
+func (g *TerraformGenerator) findVariablesTfFileForComponent(projectRoot string, component blueprintv1alpha1.TerraformComponent) (string, error) {
+	var variablesTfPath string
+
+	if component.Source != "" {
+		// Component has a source, so it's a generated module in .tf_modules
+		variablesTfPath = filepath.Join(projectRoot, ".windsor", ".tf_modules", component.Path, "variables.tf")
+	} else {
+		// Component has no source, so it's a local module
+		variablesTfPath = filepath.Join(projectRoot, "terraform", component.Path, "variables.tf")
+	}
+
+	// Check if the variables.tf file exists
+	if _, err := g.shims.Stat(variablesTfPath); err != nil {
+		return "", fmt.Errorf("variables.tf not found for component %s at %s", component.Path, variablesTfPath)
+	}
+
+	return variablesTfPath, nil
+}
+
+// generateTfvarsFile generates a tfvars file at the specified path using the provided variables.tf file and component values.
+// It parses the variables.tf file to extract variable definitions, merges them with the given component values (excluding protected values),
+// and writes a formatted tfvars file. If the file already exists and reset mode is not enabled, the function skips writing.
+// The function ensures the parent directory exists and returns an error if any file or directory operation fails.
+func (g *TerraformGenerator) generateTfvarsFile(tfvarsFilePath, variablesTfPath string, componentValues map[string]any, source string) error {
+	protectedValues := map[string]bool{
+		"context_path": true,
+		"os_type":      true,
+		"context_id":   true,
+	}
+
+	if !g.reset {
+		if err := g.checkExistingTfvarsFile(tfvarsFilePath); err != nil {
+			if err == os.ErrExist {
+				return nil
+			}
+			return err
+		}
+	}
+
+	variables, err := g.parseVariablesFile(variablesTfPath, protectedValues)
+	if err != nil {
+		return fmt.Errorf("failed to parse variables.tf: %w", err)
+	}
+
+	mergedFile := hclwrite.NewEmptyFile()
+	body := mergedFile.Body()
+
+	addTfvarsHeader(body, source)
+
+	if len(componentValues) > 0 {
+		writeComponentValues(body, componentValues, protectedValues, variables)
+	} else {
+		writeDefaultValues(body, variables, componentValues)
+	}
+
+	parentDir := filepath.Dir(tfvarsFilePath)
+	if err := g.shims.MkdirAll(parentDir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	if err := g.shims.WriteFile(tfvarsFilePath, mergedFile.Bytes(), 0644); err != nil {
+		return fmt.Errorf("failed to write tfvars file: %w", err)
+	}
+
+	return nil
+}
+
+// validateAndSanitizePath sanitizes a file path for safe extraction by removing path traversal sequences
+// and rejecting absolute paths. Returns the cleaned path if valid, or an error if the path is unsafe.
+func (g *TerraformGenerator) validateAndSanitizePath(path string) (string, error) {
+	cleanPath := filepath.Clean(path)
+	if strings.Contains(cleanPath, "..") {
+		return "", fmt.Errorf("path contains directory traversal sequence: %s", path)
+	}
+	if filepath.IsAbs(cleanPath) {
+		return "", fmt.Errorf("absolute paths are not allowed: %s", path)
+	}
+	return cleanPath, nil
 }
 
 // =============================================================================
