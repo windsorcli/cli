@@ -20,6 +20,8 @@ import (
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
+	"github.com/windsorcli/cli/pkg/template"
+	"github.com/windsorcli/cli/pkg/terraform"
 	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/virt"
 )
@@ -562,6 +564,48 @@ func (p *BasePipeline) withServices() ([]services.Service, error) {
 	}
 
 	return serviceList, nil
+}
+
+// withTerraformResolvers creates terraform module resolvers based on configuration.
+// Returns a slice of terraform module resolvers only when terraform.enabled = true in config.
+// The function creates both StandardModuleResolver and OCIModuleResolver instances,
+// registers them in the DI container, and returns them for terraform module processing.
+func (p *BasePipeline) withTerraformResolvers() ([]terraform.ModuleResolver, error) {
+	if p.configHandler == nil {
+		return nil, fmt.Errorf("config handler not initialized")
+	}
+
+	var resolvers []terraform.ModuleResolver
+
+	// Only create resolvers if terraform is enabled
+	if !p.configHandler.GetBool("terraform.enabled", false) {
+		return resolvers, nil
+	}
+
+	// Standard module resolver for git, local, and registry modules
+	standardResolver := terraform.NewStandardModuleResolver(p.injector)
+	p.injector.Register("standardModuleResolver", standardResolver)
+	resolvers = append(resolvers, standardResolver)
+
+	// OCI module resolver for OCI artifact modules
+	ociResolver := terraform.NewOCIModuleResolver(p.injector)
+	p.injector.Register("ociModuleResolver", ociResolver)
+	resolvers = append(resolvers, ociResolver)
+
+	return resolvers, nil
+}
+
+// withTemplateRenderer resolves or creates a jsonnet template renderer from DI container
+func (p *BasePipeline) withTemplateRenderer() template.Template {
+	if existing := p.injector.Resolve("templateRenderer"); existing != nil {
+		if templateRenderer, ok := existing.(template.Template); ok {
+			return templateRenderer
+		}
+	}
+
+	templateRenderer := template.NewJsonnetTemplate(p.injector)
+	p.injector.Register("templateRenderer", templateRenderer)
+	return templateRenderer
 }
 
 // =============================================================================
