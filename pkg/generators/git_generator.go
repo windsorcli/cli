@@ -67,8 +67,9 @@ func (g *GitGenerator) Write(overwrite ...bool) error {
 // Generate creates the Git configuration files by creating or updating the .gitignore file.
 // It ensures that Windsor-specific entries are added while preserving any existing user-defined entries.
 // For GitGenerator, the data parameter is not used since it always generates the .gitignore file
-// in the project root based on predefined rules.
-func (g *GitGenerator) Generate(data map[string]any) error {
+// in the project root based on predefined rules. The overwrite parameter is not used since
+// the GitGenerator always merges with existing content rather than overwriting.
+func (g *GitGenerator) Generate(data map[string]any, overwrite ...bool) error {
 	projectRoot, err := g.shell.GetProjectRoot()
 	if err != nil {
 		return fmt.Errorf("failed to get project root: %w", err)

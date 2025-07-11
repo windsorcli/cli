@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -5273,6 +5274,333 @@ variable "instance_type" {
 		}
 		if !strings.Contains(err.Error(), "variables.tf not found") {
 			t.Errorf("expected error about variables.tf not found, got: %v", err)
+		}
+	})
+}
+
+func TestTerraformGenerator_validateAndSanitizePath(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
+		mocks := setupTerraformGeneratorMocks(t)
+		generator := NewTerraformGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
+		if err := generator.Initialize(); err != nil {
+			t.Fatalf("failed to initialize TerraformGenerator: %v", err)
+		}
+		return generator, mocks
+	}
+
+	t.Run("ValidRelativePath", func(t *testing.T) {
+		// Given a TerraformGenerator
+		generator, _ := setup(t)
+
+		// When validateAndSanitizePath is called with a valid relative path
+		result, err := generator.validateAndSanitizePath("some/valid/path")
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And the path should be cleaned (normalize path separators for cross-platform)
+		expected := filepath.Join("some", "valid", "path")
+		if result != expected {
+			t.Errorf("Expected %s, got %s", expected, result)
+		}
+	})
+
+	t.Run("PathWithDirectoryTraversal", func(t *testing.T) {
+		// Given a TerraformGenerator
+		generator, _ := setup(t)
+
+		// When validateAndSanitizePath is called with a path containing directory traversal
+		result, err := generator.validateAndSanitizePath("some/../../../etc/passwd")
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("Expected error for directory traversal, got nil")
+		}
+
+		// And result should be empty
+		if result != "" {
+			t.Errorf("Expected empty result, got %s", result)
+		}
+	})
+
+	t.Run("AbsolutePath", func(t *testing.T) {
+		// Given a TerraformGenerator
+		generator, _ := setup(t)
+
+		// When validateAndSanitizePath is called with an absolute path
+		// Use a path that's absolute on both Unix and Windows
+		var testPath string
+		if runtime.GOOS == "windows" {
+			testPath = "C:\\absolute\\path"
+		} else {
+			testPath = "/absolute/path"
+		}
+		result, err := generator.validateAndSanitizePath(testPath)
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("Expected error for absolute path, got nil")
+		}
+
+		// And result should be empty
+		if result != "" {
+			t.Errorf("Expected empty result, got %s", result)
+		}
+	})
+
+	t.Run("PathWithDotDotInName", func(t *testing.T) {
+		// Given a TerraformGenerator
+		generator, _ := setup(t)
+
+		// When validateAndSanitizePath is called with a path that has .. in the cleaned path
+		result, err := generator.validateAndSanitizePath("some/path/../other")
+
+		// Then no error should occur since filepath.Clean will result in "some/other" which is valid
+		if err != nil {
+			t.Errorf("Expected no error for cleaned path, got %v", err)
+		}
+
+		// And result should be the cleaned path (normalize path separators for cross-platform)
+		expected := filepath.Join("some", "other")
+		if result != expected {
+			t.Errorf("Expected %s, got %s", expected, result)
+		}
+	})
+}
+
+func TestTerraformGenerator_generateTfvarsFile_AdditionalCases(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
+		mocks := setupTerraformGeneratorMocks(t)
+		generator := NewTerraformGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
+		if err := generator.Initialize(); err != nil {
+			t.Fatalf("failed to initialize TerraformGenerator: %v", err)
+		}
+		return generator, mocks
+	}
+
+	t.Run("ErrorParsingVariablesFile", func(t *testing.T) {
+		// Given a TerraformGenerator
+		generator, mocks := setup(t)
+
+		// And ReadFile returns invalid HCL content
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			return []byte("invalid hcl content {{{"), nil
+		}
+
+		// When generateTfvarsFile is called
+		err := generator.generateTfvarsFile("/test/output.tfvars", "/test/variables.tf", map[string]any{}, "")
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("Expected error from parsing variables file, got nil")
+		}
+	})
+
+	t.Run("ErrorCreatingParentDirectory", func(t *testing.T) {
+		// Given a TerraformGenerator
+		generator, mocks := setup(t)
+
+		// And ReadFile returns valid variables.tf content
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			return []byte(`variable "test_var" {
+  description = "A test variable"
+  type        = string
+  default     = "default_value"
+}`), nil
+		}
+
+		// And MkdirAll returns an error
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return fmt.Errorf("mkdir error")
+		}
+
+		// When generateTfvarsFile is called
+		err := generator.generateTfvarsFile("/test/subdir/output.tfvars", "/test/variables.tf", map[string]any{}, "")
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("Expected error from MkdirAll, got nil")
+		}
+	})
+
+	t.Run("ErrorWritingTfvarsFile", func(t *testing.T) {
+		// Given a TerraformGenerator
+		generator, mocks := setup(t)
+
+		// And ReadFile returns valid variables.tf content
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			return []byte(`variable "test_var" {
+  description = "A test variable"
+  type        = string
+  default     = "default_value"
+}`), nil
+		}
+
+		// And MkdirAll succeeds
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		// And WriteFile returns an error
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			return fmt.Errorf("write error")
+		}
+
+		// When generateTfvarsFile is called
+		err := generator.generateTfvarsFile("/test/output.tfvars", "/test/variables.tf", map[string]any{}, "")
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("Expected error from WriteFile, got nil")
+		}
+	})
+}
+
+func TestTerraformGenerator_Generate_AdditionalCases(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
+		mocks := setupTerraformGeneratorMocks(t)
+		generator := NewTerraformGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
+
+		// Mock GetProjectRoot to return /project for tests
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/project", nil
+		}
+
+		if err := generator.Initialize(); err != nil {
+			t.Fatalf("failed to initialize TerraformGenerator: %v", err)
+		}
+		return generator, mocks
+	}
+
+	t.Run("ErrorGetProjectRoot", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And GetProjectRoot returns an error
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("project root error")
+		}
+
+		// And valid terraform data
+		data := map[string]any{
+			"terraform/cluster": map[string]any{
+				"cluster_name": "test-cluster",
+			},
+		}
+
+		// When Generate is called
+		err := generator.Generate(data)
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("Expected error from GetProjectRoot, got nil")
+		}
+	})
+
+	t.Run("ErrorPreloadingOCIArtifacts", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And blueprint handler returns components with OCI sources
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:   "cluster",
+					Source: "oci://registry.example.com/terraform/cluster:v1.0.0",
+				},
+			}
+		}
+
+		// And artifact builder returns an error
+		artifactBuilder := mocks.Injector.Resolve("artifactBuilder").(bundler.Artifact)
+		if mockArtifact, ok := artifactBuilder.(*bundler.MockArtifact); ok {
+			mockArtifact.PullFunc = func(refs []string) (map[string][]byte, error) {
+				return nil, fmt.Errorf("artifact pull error")
+			}
+		}
+
+		// And valid terraform data
+		data := map[string]any{
+			"terraform/cluster": map[string]any{
+				"cluster_name": "test-cluster",
+			},
+		}
+
+		// When Generate is called
+		err := generator.Generate(data)
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("Expected error from preloadOCIArtifacts, got nil")
+		}
+	})
+
+	t.Run("ErrorFindingVariablesTfFile", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And blueprint handler returns components
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:     "cluster",
+					Source:   "", // No source, so should look in terraform/ directory
+					FullPath: "/project/terraform/cluster",
+				},
+			}
+		}
+
+		// And Stat returns file not found for variables.tf
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "variables.tf") {
+				return nil, os.ErrNotExist
+			}
+			return &mockFileInfo{name: "somefile"}, nil
+		}
+
+		// And valid terraform data
+		data := map[string]any{
+			"terraform/cluster": map[string]any{
+				"cluster_name": "test-cluster",
+			},
+		}
+
+		// When Generate is called
+		err := generator.Generate(data)
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("Expected error from findVariablesTfFileForComponent, got nil")
+		}
+	})
+
+	t.Run("ComponentNotFoundInBlueprint", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And blueprint handler returns no components
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{}
+		}
+
+		// And valid terraform data for a component that doesn't exist in blueprint
+		data := map[string]any{
+			"terraform/nonexistent": map[string]any{
+				"some_var": "value",
+			},
+		}
+
+		// When Generate is called
+		err := generator.Generate(data)
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("Expected error for component not found in blueprint, got nil")
 		}
 	})
 }
