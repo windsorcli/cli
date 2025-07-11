@@ -683,8 +683,11 @@ func (b *BaseBlueprintHandler) processBlueprintTemplate(outputPath, content, con
 // Private Methods
 // =============================================================================
 
-// resolveComponentSources transforms component source names into fully qualified
-// URL with path prefix and reference information based on the associated source configuration.
+// resolveComponentSources transforms component source names into fully qualified URLs
+// with path prefix and reference information based on the associated source configuration.
+// It processes both OCI and Git sources, constructing appropriate URL formats for each type.
+// For OCI sources, it creates URLs in the format oci://registry/repo:tag//path/to/module.
+// For Git sources, it uses the format url//path/to/module?ref=reference.
 func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *blueprintv1alpha1.Blueprint) {
 	resolvedComponents := make([]blueprintv1alpha1.TerraformComponent, len(blueprint.TerraformComponents))
 	copy(resolvedComponents, blueprint.TerraformComponents)
@@ -692,11 +695,6 @@ func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *blueprintv1alp
 	for i, component := range resolvedComponents {
 		for _, source := range blueprint.Sources {
 			if component.Source == source.Name {
-				// Skip URL resolution for OCI sources - let terraform generator handle them
-				if strings.HasPrefix(source.Url, "oci://") {
-					break
-				}
-
 				pathPrefix := source.PathPrefix
 				if pathPrefix == "" {
 					pathPrefix = "terraform"
@@ -713,7 +711,15 @@ func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *blueprintv1alp
 					ref = source.Ref.Branch
 				}
 
-				resolvedComponents[i].Source = source.Url + "//" + pathPrefix + "/" + component.Path + "?ref=" + ref
+				if strings.HasPrefix(source.Url, "oci://") {
+					baseURL := source.Url
+					if ref != "" && !strings.Contains(baseURL, ":") {
+						baseURL = baseURL + ":" + ref
+					}
+					resolvedComponents[i].Source = baseURL + "//" + pathPrefix + "/" + component.Path
+				} else {
+					resolvedComponents[i].Source = source.Url + "//" + pathPrefix + "/" + component.Path + "?ref=" + ref
+				}
 				break
 			}
 		}
@@ -724,7 +730,8 @@ func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *blueprintv1alp
 
 // resolveComponentPaths determines the full filesystem path for each Terraform component,
 // using either the module cache location for remote sources or the project's terraform directory
-// for local modules.
+// for local modules. It processes all components in the blueprint, checking source types to
+// determine appropriate path resolution strategies and updating component paths accordingly.
 func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *blueprintv1alpha1.Blueprint) {
 	projectRoot := b.projectRoot
 
@@ -734,7 +741,6 @@ func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *blueprintv1alpha
 	for i, component := range resolvedComponents {
 		componentCopy := component
 
-		// Check if this is a remote source (Git URL) or OCI source
 		if b.isValidTerraformRemoteSource(componentCopy.Source) || b.isOCISource(componentCopy.Source) {
 			componentCopy.FullPath = filepath.Join(projectRoot, ".windsor", ".tf_modules", componentCopy.Path)
 		} else {
@@ -1230,15 +1236,22 @@ func (b *BaseBlueprintHandler) toKubernetesKustomization(k blueprintv1alpha1.Kus
 	}
 }
 
-// isOCISource determines whether a given source name corresponds to an OCI repository
-// source by examining the URL prefix of the blueprint's main repository and any additional sources
-func (b *BaseBlueprintHandler) isOCISource(sourceName string) bool {
-	if sourceName == b.blueprint.Metadata.Name && strings.HasPrefix(b.blueprint.Repository.Url, "oci://") {
+// isOCISource determines whether a given source name or resolved URL corresponds to an OCI repository
+// source by examining the URL prefix of the blueprint's main repository and any additional sources,
+// or by checking if the input is already a resolved OCI URL.
+func (b *BaseBlueprintHandler) isOCISource(sourceNameOrURL string) bool {
+	// Check if it's already a resolved OCI URL
+	if strings.HasPrefix(sourceNameOrURL, "oci://") {
+		return true
+	}
+
+	// Check if it's a source name that maps to an OCI URL
+	if sourceNameOrURL == b.blueprint.Metadata.Name && strings.HasPrefix(b.blueprint.Repository.Url, "oci://") {
 		return true
 	}
 
 	for _, source := range b.blueprint.Sources {
-		if source.Name == sourceName && strings.HasPrefix(source.Url, "oci://") {
+		if source.Name == sourceNameOrURL && strings.HasPrefix(source.Url, "oci://") {
 			return true
 		}
 	}

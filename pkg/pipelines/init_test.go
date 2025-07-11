@@ -12,7 +12,6 @@ import (
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -593,130 +592,6 @@ func TestInitPipeline_determineContextName(t *testing.T) {
 	})
 }
 
-func TestInitPipeline_configureVMDriver(t *testing.T) {
-	setup := func(t *testing.T, opts ...*SetupOptions) (*InitPipeline, *InitMocks) {
-		t.Helper()
-		pipeline := NewInitPipeline()
-		mocks := setupInitMocks(t, opts...)
-		// Initialize the pipeline to set up configHandler
-		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
-			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
-		return pipeline, mocks
-	}
-
-	t.Run("UsesExistingVMDriverFromConfig", func(t *testing.T) {
-		// Given a pipeline with VM driver already set in config
-		pipeline, mocks := setup(t)
-
-		// Set an existing VM driver
-		err := mocks.ConfigHandler.SetContextValue("vm.driver", "existing-driver")
-		if err != nil {
-			t.Fatalf("Failed to set vm.driver: %v", err)
-		}
-
-		// When configureVMDriver is called
-		err = pipeline.configureVMDriver(context.Background(), "local")
-
-		// Then no error should be returned and existing driver should be kept
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-
-		// Verify the driver is still set to the existing value
-		driver := mocks.ConfigHandler.GetString("vm.driver")
-		if driver != "existing-driver" {
-			t.Errorf("Expected vm.driver to remain 'existing-driver', got %q", driver)
-		}
-	})
-
-	t.Run("SetsDockerDesktopForDarwinLocal", func(t *testing.T) {
-		// Given a pipeline with no VM driver set on local context for darwin
-		pipeline, mocks := setup(t)
-
-		// When configureVMDriver is called for local context
-		err := pipeline.configureVMDriver(context.Background(), "local")
-
-		// Then docker-desktop should be set for darwin
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-
-		// Verify the VM driver was set
-		driver := mocks.ConfigHandler.GetString("vm.driver")
-		if driver == "" {
-			t.Error("Expected vm.driver to be set")
-		}
-		// Note: The actual value depends on runtime.GOOS, but we can verify it was set
-	})
-
-	t.Run("SetsVMDriverForLocalPrefixedContext", func(t *testing.T) {
-		// Given a pipeline with no VM driver set on local-prefixed context
-		pipeline, mocks := setup(t)
-
-		// When configureVMDriver is called for local-prefixed context
-		err := pipeline.configureVMDriver(context.Background(), "local-dev")
-
-		// Then VM driver should be set
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-
-		// Verify the VM driver was set
-		driver := mocks.ConfigHandler.GetString("vm.driver")
-		if driver == "" {
-			t.Error("Expected vm.driver to be set")
-		}
-	})
-
-	t.Run("DoesNotSetVMDriverForNonLocalContext", func(t *testing.T) {
-		// Given a pipeline with no VM driver set on non-local context
-		pipeline, mocks := setup(t)
-
-		// When configureVMDriver is called for non-local context
-		err := pipeline.configureVMDriver(context.Background(), "production")
-
-		// Then no VM driver should be set
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-
-		// Verify no VM driver was set
-		driver := mocks.ConfigHandler.GetString("vm.driver")
-		if driver != "" {
-			t.Errorf("Expected no vm.driver to be set, got %q", driver)
-		}
-	})
-
-	t.Run("ReturnsErrorWhenSetContextValueFails", func(t *testing.T) {
-		// Given a pipeline with failing SetContextValue
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			return "" // No existing driver
-		}
-		mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
-			return fmt.Errorf("set context value failed")
-		}
-
-		options := &SetupOptions{
-			ConfigHandler: mockConfigHandler,
-		}
-
-		pipeline, _ := setup(t, options)
-
-		// When configureVMDriver is called
-		err := pipeline.configureVMDriver(context.Background(), "local")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-		if err.Error() != "error setting vm.driver: set context value failed" {
-			t.Errorf("Expected vm.driver error, got: %v", err)
-		}
-	})
-}
-
 func TestInitPipeline_setDefaultConfiguration(t *testing.T) {
 	setup := func(t *testing.T, opts ...*SetupOptions) (*InitPipeline, *InitMocks) {
 		t.Helper()
@@ -1170,66 +1045,6 @@ func TestInitPipeline_saveConfiguration(t *testing.T) {
 	})
 }
 
-func TestInitPipeline_processContextTemplates(t *testing.T) {
-	setup := func(t *testing.T, opts ...*SetupOptions) (*InitPipeline, *InitMocks) {
-		t.Helper()
-		pipeline := NewInitPipeline()
-		mocks := setupInitMocks(t, opts...)
-		// Initialize the pipeline to set up configHandler
-		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
-			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
-		return pipeline, mocks
-	}
-
-	t.Run("ProcessesContextTemplatesSuccessfully", func(t *testing.T) {
-		// Given a pipeline with working blueprint handler
-		pipeline, _ := setup(t)
-
-		// When processContextTemplates is called
-		err := pipeline.processContextTemplates(context.Background(), "test-context")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ProcessesContextTemplatesWithResetContext", func(t *testing.T) {
-		// Given a pipeline with reset context
-		pipeline, _ := setup(t)
-
-		ctx := context.WithValue(context.Background(), "reset", true)
-
-		// When processContextTemplates is called
-		err := pipeline.processContextTemplates(ctx, "test-context")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("DoesNothingWhenBlueprintHandlerIsNil", func(t *testing.T) {
-		// Given a pipeline with nil blueprint handler
-		pipeline := NewInitPipeline()
-		mocks := setupInitMocks(t)
-
-		// Initialize manually without blueprint handler
-		if err := pipeline.BasePipeline.Initialize(mocks.Injector, context.Background()); err != nil {
-			t.Fatalf("Failed to initialize base pipeline: %v", err)
-		}
-
-		// When processContextTemplates is called
-		err := pipeline.processContextTemplates(context.Background(), "test-context")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-}
-
 func TestInitPipeline_writeConfigurationFiles(t *testing.T) {
 	setup := func(t *testing.T, opts ...*SetupOptions) (*InitPipeline, *InitMocks) {
 		t.Helper()
@@ -1247,22 +1062,7 @@ func TestInitPipeline_writeConfigurationFiles(t *testing.T) {
 		pipeline, _ := setup(t)
 
 		// When writeConfigurationFiles is called
-		err := pipeline.writeConfigurationFiles(context.Background())
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("WritesConfigurationFilesWithResetContext", func(t *testing.T) {
-		// Given a pipeline with reset context
-		pipeline, _ := setup(t)
-
-		ctx := context.WithValue(context.Background(), "reset", true)
-
-		// When writeConfigurationFiles is called
-		err := pipeline.writeConfigurationFiles(ctx)
+		err := pipeline.writeConfigurationFiles()
 
 		// Then no error should be returned
 		if err != nil {
@@ -1282,7 +1082,7 @@ func TestInitPipeline_writeConfigurationFiles(t *testing.T) {
 		pipeline.services = []services.Service{mockService}
 
 		// When writeConfigurationFiles is called
-		err := pipeline.writeConfigurationFiles(context.Background())
+		err := pipeline.writeConfigurationFiles()
 
 		// Then an error should be returned
 		if err == nil {
@@ -1303,7 +1103,7 @@ func TestInitPipeline_writeConfigurationFiles(t *testing.T) {
 		}
 
 		// When writeConfigurationFiles is called
-		err := pipeline.writeConfigurationFiles(context.Background())
+		err := pipeline.writeConfigurationFiles()
 
 		// Then an error should be returned
 		if err == nil {
@@ -1311,29 +1111,6 @@ func TestInitPipeline_writeConfigurationFiles(t *testing.T) {
 		}
 		if err.Error() != "error writing container runtime config: container runtime write config failed" {
 			t.Errorf("Expected container runtime write config error, got: %v", err)
-		}
-	})
-
-	t.Run("ReturnsErrorWhenGeneratorWriteFails", func(t *testing.T) {
-		// Given a pipeline with failing generator Write
-		pipeline, _ := setup(t)
-
-		// Create a mock generator that fails
-		mockGenerator := generators.NewMockGenerator()
-		mockGenerator.WriteFunc = func(reset ...bool) error {
-			return fmt.Errorf("generator write failed")
-		}
-		pipeline.generators = []generators.Generator{mockGenerator}
-
-		// When writeConfigurationFiles is called
-		err := pipeline.writeConfigurationFiles(context.Background())
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-		if err.Error() != "error writing generator config: generator write failed" {
-			t.Errorf("Expected generator write error, got: %v", err)
 		}
 	})
 }

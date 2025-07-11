@@ -566,10 +566,10 @@ func (p *BasePipeline) withServices() ([]services.Service, error) {
 	return serviceList, nil
 }
 
-// withTerraformResolvers creates terraform module resolvers based on configuration.
-// Returns a slice of terraform module resolvers only when terraform.enabled = true in config.
-// The function creates both StandardModuleResolver and OCIModuleResolver instances,
-// registers them in the DI container, and returns them for terraform module processing.
+// withTerraformResolvers constructs and registers terraform module resolvers based on configuration state.
+// If terraform.enabled is true in the configuration, the method instantiates both StandardModuleResolver and OCIModuleResolver,
+// registers them in the dependency injection container, and returns them as a slice. If terraform is not enabled, returns an empty slice.
+// Returns an error if the config handler is uninitialized.
 func (p *BasePipeline) withTerraformResolvers() ([]terraform.ModuleResolver, error) {
 	if p.configHandler == nil {
 		return nil, fmt.Errorf("config handler not initialized")
@@ -577,17 +577,14 @@ func (p *BasePipeline) withTerraformResolvers() ([]terraform.ModuleResolver, err
 
 	var resolvers []terraform.ModuleResolver
 
-	// Only create resolvers if terraform is enabled
 	if !p.configHandler.GetBool("terraform.enabled", false) {
 		return resolvers, nil
 	}
 
-	// Standard module resolver for git, local, and registry modules
 	standardResolver := terraform.NewStandardModuleResolver(p.injector)
 	p.injector.Register("standardModuleResolver", standardResolver)
 	resolvers = append(resolvers, standardResolver)
 
-	// OCI module resolver for OCI artifact modules
 	ociResolver := terraform.NewOCIModuleResolver(p.injector)
 	p.injector.Register("ociModuleResolver", ociResolver)
 	resolvers = append(resolvers, ociResolver)

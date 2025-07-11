@@ -17,6 +17,8 @@ import (
 	"github.com/windsorcli/cli/pkg/network"
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/stack"
+	"github.com/windsorcli/cli/pkg/template"
+	"github.com/windsorcli/cli/pkg/terraform"
 	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/virt"
 )
@@ -34,16 +36,18 @@ import (
 // InitPipeline provides application initialization functionality
 type InitPipeline struct {
 	BasePipeline
-	blueprintHandler blueprint.BlueprintHandler
-	toolsManager     tools.ToolsManager
-	stack            stack.Stack
-	generators       []generators.Generator
-	bundlers         []bundler.Bundler
-	artifactBuilder  bundler.Artifact
-	services         []services.Service
-	virtualMachine   virt.VirtualMachine
-	containerRuntime virt.ContainerRuntime
-	networkManager   network.NetworkManager
+	blueprintHandler   blueprint.BlueprintHandler
+	toolsManager       tools.ToolsManager
+	stack              stack.Stack
+	generators         []generators.Generator
+	bundlers           []bundler.Bundler
+	artifactBuilder    bundler.Artifact
+	services           []services.Service
+	virtualMachine     virt.VirtualMachine
+	containerRuntime   virt.ContainerRuntime
+	networkManager     network.NetworkManager
+	terraformResolvers []terraform.ModuleResolver
+	templateRenderer   template.Template
 }
 
 // =============================================================================
@@ -63,8 +67,8 @@ func NewInitPipeline() *InitPipeline {
 
 // Initialize sets up the init pipeline components including dependency injection container,
 // configuration handler, blueprint handler, tools manager, stack, generators, bundlers,
-// services, and virtual machine components. It applies default configuration early so that
-// service creation can access correct configuration values.
+// services, virtual machine components, terraform resolvers, and template renderer.
+// It applies default configuration early so that service creation can access correct configuration values.
 func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) error {
 	if err := p.BasePipeline.Initialize(injector, ctx); err != nil {
 		return err
@@ -78,10 +82,6 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 	}
 
 	if err := p.setDefaultConfiguration(ctx, contextName); err != nil {
-		return err
-	}
-
-	if err := p.configureVMDriver(ctx, contextName); err != nil {
 		return err
 	}
 
@@ -120,6 +120,14 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 		return fmt.Errorf("failed to create services: %w", err)
 	}
 	p.services = services
+
+	terraformResolvers, err := p.withTerraformResolvers()
+	if err != nil {
+		return fmt.Errorf("failed to create terraform resolvers: %w", err)
+	}
+	p.terraformResolvers = terraformResolvers
+
+	p.templateRenderer = p.withTemplateRenderer()
 
 	p.networkManager = p.withNetworkManager()
 
@@ -176,6 +184,18 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 		}
 	}
 
+	for _, resolver := range p.terraformResolvers {
+		if err := resolver.Initialize(); err != nil {
+			return fmt.Errorf("failed to initialize terraform resolver: %w", err)
+		}
+	}
+
+	if p.templateRenderer != nil {
+		if err := p.templateRenderer.Initialize(); err != nil {
+			return fmt.Errorf("failed to initialize template renderer: %w", err)
+		}
+	}
+
 	if p.networkManager != nil {
 		if err := p.networkManager.Initialize(); err != nil {
 			return fmt.Errorf("failed to initialize network manager: %w", err)
@@ -198,7 +218,8 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 }
 
 // Execute runs the init command pipeline including file system operations, configuration saving,
-// and template processing. The component initialization has already been completed in Initialize().
+// template processing, module resolution, and generator execution using the new Generate function.
+// The component initialization has already been completed in Initialize().
 func (p *InitPipeline) Execute(ctx context.Context) error {
 	if err := p.shell.AddCurrentDirToTrustedFile(); err != nil {
 		return fmt.Errorf("Error adding current directory to trusted file: %w", err)
@@ -216,16 +237,50 @@ func (p *InitPipeline) Execute(ctx context.Context) error {
 		return err
 	}
 
-	contextName := p.determineContextName(ctx)
-	if err := p.processContextTemplates(ctx, contextName); err != nil {
-		return err
-	}
-
 	if err := p.blueprintHandler.LoadConfig(false); err != nil {
 		return fmt.Errorf("Error reloading blueprint config after IP assignment: %w", err)
 	}
 
-	if err := p.writeConfigurationFiles(ctx); err != nil {
+	// Process template data directly in Execute
+	if p.templateRenderer != nil {
+		projectRoot, err := p.shell.GetProjectRoot()
+		if err != nil {
+			return fmt.Errorf("failed to get project root: %w", err)
+		}
+
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
+		if _, err := p.shims.Stat(templateDir); err == nil {
+			templateData := make(map[string][]byte)
+
+			// Walk template directory and collect files
+			if err := p.walkAndCollectTemplates(templateDir, templateData); err != nil {
+				return fmt.Errorf("failed to collect template data: %w", err)
+			}
+
+			if len(templateData) > 0 {
+				renderedData := make(map[string]any)
+				if err := p.templateRenderer.Process(templateData, renderedData); err != nil {
+					return fmt.Errorf("failed to process template data: %w", err)
+				}
+
+				// Pass rendered data to generators
+				for _, generator := range p.generators {
+					if err := generator.Generate(renderedData); err != nil {
+						return fmt.Errorf("failed to generate from template data: %w", err)
+					}
+				}
+			}
+		}
+	}
+
+	// Process terraform modules directly in Execute
+	for _, resolver := range p.terraformResolvers {
+		if err := resolver.ProcessModules(); err != nil {
+			return fmt.Errorf("failed to process terraform modules: %w", err)
+		}
+	}
+
+	if err := p.writeConfigurationFiles(); err != nil {
 		return err
 	}
 
@@ -245,19 +300,6 @@ func (p *InitPipeline) determineContextName(ctx context.Context) string {
 		}
 	}
 	return "local"
-}
-
-// configureVMDriver applies VM driver configuration from command flags to override defaults.
-func (p *InitPipeline) configureVMDriver(_ context.Context, contextName string) error {
-	vmDriver := p.configHandler.GetString("vm.driver")
-
-	if vmDriver != "" {
-		if err := p.configHandler.SetContextValue("vm.driver", vmDriver); err != nil {
-			return fmt.Errorf("error setting vm.driver: %w", err)
-		}
-	}
-
-	return nil
 }
 
 // setDefaultConfiguration sets the appropriate default configuration based on context and VM driver detection.
@@ -356,35 +398,47 @@ func (p *InitPipeline) saveConfiguration(ctx context.Context) error {
 	return nil
 }
 
-// processContextTemplates processes context templates if they exist.
-func (p *InitPipeline) processContextTemplates(ctx context.Context, contextName string) error {
-	if p.blueprintHandler == nil {
-		return nil
+// walkAndCollectTemplates recursively walks through the template directory and collects all files.
+// It maintains the relative path structure from the template directory root.
+func (p *InitPipeline) walkAndCollectTemplates(templateDir string, templateData map[string][]byte) error {
+	entries, err := os.ReadDir(templateDir)
+	if err != nil {
+		return fmt.Errorf("failed to read template directory: %w", err)
 	}
 
-	reset := false
-	if resetValue := ctx.Value("reset"); resetValue != nil {
-		reset = resetValue.(bool)
-	}
+	for _, entry := range entries {
+		entryPath := filepath.Join(templateDir, entry.Name())
 
-	if err := p.blueprintHandler.ProcessContextTemplates(contextName, reset); err != nil {
-		return fmt.Errorf("Error processing context templates: %w", err)
-	}
+		if entry.IsDir() {
+			if err := p.walkAndCollectTemplates(entryPath, templateData); err != nil {
+				return err
+			}
+		} else {
+			content, err := os.ReadFile(entryPath)
+			if err != nil {
+				return fmt.Errorf("failed to read template file %s: %w", entryPath, err)
+			}
 
-	if err := p.blueprintHandler.LoadConfig(reset); err != nil {
-		return fmt.Errorf("Error reloading blueprint config: %w", err)
+			projectRoot, err := p.shell.GetProjectRoot()
+			if err != nil {
+				return fmt.Errorf("failed to get project root: %w", err)
+			}
+
+			templateRoot := filepath.Join(projectRoot, "contexts", "_template")
+			relPath, err := filepath.Rel(templateRoot, entryPath)
+			if err != nil {
+				return fmt.Errorf("failed to get relative path: %w", err)
+			}
+
+			templateData[filepath.ToSlash(relPath)] = content
+		}
 	}
 
 	return nil
 }
 
 // writeConfigurationFiles writes configuration files for all components.
-func (p *InitPipeline) writeConfigurationFiles(ctx context.Context) error {
-	reset := false
-	if resetValue := ctx.Value("reset"); resetValue != nil {
-		reset = resetValue.(bool)
-	}
-
+func (p *InitPipeline) writeConfigurationFiles() error {
 	if p.toolsManager != nil {
 		if err := p.toolsManager.WriteManifest(); err != nil {
 			return fmt.Errorf("error writing tools manifest: %w", err)
@@ -406,12 +460,6 @@ func (p *InitPipeline) writeConfigurationFiles(ctx context.Context) error {
 	if p.containerRuntime != nil {
 		if err := p.containerRuntime.WriteConfig(); err != nil {
 			return fmt.Errorf("error writing container runtime config: %w", err)
-		}
-	}
-
-	for _, generator := range p.generators {
-		if err := generator.Write(reset); err != nil {
-			return fmt.Errorf("error writing generator config: %w", err)
 		}
 	}
 

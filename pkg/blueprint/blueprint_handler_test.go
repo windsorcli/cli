@@ -2419,6 +2419,56 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 			t.Errorf("Expected path %q, got %q", expectedPath, resolvedComponents[0].FullPath)
 		}
 	})
+
+	t.Run("OCISourceResolution", func(t *testing.T) {
+		// Given a blueprint handler with OCI source and terraform component
+		handler, _ := setup(t)
+
+		// And a project root directory
+		projectRoot := "/test/project"
+		handler.projectRoot = projectRoot
+
+		// And an OCI source
+		sources := []blueprintv1alpha1.Source{
+			{
+				Name:       "oci-source",
+				Url:        "oci://registry.example.com/modules:v1.0.0",
+				Ref:        blueprintv1alpha1.Reference{Tag: "v1.0.0"},
+				PathPrefix: "terraform",
+			},
+		}
+		handler.blueprint.Sources = sources
+
+		// And a terraform component using the OCI source
+		components := []blueprintv1alpha1.TerraformComponent{
+			{
+				Source: "oci-source",
+				Path:   "cluster/talos",
+				Values: map[string]any{"key": "value"},
+			},
+		}
+		handler.blueprint.TerraformComponents = components
+
+		// When getting terraform components
+		resolvedComponents := handler.GetTerraformComponents()
+
+		// Then the components should be returned
+		if len(resolvedComponents) != 1 {
+			t.Fatalf("Expected 1 component, got %d", len(resolvedComponents))
+		}
+
+		// And the component should have the correct resolved OCI source
+		expectedSource := "oci://registry.example.com/modules:v1.0.0//terraform/cluster/talos"
+		if resolvedComponents[0].Source != expectedSource {
+			t.Errorf("Expected source %q, got %q", expectedSource, resolvedComponents[0].Source)
+		}
+
+		// And the component should have the correct full path
+		expectedPath := filepath.FromSlash(filepath.Join(projectRoot, ".windsor", ".tf_modules", "cluster/talos"))
+		if resolvedComponents[0].FullPath != expectedPath {
+			t.Errorf("Expected path %q, got %q", expectedPath, resolvedComponents[0].FullPath)
+		}
+	})
 }
 
 func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
