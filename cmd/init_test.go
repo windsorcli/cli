@@ -42,11 +42,17 @@ func setupInitTest(t *testing.T, opts ...*SetupOptions) *InitMocks {
 	baseMocks.Shell.AddCurrentDirToTrustedFileFunc = func() error { return nil }
 	baseMocks.Shell.WriteResetTokenFunc = func() (string, error) { return "test-token", nil }
 
-	// Register mock pipeline in injector (following exec_test.go pattern)
-	mockPipeline := pipelines.NewMockBasePipeline()
-	mockPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-	mockPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
-	baseMocks.Injector.Register("initPipeline", mockPipeline)
+	// Register mock env pipeline in injector (needed since init now runs env pipeline first)
+	mockEnvPipeline := pipelines.NewMockBasePipeline()
+	mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+	mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
+	baseMocks.Injector.Register("envPipeline", mockEnvPipeline)
+
+	// Register mock init pipeline in injector (following exec_test.go pattern)
+	mockInitPipeline := pipelines.NewMockBasePipeline()
+	mockInitPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+	mockInitPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
+	baseMocks.Injector.Register("initPipeline", mockInitPipeline)
 
 	return &InitMocks{
 		Injector:      baseMocks.Injector,

@@ -36,23 +36,24 @@ var initCmd = &cobra.Command{
 	Long:  "Initialize the application environment with the specified context configuration",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		var injector di.Injector
-		if contextInjector := cmd.Context().Value(injectorKey); contextInjector != nil {
-			injector = contextInjector.(di.Injector)
-		} else {
-			injector = di.NewInjector()
+		// Get shared dependency injector from context
+		injector := cmd.Context().Value(injectorKey).(di.Injector)
+
+		// First, run the env pipeline in quiet mode to set up environment variables
+		envPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "envPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up env pipeline: %w", err)
+		}
+		envCtx := context.WithValue(cmd.Context(), "quiet", true)
+		envCtx = context.WithValue(envCtx, "decrypt", true)
+		if err := envPipeline.Execute(envCtx); err != nil {
+			return fmt.Errorf("failed to set up environment: %w", err)
 		}
 
-		// Check if init pipeline exists in injector, create if not
-		var pipeline pipelines.Pipeline
-		if existing := injector.Resolve("initPipeline"); existing != nil {
-			pipeline = existing.(pipelines.Pipeline)
-		} else {
-			pipeline = pipelines.NewInitPipeline()
-			if err := pipeline.Initialize(injector, cmd.Context()); err != nil {
-				return fmt.Errorf("failed to initialize pipeline: %w", err)
-			}
-			injector.Register("initPipeline", pipeline)
+		// Set up the init pipeline
+		initPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "initPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up init pipeline: %w", err)
 		}
 
 		ctx := cmd.Context()
@@ -142,7 +143,7 @@ var initCmd = &cobra.Command{
 			}
 		}
 
-		return pipeline.Execute(ctx)
+		return initPipeline.Execute(ctx)
 	},
 }
 

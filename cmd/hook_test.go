@@ -49,7 +49,7 @@ func TestHookCmd(t *testing.T) {
 		}
 
 		// And error should contain usage message
-		expectedError := "No shell name provided"
+		expectedError := "accepts 1 arg(s), received 0"
 		if err.Error() != expectedError {
 			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}

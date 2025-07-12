@@ -42,6 +42,50 @@ type Pipeline interface {
 	Execute(ctx context.Context) error
 }
 
+// PipelineConstructor defines a function that creates a new pipeline instance
+type PipelineConstructor func() Pipeline
+
+// =============================================================================
+// Pipeline Factory
+// =============================================================================
+
+// pipelineConstructors maps pipeline names to their constructor functions
+var pipelineConstructors = map[string]PipelineConstructor{
+	"envPipeline":     func() Pipeline { return NewEnvPipeline() },
+	"initPipeline":    func() Pipeline { return NewInitPipeline() },
+	"execPipeline":    func() Pipeline { return NewExecPipeline() },
+	"contextPipeline": func() Pipeline { return NewContextPipeline() },
+	"hookPipeline":    func() Pipeline { return NewHookPipeline() },
+	"checkPipeline":   func() Pipeline { return NewCheckPipeline() },
+}
+
+// WithPipeline resolves or creates a pipeline instance from the DI container by name.
+// If the pipeline already exists in the injector, it is returned directly. Otherwise, a new instance is constructed,
+// initialized with the provided injector and context, registered in the DI container, and then returned.
+// Returns an error if the pipeline name is unknown or initialization fails.
+func WithPipeline(injector di.Injector, ctx context.Context, pipelineName string) (Pipeline, error) {
+	if existing := injector.Resolve(pipelineName); existing != nil {
+		if pipeline, ok := existing.(Pipeline); ok {
+			return pipeline, nil
+		}
+	}
+
+	constructor, exists := pipelineConstructors[pipelineName]
+	if !exists {
+		return nil, fmt.Errorf("unknown pipeline: %s", pipelineName)
+	}
+
+	pipeline := constructor()
+
+	if err := pipeline.Initialize(injector, ctx); err != nil {
+		return nil, fmt.Errorf("failed to initialize %s: %w", pipelineName, err)
+	}
+
+	injector.Register(pipelineName, pipeline)
+
+	return pipeline, nil
+}
+
 // BasePipeline provides common pipeline functionality including config loading
 // Specific pipelines should embed this and add their own dependencies
 type BasePipeline struct {

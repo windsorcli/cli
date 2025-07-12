@@ -19,9 +19,6 @@ var getContextCmd = &cobra.Command{
 		// Get shared dependency injector from context
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		// Create context pipeline
-		pipeline := pipelines.NewContextPipeline()
-
 		// Create output function
 		outputFunc := func(output string) {
 			fmt.Fprintln(cmd.OutOrStdout(), output)
@@ -31,9 +28,10 @@ var getContextCmd = &cobra.Command{
 		ctx := context.WithValue(cmd.Context(), "operation", "get")
 		ctx = context.WithValue(ctx, "output", outputFunc)
 
-		// Initialize the pipeline
-		if err := pipeline.Initialize(injector, ctx); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
+		// Set up the context pipeline
+		pipeline, err := pipelines.WithPipeline(injector, ctx, "contextPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up context pipeline: %w", err)
 		}
 
 		// Execute the pipeline
@@ -55,9 +53,6 @@ var setContextCmd = &cobra.Command{
 		// Get shared dependency injector from context
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		// Create context pipeline
-		pipeline := pipelines.NewContextPipeline()
-
 		// Create output function
 		outputFunc := func(output string) {
 			fmt.Fprintln(cmd.OutOrStdout(), output)
@@ -68,9 +63,10 @@ var setContextCmd = &cobra.Command{
 		ctx = context.WithValue(ctx, "contextName", args[0])
 		ctx = context.WithValue(ctx, "output", outputFunc)
 
-		// Initialize the pipeline
-		if err := pipeline.Initialize(injector, ctx); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
+		// Set up the context pipeline
+		pipeline, err := pipelines.WithPipeline(injector, ctx, "contextPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up context pipeline: %w", err)
 		}
 
 		// Execute the pipeline
