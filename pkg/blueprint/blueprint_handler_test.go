@@ -2665,7 +2665,7 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 
 		// Mock shell to return project root
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "/mock/project", nil
+			return filepath.Join("/mock", "project"), nil
 		}
 
 		// Mock shims to return error for template directory (doesn't exist)
@@ -2693,11 +2693,12 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 		// Given a blueprint handler with template directory containing jsonnet files
 		handler, mocks := setup(t)
 
-		templateDir := "/mock/project/contexts/_template"
+		projectRoot := filepath.Join("/mock", "project")
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
 
 		// Mock shell to return project root
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "/mock/project", nil
+			return projectRoot, nil
 		}
 
 		// Mock shims to simulate template directory with files
@@ -2818,11 +2819,12 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 		// Given a blueprint handler with template directory that fails to read
 		handler, mocks := setup(t)
 
-		templateDir := "/mock/project/contexts/_template"
+		projectRoot := filepath.Join("/mock", "project")
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
 
 		// Mock shell to return project root
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "/mock/project", nil
+			return projectRoot, nil
 		}
 
 		// Mock shims to simulate template directory exists but ReadDir fails
