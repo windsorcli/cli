@@ -695,7 +695,7 @@ func TestBasePipeline_withEnvPrinters(t *testing.T) {
 		}
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			switch key {
-			case "cluster.provider":
+			case "cluster.driver":
 				return "talos"
 			default:
 				return ""
@@ -727,7 +727,7 @@ func TestBasePipeline_withEnvPrinters(t *testing.T) {
 		}
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			switch key {
-			case "cluster.provider":
+			case "cluster.driver":
 				return "omni"
 			default:
 				return ""
@@ -1564,6 +1564,22 @@ func TestBasePipeline_withServices(t *testing.T) {
 		pipeline := NewBasePipeline()
 
 		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.driver" {
+				return "talos"
+			}
+			return ""
+		}
+		mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) int {
+			switch key {
+			case "cluster.controlplanes.count":
+				return 2
+			case "cluster.workers.count":
+				return 3
+			default:
+				return 1
+			}
+		}
 		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			switch key {
 			case "docker.enabled":
@@ -1576,24 +1592,6 @@ func TestBasePipeline_withServices(t *testing.T) {
 				return true
 			default:
 				return false
-			}
-		}
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			switch key {
-			case "cluster.provider":
-				return "talos"
-			default:
-				return ""
-			}
-		}
-		mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) int {
-			switch key {
-			case "cluster.control_plane.count":
-				return 2
-			case "cluster.worker.count":
-				return 3
-			default:
-				return 1
 			}
 		}
 		pipeline.configHandler = mockConfigHandler
@@ -1660,16 +1658,16 @@ func TestBasePipeline_withServices(t *testing.T) {
 			return false
 		}
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "cluster.provider" {
+			if key == "cluster.driver" {
 				return "omni"
 			}
 			return ""
 		}
 		mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) int {
 			switch key {
-			case "cluster.control_plane.count":
+			case "cluster.controlplanes.count":
 				return 1
-			case "cluster.worker.count":
+			case "cluster.workers.count":
 				return 2
 			default:
 				return 1

@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -298,6 +299,9 @@ func (p *InitPipeline) Execute(ctx context.Context) error {
 	if err := p.writeConfigurationFiles(); err != nil {
 		return err
 	}
+
+	// Print success message
+	fmt.Fprintln(os.Stderr, "Initialization successful")
 
 	return nil
 }

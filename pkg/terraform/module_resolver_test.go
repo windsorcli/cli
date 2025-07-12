@@ -505,12 +505,19 @@ variable "instance_type" {
 		// When writing the shim variables.tf
 		err := resolver.writeShimVariablesTf(moduleDir, modulePath, "test-source")
 
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
+		// Then no error should be returned (missing variables.tf is not an error)
+		if err != nil {
+			t.Errorf("Expected no error for missing variables.tf, got: %v", err)
 		}
-		if !strings.Contains(err.Error(), "failed to read variables.tf") {
-			t.Errorf("Expected error about reading variables.tf, got: %v", err)
+
+		// And an empty variables.tf file should be created
+		shimVariablesPath := filepath.Join(moduleDir, "variables.tf")
+		info, statErr := resolver.shims.Stat(shimVariablesPath)
+		if statErr != nil {
+			t.Errorf("Expected variables.tf to be created, got error: %v", statErr)
+		}
+		if info != nil && info.Size() != 0 {
+			t.Errorf("Expected variables.tf to be empty, got size: %d", info.Size())
 		}
 	})
 

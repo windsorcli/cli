@@ -1,288 +1,451 @@
 package cmd
 
 import (
-	"bytes"
 	"context"
-	"io"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/network"
 	"github.com/windsorcli/cli/pkg/pipelines"
 	"github.com/windsorcli/cli/pkg/shell"
-	"github.com/windsorcli/cli/pkg/ssh"
 )
 
-func TestInitCmd(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a temporary directory
-		tmpDir := t.TempDir()
-		oldDir, _ := os.Getwd()
-		defer os.Chdir(oldDir)
-		os.Chdir(tmpDir)
+// =============================================================================
+// Test Setup
+// =============================================================================
 
-		// Create a pipe to capture os.Stderr
-		r, w, _ := os.Pipe()
-		oldStderr := os.Stderr
-		os.Stderr = w
-
-		// Set up command arguments
-		rootCmd.SetArgs([]string{"init"})
-
-		// When executing the command
-		err := Execute(nil)
-
-		// Close the writer and restore os.Stderr
-		w.Close()
-		os.Stderr = oldStderr
-
-		// Read the captured output
-		var buf bytes.Buffer
-		io.Copy(&buf, r)
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
-
-		// And stderr should contain success message
-		output := buf.String()
-		if !strings.Contains(output, "Initialization successful") {
-			t.Errorf("Expected message to contain 'Initialization successful', got %q", output)
-		}
-	})
-
-	t.Run("WithContext", func(t *testing.T) {
-		// Given a temporary directory
-		tmpDir := t.TempDir()
-		oldDir, _ := os.Getwd()
-		defer os.Chdir(oldDir)
-		os.Chdir(tmpDir)
-
-		// Create a pipe to capture os.Stderr
-		r, w, _ := os.Pipe()
-		oldStderr := os.Stderr
-		os.Stderr = w
-
-		// Set up command arguments
-		rootCmd.SetArgs([]string{"init", "test-context"})
-
-		// When executing the command
-		err := Execute(nil)
-
-		// Close the writer and restore os.Stderr
-		w.Close()
-		os.Stderr = oldStderr
-
-		// Read the captured output
-		var buf bytes.Buffer
-		io.Copy(&buf, r)
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
-
-		// And stderr should contain success message
-		output := buf.String()
-		if !strings.Contains(output, "Initialization successful") {
-			t.Errorf("Expected message to contain 'Initialization successful', got %q", output)
-		}
-	})
-
-	t.Run("SetFlagSuccess", func(t *testing.T) {
-		// Given a temporary directory
-		tmpDir := t.TempDir()
-		oldDir, _ := os.Getwd()
-		defer os.Chdir(oldDir)
-		os.Chdir(tmpDir)
-
-		// Create a pipe to capture os.Stderr
-		r, w, _ := os.Pipe()
-		oldStderr := os.Stderr
-		os.Stderr = w
-
-		// Set up command arguments with set flags
-		rootCmd.SetArgs([]string{"init", "--set", "dns.enabled=false", "--set", "cluster.endpoint=https://localhost:6443"})
-
-		// When executing the command
-		err := Execute(nil)
-
-		// Close the writer and restore os.Stderr
-		w.Close()
-		os.Stderr = oldStderr
-
-		// Read the captured output
-		var buf bytes.Buffer
-		io.Copy(&buf, r)
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
-
-		// And stderr should contain success message
-		output := buf.String()
-		if !strings.Contains(output, "Initialization successful") {
-			t.Errorf("Expected message to contain 'Initialization successful', got %q", output)
-		}
-	})
-
-	t.Run("PlatformConfiguration", func(t *testing.T) {
-		// Given a temporary directory
-		tmpDir := t.TempDir()
-		oldDir, _ := os.Getwd()
-		defer os.Chdir(oldDir)
-		os.Chdir(tmpDir)
-
-		// Create a pipe to capture os.Stderr
-		r, w, _ := os.Pipe()
-		oldStderr := os.Stderr
-		os.Stderr = w
-
-		// Set up command arguments with platform flag
-		rootCmd.SetArgs([]string{"init", "--platform", "aws"})
-
-		// When executing the command
-		err := Execute(nil)
-
-		// Close the writer and restore os.Stderr
-		w.Close()
-		os.Stderr = oldStderr
-
-		// Read the captured output
-		var buf bytes.Buffer
-		io.Copy(&buf, r)
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
-
-		// And stderr should contain success message
-		output := buf.String()
-		if !strings.Contains(output, "Initialization successful") {
-			t.Errorf("Expected message to contain 'Initialization successful', got %q", output)
-		}
-	})
-
-	t.Run("ResetFlag", func(t *testing.T) {
-		// Given a temporary directory
-		tmpDir := t.TempDir()
-		oldDir, _ := os.Getwd()
-		defer os.Chdir(oldDir)
-		os.Chdir(tmpDir)
-
-		// Create a pipe to capture os.Stderr
-		r, w, _ := os.Pipe()
-		oldStderr := os.Stderr
-		os.Stderr = w
-
-		// Set up command arguments with reset flag
-		rootCmd.SetArgs([]string{"init", "--reset"})
-
-		// When executing the command
-		err := Execute(nil)
-
-		// Close the writer and restore os.Stderr
-		w.Close()
-		os.Stderr = oldStderr
-
-		// Read the captured output
-		var buf bytes.Buffer
-		io.Copy(&buf, r)
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
-
-		// And stderr should contain success message
-		output := buf.String()
-		if !strings.Contains(output, "Initialization successful") {
-			t.Errorf("Expected message to contain 'Initialization successful', got %q", output)
-		}
-	})
+type InitMocks struct {
+	Injector      di.Injector
+	ConfigHandler config.ConfigHandler
+	Shell         *shell.MockShell
+	Shims         *Shims
 }
 
-func TestInitPipeline(t *testing.T) {
-	t.Run("Initialize", func(t *testing.T) {
-		// Given a new init pipeline
-		pipeline := pipelines.NewInitPipeline()
-		injector := di.NewInjector()
-		ctx := context.Background()
+func setupInitTest(t *testing.T, opts ...*SetupOptions) *InitMocks {
+	t.Helper()
 
-		// Set up minimal mocks to avoid SSH client issues
-		mockSSHClient := ssh.NewMockSSHClient()
-		injector.Register("sshClient", mockSSHClient)
+	// Set up temporary directory and change to it
+	tmpDir := t.TempDir()
+	oldDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	t.Cleanup(func() { os.Chdir(oldDir) })
 
-		mockSecureShell := shell.NewMockShell(injector)
-		injector.Register("secureShell", mockSecureShell)
+	// Get base mocks
+	baseMocks := setupMocks(t, opts...)
 
-		// Set up network interface provider mock
-		mockNetworkInterfaceProvider := network.NewMockNetworkInterfaceProvider()
-		injector.Register("networkInterfaceProvider", mockNetworkInterfaceProvider)
+	// Add init-specific shell mock behaviors
+	baseMocks.Shell.AddCurrentDirToTrustedFileFunc = func() error { return nil }
+	baseMocks.Shell.WriteResetTokenFunc = func() (string, error) { return "test-token", nil }
 
-		// When initializing the pipeline
-		err := pipeline.Initialize(injector, ctx)
+	// Register mock pipeline in injector (following exec_test.go pattern)
+	mockPipeline := pipelines.NewMockBasePipeline()
+	mockPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+	mockPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
+	baseMocks.Injector.Register("initPipeline", mockPipeline)
+
+	return &InitMocks{
+		Injector:      baseMocks.Injector,
+		ConfigHandler: baseMocks.ConfigHandler,
+		Shell:         baseMocks.Shell,
+		Shims:         baseMocks.Shims,
+	}
+}
+
+// =============================================================================
+// Test Cases
+// =============================================================================
+
+func TestInitCmd(t *testing.T) {
+	createTestInitCmd := func() *cobra.Command {
+		// Create a new command with the same RunE as initCmd
+		cmd := &cobra.Command{
+			Use:   "init [context]",
+			Short: "Initialize the application environment",
+			RunE:  initCmd.RunE,
+		}
+
+		// Copy all flags from initCmd to ensure they're available
+		initCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+			cmd.Flags().AddFlag(flag)
+		})
+
+		// Disable help text printing
+		cmd.SilenceUsage = true
+		cmd.SilenceErrors = true
+
+		return cmd
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// When executing the init command
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
-			t.Errorf("Expected successful initialization, got error: %v", err)
+			t.Errorf("Expected success, got error: %v", err)
 		}
 	})
 
-	t.Run("InitializeWithContext", func(t *testing.T) {
-		// Given a new init pipeline
-		pipeline := pipelines.NewInitPipeline()
-		injector := di.NewInjector()
-		ctx := context.WithValue(context.Background(), "contextName", "test-context")
+	t.Run("SuccessWithReset", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
 
-		// Set up minimal mocks to avoid SSH client issues
-		mockSSHClient := ssh.NewMockSSHClient()
-		injector.Register("sshClient", mockSSHClient)
-
-		mockSecureShell := shell.NewMockShell(injector)
-		injector.Register("secureShell", mockSecureShell)
-
-		// Set up network interface provider mock
-		mockNetworkInterfaceProvider := network.NewMockNetworkInterfaceProvider()
-		injector.Register("networkInterfaceProvider", mockNetworkInterfaceProvider)
-
-		// When initializing the pipeline
-		err := pipeline.Initialize(injector, ctx)
+		// When executing the init command with reset flag
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx = context.WithValue(ctx, "reset", true)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
-			t.Errorf("Expected successful initialization, got error: %v", err)
+			t.Errorf("Expected success, got error: %v", err)
 		}
 	})
 
-	t.Run("InitializeWithReset", func(t *testing.T) {
-		// Given a new init pipeline
-		pipeline := pipelines.NewInitPipeline()
-		injector := di.NewInjector()
-		ctx := context.WithValue(context.Background(), "reset", true)
+	t.Run("SuccessWithContext", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
 
-		// Set up minimal mocks to avoid SSH client issues
-		mockSSHClient := ssh.NewMockSSHClient()
-		injector.Register("sshClient", mockSSHClient)
-
-		mockSecureShell := shell.NewMockShell(injector)
-		injector.Register("secureShell", mockSecureShell)
-
-		// Set up network interface provider mock
-		mockNetworkInterfaceProvider := network.NewMockNetworkInterfaceProvider()
-		injector.Register("networkInterfaceProvider", mockNetworkInterfaceProvider)
-
-		// When initializing the pipeline
-		err := pipeline.Initialize(injector, ctx)
+		// When executing the init command with context
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx = context.WithValue(ctx, "contextName", "local")
+		cmd.SetArgs([]string{"test-context"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
-			t.Errorf("Expected successful initialization, got error: %v", err)
+			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
+	t.Run("SuccessWithContextAndReset", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// When executing the init command with context and reset
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx = context.WithValue(ctx, "contextName", "local")
+		ctx = context.WithValue(ctx, "reset", true)
+		cmd.SetArgs([]string{"test-context"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
+	t.Run("SuccessWithAllFlags", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// When executing the init command with all flags
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx = context.WithValue(ctx, "contextName", "local")
+		ctx = context.WithValue(ctx, "reset", true)
+		ctx = context.WithValue(ctx, "verbose", true)
+		cmd.SetArgs([]string{"test-context"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
+	t.Run("PipelineExecutionError", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// And a pipeline that fails to execute
+		mockPipeline := pipelines.NewMockBasePipeline()
+		mockPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+		mockPipeline.ExecuteFunc = func(ctx context.Context) error {
+			return fmt.Errorf("pipeline execution failed")
+		}
+		mocks.Injector.Register("initPipeline", mockPipeline)
+
+		// When executing the init command
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "pipeline execution failed") {
+			t.Errorf("Expected pipeline execution error, got: %v", err)
+		}
+	})
+
+	t.Run("ConfigHandlerSetContextValueError", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// And a config handler that fails to set context values
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+			return fmt.Errorf("failed to set %s", key)
+		}
+		mocks.Injector.Register("configHandler", mockConfigHandler)
+
+		// When executing the init command with flags that trigger config setting
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"--backend", "local"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to set terraform.backend.type") {
+			t.Errorf("Expected config handler error, got: %v", err)
+		}
+	})
+
+	t.Run("SuccessWithBackendFlag", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// When executing the init command with backend flag
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"--backend", "s3"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
+	t.Run("SuccessWithVmDriverFlag", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// When executing the init command with VM driver flag
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"--vm-driver", "colima"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
+	t.Run("SuccessWithVmCpuFlag", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// When executing the init command with VM CPU flag
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"--vm-cpu", "4"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
+	t.Run("SuccessWithVmDiskFlag", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// When executing the init command with VM disk flag
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"--vm-disk", "100"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
+	t.Run("SuccessWithVmMemoryFlag", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// When executing the init command with VM memory flag
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"--vm-memory", "8192"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
+	t.Run("SuccessWithVmArchFlag", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// When executing the init command with VM arch flag
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"--vm-arch", "x86_64"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
+	t.Run("SuccessWithDockerFlag", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// When executing the init command with docker flag
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"--docker"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
+	t.Run("SuccessWithGitLivereloadFlag", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// When executing the init command with git livereload flag
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"--git-livereload"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
+	t.Run("SuccessWithBlueprintFlag", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// When executing the init command with blueprint flag
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"--blueprint", "full"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
+	t.Run("SuccessWithPlatformFlag", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// When executing the init command with platform flag
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"--platform", "local"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
+	t.Run("SuccessWithSetFlags", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// When executing the init command with set flags
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"--set", "cluster.endpoint=https://localhost:6443", "--set", "dns.domain=test.local"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
+	t.Run("SetFlagInvalidFormat", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// When executing the init command with invalid set flag format
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"--set", "invalid-format"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur (invalid format is ignored)
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
+	t.Run("MultipleFlagsCombination", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// When executing the init command with multiple flags
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"--backend", "s3", "--vm-driver", "colima", "--docker", "--blueprint", "full"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
 		}
 	})
 }

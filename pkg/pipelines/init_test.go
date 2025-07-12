@@ -380,6 +380,12 @@ func TestInitPipeline_Initialize(t *testing.T) {
 		pipeline := NewInitPipeline()
 		mocks := setupInitMocks(t)
 
+		// Initialize the pipeline first
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+		if err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
+
 		// Create a mock network manager that fails on initialization
 		mockNetworkManager := network.NewMockNetworkManager()
 		mockNetworkManager.InitializeFunc = func() error {
@@ -387,10 +393,10 @@ func TestInitPipeline_Initialize(t *testing.T) {
 		}
 
 		// Override the network manager
-		mocks.Injector.Register("networkManager", mockNetworkManager)
+		pipeline.networkManager = mockNetworkManager
 
-		// When initializing the pipeline
-		err := pipeline.Initialize(mocks.Injector, context.Background())
+		// When executing the pipeline
+		err = pipeline.Execute(context.Background())
 
 		// Then an error should be returned
 		if err == nil {
