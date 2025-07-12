@@ -3,7 +3,9 @@ package artifact
 import (
 	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,6 +81,7 @@ type Artifact interface {
 	Create(outputPath string, tag string) (string, error)
 	Push(registryBase string, repoName string, tag string) error
 	Pull(ociRefs []string) (map[string][]byte, error)
+	GetTemplateData(ociRef string) (map[string][]byte, error)
 }
 
 // =============================================================================
@@ -324,6 +327,65 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
 	}
 
 	return ociArtifacts, nil
+}
+
+// GetTemplateData retrieves template data from an OCI artifact reference.
+// Pulls and extracts tar.gz content from the specified OCI reference, returning a map
+// where keys are file paths (using forward slashes) and values are file contents.
+// Handles OCI artifact download, caching, and tar.gz extraction for template processing.
+// Returns an error if the OCI reference is invalid, download fails, or extraction fails.
+func (a *ArtifactBuilder) GetTemplateData(ociRef string) (map[string][]byte, error) {
+	if !strings.HasPrefix(ociRef, "oci://") {
+		return nil, fmt.Errorf("invalid OCI reference: %s", ociRef)
+	}
+
+	registry, repository, tag, err := a.parseOCIRef(ociRef)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse OCI reference %s: %w", ociRef, err)
+	}
+
+	cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+	var artifactData []byte
+
+	if cachedData, exists := a.ociCache[cacheKey]; exists {
+		artifactData = cachedData
+	} else {
+		artifactData, err = a.downloadOCIArtifact(registry, repository, tag)
+		if err != nil {
+			return nil, fmt.Errorf("failed to download OCI artifact %s: %w", ociRef, err)
+		}
+		a.ociCache[cacheKey] = artifactData
+	}
+
+	templateData := make(map[string][]byte)
+
+	gzipReader, err := gzip.NewReader(bytes.NewReader(artifactData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create gzip reader: %w", err)
+	}
+	defer gzipReader.Close()
+
+	tarReader := tar.NewReader(gzipReader)
+
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tar header: %w", err)
+		}
+
+		if header.Typeflag == tar.TypeReg && strings.HasSuffix(header.Name, ".jsonnet") {
+			content, err := io.ReadAll(tarReader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read file %s: %w", header.Name, err)
+			}
+			templateData[filepath.ToSlash(header.Name)] = content
+		}
+	}
+
+	return templateData, nil
 }
 
 // =============================================================================

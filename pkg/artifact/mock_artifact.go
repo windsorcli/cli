@@ -17,11 +17,12 @@ import (
 
 // MockArtifact is a mock implementation of the Artifact interface
 type MockArtifact struct {
-	InitializeFunc func(injector di.Injector) error
-	AddFileFunc    func(path string, content []byte, mode os.FileMode) error
-	CreateFunc     func(outputPath string, tag string) (string, error)
-	PushFunc       func(registryBase string, repoName string, tag string) error
-	PullFunc       func(ociRefs []string) (map[string][]byte, error)
+	InitializeFunc      func(injector di.Injector) error
+	AddFileFunc         func(path string, content []byte, mode os.FileMode) error
+	CreateFunc          func(outputPath string, tag string) (string, error)
+	PushFunc            func(registryBase string, repoName string, tag string) error
+	PullFunc            func(ociRefs []string) (map[string][]byte, error)
+	GetTemplateDataFunc func(ociRef string) (map[string][]byte, error)
 }
 
 // =============================================================================
@@ -73,6 +74,14 @@ func (m *MockArtifact) Push(registryBase string, repoName string, tag string) er
 func (m *MockArtifact) Pull(ociRefs []string) (map[string][]byte, error) {
 	if m.PullFunc != nil {
 		return m.PullFunc(ociRefs)
+	}
+	return make(map[string][]byte), nil
+}
+
+// GetTemplateData calls the mock GetTemplateDataFunc if set, otherwise returns empty map and nil error
+func (m *MockArtifact) GetTemplateData(ociRef string) (map[string][]byte, error) {
+	if m.GetTemplateDataFunc != nil {
+		return m.GetTemplateDataFunc(ociRef)
 	}
 	return make(map[string][]byte), nil
 }

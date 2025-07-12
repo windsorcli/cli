@@ -1,12 +1,8 @@
 package pipelines
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -356,7 +352,11 @@ func (p *InitPipeline) setDefaultConfiguration(_ context.Context, contextName st
 	return nil
 }
 
-// processPlatformConfiguration handles platform-specific configuration settings.
+// processPlatformConfiguration applies platform-specific configuration settings based on the "platform" value in the configuration handler.
+// For "aws", it enables AWS and sets the cluster driver to "eks".
+// For "azure", it enables Azure and sets the cluster driver to "aks".
+// For "metal" and "local", it sets the cluster driver to "talos".
+// Returns an error if any configuration operation fails.
 func (p *InitPipeline) processPlatformConfiguration(_ context.Context) error {
 	platform := p.configHandler.GetString("platform")
 	if platform == "" {
@@ -391,7 +391,10 @@ func (p *InitPipeline) processPlatformConfiguration(_ context.Context) error {
 	return nil
 }
 
-// saveConfiguration saves the configuration to the appropriate file.
+// saveConfiguration writes the current configuration to the Windsor configuration file in the project root.
+// It determines the correct file path by checking for the presence of "windsor.yaml" or "windsor.yml" in the project root.
+// If neither file exists, it defaults to "windsor.yaml". The configuration is saved to the selected file path.
+// The overwrite parameter controls whether existing files are overwritten. Returns an error if saving fails.
 func (p *InitPipeline) saveConfiguration(overwrite bool) error {
 	projectRoot, err := p.shell.GetProjectRoot()
 	if err != nil {
@@ -417,137 +420,49 @@ func (p *InitPipeline) saveConfiguration(overwrite bool) error {
 	return nil
 }
 
-// prepareTemplateData handles the priority system for template input sources:
-// 1. If --blueprint oci://xyz is passed, extract from OCI artifact
-// 2. If contexts/_template folder exists and no --blueprint, load from local directory
-// 3. Otherwise, return empty map to use default blueprint generation
+// prepareTemplateData selects template input sources by priority.
+//
+// 1: If --blueprint is an OCI ref, try extracting template data from OCI artifact.
+// 2: If local _template dir exists, try loading template data from it.
+// 3: If blueprint handler exists, generate default template data for current context.
+// 4: If all fail, return empty map.
 func (p *InitPipeline) prepareTemplateData() (map[string][]byte, error) {
 	blueprintValue := p.configHandler.GetString("blueprint")
 
-	// Priority 1: OCI blueprint via --blueprint flag
 	if blueprintValue != "" && strings.HasPrefix(blueprintValue, "oci://") {
 		if p.artifactBuilder == nil {
-			return nil, fmt.Errorf("artifact builder not available")
+			return nil, fmt.Errorf("artifact builder not available for OCI blueprint")
 		}
-
-		artifacts, err := p.artifactBuilder.Pull([]string{blueprintValue})
+		templateData, err := p.artifactBuilder.GetTemplateData(blueprintValue)
 		if err != nil {
-			return nil, fmt.Errorf("failed to pull OCI artifact %s: %w", blueprintValue, err)
+			return nil, fmt.Errorf("failed to get OCI template data: %w", err)
 		}
-
-		if len(artifacts) == 0 {
-			return nil, fmt.Errorf("no artifacts downloaded from %s", blueprintValue)
-		}
-
-		for _, artifactData := range artifacts {
-			templateData := make(map[string][]byte)
-
-			gzipReader, err := gzip.NewReader(bytes.NewReader(artifactData))
-			if err != nil {
-				return nil, fmt.Errorf("failed to create gzip reader: %w", err)
-			}
-			defer gzipReader.Close()
-
-			tarReader := tar.NewReader(gzipReader)
-
-			for {
-				header, err := tarReader.Next()
-				if err == io.EOF {
-					break
-				}
-				if err != nil {
-					return nil, fmt.Errorf("failed to read tar header: %w", err)
-				}
-
-				if header.Typeflag == tar.TypeReg {
-					content, err := io.ReadAll(tarReader)
-					if err != nil {
-						return nil, fmt.Errorf("failed to read file %s: %w", header.Name, err)
-					}
-
-					// Store with forward slashes for consistent path handling
-					templateData[filepath.ToSlash(header.Name)] = content
-				}
-			}
-
-			return templateData, nil
-		}
-
-		return nil, fmt.Errorf("no valid artifacts found")
-	}
-
-	// Priority 2: Local _template directory (only if no --blueprint flag)
-	if blueprintValue == "" {
-		projectRoot, err := p.shell.GetProjectRoot()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get project root: %w", err)
-		}
-
-		templateDir := filepath.Join(projectRoot, "contexts", "_template")
-		if _, err := p.shims.Stat(templateDir); err == nil {
-			templateData := make(map[string][]byte)
-			if err := p.walkAndCollectTemplates(templateDir, templateData); err != nil {
-				return nil, fmt.Errorf("failed to collect local templates: %w", err)
-			}
+		if len(templateData) > 0 {
 			return templateData, nil
 		}
 	}
 
-	// Priority 3: Default platform template data via blueprint handler
+	if p.blueprintHandler != nil {
+		localTemplateData, err := p.blueprintHandler.GetLocalTemplateData()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get local template data: %w", err)
+		}
+		if len(localTemplateData) > 0 {
+			return localTemplateData, nil
+		}
+	}
+
 	if p.blueprintHandler != nil {
 		contextName := p.determineContextName(context.Background())
 		return p.blueprintHandler.GetDefaultTemplateData(contextName)
 	}
 
-	// Priority 4: Fallback (empty map - no template processing occurs)
 	return make(map[string][]byte), nil
 }
 
-// walkAndCollectTemplates recursively walks through the template directory and collects all files.
-// It maintains the relative path structure from the template directory root.
-func (p *InitPipeline) walkAndCollectTemplates(templateDir string, templateData map[string][]byte) error {
-	projectRoot, err := p.shell.GetProjectRoot()
-	if err != nil {
-		return fmt.Errorf("failed to get project root: %w", err)
-	}
-	templateRoot := filepath.Join(projectRoot, "contexts", "_template")
-
-	return p.walkAndCollectTemplatesHelper(templateDir, templateRoot, templateData)
-}
-
-// walkAndCollectTemplatesHelper is the helper function that walks directories.
-func (p *InitPipeline) walkAndCollectTemplatesHelper(templateDir, templateRoot string, templateData map[string][]byte) error {
-	entries, err := p.shims.ReadDir(templateDir)
-	if err != nil {
-		return fmt.Errorf("failed to read template directory: %w", err)
-	}
-
-	for _, entry := range entries {
-		entryPath := filepath.Join(templateDir, entry.Name())
-
-		if entry.IsDir() {
-			if err := p.walkAndCollectTemplatesHelper(entryPath, templateRoot, templateData); err != nil {
-				return err
-			}
-		} else {
-			content, err := p.shims.ReadFile(filepath.Clean(entryPath))
-			if err != nil {
-				return fmt.Errorf("failed to read template file %s: %w", entryPath, err)
-			}
-
-			relPath, err := filepath.Rel(templateRoot, entryPath)
-			if err != nil {
-				return fmt.Errorf("failed to get relative path: %w", err)
-			}
-
-			templateData[filepath.ToSlash(relPath)] = content
-		}
-	}
-
-	return nil
-}
-
-// writeConfigurationFiles writes configuration files for all components.
+// writeConfigurationFiles writes configuration files for all managed components in the InitPipeline.
+// It sequentially invokes WriteManifest or WriteConfig on the tools manager, each registered service,
+// the virtual machine, and the container runtime if present. Returns an error if any write operation fails.
 func (p *InitPipeline) writeConfigurationFiles() error {
 	if p.toolsManager != nil {
 		if err := p.toolsManager.WriteManifest(); err != nil {

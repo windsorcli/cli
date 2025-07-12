@@ -4,11 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-
-	"bytes"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/artifact"
@@ -836,18 +833,6 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		}
 		pipeline.configHandler = mockConfigHandler
 
-		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/test", nil
-		}
-		pipeline.shell = mockShell
-
-		mockShims := NewShims()
-		mockShims.Stat = func(path string) (os.FileInfo, error) {
-			return nil, fmt.Errorf("not found") // No template directory
-		}
-		pipeline.shims = mockShims
-
 		pipeline.blueprintHandler = nil
 
 		// When prepareTemplateData is called
@@ -862,6 +847,41 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		}
 		if len(templateData) != 0 {
 			t.Error("Expected empty template data")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenOCIFails", func(t *testing.T) {
+		// Given a pipeline with OCI blueprint that fails
+		pipeline := &InitPipeline{}
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "blueprint" {
+				return "oci://registry.example.com/blueprint:latest"
+			}
+			return ""
+		}
+		pipeline.configHandler = mockConfigHandler
+
+		// Mock artifact builder that fails
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		mockArtifactBuilder.GetTemplateDataFunc = func(ociRef string) (map[string][]byte, error) {
+			return nil, fmt.Errorf("OCI pull failed")
+		}
+		pipeline.artifactBuilder = mockArtifactBuilder
+
+		// When prepareTemplateData is called
+		templateData, err := pipeline.prepareTemplateData()
+
+		// Then should return error
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to get OCI template data") {
+			t.Errorf("Expected error to contain 'failed to get OCI template data', got %v", err)
+		}
+		if templateData != nil {
+			t.Error("Expected nil template data on error")
 		}
 	})
 
@@ -893,97 +913,114 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 			t.Error("Expected nil template data on error")
 		}
 	})
-}
 
-func TestInitPipeline_walkAndCollectTemplates(t *testing.T) {
-	t.Run("CollectsTemplatesSuccessfully", func(t *testing.T) {
-		// Given a pipeline with mock shims for template collection
+	t.Run("UsesArtifactBuilderForOCIBlueprint", func(t *testing.T) {
+		// Given a pipeline with OCI blueprint and artifact builder
 		pipeline := &InitPipeline{}
 
-		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/test", nil
-		}
-		pipeline.shell = mockShell
-
-		mockShims := NewShims()
-		mockShims.ReadDir = func(path string) ([]os.DirEntry, error) {
-			// Normalize path to forward slashes for consistent comparison
-			normalizedPath := filepath.ToSlash(path)
-			if normalizedPath == "/test/contexts/_template" {
-				return []os.DirEntry{
-					&mockInitDirEntry{name: "test.yaml", isDir: false},
-					&mockInitDirEntry{name: "subdir", isDir: true},
-				}, nil
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "blueprint" {
+				return "oci://registry.example.com/blueprint:latest"
 			}
-			if normalizedPath == "/test/contexts/_template/subdir" {
-				return []os.DirEntry{
-					&mockInitDirEntry{name: "nested.yaml", isDir: false},
-				}, nil
-			}
-			return nil, fmt.Errorf("directory not found")
+			return ""
 		}
-		mockShims.ReadFile = func(path string) ([]byte, error) {
-			// Normalize path to forward slashes for consistent comparison
-			normalizedPath := filepath.ToSlash(path)
-			switch normalizedPath {
-			case "/test/contexts/_template/test.yaml":
-				return []byte("test: data"), nil
-			case "/test/contexts/_template/subdir/nested.yaml":
-				return []byte("nested: data"), nil
-			default:
-				return nil, fmt.Errorf("file not found")
-			}
+		pipeline.configHandler = mockConfigHandler
+
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		expectedTemplateData := map[string][]byte{
+			"blueprint.jsonnet": []byte("{ test: 'data' }"),
 		}
-		pipeline.shims = mockShims
+		mockArtifactBuilder.GetTemplateDataFunc = func(ociRef string) (map[string][]byte, error) {
+			return expectedTemplateData, nil
+		}
+		pipeline.artifactBuilder = mockArtifactBuilder
 
-		templateData := make(map[string][]byte)
+		// When prepareTemplateData is called
+		templateData, err := pipeline.prepareTemplateData()
 
-		// When walkAndCollectTemplates is called
-		err := pipeline.walkAndCollectTemplates("/test/contexts/_template", templateData)
-
-		// Then should collect templates successfully
+		// Then should use artifact builder
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		if len(templateData) != 2 {
-			t.Errorf("Expected 2 templates, got %d", len(templateData))
+		if len(templateData) != 1 {
+			t.Errorf("Expected 1 template file, got %d", len(templateData))
 		}
-		if !bytes.Equal(templateData["test.yaml"], []byte("test: data")) {
-			t.Error("Expected test.yaml content to match")
-		}
-		if !bytes.Equal(templateData["subdir/nested.yaml"], []byte("nested: data")) {
-			t.Error("Expected nested.yaml content to match")
+		if string(templateData["blueprint.jsonnet"]) != "{ test: 'data' }" {
+			t.Error("Expected correct template data from artifact builder")
 		}
 	})
 
-	t.Run("ReturnsErrorWhenReadDirFails", func(t *testing.T) {
-		// Given a pipeline with shims that fail to read directory
+	t.Run("UsesLocalTemplateDataWhenAvailable", func(t *testing.T) {
+		// Given a pipeline with local template data
 		pipeline := &InitPipeline{}
 
-		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/test", nil
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return "" // No blueprint flag
 		}
-		pipeline.shell = mockShell
+		pipeline.configHandler = mockConfigHandler
 
-		mockShims := NewShims()
-		mockShims.ReadDir = func(path string) ([]os.DirEntry, error) {
-			return nil, fmt.Errorf("read dir failed")
+		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(nil)
+		expectedLocalData := map[string][]byte{
+			"blueprint.jsonnet": []byte("local template data"),
 		}
-		pipeline.shims = mockShims
-
-		templateData := make(map[string][]byte)
-
-		// When walkAndCollectTemplates is called
-		err := pipeline.walkAndCollectTemplates("/test/contexts/_template", templateData)
-
-		// Then should return error
-		if err == nil {
-			t.Fatal("Expected error, got nil")
+		mockBlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
+			return expectedLocalData, nil
 		}
-		if !strings.Contains(err.Error(), "failed to read template directory") {
-			t.Errorf("Expected error to contain 'failed to read template directory', got %v", err)
+		pipeline.blueprintHandler = mockBlueprintHandler
+
+		// When prepareTemplateData is called
+		templateData, err := pipeline.prepareTemplateData()
+
+		// Then should use local template data
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(templateData) != 1 {
+			t.Errorf("Expected 1 template file, got %d", len(templateData))
+		}
+		if string(templateData["blueprint.jsonnet"]) != "local template data" {
+			t.Error("Expected local template data")
+		}
+	})
+
+	t.Run("FallsBackToDefaultTemplateData", func(t *testing.T) {
+		// Given a pipeline with no local templates but blueprint handler
+		pipeline := &InitPipeline{}
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return "" // No blueprint flag
+		}
+		pipeline.configHandler = mockConfigHandler
+
+		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(nil)
+		// Return empty local template data
+		mockBlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
+			return make(map[string][]byte), nil
+		}
+		// Return default template data
+		expectedDefaultData := map[string][]byte{
+			"blueprint.jsonnet": []byte("default template data"),
+		}
+		mockBlueprintHandler.GetDefaultTemplateDataFunc = func(contextName string) (map[string][]byte, error) {
+			return expectedDefaultData, nil
+		}
+		pipeline.blueprintHandler = mockBlueprintHandler
+
+		// When prepareTemplateData is called
+		templateData, err := pipeline.prepareTemplateData()
+
+		// Then should use default template data
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(templateData) != 1 {
+			t.Errorf("Expected 1 template file, got %d", len(templateData))
+		}
+		if string(templateData["blueprint.jsonnet"]) != "default template data" {
+			t.Error("Expected default template data")
 		}
 	})
 }
