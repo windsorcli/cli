@@ -105,7 +105,8 @@ func (s *TalosService) SetAddress(address string) error {
 		endpointAddress = "127.0.0.1"
 	}
 
-	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.endpoint", nodeType, s.name), fmt.Sprintf("%s:%d", endpointAddress, port)); err != nil {
+	endpoint := fmt.Sprintf("%s:%d", endpointAddress, port)
+	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.endpoint", nodeType, s.name), endpoint); err != nil {
 		return err
 	}
 

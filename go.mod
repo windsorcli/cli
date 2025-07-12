@@ -20,6 +20,7 @@ require (
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/siderolabs/talos/pkg/machinery v1.10.5
 	github.com/spf13/cobra v1.9.1
+	github.com/spf13/pflag v1.0.6
 	github.com/zclconf/go-cty v1.16.3
 	golang.org/x/crypto v0.40.0
 	golang.org/x/sys v0.34.0
@@ -169,7 +170,6 @@ require (
 	github.com/siderolabs/go-pointer v1.0.1 // indirect
 	github.com/siderolabs/protoenc v0.2.2 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
-	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.5.0 // indirect
 	github.com/tetratelabs/wabin v0.0.0-20230304001439-f6f874872834 // indirect
 	github.com/tetratelabs/wazero v1.9.0 // indirect

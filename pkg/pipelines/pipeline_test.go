@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
@@ -20,6 +21,32 @@ import (
 	"github.com/windsorcli/cli/pkg/stack"
 	"github.com/windsorcli/cli/pkg/virt"
 )
+
+// =============================================================================
+// Centralized Mock Types
+// =============================================================================
+
+type mockInitFileInfo struct {
+	name  string
+	isDir bool
+}
+
+func (m *mockInitFileInfo) Name() string       { return m.name }
+func (m *mockInitFileInfo) Size() int64        { return 0 }
+func (m *mockInitFileInfo) Mode() os.FileMode  { return 0 }
+func (m *mockInitFileInfo) ModTime() time.Time { return time.Time{} }
+func (m *mockInitFileInfo) IsDir() bool        { return m.isDir }
+func (m *mockInitFileInfo) Sys() any           { return nil }
+
+type mockInitDirEntry struct {
+	name  string
+	isDir bool
+}
+
+func (m *mockInitDirEntry) Name() string               { return m.name }
+func (m *mockInitDirEntry) IsDir() bool                { return m.isDir }
+func (m *mockInitDirEntry) Type() os.FileMode          { return 0 }
+func (m *mockInitDirEntry) Info() (os.FileInfo, error) { return nil, nil }
 
 // =============================================================================
 // Test Setup
@@ -668,7 +695,7 @@ func TestBasePipeline_withEnvPrinters(t *testing.T) {
 		}
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			switch key {
-			case "cluster.provider":
+			case "cluster.driver":
 				return "talos"
 			default:
 				return ""
@@ -700,7 +727,7 @@ func TestBasePipeline_withEnvPrinters(t *testing.T) {
 		}
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			switch key {
-			case "cluster.provider":
+			case "cluster.driver":
 				return "omni"
 			default:
 				return ""
@@ -1537,6 +1564,22 @@ func TestBasePipeline_withServices(t *testing.T) {
 		pipeline := NewBasePipeline()
 
 		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.driver" {
+				return "talos"
+			}
+			return ""
+		}
+		mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) int {
+			switch key {
+			case "cluster.controlplanes.count":
+				return 2
+			case "cluster.workers.count":
+				return 3
+			default:
+				return 1
+			}
+		}
 		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			switch key {
 			case "docker.enabled":
@@ -1549,24 +1592,6 @@ func TestBasePipeline_withServices(t *testing.T) {
 				return true
 			default:
 				return false
-			}
-		}
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			switch key {
-			case "cluster.provider":
-				return "talos"
-			default:
-				return ""
-			}
-		}
-		mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) int {
-			switch key {
-			case "cluster.control_plane.count":
-				return 2
-			case "cluster.worker.count":
-				return 3
-			default:
-				return 1
 			}
 		}
 		pipeline.configHandler = mockConfigHandler
@@ -1633,16 +1658,16 @@ func TestBasePipeline_withServices(t *testing.T) {
 			return false
 		}
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "cluster.provider" {
+			if key == "cluster.driver" {
 				return "omni"
 			}
 			return ""
 		}
 		mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) int {
 			switch key {
-			case "cluster.control_plane.count":
+			case "cluster.controlplanes.count":
 				return 1
-			case "cluster.worker.count":
+			case "cluster.workers.count":
 				return 2
 			default:
 				return 1

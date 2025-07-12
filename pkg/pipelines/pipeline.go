@@ -15,9 +15,11 @@ import (
 	envpkg "github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/windsorcli/cli/pkg/kubernetes"
+	"github.com/windsorcli/cli/pkg/network"
 	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
+	"github.com/windsorcli/cli/pkg/ssh"
 	"github.com/windsorcli/cli/pkg/stack"
 	"github.com/windsorcli/cli/pkg/template"
 	"github.com/windsorcli/cli/pkg/terraform"
@@ -80,8 +82,16 @@ func (p *BasePipeline) Initialize(injector di.Injector, ctx context.Context) err
 		return fmt.Errorf("failed to initialize config handler: %w", err)
 	}
 
-	if err := p.loadConfig(); err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+	// Only load existing config if reset flag is not set
+	reset := false
+	if resetValue := ctx.Value("reset"); resetValue != nil {
+		reset = resetValue.(bool)
+	}
+
+	if !reset {
+		if err := p.loadConfig(); err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
 	}
 
 	return nil
@@ -190,19 +200,22 @@ func (p *BasePipeline) withStack() stack.Stack {
 	return stack
 }
 
-// withGenerators creates generators based on configuration
+// withGenerators creates and registers generators including git, terraform, and blueprint generators.
+// Returns a slice of initialized generators or an error if creation fails.
 func (p *BasePipeline) withGenerators() ([]generators.Generator, error) {
 	var generatorList []generators.Generator
 
-	// Git generator
 	gitGenerator := generators.NewGitGenerator(p.injector)
 	p.injector.Register("gitGenerator", gitGenerator)
 	generatorList = append(generatorList, gitGenerator)
 
-	// Terraform generator
 	terraformGenerator := generators.NewTerraformGenerator(p.injector)
 	p.injector.Register("terraformGenerator", terraformGenerator)
 	generatorList = append(generatorList, terraformGenerator)
+
+	blueprintGenerator := generators.NewBlueprintGenerator(p.injector)
+	p.injector.Register("blueprintGenerator", blueprintGenerator)
+	generatorList = append(generatorList, blueprintGenerator)
 
 	return generatorList, nil
 }
@@ -308,6 +321,47 @@ func (p *BasePipeline) withKubernetesManager() kubernetes.KubernetesManager {
 	return kubernetesManager
 }
 
+// withNetworking resolves or creates all networking components from DI container
+func (p *BasePipeline) withNetworking() network.NetworkManager {
+	// Check if network manager already exists
+	if existing := p.injector.Resolve("networkManager"); existing != nil {
+		if networkManager, ok := existing.(network.NetworkManager); ok {
+			return networkManager
+		}
+	}
+
+	// Ensure SSH client is registered
+	if existing := p.injector.Resolve("sshClient"); existing == nil {
+		sshClient := ssh.NewSSHClient()
+		p.injector.Register("sshClient", sshClient)
+	}
+
+	// Ensure secure shell is registered
+	if existing := p.injector.Resolve("secureShell"); existing == nil {
+		secureShell := shell.NewSecureShell(p.injector)
+		p.injector.Register("secureShell", secureShell)
+	}
+
+	// Ensure network interface provider is registered
+	if existing := p.injector.Resolve("networkInterfaceProvider"); existing == nil {
+		networkInterfaceProvider := network.NewNetworkInterfaceProvider()
+		p.injector.Register("networkInterfaceProvider", networkInterfaceProvider)
+	}
+
+	// Create and register network manager
+	vmDriver := p.configHandler.GetString("vm.driver")
+	var networkManager network.NetworkManager
+
+	if vmDriver == "colima" {
+		networkManager = network.NewColimaNetworkManager(p.injector)
+	} else {
+		networkManager = network.NewBaseNetworkManager(p.injector)
+	}
+
+	p.injector.Register("networkManager", networkManager)
+	return networkManager
+}
+
 // handleSessionReset checks session state and performs reset if needed.
 // This is a common pattern used by multiple commands (env, exec, context, init).
 func (p *BasePipeline) handleSessionReset() error {
@@ -398,12 +452,12 @@ func (p *BasePipeline) withEnvPrinters() ([]envpkg.EnvPrinter, error) {
 		envPrinters = append(envPrinters, envpkg.NewKubeEnvPrinter(p.injector))
 	}
 
-	clusterProvider := p.configHandler.GetString("cluster.provider", "")
-	if clusterProvider == "talos" {
+	clusterDriver := p.configHandler.GetString("cluster.driver", "")
+	if clusterDriver == "talos" {
 		envPrinters = append(envPrinters, envpkg.NewTalosEnvPrinter(p.injector))
 	}
 
-	if clusterProvider == "omni" {
+	if clusterDriver == "omni" {
 		envPrinters = append(envPrinters, envpkg.NewOmniEnvPrinter(p.injector))
 		envPrinters = append(envPrinters, envpkg.NewTalosEnvPrinter(p.injector))
 	}
@@ -458,6 +512,9 @@ func (p *BasePipeline) withSecretsProviders() ([]secrets.SecretsProvider, error)
 	return secretsProviders, nil
 }
 
+// withServices creates and configures service instances based on the current configuration.
+// Services are created conditionally based on feature flags and configuration settings.
+// Each service is registered in the DI container with appropriate naming conventions.
 func (p *BasePipeline) withServices() ([]services.Service, error) {
 	if p.configHandler == nil {
 		return nil, fmt.Errorf("config handler not initialized")
@@ -465,25 +522,32 @@ func (p *BasePipeline) withServices() ([]services.Service, error) {
 
 	var serviceList []services.Service
 
-	if !p.configHandler.GetBool("docker.enabled", false) {
+	dockerEnabled := p.configHandler.GetBool("docker.enabled", false)
+	if !dockerEnabled {
 		return serviceList, nil
 	}
 
-	if p.configHandler.GetBool("dns.enabled", false) {
+	dnsEnabled := p.configHandler.GetBool("dns.enabled", false)
+	if dnsEnabled {
 		service := services.NewDNSService(p.injector)
 		service.SetName("dns")
+		p.injector.Register("dnsService", service)
 		serviceList = append(serviceList, service)
 	}
 
-	if p.configHandler.GetBool("git.livereload.enabled", false) {
+	gitEnabled := p.configHandler.GetBool("git.livereload.enabled", false)
+	if gitEnabled {
 		service := services.NewGitLivereloadService(p.injector)
 		service.SetName("git")
+		p.injector.Register("gitLivereloadService", service)
 		serviceList = append(serviceList, service)
 	}
 
-	if p.configHandler.GetBool("aws.localstack.enabled", false) {
+	awsEnabled := p.configHandler.GetBool("aws.localstack.enabled", false)
+	if awsEnabled {
 		service := services.NewLocalstackService(p.injector)
 		service.SetName("aws")
+		p.injector.Register("localstackService", service)
 		serviceList = append(serviceList, service)
 	}
 
@@ -492,34 +556,42 @@ func (p *BasePipeline) withServices() ([]services.Service, error) {
 		for key := range contextConfig.Docker.Registries {
 			service := services.NewRegistryService(p.injector)
 			service.SetName(key)
+			p.injector.Register(fmt.Sprintf("registryService.%s", key), service)
 			serviceList = append(serviceList, service)
 		}
 	}
 
-	clusterProvider := p.configHandler.GetString("cluster.provider", "")
-	if clusterProvider == "talos" || clusterProvider == "omni" {
-		controlPlaneCount := p.configHandler.GetInt("cluster.control_plane.count", 1)
-		for i := 0; i < controlPlaneCount; i++ {
-			service := services.NewTalosService(p.injector, "controlplane")
-			service.SetName(fmt.Sprintf("controlplane%d", i))
-			serviceList = append(serviceList, service)
+	// Add cluster services (TalosService instances) based on cluster driver using tagged switch
+	clusterDriver := p.configHandler.GetString("cluster.driver", "")
+	switch clusterDriver {
+	case "talos", "omni":
+		controlPlaneCount := p.configHandler.GetInt("cluster.controlplanes.count")
+		workerCount := p.configHandler.GetInt("cluster.workers.count")
+
+		for i := 1; i <= controlPlaneCount; i++ {
+			controlPlaneService := services.NewTalosService(p.injector, "controlplane")
+			serviceName := fmt.Sprintf("controlplane-%d", i)
+			controlPlaneService.SetName(serviceName)
+			p.injector.Register(fmt.Sprintf("clusterNode.%s", serviceName), controlPlaneService)
+			serviceList = append(serviceList, controlPlaneService)
 		}
 
-		workerCount := p.configHandler.GetInt("cluster.worker.count", 1)
-		for i := 0; i < workerCount; i++ {
-			service := services.NewTalosService(p.injector, "worker")
-			service.SetName(fmt.Sprintf("worker%d", i))
-			serviceList = append(serviceList, service)
+		for i := 1; i <= workerCount; i++ {
+			workerService := services.NewTalosService(p.injector, "worker")
+			serviceName := fmt.Sprintf("worker-%d", i)
+			workerService.SetName(serviceName)
+			p.injector.Register(fmt.Sprintf("clusterNode.%s", serviceName), workerService)
+			serviceList = append(serviceList, workerService)
 		}
 	}
 
 	return serviceList, nil
 }
 
-// withTerraformResolvers creates terraform module resolvers based on configuration.
-// Returns a slice of terraform module resolvers only when terraform.enabled = true in config.
-// The function creates both StandardModuleResolver and OCIModuleResolver instances,
-// registers them in the DI container, and returns them for terraform module processing.
+// withTerraformResolvers constructs and registers terraform module resolvers based on configuration state.
+// If terraform.enabled is true in the configuration, the method instantiates both StandardModuleResolver and OCIModuleResolver,
+// registers them in the dependency injection container, and returns them as a slice. If terraform is not enabled, returns an empty slice.
+// Returns an error if the config handler is uninitialized.
 func (p *BasePipeline) withTerraformResolvers() ([]terraform.ModuleResolver, error) {
 	if p.configHandler == nil {
 		return nil, fmt.Errorf("config handler not initialized")
@@ -527,17 +599,14 @@ func (p *BasePipeline) withTerraformResolvers() ([]terraform.ModuleResolver, err
 
 	var resolvers []terraform.ModuleResolver
 
-	// Only create resolvers if terraform is enabled
 	if !p.configHandler.GetBool("terraform.enabled", false) {
 		return resolvers, nil
 	}
 
-	// Standard module resolver for git, local, and registry modules
 	standardResolver := terraform.NewStandardModuleResolver(p.injector)
 	p.injector.Register("standardModuleResolver", standardResolver)
 	resolvers = append(resolvers, standardResolver)
 
-	// OCI module resolver for OCI artifact modules
 	ociResolver := terraform.NewOCIModuleResolver(p.injector)
 	p.injector.Register("ociModuleResolver", ociResolver)
 	resolvers = append(resolvers, ociResolver)

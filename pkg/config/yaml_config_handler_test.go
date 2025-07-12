@@ -11,6 +11,7 @@ import (
 	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/api/v1alpha1/aws"
 	"github.com/windsorcli/cli/api/v1alpha1/cluster"
+	"github.com/windsorcli/cli/api/v1alpha1/vm"
 )
 
 // =============================================================================
@@ -1714,6 +1715,162 @@ func TestYamlConfigHandler_SetDefault(t *testing.T) {
 			t.Errorf("SetDefault incorrectly overwrote existing context config")
 		}
 	})
+
+	t.Run("SetDefaultMergesWithExistingContext", func(t *testing.T) {
+		// Given a handler with an existing context containing some values
+		handler, _ := setup(t)
+		handler.context = "test"
+		handler.config.Contexts = map[string]*v1alpha1.Context{
+			"test": {
+				ID: ptrString("existing-id"),
+				VM: &vm.VMConfig{
+					Driver: ptrString("docker-desktop"),
+				},
+				Environment: map[string]string{
+					"EXISTING_VAR": "existing_value",
+					"OVERRIDE_VAR": "context_value",
+				},
+			},
+		}
+
+		// And a default context with overlapping and additional values
+		defaultContext := v1alpha1.Context{
+			Blueprint: ptrString("full"),
+			VM: &vm.VMConfig{
+				CPU: ptrInt(4),
+			},
+			Environment: map[string]string{
+				"DEFAULT_VAR":  "default_value",
+				"OVERRIDE_VAR": "default_value",
+			},
+		}
+
+		// When setting the default context
+		err := handler.SetDefault(defaultContext)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("SetDefault() unexpected error: %v", err)
+		}
+
+		// And the context should merge defaults with existing values
+		ctx := handler.config.Contexts["test"]
+		if ctx == nil {
+			t.Fatal("Context was removed during SetDefault")
+		}
+
+		// Existing values should be preserved
+		if ctx.ID == nil || *ctx.ID != "existing-id" {
+			t.Errorf("Expected ID to be preserved as 'existing-id', got %v", ctx.ID)
+		}
+		if ctx.VM.Driver == nil || *ctx.VM.Driver != "docker-desktop" {
+			t.Errorf("Expected VM driver to be preserved as 'docker-desktop', got %v", ctx.VM.Driver)
+		}
+		if ctx.Environment["EXISTING_VAR"] != "existing_value" {
+			t.Errorf("Expected EXISTING_VAR to be preserved as 'existing_value', got '%s'", ctx.Environment["EXISTING_VAR"])
+		}
+		if ctx.Environment["OVERRIDE_VAR"] != "context_value" {
+			t.Errorf("Expected OVERRIDE_VAR to keep context value 'context_value', got '%s'", ctx.Environment["OVERRIDE_VAR"])
+		}
+
+		// Default values should be added where not present
+		if ctx.Blueprint == nil || *ctx.Blueprint != "full" {
+			t.Errorf("Expected Blueprint to be added from default as 'full', got %v", ctx.Blueprint)
+		}
+		if ctx.VM.CPU == nil || *ctx.VM.CPU != 4 {
+			t.Errorf("Expected VM CPU to be added from default as 4, got %v", ctx.VM.CPU)
+		}
+		if ctx.Environment["DEFAULT_VAR"] != "default_value" {
+			t.Errorf("Expected DEFAULT_VAR to be added from default as 'default_value', got '%s'", ctx.Environment["DEFAULT_VAR"])
+		}
+	})
+
+	t.Run("SetDefaultMergesComplexNestedStructures", func(t *testing.T) {
+		// Given a handler with an existing context containing some values
+		handler, _ := setup(t)
+		handler.context = "test"
+		handler.config.Contexts = map[string]*v1alpha1.Context{
+			"test": {
+				ID: ptrString("existing-id"),
+				Environment: map[string]string{
+					"EXISTING_VAR": "existing_value",
+				},
+			},
+		}
+
+		// And a default context with additional values
+		defaultContext := v1alpha1.Context{
+			Blueprint: ptrString("full"),
+			Environment: map[string]string{
+				"DEFAULT_VAR": "default_value",
+			},
+		}
+
+		// When setting the default context
+		err := handler.SetDefault(defaultContext)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("SetDefault() unexpected error: %v", err)
+		}
+
+		// And the context should have both existing and default values
+		ctx := handler.config.Contexts["test"]
+		if ctx == nil {
+			t.Fatal("Context was removed during SetDefault")
+		}
+
+		// Existing values should be preserved
+		if ctx.ID == nil || *ctx.ID != "existing-id" {
+			t.Errorf("Expected ID to be preserved as 'existing-id', got %v", ctx.ID)
+		}
+		if ctx.Environment["EXISTING_VAR"] != "existing_value" {
+			t.Errorf("Expected EXISTING_VAR to be preserved as 'existing_value', got '%s'", ctx.Environment["EXISTING_VAR"])
+		}
+
+		// Default values should be added where not present
+		if ctx.Blueprint == nil || *ctx.Blueprint != "full" {
+			t.Errorf("Expected Blueprint to be added from default as 'full', got %v", ctx.Blueprint)
+		}
+		if ctx.Environment["DEFAULT_VAR"] != "default_value" {
+			t.Errorf("Expected DEFAULT_VAR to be added from default as 'default_value', got '%s'", ctx.Environment["DEFAULT_VAR"])
+		}
+	})
+
+	t.Run("SetDefaultWithNilContextsMap", func(t *testing.T) {
+		// Given a handler with a nil contexts map
+		handler, _ := setup(t)
+		handler.context = "test"
+		handler.config.Contexts = nil
+
+		// And a default context
+		defaultContext := v1alpha1.Context{
+			Environment: map[string]string{
+				"DEFAULT_VAR": "default_value",
+			},
+		}
+
+		// When setting the default context
+		err := handler.SetDefault(defaultContext)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("SetDefault() unexpected error: %v", err)
+		}
+
+		// And the contexts map should be created with the default
+		if handler.config.Contexts == nil {
+			t.Fatal("Expected contexts map to be created")
+		}
+
+		ctx := handler.config.Contexts["test"]
+		if ctx == nil {
+			t.Fatal("Expected test context to be created")
+		}
+		if ctx.Environment["DEFAULT_VAR"] != "default_value" {
+			t.Errorf("Expected DEFAULT_VAR to be 'default_value', got '%s'", ctx.Environment["DEFAULT_VAR"])
+		}
+	})
 }
 
 func TestYamlConfigHandler_SetContextValue(t *testing.T) {
@@ -3106,6 +3263,76 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 		// And the error should indicate the YAML marshalling issue
 		if !strings.Contains(err.Error(), "error marshalling yaml") {
 			t.Errorf("Expected error about yaml marshalling, got: %v", err)
+		}
+	})
+}
+
+// Test specifically for the flag override issue we're experiencing
+func TestYamlConfigHandler_FlagOverrideIssue(t *testing.T) {
+	setup := func(t *testing.T) (*YamlConfigHandler, *Mocks) {
+		mocks := setupMocks(t)
+		handler := NewYamlConfigHandler(mocks.Injector)
+		if err := handler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		handler.shims = mocks.Shims
+		return handler, mocks
+	}
+
+	t.Run("FlagValuePreservedAfterSetDefault", func(t *testing.T) {
+		// Given a handler that simulates loading existing config (like init pipeline does)
+		handler, _ := setup(t)
+		handler.context = "local"
+
+		// Simulate existing config with different VM driver
+		existingConfig := `version: v1alpha1
+contexts:
+  local:
+    id: existing-id
+    vm:
+      driver: existing-driver`
+
+		err := handler.LoadConfigString(existingConfig)
+		if err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+
+		// Simulate flag being set (like cmd/init.go does)
+		err = handler.SetContextValue("vm.driver", "colima")
+		if err != nil {
+			t.Fatalf("Failed to set flag value: %v", err)
+		}
+
+		// Verify flag value is set correctly before SetDefault
+		vmDriver := handler.GetString("vm.driver")
+		if vmDriver != "colima" {
+			t.Errorf("Expected vm.driver to be 'colima' before SetDefault, got '%s'", vmDriver)
+		}
+
+		// Simulate SetDefault being called (like init pipeline does)
+		// Use a default config that has no VM section (like DefaultConfig_Full)
+		defaultConfig := v1alpha1.Context{
+			Blueprint: ptrString("full"),
+			Environment: map[string]string{
+				"DEFAULT_VAR": "default_value",
+			},
+		}
+
+		err = handler.SetDefault(defaultConfig)
+		if err != nil {
+			t.Fatalf("Failed to set default: %v", err)
+		}
+
+		// Then the flag value should still be preserved after SetDefault
+		vmDriverAfter := handler.GetString("vm.driver")
+		if vmDriverAfter != "colima" {
+			t.Errorf("Expected vm.driver to remain 'colima' after SetDefault, got '%s'", vmDriverAfter)
+		}
+
+		// And the default values should be added
+		blueprint := handler.GetString("blueprint")
+		if blueprint != "full" {
+			t.Errorf("Expected blueprint to be added as 'full', got '%s'", blueprint)
 		}
 	})
 }
