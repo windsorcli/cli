@@ -22,7 +22,7 @@ require (
 	github.com/spf13/cobra v1.9.1
 	github.com/zclconf/go-cty v1.16.3
 	golang.org/x/crypto v0.39.0
-	golang.org/x/sys v0.33.0
+	golang.org/x/sys v0.34.0
 	k8s.io/api v0.33.2
 	k8s.io/apimachinery v0.33.2
 	k8s.io/client-go v0.33.2
