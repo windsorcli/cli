@@ -908,13 +908,15 @@ func TestInitPipeline_walkAndCollectTemplates(t *testing.T) {
 
 		mockShims := NewShims()
 		mockShims.ReadDir = func(path string) ([]os.DirEntry, error) {
-			if path == "/test/contexts/_template" {
+			// Normalize path to forward slashes for consistent comparison
+			normalizedPath := filepath.ToSlash(path)
+			if normalizedPath == "/test/contexts/_template" {
 				return []os.DirEntry{
 					&mockInitDirEntry{name: "test.yaml", isDir: false},
 					&mockInitDirEntry{name: "subdir", isDir: true},
 				}, nil
 			}
-			if path == "/test/contexts/_template/subdir" {
+			if normalizedPath == "/test/contexts/_template/subdir" {
 				return []os.DirEntry{
 					&mockInitDirEntry{name: "nested.yaml", isDir: false},
 				}, nil
