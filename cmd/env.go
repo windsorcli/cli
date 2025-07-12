@@ -18,9 +18,6 @@ var envCmd = &cobra.Command{
 		// Get shared dependency injector from context
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		// Create env pipeline
-		pipeline := pipelines.NewEnvPipeline()
-
 		// Get flags
 		hook, _ := cmd.Flags().GetBool("hook")
 		decrypt, _ := cmd.Flags().GetBool("decrypt")
@@ -37,9 +34,10 @@ var envCmd = &cobra.Command{
 			ctx = context.WithValue(ctx, "hook", true)
 		}
 
-		// Initialize the pipeline with appropriate configuration
-		if err := pipeline.Initialize(injector, ctx); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
+		// Set up the env pipeline
+		pipeline, err := pipelines.WithPipeline(injector, ctx, "envPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up env pipeline: %w", err)
 		}
 
 		// Execute the pipeline

@@ -25,15 +25,9 @@ var execCmd = &cobra.Command{
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
 		// First, run the env pipeline in quiet mode to set up environment variables
-		var envPipeline pipelines.Pipeline
-		if existing := injector.Resolve("envPipeline"); existing != nil {
-			envPipeline = existing.(pipelines.Pipeline)
-		} else {
-			envPipeline = pipelines.NewEnvPipeline()
-			if err := envPipeline.Initialize(injector, cmd.Context()); err != nil {
-				return fmt.Errorf("failed to initialize env pipeline: %w", err)
-			}
-			injector.Register("envPipeline", envPipeline)
+		envPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "envPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up env pipeline: %w", err)
 		}
 
 		// Execute env pipeline in quiet mode (inject environment variables without printing)
@@ -44,15 +38,9 @@ var execCmd = &cobra.Command{
 		}
 
 		// Then, run the exec pipeline to execute the command
-		var execPipeline pipelines.Pipeline
-		if existing := injector.Resolve("execPipeline"); existing != nil {
-			execPipeline = existing.(pipelines.Pipeline)
-		} else {
-			execPipeline = pipelines.NewExecPipeline()
-			if err := execPipeline.Initialize(injector, cmd.Context()); err != nil {
-				return fmt.Errorf("failed to initialize exec pipeline: %w", err)
-			}
-			injector.Register("execPipeline", execPipeline)
+		execPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "execPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up exec pipeline: %w", err)
 		}
 
 		// Create execution context with command and arguments

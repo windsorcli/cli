@@ -202,7 +202,7 @@ func TestBasePipeline_Initialize(t *testing.T) {
 
 		// Then no error should be returned
 		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
+			t.Errorf("Expected no error, got: %v", err)
 		}
 	})
 }
@@ -215,22 +215,271 @@ func TestBasePipeline_Execute(t *testing.T) {
 	}
 
 	t.Run("ExecuteReturnsNilByDefault", func(t *testing.T) {
-
 		// Given a base pipeline
-		pipeline, mocks := setup(t)
+		pipeline, _ := setup(t)
 
-		// When initializing and executing the pipeline
-		err := pipeline.Initialize(mocks.Injector, context.Background())
-		if err != nil {
-			t.Fatalf("Initialize failed: %v", err)
-		}
-
-		ctx := context.Background()
-		err = pipeline.Execute(ctx)
+		// When executing the pipeline
+		err := pipeline.Execute(context.Background())
 
 		// Then no error should be returned
 		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
+			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+}
+
+func TestWithPipeline(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		testCases := []struct {
+			name         string
+			pipelineType string
+		}{
+			{"EnvPipeline", "envPipeline"},
+			{"InitPipeline", "initPipeline"},
+			{"ExecPipeline", "execPipeline"},
+			{"ContextPipeline", "contextPipeline"},
+			{"HookPipeline", "hookPipeline"},
+			{"CheckPipeline", "checkPipeline"},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				// Given an injector and context
+				injector := di.NewInjector()
+				ctx := context.Background()
+
+				// When creating a pipeline with WithPipeline
+				pipeline, err := WithPipeline(injector, ctx, tc.pipelineType)
+
+				// Then no error should be returned
+				if err != nil {
+					t.Errorf("Expected no error, got: %v", err)
+				}
+
+				// And a pipeline should be returned
+				if pipeline == nil {
+					t.Error("Expected non-nil pipeline")
+				}
+			})
+		}
+	})
+
+	t.Run("UnknownPipelineType", func(t *testing.T) {
+		// Given an injector and context
+		injector := di.NewInjector()
+		ctx := context.Background()
+
+		// When creating a pipeline with unknown type
+		pipeline, err := WithPipeline(injector, ctx, "unknownPipeline")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error for unknown pipeline type, got nil")
+		}
+		if !strings.Contains(err.Error(), "unknown pipeline") {
+			t.Errorf("Expected 'unknown pipeline' error, got: %v", err)
+		}
+
+		// And no pipeline should be returned
+		if pipeline != nil {
+			t.Error("Expected nil pipeline for unknown type")
+		}
+	})
+
+	t.Run("ExistingPipelineInInjector", func(t *testing.T) {
+		// Given an injector with existing pipeline
+		injector := di.NewInjector()
+		existingPipeline := NewMockBasePipeline()
+		injector.Register("envPipeline", existingPipeline)
+		ctx := context.Background()
+
+		// When creating a pipeline with WithPipeline
+		pipeline, err := WithPipeline(injector, ctx, "envPipeline")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And the existing pipeline should be returned
+		if pipeline != existingPipeline {
+			t.Error("Expected existing pipeline to be returned")
+		}
+	})
+
+	t.Run("ExistingNonPipelineInInjector", func(t *testing.T) {
+		// Given an injector with non-pipeline object
+		injector := di.NewInjector()
+		nonPipeline := "not a pipeline"
+		injector.Register("envPipeline", nonPipeline)
+		ctx := context.Background()
+
+		// When creating a pipeline with WithPipeline
+		pipeline, err := WithPipeline(injector, ctx, "envPipeline")
+
+		// Then no error should be returned (it creates a new pipeline)
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And a new pipeline should be returned
+		if pipeline == nil {
+			t.Error("Expected non-nil pipeline")
+		}
+	})
+
+	t.Run("ContextPropagation", func(t *testing.T) {
+		// Given an injector and context with values
+		injector := di.NewInjector()
+		ctx := context.WithValue(context.Background(), "testKey", "testValue")
+
+		// When creating a pipeline with WithPipeline
+		pipeline, err := WithPipeline(injector, ctx, "envPipeline")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And pipeline should be created successfully
+		if pipeline == nil {
+			t.Error("Expected non-nil pipeline")
+		}
+	})
+
+	t.Run("NilInjector", func(t *testing.T) {
+		// Given a nil injector
+		ctx := context.Background()
+
+		// When creating a pipeline with nil injector, it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic for nil injector, but no panic occurred")
+			}
+		}()
+
+		// This should panic due to nil pointer dereference
+		WithPipeline(nil, ctx, "envPipeline")
+
+		// If we reach here, the test should fail
+		t.Error("Expected panic for nil injector, but function returned normally")
+	})
+
+	t.Run("NilContext", func(t *testing.T) {
+		// Given an injector with nil context
+		injector := di.NewInjector()
+
+		// When creating a pipeline with nil context, it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic for nil context, but no panic occurred")
+			}
+		}()
+
+		// This should panic due to nil pointer dereference during initialization
+		WithPipeline(injector, nil, "envPipeline")
+
+		// If we reach here, the test should fail
+		t.Error("Expected panic for nil context, but function returned normally")
+	})
+
+	t.Run("EmptyPipelineType", func(t *testing.T) {
+		// Given an injector and context
+		injector := di.NewInjector()
+		ctx := context.Background()
+
+		// When creating a pipeline with empty type
+		pipeline, err := WithPipeline(injector, ctx, "")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error for empty pipeline type, got nil")
+		}
+		if !strings.Contains(err.Error(), "unknown pipeline") {
+			t.Errorf("Expected 'unknown pipeline' error, got: %v", err)
+		}
+
+		// And no pipeline should be returned
+		if pipeline != nil {
+			t.Error("Expected nil pipeline for empty type")
+		}
+	})
+
+	t.Run("AllSupportedTypes", func(t *testing.T) {
+		supportedTypes := []string{
+			"envPipeline",
+			"initPipeline",
+			"execPipeline",
+			"contextPipeline",
+			"hookPipeline",
+			"checkPipeline",
+		}
+
+		for _, pipelineType := range supportedTypes {
+			t.Run(pipelineType, func(t *testing.T) {
+				// Given an injector and context
+				injector := di.NewInjector()
+				ctx := context.Background()
+
+				// When creating the pipeline
+				pipeline, err := WithPipeline(injector, ctx, pipelineType)
+
+				// Then no error should be returned
+				if err != nil {
+					t.Errorf("Expected no error for %s, got: %v", pipelineType, err)
+				}
+
+				// And a pipeline should be returned
+				if pipeline == nil {
+					t.Errorf("Expected non-nil pipeline for %s", pipelineType)
+				}
+			})
+		}
+	})
+
+	t.Run("PipelineRegistration", func(t *testing.T) {
+		// Given an injector and context
+		injector := di.NewInjector()
+		ctx := context.Background()
+
+		// When creating a pipeline with WithPipeline
+		pipeline, err := WithPipeline(injector, ctx, "envPipeline")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And the pipeline should be registered in the injector
+		registered := injector.Resolve("envPipeline")
+		if registered == nil {
+			t.Error("Expected pipeline to be registered in injector")
+		}
+		if registered != pipeline {
+			t.Error("Expected registered pipeline to match returned pipeline")
+		}
+	})
+
+	t.Run("FactoryFunctionality", func(t *testing.T) {
+		// Given an injector and context
+		injector := di.NewInjector()
+		ctx := context.Background()
+
+		// When creating multiple pipelines of the same type
+		pipeline1, err1 := WithPipeline(injector, ctx, "envPipeline")
+		pipeline2, err2 := WithPipeline(injector, ctx, "envPipeline")
+
+		// Then both calls should succeed
+		if err1 != nil {
+			t.Errorf("Expected no error for first call, got: %v", err1)
+		}
+		if err2 != nil {
+			t.Errorf("Expected no error for second call, got: %v", err2)
+		}
+
+		// And the same pipeline instance should be returned
+		if pipeline1 != pipeline2 {
+			t.Error("Expected same pipeline instance to be returned from factory")
 		}
 	})
 }

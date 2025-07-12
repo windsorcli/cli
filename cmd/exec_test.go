@@ -17,6 +17,7 @@ func TestExecCmd(t *testing.T) {
 			Use:          "exec -- [command]",
 			Short:        "Execute a shell command with environment variables",
 			Long:         "Execute a shell command with environment variables set for the application.",
+			Args:         cobra.MinimumNArgs(1),
 			SilenceUsage: true,
 			RunE:         execCmd.RunE,
 		}
@@ -79,7 +80,7 @@ func TestExecCmd(t *testing.T) {
 			t.Error("Expected error, got nil")
 		}
 
-		expectedError := "no command provided"
+		expectedError := "requires at least 1 arg(s), only received 0"
 		if err.Error() != expectedError {
 			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}

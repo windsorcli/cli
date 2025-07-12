@@ -26,9 +26,6 @@ var checkCmd = &cobra.Command{
 		// Get shared dependency injector from context
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		// Create check pipeline
-		pipeline := pipelines.NewCheckPipeline()
-
 		// Create output function
 		outputFunc := func(output string) {
 			fmt.Fprintln(cmd.OutOrStdout(), output)
@@ -38,9 +35,10 @@ var checkCmd = &cobra.Command{
 		ctx := context.WithValue(cmd.Context(), "operation", "tools")
 		ctx = context.WithValue(ctx, "output", outputFunc)
 
-		// Initialize the pipeline
-		if err := pipeline.Initialize(injector, ctx); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
+		// Set up the check pipeline
+		pipeline, err := pipelines.WithPipeline(injector, ctx, "checkPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up check pipeline: %w", err)
 		}
 
 		// Execute the pipeline
@@ -60,9 +58,6 @@ var checkNodeHealthCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Get shared dependency injector from context
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
-
-		// Create check pipeline
-		pipeline := pipelines.NewCheckPipeline()
 
 		// Require nodes to be specified
 		if len(nodeHealthNodes) == 0 {
@@ -86,9 +81,10 @@ var checkNodeHealthCmd = &cobra.Command{
 		ctx = context.WithValue(ctx, "version", nodeHealthVersion)
 		ctx = context.WithValue(ctx, "output", outputFunc)
 
-		// Initialize the pipeline
-		if err := pipeline.Initialize(injector, ctx); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
+		// Set up the check pipeline
+		pipeline, err := pipelines.WithPipeline(injector, ctx, "checkPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up check pipeline: %w", err)
 		}
 
 		// Execute the pipeline
