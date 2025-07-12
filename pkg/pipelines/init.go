@@ -506,6 +506,17 @@ func (p *InitPipeline) prepareTemplateData() (map[string][]byte, error) {
 // walkAndCollectTemplates recursively walks through the template directory and collects all files.
 // It maintains the relative path structure from the template directory root.
 func (p *InitPipeline) walkAndCollectTemplates(templateDir string, templateData map[string][]byte) error {
+	projectRoot, err := p.shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("failed to get project root: %w", err)
+	}
+	templateRoot := filepath.Join(projectRoot, "contexts", "_template")
+
+	return p.walkAndCollectTemplatesHelper(templateDir, templateRoot, templateData)
+}
+
+// walkAndCollectTemplatesHelper is the helper function that walks directories.
+func (p *InitPipeline) walkAndCollectTemplatesHelper(templateDir, templateRoot string, templateData map[string][]byte) error {
 	entries, err := p.shims.ReadDir(templateDir)
 	if err != nil {
 		return fmt.Errorf("failed to read template directory: %w", err)
@@ -515,7 +526,7 @@ func (p *InitPipeline) walkAndCollectTemplates(templateDir string, templateData 
 		entryPath := filepath.Join(templateDir, entry.Name())
 
 		if entry.IsDir() {
-			if err := p.walkAndCollectTemplates(entryPath, templateData); err != nil {
+			if err := p.walkAndCollectTemplatesHelper(entryPath, templateRoot, templateData); err != nil {
 				return err
 			}
 		} else {
@@ -524,12 +535,6 @@ func (p *InitPipeline) walkAndCollectTemplates(templateDir string, templateData 
 				return fmt.Errorf("failed to read template file %s: %w", entryPath, err)
 			}
 
-			projectRoot, err := p.shell.GetProjectRoot()
-			if err != nil {
-				return fmt.Errorf("failed to get project root: %w", err)
-			}
-
-			templateRoot := filepath.Join(projectRoot, "contexts", "_template")
 			relPath, err := filepath.Rel(templateRoot, entryPath)
 			if err != nil {
 				return fmt.Errorf("failed to get relative path: %w", err)

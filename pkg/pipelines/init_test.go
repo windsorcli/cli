@@ -49,49 +49,27 @@ func setupInitMocks(t *testing.T, opts ...*SetupOptions) *InitMocks {
 		setupOptions = opts[0]
 	}
 
-	// Only create a default mock config handler if one wasn't provided
-	if setupOptions.ConfigHandler == nil {
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.InitializeFunc = func() error { return nil }
-		mockConfigHandler.SetContextFunc = func(contextName string) error { return nil }
-		mockConfigHandler.GenerateContextIDFunc = func() error { return nil }
-		mockConfigHandler.SaveConfigFunc = func(path string, overwrite ...bool) error { return nil }
-		mockConfigHandler.IsLoadedFunc = func() bool { return true }
-
-		// Enhanced GetString that returns values set via SetContextValue
-		contextValues := make(map[string]interface{})
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if value, exists := contextValues[key]; exists {
-				if strValue, ok := value.(string); ok {
-					return strValue
-				}
-				if boolValue, ok := value.(bool); ok {
-					if boolValue {
-						return "true"
-					}
-					return "false"
-				}
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		// SetContextValue that stores values in our map
-		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
-			contextValues[key] = value
-			return nil
-		}
-
-		mockConfigHandler.SetDefaultFunc = func(defaultConfig v1alpha1.Context) error {
-			return nil
-		}
-
-		setupOptions.ConfigHandler = mockConfigHandler
-	}
-
 	baseMocks := setupMocks(t, setupOptions)
+
+	// Initialize the config handler if it's a real one
+	if setupOptions.ConfigHandler == nil {
+		configHandler := baseMocks.ConfigHandler
+		configHandler.SetContext("mock-context")
+
+		// Load base config
+		configYAML := `
+apiVersion: v1alpha1
+contexts:
+  mock-context:
+    dns:
+      domain: mock.domain.com
+    network:
+      cidr_block: 10.0.0.0/24`
+
+		if err := configHandler.LoadConfigString(configYAML); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+	}
 
 	// Add init-specific shell mock behaviors
 	baseMocks.Shell.WriteResetTokenFunc = func() (string, error) { return "mock-token", nil }
@@ -304,14 +282,25 @@ func TestInitPipeline_Execute(t *testing.T) {
 
 	t.Run("ReturnsErrorWhenContextIDGenerationFails", func(t *testing.T) {
 		// Given a pipeline with a config handler that fails to generate context ID
-		pipeline, mocks := setup(t)
-
-		// Configure mock to fail on GenerateContextID
-		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
-			mockConfigHandler.GenerateContextIDFunc = func() error {
-				return fmt.Errorf("context ID generation failed")
-			}
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.InitializeFunc = func() error { return nil }
+		mockConfigHandler.SetContextFunc = func(contextName string) error { return nil }
+		mockConfigHandler.GenerateContextIDFunc = func() error {
+			return fmt.Errorf("context ID generation failed")
 		}
+		mockConfigHandler.SaveConfigFunc = func(path string, overwrite ...bool) error { return nil }
+		mockConfigHandler.IsLoadedFunc = func() bool { return true }
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error { return nil }
+		mockConfigHandler.SetDefaultFunc = func(defaultConfig v1alpha1.Context) error { return nil }
+
+		setupOptions := &SetupOptions{ConfigHandler: mockConfigHandler}
+		pipeline, _ := setup(t, setupOptions)
 
 		// When Execute is called
 		err := pipeline.Execute(context.Background())
@@ -398,11 +387,8 @@ func TestInitPipeline_Execute(t *testing.T) {
 		{
 			name: "ReturnsErrorWhenSaveConfigFails",
 			setupMock: func(mocks *InitMocks) {
-				if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
-					mockConfigHandler.SaveConfigFunc = func(path string, overwrite ...bool) error {
-						return fmt.Errorf("save config failed")
-					}
-				}
+				// This test case requires a mock config handler to inject the error
+				// It will be handled separately below
 			},
 			expectedErr: "save config failed",
 		},
@@ -437,19 +423,53 @@ func TestInitPipeline_Execute(t *testing.T) {
 
 	for _, tt := range execFailureTests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given an init pipeline with failing component
-			pipeline, mocks := setup(t)
-			tt.setupMock(mocks)
+			if tt.name == "ReturnsErrorWhenSaveConfigFails" {
+				// This test requires a mock config handler to inject the error
+				mockConfigHandler := config.NewMockConfigHandler()
+				mockConfigHandler.InitializeFunc = func() error { return nil }
+				mockConfigHandler.SetContextFunc = func(contextName string) error { return nil }
+				mockConfigHandler.GenerateContextIDFunc = func() error { return nil }
+				mockConfigHandler.SaveConfigFunc = func(path string, overwrite ...bool) error {
+					return fmt.Errorf("save config failed")
+				}
+				mockConfigHandler.IsLoadedFunc = func() bool { return true }
+				mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+					if len(defaultValue) > 0 {
+						return defaultValue[0]
+					}
+					return ""
+				}
+				mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error { return nil }
+				mockConfigHandler.SetDefaultFunc = func(defaultConfig v1alpha1.Context) error { return nil }
 
-			// When executing the pipeline
-			err := pipeline.Execute(context.Background())
+				setupOptions := &SetupOptions{ConfigHandler: mockConfigHandler}
+				pipeline, _ := setup(t, setupOptions)
 
-			// Then an error should be returned
-			if err == nil {
-				t.Fatal("Expected error, got nil")
-			}
-			if !strings.Contains(err.Error(), tt.expectedErr) {
-				t.Errorf("Expected error to contain %q, got %q", tt.expectedErr, err.Error())
+				// When executing the pipeline
+				err := pipeline.Execute(context.Background())
+
+				// Then an error should be returned
+				if err == nil {
+					t.Fatal("Expected error, got nil")
+				}
+				if !strings.Contains(err.Error(), tt.expectedErr) {
+					t.Errorf("Expected error to contain %q, got %q", tt.expectedErr, err.Error())
+				}
+			} else {
+				// Given an init pipeline with failing component
+				pipeline, mocks := setup(t)
+				tt.setupMock(mocks)
+
+				// When executing the pipeline
+				err := pipeline.Execute(context.Background())
+
+				// Then an error should be returned
+				if err == nil {
+					t.Fatal("Expected error, got nil")
+				}
+				if !strings.Contains(err.Error(), tt.expectedErr) {
+					t.Errorf("Expected error to contain %q, got %q", tt.expectedErr, err.Error())
+				}
 			}
 		})
 	}
@@ -935,6 +955,12 @@ func TestInitPipeline_walkAndCollectTemplates(t *testing.T) {
 	t.Run("ReturnsErrorWhenReadDirFails", func(t *testing.T) {
 		// Given a pipeline with shims that fail to read directory
 		pipeline := &InitPipeline{}
+
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/test", nil
+		}
+		pipeline.shell = mockShell
 
 		mockShims := NewShims()
 		mockShims.ReadDir = func(path string) ([]os.DirEntry, error) {
