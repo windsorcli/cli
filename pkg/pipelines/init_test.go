@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -921,7 +922,9 @@ func TestInitPipeline_walkAndCollectTemplates(t *testing.T) {
 			return nil, fmt.Errorf("directory not found")
 		}
 		mockShims.ReadFile = func(path string) ([]byte, error) {
-			switch path {
+			// Normalize path to forward slashes for consistent comparison
+			normalizedPath := filepath.ToSlash(path)
+			switch normalizedPath {
 			case "/test/contexts/_template/test.yaml":
 				return []byte("test: data"), nil
 			case "/test/contexts/_template/subdir/nested.yaml":
