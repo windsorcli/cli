@@ -2994,3 +2994,181 @@ func (m *mockReference) Identifier() string         { return "" }
 func (m *mockReference) Name() string               { return "" }
 func (m *mockReference) String() string             { return "" }
 func (m *mockReference) Scope(action string) string { return "" }
+
+func TestArtifactBuilder_GetTemplateData(t *testing.T) {
+	t.Run("InvalidOCIReference", func(t *testing.T) {
+		// Given an artifact builder
+		builder := NewArtifactBuilder()
+
+		// When calling GetTemplateData with invalid reference
+		templateData, err := builder.GetTemplateData("invalid-ref")
+
+		// Then should return error
+		if err == nil {
+			t.Fatal("Expected error for invalid OCI reference")
+		}
+		if !strings.Contains(err.Error(), "invalid OCI reference") {
+			t.Errorf("Expected error to contain 'invalid OCI reference', got %v", err)
+		}
+		if templateData != nil {
+			t.Error("Expected nil template data on error")
+		}
+	})
+
+	t.Run("ErrorParsingOCIReference", func(t *testing.T) {
+		// Given an artifact builder with mock shims
+		builder := NewArtifactBuilder()
+		builder.shims = &Shims{
+			ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
+				return nil, fmt.Errorf("parse error")
+			},
+		}
+
+		// When calling GetTemplateData with malformed OCI reference
+		templateData, err := builder.GetTemplateData("oci://invalid")
+
+		// Then should return error
+		if err == nil {
+			t.Fatal("Expected error for malformed OCI reference")
+		}
+		if !strings.Contains(err.Error(), "failed to parse OCI reference") {
+			t.Errorf("Expected error to contain 'failed to parse OCI reference', got %v", err)
+		}
+		if templateData != nil {
+			t.Error("Expected nil template data on error")
+		}
+	})
+
+	t.Run("UsesCachedArtifact", func(t *testing.T) {
+		// Given an artifact builder with cached data
+		builder := NewArtifactBuilder()
+
+		// Create test tar.gz data
+		testData := createTestTarGz(t, map[string][]byte{
+			"template.jsonnet": []byte("{ template: 'content' }"),
+			"ignored.yaml":     []byte("ignored: content"),
+		})
+
+		// Pre-populate cache
+		builder.ociCache["registry.example.com/test:v1.0.0"] = testData
+
+		downloadCalled := false
+		builder.shims = &Shims{
+			ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
+				return &mockReference{}, nil
+			},
+			RemoteImage: func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+				downloadCalled = true
+				return nil, fmt.Errorf("should not be called")
+			},
+		}
+
+		// When calling GetTemplateData
+		templateData, err := builder.GetTemplateData("oci://registry.example.com/test:v1.0.0")
+
+		// Then should use cached data without downloading
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if downloadCalled {
+			t.Error("Expected download not to be called when using cached data")
+		}
+		if templateData == nil {
+			t.Fatal("Expected template data, got nil")
+		}
+		if len(templateData) != 1 {
+			t.Errorf("Expected 1 file, got %d", len(templateData))
+		}
+		if string(templateData["template.jsonnet"]) != "{ template: 'content' }" {
+			t.Errorf("Expected template.jsonnet content to be '{ template: 'content' }', got %s", string(templateData["template.jsonnet"]))
+		}
+		if _, exists := templateData["ignored.yaml"]; exists {
+			t.Error("Expected ignored.yaml to be filtered out")
+		}
+	})
+
+	t.Run("FiltersOnlyJsonnetFiles", func(t *testing.T) {
+		// Given an artifact builder with cached data containing multiple file types
+		builder := NewArtifactBuilder()
+
+		// Create test tar.gz data with mixed file types
+		testData := createTestTarGz(t, map[string][]byte{
+			"template.jsonnet":   []byte("{ template: 'content' }"),
+			"config.yaml":        []byte("config: value"),
+			"script.sh":          []byte("#!/bin/bash"),
+			"another.jsonnet":    []byte("{ another: 'template' }"),
+			"README.md":          []byte("# README"),
+			"nested/dir.jsonnet": []byte("{ nested: 'template' }"),
+			"nested/config.json": []byte("{ json: 'config' }"),
+		})
+
+		// Pre-populate cache
+		builder.ociCache["registry.example.com/test:v1.0.0"] = testData
+
+		builder.shims = &Shims{
+			ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
+				return &mockReference{}, nil
+			},
+		}
+
+		// When calling GetTemplateData
+		templateData, err := builder.GetTemplateData("oci://registry.example.com/test:v1.0.0")
+
+		// Then should only return .jsonnet files
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if templateData == nil {
+			t.Fatal("Expected template data, got nil")
+		}
+		if len(templateData) != 3 {
+			t.Errorf("Expected 3 .jsonnet files, got %d", len(templateData))
+		}
+
+		// And should contain only .jsonnet files
+		expectedFiles := []string{"template.jsonnet", "another.jsonnet", "nested/dir.jsonnet"}
+		for _, expectedFile := range expectedFiles {
+			if _, exists := templateData[expectedFile]; !exists {
+				t.Errorf("Expected %s to be included", expectedFile)
+			}
+		}
+
+		// And should not contain non-.jsonnet files
+		excludedFiles := []string{"config.yaml", "script.sh", "README.md", "nested/config.json"}
+		for _, excludedFile := range excludedFiles {
+			if _, exists := templateData[excludedFile]; exists {
+				t.Errorf("Expected %s to be filtered out", excludedFile)
+			}
+		}
+	})
+}
+
+// createTestTarGz creates a test tar.gz archive with the given files
+func createTestTarGz(t *testing.T, files map[string][]byte) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	gzipWriter := gzip.NewWriter(&buf)
+	tarWriter := tar.NewWriter(gzipWriter)
+
+	for path, content := range files {
+		header := &tar.Header{
+			Name: path,
+			Mode: 0644,
+			Size: int64(len(content)),
+		}
+
+		if err := tarWriter.WriteHeader(header); err != nil {
+			t.Fatalf("Failed to write tar header: %v", err)
+		}
+
+		if _, err := tarWriter.Write(content); err != nil {
+			t.Fatalf("Failed to write tar content: %v", err)
+		}
+	}
+
+	tarWriter.Close()
+	gzipWriter.Close()
+
+	return buf.Bytes()
+}

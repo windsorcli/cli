@@ -2646,6 +2646,220 @@ func TestBlueprintHandler_GetDefaultTemplateData(t *testing.T) {
 	})
 }
 
+func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
+	setup := func(t *testing.T) (BlueprintHandler, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		return handler, mocks
+	}
+
+	t.Run("ReturnsEmptyMapWhenTemplateDirectoryNotExists", func(t *testing.T) {
+		// Given a blueprint handler with no template directory
+		handler, mocks := setup(t)
+
+		// Mock shell to return project root
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return filepath.Join("/mock", "project"), nil
+		}
+
+		// Mock shims to return error for template directory (doesn't exist)
+		if baseHandler, ok := handler.(*BaseBlueprintHandler); ok {
+			baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
+				return nil, os.ErrNotExist
+			}
+		}
+
+		// When getting local template data
+		result, err := handler.GetLocalTemplateData()
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And result should be empty map
+		if len(result) != 0 {
+			t.Errorf("Expected empty map, got: %d items", len(result))
+		}
+	})
+
+	t.Run("CollectsJsonnetFilesFromTemplateDirectory", func(t *testing.T) {
+		// Given a blueprint handler with template directory containing jsonnet files
+		handler, mocks := setup(t)
+
+		projectRoot := filepath.Join("/mock", "project")
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
+
+		// Mock shell to return project root
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
+		// Mock shims to simulate template directory with files
+		if baseHandler, ok := handler.(*BaseBlueprintHandler); ok {
+			baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
+				if path == templateDir {
+					return mockFileInfo{name: "_template"}, nil
+				}
+				return nil, os.ErrNotExist
+			}
+
+			baseHandler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+				if path == templateDir {
+					return []os.DirEntry{
+						&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
+						&mockDirEntry{name: "config.yaml", isDir: false}, // Should be ignored
+						&mockDirEntry{name: "terraform", isDir: true},
+					}, nil
+				}
+				if path == filepath.Join(templateDir, "terraform") {
+					return []os.DirEntry{
+						&mockDirEntry{name: "cluster.jsonnet", isDir: false},
+						&mockDirEntry{name: "network.jsonnet", isDir: false},
+						&mockDirEntry{name: "README.md", isDir: false}, // Should be ignored
+					}, nil
+				}
+				return nil, fmt.Errorf("directory not found")
+			}
+
+			baseHandler.shims.ReadFile = func(path string) ([]byte, error) {
+				switch path {
+				case filepath.Join(templateDir, "blueprint.jsonnet"):
+					return []byte("{ kind: 'Blueprint' }"), nil
+				case filepath.Join(templateDir, "terraform", "cluster.jsonnet"):
+					return []byte("{ cluster_name: 'test' }"), nil
+				case filepath.Join(templateDir, "terraform", "network.jsonnet"):
+					return []byte("{ vpc_cidr: '10.0.0.0/16' }"), nil
+				default:
+					return nil, fmt.Errorf("file not found: %s", path)
+				}
+			}
+		}
+
+		// When getting local template data
+		result, err := handler.GetLocalTemplateData()
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And result should contain only jsonnet files
+		expectedFiles := []string{
+			"blueprint.jsonnet",
+			"terraform/cluster.jsonnet",
+			"terraform/network.jsonnet",
+		}
+
+		if len(result) != len(expectedFiles) {
+			t.Errorf("Expected %d files, got: %d", len(expectedFiles), len(result))
+		}
+
+		for _, expectedFile := range expectedFiles {
+			if _, exists := result[expectedFile]; !exists {
+				t.Errorf("Expected file %s to exist in result", expectedFile)
+			}
+		}
+
+		// Verify non-jsonnet files are ignored
+		ignoredFiles := []string{
+			"config.yaml",
+			"terraform/README.md",
+		}
+
+		for _, ignoredFile := range ignoredFiles {
+			if _, exists := result[ignoredFile]; exists {
+				t.Errorf("Expected file %s to be ignored", ignoredFile)
+			}
+		}
+
+		// Verify file contents
+		if string(result["blueprint.jsonnet"]) != "{ kind: 'Blueprint' }" {
+			t.Errorf("Expected blueprint.jsonnet content to match")
+		}
+		if string(result["terraform/cluster.jsonnet"]) != "{ cluster_name: 'test' }" {
+			t.Errorf("Expected terraform/cluster.jsonnet content to match")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenGetProjectRootFails", func(t *testing.T) {
+		// Given a blueprint handler with shell that fails to get project root
+		handler, mocks := setup(t)
+
+		// Mock shell to return error
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("failed to get project root")
+		}
+
+		// When getting local template data
+		result, err := handler.GetLocalTemplateData()
+
+		// Then error should occur
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "failed to get project root") {
+			t.Errorf("Expected error to contain 'failed to get project root', got: %v", err)
+		}
+
+		// And result should be nil
+		if result != nil {
+			t.Error("Expected result to be nil on error")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenWalkAndCollectTemplatesFails", func(t *testing.T) {
+		// Given a blueprint handler with template directory that fails to read
+		handler, mocks := setup(t)
+
+		projectRoot := filepath.Join("/mock", "project")
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
+
+		// Mock shell to return project root
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
+		// Mock shims to simulate template directory exists but ReadDir fails
+		if baseHandler, ok := handler.(*BaseBlueprintHandler); ok {
+			baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
+				if path == templateDir {
+					return mockFileInfo{name: "_template"}, nil
+				}
+				return nil, os.ErrNotExist
+			}
+
+			baseHandler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+				return nil, fmt.Errorf("failed to read directory")
+			}
+		}
+
+		// When getting local template data
+		result, err := handler.GetLocalTemplateData()
+
+		// Then error should occur
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "failed to collect local templates") {
+			t.Errorf("Expected error to contain 'failed to collect local templates', got: %v", err)
+		}
+
+		// And result should be nil
+		if result != nil {
+			t.Error("Expected result to be nil on error")
+		}
+	})
+}
+
 func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
 		t.Helper()

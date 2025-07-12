@@ -44,6 +44,7 @@ type BlueprintHandler interface {
 	WaitForKustomizations(message string, names ...string) error
 	ProcessContextTemplates(contextName string, reset ...bool) error
 	GetDefaultTemplateData(contextName string) (map[string][]byte, error)
+	GetLocalTemplateData() (map[string][]byte, error)
 	Down() error
 }
 
@@ -339,6 +340,62 @@ func (b *BaseBlueprintHandler) GetDefaultTemplateData(contextName string) (map[s
 	return map[string][]byte{
 		"blueprint.jsonnet": templateData,
 	}, nil
+}
+
+// GetLocalTemplateData collects template data from the local contexts/_template directory.
+// It recursively walks through the template directory and collects only .jsonnet files,
+// maintaining the relative path structure from the template directory root.
+func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error) {
+	projectRoot, err := b.shell.GetProjectRoot()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	templateDir := filepath.Join(projectRoot, "contexts", "_template")
+	if _, err := b.shims.Stat(templateDir); err != nil {
+		// Template directory doesn't exist, return empty map
+		return make(map[string][]byte), nil
+	}
+
+	templateData := make(map[string][]byte)
+	if err := b.walkAndCollectTemplates(templateDir, templateDir, templateData); err != nil {
+		return nil, fmt.Errorf("failed to collect local templates: %w", err)
+	}
+
+	return templateData, nil
+}
+
+// walkAndCollectTemplates recursively walks through the template directory and collects only .jsonnet files.
+// It maintains the relative path structure from the template directory root.
+func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir, templateRoot string, templateData map[string][]byte) error {
+	entries, err := b.shims.ReadDir(templateDir)
+	if err != nil {
+		return fmt.Errorf("failed to read template directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		entryPath := filepath.Join(templateDir, entry.Name())
+
+		if entry.IsDir() {
+			if err := b.walkAndCollectTemplates(entryPath, templateRoot, templateData); err != nil {
+				return err
+			}
+		} else if strings.HasSuffix(entry.Name(), ".jsonnet") {
+			content, err := b.shims.ReadFile(filepath.Clean(entryPath))
+			if err != nil {
+				return fmt.Errorf("failed to read template file %s: %w", entryPath, err)
+			}
+
+			relPath, err := filepath.Rel(templateRoot, entryPath)
+			if err != nil {
+				return fmt.Errorf("failed to get relative path: %w", err)
+			}
+
+			templateData[filepath.ToSlash(relPath)] = content
+		}
+	}
+
+	return nil
 }
 
 // Down orchestrates the controlled teardown of all kustomizations and their associated resources.
