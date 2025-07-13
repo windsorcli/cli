@@ -198,15 +198,13 @@ func (s *WindsorStack) Down() error {
 
 		planArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "plan"}
 		planArgs = append(planArgs, terraformArgs.PlanDestroyArgs...)
-		planArgs = append(planArgs, terraformArgs.BackendConfig)
-		if _, err := s.shell.ExecProgress(fmt.Sprintf("Planning terraform destroy for %s", component.Path), "terraform", planArgs...); err != nil {
+		if _, err := s.shell.ExecProgress(fmt.Sprintf("🗑️ Planning terraform destroy for %s", component.Path), "terraform", planArgs...); err != nil {
 			return fmt.Errorf("error running terraform plan destroy for %s: %w", component.Path, err)
 		}
 
 		destroyArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "destroy"}
 		destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
-		destroyArgs = append(destroyArgs, terraformArgs.BackendConfig)
-		if _, err := s.shell.ExecProgress(fmt.Sprintf("Destroying terraform for %s", component.Path), "terraform", destroyArgs...); err != nil {
+		if _, err := s.shell.ExecProgress(fmt.Sprintf("🗑️ Destroying terraform for %s", component.Path), "terraform", destroyArgs...); err != nil {
 			return fmt.Errorf("error running terraform destroy for %s: %w", component.Path, err)
 		}
 

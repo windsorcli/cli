@@ -60,6 +60,9 @@ func setupShims(t *testing.T) *Shims {
 		Rename: func(oldpath, newpath string) error {
 			return nil
 		},
+		Stat: func(name string) (os.FileInfo, error) {
+			return nil, nil
+		},
 		GOARCH: func() string {
 			return "x86_64"
 		},
