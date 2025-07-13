@@ -3,6 +3,7 @@ package pipelines
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -586,10 +587,10 @@ func TestDownPipeline_Execute(t *testing.T) {
 
 		// And specific paths should be removed
 		expectedPaths := []string{
-			"/test/project/.volumes",
-			"/test/project/.windsor/.tf_modules",
-			"/test/project/.windsor/Corefile",
-			"/test/project/.windsor/docker-compose.yaml",
+			filepath.Join("/test/project", ".volumes"),
+			filepath.Join("/test/project", ".windsor", ".tf_modules"),
+			filepath.Join("/test/project", ".windsor", "Corefile"),
+			filepath.Join("/test/project", ".windsor", "docker-compose.yaml"),
 		}
 
 		if len(removedPaths) != len(expectedPaths) {
@@ -885,9 +886,9 @@ func TestDownPipeline_performCleanup(t *testing.T) {
 		// Check that the expected path suffixes are present
 		expectedSuffixes := []string{
 			".volumes",
-			".windsor/.tf_modules",
-			".windsor/Corefile",
-			".windsor/docker-compose.yaml",
+			filepath.Join(".windsor", ".tf_modules"),
+			filepath.Join(".windsor", "Corefile"),
+			filepath.Join(".windsor", "docker-compose.yaml"),
 		}
 
 		for i, expectedSuffix := range expectedSuffixes {
