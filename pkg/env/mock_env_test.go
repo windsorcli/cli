@@ -230,7 +230,7 @@ func TestMockEnvPrinter_PostEnvHook(t *testing.T) {
 		// Given a mock environment printer with custom implementation
 		printer := NewMockEnvPrinter()
 		expectedError := fmt.Errorf("custom post env hook error")
-		printer.PostEnvHookFunc = func() error {
+		printer.PostEnvHookFunc = func(directory ...string) error {
 			return expectedError
 		}
 

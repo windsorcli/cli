@@ -527,7 +527,7 @@ func TestEnvPipeline_Execute(t *testing.T) {
 
 		mockEnvPrinter := env.NewMockEnvPrinter()
 		postEnvHookCalled := false
-		mockEnvPrinter.PostEnvHookFunc = func() error {
+		mockEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
 			postEnvHookCalled = true
 			return nil
 		}
@@ -597,7 +597,7 @@ func TestEnvPipeline_Execute(t *testing.T) {
 		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {}
 
 		mockEnvPrinter := env.NewMockEnvPrinter()
-		mockEnvPrinter.PostEnvHookFunc = func() error {
+		mockEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
 			return fmt.Errorf("post env hook error")
 		}
 		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
@@ -631,7 +631,7 @@ func TestEnvPipeline_Execute(t *testing.T) {
 		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {}
 
 		mockEnvPrinter := env.NewMockEnvPrinter()
-		mockEnvPrinter.PostEnvHookFunc = func() error {
+		mockEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
 			return fmt.Errorf("post env hook error")
 		}
 		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
@@ -765,7 +765,7 @@ func TestEnvPipeline_Execute(t *testing.T) {
 		mockEnvPrinter1.GetEnvVarsFunc = func() (map[string]string, error) {
 			return map[string]string{"VAR1": "value1"}, nil
 		}
-		mockEnvPrinter1.PostEnvHookFunc = func() error {
+		mockEnvPrinter1.PostEnvHookFunc = func(directory ...string) error {
 			return nil
 		}
 
@@ -773,7 +773,7 @@ func TestEnvPipeline_Execute(t *testing.T) {
 		mockEnvPrinter2.GetEnvVarsFunc = func() (map[string]string, error) {
 			return map[string]string{"VAR2": "value2"}, nil
 		}
-		mockEnvPrinter2.PostEnvHookFunc = func() error {
+		mockEnvPrinter2.PostEnvHookFunc = func(directory ...string) error {
 			return nil
 		}
 

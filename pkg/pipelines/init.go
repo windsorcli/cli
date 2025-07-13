@@ -12,6 +12,7 @@ import (
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/windsorcli/cli/pkg/network"
 	"github.com/windsorcli/cli/pkg/services"
@@ -99,6 +100,13 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 
 	p.blueprintHandler = p.withBlueprintHandler()
 	p.toolsManager = p.withToolsManager()
+
+	// Ensure terraform env printer is registered since the stack depends on it
+	if p.injector.Resolve("terraformEnv") == nil {
+		terraformEnv := env.NewTerraformEnvPrinter(p.injector)
+		p.injector.Register("terraformEnv", terraformEnv)
+	}
+
 	p.stack = p.withStack()
 	p.artifactBuilder = p.withArtifactBuilder()
 

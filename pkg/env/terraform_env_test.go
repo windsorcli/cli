@@ -251,7 +251,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		_, err := printer.GetEnvVars()
 
 		// Then appropriate error should be returned
-		expectedErrorMessage := "error checking file: mock error checking file"
+		expectedErrorMessage := "error generating terraform args: error checking file: mock error checking file"
 		if err == nil || err.Error() != expectedErrorMessage {
 			t.Errorf("Expected error %q, got %v", expectedErrorMessage, err)
 		}
@@ -512,7 +512,10 @@ func TestTerraformEnv_Print(t *testing.T) {
 			ConfigHandler: configHandler,
 		})
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
-		terraformEnvPrinter.Initialize()
+		terraformEnvPrinter.shims = mocks.Shims
+		if err := terraformEnvPrinter.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize printer: %v", err)
+		}
 
 		// When Print is called
 		err := terraformEnvPrinter.Print()
@@ -959,7 +962,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		configRoot := "/mock/config/root"
 
 		// When generateBackendConfigArgs is called
-		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then no error should occur and the expected arguments should be returned
 		if err != nil {
@@ -967,7 +970,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			`-backend-config="path=/mock/config/root/.tfstate/project/path/terraform.tfstate"`,
+			`-backend-config=path=/mock/config/root/.tfstate/project/path/terraform.tfstate`,
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -983,7 +986,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		configRoot := "/mock/config/root"
 
 		// When generateBackendConfigArgs is called
-		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then no error should occur and the expected arguments should be returned
 		if err != nil {
@@ -991,7 +994,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			`-backend-config="path=/mock/config/root/.tfstate/mock-prefix/project/path/terraform.tfstate"`,
+			`-backend-config=path=/mock/config/root/.tfstate/mock-prefix/project/path/terraform.tfstate`,
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1011,7 +1014,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		configRoot := "/mock/config/root"
 
 		// When generateBackendConfigArgs is called
-		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then no error should occur and the expected arguments should be returned
 		if err != nil {
@@ -1019,10 +1022,10 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			`-backend-config="key=mock-prefix/project/path/terraform.tfstate"`,
-			`-backend-config="bucket=mock-bucket"`,
-			`-backend-config="region=mock-region"`,
-			`-backend-config="secret_key=mock-secret-key"`,
+			`-backend-config=key=mock-prefix/project/path/terraform.tfstate`,
+			`-backend-config=bucket=mock-bucket`,
+			`-backend-config=region=mock-region`,
+			`-backend-config=secret_key=mock-secret-key`,
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1040,7 +1043,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		configRoot := "/mock/config/root"
 
 		// When generateBackendConfigArgs is called
-		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then no error should occur and the expected arguments should be returned
 		if err != nil {
@@ -1048,8 +1051,8 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			`-backend-config="secret_suffix=mock-prefix-project-path"`,
-			`-backend-config="namespace=mock-namespace"`,
+			`-backend-config=secret_suffix=mock-prefix-project-path`,
+			`-backend-config=namespace=mock-namespace`,
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1066,7 +1069,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		configRoot := "/mock/config/root"
 
 		// When generateBackendConfigArgs is called
-		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then no error should occur and the expected arguments should be returned
 		if err != nil {
@@ -1074,7 +1077,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			`-backend-config="path=/mock/config/root/.tfstate/mock-prefix/project/path/terraform.tfstate"`,
+			`-backend-config=path=/mock/config/root/.tfstate/mock-prefix/project/path/terraform.tfstate`,
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1099,7 +1102,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		// When generateBackendConfigArgs is called
-		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then no error should occur and backend.tfvars should be included
 		if err != nil {
@@ -1107,8 +1110,8 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			fmt.Sprintf(`-backend-config="%s"`, filepath.ToSlash(backendTfvarsPath)),
-			`-backend-config="path=/mock/config/root/.tfstate/project/path/terraform.tfstate"`,
+			fmt.Sprintf(`-backend-config=%s`, filepath.ToSlash(backendTfvarsPath)),
+			`-backend-config=path=/mock/config/root/.tfstate/project/path/terraform.tfstate`,
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1133,7 +1136,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		// When generateBackendConfigArgs is called
-		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then no error should occur and backend.tfvars should not be included
 		if err != nil {
@@ -1141,7 +1144,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			`-backend-config="path=/mock/config/root/.tfstate/project/path/terraform.tfstate"`,
+			`-backend-config=path=/mock/config/root/.tfstate/project/path/terraform.tfstate`,
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1161,7 +1164,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		configRoot := "/mock/config/root"
 
 		// When generateBackendConfigArgs is called
-		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then no error should occur and the expected arguments should be returned
 		if err != nil {
@@ -1169,10 +1172,10 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			`-backend-config="key=mock-prefix/project/path/terraform.tfstate"`,
-			`-backend-config="container_name=mock-container"`,
-			`-backend-config="storage_account_name=mock-storage"`,
-			`-backend-config="use_azuread=true"`,
+			`-backend-config=key=mock-prefix/project/path/terraform.tfstate`,
+			`-backend-config=container_name=mock-container`,
+			`-backend-config=storage_account_name=mock-storage`,
+			`-backend-config=use_azuread=true`,
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1188,7 +1191,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		configRoot := "/mock/config/root"
 
 		// When generateBackendConfigArgs is called
-		_, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		_, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then an error should be returned
 		if err == nil {

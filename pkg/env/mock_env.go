@@ -15,7 +15,7 @@ type MockEnvPrinter struct {
 	InitializeFunc      func() error
 	PrintFunc           func() error
 	PrintAliasFunc      func() error
-	PostEnvHookFunc     func() error
+	PostEnvHookFunc     func(directory ...string) error
 	GetEnvVarsFunc      func() (map[string]string, error)
 	GetAliasFunc        func() (map[string]string, error)
 	GetManagedEnvFunc   func() []string
@@ -84,9 +84,9 @@ func (m *MockEnvPrinter) GetAlias() (map[string]string, error) {
 
 // PostEnvHook simulates running any necessary commands after the environment variables have been set.
 // If a custom PostEnvHookFunc is provided, it will use that function instead.
-func (m *MockEnvPrinter) PostEnvHook() error {
+func (m *MockEnvPrinter) PostEnvHook(directory ...string) error {
 	if m.PostEnvHookFunc != nil {
-		return m.PostEnvHookFunc()
+		return m.PostEnvHookFunc(directory...)
 	}
 	// Simulate post environment setup without doing anything real
 	return nil
