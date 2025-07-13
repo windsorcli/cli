@@ -33,6 +33,7 @@ type Shims struct {
 	MkdirAll       func(path string, perm os.FileMode) error
 	WriteFile      func(name string, data []byte, perm os.FileMode) error
 	Rename         func(oldpath, newpath string) error
+	Stat           func(name string) (os.FileInfo, error)
 	GOARCH         func() string
 	NumCPU         func() int
 	VirtualMemory  func() (*mem.VirtualMemoryStat, error)
@@ -53,6 +54,7 @@ func NewShims() *Shims {
 		MkdirAll:      os.MkdirAll,
 		WriteFile:     os.WriteFile,
 		Rename:        os.Rename,
+		Stat:          os.Stat,
 		GOARCH:        func() string { return runtime.GOARCH },
 		NumCPU:        func() int { return runtime.NumCPU() },
 		VirtualMemory: mem.VirtualMemory,
