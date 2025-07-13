@@ -1059,6 +1059,178 @@ func TestBasePipeline_withEnvPrinters(t *testing.T) {
 			t.Error("Expected nil env printers")
 		}
 	})
+
+	t.Run("RegistersAllEnvPrintersInDIContainer", func(t *testing.T) {
+		// Given a base pipeline with all services enabled
+		pipeline := NewBasePipeline()
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			switch key {
+			case "aws.enabled":
+				return true
+			case "azure.enabled":
+				return true
+			case "docker.enabled":
+				return true
+			case "cluster.enabled":
+				return true
+			case "terraform.enabled":
+				return true
+			default:
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return false
+			}
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "cluster.driver":
+				return "talos"
+			default:
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return ""
+			}
+		}
+		pipeline.configHandler = mockConfigHandler
+		pipeline.injector = di.NewInjector()
+
+		// When creating env printers
+		envPrinters, err := pipeline.withEnvPrinters()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And all expected env printers should be registered in the DI container
+		expectedRegistrations := []string{
+			"awsEnv",
+			"azureEnv",
+			"dockerEnv",
+			"kubeEnv",
+			"talosEnv",
+			"terraformEnv", // Always registered even if not in returned slice
+			"windsorEnv",
+		}
+
+		for _, expectedKey := range expectedRegistrations {
+			resolved := pipeline.injector.Resolve(expectedKey)
+			if resolved == nil {
+				t.Errorf("Expected %s to be registered in DI container, but it was not found", expectedKey)
+			}
+		}
+
+		// And the correct number of env printers should be returned
+		// Should have AWS, Azure, Docker, Kube, Talos, Terraform, and Windsor
+		if len(envPrinters) != 7 {
+			t.Errorf("Expected 7 env printers, got %d", len(envPrinters))
+		}
+	})
+
+	t.Run("RegistersOmniAndTalosEnvPrintersInDIContainer", func(t *testing.T) {
+		// Given a base pipeline with omni cluster provider
+		pipeline := NewBasePipeline()
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "cluster.driver":
+				return "omni"
+			default:
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return ""
+			}
+		}
+		pipeline.configHandler = mockConfigHandler
+		pipeline.injector = di.NewInjector()
+
+		// When creating env printers
+		envPrinters, err := pipeline.withEnvPrinters()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And omni, talos, terraform, and windsor env printers should be registered
+		expectedRegistrations := []string{
+			"omniEnv",
+			"talosEnv",
+			"terraformEnv", // Always registered
+			"windsorEnv",
+		}
+
+		for _, expectedKey := range expectedRegistrations {
+			resolved := pipeline.injector.Resolve(expectedKey)
+			if resolved == nil {
+				t.Errorf("Expected %s to be registered in DI container, but it was not found", expectedKey)
+			}
+		}
+
+		// And the correct number of env printers should be returned
+		// Should have Omni, Talos, and Windsor (terraform not included in slice when disabled)
+		if len(envPrinters) != 3 {
+			t.Errorf("Expected 3 env printers, got %d", len(envPrinters))
+		}
+	})
+
+	t.Run("AlwaysRegistersTerraformEnvEvenWhenDisabled", func(t *testing.T) {
+		// Given a base pipeline with terraform disabled
+		pipeline := NewBasePipeline()
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			switch key {
+			case "terraform.enabled":
+				return false // Explicitly disabled
+			default:
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return false
+			}
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		pipeline.configHandler = mockConfigHandler
+		pipeline.injector = di.NewInjector()
+
+		// When creating env printers
+		envPrinters, err := pipeline.withEnvPrinters()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And terraform env should still be registered in DI container
+		terraformEnv := pipeline.injector.Resolve("terraformEnv")
+		if terraformEnv == nil {
+			t.Error("Expected terraformEnv to be registered in DI container even when disabled")
+		}
+
+		// But terraform should not be included in the returned slice
+		// Should only have Windsor
+		if len(envPrinters) != 1 {
+			t.Errorf("Expected 1 env printer, got %d", len(envPrinters))
+		}
+	})
 }
 
 // =============================================================================
