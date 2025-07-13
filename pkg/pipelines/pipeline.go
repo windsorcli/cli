@@ -481,36 +481,58 @@ func (p *BasePipeline) withEnvPrinters() ([]envpkg.EnvPrinter, error) {
 	var envPrinters []envpkg.EnvPrinter
 
 	if p.configHandler.GetBool("aws.enabled", false) {
-		envPrinters = append(envPrinters, envpkg.NewAwsEnvPrinter(p.injector))
+		awsEnv := envpkg.NewAwsEnvPrinter(p.injector)
+		envPrinters = append(envPrinters, awsEnv)
+		p.injector.Register("awsEnv", awsEnv)
 	}
 
 	if p.configHandler.GetBool("azure.enabled", false) {
-		envPrinters = append(envPrinters, envpkg.NewAzureEnvPrinter(p.injector))
+		azureEnv := envpkg.NewAzureEnvPrinter(p.injector)
+		envPrinters = append(envPrinters, azureEnv)
+		p.injector.Register("azureEnv", azureEnv)
 	}
 
 	if p.configHandler.GetBool("docker.enabled", false) {
-		envPrinters = append(envPrinters, envpkg.NewDockerEnvPrinter(p.injector))
+		dockerEnv := envpkg.NewDockerEnvPrinter(p.injector)
+		envPrinters = append(envPrinters, dockerEnv)
+		p.injector.Register("dockerEnv", dockerEnv)
 	}
 
 	if p.configHandler.GetBool("cluster.enabled", false) {
-		envPrinters = append(envPrinters, envpkg.NewKubeEnvPrinter(p.injector))
+		kubeEnv := envpkg.NewKubeEnvPrinter(p.injector)
+		envPrinters = append(envPrinters, kubeEnv)
+		p.injector.Register("kubeEnv", kubeEnv)
 	}
 
 	clusterDriver := p.configHandler.GetString("cluster.driver", "")
 	if clusterDriver == "talos" {
-		envPrinters = append(envPrinters, envpkg.NewTalosEnvPrinter(p.injector))
+		talosEnv := envpkg.NewTalosEnvPrinter(p.injector)
+		envPrinters = append(envPrinters, talosEnv)
+		p.injector.Register("talosEnv", talosEnv)
 	}
 
 	if clusterDriver == "omni" {
-		envPrinters = append(envPrinters, envpkg.NewOmniEnvPrinter(p.injector))
-		envPrinters = append(envPrinters, envpkg.NewTalosEnvPrinter(p.injector))
+		omniEnv := envpkg.NewOmniEnvPrinter(p.injector)
+		envPrinters = append(envPrinters, omniEnv)
+		p.injector.Register("omniEnv", omniEnv)
+
+		talosEnv := envpkg.NewTalosEnvPrinter(p.injector)
+		envPrinters = append(envPrinters, talosEnv)
+		p.injector.Register("talosEnv", talosEnv)
 	}
 
+	// Always register terraformEnv in the injector since the stack needs it
+	terraformEnv := envpkg.NewTerraformEnvPrinter(p.injector)
+	p.injector.Register("terraformEnv", terraformEnv)
+
+	// Only include it in the returned array when terraform is enabled
 	if p.configHandler.GetBool("terraform.enabled", false) {
-		envPrinters = append(envPrinters, envpkg.NewTerraformEnvPrinter(p.injector))
+		envPrinters = append(envPrinters, terraformEnv)
 	}
 
-	envPrinters = append(envPrinters, envpkg.NewWindsorEnvPrinter(p.injector))
+	windsorEnv := envpkg.NewWindsorEnvPrinter(p.injector)
+	envPrinters = append(envPrinters, windsorEnv)
+	p.injector.Register("windsorEnv", windsorEnv)
 
 	return envPrinters, nil
 }
