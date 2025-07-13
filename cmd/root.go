@@ -47,7 +47,14 @@ var rootCmd = &cobra.Command{
 	Long:  "A command line interface to assist your cloud native development workflow",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		// Set context from root command
-		cmd.SetContext(cmd.Root().Context())
+		ctx := cmd.Root().Context()
+
+		// Add verbose flag to context if set
+		if verbose {
+			ctx = context.WithValue(ctx, "verbose", true)
+		}
+
+		cmd.SetContext(ctx)
 
 		return nil
 	},

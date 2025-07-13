@@ -160,6 +160,10 @@ contexts:
 	shims := setupShims(t)
 	injector.Register("shims", shims)
 
+	// Create and register mock kubernetes manager for complex pipelines
+	mockKubernetesManager := kubernetes.NewMockKubernetesManager(nil)
+	injector.Register("kubernetesManager", mockKubernetesManager)
+
 	return &Mocks{
 		Injector:      injector,
 		ConfigHandler: configHandler,
@@ -262,6 +266,25 @@ func TestWithPipeline(t *testing.T) {
 				}
 			})
 		}
+
+		// Special test for upPipeline which requires more complex setup
+		t.Run("UpPipeline", func(t *testing.T) {
+			// Given an injector with proper mocks for up pipeline
+			mocks := setupMocks(t)
+
+			// When creating the up pipeline
+			pipeline, err := WithPipeline(mocks.Injector, context.Background(), "upPipeline")
+
+			// Then no error should be returned
+			if err != nil {
+				t.Errorf("Expected no error, got: %v", err)
+			}
+
+			// And a pipeline should be returned
+			if pipeline == nil {
+				t.Error("Expected non-nil pipeline")
+			}
+		})
 	})
 
 	t.Run("UnknownPipelineType", func(t *testing.T) {
@@ -435,6 +458,25 @@ func TestWithPipeline(t *testing.T) {
 				}
 			})
 		}
+
+		// Special test for upPipeline which requires more complex setup
+		t.Run("upPipeline", func(t *testing.T) {
+			// Given an injector with proper mocks for up pipeline
+			mocks := setupMocks(t)
+
+			// When creating the up pipeline
+			pipeline, err := WithPipeline(mocks.Injector, context.Background(), "upPipeline")
+
+			// Then no error should be returned
+			if err != nil {
+				t.Errorf("Expected no error for upPipeline, got: %v", err)
+			}
+
+			// And a pipeline should be returned
+			if pipeline == nil {
+				t.Error("Expected non-nil pipeline for upPipeline")
+			}
+		})
 	})
 
 	t.Run("PipelineRegistration", func(t *testing.T) {

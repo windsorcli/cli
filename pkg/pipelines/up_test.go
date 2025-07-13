@@ -1,0 +1,797 @@
+package pipelines
+
+import (
+	"context"
+	"fmt"
+	"testing"
+
+	"github.com/windsorcli/cli/pkg/blueprint"
+	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/network"
+	"github.com/windsorcli/cli/pkg/shell"
+	"github.com/windsorcli/cli/pkg/stack"
+	"github.com/windsorcli/cli/pkg/tools"
+	"github.com/windsorcli/cli/pkg/virt"
+)
+
+// =============================================================================
+// Test Setup
+// =============================================================================
+
+type UpMocks struct {
+	*Mocks
+	ToolsManager     *tools.MockToolsManager
+	VirtualMachine   *virt.MockVirt
+	ContainerRuntime *virt.MockVirt
+	NetworkManager   *network.MockNetworkManager
+	Stack            *stack.MockStack
+	BlueprintHandler *blueprint.MockBlueprintHandler
+}
+
+func setupUpMocks(t *testing.T, opts ...*SetupOptions) *UpMocks {
+	t.Helper()
+
+	// Create setup options, preserving any provided options
+	setupOptions := &SetupOptions{}
+	if len(opts) > 0 && opts[0] != nil {
+		setupOptions = opts[0]
+	}
+
+	baseMocks := setupMocks(t, setupOptions)
+
+	// Initialize the config handler if it's a real one
+	if setupOptions.ConfigHandler == nil {
+		configHandler := baseMocks.ConfigHandler
+		configHandler.SetContext("mock-context")
+
+		// Load base config with up-specific settings
+		configYAML := `
+apiVersion: v1alpha1
+contexts:
+  mock-context:
+    dns:
+      domain: mock.domain.com
+      enabled: true
+    network:
+      cidr_block: 10.0.0.0/24
+    docker:
+      enabled: true
+    vm:
+      driver: colima
+    tools:
+      enabled: true`
+
+		if err := configHandler.LoadConfigString(configYAML); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+	}
+
+	// Setup tools manager mock
+	mockToolsManager := tools.NewMockToolsManager()
+	mockToolsManager.InitializeFunc = func() error { return nil }
+	mockToolsManager.CheckFunc = func() error { return nil }
+	mockToolsManager.InstallFunc = func() error { return nil }
+	baseMocks.Injector.Register("toolsManager", mockToolsManager)
+
+	// Setup virtual machine mock
+	mockVirtualMachine := virt.NewMockVirt()
+	mockVirtualMachine.InitializeFunc = func() error { return nil }
+	mockVirtualMachine.UpFunc = func(verbose ...bool) error { return nil }
+	baseMocks.Injector.Register("virtualMachine", mockVirtualMachine)
+
+	// Setup container runtime mock
+	mockContainerRuntime := virt.NewMockVirt()
+	mockContainerRuntime.InitializeFunc = func() error { return nil }
+	mockContainerRuntime.UpFunc = func(verbose ...bool) error { return nil }
+	baseMocks.Injector.Register("containerRuntime", mockContainerRuntime)
+
+	// Setup network manager mock
+	mockNetworkManager := network.NewMockNetworkManager()
+	mockNetworkManager.InitializeFunc = func() error { return nil }
+	mockNetworkManager.ConfigureGuestFunc = func() error { return nil }
+	mockNetworkManager.ConfigureHostRouteFunc = func() error { return nil }
+	mockNetworkManager.ConfigureDNSFunc = func() error { return nil }
+	baseMocks.Injector.Register("networkManager", mockNetworkManager)
+
+	// Setup stack mock
+	mockStack := stack.NewMockStack(baseMocks.Injector)
+	mockStack.InitializeFunc = func() error { return nil }
+	mockStack.UpFunc = func() error { return nil }
+	baseMocks.Injector.Register("stack", mockStack)
+
+	// Setup blueprint handler mock
+	mockBlueprintHandler := blueprint.NewMockBlueprintHandler(baseMocks.Injector)
+	mockBlueprintHandler.InitializeFunc = func() error { return nil }
+	mockBlueprintHandler.InstallFunc = func() error { return nil }
+	mockBlueprintHandler.WaitForKustomizationsFunc = func(message string, names ...string) error { return nil }
+	baseMocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
+
+	return &UpMocks{
+		Mocks:            baseMocks,
+		ToolsManager:     mockToolsManager,
+		VirtualMachine:   mockVirtualMachine,
+		ContainerRuntime: mockContainerRuntime,
+		NetworkManager:   mockNetworkManager,
+		Stack:            mockStack,
+		BlueprintHandler: mockBlueprintHandler,
+	}
+}
+
+// =============================================================================
+// Test Constructor
+// =============================================================================
+
+func TestNewUpPipeline(t *testing.T) {
+	t.Run("CreatesWithDefaults", func(t *testing.T) {
+		// Given creating a new up pipeline
+		pipeline := NewUpPipeline()
+
+		// Then pipeline should not be nil
+		if pipeline == nil {
+			t.Fatal("Expected pipeline to not be nil")
+		}
+	})
+}
+
+// =============================================================================
+// Test Public Methods - Initialize
+// =============================================================================
+
+func TestUpPipeline_Initialize(t *testing.T) {
+	setup := func(t *testing.T, opts ...*SetupOptions) (*UpPipeline, *UpMocks) {
+		t.Helper()
+		pipeline := NewUpPipeline()
+		mocks := setupUpMocks(t, opts...)
+		return pipeline, mocks
+	}
+
+	t.Run("InitializesSuccessfully", func(t *testing.T) {
+		// Given an up pipeline with mock dependencies
+		pipeline, mocks := setup(t)
+
+		// When initializing the pipeline
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	// Test initialization failures
+	initFailureTests := []struct {
+		name        string
+		setupMock   func(*UpMocks)
+		expectedErr string
+	}{
+		{
+			name: "ReturnsErrorWhenShellInitializeFails",
+			setupMock: func(mocks *UpMocks) {
+				mockShell := shell.NewMockShell()
+				mockShell.InitializeFunc = func() error {
+					return fmt.Errorf("shell initialization failed")
+				}
+				mocks.Injector.Register("shell", mockShell)
+			},
+			expectedErr: "failed to initialize shell: shell initialization failed",
+		},
+		{
+			name: "ReturnsErrorWhenToolsManagerInitializeFails",
+			setupMock: func(mocks *UpMocks) {
+				mocks.ToolsManager.InitializeFunc = func() error {
+					return fmt.Errorf("tools manager failed")
+				}
+			},
+			expectedErr: "failed to initialize tools manager: tools manager failed",
+		},
+		{
+			name: "ReturnsErrorWhenVirtualMachineInitializeFails",
+			setupMock: func(mocks *UpMocks) {
+				mocks.VirtualMachine.InitializeFunc = func() error {
+					return fmt.Errorf("virtual machine failed")
+				}
+			},
+			expectedErr: "failed to initialize virtual machine: virtual machine failed",
+		},
+		{
+			name: "ReturnsErrorWhenContainerRuntimeInitializeFails",
+			setupMock: func(mocks *UpMocks) {
+				mocks.ContainerRuntime.InitializeFunc = func() error {
+					return fmt.Errorf("container runtime failed")
+				}
+			},
+			expectedErr: "failed to initialize container runtime: container runtime failed",
+		},
+		{
+			name: "ReturnsErrorWhenNetworkManagerInitializeFails",
+			setupMock: func(mocks *UpMocks) {
+				mocks.NetworkManager.InitializeFunc = func() error {
+					return fmt.Errorf("network manager failed")
+				}
+			},
+			expectedErr: "failed to initialize network manager: network manager failed",
+		},
+		{
+			name: "ReturnsErrorWhenStackInitializeFails",
+			setupMock: func(mocks *UpMocks) {
+				mocks.Stack.InitializeFunc = func() error {
+					return fmt.Errorf("stack failed")
+				}
+			},
+			expectedErr: "failed to initialize stack: stack failed",
+		},
+		{
+			name: "ReturnsErrorWhenBlueprintHandlerInitializeFails",
+			setupMock: func(mocks *UpMocks) {
+				mocks.BlueprintHandler.InitializeFunc = func() error {
+					return fmt.Errorf("blueprint handler failed")
+				}
+			},
+			expectedErr: "failed to initialize blueprint handler: blueprint handler failed",
+		},
+	}
+
+	for _, tt := range initFailureTests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Given an up pipeline with failing component
+			pipeline, mocks := setup(t)
+			tt.setupMock(mocks)
+
+			// When initializing the pipeline
+			err := pipeline.Initialize(mocks.Injector, context.Background())
+
+			// Then an error should be returned
+			if err == nil {
+				t.Fatal("Expected error, got nil")
+			}
+			if err.Error() != tt.expectedErr {
+				t.Errorf("Expected error %q, got %q", tt.expectedErr, err.Error())
+			}
+		})
+	}
+}
+
+// =============================================================================
+// Test Public Methods - Execute
+// =============================================================================
+
+func TestUpPipeline_Execute(t *testing.T) {
+	setup := func(t *testing.T, opts ...*SetupOptions) (*UpPipeline, *UpMocks) {
+		t.Helper()
+		pipeline := NewUpPipeline()
+		mocks := setupUpMocks(t, opts...)
+
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+		if err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
+
+		return pipeline, mocks
+	}
+
+	t.Run("ExecutesSuccessfully", func(t *testing.T) {
+		// Given a properly initialized UpPipeline
+		pipeline, mocks := setup(t)
+
+		// Setup shims to allow NO_CACHE environment variable setting
+		mocks.Shims.Setenv = func(key, value string) error {
+			return nil
+		}
+
+		// When Execute is called
+		err := pipeline.Execute(context.Background())
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ExecutesWithInstallFlag", func(t *testing.T) {
+		// Given a pipeline with install flag set
+		pipeline, mocks := setup(t)
+
+		// Setup shims to allow NO_CACHE environment variable setting
+		mocks.Shims.Setenv = func(key, value string) error {
+			return nil
+		}
+
+		installCalled := false
+		mocks.BlueprintHandler.InstallFunc = func() error {
+			installCalled = true
+			return nil
+		}
+
+		ctx := context.WithValue(context.Background(), "install", true)
+
+		// When Execute is called
+		err := pipeline.Execute(ctx)
+
+		// Then no error should be returned and install should be called
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !installCalled {
+			t.Error("Expected blueprint install to be called")
+		}
+	})
+
+	t.Run("ExecutesWithInstallAndWaitFlags", func(t *testing.T) {
+		// Given a pipeline with install and wait flags set
+		pipeline, mocks := setup(t)
+
+		// Setup shims to allow NO_CACHE environment variable setting
+		mocks.Shims.Setenv = func(key, value string) error {
+			return nil
+		}
+
+		installCalled := false
+		waitCalled := false
+		mocks.BlueprintHandler.InstallFunc = func() error {
+			installCalled = true
+			return nil
+		}
+		mocks.BlueprintHandler.WaitForKustomizationsFunc = func(message string, names ...string) error {
+			waitCalled = true
+			return nil
+		}
+
+		ctx := context.WithValue(context.Background(), "install", true)
+		ctx = context.WithValue(ctx, "wait", true)
+
+		// When Execute is called
+		err := pipeline.Execute(ctx)
+
+		// Then no error should be returned and both install and wait should be called
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !installCalled {
+			t.Error("Expected blueprint install to be called")
+		}
+		if !waitCalled {
+			t.Error("Expected blueprint wait to be called")
+		}
+	})
+
+	t.Run("ExecutesWithVerboseFlag", func(t *testing.T) {
+		// Given a pipeline with verbose flag set during initialization
+		pipeline := NewUpPipeline()
+		mocks := setupUpMocks(t)
+
+		verbositySet := false
+		mocks.Shell.SetVerbosityFunc = func(verbose bool) {
+			verbositySet = verbose
+		}
+
+		ctx := context.WithValue(context.Background(), "verbose", true)
+
+		// When Initialize is called with verbose context
+		err := pipeline.Initialize(mocks.Injector, ctx)
+		if err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
+
+		// Setup shims to allow NO_CACHE environment variable setting
+		mocks.Shims.Setenv = func(key, value string) error {
+			return nil
+		}
+
+		// When Execute is called
+		err = pipeline.Execute(context.Background())
+
+		// Then no error should be returned and verbosity should be set
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !verbositySet {
+			t.Error("Expected shell verbosity to be set to true")
+		}
+	})
+
+	t.Run("SkipsVirtualMachineWhenNotColima", func(t *testing.T) {
+		// Given a pipeline with non-colima VM driver
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.InitializeFunc = func() error { return nil }
+		mockConfigHandler.IsLoadedFunc = func() bool { return true }
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "vm.driver":
+				return "docker" // Not colima
+			default:
+				return ""
+			}
+		}
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			switch key {
+			case "docker.enabled":
+				return true
+			case "dns.enabled":
+				return false
+			default:
+				return false
+			}
+		}
+
+		setupOptions := &SetupOptions{ConfigHandler: mockConfigHandler}
+		pipeline, mocks := setup(t, setupOptions)
+
+		// Setup shims to allow NO_CACHE environment variable setting
+		mocks.Shims.Setenv = func(key, value string) error {
+			return nil
+		}
+
+		vmUpCalled := false
+		mocks.VirtualMachine.UpFunc = func(verbose ...bool) error {
+			vmUpCalled = true
+			return nil
+		}
+
+		// When Execute is called
+		err := pipeline.Execute(context.Background())
+
+		// Then no error should be returned and VM Up should not be called
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if vmUpCalled {
+			t.Error("Expected virtual machine Up to not be called when driver is not colima")
+		}
+	})
+
+	t.Run("SkipsContainerRuntimeWhenDisabled", func(t *testing.T) {
+		// Given a pipeline with docker disabled
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.InitializeFunc = func() error { return nil }
+		mockConfigHandler.IsLoadedFunc = func() bool { return true }
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "vm.driver":
+				return "colima"
+			default:
+				return ""
+			}
+		}
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			switch key {
+			case "docker.enabled":
+				return false // Docker disabled
+			case "dns.enabled":
+				return false
+			default:
+				return false
+			}
+		}
+
+		setupOptions := &SetupOptions{ConfigHandler: mockConfigHandler}
+		pipeline, mocks := setup(t, setupOptions)
+
+		// Setup shims to allow NO_CACHE environment variable setting
+		mocks.Shims.Setenv = func(key, value string) error {
+			return nil
+		}
+
+		containerUpCalled := false
+		mocks.ContainerRuntime.UpFunc = func(verbose ...bool) error {
+			containerUpCalled = true
+			return nil
+		}
+
+		// When Execute is called
+		err := pipeline.Execute(context.Background())
+
+		// Then no error should be returned and container runtime Up should not be called
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if containerUpCalled {
+			t.Error("Expected container runtime Up to not be called when docker is disabled")
+		}
+	})
+
+	t.Run("SkipsDNSWhenDisabled", func(t *testing.T) {
+		// Given a pipeline with DNS disabled
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.InitializeFunc = func() error { return nil }
+		mockConfigHandler.IsLoadedFunc = func() bool { return true }
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "vm.driver":
+				return "colima"
+			default:
+				return ""
+			}
+		}
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			switch key {
+			case "docker.enabled":
+				return true
+			case "dns.enabled":
+				return false // DNS disabled
+			default:
+				return false
+			}
+		}
+
+		setupOptions := &SetupOptions{ConfigHandler: mockConfigHandler}
+		pipeline, mocks := setup(t, setupOptions)
+
+		// Setup shims to allow NO_CACHE environment variable setting
+		mocks.Shims.Setenv = func(key, value string) error {
+			return nil
+		}
+
+		dnsCalled := false
+		mocks.NetworkManager.ConfigureDNSFunc = func() error {
+			dnsCalled = true
+			return nil
+		}
+
+		// When Execute is called
+		err := pipeline.Execute(context.Background())
+
+		// Then no error should be returned and DNS configuration should not be called
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if dnsCalled {
+			t.Error("Expected DNS configuration to not be called when DNS is disabled")
+		}
+	})
+
+	// Test execution failures
+	execFailureTests := []struct {
+		name        string
+		setupMock   func(*UpMocks)
+		expectedErr string
+	}{
+		{
+			name: "ReturnsErrorWhenSetenvFails",
+			setupMock: func(mocks *UpMocks) {
+				mocks.Shims.Setenv = func(key, value string) error {
+					return fmt.Errorf("setenv failed")
+				}
+			},
+			expectedErr: "Error setting NO_CACHE environment variable: setenv failed",
+		},
+		{
+			name: "ReturnsErrorWhenToolsCheckFails",
+			setupMock: func(mocks *UpMocks) {
+				mocks.Shims.Setenv = func(key, value string) error { return nil }
+				mocks.ToolsManager.CheckFunc = func() error {
+					return fmt.Errorf("tools check failed")
+				}
+			},
+			expectedErr: "Error checking tools: tools check failed",
+		},
+		{
+			name: "ReturnsErrorWhenToolsInstallFails",
+			setupMock: func(mocks *UpMocks) {
+				mocks.Shims.Setenv = func(key, value string) error { return nil }
+				mocks.ToolsManager.InstallFunc = func() error {
+					return fmt.Errorf("tools install failed")
+				}
+			},
+			expectedErr: "Error installing tools: tools install failed",
+		},
+		{
+			name: "ReturnsErrorWhenVirtualMachineUpFails",
+			setupMock: func(mocks *UpMocks) {
+				mocks.Shims.Setenv = func(key, value string) error { return nil }
+				mocks.VirtualMachine.UpFunc = func(verbose ...bool) error {
+					return fmt.Errorf("vm up failed")
+				}
+			},
+			expectedErr: "Error running virtual machine Up command: vm up failed",
+		},
+		{
+			name: "ReturnsErrorWhenContainerRuntimeUpFails",
+			setupMock: func(mocks *UpMocks) {
+				mocks.Shims.Setenv = func(key, value string) error { return nil }
+				mocks.ContainerRuntime.UpFunc = func(verbose ...bool) error {
+					return fmt.Errorf("container runtime up failed")
+				}
+			},
+			expectedErr: "Error running container runtime Up command: container runtime up failed",
+		},
+		{
+			name: "ReturnsErrorWhenNetworkConfigureGuestFails",
+			setupMock: func(mocks *UpMocks) {
+				mocks.Shims.Setenv = func(key, value string) error { return nil }
+				mocks.NetworkManager.ConfigureGuestFunc = func() error {
+					return fmt.Errorf("configure guest failed")
+				}
+			},
+			expectedErr: "Error configuring guest network: configure guest failed",
+		},
+		{
+			name: "ReturnsErrorWhenNetworkConfigureHostRouteFails",
+			setupMock: func(mocks *UpMocks) {
+				mocks.Shims.Setenv = func(key, value string) error { return nil }
+				mocks.NetworkManager.ConfigureHostRouteFunc = func() error {
+					return fmt.Errorf("configure host route failed")
+				}
+			},
+			expectedErr: "Error configuring host network: configure host route failed",
+		},
+		{
+			name: "ReturnsErrorWhenNetworkConfigureDNSFails",
+			setupMock: func(mocks *UpMocks) {
+				mocks.Shims.Setenv = func(key, value string) error { return nil }
+				mocks.NetworkManager.ConfigureDNSFunc = func() error {
+					return fmt.Errorf("configure dns failed")
+				}
+			},
+			expectedErr: "Error configuring DNS: configure dns failed",
+		},
+		{
+			name: "ReturnsErrorWhenStackUpFails",
+			setupMock: func(mocks *UpMocks) {
+				mocks.Shims.Setenv = func(key, value string) error { return nil }
+				mocks.Stack.UpFunc = func() error {
+					return fmt.Errorf("stack up failed")
+				}
+			},
+			expectedErr: "Error running stack Up command: stack up failed",
+		},
+		{
+			name: "ReturnsErrorWhenBlueprintInstallFails",
+			setupMock: func(mocks *UpMocks) {
+				mocks.Shims.Setenv = func(key, value string) error { return nil }
+				mocks.BlueprintHandler.InstallFunc = func() error {
+					return fmt.Errorf("blueprint install failed")
+				}
+			},
+			expectedErr: "Error installing blueprint: blueprint install failed",
+		},
+		{
+			name: "ReturnsErrorWhenBlueprintWaitFails",
+			setupMock: func(mocks *UpMocks) {
+				mocks.Shims.Setenv = func(key, value string) error { return nil }
+				mocks.BlueprintHandler.WaitForKustomizationsFunc = func(message string, names ...string) error {
+					return fmt.Errorf("blueprint wait failed")
+				}
+			},
+			expectedErr: "Error waiting for kustomizations: blueprint wait failed",
+		},
+	}
+
+	for _, tt := range execFailureTests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Given an up pipeline with failing component
+			pipeline, mocks := setup(t)
+			tt.setupMock(mocks)
+
+			ctx := context.Background()
+			if tt.name == "ReturnsErrorWhenBlueprintInstallFails" || tt.name == "ReturnsErrorWhenBlueprintWaitFails" {
+				ctx = context.WithValue(ctx, "install", true)
+				if tt.name == "ReturnsErrorWhenBlueprintWaitFails" {
+					ctx = context.WithValue(ctx, "wait", true)
+				}
+			}
+
+			// When executing the pipeline
+			err := pipeline.Execute(ctx)
+
+			// Then an error should be returned
+			if err == nil {
+				t.Fatal("Expected error, got nil")
+			}
+			if err.Error() != tt.expectedErr {
+				t.Errorf("Expected error %q, got %q", tt.expectedErr, err.Error())
+			}
+		})
+	}
+
+	t.Run("ReturnsErrorWhenNoVirtualMachineFound", func(t *testing.T) {
+		// Given an up pipeline with nil virtual machine
+		pipeline, mocks := setup(t)
+
+		// Setup shims to allow NO_CACHE environment variable setting
+		mocks.Shims.Setenv = func(key, value string) error { return nil }
+
+		// Set virtual machine to nil
+		pipeline.virtualMachine = nil
+
+		// When executing the pipeline
+		err := pipeline.Execute(context.Background())
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "No virtual machine found" {
+			t.Errorf("Expected 'No virtual machine found', got %q", err.Error())
+		}
+	})
+
+	t.Run("ReturnsErrorWhenNoContainerRuntimeFound", func(t *testing.T) {
+		// Given an up pipeline with nil container runtime
+		pipeline, mocks := setup(t)
+
+		// Setup shims to allow NO_CACHE environment variable setting
+		mocks.Shims.Setenv = func(key, value string) error { return nil }
+
+		// Set container runtime to nil
+		pipeline.containerRuntime = nil
+
+		// When executing the pipeline
+		err := pipeline.Execute(context.Background())
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "No container runtime found" {
+			t.Errorf("Expected 'No container runtime found', got %q", err.Error())
+		}
+	})
+
+	t.Run("ReturnsErrorWhenNoNetworkManagerFound", func(t *testing.T) {
+		// Given an up pipeline with nil network manager
+		pipeline, mocks := setup(t)
+
+		// Setup shims to allow NO_CACHE environment variable setting
+		mocks.Shims.Setenv = func(key, value string) error { return nil }
+
+		// Set network manager to nil
+		pipeline.networkManager = nil
+
+		// When executing the pipeline
+		err := pipeline.Execute(context.Background())
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "No network manager found" {
+			t.Errorf("Expected 'No network manager found', got %q", err.Error())
+		}
+	})
+
+	t.Run("ReturnsErrorWhenNoStackFound", func(t *testing.T) {
+		// Given an up pipeline with nil stack
+		pipeline, mocks := setup(t)
+
+		// Setup shims to allow NO_CACHE environment variable setting
+		mocks.Shims.Setenv = func(key, value string) error { return nil }
+
+		// Set stack to nil
+		pipeline.stack = nil
+
+		// When executing the pipeline
+		err := pipeline.Execute(context.Background())
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "No stack found" {
+			t.Errorf("Expected 'No stack found', got %q", err.Error())
+		}
+	})
+
+	t.Run("ReturnsErrorWhenNoBlueprintHandlerFound", func(t *testing.T) {
+		// Given an up pipeline with nil blueprint handler and install flag
+		pipeline, mocks := setup(t)
+
+		// Setup shims to allow NO_CACHE environment variable setting
+		mocks.Shims.Setenv = func(key, value string) error { return nil }
+
+		// Set blueprint handler to nil
+		pipeline.blueprintHandler = nil
+
+		ctx := context.WithValue(context.Background(), "install", true)
+
+		// When executing the pipeline
+		err := pipeline.Execute(ctx)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "No blueprint handler found" {
+			t.Errorf("Expected 'No blueprint handler found', got %q", err.Error())
+		}
+	})
+}

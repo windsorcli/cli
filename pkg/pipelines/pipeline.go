@@ -57,6 +57,7 @@ var pipelineConstructors = map[string]PipelineConstructor{
 	"contextPipeline": func() Pipeline { return NewContextPipeline() },
 	"hookPipeline":    func() Pipeline { return NewHookPipeline() },
 	"checkPipeline":   func() Pipeline { return NewCheckPipeline() },
+	"upPipeline":      func() Pipeline { return NewUpPipeline() },
 }
 
 // WithPipeline resolves or creates a pipeline instance from the DI container by name.
@@ -120,6 +121,11 @@ func (p *BasePipeline) Initialize(injector di.Injector, ctx context.Context) err
 
 	if err := p.shell.Initialize(); err != nil {
 		return fmt.Errorf("failed to initialize shell: %w", err)
+	}
+
+	// Set shell verbosity based on context
+	if verbose, ok := ctx.Value("verbose").(bool); ok && verbose {
+		p.shell.SetVerbosity(true)
 	}
 
 	if err := p.configHandler.Initialize(); err != nil {

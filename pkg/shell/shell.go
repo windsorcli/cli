@@ -159,6 +159,10 @@ func (s *DefaultShell) Exec(command string, args ...string) (string, error) {
 	if command == "sudo" {
 		cmd.Stdin = os.Stdin
 	}
+	// Ensure the command inherits the current environment
+	if cmd.Env == nil {
+		cmd.Env = s.shims.Environ()
+	}
 	if err := s.shims.CmdStart(cmd); err != nil {
 		return stdoutBuf.String(), fmt.Errorf("command start failed: %w", err)
 	}
@@ -185,6 +189,11 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 	cmd := s.shims.Command(command, args...)
 	if cmd == nil {
 		return "", fmt.Errorf("failed to create command")
+	}
+
+	// Ensure the command inherits the current environment
+	if cmd.Env == nil {
+		cmd.Env = s.shims.Environ()
 	}
 
 	tty, err := s.shims.OpenFile("/dev/tty", os.O_RDWR, 0)
@@ -231,6 +240,10 @@ func (s *DefaultShell) ExecSilent(command string, args ...string) (string, error
 
 	cmd.Stdout = &stdoutBuf
 	cmd.Stderr = &stderrBuf
+	// Ensure the command inherits the current environment
+	if cmd.Env == nil {
+		cmd.Env = s.shims.Environ()
+	}
 
 	if err := s.shims.CmdRun(cmd); err != nil {
 		return s.scrubString(stdoutBuf.String()), fmt.Errorf("command execution failed: %w\n%s", err, s.scrubString(stderrBuf.String()))
@@ -252,6 +265,11 @@ func (s *DefaultShell) ExecProgress(message string, command string, args ...stri
 	cmd := s.shims.Command(command, args...)
 	if cmd == nil {
 		return "", fmt.Errorf("failed to create command")
+	}
+
+	// Ensure the command inherits the current environment
+	if cmd.Env == nil {
+		cmd.Env = s.shims.Environ()
 	}
 
 	stdoutPipe, err := s.shims.StdoutPipe(cmd)
