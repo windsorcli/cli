@@ -20,13 +20,14 @@ import (
 // Types
 // =============================================================================
 
-// TerraformArgs contains the generated terraform arguments and environment variables
+// TerraformArgs contains all the arguments needed for terraform operations
 type TerraformArgs struct {
 	ModulePath      string
 	TFDataDir       string
 	InitArgs        []string
 	PlanArgs        []string
 	ApplyArgs       []string
+	RefreshArgs     []string
 	ImportArgs      []string
 	DestroyArgs     []string
 	PlanDestroyArgs []string
@@ -160,6 +161,9 @@ func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath stri
 
 	applyArgs := []string{tfPlanPath}
 
+	refreshArgs := []string{}
+	refreshArgs = append(refreshArgs, varFileArgs...)
+
 	planDestroyArgs := []string{"-destroy"}
 	planDestroyArgs = append(planDestroyArgs, varFileArgs...)
 
@@ -171,6 +175,7 @@ func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath stri
 	terraformVars["TF_CLI_ARGS_init"] = strings.TrimSpace(fmt.Sprintf("-backend=true %s", strings.Join(backendConfigArgsForEnv, " ")))
 	terraformVars["TF_CLI_ARGS_plan"] = strings.TrimSpace(fmt.Sprintf("-out=\"%s\" %s", tfPlanPath, strings.Join(varFileArgsForEnv, " ")))
 	terraformVars["TF_CLI_ARGS_apply"] = strings.TrimSpace(fmt.Sprintf("\"%s\"", tfPlanPath))
+	terraformVars["TF_CLI_ARGS_refresh"] = strings.TrimSpace(strings.Join(varFileArgsForEnv, " "))
 	terraformVars["TF_CLI_ARGS_import"] = strings.TrimSpace(strings.Join(varFileArgsForEnv, " "))
 	terraformVars["TF_CLI_ARGS_destroy"] = strings.TrimSpace(strings.Join(varFileArgsForEnv, " "))
 	terraformVars["TF_VAR_context_path"] = strings.TrimSpace(filepath.ToSlash(configRoot))
@@ -189,6 +194,7 @@ func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath stri
 		InitArgs:        initArgs,
 		PlanArgs:        planArgs,
 		ApplyArgs:       applyArgs,
+		RefreshArgs:     refreshArgs,
 		ImportArgs:      varFileArgs,
 		DestroyArgs:     destroyArgs,
 		PlanDestroyArgs: planDestroyArgs,
