@@ -470,9 +470,12 @@ func (b *BaseBlueprintHandler) Down() error {
 		k := nameToK[name]
 
 		if err := b.kubernetesManager.SuspendKustomization(k.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
-			return fmt.Errorf("failed to suspend kustomization %s: %w", k.Name, err)
+			// During cleanup, ignore "not found" errors for suspend operations
+			if !isNotFoundError(err) {
+				spin.Stop()
+				fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
+				return fmt.Errorf("failed to suspend kustomization %s: %w", k.Name, err)
+			}
 		}
 
 		helmReleases, err := b.kubernetesManager.GetHelmReleasesForKustomization(k.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)
@@ -484,9 +487,12 @@ func (b *BaseBlueprintHandler) Down() error {
 
 		for _, hr := range helmReleases {
 			if err := b.kubernetesManager.SuspendHelmRelease(hr.Name, hr.Namespace); err != nil {
-				spin.Stop()
-				fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
-				return fmt.Errorf("failed to suspend helmrelease %s in namespace %s: %w", hr.Name, hr.Namespace, err)
+				// During cleanup, ignore "not found" errors for suspend operations
+				if !isNotFoundError(err) {
+					spin.Stop()
+					fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
+					return fmt.Errorf("failed to suspend helmrelease %s in namespace %s: %w", hr.Name, hr.Namespace, err)
+				}
 			}
 		}
 	}
@@ -1341,4 +1347,19 @@ func (b *BaseBlueprintHandler) isOCISource(sourceNameOrURL string) bool {
 	}
 
 	return false
+}
+
+// isNotFoundError checks if an error is a Kubernetes resource not found error
+// This is used during cleanup to ignore errors when resources don't exist
+func isNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errMsg := strings.ToLower(err.Error())
+	// Check for resource not found errors, but not namespace not found errors
+	return (strings.Contains(errMsg, "resource not found") ||
+		strings.Contains(errMsg, "could not find the requested resource") ||
+		strings.Contains(errMsg, "the server could not find the requested resource")) &&
+		!strings.Contains(errMsg, "namespace not found")
 }
