@@ -962,7 +962,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		configRoot := "/mock/config/root"
 
 		// When generateBackendConfigArgs is called
-		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then no error should occur and the expected arguments should be returned
 		if err != nil {
@@ -986,7 +986,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		configRoot := "/mock/config/root"
 
 		// When generateBackendConfigArgs is called
-		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then no error should occur and the expected arguments should be returned
 		if err != nil {
@@ -1014,7 +1014,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		configRoot := "/mock/config/root"
 
 		// When generateBackendConfigArgs is called
-		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then no error should occur and the expected arguments should be returned
 		if err != nil {
@@ -1043,7 +1043,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		configRoot := "/mock/config/root"
 
 		// When generateBackendConfigArgs is called
-		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then no error should occur and the expected arguments should be returned
 		if err != nil {
@@ -1069,7 +1069,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		configRoot := "/mock/config/root"
 
 		// When generateBackendConfigArgs is called
-		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then no error should occur and the expected arguments should be returned
 		if err != nil {
@@ -1102,7 +1102,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		// When generateBackendConfigArgs is called
-		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then no error should occur and backend.tfvars should be included
 		if err != nil {
@@ -1136,7 +1136,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		// When generateBackendConfigArgs is called
-		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then no error should occur and backend.tfvars should not be included
 		if err != nil {
@@ -1164,7 +1164,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		configRoot := "/mock/config/root"
 
 		// When generateBackendConfigArgs is called
-		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then no error should occur and the expected arguments should be returned
 		if err != nil {
@@ -1191,7 +1191,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		configRoot := "/mock/config/root"
 
 		// When generateBackendConfigArgs is called
-		_, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		_, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then an error should be returned
 		if err == nil {
