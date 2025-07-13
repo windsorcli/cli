@@ -2,16 +2,18 @@ package stack
 
 // The WindsorStack is a specialized implementation of the Stack interface for Terraform-based infrastructure.
 // It provides a concrete implementation for managing Terraform components through the Windsor CLI,
-// handling directory management, environment configuration, and Terraform operations.
+// handling directory management, terraform environment configuration, and Terraform operations.
 // The WindsorStack orchestrates Terraform initialization, planning, and application,
-// while managing environment variables and backend configurations.
+// while managing terraform arguments and backend configurations.
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/env"
 )
 
 // =============================================================================
@@ -21,6 +23,7 @@ import (
 // WindsorStack is a struct that implements the Stack interface.
 type WindsorStack struct {
 	BaseStack
+	terraformEnv *env.TerraformEnvPrinter
 }
 
 // =============================================================================
@@ -41,10 +44,32 @@ func NewWindsorStack(injector di.Injector) *WindsorStack {
 // Public Methods
 // =============================================================================
 
+// Initialize initializes the WindsorStack by calling the base Initialize and resolving terraform environment.
+func (s *WindsorStack) Initialize() error {
+	// Call the base Initialize method
+	if err := s.BaseStack.Initialize(); err != nil {
+		return err
+	}
+
+	// Resolve the terraform environment printer - required for WindsorStack
+	terraformEnvInterface := s.injector.Resolve("terraformEnv")
+	if terraformEnvInterface == nil {
+		return fmt.Errorf("terraformEnv not found in dependency injector")
+	}
+
+	terraformEnv, ok := terraformEnvInterface.(*env.TerraformEnvPrinter)
+	if !ok {
+		return fmt.Errorf("error resolving terraformEnv")
+	}
+	s.terraformEnv = terraformEnv
+
+	return nil
+}
+
 // Up creates a new stack of components by initializing and applying Terraform configurations.
-// It processes components in order, setting up environment variables, running Terraform init,
+// It processes components in order, generating terraform arguments, running Terraform init,
 // plan, and apply operations, and cleaning up backend override files.
-// The method ensures proper directory management and environment setup for each component.
+// The method ensures proper directory management and terraform argument setup for each component.
 func (s *WindsorStack) Up() error {
 	currentDir, err := s.shims.Getwd()
 	if err != nil {
@@ -62,44 +87,58 @@ func (s *WindsorStack) Up() error {
 			return fmt.Errorf("directory %s does not exist", component.FullPath)
 		}
 
-		if err := s.shims.Chdir(component.FullPath); err != nil {
-			return fmt.Errorf("error changing to directory %s: %v", component.FullPath, err)
+		terraformArgs, err := s.terraformEnv.GenerateTerraformArgs(component.Path, component.FullPath)
+		if err != nil {
+			return fmt.Errorf("error generating terraform args for %s: %w", component.Path, err)
 		}
 
-		for _, envPrinter := range s.envPrinters {
-			envVars, err := envPrinter.GetEnvVars()
-			if err != nil {
-				return fmt.Errorf("error getting environment variables: %v", err)
+		// Set terraform environment variables (TF_VAR_* and TF_DATA_DIR)
+		// First, unset any existing TF_CLI_ARGS_* environment variables to avoid conflicts
+		tfCliArgsVars := []string{"TF_CLI_ARGS_init", "TF_CLI_ARGS_plan", "TF_CLI_ARGS_apply", "TF_CLI_ARGS_destroy", "TF_CLI_ARGS_import"}
+		for _, envVar := range tfCliArgsVars {
+			if err := s.shims.Unsetenv(envVar); err != nil {
+				return fmt.Errorf("error unsetting %s: %w", envVar, err)
 			}
-			for key, value := range envVars {
+		}
+
+		for key, value := range terraformArgs.TerraformVars {
+			if key == "TF_DATA_DIR" || strings.HasPrefix(key, "TF_VAR_") {
 				if err := s.shims.Setenv(key, value); err != nil {
-					return fmt.Errorf("error setting environment variable %s: %v", key, err)
+					return fmt.Errorf("error setting %s: %w", key, err)
 				}
 			}
-			if err := envPrinter.PostEnvHook(); err != nil {
-				return fmt.Errorf("error running post environment hook: %v", err)
-			}
 		}
 
-		_, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Initializing Terraform in %s", component.Path), "terraform", "init", "-migrate-state", "-upgrade", "-force-copy")
-		if err != nil {
-			return fmt.Errorf("error initializing Terraform in %s: %w", component.FullPath, err)
+		// Create backend_override.tf file in the component directory
+		if err := s.terraformEnv.PostEnvHook(component.FullPath); err != nil {
+			return fmt.Errorf("error creating backend override file for %s: %w", component.Path, err)
 		}
 
-		_, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Planning Terraform changes in %s", component.Path), "terraform", "plan")
+		initArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "init"}
+		initArgs = append(initArgs, terraformArgs.InitArgs...)
+		_, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Initializing Terraform in %s", component.Path), "terraform", initArgs...)
 		if err != nil {
-			return fmt.Errorf("error planning Terraform changes in %s: %w", component.FullPath, err)
+			return fmt.Errorf("error running terraform init for %s: %w", component.Path, err)
 		}
 
-		_, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Applying Terraform changes in %s", component.Path), "terraform", "apply")
+		planArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "plan"}
+		planArgs = append(planArgs, terraformArgs.PlanArgs...)
+		_, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Planning Terraform changes in %s", component.Path), "terraform", planArgs...)
 		if err != nil {
-			return fmt.Errorf("error applying Terraform changes in %s: %w", component.FullPath, err)
+			return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
+		}
+
+		applyArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "apply"}
+		applyArgs = append(applyArgs, terraformArgs.ApplyArgs...)
+		_, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Applying Terraform changes in %s", component.Path), "terraform", applyArgs...)
+		if err != nil {
+			return fmt.Errorf("error running terraform apply for %s: %w", component.Path, err)
 		}
 
 		backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
 		if _, err := s.shims.Stat(backendOverridePath); err == nil {
 			if err := s.shims.Remove(backendOverridePath); err != nil {
-				return fmt.Errorf("error removing backend_override.tf in %s: %v", component.FullPath, err)
+				return fmt.Errorf("error removing backend override file for %s: %w", component.Path, err)
 			}
 		}
 	}
@@ -107,11 +146,10 @@ func (s *WindsorStack) Up() error {
 	return nil
 }
 
-// Down destroys a stack of components by executing Terraform destroy operations in reverse order.
-// It processes components in reverse order, skipping any marked with destroy: false.
-// For each component, it sets up environment variables, runs Terraform init, plan -destroy,
-// and destroy operations, and cleans up backend override files.
-// The method ensures proper directory management and environment setup for each component.
+// Down destroys the stack of components by running Terraform destroy operations.
+// It processes components in reverse order, generating terraform arguments, running
+// Terraform plan with destroy flag, and destroy operations, and cleaning up backend override files.
+// The method ensures proper directory management and terraform argument setup for each component.
 func (s *WindsorStack) Down() error {
 	currentDir, err := s.shims.Getwd()
 	if err != nil {
@@ -127,53 +165,53 @@ func (s *WindsorStack) Down() error {
 	for i := len(components) - 1; i >= 0; i-- {
 		component := components[i]
 
-		if component.Destroy != nil && !*component.Destroy {
+		if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
 			continue
 		}
 
-		if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
-			return fmt.Errorf("directory %s does not exist", component.FullPath)
+		terraformArgs, err := s.terraformEnv.GenerateTerraformArgs(component.Path, component.FullPath)
+		if err != nil {
+			return fmt.Errorf("error generating terraform args for %s: %w", component.Path, err)
 		}
 
-		if err := s.shims.Chdir(component.FullPath); err != nil {
-			return fmt.Errorf("error changing to directory %s: %v", component.FullPath, err)
-		}
-
-		for _, envPrinter := range s.envPrinters {
-			envVars, err := envPrinter.GetEnvVars()
-			if err != nil {
-				return fmt.Errorf("error getting environment variables: %v", err)
+		// Set terraform environment variables (TF_VAR_* and TF_DATA_DIR)
+		// First, unset any existing TF_CLI_ARGS_* environment variables to avoid conflicts
+		tfCliArgsVars := []string{"TF_CLI_ARGS_init", "TF_CLI_ARGS_plan", "TF_CLI_ARGS_apply", "TF_CLI_ARGS_destroy", "TF_CLI_ARGS_import"}
+		for _, envVar := range tfCliArgsVars {
+			if err := s.shims.Unsetenv(envVar); err != nil {
+				return fmt.Errorf("error unsetting %s: %w", envVar, err)
 			}
-			for key, value := range envVars {
+		}
+
+		for key, value := range terraformArgs.TerraformVars {
+			if key == "TF_DATA_DIR" || strings.HasPrefix(key, "TF_VAR_") {
 				if err := s.shims.Setenv(key, value); err != nil {
-					return fmt.Errorf("error setting environment variable %s: %v", key, err)
+					return fmt.Errorf("error setting %s: %w", key, err)
 				}
 			}
-			if err := envPrinter.PostEnvHook(); err != nil {
-				return fmt.Errorf("error running post environment hook: %v", err)
-			}
 		}
 
-		_, err = s.shell.ExecProgress(fmt.Sprintf("🗑️  Initializing Terraform in %s", component.Path), "terraform", "init", "-migrate-state", "-upgrade", "-force-copy")
-		if err != nil {
-			return fmt.Errorf("error initializing Terraform in %s: %w", component.FullPath, err)
+		// Create backend_override.tf file in the component directory
+		if err := s.terraformEnv.PostEnvHook(component.FullPath); err != nil {
+			return fmt.Errorf("error creating backend override file for %s: %w", component.Path, err)
 		}
 
-		_, err = s.shell.ExecProgress(fmt.Sprintf("🗑️  Planning Terraform destruction in %s", component.Path), "terraform", "plan", "-destroy")
-		if err != nil {
-			return fmt.Errorf("error planning Terraform destruction in %s: %w", component.FullPath, err)
+		planArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "plan"}
+		planArgs = append(planArgs, terraformArgs.PlanDestroyArgs...)
+		planArgs = append(planArgs, terraformArgs.BackendConfig)
+		if _, err := s.shell.ExecProgress(fmt.Sprintf("Planning terraform destroy for %s", component.Path), "terraform", planArgs...); err != nil {
+			return fmt.Errorf("error running terraform plan destroy for %s: %w", component.Path, err)
 		}
 
-		_, err = s.shell.ExecProgress(fmt.Sprintf("🗑️  Destroying Terraform resources in %s", component.Path), "terraform", "destroy", "-auto-approve")
-		if err != nil {
-			return fmt.Errorf("error destroying Terraform resources in %s: %w", component.FullPath, err)
+		destroyArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "destroy"}
+		destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
+		destroyArgs = append(destroyArgs, terraformArgs.BackendConfig)
+		if _, err := s.shell.ExecProgress(fmt.Sprintf("Destroying terraform for %s", component.Path), "terraform", destroyArgs...); err != nil {
+			return fmt.Errorf("error running terraform destroy for %s: %w", component.Path, err)
 		}
 
-		backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
-		if _, err := s.shims.Stat(backendOverridePath); err == nil {
-			if err := s.shims.Remove(backendOverridePath); err != nil {
-				return fmt.Errorf("error removing backend_override.tf in %s: %v", component.FullPath, err)
-			}
+		if err := s.shims.Remove(filepath.Join(component.FullPath, "backend_override.tf")); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("error removing backend_override.tf from %s: %w", component.Path, err)
 		}
 	}
 

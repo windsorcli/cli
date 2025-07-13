@@ -4,14 +4,13 @@ package stack
 // It provides a unified interface for initializing and managing infrastructure stacks,
 // with support for dependency injection and component lifecycle management.
 // The Stack acts as the primary orchestrator for infrastructure operations,
-// coordinating shell operations, blueprint handling, and environment configuration.
+// coordinating shell operations and blueprint handling.
 
 import (
 	"fmt"
 
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
@@ -35,7 +34,6 @@ type BaseStack struct {
 	injector         di.Injector
 	blueprintHandler blueprint.BlueprintHandler
 	shell            shell.Shell
-	envPrinters      []env.EnvPrinter
 	shims            *Shims
 }
 
@@ -70,17 +68,6 @@ func (s *BaseStack) Initialize() error {
 		return fmt.Errorf("error resolving blueprintHandler")
 	}
 	s.blueprintHandler = blueprintHandler
-
-	// Resolve the envPrinters
-	envPrinterInstances, err := s.injector.ResolveAll((*env.EnvPrinter)(nil))
-	if err != nil {
-		return fmt.Errorf("error resolving envPrinters: %v", err)
-	}
-	envPrinters := make([]env.EnvPrinter, len(envPrinterInstances))
-	for i, instance := range envPrinterInstances {
-		envPrinters[i], _ = instance.(env.EnvPrinter)
-	}
-	s.envPrinters = envPrinters
 
 	return nil
 }

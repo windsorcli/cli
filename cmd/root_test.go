@@ -112,7 +112,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	mockEnvPrinter.PrintFunc = func() error {
 		return nil
 	}
-	mockEnvPrinter.PostEnvHookFunc = func() error {
+	mockEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
 		return nil
 	}
 	injector.Register("envPrinter", mockEnvPrinter)
@@ -122,7 +122,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	mockWindsorEnvPrinter.PrintFunc = func() error {
 		return nil
 	}
-	mockWindsorEnvPrinter.PostEnvHookFunc = func() error {
+	mockWindsorEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
 		return nil
 	}
 	injector.Register("windsorEnvPrinter", mockWindsorEnvPrinter)
@@ -131,7 +131,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	mockDockerEnvPrinter.PrintFunc = func() error {
 		return nil
 	}
-	mockDockerEnvPrinter.PostEnvHookFunc = func() error {
+	mockDockerEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
 		return nil
 	}
 	injector.Register("dockerEnvPrinter", mockDockerEnvPrinter)
