@@ -76,6 +76,12 @@ func (p *UpPipeline) Initialize(injector di.Injector, ctx context.Context) error
 	}
 	p.envPrinters = envPrinters
 
+	for _, envPrinter := range p.envPrinters {
+		if err := envPrinter.Initialize(); err != nil {
+			return fmt.Errorf("failed to initialize env printer: %w", err)
+		}
+	}
+
 	if p.toolsManager != nil {
 		if err := p.toolsManager.Initialize(); err != nil {
 			return fmt.Errorf("failed to initialize tools manager: %w", err)

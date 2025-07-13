@@ -7,6 +7,7 @@ import (
 
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/network"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
@@ -105,6 +106,15 @@ contexts:
 	mockBlueprintHandler.InstallFunc = func() error { return nil }
 	mockBlueprintHandler.WaitForKustomizationsFunc = func(message string, names ...string) error { return nil }
 	baseMocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
+
+	// Setup terraform env mock
+	mockTerraformEnv := env.NewMockEnvPrinter()
+	mockTerraformEnv.InitializeFunc = func() error { return nil }
+	mockTerraformEnv.GetEnvVarsFunc = func() (map[string]string, error) { return map[string]string{}, nil }
+	baseMocks.Injector.Register("terraformEnv", mockTerraformEnv)
+
+	// Add GetSessionTokenFunc to the existing shell mock
+	baseMocks.Shell.GetSessionTokenFunc = func() (string, error) { return "mock-session-token", nil }
 
 	return &UpMocks{
 		Mocks:            baseMocks,
