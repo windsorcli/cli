@@ -10,8 +10,9 @@ import (
 )
 
 var (
-	cleanFlag   bool
-	skipK8sFlag bool
+	cleanFlag         bool
+	skipK8sFlag       bool
+	skipTerraformFlag bool
 )
 
 var downCmd = &cobra.Command{
@@ -71,8 +72,12 @@ var downCmd = &cobra.Command{
 		if stack == nil {
 			return fmt.Errorf("No stack found")
 		}
-		if err := stack.Down(); err != nil {
-			return fmt.Errorf("Error running stack Down command: %w", err)
+		if !skipTerraformFlag {
+			if err := stack.Down(); err != nil {
+				return fmt.Errorf("Error running stack Down command: %w", err)
+			}
+		} else {
+			fmt.Fprintln(os.Stderr, "Skipping Terraform cleanup (--skip-tf set)")
 		}
 
 		// Determine if the container runtime is enabled
@@ -107,6 +112,24 @@ var downCmd = &cobra.Command{
 			if err := shims.RemoveAll(volumesPath); err != nil {
 				return fmt.Errorf("Error deleting .volumes folder: %w", err)
 			}
+
+			// Delete the .windsor/.tf_modules folder
+			tfModulesPath := filepath.Join(projectRoot, ".windsor", ".tf_modules")
+			if err := shims.RemoveAll(tfModulesPath); err != nil {
+				return fmt.Errorf("Error deleting .windsor/.tf_modules folder: %w", err)
+			}
+
+			// Delete .windsor/Corefile
+			corefilePath := filepath.Join(projectRoot, ".windsor", "Corefile")
+			if err := shims.RemoveAll(corefilePath); err != nil {
+				return fmt.Errorf("Error deleting .windsor/Corefile: %w", err)
+			}
+
+			// Delete .windsor/docker-compose.yaml
+			dockerComposePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
+			if err := shims.RemoveAll(dockerComposePath); err != nil {
+				return fmt.Errorf("Error deleting .windsor/docker-compose.yaml: %w", err)
+			}
 		}
 
 		// Print success message
@@ -119,5 +142,6 @@ var downCmd = &cobra.Command{
 func init() {
 	downCmd.Flags().BoolVar(&cleanFlag, "clean", false, "Clean up context specific artifacts")
 	downCmd.Flags().BoolVar(&skipK8sFlag, "skip-k8s", false, "Skip Kubernetes cleanup (blueprint cleanup)")
+	downCmd.Flags().BoolVar(&skipTerraformFlag, "skip-tf", false, "Skip Terraform cleanup")
 	rootCmd.AddCommand(downCmd)
 }

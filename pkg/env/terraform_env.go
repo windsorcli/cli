@@ -215,7 +215,7 @@ func (e *TerraformEnvPrinter) generateBackendOverrideTf(directory ...string) err
 		}
 	}
 
-	projectPath, err := e.findRelativeTerraformProjectPath()
+	projectPath, err := e.findRelativeTerraformProjectPath(directory...)
 	if err != nil {
 		return fmt.Errorf("error finding project path: %w", err)
 	}
@@ -422,14 +422,18 @@ var sanitizeForK8s = func(input string) string {
 }
 
 // findRelativeTerraformProjectPath locates the Terraform project path by checking the current
-// directory and its ancestors for Terraform files, returning the relative path if found.
-func (e *TerraformEnvPrinter) findRelativeTerraformProjectPath() (string, error) {
-	currentPath, err := e.shims.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("error getting current directory: %w", err)
+// directory (or provided directory) and its ancestors for Terraform files, returning the relative path if found.
+func (e *TerraformEnvPrinter) findRelativeTerraformProjectPath(directory ...string) (string, error) {
+	var currentPath string
+	if len(directory) > 0 {
+		currentPath = filepath.Clean(directory[0])
+	} else {
+		var err error
+		currentPath, err = e.shims.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("error getting current directory: %w", err)
+		}
 	}
-
-	currentPath = filepath.Clean(currentPath)
 
 	globPattern := filepath.Join(currentPath, "*.tf")
 	matches, err := e.shims.Glob(globPattern)

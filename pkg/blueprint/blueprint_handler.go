@@ -398,17 +398,16 @@ func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir, templateRoot
 	return nil
 }
 
-// Down orchestrates the controlled teardown of all kustomizations and their associated resources.
-// It follows a specific sequence to ensure safe deletion:
-// 1. Suspends all kustomizations and their associated helmreleases to prevent reconciliation
-// 2. Applies cleanup kustomizations if defined, which handle resource cleanup tasks
-// 3. Waits for cleanup kustomizations to complete their operations
-// 4. Deletes main kustomizations in reverse dependency order
-// 5. Deletes cleanup kustomizations and their namespace
+// Down orchestrates the teardown of all kustomizations and associated resources, skipping "not found" errors.
+// Sequence:
+// 1. Suspend all kustomizations and associated helmreleases to prevent reconciliation (ignoring not found errors)
+// 2. Apply cleanup kustomizations if defined for resource cleanup tasks
+// 3. Wait for cleanup kustomizations to complete
+// 4. Delete main kustomizations in reverse dependency order, skipping not found errors
+// 5. Delete cleanup kustomizations and their namespace, skipping not found errors
 //
-// The function handles dependency resolution through topological sorting to ensure
-// resources are deleted in the correct order. It also manages a dedicated cleanup
-// namespace for cleanup kustomizations when needed.
+// Dependency resolution is handled via topological sorting to ensure correct deletion order.
+// A dedicated cleanup namespace is managed for cleanup kustomizations when required.
 func (b *BaseBlueprintHandler) Down() error {
 	kustomizations := b.getKustomizations()
 	if len(kustomizations) == 0 {
@@ -470,9 +469,11 @@ func (b *BaseBlueprintHandler) Down() error {
 		k := nameToK[name]
 
 		if err := b.kubernetesManager.SuspendKustomization(k.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
-			return fmt.Errorf("failed to suspend kustomization %s: %w", k.Name, err)
+			if !isNotFoundError(err) {
+				spin.Stop()
+				fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
+				return fmt.Errorf("failed to suspend kustomization %s: %w", k.Name, err)
+			}
 		}
 
 		helmReleases, err := b.kubernetesManager.GetHelmReleasesForKustomization(k.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)
@@ -484,9 +485,11 @@ func (b *BaseBlueprintHandler) Down() error {
 
 		for _, hr := range helmReleases {
 			if err := b.kubernetesManager.SuspendHelmRelease(hr.Name, hr.Namespace); err != nil {
-				spin.Stop()
-				fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
-				return fmt.Errorf("failed to suspend helmrelease %s in namespace %s: %w", hr.Name, hr.Namespace, err)
+				if !isNotFoundError(err) {
+					spin.Stop()
+					fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
+					return fmt.Errorf("failed to suspend helmrelease %s in namespace %s: %w", hr.Name, hr.Namespace, err)
+				}
 			}
 		}
 	}
@@ -1341,4 +1344,19 @@ func (b *BaseBlueprintHandler) isOCISource(sourceNameOrURL string) bool {
 	}
 
 	return false
+}
+
+// isNotFoundError checks if an error is a Kubernetes resource not found error
+// This is used during cleanup to ignore errors when resources don't exist
+func isNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errMsg := strings.ToLower(err.Error())
+	// Check for resource not found errors, but not namespace not found errors
+	return (strings.Contains(errMsg, "resource not found") ||
+		strings.Contains(errMsg, "could not find the requested resource") ||
+		strings.Contains(errMsg, "the server could not find the requested resource")) &&
+		!strings.Contains(errMsg, "namespace not found")
 }

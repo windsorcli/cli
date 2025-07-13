@@ -941,6 +941,65 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 			t.Errorf("Expected error message to contain 'error removing backend_override.tf', got %v", err)
 		}
 	})
+
+	t.Run("WithSpecificDirectory", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with mock configuration
+		printer, mocks := setup(t)
+
+		// Track which directory was used for finding terraform files
+		var usedDirectory string
+		originalGlob := mocks.Shims.Glob
+		mocks.Shims.Glob = func(pattern string) ([]string, error) {
+			// Extract the directory from the pattern
+			if strings.Contains(pattern, "*.tf") {
+				usedDirectory = filepath.Dir(pattern)
+				// Return terraform files in the specified directory
+				return []string{
+					filepath.Join(usedDirectory, "file1.tf"),
+					filepath.Join(usedDirectory, "file2.tf"),
+				}, nil
+			}
+			return originalGlob(pattern)
+		}
+
+		// Mock WriteFile to capture the output
+		var writtenData []byte
+		var writtenPath string
+		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
+			writtenData = data
+			writtenPath = filename
+			return nil
+		}
+
+		// Specify a custom directory
+		customDir := filepath.Join("custom", "terraform", "module", "path")
+
+		// When generateBackendOverrideTf is called with a specific directory
+		err := printer.generateBackendOverrideTf(customDir)
+
+		// Then no error should occur and the custom directory should be used
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify that the custom directory was used for finding terraform files
+		if !strings.Contains(usedDirectory, customDir) {
+			t.Errorf("Expected directory %q to be used, but got %q", customDir, usedDirectory)
+		}
+
+		// Verify that the backend_override.tf file is written to the custom directory
+		if !strings.Contains(writtenPath, customDir) {
+			t.Errorf("Expected backend_override.tf to be written to %q, but got %q", customDir, writtenPath)
+		}
+
+		// Verify the content is correct
+		expectedContent := `terraform {
+  backend "local" {}
+}`
+		if string(writtenData) != expectedContent {
+			t.Errorf("Expected backend config %q, got %q", expectedContent, string(writtenData))
+		}
+	})
 }
 
 func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
