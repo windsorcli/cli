@@ -27,9 +27,6 @@ var envCmd = &cobra.Command{
 		if decrypt {
 			ctx = context.WithValue(ctx, "decrypt", true)
 		}
-		if verbose {
-			ctx = context.WithValue(ctx, "verbose", true)
-		}
 		if hook {
 			ctx = context.WithValue(ctx, "hook", true)
 		}

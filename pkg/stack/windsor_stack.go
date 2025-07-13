@@ -125,7 +125,7 @@ func (s *WindsorStack) Up() error {
 		// This is tolerant of failures for non-existent state
 		refreshArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "refresh"}
 		refreshArgs = append(refreshArgs, terraformArgs.RefreshArgs...)
-		_, _ = s.shell.ExecProgress(fmt.Sprintf("🔄  Refreshing Terraform state in %s", component.Path), "terraform", refreshArgs...)
+		_, _ = s.shell.ExecProgress(fmt.Sprintf("🔄 Refreshing Terraform state in %s", component.Path), "terraform", refreshArgs...)
 
 		planArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "plan"}
 		planArgs = append(planArgs, terraformArgs.PlanArgs...)
@@ -205,7 +205,7 @@ func (s *WindsorStack) Down() error {
 
 		refreshArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "refresh"}
 		refreshArgs = append(refreshArgs, terraformArgs.RefreshArgs...)
-		_, _ = s.shell.ExecProgress(fmt.Sprintf("🔄  Refreshing Terraform state in %s", component.Path), "terraform", refreshArgs...)
+		_, _ = s.shell.ExecProgress(fmt.Sprintf("🔄 Refreshing Terraform state in %s", component.Path), "terraform", refreshArgs...)
 
 		planArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "plan"}
 		planArgs = append(planArgs, terraformArgs.PlanDestroyArgs...)
