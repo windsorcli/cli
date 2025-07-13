@@ -121,6 +121,12 @@ func (s *WindsorStack) Up() error {
 			return fmt.Errorf("error running terraform init for %s: %w", component.Path, err)
 		}
 
+		// Run terraform refresh to sync state with actual infrastructure
+		// This is tolerant of failures for non-existent state
+		refreshArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "refresh"}
+		refreshArgs = append(refreshArgs, terraformArgs.RefreshArgs...)
+		_, _ = s.shell.ExecProgress(fmt.Sprintf("🔄  Refreshing Terraform state in %s", component.Path), "terraform", refreshArgs...)
+
 		planArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "plan"}
 		planArgs = append(planArgs, terraformArgs.PlanArgs...)
 		_, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Planning Terraform changes in %s", component.Path), "terraform", planArgs...)
@@ -146,10 +152,10 @@ func (s *WindsorStack) Up() error {
 	return nil
 }
 
-// Down destroys the stack of components by running Terraform destroy operations.
-// It processes components in reverse order, generating terraform arguments, running
-// Terraform plan with destroy flag, and destroy operations, and cleaning up backend override files.
-// The method ensures proper directory management and terraform argument setup for each component.
+// Down destroys all Terraform components in the stack by executing Terraform destroy operations in reverse dependency order.
+// For each component, Down generates Terraform arguments, sets required environment variables, unsets conflicting TF_CLI_ARGS_* variables,
+// creates backend override files, runs Terraform refresh, plan (with destroy flag), and destroy commands, and removes backend override files.
+// Components with Destroy set to false are skipped. Directory state is restored after execution. Errors are returned on any operation failure.
 func (s *WindsorStack) Down() error {
 	currentDir, err := s.shims.Getwd()
 	if err != nil {
@@ -165,6 +171,10 @@ func (s *WindsorStack) Down() error {
 	for i := len(components) - 1; i >= 0; i-- {
 		component := components[i]
 
+		if component.Destroy != nil && !*component.Destroy {
+			continue
+		}
+
 		if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
 			continue
 		}
@@ -174,8 +184,6 @@ func (s *WindsorStack) Down() error {
 			return fmt.Errorf("error generating terraform args for %s: %w", component.Path, err)
 		}
 
-		// Set terraform environment variables (TF_VAR_* and TF_DATA_DIR)
-		// First, unset any existing TF_CLI_ARGS_* environment variables to avoid conflicts
 		tfCliArgsVars := []string{"TF_CLI_ARGS_init", "TF_CLI_ARGS_plan", "TF_CLI_ARGS_apply", "TF_CLI_ARGS_destroy", "TF_CLI_ARGS_import"}
 		for _, envVar := range tfCliArgsVars {
 			if err := s.shims.Unsetenv(envVar); err != nil {
@@ -191,20 +199,23 @@ func (s *WindsorStack) Down() error {
 			}
 		}
 
-		// Create backend_override.tf file in the component directory
 		if err := s.terraformEnv.PostEnvHook(component.FullPath); err != nil {
 			return fmt.Errorf("error creating backend override file for %s: %w", component.Path, err)
 		}
 
+		refreshArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "refresh"}
+		refreshArgs = append(refreshArgs, terraformArgs.RefreshArgs...)
+		_, _ = s.shell.ExecProgress(fmt.Sprintf("🔄  Refreshing Terraform state in %s", component.Path), "terraform", refreshArgs...)
+
 		planArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "plan"}
 		planArgs = append(planArgs, terraformArgs.PlanDestroyArgs...)
-		if _, err := s.shell.ExecProgress(fmt.Sprintf("🗑️ Planning terraform destroy for %s", component.Path), "terraform", planArgs...); err != nil {
+		if _, err := s.shell.ExecProgress(fmt.Sprintf("🗑️  Planning terraform destroy for %s", component.Path), "terraform", planArgs...); err != nil {
 			return fmt.Errorf("error running terraform plan destroy for %s: %w", component.Path, err)
 		}
 
 		destroyArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "destroy"}
 		destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
-		if _, err := s.shell.ExecProgress(fmt.Sprintf("🗑️ Destroying terraform for %s", component.Path), "terraform", destroyArgs...); err != nil {
+		if _, err := s.shell.ExecProgress(fmt.Sprintf("🗑️  Destroying terraform for %s", component.Path), "terraform", destroyArgs...); err != nil {
 			return fmt.Errorf("error running terraform destroy for %s: %w", component.Path, err)
 		}
 

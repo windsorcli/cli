@@ -392,6 +392,64 @@ func TestWindsorStack_Down(t *testing.T) {
 		}
 	})
 
+	t.Run("SkipComponentsWithDestroyFalse", func(t *testing.T) {
+		stack, mocks := setup(t)
+
+		// Set up components with one having destroy: false
+		destroyFalse := false
+		mocks.Blueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Source:   "source1",
+					Path:     "module/path1",
+					FullPath: filepath.Join(os.Getenv("WINDSOR_PROJECT_ROOT"), ".windsor", ".tf_modules", "remote", "path1"),
+					Destroy:  &destroyFalse, // This component should be skipped
+				},
+				{
+					Source:   "source2",
+					Path:     "module/path2",
+					FullPath: filepath.Join(os.Getenv("WINDSOR_PROJECT_ROOT"), ".windsor", ".tf_modules", "remote", "path2"),
+					// Destroy defaults to true, so this should be destroyed
+				},
+			}
+		}
+
+		// Track terraform commands executed
+		var terraformCommands []string
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 {
+				terraformCommands = append(terraformCommands, fmt.Sprintf("%s %s", args[0], args[1]))
+			}
+			return "", nil
+		}
+
+		// When Down is called
+		if err := stack.Down(); err != nil {
+			t.Errorf("Expected Down to return nil, got %v", err)
+		}
+
+		// Then only the component without destroy: false should be destroyed
+		// We should see terraform commands for path2 but not path1
+		foundPath1Commands := false
+		foundPath2Commands := false
+
+		for _, cmd := range terraformCommands {
+			if strings.Contains(cmd, "path1") {
+				foundPath1Commands = true
+			}
+			if strings.Contains(cmd, "path2") {
+				foundPath2Commands = true
+			}
+		}
+
+		if foundPath1Commands {
+			t.Errorf("Expected no terraform commands for path1 (destroy: false), but found commands")
+		}
+		if !foundPath2Commands {
+			t.Errorf("Expected terraform commands for path2 (destroy: true), but found none")
+		}
+	})
+
 	t.Run("ErrorRunningTerraformDestroy", func(t *testing.T) {
 		stack, mocks := setup(t)
 		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
