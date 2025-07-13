@@ -121,7 +121,11 @@ func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) erro
 		Resource: "kustomizations",
 	}
 
-	return k.client.DeleteResource(gvr, namespace, name, metav1.DeleteOptions{})
+	err := k.client.DeleteResource(gvr, namespace, name, metav1.DeleteOptions{})
+	if err != nil && isNotFoundError(err) {
+		return nil
+	}
+	return err
 }
 
 // WaitForKustomizations waits for kustomizations to be ready
@@ -284,6 +288,9 @@ func (k *BaseKubernetesManager) GetHelmReleasesForKustomization(name, namespace 
 
 	obj, err := k.client.GetResource(gvr, namespace, name)
 	if err != nil {
+		if isNotFoundError(err) {
+			return []helmv2.HelmRelease{}, nil
+		}
 		return nil, fmt.Errorf("failed to get kustomization: %w", err)
 	}
 
@@ -311,7 +318,7 @@ func (k *BaseKubernetesManager) GetHelmReleasesForKustomization(name, namespace 
 	return helmReleases, nil
 }
 
-// SuspendKustomization suspends a Kustomization using a JSON merge patch
+// SuspendKustomization applies a JSON merge patch to set spec.suspend=true on the specified Kustomization.
 func (k *BaseKubernetesManager) SuspendKustomization(name, namespace string) error {
 	gvr := schema.GroupVersionResource{
 		Group:    "kustomize.toolkit.fluxcd.io",
@@ -323,10 +330,11 @@ func (k *BaseKubernetesManager) SuspendKustomization(name, namespace string) err
 	_, err := k.client.PatchResource(gvr, namespace, name, types.MergePatchType, patch, metav1.PatchOptions{
 		FieldManager: "windsor-cli",
 	})
+
 	return err
 }
 
-// SuspendHelmRelease suspends a Flux HelmRelease using SSA
+// SuspendHelmRelease applies a JSON merge patch to set spec.suspend=true on the specified HelmRelease.
 func (k *BaseKubernetesManager) SuspendHelmRelease(name, namespace string) error {
 	gvr := schema.GroupVersionResource{
 		Group:    "helm.toolkit.fluxcd.io",
@@ -338,6 +346,7 @@ func (k *BaseKubernetesManager) SuspendHelmRelease(name, namespace string) error
 	_, err := k.client.PatchResource(gvr, namespace, name, types.MergePatchType, patch, metav1.PatchOptions{
 		FieldManager: "windsor-cli",
 	})
+
 	return err
 }
 
@@ -642,4 +651,19 @@ func isImmutableConfigMap(obj *unstructured.Unstructured) bool {
 
 	immutable, ok := spec["immutable"].(bool)
 	return ok && immutable
+}
+
+// isNotFoundError checks if an error is a Kubernetes resource not found error
+// This is used during cleanup to ignore errors when resources don't exist
+func isNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errMsg := strings.ToLower(err.Error())
+	// Check for resource not found errors, but not namespace not found errors
+	return (strings.Contains(errMsg, "resource not found") ||
+		strings.Contains(errMsg, "could not find the requested resource") ||
+		strings.Contains(errMsg, "the server could not find the requested resource")) &&
+		!strings.Contains(errMsg, "namespace not found")
 }
