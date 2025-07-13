@@ -20,6 +20,20 @@ import (
 // Types
 // =============================================================================
 
+// TerraformArgs contains the generated terraform arguments and environment variables
+type TerraformArgs struct {
+	ModulePath      string
+	TFDataDir       string
+	InitArgs        []string
+	PlanArgs        []string
+	ApplyArgs       []string
+	ImportArgs      []string
+	DestroyArgs     []string
+	PlanDestroyArgs []string
+	TerraformVars   map[string]string
+	BackendConfig   string
+}
+
 // TerraformEnvPrinter is a struct that implements Terraform environment configuration
 type TerraformEnvPrinter struct {
 	BaseEnvPrinter
@@ -48,11 +62,6 @@ func NewTerraformEnvPrinter(injector di.Injector) *TerraformEnvPrinter {
 func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
-	configRoot, err := e.configHandler.GetConfigRoot()
-	if err != nil {
-		return nil, fmt.Errorf("error getting config root: %w", err)
-	}
-
 	projectPath, err := e.findRelativeTerraformProjectPath()
 	if err != nil {
 		return nil, fmt.Errorf("error finding project path: %w", err)
@@ -80,61 +89,17 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 		return envVars, nil
 	}
 
-	patterns := []string{
-		filepath.Join(configRoot, "terraform", projectPath+".tfvars"),
-		filepath.Join(configRoot, "terraform", projectPath+".tfvars.json"),
-		filepath.Join(configRoot, "terraform", projectPath+"_generated.tfvars"),
-		filepath.Join(configRoot, "terraform", projectPath+"_generated.tfvars.json"),
-	}
-
-	var varFileArgs []string
-	for _, pattern := range patterns {
-		if _, err := e.shims.Stat(filepath.FromSlash(pattern)); err != nil {
-			if !os.IsNotExist(err) {
-				return nil, fmt.Errorf("error checking file: %w", err)
-			}
-		} else {
-			// Convert back to slash format for environment variable
-			slashPath := filepath.ToSlash(pattern)
-			varFileArgs = append(varFileArgs, fmt.Sprintf("-var-file=\"%s\"", slashPath))
-		}
-	}
-
-	tfDataDir := filepath.ToSlash(filepath.Join(configRoot, ".terraform", projectPath))
-	tfPlanPath := filepath.ToSlash(filepath.Join(tfDataDir, "terraform.tfplan"))
-
-	backendConfigArgs, err := e.generateBackendConfigArgs(projectPath, configRoot)
+	terraformArgs, err := e.GenerateTerraformArgs(projectPath, projectPath)
 	if err != nil {
-		return nil, fmt.Errorf("error generating backend config args: %w", err)
+		return nil, fmt.Errorf("error generating terraform args: %w", err)
 	}
 
-	initArgs := []string{
-		"-backend=true",
-		strings.Join(backendConfigArgs, " "),
-	}
-
-	envVars["TF_DATA_DIR"] = strings.TrimSpace(tfDataDir)
-	envVars["TF_CLI_ARGS_init"] = strings.TrimSpace(strings.Join(initArgs, " "))
-	envVars["TF_CLI_ARGS_plan"] = strings.TrimSpace(fmt.Sprintf("-out=\"%s\" %s", tfPlanPath, strings.Join(varFileArgs, " ")))
-	envVars["TF_CLI_ARGS_apply"] = strings.TrimSpace(fmt.Sprintf("\"%s\"", tfPlanPath))
-	envVars["TF_CLI_ARGS_import"] = strings.TrimSpace(strings.Join(varFileArgs, " "))
-	envVars["TF_CLI_ARGS_destroy"] = strings.TrimSpace(strings.Join(varFileArgs, " "))
-	envVars["TF_VAR_context_path"] = strings.TrimSpace(filepath.ToSlash(configRoot))
-	envVars["TF_VAR_context_id"] = strings.TrimSpace(e.configHandler.GetString("id", ""))
-
-	// Set os_type based on the OS
-	if e.shims.Goos() == "windows" {
-		envVars["TF_VAR_os_type"] = "windows"
-	} else {
-		envVars["TF_VAR_os_type"] = "unix"
-	}
-
-	return envVars, nil
+	return terraformArgs.TerraformVars, nil
 }
 
 // PostEnvHook executes operations after setting the environment variables.
-func (e *TerraformEnvPrinter) PostEnvHook() error {
-	return e.generateBackendOverrideTf()
+func (e *TerraformEnvPrinter) PostEnvHook(directory ...string) error {
+	return e.generateBackendOverrideTf(directory...)
 }
 
 // Print outputs the environment variables for the Terraform environment.
@@ -146,16 +111,108 @@ func (e *TerraformEnvPrinter) Print() error {
 	return e.BaseEnvPrinter.Print(envVars)
 }
 
+// GenerateTerraformArgs generates the Terraform arguments for a given project.
+func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath string) (*TerraformArgs, error) {
+	configRoot, err := e.configHandler.GetConfigRoot()
+	if err != nil {
+		return nil, fmt.Errorf("error getting config root: %w", err)
+	}
+
+	patterns := []string{
+		filepath.Join(configRoot, "terraform", projectPath+".tfvars"),
+		filepath.Join(configRoot, "terraform", projectPath+".tfvars.json"),
+		filepath.Join(configRoot, "terraform", projectPath+"_generated.tfvars"),
+		filepath.Join(configRoot, "terraform", projectPath+"_generated.tfvars.json"),
+	}
+
+	var varFileArgs []string
+	var varFileArgsForEnv []string
+	for _, pattern := range patterns {
+		if _, err := e.shims.Stat(filepath.FromSlash(pattern)); err != nil {
+			if !os.IsNotExist(err) {
+				return nil, fmt.Errorf("error checking file: %w", err)
+			}
+		} else {
+			slashPath := filepath.ToSlash(pattern)
+			varFileArgs = append(varFileArgs, fmt.Sprintf("-var-file=%s", slashPath))
+			varFileArgsForEnv = append(varFileArgsForEnv, fmt.Sprintf("-var-file=\"%s\"", slashPath))
+		}
+	}
+
+	tfDataDir := filepath.ToSlash(filepath.Join(configRoot, ".terraform", projectPath))
+	tfPlanPath := filepath.ToSlash(filepath.Join(tfDataDir, "terraform.tfplan"))
+
+	backendConfigArgs, err := e.generateBackendConfigArgs(projectPath, configRoot, false)
+	if err != nil {
+		return nil, fmt.Errorf("error generating backend config args: %w", err)
+	}
+
+	backendConfigArgsForEnv, err := e.generateBackendConfigArgsForEnv(projectPath, configRoot)
+	if err != nil {
+		return nil, fmt.Errorf("error generating backend config args for env: %w", err)
+	}
+
+	initArgs := []string{"-backend=true"}
+	initArgs = append(initArgs, backendConfigArgs...)
+
+	planArgs := []string{fmt.Sprintf("-out=%s", tfPlanPath)}
+	planArgs = append(planArgs, varFileArgs...)
+
+	applyArgs := []string{tfPlanPath}
+
+	planDestroyArgs := []string{"-destroy"}
+	planDestroyArgs = append(planDestroyArgs, varFileArgs...)
+
+	destroyArgs := []string{"-auto-approve"}
+	destroyArgs = append(destroyArgs, varFileArgs...)
+
+	terraformVars := make(map[string]string)
+	terraformVars["TF_DATA_DIR"] = strings.TrimSpace(tfDataDir)
+	terraformVars["TF_CLI_ARGS_init"] = strings.TrimSpace(fmt.Sprintf("-backend=true %s", strings.Join(backendConfigArgsForEnv, " ")))
+	terraformVars["TF_CLI_ARGS_plan"] = strings.TrimSpace(fmt.Sprintf("-out=\"%s\" %s", tfPlanPath, strings.Join(varFileArgsForEnv, " ")))
+	terraformVars["TF_CLI_ARGS_apply"] = strings.TrimSpace(fmt.Sprintf("\"%s\"", tfPlanPath))
+	terraformVars["TF_CLI_ARGS_import"] = strings.TrimSpace(strings.Join(varFileArgsForEnv, " "))
+	terraformVars["TF_CLI_ARGS_destroy"] = strings.TrimSpace(strings.Join(varFileArgsForEnv, " "))
+	terraformVars["TF_VAR_context_path"] = strings.TrimSpace(filepath.ToSlash(configRoot))
+	terraformVars["TF_VAR_context_id"] = strings.TrimSpace(e.configHandler.GetString("id", ""))
+
+	// Set os_type based on the OS
+	if e.shims.Goos() == "windows" {
+		terraformVars["TF_VAR_os_type"] = "windows"
+	} else {
+		terraformVars["TF_VAR_os_type"] = "unix"
+	}
+
+	return &TerraformArgs{
+		ModulePath:      modulePath,
+		TFDataDir:       strings.TrimSpace(tfDataDir),
+		InitArgs:        initArgs,
+		PlanArgs:        planArgs,
+		ApplyArgs:       applyArgs,
+		ImportArgs:      varFileArgs,
+		DestroyArgs:     destroyArgs,
+		PlanDestroyArgs: planDestroyArgs,
+		TerraformVars:   terraformVars,
+		BackendConfig:   strings.Join(backendConfigArgs, " "),
+	}, nil
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================
 
 // generateBackendOverrideTf creates the backend_override.tf file for the project by determining
 // the backend type and writing the appropriate configuration to the file.
-func (e *TerraformEnvPrinter) generateBackendOverrideTf() error {
-	currentPath, err := e.shims.Getwd()
-	if err != nil {
-		return fmt.Errorf("error getting current directory: %w", err)
+func (e *TerraformEnvPrinter) generateBackendOverrideTf(directory ...string) error {
+	var currentPath string
+	if len(directory) > 0 {
+		currentPath = filepath.Clean(directory[0])
+	} else {
+		var err error
+		currentPath, err = e.shims.Getwd()
+		if err != nil {
+			return fmt.Errorf("error getting current directory: %w", err)
+		}
 	}
 
 	projectPath, err := e.findRelativeTerraformProjectPath()
@@ -208,24 +265,33 @@ func (e *TerraformEnvPrinter) generateBackendOverrideTf() error {
 	return nil
 }
 
-// generateBackendConfigArgs constructs backend config args for terraform init.
+// generateBackendConfigArgs constructs backend config args for terraform commands.
 // It reads the backend type from the config and adds relevant key-value pairs.
-// The function supports local, s3, and kubernetes backends.
+// The function supports local, s3, kubernetes, and azurerm backends.
 // It also includes backend.tfvars if present in the context directory.
-func (e *TerraformEnvPrinter) generateBackendConfigArgs(projectPath, configRoot string) ([]string, error) {
+// The forEnvVar parameter controls whether the arguments are quoted for environment variables.
+func (e *TerraformEnvPrinter) generateBackendConfigArgs(projectPath, configRoot string, forEnvVar bool) ([]string, error) {
 	var backendConfigArgs []string
 	backend := e.configHandler.GetString("terraform.backend.type", "local")
 
 	addBackendConfigArg := func(key, value string) {
 		if value != "" {
-			backendConfigArgs = append(backendConfigArgs, fmt.Sprintf("-backend-config=\"%s=%s\"", key, filepath.ToSlash(value)))
+			if forEnvVar {
+				backendConfigArgs = append(backendConfigArgs, fmt.Sprintf("-backend-config=\"%s=%s\"", key, filepath.ToSlash(value)))
+			} else {
+				backendConfigArgs = append(backendConfigArgs, fmt.Sprintf("-backend-config=%s=%s", key, filepath.ToSlash(value)))
+			}
 		}
 	}
 
 	if context := e.configHandler.GetContext(); context != "" {
 		backendTfvarsPath := filepath.Join(configRoot, "terraform", "backend.tfvars")
 		if _, err := e.shims.Stat(backendTfvarsPath); err == nil {
-			backendConfigArgs = append(backendConfigArgs, fmt.Sprintf("-backend-config=\"%s\"", filepath.ToSlash(backendTfvarsPath)))
+			if forEnvVar {
+				backendConfigArgs = append(backendConfigArgs, fmt.Sprintf("-backend-config=\"%s\"", filepath.ToSlash(backendTfvarsPath)))
+			} else {
+				backendConfigArgs = append(backendConfigArgs, fmt.Sprintf("-backend-config=%s", filepath.ToSlash(backendTfvarsPath)))
+			}
 		}
 	}
 
@@ -272,6 +338,12 @@ func (e *TerraformEnvPrinter) generateBackendConfigArgs(projectPath, configRoot 
 	}
 
 	return backendConfigArgs, nil
+}
+
+// generateBackendConfigArgsForEnv constructs backend config args for terraform environment variables.
+// This is a convenience wrapper around generateBackendConfigArgs with forEnvVar=true.
+func (e *TerraformEnvPrinter) generateBackendConfigArgsForEnv(projectPath, configRoot string) ([]string, error) {
+	return e.generateBackendConfigArgs(projectPath, configRoot, true)
 }
 
 // processBackendConfig processes the backend config and adds the key-value pairs to the backend config args.

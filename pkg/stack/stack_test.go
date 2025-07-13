@@ -6,7 +6,6 @@ package stack
 // verifying error handling, mock interactions, and infrastructure state management.
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,7 +15,6 @@ import (
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
@@ -28,7 +26,6 @@ type Mocks struct {
 	Injector      di.Injector
 	ConfigHandler config.ConfigHandler
 	Shell         *shell.MockShell
-	EnvPrinter    *env.MockEnvPrinter
 	Blueprint     *blueprint.MockBlueprintHandler
 	Shims         *Shims
 }
@@ -74,14 +71,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	// Create mock shell
 	mockShell := shell.NewMockShell()
 
-	// Create mock env printer
-	mockEnvPrinter := env.NewMockEnvPrinter()
-	mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
-		return map[string]string{
-			"MOCK_ENV_VAR": "mock_value",
-		}, nil
-	}
-
 	// Create mock blueprint handler
 	mockBlueprint := blueprint.NewMockBlueprintHandler(injector)
 	mockBlueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
@@ -108,7 +97,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	// Register dependencies
 	injector.Register("shell", mockShell)
 	injector.Register("blueprintHandler", mockBlueprint)
-	injector.Register("envPrinter", mockEnvPrinter)
 
 	// Create config handler
 	var configHandler config.ConfigHandler
@@ -179,7 +167,6 @@ contexts:
 		Injector:      injector,
 		ConfigHandler: configHandler,
 		Shell:         mockShell,
-		EnvPrinter:    mockEnvPrinter,
 		Blueprint:     mockBlueprint,
 		Shims:         shims,
 	}
@@ -262,30 +249,6 @@ func TestStack_Initialize(t *testing.T) {
 		// Then an error should occur
 		if err := stack.Initialize(); err == nil {
 			t.Errorf("Expected Initialize to return an error")
-		}
-	})
-
-	t.Run("ErrorResolvingEnvPrinters", func(t *testing.T) {
-		// Given safe mock components with a resolve all error
-		mockInjector := di.NewMockInjector()
-		mockInjector.SetResolveAllError((*env.EnvPrinter)(nil), fmt.Errorf("mock error resolving envPrinters"))
-		opts := &SetupOptions{
-			Injector: mockInjector,
-		}
-		mocks := setupMocks(t, opts)
-
-		// When a new BaseStack is initialized
-		stack := NewBaseStack(mocks.Injector)
-		err := stack.Initialize()
-
-		// Then an error should occur
-		if err == nil {
-			t.Errorf("Expected Initialize to return an error")
-		} else {
-			expectedError := "error resolving envPrinters"
-			if !strings.Contains(err.Error(), expectedError) {
-				t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
-			}
 		}
 	})
 }
