@@ -192,6 +192,9 @@ func (p *UpPipeline) Execute(ctx context.Context) error {
 	}
 
 	// Bring up the stack
+	if p.stack == nil {
+		return fmt.Errorf("No stack found")
+	}
 	if err := p.stack.Up(); err != nil {
 		return fmt.Errorf("Error running stack Up command: %w", err)
 	}
