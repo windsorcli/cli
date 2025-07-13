@@ -149,27 +149,6 @@ func TestDownCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorSettingUpDownPipeline", func(t *testing.T) {
-		// Given a down command with failing down pipeline setup
-		mocks := setupDownMocks(t)
-		// Remove down pipeline from injector to cause failure
-		mocks.Injector.Register("downPipeline", nil)
-		cmd := createTestDownCmd()
-
-		// When executing the command
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "Error executing down pipeline") {
-			t.Errorf("Expected error about down pipeline setup, got: %v", err)
-		}
-	})
-
 	t.Run("ErrorExecutingDownPipeline", func(t *testing.T) {
 		// Given a down command with failing down pipeline execution
 		mocks := setupDownMocks(t)

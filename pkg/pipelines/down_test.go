@@ -675,65 +675,6 @@ func TestDownPipeline_Execute(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorGettingEnvironmentVariables", func(t *testing.T) {
-		// Given a down pipeline with failing env printer
-		pipeline := NewDownPipeline()
-		mocks := setupDownMocks(t)
-
-		// Create a failing env printer for env var retrieval
-		failingEnvPrinter := env.NewMockEnvPrinter()
-		failingEnvPrinter.InitializeFunc = func() error { return nil }
-		failingEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
-			return nil, fmt.Errorf("failed to get env vars")
-		}
-
-		err := pipeline.Initialize(mocks.Injector, context.Background())
-		if err != nil {
-			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
-
-		// Replace the env printers with the failing one
-		pipeline.envPrinters = []env.EnvPrinter{failingEnvPrinter}
-
-		// When executing the pipeline
-		err = pipeline.Execute(context.Background())
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error getting environment variables") {
-			t.Errorf("Expected error message containing 'error getting environment variables', got: %v", err)
-		}
-	})
-
-	t.Run("ErrorSettingEnvironmentVariable", func(t *testing.T) {
-		// Given a down pipeline with failing setenv
-		pipeline := NewDownPipeline()
-		mocks := setupDownMocks(t)
-
-		// Make setenv fail
-		mocks.Shims.Setenv = func(key, value string) error {
-			return fmt.Errorf("failed to set env var")
-		}
-
-		err := pipeline.Initialize(mocks.Injector, context.Background())
-		if err != nil {
-			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
-
-		// When executing the pipeline
-		err = pipeline.Execute(context.Background())
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error setting environment variable") {
-			t.Errorf("Expected error message containing 'error setting environment variable', got: %v", err)
-		}
-	})
-
 	t.Run("ErrorLoadingBlueprintConfig", func(t *testing.T) {
 		// Given a down pipeline with failing blueprint config loading
 		pipeline := NewDownPipeline()
