@@ -285,8 +285,13 @@ contexts:
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/test/path", nil
 		}
+		callCount := 0
 		shims.RemoveAll = func(path string) error {
-			return fmt.Errorf("test error")
+			callCount++
+			if callCount == 1 && strings.Contains(path, ".volumes") {
+				return fmt.Errorf("test error")
+			}
+			return nil
 		}
 
 		rootCmd.SetArgs([]string{"down", "--clean"})
@@ -296,6 +301,149 @@ contexts:
 		}
 		if !strings.Contains(err.Error(), "Error deleting .volumes folder") {
 			t.Errorf("Expected error to contain 'Error deleting .volumes folder', got: %v", err)
+		}
+	})
+
+	t.Run("ErrorRemovingTfModules", func(t *testing.T) {
+		mocks := setupDownMocks(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/test/path", nil
+		}
+		callCount := 0
+		shims.RemoveAll = func(path string) error {
+			callCount++
+			if callCount == 1 && strings.Contains(path, ".volumes") {
+				return nil
+			}
+			if callCount == 2 && strings.Contains(path, ".tf_modules") {
+				return fmt.Errorf("test error")
+			}
+			return nil
+		}
+
+		rootCmd.SetArgs([]string{"down", "--clean"})
+		err := Execute(mocks.Controller)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "Error deleting .windsor/.tf_modules folder") {
+			t.Errorf("Expected error to contain 'Error deleting .windsor/.tf_modules folder', got: %v", err)
+		}
+	})
+
+	t.Run("ErrorRemovingCorefile", func(t *testing.T) {
+		mocks := setupDownMocks(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/test/path", nil
+		}
+		callCount := 0
+		shims.RemoveAll = func(path string) error {
+			callCount++
+			if callCount == 1 && strings.Contains(path, ".volumes") {
+				return nil
+			}
+			if callCount == 2 && strings.Contains(path, ".tf_modules") {
+				return nil
+			}
+			if callCount == 3 && strings.Contains(path, "Corefile") {
+				return fmt.Errorf("test error")
+			}
+			return nil
+		}
+
+		rootCmd.SetArgs([]string{"down", "--clean"})
+		err := Execute(mocks.Controller)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "Error deleting .windsor/Corefile") {
+			t.Errorf("Expected error to contain 'Error deleting .windsor/Corefile', got: %v", err)
+		}
+	})
+
+	t.Run("ErrorRemovingDockerCompose", func(t *testing.T) {
+		mocks := setupDownMocks(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/test/path", nil
+		}
+		callCount := 0
+		shims.RemoveAll = func(path string) error {
+			callCount++
+			if callCount == 1 && strings.Contains(path, ".volumes") {
+				return nil
+			}
+			if callCount == 2 && strings.Contains(path, ".tf_modules") {
+				return nil
+			}
+			if callCount == 3 && strings.Contains(path, "Corefile") {
+				return nil
+			}
+			if callCount == 4 && strings.Contains(path, "docker-compose.yaml") {
+				return fmt.Errorf("test error")
+			}
+			return nil
+		}
+
+		rootCmd.SetArgs([]string{"down", "--clean"})
+		err := Execute(mocks.Controller)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "Error deleting .windsor/docker-compose.yaml") {
+			t.Errorf("Expected error to contain 'Error deleting .windsor/docker-compose.yaml', got: %v", err)
+		}
+	})
+
+	t.Run("SuccessfulCleanup", func(t *testing.T) {
+		mocks := setupDownMocks(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/test/path", nil
+		}
+		removedPaths := []string{}
+		shims.RemoveAll = func(path string) error {
+			removedPaths = append(removedPaths, path)
+			return nil
+		}
+
+		rootCmd.SetArgs([]string{"down", "--clean"})
+		err := Execute(mocks.Controller)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify all four paths were removed
+		if len(removedPaths) != 4 {
+			t.Errorf("Expected 4 paths to be removed, got %d", len(removedPaths))
+		}
+		volumesPathFound := false
+		tfModulesPathFound := false
+		corefilePathFound := false
+		dockerComposePathFound := false
+		for _, path := range removedPaths {
+			if strings.Contains(path, ".volumes") {
+				volumesPathFound = true
+			}
+			if strings.Contains(path, ".tf_modules") {
+				tfModulesPathFound = true
+			}
+			if strings.Contains(path, "Corefile") {
+				corefilePathFound = true
+			}
+			if strings.Contains(path, "docker-compose.yaml") {
+				dockerComposePathFound = true
+			}
+		}
+		if !volumesPathFound {
+			t.Error("Expected .volumes path to be removed")
+		}
+		if !tfModulesPathFound {
+			t.Error("Expected .tf_modules path to be removed")
+		}
+		if !corefilePathFound {
+			t.Error("Expected Corefile path to be removed")
+		}
+		if !dockerComposePathFound {
+			t.Error("Expected docker-compose.yaml path to be removed")
 		}
 	})
 
@@ -347,6 +495,24 @@ contexts:
 		}
 		if err == nil || !strings.Contains(err.Error(), "Error running blueprint down: cleanup failed") {
 			t.Errorf("Expected error containing 'Error running blueprint down: cleanup failed', got %v", err)
+		}
+	})
+
+	t.Run("SkipTfFlag", func(t *testing.T) {
+		mocks := setupDownMocks(t)
+		stackDownCalled := false
+		mocks.Stack.DownFunc = func() error {
+			stackDownCalled = true
+			return nil
+		}
+
+		rootCmd.SetArgs([]string{"down", "--skip-tf"})
+		err := Execute(mocks.Controller)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if stackDownCalled {
+			t.Error("Expected stack.Down() to not be called when --skip-tf is set")
 		}
 	})
 }

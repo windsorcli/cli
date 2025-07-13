@@ -580,12 +580,35 @@ func TestDockerVirt_Down(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a DockerVirt with mock components
-		dockerVirt, _ := setup(t)
+		dockerVirt, mocks := setup(t)
+
+		// And docker-compose.yaml exists
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, nil // File exists
+		}
 
 		// When calling Down
 		err := dockerVirt.Down()
 
 		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("SuccessWithMissingComposeFile", func(t *testing.T) {
+		// Given a DockerVirt with mock components
+		dockerVirt, mocks := setup(t)
+
+		// And docker-compose.yaml doesn't exist
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist // File doesn't exist
+		}
+
+		// When calling Down
+		err := dockerVirt.Down()
+
+		// Then no error should occur (idempotent)
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}

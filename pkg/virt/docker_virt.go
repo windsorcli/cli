@@ -8,6 +8,7 @@ package virt
 import (
 	"fmt"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -135,9 +136,10 @@ func (v *DockerVirt) Up() error {
 	return nil
 }
 
-// Down stops all Docker containers managed by Windsor and removes associated volumes
-// to ensure a clean shutdown. It verifies Docker is enabled, checks the daemon is
-// running, and executes docker compose down with the --remove-orphans and --volumes flags.
+// Down stops all Docker containers managed by Windsor and removes associated volumes.
+// It ensures a clean shutdown by verifying Docker is enabled, checking the daemon status,
+// and executing docker compose down with --remove-orphans and --volumes flags. If the
+// compose file is missing, the operation is idempotent and exits without error.
 func (v *DockerVirt) Down() error {
 	if v.configHandler.GetBool("docker.enabled") {
 		if err := v.checkDockerDaemon(); err != nil {
@@ -149,6 +151,11 @@ func (v *DockerVirt) Down() error {
 			return fmt.Errorf("error retrieving project root: %w", err)
 		}
 		composeFilePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
+
+		if _, err := v.shims.Stat(composeFilePath); os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "⚠️  Warning: docker-compose.yaml not found at %s, skipping container cleanup\n", composeFilePath)
+			return nil
+		}
 
 		if err := v.shims.Setenv("COMPOSE_FILE", composeFilePath); err != nil {
 			return fmt.Errorf("error setting COMPOSE_FILE environment variable: %w", err)
