@@ -93,7 +93,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 
 		expectedEnvVars := map[string]string{
 			"TF_DATA_DIR":      filepath.ToSlash(filepath.Join(configRoot, ".terraform/project/path")),
-			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate/project/path/terraform.tfstate"))),
+			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -force-copy -backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate/project/path/terraform.tfstate"))),
 			"TF_CLI_ARGS_plan": fmt.Sprintf(`-out="%s" -var-file="%s" -var-file="%s"`,
 				filepath.ToSlash(filepath.Join(configRoot, ".terraform/project/path/terraform.tfplan")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
@@ -310,7 +310,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		// And environment variables should be set correctly
 		expectedEnvVars := map[string]string{
 			"TF_DATA_DIR":      filepath.ToSlash(filepath.Join(configRoot, ".terraform/project/path")),
-			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate/project/path/terraform.tfstate"))),
+			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -force-copy -backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate/project/path/terraform.tfstate"))),
 			"TF_CLI_ARGS_plan": fmt.Sprintf(`-out="%s" -var-file="%s" -var-file="%s"`,
 				filepath.ToSlash(filepath.Join(configRoot, ".terraform/project/path/terraform.tfplan")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
@@ -473,7 +473,7 @@ func TestTerraformEnv_Print(t *testing.T) {
 
 		expectedEnvVars := map[string]string{
 			"TF_DATA_DIR":      filepath.Join(configRoot, ".terraform/project/path"),
-			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -backend-config="path=%s"`, filepath.Join(configRoot, ".tfstate/project/path/terraform.tfstate")),
+			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -force-copy -backend-config="path=%s"`, filepath.Join(configRoot, ".tfstate/project/path/terraform.tfstate")),
 			"TF_CLI_ARGS_plan": fmt.Sprintf(`-out="%s" -var-file="%s" -var-file="%s"`,
 				filepath.Join(configRoot, ".terraform/project/path/terraform.tfplan"),
 				filepath.Join(configRoot, "terraform/project/path.tfvars"),
