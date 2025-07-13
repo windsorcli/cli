@@ -664,6 +664,7 @@ func isNotFoundError(err error) bool {
 	// Check for resource not found errors, but not namespace not found errors
 	return (strings.Contains(errMsg, "resource not found") ||
 		strings.Contains(errMsg, "could not find the requested resource") ||
-		strings.Contains(errMsg, "the server could not find the requested resource")) &&
+		strings.Contains(errMsg, "the server could not find the requested resource") ||
+		strings.Contains(errMsg, "\" not found")) &&
 		!strings.Contains(errMsg, "namespace not found")
 }
