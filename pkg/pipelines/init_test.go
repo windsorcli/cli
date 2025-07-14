@@ -835,7 +835,7 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		pipeline.blueprintHandler = nil
 
 		// When prepareTemplateData is called
-		templateData, err := pipeline.prepareTemplateData()
+		templateData, err := pipeline.prepareTemplateData(context.Background())
 
 		// Then should return empty map
 		if err != nil {
@@ -853,15 +853,6 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		// Given a pipeline with OCI blueprint that fails
 		pipeline := &InitPipeline{}
 
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "blueprint" {
-				return "oci://registry.example.com/blueprint:latest"
-			}
-			return ""
-		}
-		pipeline.configHandler = mockConfigHandler
-
 		// Mock artifact builder that fails
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		mockArtifactBuilder.GetTemplateDataFunc = func(ociRef string) (map[string][]byte, error) {
@@ -869,8 +860,11 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		}
 		pipeline.artifactBuilder = mockArtifactBuilder
 
+		// Create context with blueprint value
+		ctx := context.WithValue(context.Background(), "blueprint", "oci://registry.example.com/blueprint:latest")
+
 		// When prepareTemplateData is called
-		templateData, err := pipeline.prepareTemplateData()
+		templateData, err := pipeline.prepareTemplateData(ctx)
 
 		// Then should return error
 		if err == nil {
@@ -887,19 +881,13 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 	t.Run("ReturnsErrorWhenArtifactBuilderMissing", func(t *testing.T) {
 		// Given a pipeline with OCI blueprint but no artifact builder
 		pipeline := &InitPipeline{}
-
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "blueprint" {
-				return "oci://registry.example.com/blueprint:latest"
-			}
-			return ""
-		}
-		pipeline.configHandler = mockConfigHandler
 		pipeline.artifactBuilder = nil
 
+		// Create context with blueprint value
+		ctx := context.WithValue(context.Background(), "blueprint", "oci://registry.example.com/blueprint:latest")
+
 		// When prepareTemplateData is called
-		templateData, err := pipeline.prepareTemplateData()
+		templateData, err := pipeline.prepareTemplateData(ctx)
 
 		// Then should return error
 		if err == nil {
@@ -917,15 +905,6 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		// Given a pipeline with OCI blueprint and artifact builder
 		pipeline := &InitPipeline{}
 
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "blueprint" {
-				return "oci://registry.example.com/blueprint:latest"
-			}
-			return ""
-		}
-		pipeline.configHandler = mockConfigHandler
-
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		expectedTemplateData := map[string][]byte{
 			"blueprint.jsonnet": []byte("{ test: 'data' }"),
@@ -935,8 +914,11 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		}
 		pipeline.artifactBuilder = mockArtifactBuilder
 
+		// Create context with blueprint value
+		ctx := context.WithValue(context.Background(), "blueprint", "oci://registry.example.com/blueprint:latest")
+
 		// When prepareTemplateData is called
-		templateData, err := pipeline.prepareTemplateData()
+		templateData, err := pipeline.prepareTemplateData(ctx)
 
 		// Then should use artifact builder
 		if err != nil {
@@ -970,7 +952,7 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		pipeline.blueprintHandler = mockBlueprintHandler
 
 		// When prepareTemplateData is called
-		templateData, err := pipeline.prepareTemplateData()
+		templateData, err := pipeline.prepareTemplateData(context.Background())
 
 		// Then should use local template data
 		if err != nil {
@@ -1009,7 +991,7 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		pipeline.blueprintHandler = mockBlueprintHandler
 
 		// When prepareTemplateData is called
-		templateData, err := pipeline.prepareTemplateData()
+		templateData, err := pipeline.prepareTemplateData(context.Background())
 
 		// Then should use default template data
 		if err != nil {
