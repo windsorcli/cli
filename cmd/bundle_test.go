@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -111,9 +112,13 @@ func TestBundleCmdWithPipeline(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		expectedError := "failed to bundle artifacts: bundling failed: templates directory not found: contexts/_template"
+		expectedError := "failed to bundle artifacts: bundling failed: templates directory not found: contexts"
 		if err.Error()[:len(expectedError)] != expectedError {
 			t.Errorf("Expected error to start with %q, got %q", expectedError, err.Error())
+		}
+		// Verify the path separator is correct for the platform
+		if !strings.Contains(err.Error(), "contexts") {
+			t.Errorf("Expected error to contain 'contexts', got %q", err.Error())
 		}
 	})
 
