@@ -56,6 +56,12 @@ func setupUpTest(t *testing.T, opts ...*SetupOptions) *UpMocks {
 	mockUpPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
 	baseMocks.Injector.Register("upPipeline", mockUpPipeline)
 
+	// Register mock install pipeline in injector (needed since up conditionally runs install pipeline)
+	mockInstallPipeline := pipelines.NewMockBasePipeline()
+	mockInstallPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+	mockInstallPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
+	baseMocks.Injector.Register("installPipeline", mockInstallPipeline)
+
 	return &UpMocks{
 		Injector:      baseMocks.Injector,
 		ConfigHandler: baseMocks.ConfigHandler,
@@ -263,18 +269,19 @@ func TestUpCmd(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupUpTest(t)
 
-		// And an up pipeline that validates context values
-		contextValidated := false
-		mockUpPipeline := pipelines.NewMockBasePipeline()
-		mockUpPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockUpPipeline.ExecuteFunc = func(ctx context.Context) error {
-			// Verify that install and wait flags are properly propagated
-			if ctx.Value("install") == true && ctx.Value("wait") == true {
-				contextValidated = true
+		// And an install pipeline that validates context values
+		installPipelineCalled := false
+		waitContextPassed := false
+		mockInstallPipeline := pipelines.NewMockBasePipeline()
+		mockInstallPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+		mockInstallPipeline.ExecuteFunc = func(ctx context.Context) error {
+			installPipelineCalled = true
+			if ctx.Value("wait") == true {
+				waitContextPassed = true
 			}
 			return nil
 		}
-		mocks.Injector.Register("upPipeline", mockUpPipeline)
+		mocks.Injector.Register("installPipeline", mockInstallPipeline)
 
 		// When executing the up command with install and wait flags
 		cmd := createTestUpCmd()
@@ -283,12 +290,43 @@ func TestUpCmd(t *testing.T) {
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
-		// Then no error should occur and context should be validated
+		// Then no error should occur and install pipeline should be called with wait context
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
-		if !contextValidated {
-			t.Error("Expected context values to be properly propagated to up pipeline")
+		if !installPipelineCalled {
+			t.Error("Expected install pipeline to be called when --install flag is set")
+		}
+		if !waitContextPassed {
+			t.Error("Expected wait context to be passed to install pipeline")
+		}
+	})
+
+	t.Run("InstallPipelineExecutionError", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupUpTest(t)
+
+		// And an install pipeline that fails to execute
+		mockInstallPipeline := pipelines.NewMockBasePipeline()
+		mockInstallPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+		mockInstallPipeline.ExecuteFunc = func(ctx context.Context) error {
+			return fmt.Errorf("install pipeline execution failed")
+		}
+		mocks.Injector.Register("installPipeline", mockInstallPipeline)
+
+		// When executing the up command with install flag
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"--install"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "Error executing install pipeline") {
+			t.Errorf("Expected install pipeline execution error, got: %v", err)
 		}
 	})
 
@@ -408,10 +446,18 @@ func TestUpCmd(t *testing.T) {
 		}
 		mocks.Injector.Register("upPipeline", mockUpPipeline)
 
-		// When executing the up command
+		mockInstallPipeline := pipelines.NewMockBasePipeline()
+		mockInstallPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+		mockInstallPipeline.ExecuteFunc = func(ctx context.Context) error {
+			executionOrder = append(executionOrder, "install")
+			return nil
+		}
+		mocks.Injector.Register("installPipeline", mockInstallPipeline)
+
+		// When executing the up command with install flag
 		cmd := createTestUpCmd()
 		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{})
+		cmd.SetArgs([]string{"--install"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -419,7 +465,7 @@ func TestUpCmd(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
-		expectedOrder := []string{"env", "init", "up"}
+		expectedOrder := []string{"env", "init", "up", "install"}
 		if len(executionOrder) != len(expectedOrder) {
 			t.Errorf("Expected %d pipeline executions, got %d", len(expectedOrder), len(executionOrder))
 		}

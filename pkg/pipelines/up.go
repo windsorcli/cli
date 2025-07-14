@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/network"
@@ -16,7 +15,7 @@ import (
 
 // The UpPipeline is a specialized component that manages the infrastructure deployment phase
 // of the Windsor environment setup. It focuses on tools installation, virtual machine startup,
-// container runtime startup, network configuration, stack deployment, and optional blueprint installation.
+// container runtime startup, network configuration, and stack deployment.
 // The UpPipeline assumes that env and init pipelines have already been executed and handled
 // environment variables, secrets, and basic configuration setup.
 
@@ -32,7 +31,6 @@ type UpPipeline struct {
 	containerRuntime virt.ContainerRuntime
 	networkManager   network.NetworkManager
 	stack            stack.Stack
-	blueprintHandler blueprint.BlueprintHandler
 	envPrinters      []env.EnvPrinter
 }
 
@@ -68,7 +66,6 @@ func (p *UpPipeline) Initialize(injector di.Injector, ctx context.Context) error
 	p.containerRuntime = p.withContainerRuntime()
 	p.networkManager = p.withNetworking()
 	p.stack = p.withStack()
-	p.blueprintHandler = p.withBlueprintHandler()
 
 	envPrinters, err := p.withEnvPrinters()
 	if err != nil {
@@ -105,11 +102,6 @@ func (p *UpPipeline) Initialize(injector di.Injector, ctx context.Context) error
 	if p.stack != nil {
 		if err := p.stack.Initialize(); err != nil {
 			return fmt.Errorf("failed to initialize stack: %w", err)
-		}
-	}
-	if p.blueprintHandler != nil {
-		if err := p.blueprintHandler.Initialize(); err != nil {
-			return fmt.Errorf("failed to initialize blueprint handler: %w", err)
 		}
 	}
 
@@ -197,29 +189,6 @@ func (p *UpPipeline) Execute(ctx context.Context) error {
 	}
 	if err := p.stack.Up(); err != nil {
 		return fmt.Errorf("Error running stack Up command: %w", err)
-	}
-
-	// Handle blueprint installation if install flag is set
-	installFlag := ctx.Value("install")
-	if installFlag != nil {
-		if install, ok := installFlag.(bool); ok && install {
-			if p.blueprintHandler == nil {
-				return fmt.Errorf("No blueprint handler found")
-			}
-			if err := p.blueprintHandler.Install(); err != nil {
-				return fmt.Errorf("Error installing blueprint: %w", err)
-			}
-
-			// Wait for kustomizations if wait flag is set
-			waitFlag := ctx.Value("wait")
-			if waitFlag != nil {
-				if wait, ok := waitFlag.(bool); ok && wait {
-					if err := p.blueprintHandler.WaitForKustomizations("⏳ Waiting for kustomizations to be ready"); err != nil {
-						return fmt.Errorf("Error waiting for kustomizations: %w", err)
-					}
-				}
-			}
-		}
 	}
 
 	// Print success message
