@@ -1,48 +1,100 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"strings"
 	"testing"
 
-	blueprintpkg "github.com/windsorcli/cli/pkg/blueprint"
-	"github.com/windsorcli/cli/pkg/controller"
-	"github.com/windsorcli/cli/pkg/secrets"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/pipelines"
 )
 
-// setupInstallMocks creates mock components specifically for testing the install command
-func setupInstallMocks(t *testing.T, opts *SetupOptions) *Mocks {
-	t.Helper()
+// =============================================================================
+// Test Setup
+// =============================================================================
 
-	// Use the existing setupMocks function as a base
-	mocks := setupMocks(t, opts)
-
-	// Set up mock controller functions specific to install command
-	mocks.Controller.InitializeWithRequirementsFunc = func(req controller.Requirements) error {
-		return nil
-	}
-	mocks.Controller.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
-		return []secrets.SecretsProvider{}
-	}
-	mocks.Controller.SetEnvironmentVariablesFunc = func() error {
-		return nil
-	}
-	mocks.Controller.ResolveBlueprintHandlerFunc = func() blueprintpkg.BlueprintHandler {
-		return mocks.BlueprintHandler
-	}
-
-	return mocks
+type InstallMocks struct {
+	*Mocks
 }
 
+func setupInstallTest(t *testing.T, opts ...*SetupOptions) *InstallMocks {
+	t.Helper()
+
+	// Setup base mocks
+	baseMocks := setupMocks(t, opts...)
+
+	// Register mock env pipeline in injector (needed since install runs env pipeline first)
+	mockEnvPipeline := pipelines.NewMockBasePipeline()
+	mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+	mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
+	baseMocks.Injector.Register("envPipeline", mockEnvPipeline)
+
+	// Register mock install pipeline in injector
+	mockInstallPipeline := pipelines.NewMockBasePipeline()
+	mockInstallPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+	mockInstallPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
+	baseMocks.Injector.Register("installPipeline", mockInstallPipeline)
+
+	return &InstallMocks{
+		Mocks: baseMocks,
+	}
+}
+
+// =============================================================================
+// Test Cases
+// =============================================================================
+
 func TestInstallCmd(t *testing.T) {
+	createTestInstallCmd := func() *cobra.Command {
+		// Create a new command with the same RunE as installCmd
+		cmd := &cobra.Command{
+			Use:   "install",
+			Short: "Install the blueprint's cluster-level services",
+			RunE:  installCmd.RunE,
+		}
+
+		// Copy all flags from installCmd to ensure they're available
+		installCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+			cmd.Flags().AddFlag(flag)
+		})
+
+		// Disable help text printing
+		cmd.SilenceUsage = true
+		cmd.SilenceErrors = true
+
+		return cmd
+	}
+
 	t.Run("Success", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks := setupInstallMocks(t, nil)
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInstallTest(t)
 
-		// Set up command arguments
-		rootCmd.SetArgs([]string{"install"})
+		// When executing the install command
+		cmd := createTestInstallCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
 
-		// When executing the command
-		err := Execute(mocks.Controller)
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
+	t.Run("SuccessWithWaitFlag", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInstallTest(t)
+
+		// When executing the install command with wait flag
+		cmd := createTestInstallCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"--wait"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -50,176 +102,77 @@ func TestInstallCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("InitializeWithRequirementsError", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks := setupInstallMocks(t, nil)
+	t.Run("SuccessWithVerboseContext", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInstallTest(t)
 
-		// Override controller to return error for InitializeWithRequirements
-		mocks.Controller.InitializeWithRequirementsFunc = func(req controller.Requirements) error {
-			return fmt.Errorf("initialize error")
-		}
-
-		// Set up command arguments
-		rootCmd.SetArgs([]string{"install"})
-
-		// When executing the command
-		err := Execute(mocks.Controller)
-
-		// Then error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		// And error should contain initialize error message
-		expectedError := "Error initializing: initialize error"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("LoadSecretsError", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks := setupInstallMocks(t, nil)
-
-		// Create a mock secrets provider that returns an error
-		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Controller.ResolveInjector())
-		mockSecretsProvider.LoadSecretsFunc = func() error {
-			return fmt.Errorf("load secrets error")
-		}
-
-		// Override controller to return the mock secrets provider
-		mocks.Controller.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
-			return []secrets.SecretsProvider{mockSecretsProvider}
-		}
-
-		// Set up command arguments
-		rootCmd.SetArgs([]string{"install"})
-
-		// When executing the command
-		err := Execute(mocks.Controller)
-
-		// Then error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		// And error should contain load secrets error message
-		expectedError := "Error loading secrets: load secrets error"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("SetEnvironmentVariablesError", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks := setupInstallMocks(t, nil)
-
-		// Override controller to return error for SetEnvironmentVariables
-		mocks.Controller.SetEnvironmentVariablesFunc = func() error {
-			return fmt.Errorf("set env vars error")
-		}
-
-		// Set up command arguments
-		rootCmd.SetArgs([]string{"install"})
-
-		// When executing the command
-		err := Execute(mocks.Controller)
-
-		// Then error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		// And error should contain set env vars error message
-		expectedError := "Error setting environment variables: set env vars error"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("NoBlueprintHandler", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks := setupInstallMocks(t, nil)
-
-		// Override controller to return nil for ResolveBlueprintHandler
-		mocks.Controller.ResolveBlueprintHandlerFunc = func() blueprintpkg.BlueprintHandler {
-			return nil
-		}
-
-		// Set up command arguments
-		rootCmd.SetArgs([]string{"install"})
-
-		// When executing the command
-		err := Execute(mocks.Controller)
-
-		// Then error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		// And error should contain no blueprint handler message
-		expectedError := "No blueprint handler found"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("InstallError", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks := setupInstallMocks(t, nil)
-
-		// Override blueprint handler to return error for Install
-		mocks.BlueprintHandler.InstallFunc = func() error {
-			return fmt.Errorf("install error")
-		}
-
-		// Set up command arguments
-		rootCmd.SetArgs([]string{"install"})
-
-		// When executing the command
-		err := Execute(mocks.Controller)
-
-		// Then error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		// And error should contain install error message
-		expectedError := "Error installing blueprint: install error"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("WaitFlag_CallsWaitForKustomizations", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks := setupInstallMocks(t, nil)
-
-		// Set waitFlag = true
-		waitFlag = true
-		defer func() { waitFlag = false }()
-
-		// Set up a flag to check if WaitForKustomizations is called
-		called := false
-		mocks.BlueprintHandler.WaitForKustomizationsFunc = func(message string, names ...string) error {
-			called = true
-			return nil
-		}
-
-		// Set up command arguments
-		rootCmd.SetArgs([]string{"install"})
-
-		// When executing the command
-		err := Execute(mocks.Controller)
+		// When executing the install command with verbose context
+		cmd := createTestInstallCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx = context.WithValue(ctx, "verbose", true)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
+	})
 
-		// And WaitForKustomizations should have been called
-		if !called {
-			t.Error("Expected WaitForKustomizations to be called, but it was not")
+	t.Run("ReturnsErrorWhenEnvPipelineSetupFails", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInstallTest(t)
+
+		// Override env pipeline to return error during execution
+		mockEnvPipeline := pipelines.NewMockBasePipeline()
+		mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+		mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error {
+			return fmt.Errorf("env pipeline execution failed")
+		}
+		mocks.Injector.Register("envPipeline", mockEnvPipeline)
+
+		// When executing the install command
+		cmd := createTestInstallCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to set up environment") {
+			t.Errorf("Expected env pipeline setup error, got %q", err.Error())
+		}
+	})
+
+	t.Run("ReturnsErrorWhenInstallPipelineSetupFails", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInstallTest(t)
+
+		// Override install pipeline to return error during execution
+		mockInstallPipeline := pipelines.NewMockBasePipeline()
+		mockInstallPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+		mockInstallPipeline.ExecuteFunc = func(ctx context.Context) error {
+			return fmt.Errorf("install pipeline execution failed")
+		}
+		mocks.Injector.Register("installPipeline", mockInstallPipeline)
+
+		// When executing the install command
+		cmd := createTestInstallCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "Error executing install pipeline") {
+			t.Errorf("Expected install pipeline execution error, got %q", err.Error())
 		}
 	})
 }

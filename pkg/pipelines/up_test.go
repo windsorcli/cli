@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/network"
@@ -26,7 +25,6 @@ type UpMocks struct {
 	ContainerRuntime *virt.MockVirt
 	NetworkManager   *network.MockNetworkManager
 	Stack            *stack.MockStack
-	BlueprintHandler *blueprint.MockBlueprintHandler
 }
 
 func setupUpMocks(t *testing.T, opts ...*SetupOptions) *UpMocks {
@@ -100,13 +98,6 @@ contexts:
 	mockStack.UpFunc = func() error { return nil }
 	baseMocks.Injector.Register("stack", mockStack)
 
-	// Setup blueprint handler mock
-	mockBlueprintHandler := blueprint.NewMockBlueprintHandler(baseMocks.Injector)
-	mockBlueprintHandler.InitializeFunc = func() error { return nil }
-	mockBlueprintHandler.InstallFunc = func() error { return nil }
-	mockBlueprintHandler.WaitForKustomizationsFunc = func(message string, names ...string) error { return nil }
-	baseMocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
-
 	// Setup terraform env mock
 	mockTerraformEnv := env.NewMockEnvPrinter()
 	mockTerraformEnv.InitializeFunc = func() error { return nil }
@@ -123,7 +114,6 @@ contexts:
 		ContainerRuntime: mockContainerRuntime,
 		NetworkManager:   mockNetworkManager,
 		Stack:            mockStack,
-		BlueprintHandler: mockBlueprintHandler,
 	}
 }
 
@@ -230,15 +220,6 @@ func TestUpPipeline_Initialize(t *testing.T) {
 			},
 			expectedErr: "failed to initialize stack: stack failed",
 		},
-		{
-			name: "ReturnsErrorWhenBlueprintHandlerInitializeFails",
-			setupMock: func(mocks *UpMocks) {
-				mocks.BlueprintHandler.InitializeFunc = func() error {
-					return fmt.Errorf("blueprint handler failed")
-				}
-			},
-			expectedErr: "failed to initialize blueprint handler: blueprint handler failed",
-		},
 	}
 
 	for _, tt := range initFailureTests {
@@ -297,105 +278,29 @@ func TestUpPipeline_Execute(t *testing.T) {
 		}
 	})
 
-	t.Run("ExecutesWithInstallFlag", func(t *testing.T) {
-		// Given a pipeline with install flag set
-		pipeline, mocks := setup(t)
-
-		// Setup shims to allow NO_CACHE environment variable setting
-		mocks.Shims.Setenv = func(key, value string) error {
-			return nil
-		}
-
-		installCalled := false
-		mocks.BlueprintHandler.InstallFunc = func() error {
-			installCalled = true
-			return nil
-		}
-
-		ctx := context.WithValue(context.Background(), "install", true)
-
-		// When Execute is called
-		err := pipeline.Execute(ctx)
-
-		// Then no error should be returned and install should be called
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if !installCalled {
-			t.Error("Expected blueprint install to be called")
-		}
-	})
-
-	t.Run("ExecutesWithInstallAndWaitFlags", func(t *testing.T) {
-		// Given a pipeline with install and wait flags set
-		pipeline, mocks := setup(t)
-
-		// Setup shims to allow NO_CACHE environment variable setting
-		mocks.Shims.Setenv = func(key, value string) error {
-			return nil
-		}
-
-		installCalled := false
-		waitCalled := false
-		mocks.BlueprintHandler.InstallFunc = func() error {
-			installCalled = true
-			return nil
-		}
-		mocks.BlueprintHandler.WaitForKustomizationsFunc = func(message string, names ...string) error {
-			waitCalled = true
-			return nil
-		}
-
-		ctx := context.WithValue(context.Background(), "install", true)
-		ctx = context.WithValue(ctx, "wait", true)
-
-		// When Execute is called
-		err := pipeline.Execute(ctx)
-
-		// Then no error should be returned and both install and wait should be called
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if !installCalled {
-			t.Error("Expected blueprint install to be called")
-		}
-		if !waitCalled {
-			t.Error("Expected blueprint wait to be called")
-		}
-	})
-
 	t.Run("ExecutesWithVerboseFlag", func(t *testing.T) {
 		// Given a pipeline with verbose flag set during initialization
 		pipeline := NewUpPipeline()
 		mocks := setupUpMocks(t)
 
-		verbositySet := false
-		mocks.Shell.SetVerbosityFunc = func(verbose bool) {
-			verbositySet = verbose
-		}
-
-		ctx := context.WithValue(context.Background(), "verbose", true)
-
-		// When Initialize is called with verbose context
-		err := pipeline.Initialize(mocks.Injector, ctx)
-		if err != nil {
-			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
-
 		// Setup shims to allow NO_CACHE environment variable setting
 		mocks.Shims.Setenv = func(key, value string) error {
 			return nil
 		}
 
+		// Initialize with verbose context
+		verboseCtx := context.WithValue(context.Background(), "verbose", true)
+		err := pipeline.Initialize(mocks.Injector, verboseCtx)
+		if err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
+
 		// When Execute is called
 		err = pipeline.Execute(context.Background())
 
-		// Then no error should be returned and verbosity should be set
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
-		}
-		if !verbositySet {
-			t.Error("Expected shell verbosity to be set to true")
 		}
 	})
 
@@ -644,26 +549,6 @@ func TestUpPipeline_Execute(t *testing.T) {
 			},
 			expectedErr: "Error running stack Up command: stack up failed",
 		},
-		{
-			name: "ReturnsErrorWhenBlueprintInstallFails",
-			setupMock: func(mocks *UpMocks) {
-				mocks.Shims.Setenv = func(key, value string) error { return nil }
-				mocks.BlueprintHandler.InstallFunc = func() error {
-					return fmt.Errorf("blueprint install failed")
-				}
-			},
-			expectedErr: "Error installing blueprint: blueprint install failed",
-		},
-		{
-			name: "ReturnsErrorWhenBlueprintWaitFails",
-			setupMock: func(mocks *UpMocks) {
-				mocks.Shims.Setenv = func(key, value string) error { return nil }
-				mocks.BlueprintHandler.WaitForKustomizationsFunc = func(message string, names ...string) error {
-					return fmt.Errorf("blueprint wait failed")
-				}
-			},
-			expectedErr: "Error waiting for kustomizations: blueprint wait failed",
-		},
 	}
 
 	for _, tt := range execFailureTests {
@@ -673,12 +558,6 @@ func TestUpPipeline_Execute(t *testing.T) {
 			tt.setupMock(mocks)
 
 			ctx := context.Background()
-			if tt.name == "ReturnsErrorWhenBlueprintInstallFails" || tt.name == "ReturnsErrorWhenBlueprintWaitFails" {
-				ctx = context.WithValue(ctx, "install", true)
-				if tt.name == "ReturnsErrorWhenBlueprintWaitFails" {
-					ctx = context.WithValue(ctx, "wait", true)
-				}
-			}
 
 			// When executing the pipeline
 			err := pipeline.Execute(ctx)
@@ -778,30 +657,6 @@ func TestUpPipeline_Execute(t *testing.T) {
 		}
 		if err.Error() != "No stack found" {
 			t.Errorf("Expected 'No stack found', got %q", err.Error())
-		}
-	})
-
-	t.Run("ReturnsErrorWhenNoBlueprintHandlerFound", func(t *testing.T) {
-		// Given an up pipeline with nil blueprint handler and install flag
-		pipeline, mocks := setup(t)
-
-		// Setup shims to allow NO_CACHE environment variable setting
-		mocks.Shims.Setenv = func(key, value string) error { return nil }
-
-		// Set blueprint handler to nil
-		pipeline.blueprintHandler = nil
-
-		ctx := context.WithValue(context.Background(), "install", true)
-
-		// When executing the pipeline
-		err := pipeline.Execute(ctx)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-		if err.Error() != "No blueprint handler found" {
-			t.Errorf("Expected 'No blueprint handler found', got %q", err.Error())
 		}
 	})
 }

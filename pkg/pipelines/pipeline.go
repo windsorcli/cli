@@ -59,6 +59,7 @@ var pipelineConstructors = map[string]PipelineConstructor{
 	"checkPipeline":   func() Pipeline { return NewCheckPipeline() },
 	"upPipeline":      func() Pipeline { return NewUpPipeline() },
 	"downPipeline":    func() Pipeline { return NewDownPipeline() },
+	"installPipeline": func() Pipeline { return NewInstallPipeline() },
 }
 
 // WithPipeline resolves or creates a pipeline instance from the DI container by name.

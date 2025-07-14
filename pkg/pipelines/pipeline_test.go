@@ -164,6 +164,10 @@ contexts:
 	mockKubernetesManager := kubernetes.NewMockKubernetesManager(nil)
 	injector.Register("kubernetesManager", mockKubernetesManager)
 
+	// Create and register mock blueprint handler for stack dependency
+	mockBlueprintHandler := blueprint.NewMockBlueprintHandler(injector)
+	injector.Register("blueprintHandler", mockBlueprintHandler)
+
 	return &Mocks{
 		Injector:      injector,
 		ConfigHandler: configHandler,

@@ -49,18 +49,28 @@ var upCmd = &cobra.Command{
 			return fmt.Errorf("failed to set up up pipeline: %w", err)
 		}
 
-		// Create execution context with flags
-		ctx := cmd.Context()
-		if installFlag {
-			ctx = context.WithValue(ctx, "install", true)
-		}
-		if waitFlag {
-			ctx = context.WithValue(ctx, "wait", true)
+		// Execute the up pipeline
+		if err := upPipeline.Execute(cmd.Context()); err != nil {
+			return fmt.Errorf("Error executing up pipeline: %w", err)
 		}
 
-		// Execute the up pipeline
-		if err := upPipeline.Execute(ctx); err != nil {
-			return fmt.Errorf("Error executing up pipeline: %w", err)
+		// If install flag is set, run the install pipeline
+		if installFlag {
+			installPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "installPipeline")
+			if err != nil {
+				return fmt.Errorf("failed to set up install pipeline: %w", err)
+			}
+
+			// Create execution context with wait flag
+			installCtx := cmd.Context()
+			if waitFlag {
+				installCtx = context.WithValue(installCtx, "wait", true)
+			}
+
+			// Execute the install pipeline
+			if err := installPipeline.Execute(installCtx); err != nil {
+				return fmt.Errorf("Error executing install pipeline: %w", err)
+			}
 		}
 
 		return nil
