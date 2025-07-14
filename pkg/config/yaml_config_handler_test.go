@@ -1735,7 +1735,6 @@ func TestYamlConfigHandler_SetDefault(t *testing.T) {
 
 		// And a default context with overlapping and additional values
 		defaultContext := v1alpha1.Context{
-			Blueprint: ptrString("full"),
 			VM: &vm.VMConfig{
 				CPU: ptrInt(4),
 			},
@@ -1774,9 +1773,6 @@ func TestYamlConfigHandler_SetDefault(t *testing.T) {
 		}
 
 		// Default values should be added where not present
-		if ctx.Blueprint == nil || *ctx.Blueprint != "full" {
-			t.Errorf("Expected Blueprint to be added from default as 'full', got %v", ctx.Blueprint)
-		}
 		if ctx.VM.CPU == nil || *ctx.VM.CPU != 4 {
 			t.Errorf("Expected VM CPU to be added from default as 4, got %v", ctx.VM.CPU)
 		}
@@ -1800,7 +1796,6 @@ func TestYamlConfigHandler_SetDefault(t *testing.T) {
 
 		// And a default context with additional values
 		defaultContext := v1alpha1.Context{
-			Blueprint: ptrString("full"),
 			Environment: map[string]string{
 				"DEFAULT_VAR": "default_value",
 			},
@@ -1829,9 +1824,6 @@ func TestYamlConfigHandler_SetDefault(t *testing.T) {
 		}
 
 		// Default values should be added where not present
-		if ctx.Blueprint == nil || *ctx.Blueprint != "full" {
-			t.Errorf("Expected Blueprint to be added from default as 'full', got %v", ctx.Blueprint)
-		}
 		if ctx.Environment["DEFAULT_VAR"] != "default_value" {
 			t.Errorf("Expected DEFAULT_VAR to be added from default as 'default_value', got '%s'", ctx.Environment["DEFAULT_VAR"])
 		}
@@ -3312,10 +3304,10 @@ contexts:
 		// Simulate SetDefault being called (like init pipeline does)
 		// Use a default config that has no VM section (like DefaultConfig_Full)
 		defaultConfig := v1alpha1.Context{
-			Blueprint: ptrString("full"),
 			Environment: map[string]string{
 				"DEFAULT_VAR": "default_value",
 			},
+			Platform: ptrString("local"),
 		}
 
 		err = handler.SetDefault(defaultConfig)
@@ -3330,9 +3322,9 @@ contexts:
 		}
 
 		// And the default values should be added
-		blueprint := handler.GetString("blueprint")
-		if blueprint != "full" {
-			t.Errorf("Expected blueprint to be added as 'full', got '%s'", blueprint)
+		platform := handler.GetString("platform")
+		if platform != "local" {
+			t.Errorf("Expected platform to be added as 'local', got '%s'", platform)
 		}
 	})
 }

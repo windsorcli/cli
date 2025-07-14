@@ -256,7 +256,7 @@ func (p *InitPipeline) Execute(ctx context.Context) error {
 	}
 
 	// Phase 1: template data preparation
-	templateData, err := p.prepareTemplateData()
+	templateData, err := p.prepareTemplateData(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to prepare template data: %w", err)
 	}
@@ -434,8 +434,13 @@ func (p *InitPipeline) saveConfiguration(overwrite bool) error {
 // 2: If local _template dir exists, try loading template data from it.
 // 3: If blueprint handler exists, generate default template data for current context.
 // 4: If all fail, return empty map.
-func (p *InitPipeline) prepareTemplateData() (map[string][]byte, error) {
-	blueprintValue := p.configHandler.GetString("blueprint")
+func (p *InitPipeline) prepareTemplateData(ctx context.Context) (map[string][]byte, error) {
+	var blueprintValue string
+	if blueprintCtx := ctx.Value("blueprint"); blueprintCtx != nil {
+		if blueprint, ok := blueprintCtx.(string); ok {
+			blueprintValue = blueprint
+		}
+	}
 
 	if blueprintValue != "" && strings.HasPrefix(blueprintValue, "oci://") {
 		if p.artifactBuilder == nil {

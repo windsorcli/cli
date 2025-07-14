@@ -24,7 +24,6 @@ type Config struct {
 type Context struct {
 	ID          *string                    `yaml:"id,omitempty"`
 	Platform    *string                    `yaml:"platform,omitempty"`
-	Blueprint   *string                    `yaml:"blueprint,omitempty"`
 	Environment map[string]string          `yaml:"environment,omitempty"`
 	Secrets     *secrets.SecretsConfig     `yaml:"secrets,omitempty"`
 	AWS         *aws.AWSConfig             `yaml:"aws,omitempty"`
@@ -117,9 +116,6 @@ func (base *Context) Merge(overlay *Context) {
 		}
 		base.DNS.Merge(overlay.DNS)
 	}
-	if overlay.Blueprint != nil {
-		base.Blueprint = overlay.Blueprint
-	}
 }
 
 // DeepCopy creates a deep copy of the Context object
@@ -137,7 +133,6 @@ func (c *Context) DeepCopy() *Context {
 	return &Context{
 		ID:          c.ID,
 		Platform:    c.Platform,
-		Blueprint:   c.Blueprint,
 		Environment: environmentCopy,
 		Secrets:     c.Secrets.Copy(),
 		AWS:         c.AWS.Copy(),

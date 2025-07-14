@@ -12,6 +12,7 @@ import (
 )
 
 var (
+	initReset          bool
 	initBackend        string
 	initAwsProfile     string
 	initAwsEndpointURL string
@@ -22,12 +23,10 @@ var (
 	initArch           string
 	initDocker         bool
 	initGitLivereload  bool
-	initBlueprint      string
-	initToolsManager   string
 	initPlatform       string
+	initBlueprint      string
 	initEndpoint       string
 	initSetFlags       []string
-	reset              bool
 )
 
 var initCmd = &cobra.Command{
@@ -62,7 +61,10 @@ var initCmd = &cobra.Command{
 		if len(args) > 0 {
 			ctx = context.WithValue(ctx, "contextName", args[0])
 		}
-		ctx = context.WithValue(ctx, "reset", reset)
+		ctx = context.WithValue(ctx, "reset", initReset)
+		if initBlueprint != "" {
+			ctx = context.WithValue(ctx, "blueprint", initBlueprint)
+		}
 
 		// Set flag values in config handler before execution
 		configHandler := injector.Resolve("configHandler").(config.ConfigHandler)
@@ -117,16 +119,6 @@ var initCmd = &cobra.Command{
 				return fmt.Errorf("failed to set git.livereload.enabled: %w", err)
 			}
 		}
-		if initBlueprint != "" {
-			if err := configHandler.SetContextValue("blueprint", initBlueprint); err != nil {
-				return fmt.Errorf("failed to set blueprint: %w", err)
-			}
-		}
-		if initToolsManager != "" {
-			if err := configHandler.SetContextValue("tools.manager", initToolsManager); err != nil {
-				return fmt.Errorf("failed to set tools.manager: %w", err)
-			}
-		}
 		if initPlatform != "" {
 			if err := configHandler.SetContextValue("platform", initPlatform); err != nil {
 				return fmt.Errorf("failed to set platform: %w", err)
@@ -148,7 +140,9 @@ var initCmd = &cobra.Command{
 }
 
 func init() {
-	initCmd.Flags().StringVar(&initBackend, "backend", "", "Specify the terraform backend to use")
+
+	initCmd.Flags().BoolVar(&initReset, "reset", false, "Reset/overwrite existing files and clean .terraform directory")
+	initCmd.Flags().StringVar(&initBackend, "backend", "", "Specify the backend to use")
 	initCmd.Flags().StringVar(&initAwsProfile, "aws-profile", "", "Specify the AWS profile to use")
 	initCmd.Flags().StringVar(&initAwsEndpointURL, "aws-endpoint-url", "", "Specify the AWS endpoint URL to use")
 	initCmd.Flags().StringVar(&initVmDriver, "vm-driver", "", "Specify the VM driver. Only Colima is supported for now.")
@@ -162,6 +156,6 @@ func init() {
 	initCmd.Flags().StringVar(&initBlueprint, "blueprint", "", "Specify the blueprint to use")
 	initCmd.Flags().StringVar(&initEndpoint, "endpoint", "", "Specify the kubernetes API endpoint")
 	initCmd.Flags().StringSliceVar(&initSetFlags, "set", []string{}, "Override configuration values. Example: --set dns.enabled=false --set cluster.endpoint=https://localhost:6443")
-	initCmd.Flags().BoolVar(&reset, "reset", false, "Reset/overwrite existing files and clean .terraform directory")
+
 	rootCmd.AddCommand(initCmd)
 }
