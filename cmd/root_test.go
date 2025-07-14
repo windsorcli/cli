@@ -247,6 +247,9 @@ func TestRootCmd(t *testing.T) {
 			t.Errorf("Expected flag usage to be 'Enable verbose output', got %s", verboseFlag.Usage)
 		}
 
+		// Clear any previously set arguments to ensure we're testing the root command without subcommands
+		rootCmd.SetArgs([]string{})
+
 		// Execute should work without error
 		if err := Execute(mocks.Controller); err != nil {
 			t.Errorf("Expected no error, got %v", err)
