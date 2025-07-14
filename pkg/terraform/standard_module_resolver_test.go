@@ -12,7 +12,6 @@ import (
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
@@ -476,7 +475,7 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 		// Given a resolver with custom JsonUnmarshal and Stat shims for output parsing edge cases
 		resolver, mocks := setup(t)
 		resolver.shims.JsonUnmarshal = func(data []byte, v any) error {
-			if initOutput, ok := v.(*generators.TerraformInitOutput); ok {
+			if initOutput, ok := v.(*TerraformInitOutput); ok {
 				jsonStr := string(data)
 				if strings.Contains(jsonStr, `"empty_line"`) {
 					return nil

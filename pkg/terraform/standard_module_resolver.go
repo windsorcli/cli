@@ -8,7 +8,6 @@ import (
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
@@ -20,6 +19,12 @@ import (
 // =============================================================================
 // Types
 // =============================================================================
+
+// TerraformInitOutput represents the JSON output structure from terraform init
+type TerraformInitOutput struct {
+	Type    string `json:"@type"`
+	Message string `json:"@message"`
+}
 
 // StandardModuleResolver handles standard terraform module sources (git, local paths, etc.)
 type StandardModuleResolver struct {
@@ -137,7 +142,7 @@ func (h *StandardModuleResolver) ProcessModules() error {
 			if line == "" {
 				continue
 			}
-			var initOutput generators.TerraformInitOutput
+			var initOutput TerraformInitOutput
 			if err := h.shims.JsonUnmarshal([]byte(line), &initOutput); err != nil {
 				continue
 			}
