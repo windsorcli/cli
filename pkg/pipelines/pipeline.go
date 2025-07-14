@@ -51,15 +51,16 @@ type PipelineConstructor func() Pipeline
 
 // pipelineConstructors maps pipeline names to their constructor functions
 var pipelineConstructors = map[string]PipelineConstructor{
-	"envPipeline":     func() Pipeline { return NewEnvPipeline() },
-	"initPipeline":    func() Pipeline { return NewInitPipeline() },
-	"execPipeline":    func() Pipeline { return NewExecPipeline() },
-	"contextPipeline": func() Pipeline { return NewContextPipeline() },
-	"hookPipeline":    func() Pipeline { return NewHookPipeline() },
-	"checkPipeline":   func() Pipeline { return NewCheckPipeline() },
-	"upPipeline":      func() Pipeline { return NewUpPipeline() },
-	"downPipeline":    func() Pipeline { return NewDownPipeline() },
-	"installPipeline": func() Pipeline { return NewInstallPipeline() },
+	"envPipeline":      func() Pipeline { return NewEnvPipeline() },
+	"initPipeline":     func() Pipeline { return NewInitPipeline() },
+	"execPipeline":     func() Pipeline { return NewExecPipeline() },
+	"contextPipeline":  func() Pipeline { return NewContextPipeline() },
+	"hookPipeline":     func() Pipeline { return NewHookPipeline() },
+	"checkPipeline":    func() Pipeline { return NewCheckPipeline() },
+	"upPipeline":       func() Pipeline { return NewUpPipeline() },
+	"downPipeline":     func() Pipeline { return NewDownPipeline() },
+	"installPipeline":  func() Pipeline { return NewInstallPipeline() },
+	"artifactPipeline": func() Pipeline { return NewArtifactPipeline() },
 }
 
 // WithPipeline resolves or creates a pipeline instance from the DI container by name.
@@ -290,19 +291,37 @@ func (p *BasePipeline) withBundlers() ([]bundler.Bundler, error) {
 	var bundlerList []bundler.Bundler
 
 	// Template bundler
-	templateBundler := bundler.NewTemplateBundler()
-	p.injector.Register("templateBundler", templateBundler)
-	bundlerList = append(bundlerList, templateBundler)
+	if existing := p.injector.Resolve("templateBundler"); existing != nil {
+		if templateBundler, ok := existing.(bundler.Bundler); ok {
+			bundlerList = append(bundlerList, templateBundler)
+		}
+	} else {
+		templateBundler := bundler.NewTemplateBundler()
+		p.injector.Register("templateBundler", templateBundler)
+		bundlerList = append(bundlerList, templateBundler)
+	}
 
 	// Kustomize bundler
-	kustomizeBundler := bundler.NewKustomizeBundler()
-	p.injector.Register("kustomizeBundler", kustomizeBundler)
-	bundlerList = append(bundlerList, kustomizeBundler)
+	if existing := p.injector.Resolve("kustomizeBundler"); existing != nil {
+		if kustomizeBundler, ok := existing.(bundler.Bundler); ok {
+			bundlerList = append(bundlerList, kustomizeBundler)
+		}
+	} else {
+		kustomizeBundler := bundler.NewKustomizeBundler()
+		p.injector.Register("kustomizeBundler", kustomizeBundler)
+		bundlerList = append(bundlerList, kustomizeBundler)
+	}
 
 	// Terraform bundler
-	terraformBundler := bundler.NewTerraformBundler()
-	p.injector.Register("terraformBundler", terraformBundler)
-	bundlerList = append(bundlerList, terraformBundler)
+	if existing := p.injector.Resolve("terraformBundler"); existing != nil {
+		if terraformBundler, ok := existing.(bundler.Bundler); ok {
+			bundlerList = append(bundlerList, terraformBundler)
+		}
+	} else {
+		terraformBundler := bundler.NewTerraformBundler()
+		p.injector.Register("terraformBundler", terraformBundler)
+		bundlerList = append(bundlerList, terraformBundler)
+	}
 
 	return bundlerList, nil
 }
