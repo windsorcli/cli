@@ -21,7 +21,7 @@ func TestEnvCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"env"})
 
 		// When executing the command
-		err := Execute(nil)
+		err := Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -41,7 +41,7 @@ func TestEnvCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"env", "--decrypt"})
 
 		// When executing the command
-		err := Execute(nil)
+		err := Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -61,7 +61,7 @@ func TestEnvCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"env", "--hook"})
 
 		// When executing the command
-		err := Execute(nil)
+		err := Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -81,7 +81,7 @@ func TestEnvCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"env", "--verbose"})
 
 		// When executing the command
-		err := Execute(nil)
+		err := Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -101,7 +101,7 @@ func TestEnvCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"env", "--decrypt", "--hook", "--verbose"})
 
 		// When executing the command
-		err := Execute(nil)
+		err := Execute()
 
 		// Then no error should occur
 		if err != nil {

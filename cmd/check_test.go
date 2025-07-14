@@ -58,7 +58,7 @@ func TestCheckCmd(t *testing.T) {
 		stdout, stderr := setup(t, true)
 
 		// When executing the command
-		err := Execute(nil)
+		err := Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -80,7 +80,7 @@ func TestCheckCmd(t *testing.T) {
 		_, _ = setup(t, false)
 
 		// When executing the command
-		err := Execute(nil)
+		err := Execute()
 
 		// Then an error should occur
 		if err == nil {
@@ -154,7 +154,7 @@ func TestCheckNodeHealthCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"check", "node-health", "--nodes", "10.0.0.1,10.0.0.2"})
 
 		// When executing the command
-		err := Execute(nil)
+		err := Execute()
 
 		// Then an error should occur (because cluster client can't be initialized without proper config)
 		if err == nil {
@@ -175,7 +175,7 @@ func TestCheckNodeHealthCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"check", "node-health", "--nodes", "10.0.0.1", "--version", "1.0.0"})
 
 		// When executing the command
-		err := Execute(nil)
+		err := Execute()
 
 		// Then an error should occur (because cluster client can't be initialized without proper config)
 		if err == nil {
@@ -196,7 +196,7 @@ func TestCheckNodeHealthCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"check", "node-health", "--nodes", "10.0.0.1", "--timeout", "10s"})
 
 		// When executing the command
-		err := Execute(nil)
+		err := Execute()
 
 		// Then an error should occur (because cluster client can't be initialized without proper config)
 		if err == nil {
@@ -217,7 +217,7 @@ func TestCheckNodeHealthCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"check", "node-health", "--nodes", "10.0.0.1"})
 
 		// When executing the command
-		err := Execute(nil)
+		err := Execute()
 
 		// Then an error should occur
 		if err == nil {
@@ -239,7 +239,7 @@ func TestCheckNodeHealthCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"check", "node-health"})
 
 		// When executing the command
-		err := Execute(nil)
+		err := Execute()
 
 		// Then an error should occur
 		if err == nil {
@@ -261,7 +261,7 @@ func TestCheckNodeHealthCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"check", "node-health", "--nodes", ""})
 
 		// When executing the command
-		err := Execute(nil)
+		err := Execute()
 
 		// Then an error should occur
 		if err == nil {
