@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
-	ctrl "github.com/windsorcli/cli/pkg/controller"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/pipelines"
 )
 
 // pushCmd represents the push command
@@ -27,31 +30,8 @@ Examples:
 
   # Push using metadata.yaml for name/version
   windsor push registry.example.com/blueprints`,
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
-
-		// Initialize with requirements including bundler functionality
-		if err := controller.InitializeWithRequirements(ctrl.Requirements{
-			CommandName: cmd.Name(),
-			Bundler:     true,
-		}); err != nil {
-			return fmt.Errorf("failed to initialize controller: %w", err)
-		}
-
-		// Resolve artifact builder from controller
-		artifact := controller.ResolveArtifactBuilder()
-		if artifact == nil {
-			return fmt.Errorf("artifact builder not available")
-		}
-
-		// Resolve all bundlers and run them
-		bundlers := controller.ResolveAllBundlers()
-		for _, bundler := range bundlers {
-			if err := bundler.Bundle(artifact); err != nil {
-				return fmt.Errorf("bundling failed: %w", err)
-			}
-		}
-
 		// Parse registry, repository name, and tag from positional argument
 		if len(args) == 0 {
 			return fmt.Errorf("registry is required: windsor push registry/repo[:tag]")
@@ -60,6 +40,9 @@ Examples:
 		var registryBase, repoName, tag string
 		arg := args[0]
 
+		// Strip oci:// prefix if present
+		arg = strings.TrimPrefix(arg, "oci://")
+
 		// First extract tag if present
 		if lastColon := strings.LastIndex(arg, ":"); lastColon > 0 && lastColon < len(arg)-1 {
 			// Has tag in URL format (registry/repo:tag)
@@ -67,26 +50,77 @@ Examples:
 			arg = arg[:lastColon] // Remove tag from argument
 		}
 
-		// Now extract repository name (last path component) and registry base
-		if lastSlash := strings.LastIndex(arg, "/"); lastSlash >= 0 {
-			registryBase = arg[:lastSlash]
-			repoName = arg[lastSlash+1:]
+		// Now extract repository name and registry base
+		// For URLs like "ghcr.io/windsorcli/core", we want:
+		// registryBase = "ghcr.io"
+		// repoName = "windsorcli/core"
+		if firstSlash := strings.Index(arg, "/"); firstSlash >= 0 {
+			registryBase = arg[:firstSlash]
+			repoName = arg[firstSlash+1:]
 		} else {
 			return fmt.Errorf("invalid registry format: must include repository path (e.g., registry.com/namespace/repo)")
 		}
 
-		// Push the artifact to the registry
-		if err := artifact.Push(registryBase, repoName, tag); err != nil {
-			return fmt.Errorf("failed to push artifact: %w", err)
+		// Get injector from context
+		injector := cmd.Context().Value(injectorKey).(di.Injector)
+
+		// Create context with push mode and registry information
+		ctx := context.WithValue(context.Background(), "artifactMode", "push")
+		ctx = context.WithValue(ctx, "registryBase", registryBase)
+		ctx = context.WithValue(ctx, "repoName", repoName)
+		ctx = context.WithValue(ctx, "tag", tag)
+
+		// Execute the artifact pipeline
+		pipeline, err := pipelines.WithPipeline(injector, ctx, "artifactPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up artifact pipeline: %w", err)
+		}
+		if err := pipeline.Execute(ctx); err != nil {
+			if isAuthenticationError(err) {
+				fmt.Fprintf(os.Stderr, "Have you run 'docker login %s'?\nSee https://docs.docker.com/engine/reference/commandline/login/ for details.\n", registryBase)
+				return fmt.Errorf("Authentication failed")
+			}
+			return fmt.Errorf("failed to push artifacts: %w", err)
 		}
 
-		if tag != "" {
-			fmt.Printf("Blueprint pushed successfully to %s/%s:%s\n", registryBase, repoName, tag)
-		} else {
-			fmt.Printf("Blueprint pushed successfully to %s/%s\n", registryBase, repoName)
-		}
 		return nil
 	},
+}
+
+// isAuthenticationError checks if the error is related to authentication failure
+func isAuthenticationError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errStr := err.Error()
+
+	// Common authentication error patterns
+	authErrorPatterns := []string{
+		"UNAUTHORIZED",
+		"unauthorized",
+		"authentication required",
+		"authentication failed",
+		"not authorized",
+		"access denied",
+		"login required",
+		"credentials required",
+		"401",
+		"403",
+		"unauthenticated",
+		"User cannot be authenticated",
+		"failed to push artifact",
+		"POST https://",
+		"blobs/uploads",
+	}
+
+	for _, pattern := range authErrorPatterns {
+		if strings.Contains(errStr, pattern) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func init() {
