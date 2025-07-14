@@ -35,7 +35,16 @@ var downCmd = &cobra.Command{
 			return fmt.Errorf("failed to set up environment: %w", err)
 		}
 
-		// Then, run the down pipeline for infrastructure teardown
+		// Then, run the init pipeline to initialize the environment
+		initPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "initPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up init pipeline: %w", err)
+		}
+		if err := initPipeline.Execute(cmd.Context()); err != nil {
+			return fmt.Errorf("failed to initialize environment: %w", err)
+		}
+
+		// Finally, run the down pipeline for infrastructure teardown
 		downPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "downPipeline")
 		if err != nil {
 			return fmt.Errorf("failed to set up down pipeline: %w", err)
