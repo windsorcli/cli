@@ -41,7 +41,7 @@ func TestContextCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"context", "get"})
 
 		// When executing the command
-		err := Execute(nil)
+		err := Execute()
 
 		// Then an error should occur
 		if err == nil {
@@ -62,7 +62,7 @@ func TestContextCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"context", "set"})
 
 		// When executing the command
-		err := Execute(nil)
+		err := Execute()
 
 		// Then an error should occur
 		if err == nil {
@@ -83,7 +83,7 @@ func TestContextCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"context", "set", "new-context"})
 
 		// When executing the command
-		err := Execute(nil)
+		err := Execute()
 
 		// Then an error should occur
 		if err == nil {
@@ -104,7 +104,7 @@ func TestContextCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"get-context"})
 
 		// When executing the command
-		err := Execute(nil)
+		err := Execute()
 
 		// Then an error should occur
 		if err == nil {
@@ -125,7 +125,7 @@ func TestContextCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"set-context"})
 
 		// When executing the command
-		err := Execute(nil)
+		err := Execute()
 
 		// Then an error should occur
 		if err == nil {
@@ -146,7 +146,7 @@ func TestContextCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"set-context", "new-context"})
 
 		// When executing the command
-		err := Execute(nil)
+		err := Execute()
 
 		// Then an error should occur
 		if err == nil {

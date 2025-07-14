@@ -21,7 +21,7 @@ func TestHookCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"hook", "zsh"})
 
 		// When executing the command
-		err := Execute(nil)
+		err := Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -41,7 +41,7 @@ func TestHookCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"hook"})
 
 		// When executing the command without shell name
-		err := Execute(nil)
+		err := Execute()
 
 		// Then an error should occur
 		if err == nil {
@@ -62,7 +62,7 @@ func TestHookCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"hook", "unsupported"})
 
 		// When executing the command with unsupported shell
-		err := Execute(nil)
+		err := Execute()
 
 		// Then an error should occur
 		if err == nil {

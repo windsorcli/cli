@@ -13,7 +13,6 @@ import (
 
 	blueprintpkg "github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/secrets"
@@ -27,7 +26,6 @@ import (
 type Mocks struct {
 	Injector         di.Injector
 	ConfigHandler    config.ConfigHandler
-	Controller       *controller.MockController
 	Shell            *shell.MockShell
 	SecretsProvider  *secrets.MockSecretsProvider
 	EnvPrinter       *env.MockEnvPrinter
@@ -38,7 +36,6 @@ type Mocks struct {
 type SetupOptions struct {
 	Injector      di.Injector
 	ConfigHandler config.ConfigHandler
-	Controller    *controller.MockController
 	ConfigStr     string
 	Shims         *Shims
 }
@@ -162,14 +159,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		}
 	}
 
-	// Create mock controller
-	var mockController *controller.MockController
-	if options.Controller == nil {
-		mockController = controller.NewMockController(injector)
-	} else {
-		mockController = options.Controller
-	}
-
 	// Create mock blueprint handler
 	mockBlueprintHandler := blueprintpkg.NewMockBlueprintHandler(injector)
 	mockBlueprintHandler.InstallFunc = func() error {
@@ -180,7 +169,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	return &Mocks{
 		Injector:         injector,
 		ConfigHandler:    configHandler,
-		Controller:       mockController,
 		Shell:            mockShell,
 		SecretsProvider:  mockSecretsProvider,
 		EnvPrinter:       mockEnvPrinter,
@@ -214,7 +202,7 @@ func captureOutput(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
 func TestRootCmd(t *testing.T) {
 	t.Run("RootCmd", func(t *testing.T) {
 		// Given a set of mocks
-		mocks := setupMocks(t)
+		setupMocks(t)
 
 		// When creating the root command
 		cmd := rootCmd
@@ -251,7 +239,7 @@ func TestRootCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{})
 
 		// Execute should work without error
-		if err := Execute(mocks.Controller); err != nil {
+		if err := Execute(); err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
