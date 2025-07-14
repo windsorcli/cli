@@ -14,12 +14,11 @@ type MockBlueprintHandler struct {
 	GetTerraformComponentsFunc func() []blueprintv1alpha1.TerraformComponent
 	GetKustomizationsFunc      func() []blueprintv1alpha1.Kustomization
 
-	WaitForKustomizationsFunc   func(message string, names ...string) error
-	ProcessContextTemplatesFunc func(contextName string, reset ...bool) error
-	GetDefaultTemplateDataFunc  func(contextName string) (map[string][]byte, error)
-	GetLocalTemplateDataFunc    func() (map[string][]byte, error)
-	InstallFunc                 func() error
-	GetRepositoryFunc           func() blueprintv1alpha1.Repository
+	WaitForKustomizationsFunc  func(message string, names ...string) error
+	GetDefaultTemplateDataFunc func(contextName string) (map[string][]byte, error)
+	GetLocalTemplateDataFunc   func() (map[string][]byte, error)
+	InstallFunc                func() error
+	GetRepositoryFunc          func() blueprintv1alpha1.Repository
 
 	DownFunc func() error
 }
@@ -117,14 +116,6 @@ func (m *MockBlueprintHandler) Down() error {
 func (m *MockBlueprintHandler) WaitForKustomizations(message string, names ...string) error {
 	if m.WaitForKustomizationsFunc != nil {
 		return m.WaitForKustomizationsFunc(message, names...)
-	}
-	return nil
-}
-
-// ProcessContextTemplates calls the mock ProcessContextTemplatesFunc if set, otherwise returns nil
-func (m *MockBlueprintHandler) ProcessContextTemplates(contextName string, reset ...bool) error {
-	if m.ProcessContextTemplatesFunc != nil {
-		return m.ProcessContextTemplatesFunc(contextName, reset...)
 	}
 	return nil
 }
