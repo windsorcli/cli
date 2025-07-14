@@ -76,7 +76,6 @@ contexts:
 	// Setup blueprint handler mock
 	mockBlueprintHandler := blueprint.NewMockBlueprintHandler(baseMocks.Injector)
 	mockBlueprintHandler.InitializeFunc = func() error { return nil }
-	mockBlueprintHandler.ProcessContextTemplatesFunc = func(contextName string, reset ...bool) error { return nil }
 	mockBlueprintHandler.LoadConfigFunc = func(reset ...bool) error { return nil }
 	mockBlueprintHandler.GetDefaultTemplateDataFunc = func(contextName string) (map[string][]byte, error) {
 		return make(map[string][]byte), nil
