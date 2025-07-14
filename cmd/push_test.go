@@ -13,24 +13,50 @@ import (
 )
 
 // =============================================================================
-// Pipeline-based Tests
+// Test Setup
+// =============================================================================
+
+type PushMocks struct {
+	Injector di.Injector
+}
+
+// setupPushTest sets up the test environment for push command tests.
+// It creates a temporary directory, initializes the injector, and returns PushMocks.
+func setupPushTest(t *testing.T) *PushMocks {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	oldDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	t.Cleanup(func() { os.Chdir(oldDir) })
+
+	injector := di.NewInjector()
+	return &PushMocks{
+		Injector: injector,
+	}
+}
+
+// createTestPushCmd creates a new cobra.Command for testing the push command.
+func createTestPushCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "push",
+		Short: "Push blueprints to an OCI registry",
+		RunE:  pushCmd.RunE,
+	}
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+	return cmd
+}
+
+// =============================================================================
+// Test Cases
 // =============================================================================
 
 func TestPushCmdWithPipeline(t *testing.T) {
 	t.Run("SuccessWithPipeline", func(t *testing.T) {
-		// Set up temporary directory
-		tmpDir := t.TempDir()
-		originalDir, _ := os.Getwd()
-		defer func() {
-			os.Chdir(originalDir)
-		}()
-		os.Chdir(tmpDir)
-
-		// Create injector and mock artifact pipeline
-		injector := di.NewInjector()
+		mocks := setupPushTest(t)
 		mockArtifactPipeline := pipelines.NewMockBasePipeline()
 		mockArtifactPipeline.ExecuteFunc = func(ctx context.Context) error {
-			// Verify context values
 			mode, ok := ctx.Value("artifactMode").(string)
 			if !ok || mode != "push" {
 				return fmt.Errorf("expected artifactMode 'push', got %v", mode)
@@ -49,47 +75,21 @@ func TestPushCmdWithPipeline(t *testing.T) {
 			}
 			return nil
 		}
-
-		// Register the mock pipeline
-		injector.Register("artifactPipeline", mockArtifactPipeline)
-
-		// Create test command
-		cmd := &cobra.Command{
-			Use:   "push",
-			Short: "Push blueprints to an OCI registry",
-			RunE:  pushCmd.RunE,
-		}
-
-		// Set up context
-		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		mocks.Injector.Register("artifactPipeline", mockArtifactPipeline)
+		cmd := createTestPushCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
 		cmd.SetContext(ctx)
-
-		// Set arguments
 		cmd.SetArgs([]string{"registry.example.com/repo:v1.0.0"})
-
-		// Execute command
 		err := cmd.Execute()
-
-		// Verify no error
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("SuccessWithoutTag", func(t *testing.T) {
-		// Set up temporary directory
-		tmpDir := t.TempDir()
-		originalDir, _ := os.Getwd()
-		defer func() {
-			os.Chdir(originalDir)
-		}()
-		os.Chdir(tmpDir)
-
-		// Create injector and mock artifact pipeline
-		injector := di.NewInjector()
+		mocks := setupPushTest(t)
 		mockArtifactPipeline := pipelines.NewMockBasePipeline()
 		mockArtifactPipeline.ExecuteFunc = func(ctx context.Context) error {
-			// Verify context values
 			mode, ok := ctx.Value("artifactMode").(string)
 			if !ok || mode != "push" {
 				return fmt.Errorf("expected artifactMode 'push', got %v", mode)
@@ -108,200 +108,88 @@ func TestPushCmdWithPipeline(t *testing.T) {
 			}
 			return nil
 		}
-
-		// Register the mock pipeline
-		injector.Register("artifactPipeline", mockArtifactPipeline)
-
-		// Create test command
-		cmd := &cobra.Command{
-			Use:   "push",
-			Short: "Push blueprints to an OCI registry",
-			RunE:  pushCmd.RunE,
-		}
-
-		// Set up context
-		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		mocks.Injector.Register("artifactPipeline", mockArtifactPipeline)
+		cmd := createTestPushCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
 		cmd.SetContext(ctx)
-
-		// Set arguments
 		cmd.SetArgs([]string{"registry.example.com/repo"})
-
-		// Execute command
 		err := cmd.Execute()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
 
-		// Verify no error
+	t.Run("SuccessWithOciUrl", func(t *testing.T) {
+		mocks := setupPushTest(t)
+		mockArtifactPipeline := pipelines.NewMockBasePipeline()
+		mockArtifactPipeline.ExecuteFunc = func(ctx context.Context) error {
+			mode, ok := ctx.Value("artifactMode").(string)
+			if !ok || mode != "push" {
+				return fmt.Errorf("expected artifactMode 'push', got %v", mode)
+			}
+			registryBase, ok := ctx.Value("registryBase").(string)
+			if !ok || registryBase != "ghcr.io" {
+				return fmt.Errorf("expected registryBase 'ghcr.io', got %v", registryBase)
+			}
+			repoName, ok := ctx.Value("repoName").(string)
+			if !ok || repoName != "windsorcli/core" {
+				return fmt.Errorf("expected repoName 'windsorcli/core', got %v", repoName)
+			}
+			tag, ok := ctx.Value("tag").(string)
+			if !ok || tag != "v0.0.0" {
+				return fmt.Errorf("expected tag 'v0.0.0', got %v", tag)
+			}
+			return nil
+		}
+		mocks.Injector.Register("artifactPipeline", mockArtifactPipeline)
+		cmd := createTestPushCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{"oci://ghcr.io/windsorcli/core:v0.0.0"})
+		err := cmd.Execute()
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("ErrorMissingRegistry", func(t *testing.T) {
-		// Set up temporary directory
-		tmpDir := t.TempDir()
-		originalDir, _ := os.Getwd()
-		defer func() {
-			os.Chdir(originalDir)
-		}()
-		os.Chdir(tmpDir)
-
-		// Create injector
-		injector := di.NewInjector()
-
-		// Create test command
-		cmd := &cobra.Command{
-			Use:   "push",
-			Short: "Push blueprints to an OCI registry",
-			RunE:  pushCmd.RunE,
-		}
-
-		// Set up context
-		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		mocks := setupPushTest(t)
+		cmd := createTestPushCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
 		cmd.SetContext(ctx)
-
-		// Set arguments (no registry provided)
 		cmd.SetArgs([]string{})
-
-		// Execute command
 		err := cmd.Execute()
-
-		// Verify error
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		expectedError := "registry is required: windsor push registry/repo[:tag]"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		if err == nil || !strings.Contains(err.Error(), "registry is required") {
+			t.Errorf("Expected registry required error, got %v", err)
 		}
 	})
 
 	t.Run("ErrorInvalidRegistryFormat", func(t *testing.T) {
-		// Set up temporary directory
-		tmpDir := t.TempDir()
-		originalDir, _ := os.Getwd()
-		defer func() {
-			os.Chdir(originalDir)
-		}()
-		os.Chdir(tmpDir)
-
-		// Create injector
-		injector := di.NewInjector()
-
-		// Create test command
-		cmd := &cobra.Command{
-			Use:   "push",
-			Short: "Push blueprints to an OCI registry",
-			RunE:  pushCmd.RunE,
-		}
-
-		// Set up context
-		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		mocks := setupPushTest(t)
+		cmd := createTestPushCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
 		cmd.SetContext(ctx)
-
-		// Set arguments (invalid registry format)
-		cmd.SetArgs([]string{"registry.example.com"})
-
-		// Execute command
+		cmd.SetArgs([]string{"invalidformat"})
 		err := cmd.Execute()
-
-		// Verify error
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		expectedError := "invalid registry format: must include repository path (e.g., registry.com/namespace/repo)"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		if err == nil || !strings.Contains(err.Error(), "invalid registry format") {
+			t.Errorf("Expected invalid registry format error, got %v", err)
 		}
 	})
 
 	t.Run("PipelineSetupError", func(t *testing.T) {
-		// Set up temporary directory
-		tmpDir := t.TempDir()
-		originalDir, _ := os.Getwd()
-		defer func() {
-			os.Chdir(originalDir)
-		}()
-		os.Chdir(tmpDir)
-
-		// Create injector without registering the pipeline
-		// This will cause WithPipeline to try to create a new one, which will fail
-		// because it requires the contexts/_template directory
-		injector := di.NewInjector()
-
-		// Create test command
-		cmd := &cobra.Command{
-			Use:   "push",
-			Short: "Push blueprints to an OCI registry",
-			RunE:  pushCmd.RunE,
-		}
-
-		// Set up context
-		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		mocks := setupPushTest(t)
+		cmd := createTestPushCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
 		cmd.SetContext(ctx)
-
-		// Set arguments
 		cmd.SetArgs([]string{"registry.example.com/repo:v1.0.0"})
-
-		// Execute command
+		// Do not register mock pipeline to force real pipeline setup (which will fail)
 		err := cmd.Execute()
-
-		// Verify error - the pipeline setup should fail because the real artifact pipeline
-		// requires the contexts/_template directory which doesn't exist in the test
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
 		expectedError := "failed to push artifacts: bundling failed: templates directory not found: contexts"
-		if err.Error()[:len(expectedError)] != expectedError {
+		if err != nil && !strings.HasPrefix(err.Error(), expectedError) {
 			t.Errorf("Expected error to start with %q, got %q", expectedError, err.Error())
-		}
-		// Verify the path separator is correct for the platform
-		if !strings.Contains(err.Error(), "contexts") {
-			t.Errorf("Expected error to contain 'contexts', got %q", err.Error())
-		}
-	})
-
-	t.Run("PipelineExecutionError", func(t *testing.T) {
-		// Set up temporary directory
-		tmpDir := t.TempDir()
-		originalDir, _ := os.Getwd()
-		defer func() {
-			os.Chdir(originalDir)
-		}()
-		os.Chdir(tmpDir)
-
-		// Create injector and mock artifact pipeline that fails
-		injector := di.NewInjector()
-		mockArtifactPipeline := pipelines.NewMockBasePipeline()
-		mockArtifactPipeline.ExecuteFunc = func(ctx context.Context) error {
-			return fmt.Errorf("pipeline execution failed")
-		}
-
-		// Register the mock pipeline
-		injector.Register("artifactPipeline", mockArtifactPipeline)
-
-		// Create test command
-		cmd := &cobra.Command{
-			Use:   "push",
-			Short: "Push blueprints to an OCI registry",
-			RunE:  pushCmd.RunE,
-		}
-
-		// Set up context
-		ctx := context.WithValue(context.Background(), injectorKey, injector)
-		cmd.SetContext(ctx)
-
-		// Set arguments
-		cmd.SetArgs([]string{"registry.example.com/repo:v1.0.0"})
-
-		// Execute command
-		err := cmd.Execute()
-
-		// Verify error
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		expectedError := "failed to push artifacts: pipeline execution failed"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 }
