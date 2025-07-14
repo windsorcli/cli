@@ -49,6 +49,12 @@ func setupDownMocks(t *testing.T, opts ...*SetupOptions) *DownMocks {
 	mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
 	baseMocks.Injector.Register("envPipeline", mockEnvPipeline)
 
+	// Register mock init pipeline in injector (needed since down runs init pipeline second)
+	mockInitPipeline := pipelines.NewMockBasePipeline()
+	mockInitPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+	mockInitPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
+	baseMocks.Injector.Register("initPipeline", mockInitPipeline)
+
 	// Register mock down pipeline in injector
 	mockDownPipeline := pipelines.NewMockBasePipeline()
 	mockDownPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
@@ -149,6 +155,31 @@ func TestDownCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorExecutingInitPipeline", func(t *testing.T) {
+		// Given a down command with failing init pipeline execution
+		mocks := setupDownMocks(t)
+		mockInitPipeline := pipelines.NewMockBasePipeline()
+		mockInitPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+		mockInitPipeline.ExecuteFunc = func(ctx context.Context) error {
+			return fmt.Errorf("init pipeline execution failed")
+		}
+		mocks.Injector.Register("initPipeline", mockInitPipeline)
+		cmd := createTestDownCmd()
+
+		// When executing the command
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to initialize environment") {
+			t.Errorf("Expected error about init pipeline execution, got: %v", err)
+		}
+	})
+
 	t.Run("ErrorExecutingDownPipeline", func(t *testing.T) {
 		// Given a down command with failing down pipeline execution
 		mocks := setupDownMocks(t)
@@ -245,6 +276,60 @@ func TestDownCmd(t *testing.T) {
 		}
 		if decryptValue := envExecutedContext.Value("decrypt"); decryptValue != true {
 			t.Errorf("Expected decrypt flag to be true, got %v", decryptValue)
+		}
+	})
+
+	t.Run("PipelineOrchestrationOrder", func(t *testing.T) {
+		// Given a down command with mocks
+		mocks := setupDownMocks(t)
+
+		// And pipelines that track execution order
+		executionOrder := []string{}
+
+		mockEnvPipeline := pipelines.NewMockBasePipeline()
+		mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+		mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error {
+			executionOrder = append(executionOrder, "env")
+			return nil
+		}
+		mocks.Injector.Register("envPipeline", mockEnvPipeline)
+
+		mockInitPipeline := pipelines.NewMockBasePipeline()
+		mockInitPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+		mockInitPipeline.ExecuteFunc = func(ctx context.Context) error {
+			executionOrder = append(executionOrder, "init")
+			return nil
+		}
+		mocks.Injector.Register("initPipeline", mockInitPipeline)
+
+		mockDownPipeline := pipelines.NewMockBasePipeline()
+		mockDownPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+		mockDownPipeline.ExecuteFunc = func(ctx context.Context) error {
+			executionOrder = append(executionOrder, "down")
+			return nil
+		}
+		mocks.Injector.Register("downPipeline", mockDownPipeline)
+
+		// When executing the down command
+		cmd := createTestDownCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur and pipelines should execute in correct order
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		expectedOrder := []string{"env", "init", "down"}
+		if len(executionOrder) != len(expectedOrder) {
+			t.Errorf("Expected %d pipelines to execute, got %d", len(expectedOrder), len(executionOrder))
+		}
+
+		for i, expected := range expectedOrder {
+			if i >= len(executionOrder) || executionOrder[i] != expected {
+				t.Errorf("Expected pipeline %d to be %s, got %v", i, expected, executionOrder)
+			}
 		}
 	})
 }
