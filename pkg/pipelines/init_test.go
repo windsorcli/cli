@@ -76,7 +76,7 @@ contexts:
 	// Setup blueprint handler mock
 	mockBlueprintHandler := blueprint.NewMockBlueprintHandler(baseMocks.Injector)
 	mockBlueprintHandler.InitializeFunc = func() error { return nil }
-	mockBlueprintHandler.LoadConfigFunc = func(reset ...bool) error { return nil }
+	mockBlueprintHandler.LoadConfigFunc = func() error { return nil }
 	mockBlueprintHandler.GetDefaultTemplateDataFunc = func(contextName string) (map[string][]byte, error) {
 		return make(map[string][]byte), nil
 	}
@@ -375,7 +375,7 @@ func TestInitPipeline_Execute(t *testing.T) {
 		{
 			name: "ReturnsErrorWhenBlueprintLoadConfigFails",
 			setupMock: func(mocks *InitMocks) {
-				mocks.BlueprintHandler.LoadConfigFunc = func(reset ...bool) error {
+				mocks.BlueprintHandler.LoadConfigFunc = func() error {
 					return fmt.Errorf("blueprint load config failed")
 				}
 			},

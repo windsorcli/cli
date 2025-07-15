@@ -25,6 +25,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// OCIArtifactInfo contains information about the OCI artifact source for blueprint data
+type OCIArtifactInfo struct {
+	// Name is the name of the OCI artifact
+	Name string
+	// URL is the full OCI URL of the artifact
+	URL string
+}
+
 // The BlueprintHandler is a core component that manages infrastructure and application configurations
 // through a declarative, GitOps-based approach. It handles the lifecycle of infrastructure blueprints,
 // which are composed of Terraform components, Kubernetes Kustomizations, and associated metadata.
@@ -35,7 +43,8 @@ import (
 
 type BlueprintHandler interface {
 	Initialize() error
-	LoadConfig(reset ...bool) error
+	LoadConfig() error
+	LoadData(data map[string]any, ociInfo ...*OCIArtifactInfo) error
 	Install() error
 	GetMetadata() blueprintv1alpha1.Metadata
 	GetSources() []blueprintv1alpha1.Source
@@ -68,7 +77,6 @@ type BaseBlueprintHandler struct {
 	configHandler     config.ConfigHandler
 	shell             shell.Shell
 	kubernetesManager kubernetes.KubernetesManager
-	localBlueprint    blueprintv1alpha1.Blueprint
 	blueprint         blueprintv1alpha1.Blueprint
 	projectRoot       string
 	shims             *Shims
@@ -122,7 +130,7 @@ func (b *BaseBlueprintHandler) Initialize() error {
 // LoadConfig reads blueprint configuration from blueprint.yaml file.
 // Only loads existing blueprint.yaml files - no templating or generation.
 // Template processing is now handled by the pkg/template package.
-func (b *BaseBlueprintHandler) LoadConfig(reset ...bool) error {
+func (b *BaseBlueprintHandler) LoadConfig() error {
 	configRoot, err := b.configHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("error getting config root: %w", err)
@@ -143,6 +151,22 @@ func (b *BaseBlueprintHandler) LoadConfig(reset ...bool) error {
 		return err
 	}
 	return b.processBlueprintData(yamlData, &b.blueprint)
+}
+
+// LoadData loads blueprint configuration from a map containing blueprint data.
+// It marshals the input map to YAML, processes it as a Blueprint object, and updates the handler's blueprint state.
+// The ociInfo parameter optionally provides OCI artifact source information for source resolution and tracking.
+func (b *BaseBlueprintHandler) LoadData(data map[string]any, ociInfo ...*OCIArtifactInfo) error {
+	yamlData, err := b.shims.YamlMarshal(data)
+	if err != nil {
+		return fmt.Errorf("error marshalling blueprint data to yaml: %w", err)
+	}
+
+	if err := b.processBlueprintData(yamlData, &b.blueprint, ociInfo...); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // WaitForKustomizations waits for the specified kustomizations to be ready.
@@ -211,23 +235,21 @@ func (b *BaseBlueprintHandler) WaitForKustomizations(message string, names ...st
 	}
 }
 
-// Install applies the blueprint's Kubernetes resources to the cluster. It handles GitRepositories
-// for the main repository and sources, Kustomizations for deployments, and a ConfigMap containing
-// context-specific configuration. Uses environment KUBECONFIG or falls back to in-cluster config.
+// Install applies all blueprint Kubernetes resources to the cluster, including the main repository, additional sources, Kustomizations, and the context ConfigMap.
+// The method ensures the target namespace exists, applies the main and additional source repositories, creates the ConfigMap, and applies all Kustomizations.
+// Uses the environment KUBECONFIG or in-cluster configuration for access. Returns an error if any resource application fails.
 func (b *BaseBlueprintHandler) Install() error {
 	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
 	spin.Suffix = " 📐 Installing blueprint resources"
 	spin.Start()
 	defer spin.Stop()
 
-	// Ensure namespace exists
 	if err := b.createManagedNamespace(constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
 		spin.Stop()
 		fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 		return fmt.Errorf("failed to create namespace: %w", err)
 	}
 
-	// Apply blueprint repository
 	if b.blueprint.Repository.Url != "" {
 		source := blueprintv1alpha1.Source{
 			Name:       b.blueprint.Metadata.Name,
@@ -242,7 +264,6 @@ func (b *BaseBlueprintHandler) Install() error {
 		}
 	}
 
-	// Apply other sources
 	for _, source := range b.blueprint.Sources {
 		if err := b.applySourceRepository(source, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
 			spin.Stop()
@@ -251,14 +272,12 @@ func (b *BaseBlueprintHandler) Install() error {
 		}
 	}
 
-	// Apply ConfigMap
 	if err := b.applyConfigMap(); err != nil {
 		spin.Stop()
 		fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 		return fmt.Errorf("failed to apply configmap: %w", err)
 	}
 
-	// Apply Kustomizations
 	kustomizations := b.getKustomizations()
 	kustomizationNames := make([]string, len(kustomizations))
 	for i, k := range kustomizations {
@@ -639,9 +658,12 @@ func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *blueprintv1alpha
 	blueprint.TerraformComponents = resolvedComponents
 }
 
-// processBlueprintData unmarshals and validates blueprint configuration data, ensuring required
-// fields are present and converting any raw kustomization data into strongly typed objects.
-func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *blueprintv1alpha1.Blueprint) error {
+// processBlueprintData parses blueprint YAML data into a Blueprint object.
+// Parses and validates required fields, converts kustomization maps to typed objects, and merges results into
+// the target blueprint. If ociInfo is provided, injects the OCI source into the sources list, updates Terraform
+// components and kustomizations lacking a source to use the OCI source, and ensures the OCI source is present
+// or updated in the sources slice.
+func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *blueprintv1alpha1.Blueprint, ociInfo ...*OCIArtifactInfo) error {
 	newBlueprint := &blueprintv1alpha1.PartialBlueprint{}
 	if err := b.shims.YamlUnmarshal(data, newBlueprint); err != nil {
 		return fmt.Errorf("error unmarshalling blueprint data: %w", err)
@@ -664,12 +686,48 @@ func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *blue
 		kustomizations = append(kustomizations, kustomization)
 	}
 
+	sources := newBlueprint.Sources
+	terraformComponents := newBlueprint.TerraformComponents
+
+	if len(ociInfo) > 0 && ociInfo[0] != nil {
+		oci := ociInfo[0]
+		ociSource := blueprintv1alpha1.Source{
+			Name: oci.Name,
+			Url:  oci.URL,
+		}
+
+		sourceExists := false
+		for i, source := range sources {
+			if source.Name == oci.Name {
+				sources[i] = ociSource
+				sourceExists = true
+				break
+			}
+		}
+
+		if !sourceExists {
+			sources = append(sources, ociSource)
+		}
+
+		for i, component := range terraformComponents {
+			if component.Source == "" {
+				terraformComponents[i].Source = oci.Name
+			}
+		}
+
+		for i, kustomization := range kustomizations {
+			if kustomization.Source == "" {
+				kustomizations[i].Source = oci.Name
+			}
+		}
+	}
+
 	completeBlueprint := &blueprintv1alpha1.Blueprint{
 		Kind:                newBlueprint.Kind,
 		ApiVersion:          newBlueprint.ApiVersion,
 		Metadata:            newBlueprint.Metadata,
-		Sources:             newBlueprint.Sources,
-		TerraformComponents: newBlueprint.TerraformComponents,
+		Sources:             sources,
+		TerraformComponents: terraformComponents,
 		Kustomizations:      kustomizations,
 		Repository:          newBlueprint.Repository,
 	}

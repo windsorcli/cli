@@ -3357,3 +3357,176 @@ func TestBaseBlueprintHandler_isOCISource(t *testing.T) {
 }
 
 // Removed problematic test cases due to blueprint field assignment issues
+
+func TestBlueprintHandler_LoadData(t *testing.T) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		return handler, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, _ := setup(t)
+
+		// And blueprint data
+		blueprintData := map[string]any{
+			"kind":       "Blueprint",
+			"apiVersion": "v1alpha1",
+			"metadata": map[string]any{
+				"name":        "test-blueprint",
+				"description": "A test blueprint from data",
+				"authors":     []any{"John Doe"},
+			},
+			"sources": []any{
+				map[string]any{
+					"name": "test-source",
+					"url":  "https://example.com/test-repo.git",
+				},
+			},
+			"terraform": []any{
+				map[string]any{
+					"source": "test-source",
+					"path":   "path/to/code",
+					"values": map[string]any{
+						"key1": "value1",
+					},
+				},
+			},
+		}
+
+		// When loading the data
+		err := handler.LoadData(blueprintData)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And the metadata should be correctly loaded
+		metadata := handler.GetMetadata()
+		if metadata.Name != "test-blueprint" {
+			t.Errorf("Expected name to be test-blueprint, got %s", metadata.Name)
+		}
+		if metadata.Description != "A test blueprint from data" {
+			t.Errorf("Expected description to be 'A test blueprint from data', got %s", metadata.Description)
+		}
+		if len(metadata.Authors) != 1 || metadata.Authors[0] != "John Doe" {
+			t.Errorf("Expected authors to be ['John Doe'], got %v", metadata.Authors)
+		}
+
+		// And the sources should be loaded
+		sources := handler.GetSources()
+		if len(sources) != 1 {
+			t.Errorf("Expected 1 source, got %d", len(sources))
+		}
+		if sources[0].Name != "test-source" {
+			t.Errorf("Expected source name to be 'test-source', got %s", sources[0].Name)
+		}
+
+		// And the terraform components should be loaded
+		components := handler.GetTerraformComponents()
+		if len(components) != 1 {
+			t.Errorf("Expected 1 terraform component, got %d", len(components))
+		}
+		if components[0].Path != "path/to/code" {
+			t.Errorf("Expected component path to be 'path/to/code', got %s", components[0].Path)
+		}
+
+		// Note: The GetTerraformComponents() method resolves sources to full URLs,
+		// so we can't easily test the raw source names without accessing private fields
+	})
+
+	t.Run("MarshalError", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, _ := setup(t)
+
+		// And a mock yaml marshaller that returns an error
+		handler.shims.YamlMarshal = func(v any) ([]byte, error) {
+			return nil, fmt.Errorf("simulated marshalling error")
+		}
+
+		// And blueprint data
+		blueprintData := map[string]any{
+			"kind": "Blueprint",
+		}
+
+		// When loading the data
+		err := handler.LoadData(blueprintData)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Errorf("Expected LoadData to fail due to marshalling error, but it succeeded")
+		}
+		if !strings.Contains(err.Error(), "error marshalling blueprint data to yaml") {
+			t.Errorf("Expected error message to contain 'error marshalling blueprint data to yaml', got %v", err)
+		}
+	})
+
+	t.Run("ProcessBlueprintDataError", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, _ := setup(t)
+
+		// And a mock yaml unmarshaller that returns an error
+		handler.shims.YamlUnmarshal = func(data []byte, obj any) error {
+			return fmt.Errorf("simulated unmarshalling error")
+		}
+
+		// And blueprint data
+		blueprintData := map[string]any{
+			"kind": "Blueprint",
+		}
+
+		// When loading the data
+		err := handler.LoadData(blueprintData)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Errorf("Expected LoadData to fail due to unmarshalling error, but it succeeded")
+		}
+	})
+
+	t.Run("WithOCIArtifactInfo", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, _ := setup(t)
+
+		// And blueprint data
+		blueprintData := map[string]any{
+			"kind":       "Blueprint",
+			"apiVersion": "v1alpha1",
+			"metadata": map[string]any{
+				"name":        "oci-blueprint",
+				"description": "A blueprint from OCI artifact",
+			},
+		}
+
+		// And OCI artifact info
+		ociInfo := &OCIArtifactInfo{
+			Name: "my-blueprint",
+			URL:  "oci://registry.example.com/my-blueprint:v1.0.0",
+		}
+
+		// When loading the data with OCI info
+		err := handler.LoadData(blueprintData, ociInfo)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And the metadata should be correctly loaded
+		metadata := handler.GetMetadata()
+		if metadata.Name != "oci-blueprint" {
+			t.Errorf("Expected name to be oci-blueprint, got %s", metadata.Name)
+		}
+		if metadata.Description != "A blueprint from OCI artifact" {
+			t.Errorf("Expected description to be 'A blueprint from OCI artifact', got %s", metadata.Description)
+		}
+	})
+}
