@@ -10,6 +10,7 @@ import (
 
 	_ "embed"
 
+	"github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
@@ -25,14 +26,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// OCIArtifactInfo contains information about the OCI artifact source for blueprint data
-type OCIArtifactInfo struct {
-	// Name is the name of the OCI artifact
-	Name string
-	// URL is the full OCI URL of the artifact
-	URL string
-}
-
 // The BlueprintHandler is a core component that manages infrastructure and application configurations
 // through a declarative, GitOps-based approach. It handles the lifecycle of infrastructure blueprints,
 // which are composed of Terraform components, Kubernetes Kustomizations, and associated metadata.
@@ -44,7 +37,7 @@ type OCIArtifactInfo struct {
 type BlueprintHandler interface {
 	Initialize() error
 	LoadConfig() error
-	LoadData(data map[string]any, ociInfo ...*OCIArtifactInfo) error
+	LoadData(data map[string]any, ociInfo ...*artifact.OCIArtifactInfo) error
 	Write(overwrite ...bool) error
 	Install() error
 	GetMetadata() blueprintv1alpha1.Metadata
@@ -157,7 +150,7 @@ func (b *BaseBlueprintHandler) LoadConfig() error {
 // LoadData loads blueprint configuration from a map containing blueprint data.
 // It marshals the input map to YAML, processes it as a Blueprint object, and updates the handler's blueprint state.
 // The ociInfo parameter optionally provides OCI artifact source information for source resolution and tracking.
-func (b *BaseBlueprintHandler) LoadData(data map[string]any, ociInfo ...*OCIArtifactInfo) error {
+func (b *BaseBlueprintHandler) LoadData(data map[string]any, ociInfo ...*artifact.OCIArtifactInfo) error {
 	yamlData, err := b.shims.YamlMarshal(data)
 	if err != nil {
 		return fmt.Errorf("error marshalling blueprint data to yaml: %w", err)
@@ -423,39 +416,6 @@ func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 	return templateData, nil
 }
 
-// walkAndCollectTemplates recursively walks through the template directory and collects only .jsonnet files.
-// It maintains the relative path structure from the template directory root.
-func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir, templateRoot string, templateData map[string][]byte) error {
-	entries, err := b.shims.ReadDir(templateDir)
-	if err != nil {
-		return fmt.Errorf("failed to read template directory: %w", err)
-	}
-
-	for _, entry := range entries {
-		entryPath := filepath.Join(templateDir, entry.Name())
-
-		if entry.IsDir() {
-			if err := b.walkAndCollectTemplates(entryPath, templateRoot, templateData); err != nil {
-				return err
-			}
-		} else if strings.HasSuffix(entry.Name(), ".jsonnet") {
-			content, err := b.shims.ReadFile(filepath.Clean(entryPath))
-			if err != nil {
-				return fmt.Errorf("failed to read template file %s: %w", entryPath, err)
-			}
-
-			relPath, err := filepath.Rel(templateRoot, entryPath)
-			if err != nil {
-				return fmt.Errorf("failed to get relative path: %w", err)
-			}
-
-			templateData[filepath.ToSlash(relPath)] = content
-		}
-	}
-
-	return nil
-}
-
 // Down orchestrates the teardown of all kustomizations and associated resources, skipping "not found" errors.
 // Sequence:
 // 1. Suspend all kustomizations and associated helmreleases to prevent reconciliation (ignoring not found errors)
@@ -626,6 +586,39 @@ func (b *BaseBlueprintHandler) Down() error {
 // Private Methods
 // =============================================================================
 
+// walkAndCollectTemplates recursively walks through the template directory and collects only .jsonnet files.
+// It maintains the relative path structure from the template directory root.
+func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir, templateRoot string, templateData map[string][]byte) error {
+	entries, err := b.shims.ReadDir(templateDir)
+	if err != nil {
+		return fmt.Errorf("failed to read template directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		entryPath := filepath.Join(templateDir, entry.Name())
+
+		if entry.IsDir() {
+			if err := b.walkAndCollectTemplates(entryPath, templateRoot, templateData); err != nil {
+				return err
+			}
+		} else if strings.HasSuffix(entry.Name(), ".jsonnet") {
+			content, err := b.shims.ReadFile(filepath.Clean(entryPath))
+			if err != nil {
+				return fmt.Errorf("failed to read template file %s: %w", entryPath, err)
+			}
+
+			relPath, err := filepath.Rel(templateRoot, entryPath)
+			if err != nil {
+				return fmt.Errorf("failed to get relative path: %w", err)
+			}
+
+			templateData[filepath.ToSlash(relPath)] = content
+		}
+	}
+
+	return nil
+}
+
 // resolveComponentSources transforms component source names into fully qualified URLs
 // with path prefix and reference information based on the associated source configuration.
 // It processes both OCI and Git sources, constructing appropriate URL formats for each type.
@@ -703,7 +696,7 @@ func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *blueprintv1alpha
 // the target blueprint. If ociInfo is provided, injects the OCI source into the sources list, updates Terraform
 // components and kustomizations lacking a source to use the OCI source, and ensures the OCI source is present
 // or updated in the sources slice.
-func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *blueprintv1alpha1.Blueprint, ociInfo ...*OCIArtifactInfo) error {
+func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *blueprintv1alpha1.Blueprint, ociInfo ...*artifact.OCIArtifactInfo) error {
 	newBlueprint := &blueprintv1alpha1.PartialBlueprint{}
 	if err := b.shims.YamlUnmarshal(data, newBlueprint); err != nil {
 		return fmt.Errorf("error unmarshalling blueprint data: %w", err)

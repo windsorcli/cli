@@ -260,7 +260,7 @@ func (p *BasePipeline) withStack() stack.Stack {
 	return stack
 }
 
-// withGenerators creates and registers generators including git, terraform, and blueprint generators.
+// withGenerators creates and registers generators including git and terraform generators.
 // Returns a slice of initialized generators or an error if creation fails.
 func (p *BasePipeline) withGenerators() ([]generators.Generator, error) {
 	var generatorList []generators.Generator
@@ -272,10 +272,6 @@ func (p *BasePipeline) withGenerators() ([]generators.Generator, error) {
 	terraformGenerator := generators.NewTerraformGenerator(p.injector)
 	p.injector.Register("terraformGenerator", terraformGenerator)
 	generatorList = append(generatorList, terraformGenerator)
-
-	blueprintGenerator := generators.NewBlueprintGenerator(p.injector)
-	p.injector.Register("blueprintGenerator", blueprintGenerator)
-	generatorList = append(generatorList, blueprintGenerator)
 
 	return generatorList, nil
 }

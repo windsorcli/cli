@@ -379,7 +379,7 @@ func TestInitPipeline_Execute(t *testing.T) {
 					return fmt.Errorf("blueprint load config failed")
 				}
 			},
-			expectedErr: "Error reloading blueprint config after generation: blueprint load config failed",
+			expectedErr: "Error loading blueprint config: blueprint load config failed",
 		},
 		{
 			name: "ReturnsErrorWhenSaveConfigFails",
@@ -870,15 +870,15 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "failed to get OCI template data") {
-			t.Errorf("Expected error to contain 'failed to get OCI template data', got %v", err)
+		if !strings.Contains(err.Error(), "failed to get template data from blueprint") {
+			t.Errorf("Expected error to contain 'failed to get template data from blueprint', got %v", err)
 		}
 		if templateData != nil {
 			t.Error("Expected nil template data on error")
 		}
 	})
 
-	t.Run("ReturnsErrorWhenArtifactBuilderMissing", func(t *testing.T) {
+	t.Run("ReturnsEmptyWhenArtifactBuilderMissing", func(t *testing.T) {
 		// Given a pipeline with OCI blueprint but no artifact builder
 		pipeline := &InitPipeline{}
 		pipeline.artifactBuilder = nil
@@ -889,15 +889,15 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		// When prepareTemplateData is called
 		templateData, err := pipeline.prepareTemplateData(ctx)
 
-		// Then should return error
-		if err == nil {
-			t.Fatal("Expected error, got nil")
+		// Then should return empty template data
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
-		if !strings.Contains(err.Error(), "artifact builder not available") {
-			t.Errorf("Expected error to contain 'artifact builder not available', got %v", err)
+		if templateData == nil {
+			t.Error("Expected non-nil template data")
 		}
-		if templateData != nil {
-			t.Error("Expected nil template data on error")
+		if len(templateData) != 0 {
+			t.Error("Expected empty template data")
 		}
 	})
 
@@ -929,6 +929,44 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		}
 		if string(templateData["blueprint.jsonnet"]) != "{ test: 'data' }" {
 			t.Error("Expected correct template data from artifact builder")
+		}
+	})
+
+	t.Run("UsesArtifactBuilderForShortFormatBlueprint", func(t *testing.T) {
+		// Given a pipeline with short format blueprint and artifact builder
+		pipeline := &InitPipeline{}
+
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		expectedTemplateData := map[string][]byte{
+			"blueprint.jsonnet": []byte("{ test: 'short-format' }"),
+		}
+		var receivedOCIRef string
+		mockArtifactBuilder.GetTemplateDataFunc = func(ociRef string) (map[string][]byte, error) {
+			receivedOCIRef = ociRef
+			return expectedTemplateData, nil
+		}
+		pipeline.artifactBuilder = mockArtifactBuilder
+
+		// Create context with short format blueprint value
+		ctx := context.WithValue(context.Background(), "blueprint", "windsorcli/core:v0.0.1")
+
+		// When prepareTemplateData is called
+		templateData, err := pipeline.prepareTemplateData(ctx)
+
+		// Then should use artifact builder with converted full URL
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(templateData) != 1 {
+			t.Errorf("Expected 1 template file, got %d", len(templateData))
+		}
+		if string(templateData["blueprint.jsonnet"]) != "{ test: 'short-format' }" {
+			t.Error("Expected correct template data from artifact builder")
+		}
+		// Verify that the short format was converted to full OCI URL
+		expectedURL := "oci://ghcr.io/windsorcli/core:v0.0.1"
+		if receivedOCIRef != expectedURL {
+			t.Errorf("Expected GetTemplateData to be called with %s, got %s", expectedURL, receivedOCIRef)
 		}
 	})
 
