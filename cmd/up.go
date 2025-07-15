@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/pipelines"
+	"github.com/windsorcli/cli/pkg/shell"
 )
 
 var (
@@ -23,6 +24,23 @@ var upCmd = &cobra.Command{
 		// Get shared dependency injector from context
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
+		// First, initialize a base pipeline to set up core dependencies (shell, config, etc.)
+		_, err := pipelines.WithPipeline(injector, cmd.Context(), "basePipeline")
+		if err != nil {
+			return fmt.Errorf("failed to initialize dependencies: %w", err)
+		}
+
+		// Now check if directory is trusted using the initialized shell
+		shellInstance := injector.Resolve("shell")
+		if shellInstance != nil {
+			if s, ok := shellInstance.(shell.Shell); ok {
+				if err := s.CheckTrustedDirectory(); err != nil {
+					return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+				}
+			}
+		}
+
+		// Directory is trusted, proceed with normal pipeline execution
 		// First, run the env pipeline in quiet mode to set up environment variables
 		envPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "envPipeline")
 		if err != nil {
@@ -35,7 +53,8 @@ var upCmd = &cobra.Command{
 		}
 
 		// Then, run the init pipeline to initialize the environment
-		initPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "initPipeline")
+		var initPipeline pipelines.Pipeline
+		initPipeline, err = pipelines.WithPipeline(injector, cmd.Context(), "initPipeline")
 		if err != nil {
 			return fmt.Errorf("failed to set up init pipeline: %w", err)
 		}

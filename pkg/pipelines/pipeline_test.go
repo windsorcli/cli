@@ -366,6 +366,108 @@ func TestBasePipeline_Initialize(t *testing.T) {
 			t.Error("Expected SetContext not to be called for non-string contextName")
 		}
 	})
+
+	t.Run("AddsTrustedDirectoryWhenTrustContextIsTrue", func(t *testing.T) {
+		// Given a base pipeline and mocks
+		pipeline, mocks := setup(t)
+
+		trustFuncCalled := false
+		mocks.Shell.AddCurrentDirToTrustedFileFunc = func() error {
+			trustFuncCalled = true
+			return nil
+		}
+
+		// And a context with trust set to true
+		ctx := context.WithValue(context.Background(), "trust", true)
+
+		// When initializing the pipeline
+		err := pipeline.Initialize(mocks.Injector, ctx)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And AddCurrentDirToTrustedFile should be called
+		if !trustFuncCalled {
+			t.Error("Expected AddCurrentDirToTrustedFile to be called")
+		}
+	})
+
+	t.Run("DoesNotAddTrustedDirectoryWhenTrustContextIsFalse", func(t *testing.T) {
+		// Given a base pipeline and mocks
+		pipeline, mocks := setup(t)
+
+		trustFuncCalled := false
+		mocks.Shell.AddCurrentDirToTrustedFileFunc = func() error {
+			trustFuncCalled = true
+			return nil
+		}
+
+		// And a context with trust set to false
+		ctx := context.WithValue(context.Background(), "trust", false)
+
+		// When initializing the pipeline
+		err := pipeline.Initialize(mocks.Injector, ctx)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And AddCurrentDirToTrustedFile should not be called
+		if trustFuncCalled {
+			t.Error("Expected AddCurrentDirToTrustedFile not to be called when trust is false")
+		}
+	})
+
+	t.Run("DoesNotAddTrustedDirectoryWhenTrustContextNotSet", func(t *testing.T) {
+		// Given a base pipeline and mocks
+		pipeline, mocks := setup(t)
+
+		trustFuncCalled := false
+		mocks.Shell.AddCurrentDirToTrustedFileFunc = func() error {
+			trustFuncCalled = true
+			return nil
+		}
+
+		// When initializing the pipeline without trust context
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And AddCurrentDirToTrustedFile should not be called
+		if trustFuncCalled {
+			t.Error("Expected AddCurrentDirToTrustedFile not to be called when trust context not set")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenAddCurrentDirToTrustedFileFails", func(t *testing.T) {
+		// Given a base pipeline and mocks
+		pipeline, mocks := setup(t)
+
+		mocks.Shell.AddCurrentDirToTrustedFileFunc = func() error {
+			return fmt.Errorf("failed to add trusted directory")
+		}
+
+		// And a context with trust set to true
+		ctx := context.WithValue(context.Background(), "trust", true)
+
+		// When initializing the pipeline
+		err := pipeline.Initialize(mocks.Injector, ctx)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		expectedErr := "failed to add current directory to trusted file: failed to add trusted directory"
+		if err.Error() != expectedErr {
+			t.Errorf("Expected error %q, got %q", expectedErr, err.Error())
+		}
+	})
 }
 
 func TestBasePipeline_Execute(t *testing.T) {
@@ -593,6 +695,7 @@ func TestWithPipeline(t *testing.T) {
 			"contextPipeline",
 			"hookPipeline",
 			"checkPipeline",
+			"basePipeline",
 		}
 
 		for _, pipelineType := range supportedTypes {

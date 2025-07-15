@@ -41,6 +41,7 @@ var initCmd = &cobra.Command{
 			ctx = context.WithValue(ctx, "contextName", args[0])
 		}
 		ctx = context.WithValue(ctx, "reset", initReset)
+		ctx = context.WithValue(ctx, "trust", true)
 		if initBlueprint != "" {
 			ctx = context.WithValue(ctx, "blueprint", initBlueprint)
 		}

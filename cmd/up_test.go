@@ -476,4 +476,29 @@ func TestUpCmd(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("FailsWhenDirectoryNotTrusted", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupUpTest(t)
+
+		// And shell CheckTrustedDirectory returns an error
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
+			return fmt.Errorf("directory not trusted")
+		}
+
+		// When executing the up command
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should occur about untrusted directory
+		if err == nil {
+			t.Error("Expected error when directory is not trusted, got nil")
+		}
+		if !strings.Contains(err.Error(), "not in a trusted directory") {
+			t.Errorf("Expected error about untrusted directory, got: %v", err)
+		}
+	})
 }

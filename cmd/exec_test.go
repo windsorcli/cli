@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/pipelines"
+	"github.com/windsorcli/cli/pkg/shell"
 )
 
 func TestExecCmd(t *testing.T) {
@@ -32,6 +33,16 @@ func TestExecCmd(t *testing.T) {
 		os.Chdir(tmpDir)
 
 		injector := di.NewInjector()
+
+		// Register mock shell
+		mockShell := shell.NewMockShell()
+		mockShell.CheckTrustedDirectoryFunc = func() error { return nil }
+		injector.Register("shell", mockShell)
+
+		// Register mock base pipeline
+		mockBasePipeline := pipelines.NewMockBasePipeline()
+		injector.Register("basePipeline", mockBasePipeline)
+
 		mockEnvPipeline := pipelines.NewMockBasePipeline()
 		mockExecPipeline := pipelines.NewMockBasePipeline()
 
@@ -52,6 +63,45 @@ func TestExecCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("UntrustedDirectory", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		originalDir, _ := os.Getwd()
+		defer func() {
+			os.Chdir(originalDir)
+		}()
+		os.Chdir(tmpDir)
+
+		injector := di.NewInjector()
+
+		// Register mock shell that fails trust check
+		mockShell := shell.NewMockShell()
+		mockShell.CheckTrustedDirectoryFunc = func() error {
+			return fmt.Errorf("directory not trusted")
+		}
+		injector.Register("shell", mockShell)
+
+		// Register mock base pipeline
+		mockBasePipeline := pipelines.NewMockBasePipeline()
+		injector.Register("basePipeline", mockBasePipeline)
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		cmd.SetContext(ctx)
+
+		args := []string{"go", "version"}
+		cmd.SetArgs(args)
+
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Error("Expected error for untrusted directory, got nil")
+		}
+		expectedMsg := "not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve"
+		if fmt.Sprintf("%v", err) != expectedMsg {
+			t.Errorf("Expected error message '%s', got '%v'", expectedMsg, err)
+		}
+	})
+
 	t.Run("NoCommandProvided", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		originalDir, _ := os.Getwd()
@@ -61,11 +111,15 @@ func TestExecCmd(t *testing.T) {
 		os.Chdir(tmpDir)
 
 		injector := di.NewInjector()
-		mockEnvPipeline := pipelines.NewMockBasePipeline()
-		mockExecPipeline := pipelines.NewMockBasePipeline()
 
-		injector.Register("envPipeline", mockEnvPipeline)
-		injector.Register("execPipeline", mockExecPipeline)
+		// Register mock shell
+		mockShell := shell.NewMockShell()
+		mockShell.CheckTrustedDirectoryFunc = func() error { return nil }
+		injector.Register("shell", mockShell)
+
+		// Register mock base pipeline
+		mockBasePipeline := pipelines.NewMockBasePipeline()
+		injector.Register("basePipeline", mockBasePipeline)
 
 		cmd := createTestCmd()
 		ctx := context.WithValue(context.Background(), injectorKey, injector)
@@ -95,6 +149,16 @@ func TestExecCmd(t *testing.T) {
 		os.Chdir(tmpDir)
 
 		injector := di.NewInjector()
+
+		// Register mock shell
+		mockShell := shell.NewMockShell()
+		mockShell.CheckTrustedDirectoryFunc = func() error { return nil }
+		injector.Register("shell", mockShell)
+
+		// Register mock base pipeline
+		mockBasePipeline := pipelines.NewMockBasePipeline()
+		injector.Register("basePipeline", mockBasePipeline)
+
 		mockEnvPipeline := pipelines.NewMockBasePipeline()
 		mockEnvPipeline.ExecuteFunc = func(context.Context) error {
 			return fmt.Errorf("env pipeline execution failed")
@@ -132,6 +196,16 @@ func TestExecCmd(t *testing.T) {
 		os.Chdir(tmpDir)
 
 		injector := di.NewInjector()
+
+		// Register mock shell
+		mockShell := shell.NewMockShell()
+		mockShell.CheckTrustedDirectoryFunc = func() error { return nil }
+		injector.Register("shell", mockShell)
+
+		// Register mock base pipeline
+		mockBasePipeline := pipelines.NewMockBasePipeline()
+		injector.Register("basePipeline", mockBasePipeline)
+
 		mockEnvPipeline := pipelines.NewMockBasePipeline()
 		mockExecPipeline := pipelines.NewMockBasePipeline()
 		mockExecPipeline.ExecuteFunc = func(context.Context) error {
@@ -169,6 +243,15 @@ func TestExecCmd(t *testing.T) {
 		os.Chdir(tmpDir)
 
 		injector := di.NewInjector()
+
+		// Register mock shell
+		mockShell := shell.NewMockShell()
+		mockShell.CheckTrustedDirectoryFunc = func() error { return nil }
+		injector.Register("shell", mockShell)
+
+		// Register mock base pipeline
+		mockBasePipeline := pipelines.NewMockBasePipeline()
+		injector.Register("basePipeline", mockBasePipeline)
 
 		// Capture context values passed to pipelines
 		var envContext, execContext context.Context
@@ -234,6 +317,15 @@ func TestExecCmd(t *testing.T) {
 		// Test with empty injector to force pipeline creation
 		injector := di.NewInjector()
 
+		// Register mock shell
+		mockShell := shell.NewMockShell()
+		mockShell.CheckTrustedDirectoryFunc = func() error { return nil }
+		injector.Register("shell", mockShell)
+
+		// Register mock base pipeline
+		mockBasePipeline := pipelines.NewMockBasePipeline()
+		injector.Register("basePipeline", mockBasePipeline)
+
 		cmd := createTestCmd()
 		ctx := context.WithValue(context.Background(), injectorKey, injector)
 		cmd.SetContext(ctx)
@@ -268,6 +360,15 @@ func TestExecCmd(t *testing.T) {
 		os.Chdir(tmpDir)
 
 		injector := di.NewInjector()
+
+		// Register mock shell
+		mockShell := shell.NewMockShell()
+		mockShell.CheckTrustedDirectoryFunc = func() error { return nil }
+		injector.Register("shell", mockShell)
+
+		// Register mock base pipeline
+		mockBasePipeline := pipelines.NewMockBasePipeline()
+		injector.Register("basePipeline", mockBasePipeline)
 
 		var execContext context.Context
 		mockEnvPipeline := pipelines.NewMockBasePipeline()
@@ -315,6 +416,15 @@ func TestExecCmd(t *testing.T) {
 		os.Chdir(tmpDir)
 
 		injector := di.NewInjector()
+
+		// Register mock shell
+		mockShell := shell.NewMockShell()
+		mockShell.CheckTrustedDirectoryFunc = func() error { return nil }
+		injector.Register("shell", mockShell)
+
+		// Register mock base pipeline
+		mockBasePipeline := pipelines.NewMockBasePipeline()
+		injector.Register("basePipeline", mockBasePipeline)
 
 		// Pre-register pipelines
 		originalEnvPipeline := pipelines.NewMockBasePipeline()

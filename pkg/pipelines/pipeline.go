@@ -61,6 +61,7 @@ var pipelineConstructors = map[string]PipelineConstructor{
 	"downPipeline":     func() Pipeline { return NewDownPipeline() },
 	"installPipeline":  func() Pipeline { return NewInstallPipeline() },
 	"artifactPipeline": func() Pipeline { return NewArtifactPipeline() },
+	"basePipeline":     func() Pipeline { return NewBasePipeline() },
 }
 
 // WithPipeline resolves or creates a pipeline instance from the DI container by name.
@@ -124,6 +125,13 @@ func (p *BasePipeline) Initialize(injector di.Injector, ctx context.Context) err
 
 	if err := p.shell.Initialize(); err != nil {
 		return fmt.Errorf("failed to initialize shell: %w", err)
+	}
+
+	// Add current directory to trusted file if trust context is set
+	if trust, ok := ctx.Value("trust").(bool); ok && trust {
+		if err := p.shell.AddCurrentDirToTrustedFile(); err != nil {
+			return fmt.Errorf("failed to add current directory to trusted file: %w", err)
+		}
 	}
 
 	// Set shell verbosity based on context
