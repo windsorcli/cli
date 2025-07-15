@@ -515,3 +515,70 @@ func TestMockBlueprintHandler_Down(t *testing.T) {
 		}
 	})
 }
+
+func TestMockBlueprintHandler_Write(t *testing.T) {
+	setup := func(t *testing.T) *MockBlueprintHandler {
+		t.Helper()
+		return &MockBlueprintHandler{}
+	}
+
+	t.Run("WithFuncSet", func(t *testing.T) {
+		// Given a mock handler with Write function
+		handler := setup(t)
+		handler.WriteFunc = func(overwrite ...bool) error {
+			return nil
+		}
+		// When calling write
+		err := handler.Write()
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a mock handler with no Write function
+		handler := setup(t)
+		// When calling write
+		err := handler.Write()
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+	})
+
+	t.Run("WithError", func(t *testing.T) {
+		// Given a mock handler with Write function that returns error
+		handler := setup(t)
+		mockErr := fmt.Errorf("mock error")
+		handler.WriteFunc = func(overwrite ...bool) error {
+			return mockErr
+		}
+		// When calling write
+		err := handler.Write()
+		// Then expected error should be returned
+		if err != mockErr {
+			t.Errorf("Expected error = %v, got = %v", mockErr, err)
+		}
+	})
+
+	t.Run("WithOverwriteParameter", func(t *testing.T) {
+		// Given a mock handler with Write function that checks parameters
+		handler := setup(t)
+		var receivedOverwrite []bool
+		handler.WriteFunc = func(overwrite ...bool) error {
+			receivedOverwrite = overwrite
+			return nil
+		}
+		// When calling write with overwrite parameter
+		err := handler.Write(true)
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+		// And the overwrite parameter should be passed through
+		if len(receivedOverwrite) != 1 || receivedOverwrite[0] != true {
+			t.Errorf("Expected overwrite parameter [true], got %v", receivedOverwrite)
+		}
+	})
+}
