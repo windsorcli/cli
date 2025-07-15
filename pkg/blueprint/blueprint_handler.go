@@ -162,6 +162,7 @@ func (b *BaseBlueprintHandler) LoadData(data map[string]any, ociInfo ...*artifac
 // If overwrite is true, the file is overwritten regardless of existence. If overwrite is false or omitted,
 // the file is only written if it does not already exist. The method ensures the target directory exists,
 // marshals the blueprint to YAML, and writes the file using the configured shims.
+// Terraform variables are filtered out to prevent them from appearing in the final blueprint.yaml.
 func (b *BaseBlueprintHandler) Write(overwrite ...bool) error {
 	shouldOverwrite := false
 	if len(overwrite) > 0 {
@@ -185,7 +186,9 @@ func (b *BaseBlueprintHandler) Write(overwrite ...bool) error {
 		return fmt.Errorf("error creating directory: %w", err)
 	}
 
-	data, err := b.shims.YamlMarshal(&b.blueprint)
+	cleanedBlueprint := b.createCleanedBlueprint()
+
+	data, err := b.shims.YamlMarshal(cleanedBlueprint)
 	if err != nil {
 		return fmt.Errorf("error marshalling blueprint data: %w", err)
 	}
@@ -581,8 +584,17 @@ func (b *BaseBlueprintHandler) Down() error {
 // Private Methods
 // =============================================================================
 
-// walkAndCollectTemplates recursively walks through the template directory and collects only .jsonnet files.
-// It maintains the relative path structure from the template directory root.
+// createCleanedBlueprint returns a deep copy of the blueprint with all Terraform component Values fields removed.
+// All Values maps are cleared, as these should not be persisted in the final blueprint.yaml.
+func (b *BaseBlueprintHandler) createCleanedBlueprint() *blueprintv1alpha1.Blueprint {
+	cleaned := b.blueprint.DeepCopy()
+	for i := range cleaned.TerraformComponents {
+		cleaned.TerraformComponents[i].Values = map[string]any{}
+	}
+	return cleaned
+}
+
+// walkAndCollectTemplates recursively walks through template directories and collects .jsonnet files.
 func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir, templateRoot string, templateData map[string][]byte) error {
 	entries, err := b.shims.ReadDir(templateDir)
 	if err != nil {

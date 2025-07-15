@@ -246,38 +246,7 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 
 	kustomizationsCopy := make([]Kustomization, len(b.Kustomizations))
 	for i, kustomization := range b.Kustomizations {
-		var substituteFromCopy []SubstituteReference
-		if kustomization.PostBuild != nil {
-			substituteFromCopy = make([]SubstituteReference, len(kustomization.PostBuild.SubstituteFrom))
-			copy(substituteFromCopy, kustomization.PostBuild.SubstituteFrom)
-		}
-
-		postBuildCopy := &PostBuild{
-			Substitute:     make(map[string]string),
-			SubstituteFrom: substituteFromCopy,
-		}
-		if kustomization.PostBuild != nil {
-			for key, value := range kustomization.PostBuild.Substitute {
-				postBuildCopy.Substitute[key] = value
-			}
-		}
-
-		kustomizationsCopy[i] = Kustomization{
-			Name:          kustomization.Name,
-			Path:          kustomization.Path,
-			Source:        kustomization.Source,
-			DependsOn:     slices.Clone(kustomization.DependsOn),
-			Interval:      kustomization.Interval,
-			RetryInterval: kustomization.RetryInterval,
-			Timeout:       kustomization.Timeout,
-			Patches:       slices.Clone(kustomization.Patches),
-			Wait:          kustomization.Wait,
-			Force:         kustomization.Force,
-			Prune:         kustomization.Prune,
-			Components:    slices.Clone(kustomization.Components),
-			Cleanup:       slices.Clone(kustomization.Cleanup),
-			PostBuild:     postBuildCopy,
-		}
+		kustomizationsCopy[i] = *kustomization.DeepCopy()
 	}
 
 	return &Blueprint{
@@ -366,9 +335,7 @@ func (b *Blueprint) Merge(overlay *Blueprint) {
 					if mergedComponent.Values == nil {
 						mergedComponent.Values = make(map[string]any)
 					}
-					for k, v := range overlayComponent.Values {
-						mergedComponent.Values[k] = v
-					}
+					maps.Copy(mergedComponent.Values, overlayComponent.Values)
 
 					if overlayComponent.FullPath != "" {
 						mergedComponent.FullPath = overlayComponent.FullPath
@@ -402,12 +369,14 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 
 	var postBuildCopy *PostBuild
 	if k.PostBuild != nil {
-		postBuildCopy = &PostBuild{
-			Substitute:     make(map[string]string),
-			SubstituteFrom: slices.Clone(k.PostBuild.SubstituteFrom),
-		}
-		for key, value := range k.PostBuild.Substitute {
-			postBuildCopy.Substitute[key] = value
+		substituteCopy := maps.Clone(k.PostBuild.Substitute)
+		substituteFromCopy := slices.Clone(k.PostBuild.SubstituteFrom)
+
+		if len(substituteCopy) > 0 || len(substituteFromCopy) > 0 {
+			postBuildCopy = &PostBuild{
+				Substitute:     substituteCopy,
+				SubstituteFrom: substituteFromCopy,
+			}
 		}
 	}
 
