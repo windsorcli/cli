@@ -84,6 +84,10 @@ func (p *InstallPipeline) Execute(ctx context.Context) error {
 		return fmt.Errorf("No blueprint handler found")
 	}
 
+	if err := p.blueprintHandler.LoadConfig(); err != nil {
+		return fmt.Errorf("Error loading blueprint config: %w", err)
+	}
+
 	if err := p.blueprintHandler.Install(); err != nil {
 		return fmt.Errorf("Error installing blueprint: %w", err)
 	}
