@@ -35,29 +35,8 @@ var initCmd = &cobra.Command{
 	Long:  "Initialize the application environment with the specified context configuration",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get shared dependency injector from context
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
-
-		// First, run the env pipeline in quiet mode to set up environment variables
-		envPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "envPipeline")
-		if err != nil {
-			return fmt.Errorf("failed to set up env pipeline: %w", err)
-		}
-		envCtx := context.WithValue(cmd.Context(), "quiet", true)
-		envCtx = context.WithValue(envCtx, "decrypt", true)
-		if err := envPipeline.Execute(envCtx); err != nil {
-			return fmt.Errorf("failed to set up environment: %w", err)
-		}
-
-		// Set up the init pipeline
-		initPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "initPipeline")
-		if err != nil {
-			return fmt.Errorf("failed to set up init pipeline: %w", err)
-		}
-
 		ctx := cmd.Context()
-
-		// Add context name and reset flag to context (these are needed during Initialize)
 		if len(args) > 0 {
 			ctx = context.WithValue(ctx, "contextName", args[0])
 		}
@@ -66,7 +45,23 @@ var initCmd = &cobra.Command{
 			ctx = context.WithValue(ctx, "blueprint", initBlueprint)
 		}
 
-		// Set flag values in config handler before execution
+		ctx = context.WithValue(ctx, "quiet", true)
+		ctx = context.WithValue(ctx, "decrypt", true)
+		envPipeline, err := pipelines.WithPipeline(injector, ctx, "envPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up env pipeline: %w", err)
+		}
+		if err := envPipeline.Execute(ctx); err != nil {
+			return fmt.Errorf("failed to set up environment: %w", err)
+		}
+
+		ctx = context.WithValue(ctx, "quiet", false)
+		ctx = context.WithValue(ctx, "decrypt", false)
+		initPipeline, err := pipelines.WithPipeline(injector, ctx, "initPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up init pipeline: %w", err)
+		}
+
 		configHandler := injector.Resolve("configHandler").(config.ConfigHandler)
 
 		if initBackend != "" {
@@ -125,7 +120,6 @@ var initCmd = &cobra.Command{
 			}
 		}
 
-		// Handle set flags
 		for _, setFlag := range initSetFlags {
 			parts := strings.SplitN(setFlag, "=", 2)
 			if len(parts) == 2 {
@@ -140,7 +134,6 @@ var initCmd = &cobra.Command{
 }
 
 func init() {
-
 	initCmd.Flags().BoolVar(&initReset, "reset", false, "Reset/overwrite existing files and clean .terraform directory")
 	initCmd.Flags().StringVar(&initBackend, "backend", "", "Specify the backend to use")
 	initCmd.Flags().StringVar(&initAwsProfile, "aws-profile", "", "Specify the AWS profile to use")
