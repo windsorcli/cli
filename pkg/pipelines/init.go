@@ -213,84 +213,68 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 		}
 	}
 
-	return nil
-}
-
-// Execute runs the init pipeline, performing trusted file setup, reset token writing, context ID generation,
-// configuration saving, network manager initialization, template data preparation, template processing and
-// blueprint generation, blueprint loading, terraform module resolution, and final file generation.
-// All component initialization is performed in Initialize(). Phases are executed in strict order.
-func (p *InitPipeline) Execute(ctx context.Context) error {
-	if err := p.shell.AddCurrentDirToTrustedFile(); err != nil {
-		return fmt.Errorf("Error adding current directory to trusted file: %w", err)
-	}
-
-	if _, err := p.shell.WriteResetToken(); err != nil {
-		return fmt.Errorf("Error writing reset token: %w", err)
-	}
-
-	if err := p.configHandler.GenerateContextID(); err != nil {
-		return fmt.Errorf("failed to generate context ID: %w", err)
-	}
-
-	reset := false
-	if resetValue := ctx.Value("reset"); resetValue != nil {
-		reset = resetValue.(bool)
-	}
-
-	// Set default configuration before saving
-	contextName := p.determineContextName(ctx)
-	if err := p.setDefaultConfiguration(ctx, contextName); err != nil {
-		return err
-	}
-
-	if err := p.saveConfiguration(reset); err != nil {
-		return err
-	}
-
-	// Network manager phase
 	if p.networkManager != nil {
 		if err := p.networkManager.Initialize(); err != nil {
 			return fmt.Errorf("failed to initialize network manager: %w", err)
 		}
 	}
 
-	// Phase 1: template data preparation
+	return nil
+}
+
+// Execute performs initialization by setting up trusted files, writing reset tokens, generating context IDs,
+// configuring defaults, saving configuration, processing templates, handling blueprints separately,
+// writing blueprint files, resolving Terraform modules, and generating final output files.
+func (p *InitPipeline) Execute(ctx context.Context) error {
+
+	// Phase 1: Setup & configuration
+	if err := p.shell.AddCurrentDirToTrustedFile(); err != nil {
+		return fmt.Errorf("Error adding current directory to trusted file: %w", err)
+	}
+	if _, err := p.shell.WriteResetToken(); err != nil {
+		return fmt.Errorf("Error writing reset token: %w", err)
+	}
+	if err := p.configHandler.GenerateContextID(); err != nil {
+		return fmt.Errorf("failed to generate context ID: %w", err)
+	}
+	reset := false
+	if resetValue := ctx.Value("reset"); resetValue != nil {
+		reset = resetValue.(bool)
+	}
+	contextName := p.determineContextName(ctx)
+	if err := p.setDefaultConfiguration(ctx, contextName); err != nil {
+		return err
+	}
+	if err := p.saveConfiguration(reset); err != nil {
+		return err
+	}
+
+	// Phase 2: Template processing
 	templateData, err := p.prepareTemplateData(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to prepare template data: %w", err)
 	}
-
-	// Phase 2: template processing and blueprint generation
 	renderedData, err := p.processTemplateData(templateData)
 	if err != nil {
 		return err
 	}
 
-	if err := p.loadBlueprintFromTemplate(ctx, renderedData); err != nil {
+	// Phase 3: Blueprint handling
+	if err := p.handleBlueprintLoading(ctx, renderedData, reset); err != nil {
 		return err
 	}
-
-	// Phase 3: blueprint loading (fallback if no template data)
-	if len(renderedData) == 0 || renderedData["blueprint"] == nil {
-		if err := p.blueprintHandler.LoadConfig(); err != nil {
-			return fmt.Errorf("Error loading blueprint config: %w", err)
-		}
-	}
-
-	// Write blueprint file
 	if err := p.blueprintHandler.Write(reset); err != nil {
 		return fmt.Errorf("failed to write blueprint file: %w", err)
 	}
 
-	// Phase 4: terraform module resolution
+	// Phase 4: Terraform module resolution
 	for _, resolver := range p.terraformResolvers {
 		if err := resolver.ProcessModules(); err != nil {
 			return fmt.Errorf("failed to process terraform modules: %w", err)
 		}
 	}
 
-	// Phase 5: final generation
+	// Phase 5: Final file generation
 	if len(renderedData) > 0 {
 		for _, generator := range p.generators {
 			if err := generator.Generate(renderedData, reset); err != nil {
@@ -303,7 +287,6 @@ func (p *InitPipeline) Execute(ctx context.Context) error {
 		return err
 	}
 
-	// Print success message
 	fmt.Fprintln(os.Stderr, "Initialization successful")
 
 	return nil
@@ -544,6 +527,39 @@ func (p *InitPipeline) writeConfigurationFiles() error {
 	if p.containerRuntime != nil {
 		if err := p.containerRuntime.WriteConfig(); err != nil {
 			return fmt.Errorf("error writing container runtime config: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// handleBlueprintLoading manages blueprint loading logic based on reset flag and existing blueprint files.
+// If reset is true, loads blueprint from template data if available.
+// If reset is false, prefers existing blueprint.yaml over template data.
+// Falls back to loading from existing config if no template blueprint data exists.
+func (p *InitPipeline) handleBlueprintLoading(ctx context.Context, renderedData map[string]any, reset bool) error {
+	shouldLoadFromTemplate := false
+
+	if reset {
+		shouldLoadFromTemplate = true
+	} else {
+		configRoot, err := p.configHandler.GetConfigRoot()
+		if err != nil {
+			return fmt.Errorf("error getting config root: %w", err)
+		}
+		blueprintPath := filepath.Join(configRoot, "blueprint.yaml")
+		if _, err := p.shims.Stat(blueprintPath); err != nil {
+			shouldLoadFromTemplate = true
+		}
+	}
+
+	if shouldLoadFromTemplate && len(renderedData) > 0 && renderedData["blueprint"] != nil {
+		if err := p.loadBlueprintFromTemplate(ctx, renderedData); err != nil {
+			return err
+		}
+	} else {
+		if err := p.blueprintHandler.LoadConfig(); err != nil {
+			return fmt.Errorf("Error loading blueprint config: %w", err)
 		}
 	}
 
