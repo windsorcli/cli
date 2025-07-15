@@ -222,15 +222,12 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 	return nil
 }
 
-// Execute performs initialization by setting up trusted files, writing reset tokens, generating context IDs,
+// Execute performs initialization by writing reset tokens, generating context IDs,
 // configuring defaults, saving configuration, processing templates, handling blueprints separately,
 // writing blueprint files, resolving Terraform modules, and generating final output files.
 func (p *InitPipeline) Execute(ctx context.Context) error {
 
 	// Phase 1: Setup & configuration
-	if err := p.shell.AddCurrentDirToTrustedFile(); err != nil {
-		return fmt.Errorf("Error adding current directory to trusted file: %w", err)
-	}
 	if _, err := p.shell.WriteResetToken(); err != nil {
 		return fmt.Errorf("Error writing reset token: %w", err)
 	}

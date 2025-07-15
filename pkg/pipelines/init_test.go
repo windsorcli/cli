@@ -398,15 +398,7 @@ func TestInitPipeline_Execute(t *testing.T) {
 			},
 			expectedErr: "error writing tools manifest: tools write manifest failed",
 		},
-		{
-			name: "ReturnsErrorWhenAddCurrentDirToTrustedFileFails",
-			setupMock: func(mocks *InitMocks) {
-				mocks.Shell.AddCurrentDirToTrustedFileFunc = func() error {
-					return fmt.Errorf("add current dir failed")
-				}
-			},
-			expectedErr: "Error adding current directory to trusted file: add current dir failed",
-		},
+
 		{
 			name: "ReturnsErrorWhenWriteResetTokenFails",
 			setupMock: func(mocks *InitMocks) {
