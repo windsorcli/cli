@@ -12,6 +12,7 @@ import (
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	"github.com/goccy/go-yaml"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/config"
@@ -19,7 +20,6 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/shell"
-	"gopkg.in/yaml.v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -3325,6 +3325,15 @@ func TestBlueprintHandler_Write(t *testing.T) {
 		// Verify all values are cleared from the blueprint.yaml
 		if len(component.Values) != 0 {
 			t.Errorf("Expected all values to be cleared, but got %d values: %v", len(component.Values), component.Values)
+		}
+
+		// Also verify kustomizations have postBuild cleared
+		if len(writtenBlueprint.Kustomizations) > 0 {
+			for i, kustomization := range writtenBlueprint.Kustomizations {
+				if kustomization.PostBuild != nil {
+					t.Errorf("Expected PostBuild to be cleared for kustomization %d, but got %v", i, kustomization.PostBuild)
+				}
+			}
 		}
 	})
 

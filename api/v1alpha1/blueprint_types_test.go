@@ -1023,3 +1023,54 @@ func TestBlueprint_DeepCopy(t *testing.T) {
 		}
 	})
 }
+
+// TestPostBuildOmitEmpty verifies that empty PostBuild objects are omitted from YAML serialization
+func TestPostBuildOmitEmpty(t *testing.T) {
+	t.Run("EmptyPostBuildOmitted", func(t *testing.T) {
+		kustomization := Kustomization{
+			Name: "test-kustomization",
+			Path: "test/path",
+			PostBuild: &PostBuild{
+				Substitute:     map[string]string{},
+				SubstituteFrom: []SubstituteReference{},
+			},
+		}
+
+		// Create a copy using DeepCopy which should omit empty PostBuild
+		copied := kustomization.DeepCopy()
+
+		// Verify that PostBuild is nil for empty content
+		if copied.PostBuild != nil {
+			t.Errorf("Expected PostBuild to be nil for empty content, but got %v", copied.PostBuild)
+		}
+	})
+
+	t.Run("NonEmptyPostBuildPreserved", func(t *testing.T) {
+		kustomization := Kustomization{
+			Name: "test-kustomization",
+			Path: "test/path",
+			PostBuild: &PostBuild{
+				Substitute: map[string]string{
+					"key": "value",
+				},
+				SubstituteFrom: []SubstituteReference{
+					{Kind: "ConfigMap", Name: "test"},
+				},
+			},
+		}
+
+		// Create a copy using DeepCopy which should preserve non-empty PostBuild
+		copied := kustomization.DeepCopy()
+
+		// Verify that PostBuild is preserved for non-empty content
+		if copied.PostBuild == nil {
+			t.Error("Expected PostBuild to be preserved for non-empty content, but got nil")
+		}
+		if copied.PostBuild.Substitute["key"] != "value" {
+			t.Errorf("Expected substitute key to be 'value', but got %s", copied.PostBuild.Substitute["key"])
+		}
+		if len(copied.PostBuild.SubstituteFrom) != 1 {
+			t.Errorf("Expected 1 substitute reference, but got %d", len(copied.PostBuild.SubstituteFrom))
+		}
+	})
+}
