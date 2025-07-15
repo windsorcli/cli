@@ -16,6 +16,7 @@ import (
 	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/windsorcli/cli/pkg/network"
 	"github.com/windsorcli/cli/pkg/services"
+	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
 	"github.com/windsorcli/cli/pkg/template"
 	"github.com/windsorcli/cli/pkg/terraform"
@@ -210,6 +211,14 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 	if p.containerRuntime != nil {
 		if err := p.containerRuntime.Initialize(); err != nil {
 			return fmt.Errorf("failed to initialize container runtime: %w", err)
+		}
+	}
+
+	if secureShell := p.injector.Resolve("secureShell"); secureShell != nil {
+		if secureShellInterface, ok := secureShell.(shell.Shell); ok {
+			if err := secureShellInterface.Initialize(); err != nil {
+				return fmt.Errorf("failed to initialize secure shell: %w", err)
+			}
 		}
 	}
 

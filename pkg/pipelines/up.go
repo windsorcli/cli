@@ -8,6 +8,7 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/network"
+	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
 	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/virt"
@@ -94,6 +95,15 @@ func (p *UpPipeline) Initialize(injector di.Injector, ctx context.Context) error
 			return fmt.Errorf("failed to initialize container runtime: %w", err)
 		}
 	}
+
+	if secureShell := p.injector.Resolve("secureShell"); secureShell != nil {
+		if secureShellInterface, ok := secureShell.(shell.Shell); ok {
+			if err := secureShellInterface.Initialize(); err != nil {
+				return fmt.Errorf("failed to initialize secure shell: %w", err)
+			}
+		}
+	}
+
 	if p.networkManager != nil {
 		if err := p.networkManager.Initialize(); err != nil {
 			return fmt.Errorf("failed to initialize network manager: %w", err)
