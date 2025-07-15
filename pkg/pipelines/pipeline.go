@@ -147,6 +147,13 @@ func (p *BasePipeline) Initialize(injector di.Injector, ctx context.Context) err
 		}
 	}
 
+	// Set Windsor context if specified in execution context
+	if contextName, ok := ctx.Value("contextName").(string); ok && contextName != "" {
+		if err := p.configHandler.SetContext(contextName); err != nil {
+			return fmt.Errorf("failed to set Windsor context: %w", err)
+		}
+	}
+
 	return nil
 }
 
