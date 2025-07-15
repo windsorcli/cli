@@ -10,7 +10,7 @@ require (
 	github.com/fluxcd/helm-controller/api v1.3.0
 	github.com/fluxcd/kustomize-controller/api v1.6.1
 	github.com/fluxcd/pkg/apis/kustomize v1.11.0
-	github.com/fluxcd/pkg/apis/meta v1.15.0
+	github.com/fluxcd/pkg/apis/meta v1.17.0
 	github.com/fluxcd/source-controller/api v1.6.2
 	github.com/getsops/sops/v3 v3.10.2
 	github.com/goccy/go-yaml v1.18.0

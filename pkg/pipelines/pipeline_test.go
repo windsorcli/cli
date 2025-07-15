@@ -213,6 +213,159 @@ func TestBasePipeline_Initialize(t *testing.T) {
 			t.Errorf("Expected no error, got: %v", err)
 		}
 	})
+
+	t.Run("SetsWindsorContextWhenContextNameProvided", func(t *testing.T) {
+		// Given a base pipeline and mock config handler
+		pipeline, mocks := setup(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.InitializeFunc = func() error { return nil }
+
+		contextSetCalled := false
+		var capturedContextName string
+		mockConfigHandler.SetContextFunc = func(contextName string) error {
+			contextSetCalled = true
+			capturedContextName = contextName
+			return nil
+		}
+
+		mocks.Injector.Register("configHandler", mockConfigHandler)
+
+		// And a context with contextName specified
+		ctx := context.WithValue(context.Background(), "contextName", "test-context")
+
+		// When initializing the pipeline
+		err := pipeline.Initialize(mocks.Injector, ctx)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And SetContext should be called with the correct context name
+		if !contextSetCalled {
+			t.Error("Expected SetContext to be called")
+		}
+		if capturedContextName != "test-context" {
+			t.Errorf("Expected SetContext to be called with 'test-context', got %s", capturedContextName)
+		}
+	})
+
+	t.Run("DoesNotSetContextWhenContextNameIsEmpty", func(t *testing.T) {
+		// Given a base pipeline and mock config handler
+		pipeline, mocks := setup(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.InitializeFunc = func() error { return nil }
+
+		contextSetCalled := false
+		mockConfigHandler.SetContextFunc = func(contextName string) error {
+			contextSetCalled = true
+			return nil
+		}
+
+		mocks.Injector.Register("configHandler", mockConfigHandler)
+
+		// And a context with empty contextName
+		ctx := context.WithValue(context.Background(), "contextName", "")
+
+		// When initializing the pipeline
+		err := pipeline.Initialize(mocks.Injector, ctx)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And SetContext should not be called
+		if contextSetCalled {
+			t.Error("Expected SetContext not to be called for empty context name")
+		}
+	})
+
+	t.Run("DoesNotSetContextWhenContextNameNotProvided", func(t *testing.T) {
+		// Given a base pipeline and mock config handler
+		pipeline, mocks := setup(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.InitializeFunc = func() error { return nil }
+
+		contextSetCalled := false
+		mockConfigHandler.SetContextFunc = func(contextName string) error {
+			contextSetCalled = true
+			return nil
+		}
+
+		mocks.Injector.Register("configHandler", mockConfigHandler)
+
+		// When initializing the pipeline without contextName in context
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And SetContext should not be called
+		if contextSetCalled {
+			t.Error("Expected SetContext not to be called when contextName not provided")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenSetContextFails", func(t *testing.T) {
+		// Given a base pipeline and mock config handler that fails on SetContext
+		pipeline, mocks := setup(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.InitializeFunc = func() error { return nil }
+		mockConfigHandler.SetContextFunc = func(contextName string) error {
+			return fmt.Errorf("failed to set context")
+		}
+
+		mocks.Injector.Register("configHandler", mockConfigHandler)
+
+		// And a context with contextName specified
+		ctx := context.WithValue(context.Background(), "contextName", "test-context")
+
+		// When initializing the pipeline
+		err := pipeline.Initialize(mocks.Injector, ctx)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		expectedErr := "failed to set Windsor context: failed to set context"
+		if err.Error() != expectedErr {
+			t.Errorf("Expected error %q, got %q", expectedErr, err.Error())
+		}
+	})
+
+	t.Run("HandlesDifferentContextNameTypes", func(t *testing.T) {
+		// Given a base pipeline and mock config handler
+		pipeline, mocks := setup(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.InitializeFunc = func() error { return nil }
+
+		contextSetCalled := false
+		mockConfigHandler.SetContextFunc = func(contextName string) error {
+			contextSetCalled = true
+			return nil
+		}
+
+		mocks.Injector.Register("configHandler", mockConfigHandler)
+
+		// And a context with non-string contextName
+		ctx := context.WithValue(context.Background(), "contextName", 123)
+
+		// When initializing the pipeline
+		err := pipeline.Initialize(mocks.Injector, ctx)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And SetContext should not be called for non-string values
+		if contextSetCalled {
+			t.Error("Expected SetContext not to be called for non-string contextName")
+		}
+	})
 }
 
 func TestBasePipeline_Execute(t *testing.T) {
