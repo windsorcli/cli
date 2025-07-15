@@ -19,6 +19,7 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/shell"
+	"gopkg.in/yaml.v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -3247,6 +3248,83 @@ func TestBlueprintHandler_Write(t *testing.T) {
 		// Then an error should be returned
 		if err == nil {
 			t.Errorf("Expected error from YamlMarshal, got nil")
+		}
+	})
+
+	t.Run("ClearsAllValues", func(t *testing.T) {
+		// Given a blueprint handler with terraform components containing values
+		handler, mocks := setup(t)
+
+		// Set up a terraform component with both values and terraform variables
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Kind:       "Blueprint",
+			ApiVersion: "v1alpha1",
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{
+					Source: "core",
+					Path:   "cluster/talos",
+					Values: map[string]any{
+						"cluster_name":     "test-cluster",      // Should be kept (not a terraform variable)
+						"cluster_endpoint": "https://test:6443", // Should be filtered if it's a terraform variable
+						"controlplanes":    []string{"node1"},   // Should be filtered if it's a terraform variable
+						"custom_config":    "some-value",        // Should be kept (not a terraform variable)
+					},
+				},
+			},
+		}
+
+		// Set up file system mocks
+		var writtenContent []byte
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			writtenContent = data
+			return nil
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist // blueprint.yaml doesn't exist
+		}
+
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		mocks.Shims.YamlMarshal = func(v any) ([]byte, error) {
+			return yaml.Marshal(v)
+		}
+
+		// When Write is called
+		err := handler.Write()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And the written content should have all values cleared
+		if len(writtenContent) == 0 {
+			t.Errorf("Expected content to be written, got empty content")
+		}
+
+		// Parse the written YAML to verify all values are cleared
+		var writtenBlueprint blueprintv1alpha1.Blueprint
+		err = yaml.Unmarshal(writtenContent, &writtenBlueprint)
+		if err != nil {
+			t.Errorf("Failed to unmarshal written YAML: %v", err)
+		}
+
+		// Verify that the terraform component exists
+		if len(writtenBlueprint.TerraformComponents) != 1 {
+			t.Errorf("Expected 1 terraform component, got %d", len(writtenBlueprint.TerraformComponents))
+		}
+
+		component := writtenBlueprint.TerraformComponents[0]
+
+		// Verify all values are cleared from the blueprint.yaml
+		if len(component.Values) != 0 {
+			t.Errorf("Expected all values to be cleared, but got %d values: %v", len(component.Values), component.Values)
 		}
 	})
 
