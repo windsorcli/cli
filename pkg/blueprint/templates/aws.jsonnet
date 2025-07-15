@@ -31,11 +31,8 @@ local terraformConfig = [
   }
 ];
 
-// Determine the blueprint, defaulting to an empty string if not defined
-local blueprint = if std.objectHas(context, "blueprint") then context.blueprint else "";
-
 // Kustomize configuration
-local kustomizeConfig = if blueprint == "full" then [
+local kustomizeConfig = [
   {
     name: "telemetry-base",
     source: "core",
@@ -151,7 +148,7 @@ local kustomizeConfig = if blueprint == "full" then [
       "grafana/flux"
     ],
   }
-] else [];
+];
 
 // Blueprint metadata
 local blueprintMetadata = {

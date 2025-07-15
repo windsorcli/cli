@@ -276,4 +276,74 @@ func TestInstallPipeline_Execute(t *testing.T) {
 			t.Errorf("Expected blueprint wait error, got %q", err.Error())
 		}
 	})
+
+	t.Run("LoadsBlueprintConfigBeforeInstall", func(t *testing.T) {
+		// Given a pipeline with blueprint handler
+		pipeline, mocks := setup(t)
+
+		loadConfigCalled := false
+		installCalled := false
+		var callOrder []string
+
+		// Track the order of method calls
+		mocks.BlueprintHandler.LoadConfigFunc = func() error {
+			loadConfigCalled = true
+			callOrder = append(callOrder, "LoadConfig")
+			return nil
+		}
+
+		mocks.BlueprintHandler.InstallFunc = func() error {
+			installCalled = true
+			callOrder = append(callOrder, "Install")
+			return nil
+		}
+
+		// When Execute is called
+		err := pipeline.Execute(context.Background())
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And LoadConfig should be called before Install
+		if !loadConfigCalled {
+			t.Error("Expected LoadConfig to be called")
+		}
+		if !installCalled {
+			t.Error("Expected Install to be called")
+		}
+
+		// And LoadConfig should be called before Install
+		if len(callOrder) != 2 {
+			t.Errorf("Expected 2 method calls, got %d", len(callOrder))
+		}
+		if callOrder[0] != "LoadConfig" {
+			t.Errorf("Expected LoadConfig to be called first, got %s", callOrder[0])
+		}
+		if callOrder[1] != "Install" {
+			t.Errorf("Expected Install to be called second, got %s", callOrder[1])
+		}
+	})
+
+	t.Run("ReturnsErrorWhenBlueprintLoadConfigFails", func(t *testing.T) {
+		// Given a pipeline with failing blueprint LoadConfig
+		pipeline, mocks := setup(t)
+
+		// Override blueprint handler to return error during LoadConfig
+		mocks.BlueprintHandler.LoadConfigFunc = func() error {
+			return fmt.Errorf("blueprint load config failed")
+		}
+
+		// When Execute is called
+		err := pipeline.Execute(context.Background())
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "Error loading blueprint config: blueprint load config failed" {
+			t.Errorf("Expected blueprint load config error, got %q", err.Error())
+		}
+	})
 }
