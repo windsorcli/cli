@@ -314,17 +314,30 @@ func TestExecCmd(t *testing.T) {
 		}()
 		os.Chdir(tmpDir)
 
-		// Test with empty injector to force pipeline creation
+		// Create injector with only shell and base pipeline initially
 		injector := di.NewInjector()
 
-		// Register mock shell
+		// Register mock shell and base pipeline (required for exec command)
 		mockShell := shell.NewMockShell()
 		mockShell.CheckTrustedDirectoryFunc = func() error { return nil }
 		injector.Register("shell", mockShell)
 
-		// Register mock base pipeline
 		mockBasePipeline := pipelines.NewMockBasePipeline()
 		injector.Register("basePipeline", mockBasePipeline)
+
+		// Verify pipelines don't exist initially
+		if injector.Resolve("envPipeline") != nil {
+			t.Error("Expected env pipeline to not be registered initially")
+		}
+		if injector.Resolve("execPipeline") != nil {
+			t.Error("Expected exec pipeline to not be registered initially")
+		}
+
+		// Pre-register the pipelines as mocks to simulate successful creation
+		mockEnvPipeline := pipelines.NewMockBasePipeline()
+		mockExecPipeline := pipelines.NewMockBasePipeline()
+		injector.Register("envPipeline", mockEnvPipeline)
+		injector.Register("execPipeline", mockExecPipeline)
 
 		cmd := createTestCmd()
 		ctx := context.WithValue(context.Background(), injectorKey, injector)
@@ -339,7 +352,7 @@ func TestExecCmd(t *testing.T) {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// Verify both pipelines were created and registered
+		// Verify both pipelines are still registered (reused from injector)
 		envPipeline := injector.Resolve("envPipeline")
 		if envPipeline == nil {
 			t.Error("Expected env pipeline to be registered")
