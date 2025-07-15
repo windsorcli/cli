@@ -3305,13 +3305,12 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 	})
 }
 
-// createTestTarGz creates a test tar.gz archive with the given files
+// createTestTarGz creates a test tar archive with the given files
 func createTestTarGz(t *testing.T, files map[string][]byte) []byte {
 	t.Helper()
 
 	var buf bytes.Buffer
-	gzipWriter := gzip.NewWriter(&buf)
-	tarWriter := tar.NewWriter(gzipWriter)
+	tarWriter := tar.NewWriter(&buf)
 
 	for path, content := range files {
 		header := &tar.Header{
@@ -3330,7 +3329,106 @@ func createTestTarGz(t *testing.T, files map[string][]byte) []byte {
 	}
 
 	tarWriter.Close()
-	gzipWriter.Close()
 
 	return buf.Bytes()
+}
+
+// =============================================================================
+// Test Package Functions
+// =============================================================================
+
+func TestParseOCIReference(t *testing.T) {
+	testCases := []struct {
+		name        string
+		input       string
+		expected    *OCIArtifactInfo
+		expectError bool
+	}{
+		{
+			name:        "EmptyString",
+			input:       "",
+			expected:    nil,
+			expectError: false,
+		},
+		{
+			name:  "FullOCIURL",
+			input: "oci://ghcr.io/windsorcli/core:v1.0.0",
+			expected: &OCIArtifactInfo{
+				Name: "core",
+				URL:  "oci://ghcr.io/windsorcli/core:v1.0.0",
+				Tag:  "v1.0.0",
+			},
+			expectError: false,
+		},
+		{
+			name:  "ShortFormat",
+			input: "windsorcli/core:v1.0.0",
+			expected: &OCIArtifactInfo{
+				Name: "core",
+				URL:  "oci://ghcr.io/windsorcli/core:v1.0.0",
+				Tag:  "v1.0.0",
+			},
+			expectError: false,
+		},
+		{
+			name:        "MissingVersion",
+			input:       "windsorcli/core",
+			expected:    nil,
+			expectError: true,
+		},
+		{
+			name:        "InvalidFormat",
+			input:       "core:v1.0.0",
+			expected:    nil,
+			expectError: true,
+		},
+		{
+			name:        "EmptyVersion",
+			input:       "windsorcli/core:",
+			expected:    nil,
+			expectError: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := ParseOCIReference(tc.input)
+
+			if tc.expectError {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if tc.expected == nil {
+				if result != nil {
+					t.Errorf("Expected nil result but got: %+v", result)
+				}
+				return
+			}
+
+			if result == nil {
+				t.Errorf("Expected result but got nil")
+				return
+			}
+
+			if result.Name != tc.expected.Name {
+				t.Errorf("Expected name %s but got %s", tc.expected.Name, result.Name)
+			}
+
+			if result.URL != tc.expected.URL {
+				t.Errorf("Expected URL %s but got %s", tc.expected.URL, result.URL)
+			}
+
+			if result.Tag != tc.expected.Tag {
+				t.Errorf("Expected tag %s but got %s", tc.expected.Tag, result.Tag)
+			}
+		})
+	}
 }

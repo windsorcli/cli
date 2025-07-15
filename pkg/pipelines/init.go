@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"strings"
 
-	bundler "github.com/windsorcli/cli/pkg/artifact"
+	"github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
@@ -33,21 +33,21 @@ import (
 // Types
 // =============================================================================
 
-// InitPipeline provides application initialization functionality
+// InitPipeline handles the initialization of a Windsor project
 type InitPipeline struct {
 	BasePipeline
+	templateRenderer   template.Template
 	blueprintHandler   blueprint.BlueprintHandler
 	toolsManager       tools.ToolsManager
 	stack              stack.Stack
 	generators         []generators.Generator
-	bundlers           []bundler.Bundler
-	artifactBuilder    bundler.Artifact
+	bundlers           []artifact.Bundler
+	artifactBuilder    artifact.Artifact
 	services           []services.Service
 	virtualMachine     virt.VirtualMachine
 	containerRuntime   virt.ContainerRuntime
 	networkManager     network.NetworkManager
 	terraformResolvers []terraform.ModuleResolver
-	templateRenderer   template.Template
 }
 
 // =============================================================================
@@ -262,26 +262,25 @@ func (p *InitPipeline) Execute(ctx context.Context) error {
 	}
 
 	// Phase 2: template processing and blueprint generation
-	var renderedData map[string]any
-	if p.templateRenderer != nil && len(templateData) > 0 {
-		renderedData = make(map[string]any)
-		if err := p.templateRenderer.Process(templateData, renderedData); err != nil {
-			return fmt.Errorf("failed to process template data: %w", err)
-		}
-		if blueprintData, exists := renderedData["blueprint"]; exists {
-			if blueprintGenerator := p.injector.Resolve("blueprintGenerator"); blueprintGenerator != nil {
-				if generator, ok := blueprintGenerator.(generators.Generator); ok {
-					if err := generator.Generate(map[string]any{"blueprint": blueprintData}, reset); err != nil {
-						return fmt.Errorf("failed to generate blueprint from template data: %w", err)
-					}
-				}
-			}
+	renderedData, err := p.processTemplateData(templateData)
+	if err != nil {
+		return err
+	}
+
+	if err := p.loadBlueprintFromTemplate(ctx, renderedData); err != nil {
+		return err
+	}
+
+	// Phase 3: blueprint loading (fallback if no template data)
+	if len(renderedData) == 0 || renderedData["blueprint"] == nil {
+		if err := p.blueprintHandler.LoadConfig(); err != nil {
+			return fmt.Errorf("Error loading blueprint config: %w", err)
 		}
 	}
 
-	// Phase 3: blueprint loading
-	if err := p.blueprintHandler.LoadConfig(); err != nil {
-		return fmt.Errorf("Error reloading blueprint config after generation: %w", err)
+	// Write blueprint file
+	if err := p.blueprintHandler.Write(reset); err != nil {
+		return fmt.Errorf("failed to write blueprint file: %w", err)
 	}
 
 	// Phase 4: terraform module resolution
@@ -428,12 +427,15 @@ func (p *InitPipeline) saveConfiguration(overwrite bool) error {
 	return nil
 }
 
-// prepareTemplateData selects template input sources by priority.
+// prepareTemplateData selects template input sources for template rendering in InitPipeline.
 //
-// 1: If --blueprint is an OCI ref, try extracting template data from OCI artifact.
-// 2: If local _template dir exists, try loading template data from it.
-// 3: If blueprint handler exists, generate default template data for current context.
-// 4: If all fail, return empty map.
+// Selection priority is as follows:
+// 1. If the context "blueprint" value is an OCI reference and artifactBuilder is set, extract template data from the OCI artifact.
+// 2. If blueprintHandler is set, attempt to load template data from the local _template directory.
+// 3. If local template data is unavailable, generate default template data for the current context using blueprintHandler.
+// 4. If none of the above yield data, return an empty map.
+//
+// Returns a map of template file names to contents, or an error if extraction fails at any step.
 func (p *InitPipeline) prepareTemplateData(ctx context.Context) (map[string][]byte, error) {
 	var blueprintValue string
 	if blueprintCtx := ctx.Value("blueprint"); blueprintCtx != nil {
@@ -442,15 +444,20 @@ func (p *InitPipeline) prepareTemplateData(ctx context.Context) (map[string][]by
 		}
 	}
 
-	if blueprintValue != "" && strings.HasPrefix(blueprintValue, "oci://") {
-		if p.artifactBuilder == nil {
-			return nil, fmt.Errorf("artifact builder not available for OCI blueprint")
-		}
-		templateData, err := p.artifactBuilder.GetTemplateData(blueprintValue)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get OCI template data: %w", err)
-		}
-		if len(templateData) > 0 {
+	if blueprintValue != "" {
+		if p.artifactBuilder != nil {
+			ociInfo, err := artifact.ParseOCIReference(blueprintValue)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse blueprint reference: %w", err)
+			}
+			if ociInfo == nil {
+				return nil, fmt.Errorf("invalid blueprint reference: %s", blueprintValue)
+			}
+
+			templateData, err := p.artifactBuilder.GetTemplateData(ociInfo.URL)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get template data from blueprint: %w", err)
+			}
 			return templateData, nil
 		}
 	}
@@ -463,14 +470,53 @@ func (p *InitPipeline) prepareTemplateData(ctx context.Context) (map[string][]by
 		if len(localTemplateData) > 0 {
 			return localTemplateData, nil
 		}
-	}
 
-	if p.blueprintHandler != nil {
-		contextName := p.determineContextName(context.Background())
-		return p.blueprintHandler.GetDefaultTemplateData(contextName)
+		contextName := p.determineContextName(ctx)
+		defaultTemplateData, err := p.blueprintHandler.GetDefaultTemplateData(contextName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get default template data: %w", err)
+		}
+		return defaultTemplateData, nil
 	}
 
 	return make(map[string][]byte), nil
+}
+
+// processTemplateData processes the template data to load blueprint data and render it.
+func (p *InitPipeline) processTemplateData(templateData map[string][]byte) (map[string]any, error) {
+	var renderedData map[string]any
+	if p.templateRenderer != nil && len(templateData) > 0 {
+		renderedData = make(map[string]any)
+		if err := p.templateRenderer.Process(templateData, renderedData); err != nil {
+			return nil, fmt.Errorf("failed to process template data: %w", err)
+		}
+	}
+	return renderedData, nil
+}
+
+// loadBlueprintFromTemplate loads blueprint data from rendered template data. If the "blueprint" key exists
+// in renderedData and is a map, attempts to parse OCI artifact info from the context's "blueprint" value.
+// Delegates loading to blueprintHandler.LoadData with the parsed blueprint map and optional OCI info.
+func (p *InitPipeline) loadBlueprintFromTemplate(ctx context.Context, renderedData map[string]any) error {
+	if blueprintData, exists := renderedData["blueprint"]; exists {
+		if blueprintMap, ok := blueprintData.(map[string]any); ok {
+			var ociInfo *artifact.OCIArtifactInfo
+			if blueprintCtx := ctx.Value("blueprint"); blueprintCtx != nil {
+				if blueprintValue, ok := blueprintCtx.(string); ok {
+					var err error
+					ociInfo, err = artifact.ParseOCIReference(blueprintValue)
+					if err != nil {
+						return err
+					}
+				}
+			}
+
+			if err := p.blueprintHandler.LoadData(blueprintMap, ociInfo); err != nil {
+				return fmt.Errorf("failed to load blueprint data: %w", err)
+			}
+		}
+	}
+	return nil
 }
 
 // writeConfigurationFiles writes configuration files for all managed components in the InitPipeline.

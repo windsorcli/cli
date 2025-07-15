@@ -3,7 +3,6 @@ package artifact
 import (
 	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"fmt"
 	"io"
 	"maps"
@@ -58,6 +57,16 @@ type GitProvenance struct {
 type BuilderInfo struct {
 	User  string `json:"user"`
 	Email string `json:"email"`
+}
+
+// OCIArtifactInfo contains information about the OCI artifact source for blueprint data
+type OCIArtifactInfo struct {
+	// Name is the name of the OCI artifact
+	Name string
+	// URL is the full OCI URL of the artifact
+	URL string
+	// Tag is the tag/version of the OCI artifact
+	Tag string
 }
 
 // BlueprintMetadataInput represents the input metadata from contexts/_template/metadata.yaml
@@ -360,12 +369,7 @@ func (a *ArtifactBuilder) GetTemplateData(ociRef string) (map[string][]byte, err
 	templateData := make(map[string][]byte)
 	templateData["ociUrl"] = []byte(ociRef)
 
-	gzipReader, err := gzip.NewReader(bytes.NewReader(artifactData))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create gzip reader: %w", err)
-	}
-	defer gzipReader.Close()
-	tarReader := tar.NewReader(gzipReader)
+	tarReader := tar.NewReader(bytes.NewReader(artifactData))
 
 	var metadataName string
 	jsonnetFiles := make(map[string][]byte)
@@ -419,6 +423,64 @@ func (a *ArtifactBuilder) GetTemplateData(ociRef string) (map[string][]byte, err
 	maps.Copy(templateData, jsonnetFiles)
 
 	return templateData, nil
+}
+
+// =============================================================================
+// Package Functions
+// =============================================================================
+
+// ParseOCIReference parses a blueprint reference string in OCI URL or org/repo:tag format and returns an OCIArtifactInfo struct.
+// Accepts full OCI URLs (e.g., oci://ghcr.io/org/repo:v1.0.0) and org/repo:v1.0.0 formats only.
+// Returns nil if the reference is empty, missing a version, or not in a supported format.
+func ParseOCIReference(ociRef string) (*OCIArtifactInfo, error) {
+	if ociRef == "" {
+		return nil, nil
+	}
+
+	var name, version, fullURL string
+
+	if strings.HasPrefix(ociRef, "oci://") {
+		fullURL = ociRef
+		remaining := strings.TrimPrefix(ociRef, "oci://")
+		if lastColon := strings.LastIndex(remaining, ":"); lastColon > 0 {
+			version = remaining[lastColon+1:]
+			pathPart := remaining[:lastColon]
+			if lastSlash := strings.LastIndex(pathPart, "/"); lastSlash >= 0 {
+				name = pathPart[lastSlash+1:]
+			} else {
+				return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
+			}
+		} else {
+			return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
+		}
+	} else {
+		if colonIdx := strings.LastIndex(ociRef, ":"); colonIdx > 0 {
+			pathPart := ociRef[:colonIdx]
+			version = ociRef[colonIdx+1:]
+			if strings.Count(pathPart, "/") >= 1 {
+				if lastSlash := strings.LastIndex(pathPart, "/"); lastSlash >= 0 {
+					name = pathPart[lastSlash+1:]
+				} else {
+					return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
+				}
+				fullURL = "oci://ghcr.io/" + ociRef
+			} else {
+				return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
+			}
+		} else {
+			return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
+		}
+	}
+
+	if version == "" || name == "" {
+		return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
+	}
+
+	return &OCIArtifactInfo{
+		Name: name,
+		URL:  fullURL,
+		Tag:  version,
+	}, nil
 }
 
 // =============================================================================

@@ -13,6 +13,7 @@ import (
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
@@ -3009,7 +3010,7 @@ func TestBlueprintHandler_LoadData(t *testing.T) {
 		}
 
 		// And OCI artifact info
-		ociInfo := &OCIArtifactInfo{
+		ociInfo := &artifact.OCIArtifactInfo{
 			Name: "my-blueprint",
 			URL:  "oci://registry.example.com/my-blueprint:v1.0.0",
 		}

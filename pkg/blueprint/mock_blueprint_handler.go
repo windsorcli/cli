@@ -2,6 +2,7 @@ package blueprint
 
 import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
@@ -9,7 +10,7 @@ import (
 type MockBlueprintHandler struct {
 	InitializeFunc             func() error
 	LoadConfigFunc             func() error
-	LoadDataFunc               func(data map[string]any, ociInfo ...*OCIArtifactInfo) error
+	LoadDataFunc               func(data map[string]any, ociInfo ...*artifact.OCIArtifactInfo) error
 	WriteFunc                  func(overwrite ...bool) error
 	GetMetadataFunc            func() blueprintv1alpha1.Metadata
 	GetSourcesFunc             func() []blueprintv1alpha1.Source
@@ -55,7 +56,7 @@ func (m *MockBlueprintHandler) LoadConfig() error {
 }
 
 // LoadData calls the mock LoadDataFunc if set, otherwise returns nil
-func (m *MockBlueprintHandler) LoadData(data map[string]any, ociInfo ...*OCIArtifactInfo) error {
+func (m *MockBlueprintHandler) LoadData(data map[string]any, ociInfo ...*artifact.OCIArtifactInfo) error {
 	if m.LoadDataFunc != nil {
 		return m.LoadDataFunc(data, ociInfo...)
 	}
