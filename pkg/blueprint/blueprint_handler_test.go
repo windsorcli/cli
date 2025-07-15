@@ -3530,3 +3530,259 @@ func TestBlueprintHandler_LoadData(t *testing.T) {
 		}
 	})
 }
+
+func TestBlueprintHandler_Write(t *testing.T) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		return handler, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a blueprint handler with a loaded blueprint
+		handler, mocks := setup(t)
+
+		// Set up the blueprint with test data
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Kind:       "Blueprint",
+			ApiVersion: "v1alpha1",
+			Metadata: blueprintv1alpha1.Metadata{
+				Name:        "test-blueprint",
+				Description: "A test blueprint",
+				Authors:     []string{"test-author"},
+			},
+			Repository: blueprintv1alpha1.Repository{
+				Url: "https://github.com/example/repo",
+				Ref: blueprintv1alpha1.Reference{
+					Branch: "main",
+				},
+			},
+		}
+
+		// And mock file operations
+		var writtenPath string
+		var writtenContent []byte
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			writtenPath = name
+			writtenContent = data
+			return nil
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist // File doesn't exist
+		}
+
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		mocks.Shims.YamlMarshal = func(v any) ([]byte, error) {
+			return []byte("kind: Blueprint\napiVersion: v1alpha1\nmetadata:\n  name: test-blueprint\n"), nil
+		}
+
+		// When Write is called
+		err := handler.Write()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And the file should be written to the correct path
+		expectedPath := filepath.Join("mock-config-root", "blueprint.yaml")
+		if writtenPath != expectedPath {
+			t.Errorf("Expected file path %s, got %s", expectedPath, writtenPath)
+		}
+
+		// And the content should be written
+		if len(writtenContent) == 0 {
+			t.Errorf("Expected content to be written, got empty content")
+		}
+	})
+
+	t.Run("WithOverwriteTrue", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, mocks := setup(t)
+
+		// Set up the blueprint with test data
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Kind:       "Blueprint",
+			ApiVersion: "v1alpha1",
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+		}
+
+		// And mock file operations
+		var writtenPath string
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			writtenPath = name
+			return nil
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return &mockFileInfo{name: "blueprint.yaml"}, nil // File exists
+		}
+
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		mocks.Shims.YamlMarshal = func(v any) ([]byte, error) {
+			return []byte("kind: Blueprint\napiVersion: v1alpha1\n"), nil
+		}
+
+		// When Write is called with overwrite true
+		err := handler.Write(true)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And the file should be written (overwrite)
+		expectedPath := filepath.Join("mock-config-root", "blueprint.yaml")
+		if writtenPath != expectedPath {
+			t.Errorf("Expected file path %s, got %s", expectedPath, writtenPath)
+		}
+	})
+
+	t.Run("WithOverwriteFalse", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, mocks := setup(t)
+
+		// And mock file operations
+		var writtenPath string
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			writtenPath = name
+			return nil
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return &mockFileInfo{name: "blueprint.yaml"}, nil // File exists
+		}
+
+		// When Write is called with overwrite false
+		err := handler.Write(false)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And the file should NOT be written (skip existing)
+		if writtenPath != "" {
+			t.Errorf("Expected no file to be written, but got %s", writtenPath)
+		}
+	})
+
+	t.Run("ErrorGettingConfigRoot", func(t *testing.T) {
+		// Given a blueprint handler with a mock config handler that returns an error
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("config root error")
+		}
+		opts := &SetupOptions{
+			ConfigHandler: mockConfigHandler,
+		}
+		mocks := setupMocks(t, opts)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+
+		// When Write is called
+		err = handler.Write()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Errorf("Expected error from GetConfigRoot, got nil")
+		}
+	})
+
+	t.Run("ErrorCreatingDirectory", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, mocks := setup(t)
+
+		// And MkdirAll returns an error
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return fmt.Errorf("mkdir error")
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist // File doesn't exist
+		}
+
+		// When Write is called
+		err := handler.Write()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Errorf("Expected error from MkdirAll, got nil")
+		}
+	})
+
+	t.Run("ErrorMarshalingBlueprint", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, mocks := setup(t)
+
+		// And YamlMarshal returns an error
+		mocks.Shims.YamlMarshal = func(v any) ([]byte, error) {
+			return nil, fmt.Errorf("marshal error")
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist // File doesn't exist
+		}
+
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		// When Write is called
+		err := handler.Write()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Errorf("Expected error from YamlMarshal, got nil")
+		}
+	})
+
+	t.Run("ErrorWritingFile", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, mocks := setup(t)
+
+		// And WriteFile returns an error
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			return fmt.Errorf("write error")
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist // File doesn't exist
+		}
+
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		mocks.Shims.YamlMarshal = func(v any) ([]byte, error) {
+			return []byte("test content"), nil
+		}
+
+		// When Write is called
+		err := handler.Write()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Errorf("Expected error from WriteFile, got nil")
+		}
+	})
+}

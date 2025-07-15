@@ -10,6 +10,7 @@ type MockBlueprintHandler struct {
 	InitializeFunc             func() error
 	LoadConfigFunc             func() error
 	LoadDataFunc               func(data map[string]any, ociInfo ...*OCIArtifactInfo) error
+	WriteFunc                  func(overwrite ...bool) error
 	GetMetadataFunc            func() blueprintv1alpha1.Metadata
 	GetSourcesFunc             func() []blueprintv1alpha1.Source
 	GetTerraformComponentsFunc func() []blueprintv1alpha1.TerraformComponent
@@ -57,6 +58,14 @@ func (m *MockBlueprintHandler) LoadConfig() error {
 func (m *MockBlueprintHandler) LoadData(data map[string]any, ociInfo ...*OCIArtifactInfo) error {
 	if m.LoadDataFunc != nil {
 		return m.LoadDataFunc(data, ociInfo...)
+	}
+	return nil
+}
+
+// Write calls the mock WriteFunc if set, otherwise returns nil
+func (m *MockBlueprintHandler) Write(overwrite ...bool) error {
+	if m.WriteFunc != nil {
+		return m.WriteFunc(overwrite...)
 	}
 	return nil
 }

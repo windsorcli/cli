@@ -45,6 +45,7 @@ type BlueprintHandler interface {
 	Initialize() error
 	LoadConfig() error
 	LoadData(data map[string]any, ociInfo ...*OCIArtifactInfo) error
+	Write(overwrite ...bool) error
 	Install() error
 	GetMetadata() blueprintv1alpha1.Metadata
 	GetSources() []blueprintv1alpha1.Source
@@ -164,6 +165,45 @@ func (b *BaseBlueprintHandler) LoadData(data map[string]any, ociInfo ...*OCIArti
 
 	if err := b.processBlueprintData(yamlData, &b.blueprint, ociInfo...); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// Write persists the current blueprint state to blueprint.yaml in the configuration root directory.
+// If overwrite is true, the file is overwritten regardless of existence. If overwrite is false or omitted,
+// the file is only written if it does not already exist. The method ensures the target directory exists,
+// marshals the blueprint to YAML, and writes the file using the configured shims.
+func (b *BaseBlueprintHandler) Write(overwrite ...bool) error {
+	shouldOverwrite := false
+	if len(overwrite) > 0 {
+		shouldOverwrite = overwrite[0]
+	}
+
+	configRoot, err := b.configHandler.GetConfigRoot()
+	if err != nil {
+		return fmt.Errorf("error getting config root: %w", err)
+	}
+
+	yamlPath := filepath.Join(configRoot, "blueprint.yaml")
+
+	if !shouldOverwrite {
+		if _, err := b.shims.Stat(yamlPath); err == nil {
+			return nil
+		}
+	}
+
+	if err := b.shims.MkdirAll(filepath.Dir(yamlPath), 0755); err != nil {
+		return fmt.Errorf("error creating directory: %w", err)
+	}
+
+	data, err := b.shims.YamlMarshal(&b.blueprint)
+	if err != nil {
+		return fmt.Errorf("error marshalling blueprint data: %w", err)
+	}
+
+	if err := b.shims.WriteFile(yamlPath, data, 0644); err != nil {
+		return fmt.Errorf("error writing blueprint.yaml: %w", err)
 	}
 
 	return nil
