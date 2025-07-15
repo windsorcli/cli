@@ -80,7 +80,7 @@ type Source struct {
 	PathPrefix string `yaml:"pathPrefix,omitempty"`
 
 	// Ref details the branch, tag, or commit to use.
-	Ref Reference `yaml:"ref"`
+	Ref Reference `yaml:"ref,omitempty"`
 
 	// SecretName is the secret for source access.
 	SecretName string `yaml:"secretName,omitempty"`

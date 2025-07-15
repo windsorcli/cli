@@ -8,7 +8,8 @@ import (
 // MockBlueprintHandler is a mock implementation of BlueprintHandler interface for testing
 type MockBlueprintHandler struct {
 	InitializeFunc             func() error
-	LoadConfigFunc             func(reset ...bool) error
+	LoadConfigFunc             func() error
+	LoadDataFunc               func(data map[string]any, ociInfo ...*OCIArtifactInfo) error
 	GetMetadataFunc            func() blueprintv1alpha1.Metadata
 	GetSourcesFunc             func() []blueprintv1alpha1.Source
 	GetTerraformComponentsFunc func() []blueprintv1alpha1.TerraformComponent
@@ -45,9 +46,17 @@ func (m *MockBlueprintHandler) Initialize() error {
 }
 
 // LoadConfig calls the mock LoadConfigFunc if set, otherwise returns nil
-func (m *MockBlueprintHandler) LoadConfig(reset ...bool) error {
+func (m *MockBlueprintHandler) LoadConfig() error {
 	if m.LoadConfigFunc != nil {
-		return m.LoadConfigFunc(reset...)
+		return m.LoadConfigFunc()
+	}
+	return nil
+}
+
+// LoadData calls the mock LoadDataFunc if set, otherwise returns nil
+func (m *MockBlueprintHandler) LoadData(data map[string]any, ociInfo ...*OCIArtifactInfo) error {
+	if m.LoadDataFunc != nil {
+		return m.LoadDataFunc(data, ociInfo...)
 	}
 	return nil
 }

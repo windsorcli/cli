@@ -280,7 +280,7 @@ func (p *InitPipeline) Execute(ctx context.Context) error {
 	}
 
 	// Phase 3: blueprint loading
-	if err := p.blueprintHandler.LoadConfig(false); err != nil {
+	if err := p.blueprintHandler.LoadConfig(); err != nil {
 		return fmt.Errorf("Error reloading blueprint config after generation: %w", err)
 	}
 

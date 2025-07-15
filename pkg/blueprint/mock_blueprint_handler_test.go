@@ -57,14 +57,14 @@ func TestMockBlueprintHandler_LoadConfig(t *testing.T) {
 
 	mockLoadErr := fmt.Errorf("mock load config error")
 
-	t.Run("WithReset", func(t *testing.T) {
+	t.Run("WithError", func(t *testing.T) {
 		// Given a mock handler with load config function
 		handler := setup(t)
-		handler.LoadConfigFunc = func(reset ...bool) error {
+		handler.LoadConfigFunc = func() error {
 			return mockLoadErr
 		}
-		// When loading config with reset
-		err := handler.LoadConfig(true)
+		// When loading config
+		err := handler.LoadConfig()
 		// Then expected error should be returned
 		if err != mockLoadErr {
 			t.Errorf("Expected error = %v, got = %v", mockLoadErr, err)
@@ -335,6 +335,183 @@ func TestMockBlueprintHandler_WaitForKustomizations(t *testing.T) {
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+	})
+}
+
+func TestMockBlueprintHandler_GetDefaultTemplateData(t *testing.T) {
+	setup := func(t *testing.T) *MockBlueprintHandler {
+		t.Helper()
+		return &MockBlueprintHandler{}
+	}
+
+	t.Run("WithFuncSet", func(t *testing.T) {
+		// Given a mock handler with GetDefaultTemplateData function
+		handler := setup(t)
+		expectedData := map[string][]byte{
+			"template1": []byte("template content 1"),
+			"template2": []byte("template content 2"),
+		}
+		handler.GetDefaultTemplateDataFunc = func(contextName string) (map[string][]byte, error) {
+			return expectedData, nil
+		}
+		// When getting default template data
+		data, err := handler.GetDefaultTemplateData("test-context")
+		// Then expected data should be returned
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+		if len(data) != len(expectedData) {
+			t.Errorf("Expected data length = %v, got = %v", len(expectedData), len(data))
+		}
+		for key, expectedValue := range expectedData {
+			if value, exists := data[key]; !exists || string(value) != string(expectedValue) {
+				t.Errorf("Expected data[%s] = %s, got = %s", key, string(expectedValue), string(value))
+			}
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a mock handler with no GetDefaultTemplateData function
+		handler := setup(t)
+		// When getting default template data
+		data, err := handler.GetDefaultTemplateData("test-context")
+		// Then empty map and no error should be returned
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+		if data == nil || len(data) != 0 {
+			t.Errorf("Expected empty map, got = %v", data)
+		}
+	})
+
+	t.Run("WithError", func(t *testing.T) {
+		// Given a mock handler with GetDefaultTemplateData function that returns error
+		handler := setup(t)
+		mockErr := fmt.Errorf("mock error")
+		handler.GetDefaultTemplateDataFunc = func(contextName string) (map[string][]byte, error) {
+			return nil, mockErr
+		}
+		// When getting default template data
+		data, err := handler.GetDefaultTemplateData("test-context")
+		// Then expected error should be returned
+		if err != mockErr {
+			t.Errorf("Expected error = %v, got = %v", mockErr, err)
+		}
+		if data != nil {
+			t.Errorf("Expected data = %v, got = %v", nil, data)
+		}
+	})
+}
+
+func TestMockBlueprintHandler_GetLocalTemplateData(t *testing.T) {
+	setup := func(t *testing.T) *MockBlueprintHandler {
+		t.Helper()
+		return &MockBlueprintHandler{}
+	}
+
+	t.Run("WithFuncSet", func(t *testing.T) {
+		// Given a mock handler with GetLocalTemplateData function
+		handler := setup(t)
+		expectedData := map[string][]byte{
+			"local1": []byte("local content 1"),
+			"local2": []byte("local content 2"),
+		}
+		handler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
+			return expectedData, nil
+		}
+		// When getting local template data
+		data, err := handler.GetLocalTemplateData()
+		// Then expected data should be returned
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+		if len(data) != len(expectedData) {
+			t.Errorf("Expected data length = %v, got = %v", len(expectedData), len(data))
+		}
+		for key, expectedValue := range expectedData {
+			if value, exists := data[key]; !exists || string(value) != string(expectedValue) {
+				t.Errorf("Expected data[%s] = %s, got = %s", key, string(expectedValue), string(value))
+			}
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a mock handler with no GetLocalTemplateData function
+		handler := setup(t)
+		// When getting local template data
+		data, err := handler.GetLocalTemplateData()
+		// Then empty map and no error should be returned
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+		if data == nil || len(data) != 0 {
+			t.Errorf("Expected empty map, got = %v", data)
+		}
+	})
+
+	t.Run("WithError", func(t *testing.T) {
+		// Given a mock handler with GetLocalTemplateData function that returns error
+		handler := setup(t)
+		mockErr := fmt.Errorf("mock error")
+		handler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
+			return nil, mockErr
+		}
+		// When getting local template data
+		data, err := handler.GetLocalTemplateData()
+		// Then expected error should be returned
+		if err != mockErr {
+			t.Errorf("Expected error = %v, got = %v", mockErr, err)
+		}
+		if data != nil {
+			t.Errorf("Expected data = %v, got = %v", nil, data)
+		}
+	})
+}
+
+func TestMockBlueprintHandler_Down(t *testing.T) {
+	setup := func(t *testing.T) *MockBlueprintHandler {
+		t.Helper()
+		return &MockBlueprintHandler{}
+	}
+
+	t.Run("WithFuncSet", func(t *testing.T) {
+		// Given a mock handler with Down function
+		handler := setup(t)
+		handler.DownFunc = func() error {
+			return nil
+		}
+		// When calling down
+		err := handler.Down()
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a mock handler with no Down function
+		handler := setup(t)
+		// When calling down
+		err := handler.Down()
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+	})
+
+	t.Run("WithError", func(t *testing.T) {
+		// Given a mock handler with Down function that returns error
+		handler := setup(t)
+		mockErr := fmt.Errorf("mock error")
+		handler.DownFunc = func() error {
+			return mockErr
+		}
+		// When calling down
+		err := handler.Down()
+		// Then expected error should be returned
+		if err != mockErr {
+			t.Errorf("Expected error = %v, got = %v", mockErr, err)
 		}
 	})
 }
