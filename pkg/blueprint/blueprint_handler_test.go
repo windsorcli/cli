@@ -640,18 +640,14 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		// When loading the config
 		err := handler.LoadConfig()
 
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
+		// Then an error should be returned since blueprint.yaml doesn't exist
+		if err == nil {
+			t.Errorf("Expected error when blueprint.yaml doesn't exist, got nil")
 		}
 
-		// And the default metadata should be set correctly
-		metadata := handler.GetMetadata()
-		if metadata.Name != "local" {
-			t.Errorf("Expected name to be 'local', got %s", metadata.Name)
-		}
-		if metadata.Description != "This blueprint outlines resources in the local context" {
-			t.Errorf("Expected description to be 'This blueprint outlines resources in the local context', got %s", metadata.Description)
+		// And the error should indicate blueprint.yaml not found
+		if !strings.Contains(err.Error(), "blueprint.yaml not found") {
+			t.Errorf("Expected error about blueprint.yaml not found, got: %v", err)
 		}
 	})
 
@@ -812,19 +808,14 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		// When loading the config
 		err := handler.LoadConfig()
 
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error for empty evaluated jsonnet, got: %v", err)
+		// Then an error should be returned since blueprint.yaml doesn't exist
+		if err == nil {
+			t.Errorf("Expected error when blueprint.yaml doesn't exist, got nil")
 		}
 
-		// And the default metadata should be set correctly
-		metadata := handler.GetMetadata()
-		if metadata.Name != "local" {
-			t.Errorf("Expected blueprint name to be 'local', got: %s", metadata.Name)
-		}
-		expectedDesc := "This blueprint outlines resources in the local context"
-		if metadata.Description != expectedDesc {
-			t.Errorf("Expected description '%s', got: %s", expectedDesc, metadata.Description)
+		// And the error should indicate blueprint.yaml not found
+		if !strings.Contains(err.Error(), "blueprint.yaml not found") {
+			t.Errorf("Expected error about blueprint.yaml not found, got: %v", err)
 		}
 	})
 

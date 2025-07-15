@@ -122,7 +122,7 @@ func (b *BaseBlueprintHandler) Initialize() error {
 }
 
 // LoadConfig reads blueprint configuration from blueprint.yaml file.
-// Only loads existing blueprint.yaml files - no templating or generation.
+// Returns an error if blueprint.yaml does not exist.
 // Template processing is now handled by the pkg/template package.
 func (b *BaseBlueprintHandler) LoadConfig() error {
 	configRoot, err := b.configHandler.GetConfigRoot()
@@ -132,12 +132,7 @@ func (b *BaseBlueprintHandler) LoadConfig() error {
 
 	yamlPath := filepath.Join(configRoot, "blueprint.yaml")
 	if _, err := b.shims.Stat(yamlPath); err != nil {
-		// No blueprint.yaml exists - use default blueprint
-		context := b.configHandler.GetContext()
-		b.blueprint = *DefaultBlueprint.DeepCopy()
-		b.blueprint.Metadata.Name = context
-		b.blueprint.Metadata.Description = fmt.Sprintf("This blueprint outlines resources in the %s context", context)
-		return nil
+		return fmt.Errorf("blueprint.yaml not found at %s", yamlPath)
 	}
 
 	yamlData, err := b.shims.ReadFile(yamlPath)
