@@ -10,10 +10,11 @@ import (
 )
 
 var envCmd = &cobra.Command{
-	Use:          "env",
-	Short:        "Output commands to set environment variables",
-	Long:         "Output commands to set environment variables for the application.",
-	SilenceUsage: true,
+	Use:               "env",
+	Short:             "Output commands to set environment variables",
+	Long:              "Output commands to set environment variables for the application.",
+	SilenceUsage:      true,
+	PersistentPreRunE: checkTrust,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Get shared dependency injector from context
 		injector := cmd.Context().Value(injectorKey).(di.Injector)

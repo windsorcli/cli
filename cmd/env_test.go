@@ -15,8 +15,12 @@ func TestEnvCmd(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given proper output capture
+		// Given proper output capture and mock setup
 		_, stderr := setup(t)
+
+		// Set up mocks with trusted directory
+		mocks := setupMocks(t)
+		_ = mocks
 
 		rootCmd.SetArgs([]string{"env"})
 
@@ -35,8 +39,12 @@ func TestEnvCmd(t *testing.T) {
 	})
 
 	t.Run("SuccessWithDecrypt", func(t *testing.T) {
-		// Given proper output capture
+		// Given proper output capture and mock setup
 		_, stderr := setup(t)
+
+		// Set up mocks with trusted directory
+		mocks := setupMocks(t)
+		_ = mocks
 
 		rootCmd.SetArgs([]string{"env", "--decrypt"})
 
@@ -75,8 +83,12 @@ func TestEnvCmd(t *testing.T) {
 	})
 
 	t.Run("SuccessWithVerbose", func(t *testing.T) {
-		// Given proper output capture
+		// Given proper output capture and mock setup
 		_, stderr := setup(t)
+
+		// Set up mocks with trusted directory
+		mocks := setupMocks(t)
+		_ = mocks
 
 		rootCmd.SetArgs([]string{"env", "--verbose"})
 

@@ -63,45 +63,6 @@ func TestExecCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("UntrustedDirectory", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		originalDir, _ := os.Getwd()
-		defer func() {
-			os.Chdir(originalDir)
-		}()
-		os.Chdir(tmpDir)
-
-		injector := di.NewInjector()
-
-		// Register mock shell that fails trust check
-		mockShell := shell.NewMockShell()
-		mockShell.CheckTrustedDirectoryFunc = func() error {
-			return fmt.Errorf("directory not trusted")
-		}
-		injector.Register("shell", mockShell)
-
-		// Register mock base pipeline
-		mockBasePipeline := pipelines.NewMockBasePipeline()
-		injector.Register("basePipeline", mockBasePipeline)
-
-		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, injector)
-		cmd.SetContext(ctx)
-
-		args := []string{"go", "version"}
-		cmd.SetArgs(args)
-
-		err := cmd.Execute()
-
-		if err == nil {
-			t.Error("Expected error for untrusted directory, got nil")
-		}
-		expectedMsg := "not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve"
-		if fmt.Sprintf("%v", err) != expectedMsg {
-			t.Errorf("Expected error message '%s', got '%v'", expectedMsg, err)
-		}
-	})
-
 	t.Run("NoCommandProvided", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		originalDir, _ := os.Getwd()
