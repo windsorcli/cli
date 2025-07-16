@@ -240,6 +240,85 @@ func TestUpPipeline_Initialize(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("InitializesSecureShellWhenRegistered", func(t *testing.T) {
+		// Given an up pipeline with secure shell registered
+		pipeline, mocks := setup(t)
+
+		// Create mock secure shell
+		mockSecureShell := shell.NewMockShell()
+		secureShellInitialized := false
+		mockSecureShell.InitializeFunc = func() error {
+			secureShellInitialized = true
+			return nil
+		}
+		mocks.Injector.Register("secureShell", mockSecureShell)
+
+		// When initializing the pipeline
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And secure shell should be initialized
+		if !secureShellInitialized {
+			t.Error("Expected secure shell to be initialized")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenSecureShellInitializeFails", func(t *testing.T) {
+		// Given an up pipeline with failing secure shell
+		pipeline, mocks := setup(t)
+
+		// Create mock secure shell that fails to initialize
+		mockSecureShell := shell.NewMockShell()
+		mockSecureShell.InitializeFunc = func() error {
+			return fmt.Errorf("secure shell failed")
+		}
+		mocks.Injector.Register("secureShell", mockSecureShell)
+
+		// When initializing the pipeline
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "failed to initialize secure shell: secure shell failed" {
+			t.Errorf("Expected secure shell error, got %q", err.Error())
+		}
+	})
+
+	t.Run("SkipsSecureShellWhenNotRegistered", func(t *testing.T) {
+		// Given an up pipeline without secure shell registered
+		pipeline, mocks := setup(t)
+
+		// When initializing the pipeline
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("SkipsSecureShellWhenRegisteredTypeIsIncorrect", func(t *testing.T) {
+		// Given an up pipeline with incorrectly typed secure shell
+		pipeline, mocks := setup(t)
+
+		// Register something that's not a shell.Shell
+		mocks.Injector.Register("secureShell", "not-a-shell")
+
+		// When initializing the pipeline
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
 }
 
 // =============================================================================
