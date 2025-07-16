@@ -268,7 +268,10 @@ func TestRootCmd_PersistentPreRunE(t *testing.T) {
 	})
 }
 
-func TestCheckTrust(t *testing.T) {
+func TestCommandPreflight(t *testing.T) {
+	// Set up mocks for all tests
+	setupMocks(t)
+
 	createMockCmd := func(name string) *cobra.Command {
 		return &cobra.Command{
 			Use: name,
@@ -280,7 +283,7 @@ func TestCheckTrust(t *testing.T) {
 		cmd := createMockCmd("init")
 
 		// When checking trust
-		err := checkTrust(cmd, []string{})
+		err := commandPreflight(cmd, []string{})
 
 		// Then no error should occur (trust check is skipped)
 		if err != nil {
@@ -295,7 +298,7 @@ func TestCheckTrust(t *testing.T) {
 		cmd.Flags().Set("hook", "true")
 
 		// When checking trust
-		err := checkTrust(cmd, []string{})
+		err := commandPreflight(cmd, []string{})
 
 		// Then no error should occur (trust check is skipped for env --hook)
 		if err != nil {
@@ -308,20 +311,23 @@ func TestCheckTrust(t *testing.T) {
 		cmd := createMockCmd("env")
 		cmd.Flags().Bool("hook", false, "hook flag")
 
-		// Set up a temporary directory that's not trusted
+		// Override shims to return an untrusted directory
 		tmpDir := t.TempDir()
-		originalDir, err := os.Getwd()
-		if err != nil {
-			t.Fatalf("Failed to get current directory: %v", err)
-		}
-		defer os.Chdir(originalDir)
+		origShims := shims
+		defer func() { shims = origShims }()
 
-		if err := os.Chdir(tmpDir); err != nil {
-			t.Fatalf("Failed to change directory: %v", err)
+		shims = &Shims{
+			Exit:        func(int) {},
+			UserHomeDir: func() (string, error) { return t.TempDir(), nil },
+			Getwd:       func() (string, error) { return tmpDir, nil },
+			ReadFile: func(filename string) ([]byte, error) {
+				// Return trusted file content that does NOT include tmpDir
+				return []byte("/test/project\n"), nil
+			},
 		}
 
 		// When checking trust
-		err = checkTrust(cmd, []string{})
+		err := commandPreflight(cmd, []string{})
 
 		// Then an error should occur about untrusted directory
 		if err == nil {
@@ -380,7 +386,7 @@ func TestCheckTrust(t *testing.T) {
 		}
 
 		// When checking trust
-		err = checkTrust(cmd, []string{})
+		err = commandPreflight(cmd, []string{})
 
 		// Then no error should occur
 		if err != nil {

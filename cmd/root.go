@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -32,22 +33,10 @@ func Execute() error {
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "windsor",
-	Short: "A command line interface to assist your cloud native development workflow",
-	Long:  "A command line interface to assist your cloud native development workflow",
-	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// Set context from root command
-		ctx := cmd.Root().Context()
-
-		// Add verbose flag to context if set
-		if verbose {
-			ctx = context.WithValue(ctx, "verbose", true)
-		}
-
-		cmd.SetContext(ctx)
-
-		return nil
-	},
+	Use:               "windsor",
+	Short:             "A command line interface to assist your cloud native development workflow",
+	Long:              "A command line interface to assist your cloud native development workflow",
+	PersistentPreRunE: commandPreflight,
 }
 
 func init() {
@@ -55,22 +44,46 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 }
 
-// checkTrust performs trust validation for Windsor CLI commands requiring a trusted project directory.
-// It verifies directory trust status by checking if the current project directory is in the trusted file list.
-// For the "init" command, or for the "env" command with the --hook flag set, trust validation is skipped.
-// Returns an error if the directory is untrusted.
-func checkTrust(cmd *cobra.Command, args []string) error {
-	if cmd.Name() == "init" {
+// commandPreflight orchestrates global CLI preflight checks and context initialization for all commands.
+// Intended for use as cobra.Command.PersistentPreRunE, it ensures the command context is configured and
+// the current directory is authorized for Windsor operations prior to command execution.
+func commandPreflight(cmd *cobra.Command, args []string) error {
+	if err := setupGlobalContext(cmd); err != nil {
+		return err
+	}
+	if err := enforceTrustedDirectory(cmd); err != nil {
+		return err
+	}
+	return nil
+}
+
+// setupGlobalContext injects global flags and context values into the command's context.
+// It sets the verbose flag in the context if enabled.
+func setupGlobalContext(cmd *cobra.Command) error {
+	ctx := cmd.Root().Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if verbose {
+		ctx = context.WithValue(ctx, "verbose", true)
+	}
+	cmd.SetContext(ctx)
+	return nil
+}
+
+// enforceTrustedDirectory checks if the current working directory is trusted for Windsor operations.
+// Enforces trust for a defined set of commands, including "env". For "env" with --hook, exits silently to avoid shell integration noise.
+// Returns an error if the directory is not trusted.
+func enforceTrustedDirectory(cmd *cobra.Command) error {
+	const notTrustedDirMsg = "not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve"
+	enforcedCommands := []string{"up", "down", "exec", "install", "env"}
+	cmdName := cmd.Name()
+	shouldEnforce := slices.Contains(enforcedCommands, cmdName)
+
+	if !shouldEnforce {
 		return nil
 	}
 
-	if cmd.Name() == "env" {
-		if hook, _ := cmd.Flags().GetBool("hook"); hook {
-			return nil
-		}
-	}
-
-	// Use shims to allow mocking in tests
 	currentDir, err := shims.Getwd()
 	if err != nil {
 		return fmt.Errorf("Error getting current directory: %w", err)
@@ -87,18 +100,26 @@ func checkTrust(cmd *cobra.Command, args []string) error {
 	data, err := shims.ReadFile(trustedFilePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+			return fmt.Errorf(notTrustedDirMsg)
 		}
-		return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+		return fmt.Errorf(notTrustedDirMsg)
 	}
 
-	trustedDirs := strings.Split(strings.TrimSpace(string(data)), "\n")
-	for _, trustedDir := range trustedDirs {
-		trimmedDir := strings.TrimSpace(trustedDir)
-		if trimmedDir != "" && strings.HasPrefix(currentDir, trimmedDir) {
+	iter := strings.SplitSeq(strings.TrimSpace(string(data)), "\n")
+
+	for trustedDir := range iter {
+		trustedDir = strings.TrimSpace(trustedDir)
+		if trustedDir != "" && strings.HasPrefix(currentDir, trustedDir) {
 			return nil
 		}
 	}
 
-	return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+	if cmdName == "env" {
+		hook, _ := cmd.Flags().GetBool("hook")
+		if hook {
+			shims.Exit(0)
+		}
+	}
+
+	return fmt.Errorf(notTrustedDirMsg)
 }
