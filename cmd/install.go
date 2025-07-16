@@ -12,10 +12,9 @@ import (
 var installWaitFlag bool
 
 var installCmd = &cobra.Command{
-	Use:               "install",
-	Short:             "Install the blueprint's cluster-level services",
-	SilenceUsage:      true,
-	PersistentPreRunE: checkTrust,
+	Use:          "install",
+	Short:        "Install the blueprint's cluster-level services",
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Get shared dependency injector from context
 		injector := cmd.Context().Value(injectorKey).(di.Injector)

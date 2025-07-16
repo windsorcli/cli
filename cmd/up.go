@@ -15,11 +15,10 @@ var (
 )
 
 var upCmd = &cobra.Command{
-	Use:               "up",
-	Short:             "Set up the Windsor environment",
-	Long:              "Set up the Windsor environment by executing necessary shell commands.",
-	SilenceUsage:      true,
-	PersistentPreRunE: checkTrust,
+	Use:          "up",
+	Short:        "Set up the Windsor environment",
+	Long:         "Set up the Windsor environment by executing necessary shell commands.",
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Get shared dependency injector from context
 		injector := cmd.Context().Value(injectorKey).(di.Injector)

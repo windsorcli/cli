@@ -63,8 +63,9 @@ func TestEnvCmd(t *testing.T) {
 	})
 
 	t.Run("SuccessWithHook", func(t *testing.T) {
-		// Given proper output capture
+		// Given proper output capture and mock setup
 		_, stderr := setup(t)
+		setupMocks(t)
 
 		rootCmd.SetArgs([]string{"env", "--hook"})
 
@@ -107,8 +108,9 @@ func TestEnvCmd(t *testing.T) {
 	})
 
 	t.Run("SuccessWithAllFlags", func(t *testing.T) {
-		// Given proper output capture
+		// Given proper output capture and mock setup
 		_, stderr := setup(t)
+		setupMocks(t)
 
 		rootCmd.SetArgs([]string{"env", "--decrypt", "--hook", "--verbose"})
 
