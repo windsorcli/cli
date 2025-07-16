@@ -109,11 +109,11 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 	return &types.Config{Services: services}, nil
 }
 
-// WriteConfig generates a Corefile by collecting the project root directory, top-level domain (TLD), and IP addresses.
-// It adds DNS entries for each service, ensuring that each service's hostname resolves to its IP address.
-// For localhost environments, it uses a specific DNS template to handle local DNS resolution and sets up forwarding
-// rules to direct DNS queries to the appropriate addresses.
-// The Corefile is saved in the .windsor directory, which is used by CoreDNS to manage DNS queries for the project.
+// WriteConfig generates and writes a CoreDNS Corefile for the Windsor project.
+// It collects the project root directory, top-level domain (TLD), and service IP addresses.
+// For each service, it adds DNS entries mapping hostnames to IP addresses, and includes wildcard DNS entries if supported.
+// In localhost mode, it uses a template for local DNS resolution and sets up forwarding rules for DNS queries.
+// The generated Corefile is saved in the .windsor directory for CoreDNS to manage project DNS queries.
 func (s *DNSService) WriteConfig() error {
 	projectRoot, err := s.shell.GetProjectRoot()
 	if err != nil {
@@ -215,6 +215,12 @@ func (s *DNSService) WriteConfig() error {
 	corefilePath := filepath.Join(projectRoot, ".windsor", "Corefile")
 	if err := s.shims.MkdirAll(filepath.Dir(corefilePath), 0755); err != nil {
 		return fmt.Errorf("error creating parent folders: %w", err)
+	}
+
+	if stat, err := s.shims.Stat(corefilePath); err == nil && stat.IsDir() {
+		if err := s.shims.RemoveAll(corefilePath); err != nil {
+			return fmt.Errorf("error removing Corefile directory: %w", err)
+		}
 	}
 
 	if err := s.shims.WriteFile(corefilePath, []byte(corefileContent), 0644); err != nil {

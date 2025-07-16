@@ -681,6 +681,50 @@ func TestDNSService_WriteConfig(t *testing.T) {
 			t.Errorf("Expected error to contain 'error retrieving project root', got: %v", err)
 		}
 	})
+
+	t.Run("SuccessRemovingCorefileDirectory", func(t *testing.T) {
+		// Given a DNSService with mock components
+		service, mocks := setup(t)
+
+		var removedPath string
+		var statCalled bool
+
+		// Mock Stat to return a directory
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			statCalled = true
+			if strings.Contains(name, "Corefile") {
+				return &mockFileInfo{isDir: true}, nil
+			}
+			return &mockFileInfo{isDir: false}, nil
+		}
+
+		// Mock RemoveAll to capture the removed path
+		mocks.Shims.RemoveAll = func(path string) error {
+			removedPath = path
+			return nil
+		}
+
+		// When WriteConfig is called
+		err := service.WriteConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("WriteConfig() error = %v", err)
+		}
+
+		// And Stat should have been called
+		if !statCalled {
+			t.Error("Expected Stat to be called")
+		}
+
+		// And RemoveAll should have been called with the Corefile path
+		if removedPath == "" {
+			t.Error("Expected RemoveAll to be called")
+		}
+		if !strings.Contains(removedPath, "Corefile") {
+			t.Errorf("Expected RemoveAll to be called with Corefile path, got: %s", removedPath)
+		}
+	})
 }
 
 func TestDNSService_SetName(t *testing.T) {
