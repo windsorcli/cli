@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"text/template"
@@ -3245,121 +3244,6 @@ func TestScrubbingWriter(t *testing.T) {
 		// Output length should match input due to padding
 		if len(output) != len(testContent) {
 			t.Errorf("Expected output length %d to match input length %d", len(output), len(testContent))
-		}
-	})
-}
-
-// =============================================================================
-// Standalone Function Tests
-// =============================================================================
-
-func TestCheckTrustedDirectoryStandalone(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a directory and trusted file
-		tmpDir := t.TempDir()
-		testDir := filepath.Join(tmpDir, "project")
-		if err := os.MkdirAll(testDir, 0755); err != nil {
-			t.Fatalf("Failed to create test directory: %v", err)
-		}
-
-		// Create trusted file
-		trustedDir := filepath.Join(tmpDir, ".config", "windsor")
-		if err := os.MkdirAll(trustedDir, 0755); err != nil {
-			t.Fatalf("Failed to create trusted directory: %v", err)
-		}
-
-		trustedFile := filepath.Join(trustedDir, ".trusted")
-		// Use EvalSymlinks to handle macOS /private prefix
-		realTestDir, _ := filepath.EvalSymlinks(testDir)
-		trustedContent := realTestDir + "\n"
-		if err := os.WriteFile(trustedFile, []byte(trustedContent), 0644); err != nil {
-			t.Fatalf("Failed to create trusted file: %v", err)
-		}
-
-		// Change to test directory
-		originalDir, err := os.Getwd()
-		if err != nil {
-			t.Fatalf("Failed to get current directory: %v", err)
-		}
-		defer os.Chdir(originalDir)
-
-		if err := os.Chdir(testDir); err != nil {
-			t.Fatalf("Failed to change directory: %v", err)
-		}
-
-		// Mock home directory for cross-platform compatibility
-		var originalHome string
-		if runtime.GOOS == "windows" {
-			originalHome = os.Getenv("USERPROFILE")
-			defer os.Setenv("USERPROFILE", originalHome)
-			os.Setenv("USERPROFILE", tmpDir)
-		} else {
-			originalHome = os.Getenv("HOME")
-			defer os.Setenv("HOME", originalHome)
-			os.Setenv("HOME", tmpDir)
-		}
-
-		// When checking trusted directory
-		err = CheckTrustedDirectory()
-
-		// Then it should succeed
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("NotTrusted", func(t *testing.T) {
-		// Given a directory and trusted file that doesn't include it
-		tmpDir := t.TempDir()
-		testDir := filepath.Join(tmpDir, "project")
-		if err := os.MkdirAll(testDir, 0755); err != nil {
-			t.Fatalf("Failed to create test directory: %v", err)
-		}
-
-		// Create trusted file with different directory
-		trustedDir := filepath.Join(tmpDir, ".config", "windsor")
-		if err := os.MkdirAll(trustedDir, 0755); err != nil {
-			t.Fatalf("Failed to create trusted directory: %v", err)
-		}
-
-		trustedFile := filepath.Join(trustedDir, ".trusted")
-		trustedContent := "/other/directory\n"
-		if err := os.WriteFile(trustedFile, []byte(trustedContent), 0644); err != nil {
-			t.Fatalf("Failed to create trusted file: %v", err)
-		}
-
-		// Change to test directory
-		originalDir, err := os.Getwd()
-		if err != nil {
-			t.Fatalf("Failed to get current directory: %v", err)
-		}
-		defer os.Chdir(originalDir)
-
-		if err := os.Chdir(testDir); err != nil {
-			t.Fatalf("Failed to change directory: %v", err)
-		}
-
-		// Mock home directory for cross-platform compatibility
-		var originalHome string
-		if runtime.GOOS == "windows" {
-			originalHome = os.Getenv("USERPROFILE")
-			defer os.Setenv("USERPROFILE", originalHome)
-			os.Setenv("USERPROFILE", tmpDir)
-		} else {
-			originalHome = os.Getenv("HOME")
-			defer os.Setenv("HOME", originalHome)
-			os.Setenv("HOME", tmpDir)
-		}
-
-		// When checking trusted directory
-		err = CheckTrustedDirectory()
-
-		// Then it should fail
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "Current directory not in the trusted list") {
-			t.Errorf("Expected error about directory not trusted, got: %v", err)
 		}
 	})
 }

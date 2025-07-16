@@ -638,45 +638,6 @@ func (s *DefaultShell) ResetSessionToken() {
 }
 
 // =============================================================================
-// Standalone Functions
-// =============================================================================
-
-// CheckTrustedDirectory verifies if the current directory is in the trusted file list.
-// This is a standalone function that can be called without shell instance initialization.
-func CheckTrustedDirectory() error {
-	currentDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("Error getting current directory: %w", err)
-	}
-
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("Error getting user home directory: %w", err)
-	}
-
-	trustedDirPath := filepath.Join(homeDir, ".config", "windsor")
-	trustedFilePath := filepath.Join(trustedDirPath, ".trusted")
-
-	data, err := os.ReadFile(trustedFilePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("Trusted file does not exist")
-		}
-		return fmt.Errorf("Error reading trusted file: %w", err)
-	}
-
-	trustedDirs := strings.Split(strings.TrimSpace(string(data)), "\n")
-	for _, trustedDir := range trustedDirs {
-		trimmedDir := strings.TrimSpace(trustedDir)
-		if trimmedDir != "" && strings.HasPrefix(currentDir, trimmedDir) {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("Current directory not in the trusted list")
-}
-
-// =============================================================================
 // Private Methods
 // =============================================================================
 
