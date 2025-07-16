@@ -376,10 +376,11 @@ func TestInitPipeline_Execute(t *testing.T) {
 		mockConfigHandler.SetDefaultFunc = func(defaultConfig v1alpha1.Context) error { return nil }
 
 		setupOptions := &SetupOptions{ConfigHandler: mockConfigHandler}
-		pipeline, _ := setup(t, setupOptions)
+		pipeline := NewInitPipeline()
+		mocks := setupInitMocks(t, setupOptions)
 
-		// When Execute is called
-		err := pipeline.Execute(context.Background())
+		// When Initialize is called
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		// Then should return context ID generation error
 		if err == nil {
@@ -511,10 +512,11 @@ func TestInitPipeline_Execute(t *testing.T) {
 				mockConfigHandler.SetDefaultFunc = func(defaultConfig v1alpha1.Context) error { return nil }
 
 				setupOptions := &SetupOptions{ConfigHandler: mockConfigHandler}
-				pipeline, _ := setup(t, setupOptions)
+				pipeline := NewInitPipeline()
+				mocks := setupInitMocks(t, setupOptions)
 
-				// When executing the pipeline
-				err := pipeline.Execute(context.Background())
+				// When initializing the pipeline
+				err := pipeline.Initialize(mocks.Injector, context.Background())
 
 				// Then an error should be returned
 				if err == nil {
@@ -1111,6 +1113,144 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		}
 		if string(templateData["blueprint.jsonnet"]) != "default template data" {
 			t.Error("Expected default template data")
+		}
+	})
+}
+
+func TestInitPipeline_setDefaultConfiguration_HostPortsValidation(t *testing.T) {
+	setup := func(t *testing.T, vmDriver string) (*InitPipeline, *config.MockConfigHandler, *v1alpha1.Context) {
+		t.Helper()
+		pipeline := &InitPipeline{}
+
+		mockConfigHandler := config.NewMockConfigHandler()
+
+		// Track which default config was set
+		var setDefaultConfig v1alpha1.Context
+
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return vmDriver
+			}
+			return ""
+		}
+		mockConfigHandler.SetDefaultFunc = func(defaultConfig v1alpha1.Context) error {
+			setDefaultConfig = defaultConfig
+			return nil
+		}
+		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+			return nil
+		}
+
+		pipeline.configHandler = mockConfigHandler
+
+		return pipeline, mockConfigHandler, &setDefaultConfig
+	}
+
+	t.Run("ColimaDriver_UsesConfigWithoutHostPorts", func(t *testing.T) {
+		// Given a pipeline with colima driver
+		pipeline, _, setConfigPtr := setup(t, "colima")
+
+		// When setDefaultConfiguration is called
+		err := pipeline.setDefaultConfiguration(context.Background(), "test")
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// And the default config should be DefaultConfig_Full (no hostports)
+		setConfig := *setConfigPtr
+		if setConfig.Cluster == nil {
+			t.Fatal("Expected cluster configuration to be present")
+		}
+
+		// Verify no hostports for workers
+		if len(setConfig.Cluster.Workers.HostPorts) != 0 {
+			t.Errorf("Expected no hostports for colima driver, got %d: %v",
+				len(setConfig.Cluster.Workers.HostPorts), setConfig.Cluster.Workers.HostPorts)
+		}
+
+		// Verify no hostports for controlplanes
+		if len(setConfig.Cluster.ControlPlanes.HostPorts) != 0 {
+			t.Errorf("Expected no hostports for colima driver controlplanes, got %d: %v",
+				len(setConfig.Cluster.ControlPlanes.HostPorts), setConfig.Cluster.ControlPlanes.HostPorts)
+		}
+	})
+
+	t.Run("DockerDriver_UsesConfigWithoutHostPorts", func(t *testing.T) {
+		// Given a pipeline with docker driver
+		pipeline, _, setConfigPtr := setup(t, "docker")
+
+		// When setDefaultConfiguration is called
+		err := pipeline.setDefaultConfiguration(context.Background(), "test")
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// And the default config should be DefaultConfig_Full (no hostports)
+		setConfig := *setConfigPtr
+		if setConfig.Cluster == nil {
+			t.Fatal("Expected cluster configuration to be present")
+		}
+
+		// Verify no hostports for workers
+		if len(setConfig.Cluster.Workers.HostPorts) != 0 {
+			t.Errorf("Expected no hostports for docker driver, got %d: %v",
+				len(setConfig.Cluster.Workers.HostPorts), setConfig.Cluster.Workers.HostPorts)
+		}
+
+		// Verify no hostports for controlplanes
+		if len(setConfig.Cluster.ControlPlanes.HostPorts) != 0 {
+			t.Errorf("Expected no hostports for docker driver controlplanes, got %d: %v",
+				len(setConfig.Cluster.ControlPlanes.HostPorts), setConfig.Cluster.ControlPlanes.HostPorts)
+		}
+	})
+
+	t.Run("DockerDesktopDriver_UsesConfigWithHostPorts", func(t *testing.T) {
+		// Given a pipeline with docker-desktop driver
+		pipeline, _, setConfigPtr := setup(t, "docker-desktop")
+
+		// When setDefaultConfiguration is called
+		err := pipeline.setDefaultConfiguration(context.Background(), "test")
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// And the default config should be DefaultConfig_Localhost (with hostports)
+		setConfig := *setConfigPtr
+		if setConfig.Cluster == nil {
+			t.Fatal("Expected cluster configuration to be present")
+		}
+
+		// Verify hostports are present for workers
+		expectedHostPorts := []string{"8080:30080/tcp", "8443:30443/tcp", "9292:30292/tcp", "8053:30053/udp"}
+		actualHostPorts := setConfig.Cluster.Workers.HostPorts
+
+		if len(actualHostPorts) != len(expectedHostPorts) {
+			t.Errorf("Expected %d hostports for docker-desktop driver, got %d",
+				len(expectedHostPorts), len(actualHostPorts))
+		}
+
+		for i, expected := range expectedHostPorts {
+			if i >= len(actualHostPorts) || actualHostPorts[i] != expected {
+				t.Errorf("Expected hostport %s at index %d, got %s", expected, i,
+					func() string {
+						if i < len(actualHostPorts) {
+							return actualHostPorts[i]
+						}
+						return "missing"
+					}())
+			}
+		}
+
+		// Verify no hostports for controlplanes (only workers need them)
+		if len(setConfig.Cluster.ControlPlanes.HostPorts) != 0 {
+			t.Errorf("Expected no hostports for docker-desktop driver controlplanes, got %d: %v",
+				len(setConfig.Cluster.ControlPlanes.HostPorts), setConfig.Cluster.ControlPlanes.HostPorts)
 		}
 	})
 }

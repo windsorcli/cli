@@ -56,13 +56,6 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("failed to set up environment: %w", err)
 		}
 
-		ctx = context.WithValue(ctx, "quiet", false)
-		ctx = context.WithValue(ctx, "decrypt", false)
-		initPipeline, err := pipelines.WithPipeline(injector, ctx, "initPipeline")
-		if err != nil {
-			return fmt.Errorf("failed to set up init pipeline: %w", err)
-		}
-
 		configHandler := injector.Resolve("configHandler").(config.ConfigHandler)
 
 		if initBackend != "" {
@@ -128,6 +121,13 @@ var initCmd = &cobra.Command{
 					return fmt.Errorf("failed to set %s: %w", parts[0], err)
 				}
 			}
+		}
+
+		ctx = context.WithValue(ctx, "quiet", false)
+		ctx = context.WithValue(ctx, "decrypt", false)
+		initPipeline, err := pipelines.WithPipeline(injector, ctx, "initPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up init pipeline: %w", err)
 		}
 
 		return initPipeline.Execute(ctx)
