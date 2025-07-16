@@ -376,10 +376,11 @@ func TestInitPipeline_Execute(t *testing.T) {
 		mockConfigHandler.SetDefaultFunc = func(defaultConfig v1alpha1.Context) error { return nil }
 
 		setupOptions := &SetupOptions{ConfigHandler: mockConfigHandler}
-		pipeline, _ := setup(t, setupOptions)
+		pipeline := NewInitPipeline()
+		mocks := setupInitMocks(t, setupOptions)
 
-		// When Execute is called
-		err := pipeline.Execute(context.Background())
+		// When Initialize is called
+		err := pipeline.Initialize(mocks.Injector, context.Background())
 
 		// Then should return context ID generation error
 		if err == nil {
@@ -511,10 +512,11 @@ func TestInitPipeline_Execute(t *testing.T) {
 				mockConfigHandler.SetDefaultFunc = func(defaultConfig v1alpha1.Context) error { return nil }
 
 				setupOptions := &SetupOptions{ConfigHandler: mockConfigHandler}
-				pipeline, _ := setup(t, setupOptions)
+				pipeline := NewInitPipeline()
+				mocks := setupInitMocks(t, setupOptions)
 
-				// When executing the pipeline
-				err := pipeline.Execute(context.Background())
+				// When initializing the pipeline
+				err := pipeline.Initialize(mocks.Injector, context.Background())
 
 				// Then an error should be returned
 				if err == nil {

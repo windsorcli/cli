@@ -90,6 +90,20 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 		return err
 	}
 
+	// Generate context ID for saving config
+	if err := p.configHandler.GenerateContextID(); err != nil {
+		return fmt.Errorf("failed to generate context ID: %w", err)
+	}
+
+	// Save configuration before network manager assigns addresses to services
+	reset := false
+	if resetValue := ctx.Value("reset"); resetValue != nil {
+		reset = resetValue.(bool)
+	}
+	if err := p.saveConfiguration(reset); err != nil {
+		return err
+	}
+
 	// Component Collection Phase
 
 	kubernetesClient := p.withKubernetesClient()
@@ -231,28 +245,13 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 	return nil
 }
 
-// Execute performs initialization by writing reset tokens, generating context IDs,
-// configuring defaults, saving configuration, processing templates, handling blueprints separately,
+// Execute performs initialization by writing reset tokens, processing templates, handling blueprints separately,
 // writing blueprint files, resolving Terraform modules, and generating final output files.
 func (p *InitPipeline) Execute(ctx context.Context) error {
 
-	// Phase 1: Setup & configuration
+	// Phase 1: Setup
 	if _, err := p.shell.WriteResetToken(); err != nil {
 		return fmt.Errorf("Error writing reset token: %w", err)
-	}
-	if err := p.configHandler.GenerateContextID(); err != nil {
-		return fmt.Errorf("failed to generate context ID: %w", err)
-	}
-	reset := false
-	if resetValue := ctx.Value("reset"); resetValue != nil {
-		reset = resetValue.(bool)
-	}
-	contextName := p.determineContextName(ctx)
-	if err := p.setDefaultConfiguration(ctx, contextName); err != nil {
-		return err
-	}
-	if err := p.saveConfiguration(reset); err != nil {
-		return err
 	}
 
 	// Phase 2: Template processing
@@ -266,6 +265,10 @@ func (p *InitPipeline) Execute(ctx context.Context) error {
 	}
 
 	// Phase 3: Blueprint handling
+	reset := false
+	if resetValue := ctx.Value("reset"); resetValue != nil {
+		reset = resetValue.(bool)
+	}
 	if err := p.handleBlueprintLoading(ctx, renderedData, reset); err != nil {
 		return err
 	}
