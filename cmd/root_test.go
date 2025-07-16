@@ -66,9 +66,13 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		UserHomeDir: func() (string, error) { return t.TempDir(), nil },
 		Stat:        func(string) (os.FileInfo, error) { return nil, nil },
 		RemoveAll:   func(string) error { return nil },
-		Getwd:       func() (string, error) { return t.TempDir(), nil },
+		Getwd:       func() (string, error) { return "/test/project", nil },
 		Command:     func(string, ...string) *exec.Cmd { return exec.Command("echo") },
 		Setenv:      func(string, string) error { return nil },
+		ReadFile: func(filename string) ([]byte, error) {
+			// Mock trusted file content that includes the current directory
+			return []byte("/test/project\n"), nil
+		},
 	}
 
 	// Override with provided shims if any

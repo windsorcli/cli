@@ -3,10 +3,12 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/shell"
 )
 
 // verbose is a flag for verbose output
@@ -68,9 +70,35 @@ func checkTrust(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if err := shell.CheckTrustedDirectory(); err != nil {
+	// Use shims to allow mocking in tests
+	currentDir, err := shims.Getwd()
+	if err != nil {
+		return fmt.Errorf("Error getting current directory: %w", err)
+	}
+
+	homeDir, err := shims.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("Error getting user home directory: %w", err)
+	}
+
+	trustedDirPath := filepath.Join(homeDir, ".config", "windsor")
+	trustedFilePath := filepath.Join(trustedDirPath, ".trusted")
+
+	data, err := shims.ReadFile(trustedFilePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+		}
 		return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
 	}
 
-	return nil
+	trustedDirs := strings.Split(strings.TrimSpace(string(data)), "\n")
+	for _, trustedDir := range trustedDirs {
+		trimmedDir := strings.TrimSpace(trustedDir)
+		if trimmedDir != "" && strings.HasPrefix(currentDir, trimmedDir) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
 }
