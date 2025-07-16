@@ -7,15 +7,15 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/pipelines"
-	"github.com/windsorcli/cli/pkg/shell"
 )
 
 // execCmd represents the exec command
 var execCmd = &cobra.Command{
-	Use:   "exec [command] [args...]",
-	Short: "Execute a command with environment variables",
-	Long:  "Execute a command with environment variables loaded from configuration and secrets",
-	Args:  cobra.MinimumNArgs(1),
+	Use:               "exec [command] [args...]",
+	Short:             "Execute a command with environment variables",
+	Long:              "Execute a command with environment variables loaded from configuration and secrets",
+	Args:              cobra.MinimumNArgs(1),
+	PersistentPreRunE: checkTrust,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Safety check for arguments
 		if len(args) == 0 {
@@ -24,26 +24,6 @@ var execCmd = &cobra.Command{
 
 		// Get shared dependency injector from context
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
-
-		// Initialize base pipeline to set up dependencies
-		basePipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "basePipeline")
-		if err != nil {
-			return fmt.Errorf("failed to set up base pipeline: %w", err)
-		}
-
-		if err := basePipeline.Execute(cmd.Context()); err != nil {
-			return fmt.Errorf("failed to initialize base pipeline: %w", err)
-		}
-
-		// Now check if directory is trusted using the initialized shell
-		shellInstance := injector.Resolve("shell")
-		if shellInstance != nil {
-			if s, ok := shellInstance.(shell.Shell); ok {
-				if err := s.CheckTrustedDirectory(); err != nil {
-					return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
-				}
-			}
-		}
 
 		// First, run the env pipeline in quiet mode to set up environment variables
 		envPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "envPipeline")

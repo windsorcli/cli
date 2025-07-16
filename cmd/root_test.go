@@ -9,8 +9,11 @@ import (
 	"bytes"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	blueprintpkg "github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
@@ -258,4 +261,119 @@ func TestRootCmd_PersistentPreRunE(t *testing.T) {
 			t.Errorf("Expected success, got error: %v", err)
 		}
 	})
+}
+
+func TestCheckTrust(t *testing.T) {
+	createMockCmd := func(name string) *cobra.Command {
+		return &cobra.Command{
+			Use: name,
+		}
+	}
+
+	t.Run("SkipsTrustCheckForInitCommand", func(t *testing.T) {
+		// Given an init command
+		cmd := createMockCmd("init")
+
+		// When checking trust
+		err := checkTrust(cmd, []string{})
+
+		// Then no error should occur (trust check is skipped)
+		if err != nil {
+			t.Errorf("Expected no error for init command, got: %v", err)
+		}
+	})
+
+	t.Run("SkipsTrustCheckForEnvCommandWithHookFlag", func(t *testing.T) {
+		// Given an env command with hook flag
+		cmd := createMockCmd("env")
+		cmd.Flags().Bool("hook", false, "hook flag")
+		cmd.Flags().Set("hook", "true")
+
+		// When checking trust
+		err := checkTrust(cmd, []string{})
+
+		// Then no error should occur (trust check is skipped for env --hook)
+		if err != nil {
+			t.Errorf("Expected no error for env --hook, got: %v", err)
+		}
+	})
+
+	t.Run("ChecksTrustForEnvCommandWithoutHookFlag", func(t *testing.T) {
+		// Given an env command without hook flag in an untrusted directory
+		cmd := createMockCmd("env")
+		cmd.Flags().Bool("hook", false, "hook flag")
+
+		// Set up a temporary directory that's not trusted
+		tmpDir := t.TempDir()
+		originalDir, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("Failed to get current directory: %v", err)
+		}
+		defer os.Chdir(originalDir)
+
+		if err := os.Chdir(tmpDir); err != nil {
+			t.Fatalf("Failed to change directory: %v", err)
+		}
+
+		// When checking trust
+		err = checkTrust(cmd, []string{})
+
+		// Then an error should occur about untrusted directory
+		if err == nil {
+			t.Error("Expected error for untrusted directory, got nil")
+		}
+		if !strings.Contains(err.Error(), "not in a trusted directory") {
+			t.Errorf("Expected trust error message, got: %v", err)
+		}
+	})
+
+	t.Run("PassesTrustCheckForTrustedDirectory", func(t *testing.T) {
+		// Given a command in a trusted directory
+		cmd := createMockCmd("down")
+
+		// Set up a temporary directory structure with trusted file
+		tmpDir := t.TempDir()
+		testDir := filepath.Join(tmpDir, "project")
+		if err := os.MkdirAll(testDir, 0755); err != nil {
+			t.Fatalf("Failed to create test directory: %v", err)
+		}
+
+		// Create trusted file
+		trustedDir := filepath.Join(tmpDir, ".config", "windsor")
+		if err := os.MkdirAll(trustedDir, 0755); err != nil {
+			t.Fatalf("Failed to create trusted directory: %v", err)
+		}
+
+		trustedFile := filepath.Join(trustedDir, ".trusted")
+		realTestDir, _ := filepath.EvalSymlinks(testDir)
+		trustedContent := realTestDir + "\n"
+		if err := os.WriteFile(trustedFile, []byte(trustedContent), 0644); err != nil {
+			t.Fatalf("Failed to create trusted file: %v", err)
+		}
+
+		// Change to test directory
+		originalDir, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("Failed to get current directory: %v", err)
+		}
+		defer os.Chdir(originalDir)
+
+		if err := os.Chdir(testDir); err != nil {
+			t.Fatalf("Failed to change directory: %v", err)
+		}
+
+		// Mock home directory
+		originalHome := os.Getenv("HOME")
+		defer os.Setenv("HOME", originalHome)
+		os.Setenv("HOME", tmpDir)
+
+		// When checking trust
+		err = checkTrust(cmd, []string{})
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error for trusted directory, got: %v", err)
+		}
+	})
+
 }
