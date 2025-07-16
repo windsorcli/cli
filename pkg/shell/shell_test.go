@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"text/template"
@@ -3286,10 +3287,17 @@ func TestCheckTrustedDirectoryStandalone(t *testing.T) {
 			t.Fatalf("Failed to change directory: %v", err)
 		}
 
-		// Mock home directory
-		originalHome := os.Getenv("HOME")
-		defer os.Setenv("HOME", originalHome)
-		os.Setenv("HOME", tmpDir)
+		// Mock home directory for cross-platform compatibility
+		var originalHome string
+		if runtime.GOOS == "windows" {
+			originalHome = os.Getenv("USERPROFILE")
+			defer os.Setenv("USERPROFILE", originalHome)
+			os.Setenv("USERPROFILE", tmpDir)
+		} else {
+			originalHome = os.Getenv("HOME")
+			defer os.Setenv("HOME", originalHome)
+			os.Setenv("HOME", tmpDir)
+		}
 
 		// When checking trusted directory
 		err = CheckTrustedDirectory()
@@ -3331,10 +3339,17 @@ func TestCheckTrustedDirectoryStandalone(t *testing.T) {
 			t.Fatalf("Failed to change directory: %v", err)
 		}
 
-		// Mock home directory
-		originalHome := os.Getenv("HOME")
-		defer os.Setenv("HOME", originalHome)
-		os.Setenv("HOME", tmpDir)
+		// Mock home directory for cross-platform compatibility
+		var originalHome string
+		if runtime.GOOS == "windows" {
+			originalHome = os.Getenv("USERPROFILE")
+			defer os.Setenv("USERPROFILE", originalHome)
+			os.Setenv("USERPROFILE", tmpDir)
+		} else {
+			originalHome = os.Getenv("HOME")
+			defer os.Setenv("HOME", originalHome)
+			os.Setenv("HOME", tmpDir)
+		}
 
 		// When checking trusted directory
 		err = CheckTrustedDirectory()

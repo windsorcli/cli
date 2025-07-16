@@ -654,8 +654,8 @@ func CheckTrustedDirectory() error {
 		return fmt.Errorf("Error getting user home directory: %w", err)
 	}
 
-	trustedDirPath := path.Join(homeDir, ".config", "windsor")
-	trustedFilePath := path.Join(trustedDirPath, ".trusted")
+	trustedDirPath := filepath.Join(homeDir, ".config", "windsor")
+	trustedFilePath := filepath.Join(trustedDirPath, ".trusted")
 
 	data, err := os.ReadFile(trustedFilePath)
 	if err != nil {
