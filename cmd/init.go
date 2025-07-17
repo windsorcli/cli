@@ -166,7 +166,7 @@ func init() {
 	initCmd.Flags().StringSliceVar(&initSetFlags, "set", []string{}, "Override configuration values. Example: --set dns.enabled=false --set cluster.endpoint=https://localhost:6443")
 
 	// Mark the platform flag as deprecated
-	initCmd.Flags().MarkDeprecated("platform", "use --provider instead")
+	_ = initCmd.Flags().MarkDeprecated("platform", "use --provider instead")
 
 	rootCmd.AddCommand(initCmd)
 }
