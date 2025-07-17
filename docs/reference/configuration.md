@@ -179,6 +179,7 @@ Configures details related to the local git livereload server
 git:
   livereload:
     enabled: true
+    rsync_include: ""
     rsync_exclude: .windsor,.terraform,data,.volumes,.venv
     rsync_protect: flux-system
     username: local
@@ -191,6 +192,7 @@ git:
 | Field          | Type     | Description                                                  |
 |----------------|----------|--------------------------------------------------------------|
 | `enabled`      | `bool`   | Indicates whether the livereload feature is enabled.         |
+| `rsync_include`| `string` | Comma-separated list of patterns to include in rsync. When set, only files matching these patterns will be synchronized. |
 | `rsync_exclude`| `string` | Comma-separated list of patterns to exclude from rsync.      |
 | `rsync_protect`| `string` | Specifies files or directories to protect during rsync.      |
 | `username`     | `string` | Username for authentication with the livereload server.      |
@@ -302,6 +304,7 @@ contexts:
     git:
       livereload:
         enabled: true
+        rsync_include: ""
         rsync_exclude: .windsor,.terraform,data,.volumes,.venv
         rsync_protect: flux-system
         username: local

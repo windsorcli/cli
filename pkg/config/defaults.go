@@ -55,7 +55,7 @@ var commonDockerConfig = docker.DockerConfig{
 var commonGitConfig = git.GitConfig{
 	Livereload: &git.GitLivereloadConfig{
 		Enabled:      ptrBool(true),
-		RsyncExclude: ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE),
+		RsyncInclude: ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_INCLUDE),
 		RsyncProtect: ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_PROTECT),
 		Username:     ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_USERNAME),
 		Password:     ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_PASSWORD),
