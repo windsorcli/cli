@@ -3101,3 +3101,108 @@ func TestTerraformGenerator_Generate_AdditionalCases(t *testing.T) {
 		}
 	})
 }
+
+func TestTerraformGenerator_Generate_ResetFlag(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
+		mocks := setupMocks(t)
+		generator := NewTerraformGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
+		if err := generator.Initialize(); err != nil {
+			t.Fatalf("failed to initialize TerraformGenerator: %v", err)
+		}
+		return generator, mocks
+	}
+
+	t.Run("GenerateRespectsResetFlag", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// Set up project and context paths
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project", nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/mock/context", nil
+		}
+
+		// Set up component that the generator can process
+		component := blueprintv1alpha1.TerraformComponent{
+			Path:     "test-module",
+			FullPath: "/mock/project/terraform/test-module",
+		}
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{component}
+		}
+
+		// Mock variables.tf file exists
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			if strings.HasSuffix(path, "variables.tf") {
+				return &mockFileInfo{name: "variables.tf", isDir: false}, nil
+			}
+			// Return that tfvars file exists
+			if strings.HasSuffix(path, ".tfvars") {
+				return &mockFileInfo{name: "test.tfvars", isDir: false}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock variables.tf content
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			if strings.HasSuffix(path, "variables.tf") {
+				return []byte(`variable "test_var" {
+  description = "Test variable"
+  type        = string
+}`), nil
+			}
+			// Return existing tfvars content
+			if strings.HasSuffix(path, ".tfvars") {
+				return []byte("# existing content"), nil
+			}
+			return nil, fmt.Errorf("unexpected file read: %s", path)
+		}
+
+		// Track if WriteFile was called
+		writeFileCalled := false
+		mocks.Shims.WriteFile = func(path string, data []byte, perm fs.FileMode) error {
+			writeFileCalled = true
+			return nil
+		}
+		mocks.Shims.MkdirAll = func(path string, perm fs.FileMode) error {
+			return nil
+		}
+
+		// When Generate is called WITHOUT reset flag (overwrite=false)
+		data := map[string]any{
+			"terraform/test-module": map[string]any{
+				"test_var": "test_value",
+			},
+		}
+		err := generator.Generate(data, false)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And WriteFile should NOT be called (file should not be overwritten)
+		if writeFileCalled {
+			t.Error("expected WriteFile to not be called when reset=false and file exists")
+		}
+
+		// Reset the flag for the next test
+		writeFileCalled = false
+
+		// When Generate is called WITH reset flag (overwrite=true)
+		err = generator.Generate(data, true)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And WriteFile should be called (file should be overwritten)
+		if !writeFileCalled {
+			t.Error("expected WriteFile to be called when reset=true")
+		}
+	})
+}
