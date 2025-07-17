@@ -44,6 +44,7 @@ func (s *GitLivereloadService) GetComposeConfig() (*types.Config, error) {
 	contextName := s.configHandler.GetContext()
 
 	// Retrieve environment variables from config with defaults using Get* functions
+	rsyncInclude := s.configHandler.GetString("git.livereload.rsync_include", constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_INCLUDE)
 	rsyncExclude := s.configHandler.GetString("git.livereload.rsync_exclude", constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE)
 	rsyncProtect := s.configHandler.GetString("git.livereload.rsync_protect", constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_PROTECT)
 	gitUsername := s.configHandler.GetString("git.livereload.username", constants.DEFAULT_GIT_LIVE_RELOAD_USERNAME)
@@ -59,6 +60,11 @@ func (s *GitLivereloadService) GetComposeConfig() (*types.Config, error) {
 		"GIT_USERNAME":  ptrString(gitUsername),
 		"GIT_PASSWORD":  ptrString(gitPassword),
 		"VERIFY_SSL":    ptrString(fmt.Sprintf("%t", verifySsl)),
+	}
+
+	// Add RSYNC_INCLUDE if it's not empty
+	if rsyncInclude != "" {
+		envVars["RSYNC_INCLUDE"] = ptrString(rsyncInclude)
 	}
 
 	// Add webhook URL if provided
