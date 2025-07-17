@@ -665,7 +665,7 @@ func (p *BasePipeline) withServices() ([]services.Service, error) {
 		}
 	}
 
-	// Add cluster services (TalosService instances) based on cluster driver using tagged switch
+	// Add cluster services based on cluster driver
 	clusterDriver := p.configHandler.GetString("cluster.driver", "")
 	switch clusterDriver {
 	case "talos", "omni":
@@ -687,6 +687,10 @@ func (p *BasePipeline) withServices() ([]services.Service, error) {
 			p.injector.Register(fmt.Sprintf("clusterNode.%s", serviceName), workerService)
 			serviceList = append(serviceList, workerService)
 		}
+	case "eks", "aks":
+		// For managed cloud clusters (EKS, AKS), no local cluster services are needed
+		// The cluster is managed by the cloud provider
+		break
 	}
 
 	return serviceList, nil

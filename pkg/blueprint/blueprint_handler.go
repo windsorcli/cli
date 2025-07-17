@@ -365,16 +365,16 @@ func (b *BaseBlueprintHandler) GetTerraformComponents() []blueprintv1alpha1.Terr
 	return resolvedBlueprint.TerraformComponents
 }
 
-// GetDefaultTemplateData generates default template data based on the platform configuration.
-// It uses the embedded platform templates to create a map of template files that can be
+// GetDefaultTemplateData generates default template data based on the provider configuration.
+// It uses the embedded provider templates to create a map of template files that can be
 // used by the init pipeline for generating context-specific configurations.
 func (b *BaseBlueprintHandler) GetDefaultTemplateData(contextName string) (map[string][]byte, error) {
-	platform := b.configHandler.GetString("platform")
-	if platform == "" {
-		platform = b.configHandler.GetString("cluster.platform")
+	provider := b.configHandler.GetString("provider")
+	if provider == "" {
+		provider = b.configHandler.GetString("cluster.platform")
 	}
 
-	templateData, err := b.loadPlatformTemplate(platform)
+	templateData, err := b.loadPlatformTemplate(provider)
 	if err != nil || len(templateData) == 0 {
 		templateData, err = b.loadPlatformTemplate("default")
 		if err != nil {

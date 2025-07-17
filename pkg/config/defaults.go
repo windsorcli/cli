@@ -21,6 +21,7 @@ import (
 
 // DefaultConfig returns the default configuration
 var DefaultConfig = v1alpha1.Context{
+	Provider: ptrString("local"),
 	Terraform: &terraform.TerraformConfig{
 		Enabled: ptrBool(true),
 		Backend: &terraform.BackendConfig{
@@ -145,6 +146,7 @@ var commonDNSConfig = dns.DNSConfig{
 }
 
 var DefaultConfig_Localhost = v1alpha1.Context{
+	Provider:    ptrString("local"),
 	Environment: map[string]string{},
 	Docker:      commonDockerConfig.Copy(),
 	Git:         commonGitConfig.Copy(),
@@ -163,6 +165,7 @@ var DefaultConfig_Localhost = v1alpha1.Context{
 }
 
 var DefaultConfig_Full = v1alpha1.Context{
+	Provider:    ptrString("local"),
 	Environment: map[string]string{},
 	Docker:      commonDockerConfig.Copy(),
 	Git:         commonGitConfig.Copy(),

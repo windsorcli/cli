@@ -351,18 +351,18 @@ func (p *InitPipeline) setDefaultConfiguration(_ context.Context, contextName st
 	return nil
 }
 
-// processPlatformConfiguration applies platform-specific configuration settings based on the "platform" value in the configuration handler.
+// processPlatformConfiguration applies provider-specific configuration settings based on the "provider" value in the configuration handler.
 // For "aws", it enables AWS and sets the cluster driver to "eks".
 // For "azure", it enables Azure and sets the cluster driver to "aks".
 // For "metal" and "local", it sets the cluster driver to "talos".
 // Returns an error if any configuration operation fails.
 func (p *InitPipeline) processPlatformConfiguration(_ context.Context) error {
-	platform := p.configHandler.GetString("platform")
-	if platform == "" {
+	provider := p.configHandler.GetString("provider")
+	if provider == "" {
 		return nil
 	}
 
-	switch platform {
+	switch provider {
 	case "aws":
 		if err := p.configHandler.SetContextValue("aws.enabled", true); err != nil {
 			return fmt.Errorf("Error setting aws.enabled: %w", err)

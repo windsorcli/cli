@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -23,7 +24,8 @@ var (
 	initArch           string
 	initDocker         bool
 	initGitLivereload  bool
-	initPlatform       string
+	initProvider       string
+	initPlatform       string // Deprecated: use initProvider instead
 	initBlueprint      string
 	initEndpoint       string
 	initSetFlags       []string
@@ -108,9 +110,20 @@ var initCmd = &cobra.Command{
 				return fmt.Errorf("failed to set git.livereload.enabled: %w", err)
 			}
 		}
+		if initProvider != "" {
+			if err := configHandler.SetContextValue("provider", initProvider); err != nil {
+				return fmt.Errorf("failed to set provider: %w", err)
+			}
+		}
+
+		// Handle deprecated --platform flag
 		if initPlatform != "" {
-			if err := configHandler.SetContextValue("platform", initPlatform); err != nil {
-				return fmt.Errorf("failed to set platform: %w", err)
+			fmt.Fprintf(os.Stderr, "\033[33mWarning: The --platform flag is deprecated and will be removed in a future version. Please use --provider instead.\033[0m\n")
+			if initProvider != "" {
+				return fmt.Errorf("cannot specify both --provider and --platform flags. Please use --provider only")
+			}
+			if err := configHandler.SetContextValue("provider", initPlatform); err != nil {
+				return fmt.Errorf("failed to set provider: %w", err)
 			}
 		}
 
@@ -146,10 +159,14 @@ func init() {
 	initCmd.Flags().StringVar(&initArch, "vm-arch", "", "Specify the architecture for Colima")
 	initCmd.Flags().BoolVar(&initDocker, "docker", false, "Enable Docker")
 	initCmd.Flags().BoolVar(&initGitLivereload, "git-livereload", false, "Enable Git Livereload")
-	initCmd.Flags().StringVar(&initPlatform, "platform", "", "Specify the platform to use [local|metal]")
+	initCmd.Flags().StringVar(&initProvider, "provider", "", "Specify the provider to use [local|metal|aws|azure]")
+	initCmd.Flags().StringVar(&initPlatform, "platform", "", "Deprecated: use --provider instead")
 	initCmd.Flags().StringVar(&initBlueprint, "blueprint", "", "Specify the blueprint to use")
 	initCmd.Flags().StringVar(&initEndpoint, "endpoint", "", "Specify the kubernetes API endpoint")
 	initCmd.Flags().StringSliceVar(&initSetFlags, "set", []string{}, "Override configuration values. Example: --set dns.enabled=false --set cluster.endpoint=https://localhost:6443")
+
+	// Mark the platform flag as deprecated
+	_ = initCmd.Flags().MarkDeprecated("platform", "use --provider instead")
 
 	rootCmd.AddCommand(initCmd)
 }

@@ -3307,7 +3307,7 @@ contexts:
 			Environment: map[string]string{
 				"DEFAULT_VAR": "default_value",
 			},
-			Platform: ptrString("local"),
+			Provider: ptrString("local"),
 		}
 
 		err = handler.SetDefault(defaultConfig)
@@ -3322,9 +3322,9 @@ contexts:
 		}
 
 		// And the default values should be added
-		platform := handler.GetString("platform")
-		if platform != "local" {
-			t.Errorf("Expected platform to be added as 'local', got '%s'", platform)
+		provider := handler.GetString("provider")
+		if provider != "local" {
+			t.Errorf("Expected provider to be added as 'local', got '%s'", provider)
 		}
 	})
 }

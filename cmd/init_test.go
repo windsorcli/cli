@@ -394,7 +394,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with platform flag
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{"--platform", "local"})
+		cmd.SetArgs([]string{"--provider", "local"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
