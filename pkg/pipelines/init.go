@@ -305,13 +305,20 @@ func (p *InitPipeline) Execute(ctx context.Context) error {
 // Private Methods
 // =============================================================================
 
-// determineContextName determines the context name from arguments or defaults to "local".
+// determineContextName determines the context name from arguments, current config, or defaults to "local".
 func (p *InitPipeline) determineContextName(ctx context.Context) string {
 	if contextName := ctx.Value("contextName"); contextName != nil {
 		if name, ok := contextName.(string); ok {
 			return name
 		}
 	}
+
+	// If no contextName in context, check the current context from config
+	currentContext := p.configHandler.GetContext()
+	if currentContext != "" && currentContext != "local" {
+		return currentContext
+	}
+
 	return "local"
 }
 
