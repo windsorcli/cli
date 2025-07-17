@@ -28,6 +28,9 @@ var DefaultConfig = v1alpha1.Context{
 			Type: "local",
 		},
 	},
+	Cluster: &cluster.ClusterConfig{
+		Enabled: ptrBool(true),
+	},
 }
 
 var commonDockerConfig = docker.DockerConfig{
