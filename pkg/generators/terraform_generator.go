@@ -95,6 +95,12 @@ func (g *TerraformGenerator) Write(overwrite ...bool) error {
 // TerraformComponents and determines the variables.tf location based on component source presence (remote or local).
 // Module resolution is now handled by the pkg/terraform package.
 func (g *TerraformGenerator) Generate(data map[string]any, overwrite ...bool) error {
+	// Set reset flag from overwrite parameter
+	shouldOverwrite := false
+	if len(overwrite) > 0 {
+		shouldOverwrite = overwrite[0]
+	}
+	g.reset = shouldOverwrite
 
 	contextPath, err := g.configHandler.GetConfigRoot()
 	if err != nil {
