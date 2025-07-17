@@ -61,7 +61,7 @@ func TestConfig_Merge(t *testing.T) {
 			Network: &network.NetworkConfig{
 				CIDRBlock: ptrString("192.168.0.0/16"),
 			},
-			Platform: ptrString("aws"),
+			Provider: ptrString("aws"),
 		}
 
 		overlay := &Context{
@@ -107,7 +107,7 @@ func TestConfig_Merge(t *testing.T) {
 			Network: &network.NetworkConfig{
 				CIDRBlock: ptrString("10.0.0.0/8"),
 			},
-			Platform: ptrString("azure"),
+			Provider: ptrString("azure"),
 		}
 
 		base.Merge(overlay)
@@ -154,8 +154,8 @@ func TestConfig_Merge(t *testing.T) {
 		if base.Network.CIDRBlock == nil || *base.Network.CIDRBlock != "10.0.0.0/8" {
 			t.Errorf("Network CIDRBlock mismatch: expected '10.0.0.0/8', got '%s'", *base.Network.CIDRBlock)
 		}
-		if base.Platform == nil || *base.Platform != "azure" {
-			t.Errorf("Platform mismatch: expected 'azure', got '%s'", *base.Platform)
+		if base.Provider == nil || *base.Provider != "azure" {
+			t.Errorf("Provider mismatch: expected 'azure', got '%s'", *base.Provider)
 		}
 	})
 
@@ -204,7 +204,7 @@ func TestConfig_Merge(t *testing.T) {
 			Network: &network.NetworkConfig{
 				CIDRBlock: ptrString("192.168.0.0/16"),
 			},
-			Platform: ptrString("aws"),
+			Provider: ptrString("aws"),
 		}
 
 		var overlay *Context = nil
@@ -252,8 +252,8 @@ func TestConfig_Merge(t *testing.T) {
 		if base.Network.CIDRBlock == nil || *base.Network.CIDRBlock != "192.168.0.0/16" {
 			t.Errorf("Network CIDRBlock mismatch: expected '192.168.0.0/16', got '%s'", *base.Network.CIDRBlock)
 		}
-		if base.Platform == nil || *base.Platform != "aws" {
-			t.Errorf("Platform mismatch: expected 'aws', got '%s'", *base.Platform)
+		if base.Provider == nil || *base.Provider != "aws" {
+			t.Errorf("Provider mismatch: expected 'aws', got '%s'", *base.Provider)
 		}
 	})
 
@@ -303,7 +303,7 @@ func TestConfig_Merge(t *testing.T) {
 			Network: &network.NetworkConfig{
 				CIDRBlock: ptrString("10.0.0.0/8"),
 			},
-			Platform: ptrString("azure"),
+			Provider: ptrString("azure"),
 		}
 
 		base.Merge(overlay)
@@ -350,8 +350,8 @@ func TestConfig_Merge(t *testing.T) {
 		if base.Network.CIDRBlock == nil || *base.Network.CIDRBlock != "10.0.0.0/8" {
 			t.Errorf("Network CIDRBlock mismatch: expected '10.0.0.0/8', got '%s'", *base.Network.CIDRBlock)
 		}
-		if base.Platform == nil || *base.Platform != "azure" {
-			t.Errorf("Platform mismatch: expected 'azure', got '%s'", *base.Platform)
+		if base.Provider == nil || *base.Provider != "azure" {
+			t.Errorf("Provider mismatch: expected 'azure', got '%s'", *base.Provider)
 		}
 	})
 
@@ -418,7 +418,7 @@ func TestConfig_Copy(t *testing.T) {
 					End:   ptrString("192.168.0.255"),
 				},
 			},
-			Platform: ptrString("local"),
+			Provider: ptrString("local"),
 		}
 
 		copy := original.DeepCopy()
@@ -463,8 +463,8 @@ func TestConfig_Copy(t *testing.T) {
 		if original.Network.CIDRBlock == nil || copy.Network.CIDRBlock == nil || *original.Network.CIDRBlock != *copy.Network.CIDRBlock {
 			t.Errorf("Network CIDRBlock mismatch: expected %v, got %v", *original.Network.CIDRBlock, *copy.Network.CIDRBlock)
 		}
-		if original.Platform == nil || copy.Platform == nil || *original.Platform != *copy.Platform {
-			t.Errorf("Platform mismatch: expected %v, got %v", *original.Platform, *copy.Platform)
+		if original.Provider == nil || copy.Provider == nil || *original.Provider != *copy.Provider {
+			t.Errorf("Provider mismatch: expected %v, got %v", *original.Provider, *copy.Provider)
 		}
 	})
 

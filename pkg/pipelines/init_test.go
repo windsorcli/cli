@@ -559,7 +559,7 @@ func TestInitPipeline_setDefaultConfiguration(t *testing.T) {
 			switch key {
 			case "vm.driver":
 				return vmDriver
-			case "platform":
+			case "provider":
 				return platform
 			default:
 				return ""
@@ -645,14 +645,14 @@ func TestInitPipeline_setDefaultConfiguration(t *testing.T) {
 }
 
 func TestInitPipeline_processPlatformConfiguration(t *testing.T) {
-	setup := func(t *testing.T, platform string) (*InitPipeline, *config.MockConfigHandler) {
+	setup := func(t *testing.T, provider string) (*InitPipeline, *config.MockConfigHandler) {
 		t.Helper()
 		pipeline := &InitPipeline{}
 
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "platform" {
-				return platform
+			if key == "provider" {
+				return provider
 			}
 			return ""
 		}
@@ -664,21 +664,21 @@ func TestInitPipeline_processPlatformConfiguration(t *testing.T) {
 		return pipeline, mockConfigHandler
 	}
 
-	platformTests := []struct {
+	providerTests := []struct {
 		name     string
-		platform string
+		provider string
 	}{
-		{name: "HandlesAWSPlatform", platform: "aws"},
-		{name: "HandlesAzurePlatform", platform: "azure"},
-		{name: "HandlesMetalPlatform", platform: "metal"},
-		{name: "HandlesLocalPlatform", platform: "local"},
-		{name: "HandlesEmptyPlatform", platform: ""},
+		{name: "HandlesAWSProvider", provider: "aws"},
+		{name: "HandlesAzureProvider", provider: "azure"},
+		{name: "HandlesMetalProvider", provider: "metal"},
+		{name: "HandlesLocalProvider", provider: "local"},
+		{name: "HandlesEmptyProvider", provider: ""},
 	}
 
-	for _, tt := range platformTests {
+	for _, tt := range providerTests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given a pipeline with specific platform configuration
-			pipeline, _ := setup(t, tt.platform)
+			// Given a pipeline with specific provider configuration
+			pipeline, _ := setup(t, tt.provider)
 
 			// When processPlatformConfiguration is called
 			err := pipeline.processPlatformConfiguration(context.Background())

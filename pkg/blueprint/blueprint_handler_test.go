@@ -2478,13 +2478,13 @@ func TestBlueprintHandler_GetDefaultTemplateData(t *testing.T) {
 	}
 
 	t.Run("ReturnsDefaultTemplate", func(t *testing.T) {
-		// Given a blueprint handler with default platform
+		// Given a blueprint handler with default provider
 		handler, mocks := setup(t)
 
-		// Set platform to default
+		// Set provider to default
 		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
 			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-				if key == "platform" {
+				if key == "provider" {
 					return "default"
 				}
 				return ""
@@ -2514,13 +2514,13 @@ func TestBlueprintHandler_GetDefaultTemplateData(t *testing.T) {
 	})
 
 	t.Run("ReturnsLocalTemplate", func(t *testing.T) {
-		// Given a blueprint handler with local platform
+		// Given a blueprint handler with local provider
 		handler, mocks := setup(t)
 
-		// Set platform to local
+		// Set provider to local
 		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
 			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-				if key == "platform" {
+				if key == "provider" {
 					return "local"
 				}
 				return ""
@@ -2549,10 +2549,10 @@ func TestBlueprintHandler_GetDefaultTemplateData(t *testing.T) {
 		// Given a blueprint handler with AWS platform
 		handler, mocks := setup(t)
 
-		// Set platform to aws
+		// Set provider to aws
 		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
 			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-				if key == "platform" {
+				if key == "provider" {
 					return "aws"
 				}
 				return ""
@@ -2577,11 +2577,11 @@ func TestBlueprintHandler_GetDefaultTemplateData(t *testing.T) {
 		}
 	})
 
-	t.Run("FallsBackToDefaultWhenPlatformEmpty", func(t *testing.T) {
-		// Given a blueprint handler with empty platform
+	t.Run("FallsBackToDefaultWhenProviderEmpty", func(t *testing.T) {
+		// Given a blueprint handler with empty provider
 		handler, mocks := setup(t)
 
-		// Set platform to empty
+		// Set provider to empty
 		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
 			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 				return ""
@@ -2606,14 +2606,14 @@ func TestBlueprintHandler_GetDefaultTemplateData(t *testing.T) {
 		}
 	})
 
-	t.Run("FallsBackToDefaultWhenUnknownPlatform", func(t *testing.T) {
-		// Given a blueprint handler with unknown platform
+	t.Run("FallsBackToDefaultWhenUnknownProvider", func(t *testing.T) {
+		// Given a blueprint handler with unknown provider
 		handler, mocks := setup(t)
 
-		// Set platform to unknown
+		// Set provider to unknown
 		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
 			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-				if key == "platform" {
+				if key == "provider" {
 					return "unknown"
 				}
 				return ""
