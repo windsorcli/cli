@@ -2807,12 +2807,9 @@ variable "instance_type" {
 
 		err := generator.Generate(data)
 
-		// Then an error should be returned
-		if err == nil {
-			t.Error("expected error when component not found in blueprint, got nil")
-		}
-		if !strings.Contains(err.Error(), "component cluster not found in blueprint") {
-			t.Errorf("expected error about component not found in blueprint, got: %v", err)
+		// Then no error should be returned (component should be skipped)
+		if err != nil {
+			t.Errorf("expected no error when component not found in blueprint, got: %v", err)
 		}
 	})
 
@@ -2864,6 +2861,152 @@ variable "instance_type" {
 		}
 		if !strings.Contains(err.Error(), "variables.tf not found") {
 			t.Errorf("expected error about variables.tf not found, got: %v", err)
+		}
+	})
+
+	t.Run("SkipsComponentNotFoundInBlueprint", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And mock paths
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project", nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/mock/context", nil
+		}
+
+		// And mock blueprint handler to return empty components
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{}
+		}
+
+		// When Generate is called with terraform data for non-existent component
+		data := map[string]any{
+			"terraform/cluster": map[string]any{
+				"cluster_name": "test-cluster",
+			},
+		}
+
+		err := generator.Generate(data)
+
+		// Then no error should be returned (component should be skipped)
+		if err != nil {
+			t.Errorf("expected no error when component not found in blueprint, got: %v", err)
+		}
+	})
+
+	t.Run("SkipsMultipleComponentsNotInBlueprintAndProcessesExisting", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And mock paths
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project", nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/mock/context", nil
+		}
+
+		// And mock blueprint handler to return only AWS components (simulating AWS provider)
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:     "cluster/aws-eks",
+					Source:   "core",
+					FullPath: "/mock/project/.windsor/.tf_modules/cluster/aws-eks",
+				},
+				{
+					Path:     "network/aws-vpc",
+					Source:   "core",
+					FullPath: "/mock/project/.windsor/.tf_modules/network/aws-vpc",
+				},
+			}
+		}
+
+		// And mock Stat to simulate finding variables.tf files for AWS components only
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			normalizedPath := filepath.ToSlash(path)
+			if strings.Contains(normalizedPath, "cluster/aws-eks/variables.tf") ||
+				strings.Contains(normalizedPath, "network/aws-vpc/variables.tf") {
+				return &mockFileInfo{name: "variables.tf", isDir: false}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// And mock ReadFile to return variables.tf content for AWS components
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			if strings.Contains(path, "variables.tf") {
+				return []byte(`variable "cluster_name" {
+  description = "Name of the cluster"
+  type        = string
+}`), nil
+			}
+			return nil, fmt.Errorf("unexpected file read: %s", path)
+		}
+
+		// And mock MkdirAll and WriteFile
+		var writtenFiles []string
+		mocks.Shims.MkdirAll = func(path string, perm fs.FileMode) error { return nil }
+		mocks.Shims.WriteFile = func(name string, data []byte, perm fs.FileMode) error {
+			writtenFiles = append(writtenFiles, name)
+			return nil
+		}
+
+		// When Generate is called with mixed provider template data
+		data := map[string]any{
+			// AWS components that exist in blueprint
+			"terraform/cluster/aws-eks": map[string]any{
+				"cluster_name": "test-aws-cluster",
+			},
+			"terraform/network/aws-vpc": map[string]any{
+				"vpc_name": "test-vpc",
+			},
+			// Azure components that DON'T exist in blueprint (should be skipped)
+			"terraform/cluster/azure-aks": map[string]any{
+				"cluster_name": "test-azure-cluster",
+			},
+			"terraform/network/azure-vnet": map[string]any{
+				"vnet_name": "test-vnet",
+			},
+		}
+
+		err := generator.Generate(data)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("expected no error with mixed provider templates, got: %v", err)
+		}
+
+		// And only AWS component tfvars files should be written
+		expectedFiles := []string{
+			"/mock/context/terraform/cluster/aws-eks.tfvars",
+			"/mock/context/terraform/network/aws-vpc.tfvars",
+		}
+
+		if len(writtenFiles) != len(expectedFiles) {
+			t.Errorf("expected %d tfvars files to be written, got %d: %v", len(expectedFiles), len(writtenFiles), writtenFiles)
+		}
+
+		for _, expectedFile := range expectedFiles {
+			found := false
+			for _, writtenFile := range writtenFiles {
+				// Normalize both paths for cross-platform comparison
+				if filepath.ToSlash(writtenFile) == filepath.ToSlash(expectedFile) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("expected tfvars file %s to be written, but it wasn't", expectedFile)
+			}
+		}
+
+		// Verify no Azure files were written
+		for _, writtenFile := range writtenFiles {
+			if strings.Contains(writtenFile, "azure") {
+				t.Errorf("unexpected Azure tfvars file written: %s", writtenFile)
+			}
 		}
 	})
 }
@@ -3095,9 +3238,9 @@ func TestTerraformGenerator_Generate_AdditionalCases(t *testing.T) {
 		// When Generate is called
 		err := generator.Generate(data)
 
-		// Then an error should occur
-		if err == nil {
-			t.Errorf("Expected error for component not found in blueprint, got nil")
+		// Then no error should occur (component should be skipped)
+		if err != nil {
+			t.Errorf("Expected no error when component not found in blueprint, got: %v", err)
 		}
 	})
 }
