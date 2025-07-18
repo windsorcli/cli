@@ -100,7 +100,9 @@ func (t *JsonnetTemplate) processJsonnetTemplate(templateContent string) (map[st
 		return nil, fmt.Errorf("failed to unmarshal context YAML: %w", err)
 	}
 
-	contextMap["name"] = t.configHandler.GetContext()
+	// Add context metadata to the merged config
+	contextName := t.configHandler.GetContext()
+	contextMap["name"] = contextName
 	contextMap["projectName"] = t.shims.FilepathBase(projectRoot)
 
 	contextJSON, err := t.shims.JsonMarshal(contextMap)
@@ -109,6 +111,7 @@ func (t *JsonnetTemplate) processJsonnetTemplate(templateContent string) (map[st
 	}
 
 	vm := t.shims.NewJsonnetVM()
+	vm.ExtCode("helpers", t.buildHelperLibrary())
 	vm.ExtCode("context", string(contextJSON))
 
 	result, err := vm.EvaluateAnonymousSnippet("template.jsonnet", templateContent)
@@ -122,6 +125,83 @@ func (t *JsonnetTemplate) processJsonnetTemplate(templateContent string) (map[st
 	}
 
 	return values, nil
+}
+
+// buildHelperLibrary creates a Jsonnet library with helper functions for safe context access
+func (jt *JsonnetTemplate) buildHelperLibrary() string {
+	return `{
+  // Smart helpers - handle both path-based ("a.b.c") and key-based ("key") access
+  get(obj, path, default=null):
+    if std.findSubstr(".", path) == [] then
+      // Simple key access (no dots)
+      if std.type(obj) == "object" && path in obj then obj[path] else default
+    else
+      // Path-based access (with dots)
+      local parts = std.split(path, ".");
+      local getValue(o, pathParts) =
+        if std.length(pathParts) == 0 then o
+        else if std.type(o) != "object" then null
+        else if !(pathParts[0] in o) then null
+        else getValue(o[pathParts[0]], pathParts[1:]);
+      local result = getValue(obj, parts);
+      if result == null then default else result,
+
+  getString(obj, path, default=""):
+    local val = self.get(obj, path, null);
+    if val == null then default
+    else if std.type(val) == "string" then val
+    else error "Expected string for '" + path + "' but got " + std.type(val) + ": " + std.toString(val),
+
+  getInt(obj, path, default=0):
+    local val = self.get(obj, path, null);
+    if val == null then default
+    else if std.type(val) == "number" then std.floor(val)
+    else error "Expected number for '" + path + "' but got " + std.type(val) + ": " + std.toString(val),
+
+  getNumber(obj, path, default=0):
+    local val = self.get(obj, path, null);
+    if val == null then default
+    else if std.type(val) == "number" then val
+    else error "Expected number for '" + path + "' but got " + std.type(val) + ": " + std.toString(val),
+
+  getBool(obj, path, default=false):
+    local val = self.get(obj, path, null);
+    if val == null then default
+    else if std.type(val) == "boolean" then val
+    else error "Expected boolean for '" + path + "' but got " + std.type(val) + ": " + std.toString(val),
+
+  getObject(obj, path, default={}):
+    local val = self.get(obj, path, null);
+    if val == null then default
+    else if std.type(val) == "object" then val
+    else error "Expected object for '" + path + "' but got " + std.type(val) + ": " + std.toString(val),
+
+  getArray(obj, path, default=[]):
+    local val = self.get(obj, path, null);
+    if val == null then default
+    else if std.type(val) == "array" then val
+    else error "Expected array for '" + path + "' but got " + std.type(val) + ": " + std.toString(val),
+
+  has(obj, path):
+    self.get(obj, path, null) != null,
+
+  // URL helper functions
+  baseUrl(endpoint):
+    if endpoint == "" then 
+      ""
+    else
+      local withoutProtocol = if std.startsWith(endpoint, "https://") then
+        std.substr(endpoint, 8, std.length(endpoint) - 8)
+      else if std.startsWith(endpoint, "http://") then
+        std.substr(endpoint, 7, std.length(endpoint) - 7)
+      else
+        endpoint;
+      local colonPos = std.findSubstr(":", withoutProtocol);
+      if std.length(colonPos) > 0 then
+        std.substr(withoutProtocol, 0, colonPos[0])
+      else
+        withoutProtocol,
+}`
 }
 
 // =============================================================================
