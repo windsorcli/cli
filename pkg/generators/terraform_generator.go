@@ -89,13 +89,14 @@ func (g *TerraformGenerator) Write(overwrite ...bool) error {
 	return g.Generate(generateData)
 }
 
-// Generate produces Terraform configuration files, including tfvars files, for all blueprint components.
-// It consumes template data keyed by "terraform/<module_path>", generating tfvars files at
-// contexts/<context>/terraform/<module_path>.tfvars. The method utilizes the blueprint handler to retrieve
-// TerraformComponents and determines the variables.tf location based on component source presence (remote or local).
-// Module resolution is now handled by the pkg/terraform package.
+// Generate creates Terraform configuration files, including tfvars files, for all blueprint components.
+// It processes template data keyed by "terraform/<module_path>", generating tfvars files at
+// contexts/<context>/terraform/<module_path>.tfvars. For each entry in the input data, it skips keys
+// not prefixed with "terraform/" and skips components not present in the blueprint. For all components
+// in the blueprint, it ensures a tfvars file is generated if not already handled by the input data.
+// The method uses the blueprint handler to retrieve TerraformComponents and determines the variables.tf
+// location based on component source (remote or local). Module resolution is handled by pkg/terraform.
 func (g *TerraformGenerator) Generate(data map[string]any, overwrite ...bool) error {
-	// Set reset flag from overwrite parameter
 	shouldOverwrite := false
 	if len(overwrite) > 0 {
 		shouldOverwrite = overwrite[0]
@@ -132,7 +133,7 @@ func (g *TerraformGenerator) Generate(data map[string]any, overwrite ...bool) er
 
 		component, exists := componentMap[actualPath]
 		if !exists {
-			return fmt.Errorf("component %s not found in blueprint", actualPath)
+			continue
 		}
 
 		variablesTfPath, err := g.findVariablesTfFileForComponent(projectRoot, component)
