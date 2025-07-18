@@ -2991,7 +2991,8 @@ variable "instance_type" {
 		for _, expectedFile := range expectedFiles {
 			found := false
 			for _, writtenFile := range writtenFiles {
-				if writtenFile == expectedFile {
+				// Normalize both paths for cross-platform comparison
+				if filepath.ToSlash(writtenFile) == filepath.ToSlash(expectedFile) {
 					found = true
 					break
 				}
