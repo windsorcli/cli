@@ -10,6 +10,7 @@ type MockConfigHandler struct {
 	InitializeFunc                  func() error
 	LoadConfigFunc                  func(path string) error
 	LoadConfigStringFunc            func(content string) error
+	LoadContextConfigFunc           func() error
 	IsLoadedFunc                    func() bool
 	GetStringFunc                   func(key string, defaultValue ...string) string
 	GetIntFunc                      func(key string, defaultValue ...int) int
@@ -64,6 +65,14 @@ func (m *MockConfigHandler) LoadConfig(path string) error {
 func (m *MockConfigHandler) LoadConfigString(content string) error {
 	if m.LoadConfigStringFunc != nil {
 		return m.LoadConfigStringFunc(content)
+	}
+	return nil
+}
+
+// LoadContextConfig calls the mock LoadContextConfigFunc if set, otherwise returns nil
+func (m *MockConfigHandler) LoadContextConfig() error {
+	if m.LoadContextConfigFunc != nil {
+		return m.LoadContextConfigFunc()
 	}
 	return nil
 }

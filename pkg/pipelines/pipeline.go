@@ -507,6 +507,10 @@ func (p *BasePipeline) loadConfig() error {
 		}
 	}
 
+	if err := p.configHandler.LoadContextConfig(); err != nil {
+		return fmt.Errorf("error loading context config: %w", err)
+	}
+
 	return nil
 }
 

@@ -77,6 +77,60 @@ func (y *YamlConfigHandler) LoadConfig(path string) error {
 	return y.LoadConfigString(string(data))
 }
 
+// LoadContextConfig loads context-specific windsor.yaml configuration and merges it with the existing configuration.
+// It looks for windsor.yaml files in the current context's directory (contexts/<context>/windsor.yaml).
+// The context-specific configuration is expected to contain only the context configuration values without
+// the top-level "contexts" key. These values are merged into the current context configuration.
+func (y *YamlConfigHandler) LoadContextConfig() error {
+	if y.shell == nil {
+		return fmt.Errorf("shell not initialized")
+	}
+
+	projectRoot, err := y.shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("error retrieving project root: %w", err)
+	}
+
+	contextName := y.GetContext()
+	contextConfigDir := filepath.Join(projectRoot, "contexts", contextName)
+
+	yamlPath := filepath.Join(contextConfigDir, "windsor.yaml")
+	ymlPath := filepath.Join(contextConfigDir, "windsor.yml")
+
+	var contextConfigPath string
+	if _, err := y.shims.Stat(yamlPath); err == nil {
+		contextConfigPath = yamlPath
+	} else if _, err := y.shims.Stat(ymlPath); err == nil {
+		contextConfigPath = ymlPath
+	}
+
+	if contextConfigPath == "" {
+		return nil
+	}
+
+	data, err := y.shims.ReadFile(contextConfigPath)
+	if err != nil {
+		return fmt.Errorf("error reading context config file: %w", err)
+	}
+
+	var contextConfig v1alpha1.Context
+	if err := y.shims.YamlUnmarshal(data, &contextConfig); err != nil {
+		return fmt.Errorf("error unmarshalling context yaml: %w", err)
+	}
+
+	if y.config.Contexts == nil {
+		y.config.Contexts = make(map[string]*v1alpha1.Context)
+	}
+
+	if y.config.Contexts[contextName] == nil {
+		y.config.Contexts[contextName] = &v1alpha1.Context{}
+	}
+
+	y.config.Contexts[contextName].Merge(&contextConfig)
+
+	return nil
+}
+
 // SaveConfig saves the current configuration to the specified path. If the path is empty, it uses the previously loaded path.
 // If overwrite is false and the file exists, it will not overwrite the file
 func (y *YamlConfigHandler) SaveConfig(path string, overwrite ...bool) error {
