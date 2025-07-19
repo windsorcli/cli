@@ -3545,7 +3545,9 @@ environment:
 
 		// Mock ReadFile to return an error
 		handler.shims.ReadFile = func(filename string) ([]byte, error) {
-			if strings.Contains(filename, "contexts/test/windsor.yaml") {
+			// Normalize path separators for cross-platform compatibility
+			normalizedPath := filepath.ToSlash(filename)
+			if strings.Contains(normalizedPath, "contexts/test/windsor.yaml") {
 				return nil, fmt.Errorf("mocked read error")
 			}
 			return os.ReadFile(filename)
