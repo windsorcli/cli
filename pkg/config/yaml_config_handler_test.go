@@ -3358,3 +3358,305 @@ contexts:
 		}
 	})
 }
+
+// =============================================================================
+// LoadContextConfig Tests
+// =============================================================================
+
+func TestYamlConfigHandler_LoadContextConfig(t *testing.T) {
+	setup := func(t *testing.T) (*YamlConfigHandler, *Mocks) {
+		mocks := setupMocks(t)
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		if err := handler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		return handler, mocks
+	}
+
+	t.Run("SuccessWithContextConfig", func(t *testing.T) {
+		// Given a YamlConfigHandler with existing config
+		handler, mocks := setup(t)
+
+		// Load base configuration
+		baseConfig := `version: v1alpha1
+contexts:
+  production:
+    provider: aws
+    environment:
+      BASE_VAR: base_value`
+		if err := handler.LoadConfigString(baseConfig); err != nil {
+			t.Fatalf("Failed to load base config: %v", err)
+		}
+
+		// Set current context to production
+		if err := handler.SetContext("production"); err != nil {
+			t.Fatalf("Failed to set context: %v", err)
+		}
+
+		// Override the shim to return the correct context
+		handler.shims.Getenv = func(key string) string {
+			if key == "WINDSOR_CONTEXT" {
+				return "production"
+			}
+			return ""
+		}
+
+		// Create context-specific config file
+		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
+		contextDir := filepath.Join(projectRoot, "contexts", "production")
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Failed to create context directory: %v", err)
+		}
+
+		contextConfigPath := filepath.Join(contextDir, "windsor.yaml")
+		contextConfig := `provider: local
+environment:
+  CONTEXT_VAR: context_value
+  BASE_VAR: overridden_value
+aws:
+  enabled: true`
+
+		if err := os.WriteFile(contextConfigPath, []byte(contextConfig), 0644); err != nil {
+			t.Fatalf("Failed to write context config: %v", err)
+		}
+
+		// Override shims to allow reading the actual context file
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
+			return os.Stat(name)
+		}
+		handler.shims.ReadFile = func(filename string) ([]byte, error) {
+			return os.ReadFile(filename)
+		}
+
+		// When LoadContextConfig is called
+		err := handler.LoadContextConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("LoadContextConfig() unexpected error: %v", err)
+		}
+
+		// And the context configuration should be merged
+		if handler.GetString("provider") != "local" {
+			t.Errorf("Expected provider to be overridden to 'local', got '%s'", handler.GetString("provider"))
+		}
+		if handler.GetString("environment.CONTEXT_VAR") != "context_value" {
+			t.Errorf("Expected CONTEXT_VAR to be 'context_value', got '%s'", handler.GetString("environment.CONTEXT_VAR"))
+		}
+		if handler.GetString("environment.BASE_VAR") != "overridden_value" {
+			t.Errorf("Expected BASE_VAR to be overridden to 'overridden_value', got '%s'", handler.GetString("environment.BASE_VAR"))
+		}
+		if !handler.GetBool("aws.enabled") {
+			t.Error("Expected aws.enabled to be true")
+		}
+	})
+
+	t.Run("SuccessWithYmlExtension", func(t *testing.T) {
+		// Given a YamlConfigHandler
+		handler, mocks := setup(t)
+		if err := handler.SetContext("local"); err != nil {
+			t.Fatalf("Failed to set context: %v", err)
+		}
+
+		// Override the shim to return the correct context
+		handler.shims.Getenv = func(key string) string {
+			if key == "WINDSOR_CONTEXT" {
+				return "local"
+			}
+			return ""
+		}
+
+		// Create context-specific config file with .yml extension
+		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
+		contextDir := filepath.Join(projectRoot, "contexts", "local")
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Failed to create context directory: %v", err)
+		}
+
+		contextConfigPath := filepath.Join(contextDir, "windsor.yml")
+		contextConfig := `provider: local
+environment:
+  TEST_VAR: test_value`
+
+		if err := os.WriteFile(contextConfigPath, []byte(contextConfig), 0644); err != nil {
+			t.Fatalf("Failed to write context config: %v", err)
+		}
+
+		// Override shims to allow reading the actual context file
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
+			return os.Stat(name)
+		}
+		handler.shims.ReadFile = func(filename string) ([]byte, error) {
+			return os.ReadFile(filename)
+		}
+
+		// When LoadContextConfig is called
+		err := handler.LoadContextConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("LoadContextConfig() unexpected error: %v", err)
+		}
+
+		// And the context configuration should be loaded
+		if handler.GetString("provider") != "local" {
+			t.Errorf("Expected provider to be 'local', got '%s'", handler.GetString("provider"))
+		}
+		if handler.GetString("environment.TEST_VAR") != "test_value" {
+			t.Errorf("Expected TEST_VAR to be 'test_value', got '%s'", handler.GetString("environment.TEST_VAR"))
+		}
+	})
+
+	t.Run("SuccessWithoutContextConfig", func(t *testing.T) {
+		// Given a YamlConfigHandler without context-specific config
+		handler, _ := setup(t)
+		if err := handler.SetContext("nonexistent"); err != nil {
+			t.Fatalf("Failed to set context: %v", err)
+		}
+
+		// When LoadContextConfig is called
+		err := handler.LoadContextConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("LoadContextConfig() unexpected error: %v", err)
+		}
+	})
+
+	t.Run("ErrorReadingContextConfigFile", func(t *testing.T) {
+		// Given a YamlConfigHandler
+		handler, mocks := setup(t)
+		if err := handler.SetContext("test"); err != nil {
+			t.Fatalf("Failed to set context: %v", err)
+		}
+
+		// And a context config file that exists but cannot be read
+		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
+		contextDir := filepath.Join(projectRoot, "contexts", "test")
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Failed to create context directory: %v", err)
+		}
+
+		contextConfigPath := filepath.Join(contextDir, "windsor.yaml")
+		if err := os.WriteFile(contextConfigPath, []byte("test"), 0644); err != nil {
+			t.Fatalf("Failed to write context config: %v", err)
+		}
+
+		// Mock ReadFile to return an error
+		handler.shims.ReadFile = func(filename string) ([]byte, error) {
+			if strings.Contains(filename, "contexts/test/windsor.yaml") {
+				return nil, fmt.Errorf("mocked read error")
+			}
+			return os.ReadFile(filename)
+		}
+
+		// When LoadContextConfig is called
+		err := handler.LoadContextConfig()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("LoadContextConfig() expected error, got nil")
+		}
+
+		// And the error message should contain the expected text
+		expectedError := "error reading context config file: mocked read error"
+		if err.Error() != expectedError {
+			t.Errorf("LoadContextConfig() error = %v, expected '%s'", err, expectedError)
+		}
+	})
+
+	t.Run("ErrorUnmarshallingContextConfig", func(t *testing.T) {
+		// Given a YamlConfigHandler
+		handler, mocks := setup(t)
+		if err := handler.SetContext("test"); err != nil {
+			t.Fatalf("Failed to set context: %v", err)
+		}
+
+		// Override the shim to return the correct context
+		handler.shims.Getenv = func(key string) string {
+			if key == "WINDSOR_CONTEXT" {
+				return "test"
+			}
+			return ""
+		}
+
+		// And a context config file with invalid YAML
+		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
+		contextDir := filepath.Join(projectRoot, "contexts", "test")
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Failed to create context directory: %v", err)
+		}
+
+		contextConfigPath := filepath.Join(contextDir, "windsor.yaml")
+		invalidYaml := `provider: aws
+invalid yaml: [
+`
+		if err := os.WriteFile(contextConfigPath, []byte(invalidYaml), 0644); err != nil {
+			t.Fatalf("Failed to write context config: %v", err)
+		}
+
+		// Override shims to allow reading the actual context file
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
+			return os.Stat(name)
+		}
+		handler.shims.ReadFile = func(filename string) ([]byte, error) {
+			return os.ReadFile(filename)
+		}
+
+		// When LoadContextConfig is called
+		err := handler.LoadContextConfig()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("LoadContextConfig() expected error, got nil")
+		}
+
+		// And the error message should contain the expected text
+		if !strings.Contains(err.Error(), "error unmarshalling context yaml") {
+			t.Errorf("LoadContextConfig() error = %v, expected to contain 'error unmarshalling context yaml'", err)
+		}
+	})
+
+	t.Run("ErrorShellNotInitialized", func(t *testing.T) {
+		// Given a YamlConfigHandler without shell
+		handler, _ := setup(t)
+		handler.shell = nil
+
+		// When LoadContextConfig is called
+		err := handler.LoadContextConfig()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("LoadContextConfig() expected error, got nil")
+		}
+
+		// And the error message should be as expected
+		expectedError := "shell not initialized"
+		if err.Error() != expectedError {
+			t.Errorf("LoadContextConfig() error = %v, expected '%s'", err, expectedError)
+		}
+	})
+
+	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
+		// Given a YamlConfigHandler with shell that returns error
+		handler, mocks := setup(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mocked project root error")
+		}
+
+		// When LoadContextConfig is called
+		err := handler.LoadContextConfig()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("LoadContextConfig() expected error, got nil")
+		}
+
+		// And the error message should be as expected
+		expectedError := "error retrieving project root: mocked project root error"
+		if err.Error() != expectedError {
+			t.Errorf("LoadContextConfig() error = %v, expected '%s'", err, expectedError)
+		}
+	})
+}

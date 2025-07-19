@@ -735,3 +735,35 @@ func TestMockConfigHandler_GenerateContextID(t *testing.T) {
 		}
 	})
 }
+
+func TestMockConfigHandler_LoadContextConfig(t *testing.T) {
+	t.Run("WithFuncSet", func(t *testing.T) {
+		// Given a MockConfigHandler with LoadContextConfigFunc set
+		mockHandler := NewMockConfigHandler()
+		expectedError := fmt.Errorf("mocked load context config error")
+		mockHandler.LoadContextConfigFunc = func() error {
+			return expectedError
+		}
+
+		// When LoadContextConfig is called
+		err := mockHandler.LoadContextConfig()
+
+		// Then it should return the mocked error
+		if err != expectedError {
+			t.Errorf("LoadContextConfig() error = %v, expected %v", err, expectedError)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a MockConfigHandler with no LoadContextConfigFunc set
+		mockHandler := NewMockConfigHandler()
+
+		// When LoadContextConfig is called
+		err := mockHandler.LoadContextConfig()
+
+		// Then it should return nil
+		if err != nil {
+			t.Errorf("LoadContextConfig() error = %v, expected nil", err)
+		}
+	})
+}
