@@ -2004,6 +2004,36 @@ func TestYamlConfigHandler_SetContextValue(t *testing.T) {
 			t.Errorf("Expected 6.28, got %v", val)
 		}
 	})
+
+	t.Run("ConvertStringToBoolPointer", func(t *testing.T) {
+		// Given a handler with a default context
+		handler, _ := setup(t)
+		handler.context = "default"
+		handler.config.Contexts = map[string]*v1alpha1.Context{
+			"default": {},
+		}
+
+		// When setting a string "false" to a bool pointer field (dns.enabled)
+		if err := handler.SetContextValue("dns.enabled", "false"); err != nil {
+			t.Fatalf("Failed to set dns.enabled=false from string: %v", err)
+		}
+
+		// Then the value should be correctly set as a boolean
+		config := handler.GetConfig()
+		if config.DNS == nil || config.DNS.Enabled == nil || *config.DNS.Enabled != false {
+			t.Errorf("Expected dns.enabled to be false, got %v", config.DNS.Enabled)
+		}
+
+		// And when setting "true" as well
+		if err := handler.SetContextValue("dns.enabled", "true"); err != nil {
+			t.Fatalf("Failed to set dns.enabled=true from string: %v", err)
+		}
+
+		config = handler.GetConfig()
+		if config.DNS == nil || config.DNS.Enabled == nil || *config.DNS.Enabled != true {
+			t.Errorf("Expected dns.enabled to be true, got %v", config.DNS.Enabled)
+		}
+	})
 }
 
 func TestYamlConfigHandler_LoadConfigString(t *testing.T) {
