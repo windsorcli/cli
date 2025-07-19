@@ -935,20 +935,18 @@ local context = std.extVar("context");
 		// Set up mock config for the context
 		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
 			return []byte(`
-contexts:
-  mock-context:
-    vm:
-      driver: proxmox
-      cores: 4
-    cluster:
-      ha:
-        enabled: true
-      nodes:
-        master:
-          ip: 10.0.1.100
-    tags:
-      - production
-      - k8s
+vm:
+  driver: colima
+  cores: 4
+cluster:
+  ha:
+    enabled: true
+  nodes:
+    master:
+      ip: 10.0.1.100
+tags:
+  - production
+  - k8s
 `), nil
 		}
 
@@ -961,8 +959,8 @@ contexts:
 		}
 
 		// And the helper functions should work correctly
-		if result["vmDriver"] != "proxmox" {
-			t.Errorf("Expected vmDriver 'proxmox', got: %v", result["vmDriver"])
+		if result["vmDriver"] != "colima" {
+			t.Errorf("Expected vmDriver 'colima', got: %v", result["vmDriver"])
 		}
 		if result["vmCores"] != float64(4) { // JSON unmarshaling converts to float64
 			t.Errorf("Expected vmCores 4, got: %v", result["vmCores"])
@@ -1023,16 +1021,14 @@ contexts:
 		// And mock config handler returns nested test data
 		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
 			return []byte(`
-contexts:
-  mock-context:
-    deeply:
-      nested:
-        object:
-          value: "found"
-          number: 123
-          enabled: true
-    partial:
-      path: "exists"
+deeply:
+  nested:
+    object:
+      value: "found"
+      number: 123
+      enabled: true
+partial:
+  path: "exists"
 `), nil
 		}
 
@@ -1251,7 +1247,7 @@ local context = std.extVar("context");
 
 		template, mocks := setup(t)
 		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
-			return []byte("contexts:\n  mock-context:\n    provider: aws"), nil
+			return []byte("provider: aws"), nil
 		}
 
 		result, err := template.processJsonnetTemplate(templateContent)
@@ -1275,7 +1271,7 @@ local context = std.extVar("context");
 
 		template, mocks := setup(t)
 		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
-			return []byte("contexts:\n  mock-context: {}"), nil
+			return []byte("{}"), nil
 		}
 
 		result, err := template.processJsonnetTemplate(templateContent)
@@ -1299,7 +1295,7 @@ local context = std.extVar("context");
 
 		template, mocks := setup(t)
 		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
-			return []byte("contexts:\n  mock-context:\n    provider: 123"), nil
+			return []byte("provider: 123"), nil
 		}
 
 		_, err := template.processJsonnetTemplate(templateContent)
@@ -1323,7 +1319,7 @@ local context = std.extVar("context");
 
 		template, mocks := setup(t)
 		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
-			return []byte("contexts:\n  mock-context:\n    vm:\n      cores: \"not-a-number\""), nil
+			return []byte("vm:\n  cores: \"not-a-number\""), nil
 		}
 
 		_, err := template.processJsonnetTemplate(templateContent)
@@ -1347,7 +1343,7 @@ local context = std.extVar("context");
 
 		template, mocks := setup(t)
 		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
-			return []byte("contexts:\n  mock-context:\n    feature:\n      enabled: \"yes\""), nil
+			return []byte("feature:\n  enabled: \"yes\""), nil
 		}
 
 		_, err := template.processJsonnetTemplate(templateContent)
@@ -1371,7 +1367,7 @@ local context = std.extVar("context");
 
 		template, mocks := setup(t)
 		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
-			return []byte("contexts:\n  mock-context:\n    cluster: \"not-an-object\""), nil
+			return []byte("cluster: \"not-an-object\""), nil
 		}
 
 		_, err := template.processJsonnetTemplate(templateContent)
@@ -1395,7 +1391,7 @@ local context = std.extVar("context");
 
 		template, mocks := setup(t)
 		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
-			return []byte("contexts:\n  mock-context:\n    tags: \"not-an-array\""), nil
+			return []byte("tags: \"not-an-array\""), nil
 		}
 
 		_, err := template.processJsonnetTemplate(templateContent)
