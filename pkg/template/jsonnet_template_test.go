@@ -579,7 +579,7 @@ func TestJsonnetTemplate_processJsonnetTemplate(t *testing.T) {
 		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
 			return []byte(`
 contexts:
-  test-context:
+  mock-context:
     dns:
       domain: example.com
     cluster:
@@ -637,7 +637,7 @@ contexts:
 		}
 
 		// And context should contain expected fields
-		if !strings.Contains(capturedContext, "test-context") {
+		if !strings.Contains(capturedContext, "mock-context") {
 			t.Error("Expected context to contain context name")
 		}
 		if !strings.Contains(capturedContext, "test-project") {
@@ -779,6 +779,301 @@ func TestJsonnetTemplate_RealShimsIntegration(t *testing.T) {
 	})
 }
 
+func TestJsonnetTemplate_buildHelperLibrary(t *testing.T) {
+	setup := func(t *testing.T) (*JsonnetTemplate, *Mocks) {
+		t.Helper()
+		mocks, template := setupJsonnetTemplateMocks(t)
+		err := template.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize template: %v", err)
+		}
+		return template, mocks
+	}
+
+	t.Run("GeneratesValidJsonnetLibrary", func(t *testing.T) {
+		// Given a jsonnet template
+		template, _ := setup(t)
+
+		// When building the helper library
+		helperLib := template.buildHelperLibrary()
+
+		// Then it should be a valid Jsonnet object
+		if !strings.HasPrefix(helperLib, "{") {
+			t.Error("Expected helper library to start with '{'")
+		}
+		if !strings.HasSuffix(helperLib, "}") {
+			t.Error("Expected helper library to end with '}'")
+		}
+
+		// And it should contain the expected helper functions
+		expectedFunctions := []string{
+			// Smart helpers (handle both path-based and key-based access)
+			"get(obj, path, default=null):",
+			"getString(obj, path, default=\"\"):",
+			"getInt(obj, path, default=0):",
+			"getNumber(obj, path, default=0):",
+			"getBool(obj, path, default=false):",
+			"getObject(obj, path, default={}):",
+			"getArray(obj, path, default=[]):",
+			"has(obj, path):",
+
+			// URL helpers
+			"baseUrl(endpoint):",
+		}
+
+		for _, expectedFunc := range expectedFunctions {
+			if !strings.Contains(helperLib, expectedFunc) {
+				t.Errorf("Expected helper library to contain '%s'", expectedFunc)
+			}
+		}
+	})
+}
+
+func TestJsonnetTemplate_processJsonnetTemplateWithHelpers(t *testing.T) {
+	setup := func(t *testing.T) (*JsonnetTemplate, *Mocks) {
+		t.Helper()
+		mocks, template := setupJsonnetTemplateMocks(t)
+		err := template.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize template: %v", err)
+		}
+		return template, mocks
+	}
+
+	t.Run("InjectsHelpersAsLibrary", func(t *testing.T) {
+		// Given a jsonnet template
+		template, mocks := setup(t)
+
+		// And a mock jsonnet VM that captures all ExtCode calls
+		var extCalls []struct{ Key, Val string }
+		template.shims.NewJsonnetVM = func() JsonnetVM {
+			mockVM := &mockJsonnetVM{
+				EvaluateFunc: func(filename, snippet string) (string, error) {
+					return `{"success": true}`, nil
+				},
+			}
+			mockVM.ExtCodeFunc = func(key, val string) {
+				extCalls = append(extCalls, struct{ Key, Val string }{key, val})
+			}
+			return mockVM
+		}
+
+		// And mock config handler returns valid YAML
+		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
+		}
+
+		templateContent := `local helpers = std.extVar("helpers"); local context = std.extVar("context"); { result: helpers.getString(context, "dns.domain", "default") }`
+
+		// When processing the jsonnet template
+		_, err := template.processJsonnetTemplate(templateContent)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And windsor helpers should be injected as a library
+		var foundHelpers, foundContext bool
+		for _, call := range extCalls {
+			if call.Key == "helpers" {
+				foundHelpers = true
+				// Verify the helpers library contains expected functions
+				if !strings.Contains(call.Val, "getString") {
+					t.Error("Expected helpers library to contain getString function")
+				}
+				if !strings.Contains(call.Val, "baseUrl") {
+					t.Error("Expected helpers library to contain baseUrl function")
+				}
+			}
+			if call.Key == "context" {
+				foundContext = true
+			}
+		}
+
+		if !foundHelpers {
+			t.Error("Expected helpers to be injected as ExtCode")
+		}
+		if !foundContext {
+			t.Error("Expected context to be injected as ExtCode")
+		}
+	})
+
+	t.Run("test helper functions with real Jsonnet VM", func(t *testing.T) {
+		templateContent := `
+local helpers = std.extVar("helpers");
+local context = std.extVar("context");
+
+{
+  // Test primary helpers (path-based access)
+  vmDriver: helpers.getString(context, "vm.driver", "default-driver"),
+  vmCores: helpers.getInt(context, "vm.cores", 2),
+  haEnabled: helpers.getBool(context, "cluster.ha.enabled", false),
+  
+  // Test nested path access  
+  nodeIp: helpers.getString(context, "cluster.nodes.master.ip", "192.168.1.1"),
+  
+  // Test object and array access
+  cluster: helpers.getObject(context, "cluster", {}),
+  tags: helpers.getArray(context, "tags", ["default"]),
+  
+  // Test key-based helpers (same function, different usage)
+  localValue: helpers.getString({test: "value"}, "test", "fallback"),
+  localInt: helpers.getInt({number: 42}, "number", 0),
+  
+  // Test path access with primary helpers
+  pathValue: helpers.get({nested: {value: "found"}}, "nested.value", "not found"),
+  
+  // Test existence checking
+  hasVm: helpers.has(context, "vm.driver"),
+  hasNonexistent: helpers.has(context, "does.not.exist"),
+}`
+
+		// Given a jsonnet template using real shims
+		template, mocks := setup(t)
+
+		// Set up mock config for the context
+		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+			return []byte(`
+vm:
+  driver: colima
+  cores: 4
+cluster:
+  ha:
+    enabled: true
+  nodes:
+    master:
+      ip: 10.0.1.100
+tags:
+  - production
+  - k8s
+`), nil
+		}
+
+		// When processing a template that uses helper functions
+		result, err := template.processJsonnetTemplate(templateContent)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And the helper functions should work correctly
+		if result["vmDriver"] != "colima" {
+			t.Errorf("Expected vmDriver 'colima', got: %v", result["vmDriver"])
+		}
+		if result["vmCores"] != float64(4) { // JSON unmarshaling converts to float64
+			t.Errorf("Expected vmCores 4, got: %v", result["vmCores"])
+		}
+		if result["haEnabled"] != true {
+			t.Errorf("Expected haEnabled true, got: %v", result["haEnabled"])
+		}
+		if result["nodeIp"] != "10.0.1.100" {
+			t.Errorf("Expected nodeIp '10.0.1.100', got: %v", result["nodeIp"])
+		}
+
+		// Verify cluster object
+		cluster, ok := result["cluster"].(map[string]any)
+		if !ok {
+			t.Errorf("Expected cluster to be object, got: %T", result["cluster"])
+		} else {
+			if cluster["ha"] == nil {
+				t.Error("Expected cluster to contain ha config")
+			}
+		}
+
+		// Verify tags array
+		tags, ok := result["tags"].([]any)
+		if !ok {
+			t.Errorf("Expected tags to be array, got: %T", result["tags"])
+		} else {
+			if len(tags) != 2 {
+				t.Errorf("Expected tags array length 2, got: %d", len(tags))
+			}
+		}
+
+		// Verify generic helpers work
+		if result["localValue"] != "value" {
+			t.Errorf("Expected localValue 'value', got: %v", result["localValue"])
+		}
+		if result["localInt"] != float64(42) {
+			t.Errorf("Expected localInt 42, got: %v", result["localInt"])
+		}
+
+		// Verify path access works
+		if result["pathValue"] != "found" {
+			t.Errorf("Expected pathValue 'found', got: %v", result["pathValue"])
+		}
+
+		// Verify existence checking
+		if result["hasVm"] != true {
+			t.Errorf("Expected hasVm true, got: %v", result["hasVm"])
+		}
+		if result["hasNonexistent"] != false {
+			t.Errorf("Expected hasNonexistent false, got: %v", result["hasNonexistent"])
+		}
+	})
+
+	t.Run("HelpersHandleNestedPathsCorrectly", func(t *testing.T) {
+		// Given a jsonnet template
+		template, mocks := setup(t)
+
+		// And mock config handler returns nested test data
+		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+			return []byte(`
+deeply:
+  nested:
+    object:
+      value: "found"
+      number: 123
+      enabled: true
+partial:
+  path: "exists"
+`), nil
+		}
+
+		// When processing a template that tests nested path navigation
+		templateContent := `
+local helpers = std.extVar("helpers");
+local context = std.extVar("context");
+{
+  deepValue: helpers.getString(context, "deeply.nested.object.value", "not-found"),
+  deepNumber: helpers.getInt(context, "deeply.nested.object.number", 0),
+  deepBool: helpers.getBool(context, "deeply.nested.object.enabled", false),
+  partialPath: helpers.getString(context, "partial.path", "missing"),
+  missingDeepPath: helpers.getString(context, "deeply.nested.missing.value", "default"),
+  totallyMissing: helpers.getString(context, "not.there.at.all", "default"),
+}`
+
+		result, err := template.processJsonnetTemplate(templateContent)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And nested paths should be resolved correctly
+		if result["deepValue"] != "found" {
+			t.Errorf("Expected deepValue 'found', got: %v", result["deepValue"])
+		}
+		if result["deepNumber"] != float64(123) {
+			t.Errorf("Expected deepNumber 123, got: %v", result["deepNumber"])
+		}
+		if result["deepBool"] != true {
+			t.Errorf("Expected deepBool true, got: %v", result["deepBool"])
+		}
+		if result["partialPath"] != "exists" {
+			t.Errorf("Expected partialPath 'exists', got: %v", result["partialPath"])
+		}
+		if result["missingDeepPath"] != "default" {
+			t.Errorf("Expected missingDeepPath 'default', got: %v", result["missingDeepPath"])
+		}
+		if result["totallyMissing"] != "default" {
+			t.Errorf("Expected totallyMissing 'default', got: %v", result["totallyMissing"])
+		}
+	})
+}
+
 // =============================================================================
 // Test Helpers
 // =============================================================================
@@ -802,4 +1097,311 @@ func (m *mockJsonnetVM) EvaluateAnonymousSnippet(filename, snippet string) (stri
 		return m.EvaluateFunc(filename, snippet)
 	}
 	return "", nil
+}
+
+func TestJsonnetTemplate_urlHelpers(t *testing.T) {
+	setup := func(t *testing.T) (*JsonnetTemplate, *Mocks) {
+		t.Helper()
+		mocks, template := setupJsonnetTemplateMocks(t)
+		err := template.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize template: %v", err)
+		}
+		return template, mocks
+	}
+
+	t.Run("ExtractBaseUrlFromHttpsEndpoint", func(t *testing.T) {
+		templateContent := `
+local helpers = std.extVar("helpers");
+{
+  baseUrl: helpers.baseUrl("https://api.example.com:6443")
+}`
+
+		template, mocks := setup(t)
+		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+			return []byte("contexts:\n  mock-context: {}"), nil
+		}
+
+		result, err := template.processJsonnetTemplate(templateContent)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result["baseUrl"] != "api.example.com" {
+			t.Errorf("Expected baseUrl 'api.example.com', got: %v", result["baseUrl"])
+		}
+	})
+
+	t.Run("ExtractBaseUrlFromHttpEndpoint", func(t *testing.T) {
+		templateContent := `
+local helpers = std.extVar("helpers");
+{
+  baseUrl: helpers.baseUrl("http://localhost:8080")
+}`
+
+		template, mocks := setup(t)
+		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+			return []byte("contexts:\n  mock-context: {}"), nil
+		}
+
+		result, err := template.processJsonnetTemplate(templateContent)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result["baseUrl"] != "localhost" {
+			t.Errorf("Expected baseUrl 'localhost', got: %v", result["baseUrl"])
+		}
+	})
+
+	t.Run("ExtractBaseUrlFromPlainHost", func(t *testing.T) {
+		templateContent := `
+local helpers = std.extVar("helpers");
+{
+  baseUrl: helpers.baseUrl("example.com:9000")
+}`
+
+		template, mocks := setup(t)
+		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+			return []byte("contexts:\n  mock-context: {}"), nil
+		}
+
+		result, err := template.processJsonnetTemplate(templateContent)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result["baseUrl"] != "example.com" {
+			t.Errorf("Expected baseUrl 'example.com', got: %v", result["baseUrl"])
+		}
+	})
+
+	t.Run("ExtractBaseUrlFromHostWithoutPort", func(t *testing.T) {
+		templateContent := `
+local helpers = std.extVar("helpers");
+{
+  baseUrl: helpers.baseUrl("example.com")
+}`
+
+		template, mocks := setup(t)
+		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+			return []byte("contexts:\n  mock-context: {}"), nil
+		}
+
+		result, err := template.processJsonnetTemplate(templateContent)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result["baseUrl"] != "example.com" {
+			t.Errorf("Expected baseUrl 'example.com', got: %v", result["baseUrl"])
+		}
+	})
+
+	t.Run("ExtractBaseUrlFromEmptyString", func(t *testing.T) {
+		templateContent := `
+local helpers = std.extVar("helpers");
+{
+  baseUrl: helpers.baseUrl("")
+}`
+
+		template, mocks := setup(t)
+		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+			return []byte("contexts:\n  mock-context: {}"), nil
+		}
+
+		result, err := template.processJsonnetTemplate(templateContent)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result["baseUrl"] != "" {
+			t.Errorf("Expected baseUrl '', got: %v", result["baseUrl"])
+		}
+	})
+}
+
+func TestJsonnetTemplate_typeValidation(t *testing.T) {
+	setup := func(t *testing.T) (*JsonnetTemplate, *Mocks) {
+		t.Helper()
+		mocks, template := setupJsonnetTemplateMocks(t)
+		err := template.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize template: %v", err)
+		}
+		return template, mocks
+	}
+
+	t.Run("GetStringSuccess", func(t *testing.T) {
+		templateContent := `
+local helpers = std.extVar("helpers");
+local context = std.extVar("context");
+{
+  provider: helpers.getString(context, "provider", "default")
+}`
+
+		template, mocks := setup(t)
+		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+			return []byte("provider: aws"), nil
+		}
+
+		result, err := template.processJsonnetTemplate(templateContent)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result["provider"] != "aws" {
+			t.Errorf("Expected provider 'aws', got: %v", result["provider"])
+		}
+	})
+
+	t.Run("GetStringMissingUsesDefault", func(t *testing.T) {
+		templateContent := `
+local helpers = std.extVar("helpers");
+local context = std.extVar("context");
+{
+  provider: helpers.getString(context, "provider", "default")
+}`
+
+		template, mocks := setup(t)
+		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+			return []byte("{}"), nil
+		}
+
+		result, err := template.processJsonnetTemplate(templateContent)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result["provider"] != "default" {
+			t.Errorf("Expected provider 'default', got: %v", result["provider"])
+		}
+	})
+
+	t.Run("GetStringWrongTypeThrowsError", func(t *testing.T) {
+		templateContent := `
+local helpers = std.extVar("helpers");
+local context = std.extVar("context");
+{
+  provider: helpers.getString(context, "provider", "default")
+}`
+
+		template, mocks := setup(t)
+		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+			return []byte("provider: 123"), nil
+		}
+
+		_, err := template.processJsonnetTemplate(templateContent)
+
+		if err == nil {
+			t.Error("Expected error for wrong type, got none")
+		}
+
+		if !strings.Contains(err.Error(), "Expected string for 'provider' but got number") {
+			t.Errorf("Expected type error message, got: %v", err)
+		}
+	})
+
+	t.Run("GetIntWrongTypeThrowsError", func(t *testing.T) {
+		templateContent := `
+local helpers = std.extVar("helpers");
+local context = std.extVar("context");
+{
+  cores: helpers.getInt(context, "vm.cores", 2)
+}`
+
+		template, mocks := setup(t)
+		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+			return []byte("vm:\n  cores: \"not-a-number\""), nil
+		}
+
+		_, err := template.processJsonnetTemplate(templateContent)
+
+		if err == nil {
+			t.Error("Expected error for wrong type, got none")
+		}
+
+		if !strings.Contains(err.Error(), "Expected number for 'vm.cores' but got string") {
+			t.Errorf("Expected type error message, got: %v", err)
+		}
+	})
+
+	t.Run("GetBoolWrongTypeThrowsError", func(t *testing.T) {
+		templateContent := `
+local helpers = std.extVar("helpers");
+local context = std.extVar("context");
+{
+  enabled: helpers.getBool(context, "feature.enabled", false)
+}`
+
+		template, mocks := setup(t)
+		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+			return []byte("feature:\n  enabled: \"yes\""), nil
+		}
+
+		_, err := template.processJsonnetTemplate(templateContent)
+
+		if err == nil {
+			t.Error("Expected error for wrong type, got none")
+		}
+
+		if !strings.Contains(err.Error(), "Expected boolean for 'feature.enabled' but got string") {
+			t.Errorf("Expected type error message, got: %v", err)
+		}
+	})
+
+	t.Run("GetObjectWrongTypeThrowsError", func(t *testing.T) {
+		templateContent := `
+local helpers = std.extVar("helpers");
+local context = std.extVar("context");
+{
+  cluster: helpers.getObject(context, "cluster", {})
+}`
+
+		template, mocks := setup(t)
+		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+			return []byte("cluster: \"not-an-object\""), nil
+		}
+
+		_, err := template.processJsonnetTemplate(templateContent)
+
+		if err == nil {
+			t.Error("Expected error for wrong type, got none")
+		}
+
+		if !strings.Contains(err.Error(), "Expected object for 'cluster' but got string") {
+			t.Errorf("Expected type error message, got: %v", err)
+		}
+	})
+
+	t.Run("GetArrayWrongTypeThrowsError", func(t *testing.T) {
+		templateContent := `
+local helpers = std.extVar("helpers");
+local context = std.extVar("context");
+{
+  tags: helpers.getArray(context, "tags", [])
+}`
+
+		template, mocks := setup(t)
+		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+			return []byte("tags: \"not-an-array\""), nil
+		}
+
+		_, err := template.processJsonnetTemplate(templateContent)
+
+		if err == nil {
+			t.Error("Expected error for wrong type, got none")
+		}
+
+		if !strings.Contains(err.Error(), "Expected array for 'tags' but got string") {
+			t.Errorf("Expected type error message, got: %v", err)
+		}
+	})
 }
