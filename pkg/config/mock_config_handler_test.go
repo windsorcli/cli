@@ -767,3 +767,43 @@ func TestMockConfigHandler_LoadContextConfig(t *testing.T) {
 		}
 	})
 }
+
+func TestMockConfigHandler_YamlMarshalWithDefinedPaths(t *testing.T) {
+	t.Run("WithFuncSet", func(t *testing.T) {
+		// Given a MockConfigHandler with YamlMarshalWithDefinedPathsFunc set
+		mockHandler := NewMockConfigHandler()
+		expectedResult := []byte("mocked: yaml")
+		expectedError := fmt.Errorf("mocked marshal error")
+		mockHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+			return expectedResult, expectedError
+		}
+
+		// When YamlMarshalWithDefinedPaths is called
+		result, err := mockHandler.YamlMarshalWithDefinedPaths("test")
+
+		// Then it should return the mocked result and error
+		if string(result) != string(expectedResult) {
+			t.Errorf("YamlMarshalWithDefinedPaths() result = %v, expected %v", result, expectedResult)
+		}
+		if err != expectedError {
+			t.Errorf("YamlMarshalWithDefinedPaths() error = %v, expected %v", err, expectedError)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a MockConfigHandler with no YamlMarshalWithDefinedPathsFunc set
+		mockHandler := NewMockConfigHandler()
+
+		// When YamlMarshalWithDefinedPaths is called
+		result, err := mockHandler.YamlMarshalWithDefinedPaths("test")
+
+		// Then it should return the default YAML content and no error
+		expectedDefault := []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com")
+		if string(result) != string(expectedDefault) {
+			t.Errorf("YamlMarshalWithDefinedPaths() result = %v, expected %v", result, expectedDefault)
+		}
+		if err != nil {
+			t.Errorf("YamlMarshalWithDefinedPaths() error = %v, expected nil", err)
+		}
+	})
+}
