@@ -480,7 +480,9 @@ func setValueByPath(currValue reflect.Value, pathKeys []string, value any, fullP
 	return nil
 }
 
-// assignValue assigns a value to a field, converting types if necessary.
+// assignValue assigns a value to a struct field, performing type conversion if necessary.
+// It supports string-to-type conversion, pointer assignment, and type compatibility checks.
+// Returns a reflect.Value suitable for assignment or an error if conversion is not possible.
 func assignValue(fieldValue reflect.Value, value any) (reflect.Value, error) {
 	if !fieldValue.CanSet() {
 		return reflect.Value{}, fmt.Errorf("cannot set field")
@@ -489,17 +491,22 @@ func assignValue(fieldValue reflect.Value, value any) (reflect.Value, error) {
 	fieldType := fieldValue.Type()
 	valueType := reflect.TypeOf(value)
 
+	if strValue, ok := value.(string); ok {
+		convertedValue, err := convertValue(strValue, fieldType)
+		if err == nil {
+			return reflect.ValueOf(convertedValue), nil
+		}
+	}
+
 	if fieldType.Kind() == reflect.Ptr {
 		elemType := fieldType.Elem()
 		newValue := reflect.New(elemType)
 		val := reflect.ValueOf(value)
 
-		// If the value is already a pointer of the correct type, use it directly
 		if valueType.AssignableTo(fieldType) {
 			return val, nil
 		}
 
-		// If the value is convertible to the element type, convert and wrap in pointer
 		if val.Type().ConvertibleTo(elemType) {
 			val = val.Convert(elemType)
 			newValue.Elem().Set(val)
