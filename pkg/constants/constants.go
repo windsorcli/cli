@@ -6,8 +6,8 @@ import "time"
 const (
 	// renovate: datasource=docker depName=ghcr.io/windsorcli/git-livereload-server
 	DEFAULT_GIT_LIVE_RELOAD_IMAGE         = "ghcr.io/windsorcli/git-livereload:v0.2.0"
-	DEFAULT_GIT_LIVE_RELOAD_RSYNC_INCLUDE = ""
-	DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE = ".windsor,.terraform,data,.volumes,.venv"
+	DEFAULT_GIT_LIVE_RELOAD_RSYNC_INCLUDE = "kustomize"
+	DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE = ".windsor,.terraform,.volumes,.venv"
 	DEFAULT_GIT_LIVE_RELOAD_RSYNC_PROTECT = "flux-system"
 	DEFAULT_GIT_LIVE_RELOAD_USERNAME      = "local"
 	DEFAULT_GIT_LIVE_RELOAD_PASSWORD      = "local"
