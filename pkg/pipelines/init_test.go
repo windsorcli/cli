@@ -3,7 +3,6 @@ package pipelines
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 
@@ -14,7 +13,6 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/windsorcli/cli/pkg/kubernetes"
-	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
 	"github.com/windsorcli/cli/pkg/template"
@@ -364,7 +362,7 @@ func TestInitPipeline_Execute(t *testing.T) {
 		mockConfigHandler.GenerateContextIDFunc = func() error {
 			return fmt.Errorf("context ID generation failed")
 		}
-		mockConfigHandler.SaveConfigFunc = func(path string, overwrite ...bool) error { return nil }
+		mockConfigHandler.SaveConfigFunc = func(overwrite ...bool) error { return nil }
 		mockConfigHandler.IsLoadedFunc = func() bool { return true }
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if len(defaultValue) > 0 {
@@ -498,7 +496,7 @@ func TestInitPipeline_Execute(t *testing.T) {
 				mockConfigHandler.InitializeFunc = func() error { return nil }
 				mockConfigHandler.SetContextFunc = func(contextName string) error { return nil }
 				mockConfigHandler.GenerateContextIDFunc = func() error { return nil }
-				mockConfigHandler.SaveConfigFunc = func(path string, overwrite ...bool) error {
+				mockConfigHandler.SaveConfigFunc = func(overwrite ...bool) error {
 					return fmt.Errorf("save config failed")
 				}
 				mockConfigHandler.IsLoadedFunc = func() bool { return true }
@@ -708,190 +706,6 @@ func TestInitPipeline_processPlatformConfiguration(t *testing.T) {
 			t.Errorf("Expected error to contain 'Error setting aws.enabled', got %v", err)
 		}
 	})
-}
-
-func TestInitPipeline_saveConfiguration(t *testing.T) {
-	setup := func(t *testing.T, yamlExists, ymlExists bool) (*InitPipeline, *config.MockConfigHandler) {
-		t.Helper()
-		pipeline := &InitPipeline{}
-
-		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/test", nil
-		}
-		pipeline.shell = mockShell
-
-		mockShims := NewShims()
-		mockShims.Stat = func(path string) (os.FileInfo, error) {
-			if path == "/test/windsor.yaml" && yamlExists {
-				return &mockInitFileInfo{name: "windsor.yaml", isDir: false}, nil
-			}
-			if path == "/test/windsor.yml" && ymlExists {
-				return &mockInitFileInfo{name: "windsor.yml", isDir: false}, nil
-			}
-			return nil, fmt.Errorf("not found")
-		}
-		pipeline.shims = mockShims
-
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SaveConfigFunc = func(path string, overwrite ...bool) error {
-			return nil
-		}
-		pipeline.configHandler = mockConfigHandler
-
-		return pipeline, mockConfigHandler
-	}
-
-	t.Run("SavesWithYamlFile", func(t *testing.T) {
-		// Given a pipeline with existing windsor.yaml file
-		pipeline, _ := setup(t, true, false)
-
-		// When saveConfiguration is called
-		err := pipeline.saveConfiguration(false)
-
-		// Then should complete successfully
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("SavesWithYmlFile", func(t *testing.T) {
-		// Given a pipeline with existing windsor.yml file
-		pipeline, _ := setup(t, false, true)
-
-		// When saveConfiguration is called
-		err := pipeline.saveConfiguration(false)
-
-		// Then should complete successfully
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("SavesWithDefaultYamlWhenNeitherExists", func(t *testing.T) {
-		// Given a pipeline with no existing config files
-		pipeline, _ := setup(t, false, false)
-
-		// When saveConfiguration is called
-		err := pipeline.saveConfiguration(false)
-
-		// Then should complete successfully
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ReturnsErrorWhenGetProjectRootFails", func(t *testing.T) {
-		// Given a pipeline with shell that fails to get project root
-		pipeline := &InitPipeline{}
-
-		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "", fmt.Errorf("project root failed")
-		}
-		pipeline.shell = mockShell
-
-		// When saveConfiguration is called
-		err := pipeline.saveConfiguration(false)
-
-		// Then should return error
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "Error retrieving project root") {
-			t.Errorf("Expected error to contain 'Error retrieving project root', got %v", err)
-		}
-	})
-}
-
-func TestInitPipeline_writeConfigurationFiles(t *testing.T) {
-	t.Run("WritesAllConfigurationsSuccessfully", func(t *testing.T) {
-		// Given a pipeline with all components
-		pipeline := &InitPipeline{}
-
-		mockToolsManager := tools.NewMockToolsManager()
-		mockToolsManager.WriteManifestFunc = func() error { return nil }
-		pipeline.toolsManager = mockToolsManager
-
-		mockService := services.NewMockService()
-		mockService.WriteConfigFunc = func() error { return nil }
-		pipeline.services = []services.Service{mockService}
-
-		mockVirtualMachine := virt.NewMockVirt()
-		mockVirtualMachine.WriteConfigFunc = func() error { return nil }
-		pipeline.virtualMachine = mockVirtualMachine
-
-		mockContainerRuntime := virt.NewMockVirt()
-		mockContainerRuntime.WriteConfigFunc = func() error { return nil }
-		pipeline.containerRuntime = mockContainerRuntime
-
-		// When writeConfigurationFiles is called
-		err := pipeline.writeConfigurationFiles()
-
-		// Then should complete successfully
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	configWriteErrorTests := []struct {
-		name        string
-		setupMock   func(*InitPipeline)
-		expectedErr string
-	}{
-		{
-			name: "ReturnsErrorWhenServiceWriteConfigFails",
-			setupMock: func(pipeline *InitPipeline) {
-				mockService := services.NewMockService()
-				mockService.WriteConfigFunc = func() error {
-					return fmt.Errorf("service write config failed")
-				}
-				pipeline.services = []services.Service{mockService}
-			},
-			expectedErr: "error writing service config",
-		},
-		{
-			name: "ReturnsErrorWhenVirtualMachineWriteConfigFails",
-			setupMock: func(pipeline *InitPipeline) {
-				mockVirtualMachine := virt.NewMockVirt()
-				mockVirtualMachine.WriteConfigFunc = func() error {
-					return fmt.Errorf("vm write config failed")
-				}
-				pipeline.virtualMachine = mockVirtualMachine
-			},
-			expectedErr: "error writing virtual machine config",
-		},
-		{
-			name: "ReturnsErrorWhenContainerRuntimeWriteConfigFails",
-			setupMock: func(pipeline *InitPipeline) {
-				mockContainerRuntime := virt.NewMockVirt()
-				mockContainerRuntime.WriteConfigFunc = func() error {
-					return fmt.Errorf("container runtime write config failed")
-				}
-				pipeline.containerRuntime = mockContainerRuntime
-			},
-			expectedErr: "error writing container runtime config",
-		},
-	}
-
-	for _, tt := range configWriteErrorTests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Given a pipeline with failing component
-			pipeline := &InitPipeline{}
-			tt.setupMock(pipeline)
-
-			// When writeConfigurationFiles is called
-			err := pipeline.writeConfigurationFiles()
-
-			// Then should return error
-			if err == nil {
-				t.Fatal("Expected error, got nil")
-			}
-			if !strings.Contains(err.Error(), tt.expectedErr) {
-				t.Errorf("Expected error to contain %q, got %q", tt.expectedErr, err.Error())
-			}
-		})
-	}
 }
 
 func TestInitPipeline_prepareTemplateData(t *testing.T) {

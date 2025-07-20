@@ -19,7 +19,7 @@ type MockConfigHandler struct {
 	GetStringMapFunc                func(key string, defaultValue ...map[string]string) map[string]string
 	SetFunc                         func(key string, value any) error
 	SetContextValueFunc             func(key string, value any) error
-	SaveConfigFunc                  func(path string, overwrite ...bool) error
+	SaveConfigFunc                  func(overwrite ...bool) error
 	GetFunc                         func(key string) any
 	SetDefaultFunc                  func(context v1alpha1.Context) error
 	GetConfigFunc                   func() *v1alpha1.Context
@@ -164,10 +164,10 @@ func (m *MockConfigHandler) Get(key string) any {
 	return "mock-value"
 }
 
-// SaveConfig calls the mock SaveConfigFunc if set, otherwise returns nil
-func (m *MockConfigHandler) SaveConfig(path string, overwrite ...bool) error {
+// SaveConfig calls the SaveConfigFunc if set, otherwise returns nil
+func (m *MockConfigHandler) SaveConfig(overwrite ...bool) error {
 	if m.SaveConfigFunc != nil {
-		return m.SaveConfigFunc(path, overwrite...)
+		return m.SaveConfigFunc(overwrite...)
 	}
 	return nil
 }

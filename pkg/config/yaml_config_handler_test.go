@@ -15,6 +15,15 @@ import (
 )
 
 // =============================================================================
+// Helper Functions
+// =============================================================================
+
+// stringPtr returns a pointer to the provided string
+func stringPtr(s string) *string {
+	return &s
+}
+
+// =============================================================================
 // Constructor
 // =============================================================================
 
@@ -243,299 +252,471 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given a set of safe mocks and a YamlConfigHandler
+		// Given a YamlConfigHandler with a mocked shell
 		handler, mocks := setup(t)
 
-		// And a mocked shell that returns a project root
+		tempDir := t.TempDir()
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "/mock/project/root", nil
+			return tempDir, nil
 		}
 
-		// And a key-value pair to save
-		handler.Set("saveKey", "saveValue")
+		// And a context is set
+		handler.context = "test-context"
 
-		// And a valid config path
-		tempDir := t.TempDir()
-		configPath := filepath.Join(tempDir, "save_config.yaml")
-
-		// When SaveConfig is called with the valid path
-		err := handler.SaveConfig(configPath)
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-
-		// And the config file should exist at the specified path
-		if _, err := handler.shims.Stat(configPath); os.IsNotExist(err) {
-			t.Fatalf("Config file was not created at %s", configPath)
-		}
-	})
-
-	t.Run("WithEmptyPath", func(t *testing.T) {
-		// Given a set of safe mocks and a YamlConfigHandler
-		handler, _ := setup(t)
-
-		// And a key-value pair to save
-		handler.Set("saveKey", "saveValue")
-
-		// When SaveConfig is called with an empty path
-		err := handler.SaveConfig("")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("SaveConfig() expected error, got nil")
-		}
-
-		// And the error message should be as expected
-		expectedError := "path cannot be empty"
-		if err.Error() != expectedError {
-			t.Fatalf("SaveConfig() error = %v, expected '%s'", err, expectedError)
-		}
-	})
-
-	t.Run("UsePredefinedPath", func(t *testing.T) {
-		// Given a set of safe mocks and a YamlConfigHandler
-		handler, _ := setup(t)
-
-		// And a predefined path is set
-		handler.path = filepath.Join(t.TempDir(), "config.yaml")
-
-		// When SaveConfig is called with an empty path
-		err := handler.SaveConfig("")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-
-		// And the config file should exist at the predefined path
-		if _, err := handler.shims.Stat(handler.path); os.IsNotExist(err) {
-			t.Fatalf("Config file was not created at %s", handler.path)
-		}
-	})
-
-	t.Run("CreateDirectoriesError", func(t *testing.T) {
-		// Given a set of safe mocks and a YamlConfigHandler
-		handler, _ := setup(t)
-
-		// And a predefined path is set
-		handler.path = filepath.Join(t.TempDir(), "config.yaml")
-
-		// And a mocked osMkdirAll that returns an error
-		handler.shims.MkdirAll = func(path string, perm os.FileMode) error {
-			return fmt.Errorf("mocked error creating directories")
-		}
+		// And some configuration data
+		handler.Set("contexts.test-context.provider", "local")
 
 		// When SaveConfig is called
-		err := handler.SaveConfig(handler.path)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("SaveConfig() expected error, got nil")
-		}
-
-		// And the error message should be as expected
-		expectedErrorMessage := "error creating directories: mocked error creating directories"
-		if err.Error() != expectedErrorMessage {
-			t.Errorf("Unexpected error message. Got: %s, Expected: %s", err.Error(), expectedErrorMessage)
-		}
-	})
-
-	t.Run("MarshallingError", func(t *testing.T) {
-		// Given a set of safe mocks and a YamlConfigHandler
-		handler, _ := setup(t)
-
-		// And a mocked yamlMarshal that returns an error
-		handler.shims.YamlMarshal = func(v any) ([]byte, error) {
-			return nil, fmt.Errorf("mock marshalling error")
-		}
-
-		// And a sample config
-		handler.config = v1alpha1.Config{}
-
-		// When SaveConfig is called
-		err := handler.SaveConfig("test.yaml")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		// And the error message should be as expected
-		expectedErrorMessage := "error marshalling yaml: mock marshalling error"
-		if err.Error() != expectedErrorMessage {
-			t.Errorf("Unexpected error message. Got: %s, Expected: %s", err.Error(), expectedErrorMessage)
-		}
-	})
-
-	t.Run("WriteFileError", func(t *testing.T) {
-		// Given a set of safe mocks and a YamlConfigHandler
-		handler, _ := setup(t)
-
-		// And a key-value pair to save
-		handler.Set("saveKey", "saveValue")
-
-		// And a mocked osWriteFile that returns an error
-		handler.shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
-			return fmt.Errorf("mocked error writing file")
-		}
-
-		// And a valid config path
-		tempDir := t.TempDir()
-		configPath := filepath.Join(tempDir, "save_config.yaml")
-
-		// When SaveConfig is called
-		err := handler.SaveConfig(configPath)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("SaveConfig() expected error, got nil")
-		}
-
-		// And the error message should be as expected
-		expectedError := "error writing config file: mocked error writing file"
-		if err.Error() != expectedError {
-			t.Fatalf("SaveConfig() error = %v, expected '%s'", err, expectedError)
-		}
-	})
-
-	t.Run("UsesExistingPath", func(t *testing.T) {
-		// Given a set of safe mocks and a YamlConfigHandler
-		handler, _ := setup(t)
-
-		// And a temporary directory and expected path
-		tempDir := t.TempDir()
-		expectedPath := filepath.Join(tempDir, "config.yaml")
-
-		// And a path is set and a key-value pair to save
-		handler.path = expectedPath
-		handler.Set("key", "value")
-
-		// When SaveConfig is called with an empty path
-		err := handler.SaveConfig("")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("SaveConfig() unexpected error: %v", err)
-		}
-	})
-
-	t.Run("OverwriteFalseWithExistingFile", func(t *testing.T) {
-		// Given a set of safe mocks and a YamlConfigHandler
-		handler, _ := setup(t)
-
-		// And a valid config path with existing file
-		tempDir := t.TempDir()
-		configPath := filepath.Join(tempDir, "existing_config.yaml")
-
-		// Create an existing file
-		existingContent := "existing: content"
-		if err := os.WriteFile(configPath, []byte(existingContent), 0644); err != nil {
-			t.Fatalf("Failed to create existing file: %v", err)
-		}
-
-		// And a key-value pair to save
-		handler.Set("saveKey", "newValue")
-
-		// Use real file system for this test
-		handler.shims = NewShims()
-
-		// When SaveConfig is called with overwrite=false
-		err := handler.SaveConfig(configPath, false)
+		err := handler.SaveConfig()
 
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// And the existing file should not be modified
-		content, err := os.ReadFile(configPath)
-		if err != nil {
-			t.Fatalf("Failed to read file: %v", err)
+		// And the root windsor.yaml should exist with only version
+		rootConfigPath := filepath.Join(tempDir, "windsor.yaml")
+		if _, err := handler.shims.Stat(rootConfigPath); os.IsNotExist(err) {
+			t.Fatalf("Root config file was not created at %s", rootConfigPath)
 		}
-		if string(content) != existingContent {
-			t.Errorf("Expected file to remain unchanged, got %s", string(content))
+
+		// And the context config should exist
+		contextConfigPath := filepath.Join(tempDir, "contexts", "test-context", "windsor.yaml")
+		if _, err := handler.shims.Stat(contextConfigPath); os.IsNotExist(err) {
+			t.Fatalf("Context config file was not created at %s", contextConfigPath)
 		}
 	})
 
-	t.Run("OverwriteTrueWithExistingFile", func(t *testing.T) {
-		// Given a set of safe mocks and a YamlConfigHandler
-		handler, _ := setup(t)
+	t.Run("WithOverwriteFalse", func(t *testing.T) {
+		// Given a YamlConfigHandler with existing config files
+		handler, mocks := setup(t)
 
-		// And a valid config path with existing file
 		tempDir := t.TempDir()
-		configPath := filepath.Join(tempDir, "existing_config.yaml")
-
-		// Create an existing file
-		existingContent := "existing: content"
-		if err := os.WriteFile(configPath, []byte(existingContent), 0644); err != nil {
-			t.Fatalf("Failed to create existing file: %v", err)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
 		}
 
-		// And a key-value pair to save
-		handler.Set("saveKey", "newValue")
+		handler.context = "test-context"
 
-		// Use real file system for this test
-		handler.shims = NewShims()
+		// Create existing files
+		rootConfigPath := filepath.Join(tempDir, "windsor.yaml")
+		os.WriteFile(rootConfigPath, []byte("existing content"), 0644)
 
-		// When SaveConfig is called with overwrite=true
-		err := handler.SaveConfig(configPath, true)
+		contextDir := filepath.Join(tempDir, "contexts", "test-context")
+		os.MkdirAll(contextDir, 0755)
+		contextConfigPath := filepath.Join(contextDir, "windsor.yaml")
+		os.WriteFile(contextConfigPath, []byte("existing context content"), 0644)
+
+		// When SaveConfig is called with overwrite false
+		err := handler.SaveConfig(false)
 
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// And the file should be overwritten with new content
-		content, err := os.ReadFile(configPath)
-		if err != nil {
-			t.Fatalf("Failed to read file: %v", err)
+		// And the files should still contain the original content
+		rootContent, _ := os.ReadFile(rootConfigPath)
+		if string(rootContent) != "existing content" {
+			t.Errorf("Root config file was overwritten when it shouldn't have been")
 		}
-		if string(content) == existingContent {
-			t.Error("Expected file to be overwritten, but it remained unchanged")
+
+		contextContent, _ := os.ReadFile(contextConfigPath)
+		if string(contextContent) != "existing context content" {
+			t.Errorf("Context config file was overwritten when it shouldn't have been")
 		}
 	})
 
-	t.Run("OmitsNullValues", func(t *testing.T) {
-		// Given a set of safe mocks and a YamlConfigHandler
+	t.Run("ShellNotInitialized", func(t *testing.T) {
+		// Given a YamlConfigHandler without initialized shell
 		handler, _ := setup(t)
+		handler.shell = nil
 
-		// And a context and config with null values
-		handler.context = "local"
-		handler.config = v1alpha1.Config{
-			Contexts: map[string]*v1alpha1.Context{
-				"default": {
-					Environment: map[string]string{
-						"name":  "John Doe",
-						"email": "john.doe@example.com",
-					},
-					AWS: &aws.AWSConfig{
-						AWSEndpointURL: nil,
-					},
-				},
+		// When SaveConfig is called
+		err := handler.SaveConfig()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "shell not initialized" {
+			t.Errorf("Expected 'shell not initialized' error, got %v", err)
+		}
+	})
+
+	t.Run("GetProjectRootError", func(t *testing.T) {
+		// Given a YamlConfigHandler with shell that fails to get project root
+		handler, mocks := setup(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("project root failed")
+		}
+
+		// When SaveConfig is called
+		err := handler.SaveConfig()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error retrieving project root") {
+			t.Errorf("Expected 'error retrieving project root' in error, got %v", err)
+		}
+	})
+
+	t.Run("RootConfigExists_SkipsRootCreation", func(t *testing.T) {
+		// Given a YamlConfigHandler with existing root config
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		handler.context = "test-context"
+
+		// Create existing root config
+		rootConfigPath := filepath.Join(tempDir, "windsor.yaml")
+		originalContent := "version: v1alpha1\nexisting: config"
+		os.WriteFile(rootConfigPath, []byte(originalContent), 0644)
+
+		// When SaveConfig is called
+		err := handler.SaveConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And the root config should not be overwritten
+		content, _ := os.ReadFile(rootConfigPath)
+		if string(content) != originalContent {
+			t.Errorf("Root config was overwritten when it should be preserved")
+		}
+	})
+
+	t.Run("ContextExistsInRoot_SkipsContextCreation", func(t *testing.T) {
+		// Given a YamlConfigHandler with context existing in root config
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		handler.context = "existing-context"
+
+		// Setup config with existing context in root
+		handler.config.Contexts = map[string]*v1alpha1.Context{
+			"existing-context": {
+				Provider: stringPtr("local"),
 			},
 		}
 
-		// And a mocked writeFile to capture written data
-		var writtenData []byte
+		// Create existing root config file
+		rootConfigPath := filepath.Join(tempDir, "windsor.yaml")
+		os.WriteFile(rootConfigPath, []byte("version: v1alpha1"), 0644)
+
+		// When SaveConfig is called
+		err := handler.SaveConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And the context config should not be created
+		contextConfigPath := filepath.Join(tempDir, "contexts", "existing-context", "windsor.yaml")
+		if _, err := os.Stat(contextConfigPath); !os.IsNotExist(err) {
+			t.Errorf("Context config was created when it shouldn't have been")
+		}
+	})
+
+	t.Run("ContextConfigExists_SkipsContextCreation", func(t *testing.T) {
+		// Given a YamlConfigHandler with existing context config file
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		handler.context = "test-context"
+
+		// Create existing context config
+		contextDir := filepath.Join(tempDir, "contexts", "test-context")
+		os.MkdirAll(contextDir, 0755)
+		contextConfigPath := filepath.Join(contextDir, "windsor.yaml")
+		originalContent := "provider: local\nexisting: config"
+		os.WriteFile(contextConfigPath, []byte(originalContent), 0644)
+
+		// When SaveConfig is called
+		err := handler.SaveConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And the context config should not be overwritten
+		content, _ := os.ReadFile(contextConfigPath)
+		if string(content) != originalContent {
+			t.Errorf("Context config was overwritten when it should be preserved")
+		}
+	})
+
+	t.Run("RootConfigMarshalError", func(t *testing.T) {
+		// Given a YamlConfigHandler with marshal error for root config
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		handler.context = "test-context"
+
+		// Override Stat to return not exists (so files will be created)
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		// Mock YamlMarshal to return error
+		handler.shims.YamlMarshal = func(v interface{}) ([]byte, error) {
+			return nil, fmt.Errorf("marshal error")
+		}
+
+		// When SaveConfig is called
+		err := handler.SaveConfig()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error marshalling root config") {
+			t.Errorf("Expected 'error marshalling root config' in error, got %v", err)
+		}
+	})
+
+	t.Run("RootConfigWriteError", func(t *testing.T) {
+		// Given a YamlConfigHandler with write error for root config
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		handler.context = "test-context"
+
+		// Override Stat to return not exists (so files will be created)
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		// Mock WriteFile to return error
 		handler.shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
-			writtenData = data
+			return fmt.Errorf("write error")
+		}
+
+		// When SaveConfig is called
+		err := handler.SaveConfig()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error writing root config") {
+			t.Errorf("Expected 'error writing root config' in error, got %v", err)
+		}
+	})
+
+	t.Run("ContextDirectoryCreationError", func(t *testing.T) {
+		// Given a YamlConfigHandler with directory creation error
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		handler.context = "test-context"
+
+		// Override Stat to return not exists (so files will be created)
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		// Mock MkdirAll to return error
+		handler.shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return fmt.Errorf("mkdir error")
+		}
+
+		// When SaveConfig is called
+		err := handler.SaveConfig()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error creating context directory") {
+			t.Errorf("Expected 'error creating context directory' in error, got %v", err)
+		}
+	})
+
+	t.Run("ContextConfigMarshalError", func(t *testing.T) {
+		// Given a YamlConfigHandler with marshal error for context config
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		handler.context = "test-context"
+
+		// Override Stat to return not exists (so files will be created)
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		// Track marshal calls to return error on second call (context config)
+		marshalCallCount := 0
+		handler.shims.YamlMarshal = func(v interface{}) ([]byte, error) {
+			marshalCallCount++
+			if marshalCallCount == 2 {
+				return nil, fmt.Errorf("context marshal error")
+			}
+			return []byte("version: v1alpha1"), nil
+		}
+
+		// When SaveConfig is called
+		err := handler.SaveConfig()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error marshalling context config") {
+			t.Errorf("Expected 'error marshalling context config' in error, got %v", err)
+		}
+	})
+
+	t.Run("ContextConfigWriteError", func(t *testing.T) {
+		// Given a YamlConfigHandler with write error for context config
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		handler.context = "test-context"
+
+		// Override Stat to return not exists (so files will be created)
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		// Track write calls to return error on second call (context config)
+		writeCallCount := 0
+		handler.shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
+			writeCallCount++
+			if writeCallCount == 2 {
+				return fmt.Errorf("context write error")
+			}
 			return nil
 		}
 
 		// When SaveConfig is called
-		err := handler.SaveConfig("mocked_path.yaml")
+		err := handler.SaveConfig()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error writing context config") {
+			t.Errorf("Expected 'error writing context config' in error, got %v", err)
+		}
+	})
+
+	t.Run("BothFilesExist_NoOperationsPerformed", func(t *testing.T) {
+		// Given a YamlConfigHandler with both root and context configs existing
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		handler.context = "test-context"
+
+		// Create both existing files
+		rootConfigPath := filepath.Join(tempDir, "windsor.yaml")
+		originalRootContent := "version: v1alpha1\nexisting: root"
+		os.WriteFile(rootConfigPath, []byte(originalRootContent), 0644)
+
+		contextDir := filepath.Join(tempDir, "contexts", "test-context")
+		os.MkdirAll(contextDir, 0755)
+		contextConfigPath := filepath.Join(contextDir, "windsor.yaml")
+		originalContextContent := "provider: local\nexisting: context"
+		os.WriteFile(contextConfigPath, []byte(originalContextContent), 0644)
+
+		// When SaveConfig is called
+		err := handler.SaveConfig()
 
 		// Then no error should be returned
 		if err != nil {
-			t.Fatalf("SaveConfig() unexpected error: %v", err)
+			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// And the YAML data should match the expected content
-		expectedContent := "version: v1alpha1\ncontexts:\n  default:\n    environment:\n      email: john.doe@example.com\n      name: John Doe\n    aws: {}\n"
-		if string(writtenData) != expectedContent {
-			t.Errorf("Config file content = %v, expected %v", string(writtenData), expectedContent)
+		// And both files should remain unchanged
+		rootContent, _ := os.ReadFile(rootConfigPath)
+		if string(rootContent) != originalRootContent {
+			t.Errorf("Root config was modified when it shouldn't have been")
+		}
+
+		contextContent, _ := os.ReadFile(contextConfigPath)
+		if string(contextContent) != originalContextContent {
+			t.Errorf("Context config was modified when it shouldn't have been")
+		}
+	})
+
+	t.Run("EmptyVersion_UsesEmptyString", func(t *testing.T) {
+		// Given a YamlConfigHandler with empty version
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		handler.context = "test-context"
+		handler.config.Version = ""
+
+		// Override shims to actually work with the real filesystem
+		handler.shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
+			return os.WriteFile(filename, data, perm)
+		}
+		handler.shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return os.MkdirAll(path, perm)
+		}
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
+			return os.Stat(name)
+		}
+
+		// When SaveConfig is called
+		err := handler.SaveConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And the root config should contain empty version
+		rootConfigPath := filepath.Join(tempDir, "windsor.yaml")
+		content, _ := os.ReadFile(rootConfigPath)
+		if !strings.Contains(string(content), "version: \"\"") && !strings.Contains(string(content), "version:") {
+			t.Errorf("Expected version field in config, got: %s", string(content))
 		}
 	})
 }
