@@ -348,10 +348,10 @@ func TestMockConfigHandler_SaveConfig(t *testing.T) {
 	t.Run("WithPath", func(t *testing.T) {
 		// Given a mock config handler with SaveConfigFunc set to return an error
 		handler := NewMockConfigHandler()
-		handler.SaveConfigFunc = func(path string, overwrite ...bool) error { return mockSaveErr }
+		handler.SaveConfigFunc = func(overwrite ...bool) error { return mockSaveErr }
 
-		// When SaveConfig is called with a path
-		err := handler.SaveConfig("some/path")
+		// When SaveConfig is called
+		err := handler.SaveConfig()
 
 		// Then the error should match the expected mock error
 		if err != mockSaveErr {
@@ -363,12 +363,12 @@ func TestMockConfigHandler_SaveConfig(t *testing.T) {
 		// Given a mock config handler without SaveConfigFunc set
 		handler := NewMockConfigHandler()
 
-		// When SaveConfig is called with a path
-		err := handler.SaveConfig("some/path")
+		// When SaveConfig is called
+		err := handler.SaveConfig()
 
 		// Then no error should be returned
 		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
+			t.Errorf("Expected SaveConfig to return nil, got %v", err)
 		}
 	})
 }

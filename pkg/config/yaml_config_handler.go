@@ -32,9 +32,14 @@ type YamlConfigHandler struct {
 
 // NewYamlConfigHandler creates a new instance of YamlConfigHandler with default context configuration.
 func NewYamlConfigHandler(injector di.Injector) *YamlConfigHandler {
-	return &YamlConfigHandler{
+	handler := &YamlConfigHandler{
 		BaseConfigHandler: *NewBaseConfigHandler(injector),
 	}
+
+	// Initialize the config version
+	handler.config.Version = "v1alpha1"
+
+	return handler
 }
 
 // =============================================================================
@@ -131,44 +136,28 @@ func (y *YamlConfigHandler) LoadContextConfig() error {
 	return nil
 }
 
-// SaveConfig saves the current configuration to the specified path. If the path is empty, it uses the previously loaded path.
-// If overwrite is false and the file exists, it will not overwrite the file
-func (y *YamlConfigHandler) SaveConfig(path string, overwrite ...bool) error {
+// SaveConfig persists Windsor configuration files for both the root and active context. The root windsor.yaml stores
+// only the version for global identification. The context-specific file at contexts/<context>/windsor.yaml contains
+// the full configuration for the current context, omitting the contexts wrapper. The overwrite parameter controls
+// replacement of existing files. Returns an error if any file operation or serialization fails.
+func (y *YamlConfigHandler) SaveConfig(overwrite ...bool) error {
 	shouldOverwrite := true
 	if len(overwrite) > 0 {
 		shouldOverwrite = overwrite[0]
 	}
 
-	if path == "" {
-		if y.path == "" {
-			return fmt.Errorf("path cannot be empty")
-		}
-		path = y.path
+	if y.shell == nil {
+		return fmt.Errorf("shell not initialized")
 	}
 
-	dir := filepath.Dir(path)
-	if err := y.shims.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("error creating directories: %w", err)
+	if err := y.writeRootConfig(shouldOverwrite); err != nil {
+		return err
 	}
 
-	// Check if file exists and we should not overwrite
-	if !shouldOverwrite {
-		if _, err := y.shims.Stat(path); err == nil {
-			return nil
-		}
+	if err := y.writeContextConfig(shouldOverwrite); err != nil {
+		return err
 	}
 
-	// Ensure the config version is set to "v1alpha1" before saving
-	y.config.Version = "v1alpha1"
-
-	data, err := y.shims.YamlMarshal(y.config)
-	if err != nil {
-		return fmt.Errorf("error marshalling yaml: %w", err)
-	}
-
-	if err := y.shims.WriteFile(path, data, 0644); err != nil {
-		return fmt.Errorf("error writing config file: %w", err)
-	}
 	return nil
 }
 
@@ -202,18 +191,16 @@ func (y *YamlConfigHandler) SetDefault(context v1alpha1.Context) error {
 	return nil
 }
 
-// Get retrieves the value at the specified path in the configuration. It checks both the current and default context configurations.
+// Get returns the value at the given configuration path, checking current and default context if needed.
 func (y *YamlConfigHandler) Get(path string) any {
 	if path == "" {
 		return nil
 	}
 	pathKeys := parsePath(path)
-
 	value := getValueByPath(y.config, pathKeys)
 	if value == nil && len(pathKeys) >= 2 && pathKeys[0] == "contexts" {
 		value = getValueByPath(y.defaultContextConfig, pathKeys[2:])
 	}
-
 	return value
 }
 
@@ -377,6 +364,80 @@ var _ ConfigHandler = (*YamlConfigHandler)(nil)
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// writeRootConfig writes the root windsor.yaml file containing only the version for global identification.
+// The overwrite parameter controls replacement of existing files. Returns an error if any file operation or serialization fails.
+func (y *YamlConfigHandler) writeRootConfig(overwrite bool) error {
+	projectRoot, err := y.shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("error retrieving project root: %w", err)
+	}
+
+	rootConfigPath := filepath.Join(projectRoot, "windsor.yaml")
+	rootConfig := struct {
+		Version string `yaml:"version"`
+	}{
+		Version: y.config.Version,
+	}
+
+	data, err := y.shims.YamlMarshal(rootConfig)
+	if err != nil {
+		return fmt.Errorf("error marshalling root config: %w", err)
+	}
+
+	if !overwrite {
+		if _, err := y.shims.Stat(rootConfigPath); err == nil {
+			return nil
+		}
+	}
+
+	if err := y.shims.WriteFile(rootConfigPath, data, 0644); err != nil {
+		return fmt.Errorf("error writing root config: %w", err)
+	}
+
+	return nil
+}
+
+// writeContextConfig writes the context-specific windsor.yaml file containing the full configuration for the current context.
+// The overwrite parameter controls replacement of existing files. Returns an error if any file operation or serialization fails.
+func (y *YamlConfigHandler) writeContextConfig(overwrite bool) error {
+	projectRoot, err := y.shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("error retrieving project root: %w", err)
+	}
+
+	contextName := y.GetContext()
+	var contextConfig v1alpha1.Context
+	if y.config.Contexts != nil && y.config.Contexts[contextName] != nil {
+		contextConfig = *y.config.Contexts[contextName]
+	} else {
+		contextConfig = y.defaultContextConfig
+	}
+
+	contextDir := filepath.Join(projectRoot, "contexts", contextName)
+	if err := y.shims.MkdirAll(contextDir, 0755); err != nil {
+		return fmt.Errorf("error creating context directory: %w", err)
+	}
+
+	contextConfigPath := filepath.Join(contextDir, "windsor.yaml")
+
+	data, err := y.shims.YamlMarshal(contextConfig)
+	if err != nil {
+		return fmt.Errorf("error marshalling context config: %w", err)
+	}
+
+	if !overwrite {
+		if _, err := y.shims.Stat(contextConfigPath); err == nil {
+			return nil
+		}
+	}
+
+	if err := y.shims.WriteFile(contextConfigPath, data, 0644); err != nil {
+		return fmt.Errorf("error writing context config: %w", err)
+	}
+
+	return nil
+}
 
 // getValueByPath retrieves a value by navigating through a struct or map using YAML tags.
 func getValueByPath(current any, pathKeys []string) any {

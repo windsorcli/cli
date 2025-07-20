@@ -90,18 +90,12 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 		return err
 	}
 
-	// Generate context ID for saving config
 	if err := p.configHandler.GenerateContextID(); err != nil {
 		return fmt.Errorf("failed to generate context ID: %w", err)
 	}
 
-	// Save configuration before network manager assigns addresses to services
-	reset := false
-	if resetValue := ctx.Value("reset"); resetValue != nil {
-		reset = resetValue.(bool)
-	}
-	if err := p.saveConfiguration(reset); err != nil {
-		return err
+	if err := p.configHandler.SaveConfig(); err != nil {
+		return fmt.Errorf("Error saving config file: %w", err)
 	}
 
 	// Component Collection Phase
@@ -116,7 +110,6 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 	p.blueprintHandler = p.withBlueprintHandler()
 	p.toolsManager = p.withToolsManager()
 
-	// Ensure terraform env printer is registered since the stack depends on it
 	if p.injector.Resolve("terraformEnv") == nil {
 		terraformEnv := env.NewTerraformEnvPrinter(p.injector)
 		p.injector.Register("terraformEnv", terraformEnv)
@@ -392,35 +385,6 @@ func (p *InitPipeline) processPlatformConfiguration(_ context.Context) error {
 		if err := p.configHandler.SetContextValue("cluster.driver", "talos"); err != nil {
 			return fmt.Errorf("Error setting cluster.driver: %w", err)
 		}
-	}
-
-	return nil
-}
-
-// saveConfiguration writes the current configuration to the Windsor configuration file in the project root.
-// It determines the correct file path by checking for the presence of "windsor.yaml" or "windsor.yml" in the project root.
-// If neither file exists, it defaults to "windsor.yaml". The configuration is saved to the selected file path.
-// The overwrite parameter controls whether existing files are overwritten. Returns an error if saving fails.
-func (p *InitPipeline) saveConfiguration(overwrite bool) error {
-	projectRoot, err := p.shell.GetProjectRoot()
-	if err != nil {
-		return fmt.Errorf("Error retrieving project root: %w", err)
-	}
-
-	yamlPath := filepath.Join(projectRoot, "windsor.yaml")
-	ymlPath := filepath.Join(projectRoot, "windsor.yml")
-
-	var cliConfigPath string
-	if _, err := p.shims.Stat(yamlPath); err == nil {
-		cliConfigPath = yamlPath
-	} else if _, err := p.shims.Stat(ymlPath); err == nil {
-		cliConfigPath = ymlPath
-	} else {
-		cliConfigPath = yamlPath
-	}
-
-	if err := p.configHandler.SaveConfig(cliConfigPath, overwrite); err != nil {
-		return fmt.Errorf("Error saving config file: %w", err)
 	}
 
 	return nil

@@ -30,7 +30,7 @@ type ConfigHandler interface {
 	Set(key string, value any) error
 	SetContextValue(key string, value any) error
 	Get(key string) any
-	SaveConfig(path string, overwrite ...bool) error
+	SaveConfig(overwrite ...bool) error
 	SetDefault(context v1alpha1.Context) error
 	GetConfig() *v1alpha1.Context
 	GetContext() string
