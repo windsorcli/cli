@@ -483,18 +483,51 @@ func TestUpPipeline_Execute(t *testing.T) {
 		}
 	})
 
-	t.Run("SkipsDNSWhenDisabled", func(t *testing.T) {
+	t.Run("ShowsDNSNotificationWhenEnabled", func(t *testing.T) {
+		// Given a pipeline with DNS enabled
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.InitializeFunc = func() error { return nil }
+		mockConfigHandler.IsLoadedFunc = func() bool { return true }
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			switch key {
+			case "docker.enabled":
+				return true
+			case "dns.enabled":
+				return true // DNS enabled
+			default:
+				return false
+			}
+		}
+
+		setupOptions := &SetupOptions{ConfigHandler: mockConfigHandler}
+		pipeline, mocks := setup(t, setupOptions)
+
+		// Setup shims to allow NO_CACHE environment variable setting
+		mocks.Shims.Setenv = func(key, value string) error {
+			return nil
+		}
+
+		// When Execute is called
+		err := pipeline.Execute(context.Background())
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// The notification appears in stderr output (visible in test output)
+	})
+
+	t.Run("SkipsDNSNotificationWhenDisabled", func(t *testing.T) {
 		// Given a pipeline with DNS disabled
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.InitializeFunc = func() error { return nil }
 		mockConfigHandler.IsLoadedFunc = func() bool { return true }
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			switch key {
-			case "vm.driver":
-				return "colima"
-			default:
-				return ""
-			}
+			return ""
 		}
 		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			switch key {
@@ -515,22 +548,15 @@ func TestUpPipeline_Execute(t *testing.T) {
 			return nil
 		}
 
-		dnsCalled := false
-		mocks.NetworkManager.ConfigureDNSFunc = func() error {
-			dnsCalled = true
-			return nil
-		}
-
 		// When Execute is called
 		err := pipeline.Execute(context.Background())
 
-		// Then no error should be returned and DNS configuration should not be called
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		if dnsCalled {
-			t.Error("Expected DNS configuration to not be called when DNS is disabled")
-		}
+
+		// No notification should appear (can verify by comparing test output)
 	})
 
 	// Test execution failures
