@@ -719,6 +719,314 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 			t.Errorf("Expected version field in config, got: %s", string(content))
 		}
 	})
+
+	t.Run("CreateContextConfigWhenNotInRootConfig", func(t *testing.T) {
+		// Given a YamlConfigHandler with existing root config
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		// Create existing root config that doesn't include the current context
+		rootConfigPath := filepath.Join(tempDir, "windsor.yaml")
+		rootConfig := `version: v1alpha1
+contexts:
+  different-context:
+    provider: local`
+		os.WriteFile(rootConfigPath, []byte(rootConfig), 0644)
+
+		// Load the existing root config
+		if err := handler.LoadConfig(rootConfigPath); err != nil {
+			t.Fatalf("Failed to load root config: %v", err)
+		}
+
+		// Set the current context to one not defined in root config
+		handler.context = "new-context"
+		handler.Set("contexts.new-context.provider", "local")
+
+		// When SaveConfig is called
+		err := handler.SaveConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And the context config should be created since the context is not in root config
+		contextConfigPath := filepath.Join(tempDir, "contexts", "new-context", "windsor.yaml")
+		if _, err := handler.shims.Stat(contextConfigPath); os.IsNotExist(err) {
+			t.Fatalf("Context config file was not created at %s, but should have been since context is not in root config", contextConfigPath)
+		}
+
+		// And the root config should not be overwritten
+		rootContent, _ := os.ReadFile(rootConfigPath)
+		if !strings.Contains(string(rootContent), "different-context") {
+			t.Errorf("Root config appears to have been overwritten")
+		}
+	})
+
+	t.Run("CreateContextConfigWhenRootConfigExistsWithoutContexts", func(t *testing.T) {
+		// Given a YamlConfigHandler with existing root config that has NO contexts section
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		// Create existing root config with only version (this is the most common case for user's issue)
+		rootConfigPath := filepath.Join(tempDir, "windsor.yaml")
+		rootConfig := `version: v1alpha1`
+		os.WriteFile(rootConfigPath, []byte(rootConfig), 0644)
+
+		// Load the existing root config
+		if err := handler.LoadConfig(rootConfigPath); err != nil {
+			t.Fatalf("Failed to load root config: %v", err)
+		}
+
+		// Set the current context to local (typical init scenario)
+		handler.context = "local"
+		handler.Set("contexts.local.provider", "local")
+
+		// When SaveConfig is called
+		err := handler.SaveConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And the context config should be created since the context is not in root config
+		contextConfigPath := filepath.Join(tempDir, "contexts", "local", "windsor.yaml")
+		if _, err := handler.shims.Stat(contextConfigPath); os.IsNotExist(err) {
+			t.Fatalf("Context config file was not created at %s, but should have been since context is not in root config", contextConfigPath)
+		}
+
+		// And the root config should not be overwritten
+		rootContent, _ := os.ReadFile(rootConfigPath)
+		if !strings.Contains(string(rootContent), "version: v1alpha1") {
+			t.Errorf("Root config appears to have been overwritten")
+		}
+	})
+
+	t.Run("SimulateInitPipelineWorkflow", func(t *testing.T) {
+		// Given a YamlConfigHandler simulating the exact init pipeline workflow
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		// Create existing root config with only version (common in real scenarios)
+		rootConfigPath := filepath.Join(tempDir, "windsor.yaml")
+		rootConfig := `version: v1alpha1`
+		os.WriteFile(rootConfigPath, []byte(rootConfig), 0644)
+
+		// Step 1: Load existing config like init pipeline does in BasePipeline.Initialize
+		if err := handler.LoadConfig(rootConfigPath); err != nil {
+			t.Fatalf("Failed to load root config: %v", err)
+		}
+
+		// Step 2: Set context like init pipeline does
+		if err := handler.SetContext("local"); err != nil {
+			t.Fatalf("Failed to set context: %v", err)
+		}
+
+		// Step 3: Set default configuration like init pipeline does
+		if err := handler.SetDefault(DefaultConfig); err != nil {
+			t.Fatalf("Failed to set default config: %v", err)
+		}
+
+		// Step 4: Generate context ID like init pipeline does
+		if err := handler.GenerateContextID(); err != nil {
+			t.Fatalf("Failed to generate context ID: %v", err)
+		}
+
+		// Step 5: Save config like init pipeline does
+		err := handler.SaveConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And the context config should be created since context is not defined in root
+		contextConfigPath := filepath.Join(tempDir, "contexts", "local", "windsor.yaml")
+		if _, err := handler.shims.Stat(contextConfigPath); os.IsNotExist(err) {
+			t.Errorf("Context config file was not created at %s, this reproduces the user's issue", contextConfigPath)
+		}
+
+		// And the root config should not be overwritten
+		rootContent, _ := os.ReadFile(rootConfigPath)
+		if !strings.Contains(string(rootContent), "version: v1alpha1") {
+			t.Errorf("Root config appears to have been overwritten")
+		}
+	})
+
+	t.Run("DebugSaveConfigLogic", func(t *testing.T) {
+		// Given a YamlConfigHandler with existing root config with no contexts
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		// Create existing root config with only version (user's scenario)
+		rootConfigPath := filepath.Join(tempDir, "windsor.yaml")
+		rootConfig := `version: v1alpha1`
+		os.WriteFile(rootConfigPath, []byte(rootConfig), 0644)
+
+		// Load the existing root config
+		if err := handler.LoadConfig(rootConfigPath); err != nil {
+			t.Fatalf("Failed to load root config: %v", err)
+		}
+
+		// Set context and config values
+		handler.context = "local"
+		handler.Set("contexts.local.provider", "local")
+
+		// Debug: Check what's in the config before SaveConfig
+		t.Logf("Config.Contexts before SaveConfig: %+v", handler.config.Contexts)
+		if handler.config.Contexts != nil {
+			if _, exists := handler.config.Contexts["local"]; exists {
+				t.Logf("local context exists in root config")
+			} else {
+				t.Logf("local context does NOT exist in root config")
+			}
+		} else {
+			t.Logf("Config.Contexts is nil")
+		}
+
+		// When SaveConfig is called
+		err := handler.SaveConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Check if context config was created
+		contextConfigPath := filepath.Join(tempDir, "contexts", "local", "windsor.yaml")
+		if _, err := handler.shims.Stat(contextConfigPath); os.IsNotExist(err) {
+			t.Logf("Context config file was NOT created at %s", contextConfigPath)
+		} else {
+			t.Logf("Context config file WAS created at %s", contextConfigPath)
+		}
+	})
+
+	t.Run("ContextNotSetInRootConfigInitially", func(t *testing.T) {
+		// Given a YamlConfigHandler that mimics the exact init flow
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		// Create existing root config with only version (user's scenario)
+		rootConfigPath := filepath.Join(tempDir, "windsor.yaml")
+		rootConfig := `version: v1alpha1`
+		os.WriteFile(rootConfigPath, []byte(rootConfig), 0644)
+
+		// Load the existing root config
+		if err := handler.LoadConfig(rootConfigPath); err != nil {
+			t.Fatalf("Failed to load root config: %v", err)
+		}
+
+		// Set the context but DON'T call Set() to add context data yet
+		handler.context = "local"
+
+		// Debug: Check state before adding any context data
+		t.Logf("Config.Contexts before setting any context data: %+v", handler.config.Contexts)
+
+		// When SaveConfig is called without any context configuration being set
+		err := handler.SaveConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Check if context config was created
+		contextConfigPath := filepath.Join(tempDir, "contexts", "local", "windsor.yaml")
+		if _, err := handler.shims.Stat(contextConfigPath); os.IsNotExist(err) {
+			t.Errorf("Context config file was NOT created at %s - this reproduces the user's issue", contextConfigPath)
+		} else {
+			t.Logf("Context config file WAS created at %s", contextConfigPath)
+		}
+	})
+
+	t.Run("ReproduceActualIssue", func(t *testing.T) {
+		// Given a real-world scenario where a root windsor.yaml exists with only version
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		// Create existing root config with only version (exact user scenario)
+		rootConfigPath := filepath.Join(tempDir, "windsor.yaml")
+		rootConfig := `version: v1alpha1`
+		os.WriteFile(rootConfigPath, []byte(rootConfig), 0644)
+
+		// Step 1: Load existing config like init pipeline does
+		if err := handler.LoadConfig(rootConfigPath); err != nil {
+			t.Fatalf("Failed to load root config: %v", err)
+		}
+
+		// Step 2: Set context
+		if err := handler.SetContext("local"); err != nil {
+			t.Fatalf("Failed to set context: %v", err)
+		}
+
+		// Step 3: Set default configuration (this would add context data)
+		if err := handler.SetDefault(DefaultConfig); err != nil {
+			t.Fatalf("Failed to set default config: %v", err)
+		}
+
+		// Step 4: Generate context ID
+		if err := handler.GenerateContextID(); err != nil {
+			t.Fatalf("Failed to generate context ID: %v", err)
+		}
+
+		// Debug: Check config state before SaveConfig
+		t.Logf("Config before SaveConfig: %+v", handler.config)
+		if handler.config.Contexts != nil {
+			if ctx, exists := handler.config.Contexts["local"]; exists {
+				t.Logf("local context exists in config: %+v", ctx)
+			} else {
+				t.Logf("local context does NOT exist in config")
+			}
+		} else {
+			t.Logf("Config.Contexts is nil")
+		}
+
+		// Step 5: Save config (the critical call)
+		err := handler.SaveConfig()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Check if context config file was created
+		contextConfigPath := filepath.Join(tempDir, "contexts", "local", "windsor.yaml")
+		if _, err := handler.shims.Stat(contextConfigPath); os.IsNotExist(err) {
+			t.Errorf("Context config file was NOT created at %s - this is the bug!", contextConfigPath)
+		} else {
+			content, _ := os.ReadFile(contextConfigPath)
+			t.Logf("Context config file WAS created with content: %s", string(content))
+		}
+
+		// Check root config wasn't overwritten
+		rootContent, _ := os.ReadFile(rootConfigPath)
+		if !strings.Contains(string(rootContent), "version: v1alpha1") {
+			t.Errorf("Root config appears to have been overwritten: %s", string(rootContent))
+		}
+	})
 }
 
 func TestYamlConfigHandler_GetString(t *testing.T) {
@@ -3840,6 +4148,171 @@ invalid yaml: [
 		expectedError := "error retrieving project root: mocked project root error"
 		if err.Error() != expectedError {
 			t.Errorf("LoadContextConfig() error = %v, expected '%s'", err, expectedError)
+		}
+	})
+
+	t.Run("SimulateInitPipelineWorkflow", func(t *testing.T) {
+		// Given a YamlConfigHandler simulating the exact init pipeline workflow
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		// Create existing root config with only version (common in real scenarios)
+		rootConfigPath := filepath.Join(tempDir, "windsor.yaml")
+		rootConfig := `version: v1alpha1`
+		os.WriteFile(rootConfigPath, []byte(rootConfig), 0644)
+
+		// Step 1: Load existing config like init pipeline does in BasePipeline.Initialize
+		if err := handler.LoadConfig(rootConfigPath); err != nil {
+			t.Fatalf("Failed to load root config: %v", err)
+		}
+
+		// Step 2: Set context like init pipeline does
+		if err := handler.SetContext("local"); err != nil {
+			t.Fatalf("Failed to set context: %v", err)
+		}
+
+		// Step 3: Set default configuration like init pipeline does
+		if err := handler.SetDefault(DefaultConfig); err != nil {
+			t.Fatalf("Failed to set default config: %v", err)
+		}
+
+		// Step 4: Generate context ID like init pipeline does
+		if err := handler.GenerateContextID(); err != nil {
+			t.Fatalf("Failed to generate context ID: %v", err)
+		}
+
+		// Step 5: Save config like init pipeline does
+		err := handler.SaveConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And the context config should be created since context is not defined in root
+		contextConfigPath := filepath.Join(tempDir, "contexts", "local", "windsor.yaml")
+		if _, err := handler.shims.Stat(contextConfigPath); os.IsNotExist(err) {
+			t.Errorf("Context config file was not created at %s, this reproduces the user's issue", contextConfigPath)
+		}
+
+		// And the root config should not be overwritten
+		rootContent, _ := os.ReadFile(rootConfigPath)
+		if !strings.Contains(string(rootContent), "version: v1alpha1") {
+			t.Errorf("Root config appears to have been overwritten")
+		}
+	})
+
+	t.Run("ContextNotSetInRootConfigInitially", func(t *testing.T) {
+		// Given a YamlConfigHandler that mimics the exact init flow
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		// Create existing root config with only version (user's scenario)
+		rootConfigPath := filepath.Join(tempDir, "windsor.yaml")
+		rootConfig := `version: v1alpha1`
+		os.WriteFile(rootConfigPath, []byte(rootConfig), 0644)
+
+		// Load the existing root config
+		if err := handler.LoadConfig(rootConfigPath); err != nil {
+			t.Fatalf("Failed to load root config: %v", err)
+		}
+
+		// Set the context but DON'T call Set() to add context data yet
+		handler.context = "local"
+
+		// Debug: Check state before adding any context data
+		t.Logf("Config.Contexts before setting any context data: %+v", handler.config.Contexts)
+
+		// When SaveConfig is called without any context configuration being set
+		err := handler.SaveConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Check if context config was created
+		contextConfigPath := filepath.Join(tempDir, "contexts", "local", "windsor.yaml")
+		if _, err := handler.shims.Stat(contextConfigPath); os.IsNotExist(err) {
+			t.Errorf("Context config file was NOT created at %s - this reproduces the user's issue", contextConfigPath)
+		} else {
+			t.Logf("Context config file WAS created at %s", contextConfigPath)
+		}
+	})
+
+	t.Run("ReproduceActualIssue", func(t *testing.T) {
+		// Given a real-world scenario where a root windsor.yaml exists with only version
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		// Create existing root config with only version (exact user scenario)
+		rootConfigPath := filepath.Join(tempDir, "windsor.yaml")
+		rootConfig := `version: v1alpha1`
+		os.WriteFile(rootConfigPath, []byte(rootConfig), 0644)
+
+		// Step 1: Load existing config like init pipeline does
+		if err := handler.LoadConfig(rootConfigPath); err != nil {
+			t.Fatalf("Failed to load root config: %v", err)
+		}
+
+		// Step 2: Set context
+		if err := handler.SetContext("local"); err != nil {
+			t.Fatalf("Failed to set context: %v", err)
+		}
+
+		// Step 3: Set default configuration (this would add context data)
+		if err := handler.SetDefault(DefaultConfig); err != nil {
+			t.Fatalf("Failed to set default config: %v", err)
+		}
+
+		// Step 4: Generate context ID
+		if err := handler.GenerateContextID(); err != nil {
+			t.Fatalf("Failed to generate context ID: %v", err)
+		}
+
+		// Debug: Check config state before SaveConfig
+		t.Logf("Config before SaveConfig: %+v", handler.config)
+		if handler.config.Contexts != nil {
+			if ctx, exists := handler.config.Contexts["local"]; exists {
+				t.Logf("local context exists in config: %+v", ctx)
+			} else {
+				t.Logf("local context does NOT exist in config")
+			}
+		} else {
+			t.Logf("Config.Contexts is nil")
+		}
+
+		// Step 5: Save config (the critical call)
+		err := handler.SaveConfig()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Check if context config file was created
+		contextConfigPath := filepath.Join(tempDir, "contexts", "local", "windsor.yaml")
+		if _, err := handler.shims.Stat(contextConfigPath); os.IsNotExist(err) {
+			t.Errorf("Context config file was NOT created at %s - this is the bug!", contextConfigPath)
+		} else {
+			content, _ := os.ReadFile(contextConfigPath)
+			t.Logf("Context config file WAS created with content: %s", string(content))
+		}
+
+		// Check root config wasn't overwritten
+		rootContent, _ := os.ReadFile(rootConfigPath)
+		if !strings.Contains(string(rootContent), "version: v1alpha1") {
+			t.Errorf("Root config appears to have been overwritten: %s", string(rootContent))
 		}
 	})
 }

@@ -24,6 +24,7 @@ type YamlConfigHandler struct {
 	BaseConfigHandler
 	path                 string
 	defaultContextConfig v1alpha1.Context
+	rootContexts         map[string]bool // tracks which contexts were originally loaded from root config
 }
 
 // =============================================================================
@@ -34,6 +35,7 @@ type YamlConfigHandler struct {
 func NewYamlConfigHandler(injector di.Injector) *YamlConfigHandler {
 	handler := &YamlConfigHandler{
 		BaseConfigHandler: *NewBaseConfigHandler(injector),
+		rootContexts:      make(map[string]bool),
 	}
 
 	// Initialize the config version
@@ -46,7 +48,10 @@ func NewYamlConfigHandler(injector di.Injector) *YamlConfigHandler {
 // Public Methods
 // =============================================================================
 
-// LoadConfigString loads the configuration from the provided string content.
+// LoadConfigString loads configuration from the provided YAML string content.
+// It unmarshals the YAML into the internal config structure, tracks root contexts,
+// validates and sets the config version, and marks the configuration as loaded.
+// Returns an error if unmarshalling fails or if the config version is unsupported.
 func (y *YamlConfigHandler) LoadConfigString(content string) error {
 	if content == "" {
 		return nil
@@ -56,7 +61,12 @@ func (y *YamlConfigHandler) LoadConfigString(content string) error {
 		return fmt.Errorf("error unmarshalling yaml: %w", err)
 	}
 
-	// Check and set the config version
+	if y.config.Contexts != nil {
+		for contextName := range y.config.Contexts {
+			y.rootContexts[contextName] = true
+		}
+	}
+
 	if y.BaseConfigHandler.config.Version == "" {
 		y.BaseConfigHandler.config.Version = "v1alpha1"
 	} else if y.BaseConfigHandler.config.Version != "v1alpha1" {
@@ -165,14 +175,7 @@ func (y *YamlConfigHandler) SaveConfig(overwrite ...bool) error {
 		contextExists = true
 	}
 
-	contextExistsInRoot := false
-	if rootExists {
-		if y.config.Contexts != nil {
-			if _, exists := y.config.Contexts[contextName]; exists {
-				contextExistsInRoot = true
-			}
-		}
-	}
+	contextExistsInRoot := y.rootContexts[contextName]
 
 	shouldCreateRootConfig := !rootExists
 	shouldCreateContextConfig := !contextExists && !contextExistsInRoot
