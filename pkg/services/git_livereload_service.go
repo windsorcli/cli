@@ -38,12 +38,12 @@ func NewGitLivereloadService(injector di.Injector) *GitLivereloadService {
 // Public Methods
 // =============================================================================
 
-// GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
+// GetComposeConfig constructs and returns a docker-compose configuration for the GitLivereloadService.
+// It retrieves configuration values for environment variables, image, and service metadata from the config handler.
+// The method builds the environment variable map, sets up service labels, and binds the project root as a volume.
+// Returns a types.Config pointer containing the service definition, or an error if the project root cannot be determined.
 func (s *GitLivereloadService) GetComposeConfig() (*types.Config, error) {
-	// Get the context name
 	contextName := s.configHandler.GetContext()
-
-	// Retrieve environment variables from config with defaults using Get* functions
 	rsyncInclude := s.configHandler.GetString("git.livereload.rsync_include", constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_INCLUDE)
 	rsyncExclude := s.configHandler.GetString("git.livereload.rsync_exclude", constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE)
 	rsyncProtect := s.configHandler.GetString("git.livereload.rsync_protect", constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_PROTECT)
@@ -53,8 +53,8 @@ func (s *GitLivereloadService) GetComposeConfig() (*types.Config, error) {
 	verifySsl := s.configHandler.GetBool("git.livereload.verify_ssl", false)
 	image := s.configHandler.GetString("git.livereload.image", constants.DEFAULT_GIT_LIVE_RELOAD_IMAGE)
 
-	// Prepare environment variables map
 	envVars := map[string]*string{
+		"RSYNC_INCLUDE": ptrString(rsyncInclude),
 		"RSYNC_EXCLUDE": ptrString(rsyncExclude),
 		"RSYNC_PROTECT": ptrString(rsyncProtect),
 		"GIT_USERNAME":  ptrString(gitUsername),
@@ -62,29 +62,18 @@ func (s *GitLivereloadService) GetComposeConfig() (*types.Config, error) {
 		"VERIFY_SSL":    ptrString(fmt.Sprintf("%t", verifySsl)),
 	}
 
-	// Add RSYNC_INCLUDE if it's not empty
-	if rsyncInclude != "" {
-		envVars["RSYNC_INCLUDE"] = ptrString(rsyncInclude)
-	}
-
-	// Add webhook URL if provided
 	if webhookUrl != "" {
 		envVars["WEBHOOK_URL"] = ptrString(webhookUrl)
 	}
 
-	// Get the project root using the shell
 	projectRoot, err := s.shell.GetProjectRoot()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving project root: %w", err)
 	}
 
-	// Get the git folder name
 	gitFolderName := filepath.Base(projectRoot)
-
-	// Get the service name
 	serviceName := s.name
 
-	// Create the service config
 	serviceConfig := types.ServiceConfig{
 		Name:          serviceName,
 		ContainerName: s.GetContainerName(),

@@ -164,17 +164,19 @@ func TestGitLivereloadService_GetComposeConfig(t *testing.T) {
 			t.Fatalf("GetComposeConfig() error = %v", err)
 		}
 
-		// Then verify the configuration doesn't contain RSYNC_INCLUDE when it's empty
+		// Then verify the configuration contains the expected service with default RSYNC_INCLUDE
 		expectedName := "git"
 		serviceFound := false
-		rsyncIncludePresent := false
+		rsyncIncludeFound := false
 
 		for _, service := range composeConfig.Services {
 			if service.Name == expectedName {
 				serviceFound = true
-				// Check if RSYNC_INCLUDE environment variable is NOT set when empty
-				if _, exists := service.Environment["RSYNC_INCLUDE"]; exists {
-					rsyncIncludePresent = true
+				// Check if RSYNC_INCLUDE environment variable is set to default value
+				if rsyncInclude, exists := service.Environment["RSYNC_INCLUDE"]; exists && rsyncInclude != nil {
+					if *rsyncInclude == "kustomize" {
+						rsyncIncludeFound = true
+					}
 				}
 				break
 			}
@@ -183,8 +185,8 @@ func TestGitLivereloadService_GetComposeConfig(t *testing.T) {
 		if !serviceFound {
 			t.Errorf("expected service with name %q to be in the list of configurations", expectedName)
 		}
-		if rsyncIncludePresent {
-			t.Errorf("expected RSYNC_INCLUDE environment variable to NOT be set when rsync_include is empty")
+		if !rsyncIncludeFound {
+			t.Errorf("expected RSYNC_INCLUDE environment variable to be set to default value 'kustomize'")
 		}
 	})
 }
