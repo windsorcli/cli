@@ -136,26 +136,85 @@ func (y *YamlConfigHandler) LoadContextConfig() error {
 	return nil
 }
 
-// SaveConfig persists Windsor configuration files for both the root and active context. The root windsor.yaml stores
-// only the version for global identification. The context-specific file at contexts/<context>/windsor.yaml contains
-// the full configuration for the current context, omitting the contexts wrapper. The overwrite parameter controls
-// replacement of existing files. Returns an error if any file operation or serialization fails.
+// SaveConfig writes configuration to root windsor.yaml and the current context's windsor.yaml.
+// Root windsor.yaml contains only the version field. The context file contains the context config
+// without the contexts wrapper. Files are created only if absent: root windsor.yaml is created if
+// missing; context windsor.yaml is created if missing and context is not in root config. Existing
+// files are never overwritten.
 func (y *YamlConfigHandler) SaveConfig(overwrite ...bool) error {
-	shouldOverwrite := true
-	if len(overwrite) > 0 {
-		shouldOverwrite = overwrite[0]
-	}
-
 	if y.shell == nil {
 		return fmt.Errorf("shell not initialized")
 	}
 
-	if err := y.writeRootConfig(shouldOverwrite); err != nil {
-		return err
+	projectRoot, err := y.shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("error retrieving project root: %w", err)
 	}
 
-	if err := y.writeContextConfig(shouldOverwrite); err != nil {
-		return err
+	rootConfigPath := filepath.Join(projectRoot, "windsor.yaml")
+	contextName := y.GetContext()
+	contextConfigPath := filepath.Join(projectRoot, "contexts", contextName, "windsor.yaml")
+
+	rootExists := false
+	if _, err := y.shims.Stat(rootConfigPath); err == nil {
+		rootExists = true
+	}
+
+	contextExists := false
+	if _, err := y.shims.Stat(contextConfigPath); err == nil {
+		contextExists = true
+	}
+
+	contextExistsInRoot := false
+	if rootExists {
+		if y.config.Contexts != nil {
+			if _, exists := y.config.Contexts[contextName]; exists {
+				contextExistsInRoot = true
+			}
+		}
+	}
+
+	shouldCreateRootConfig := !rootExists
+	shouldCreateContextConfig := !contextExists && !contextExistsInRoot
+
+	if shouldCreateRootConfig {
+		rootConfig := struct {
+			Version string `yaml:"version"`
+		}{
+			Version: y.config.Version,
+		}
+
+		data, err := y.shims.YamlMarshal(rootConfig)
+		if err != nil {
+			return fmt.Errorf("error marshalling root config: %w", err)
+		}
+
+		if err := y.shims.WriteFile(rootConfigPath, data, 0644); err != nil {
+			return fmt.Errorf("error writing root config: %w", err)
+		}
+	}
+
+	if shouldCreateContextConfig {
+		var contextConfig v1alpha1.Context
+		if y.config.Contexts != nil && y.config.Contexts[contextName] != nil {
+			contextConfig = *y.config.Contexts[contextName]
+		} else {
+			contextConfig = y.defaultContextConfig
+		}
+
+		contextDir := filepath.Join(projectRoot, "contexts", contextName)
+		if err := y.shims.MkdirAll(contextDir, 0755); err != nil {
+			return fmt.Errorf("error creating context directory: %w", err)
+		}
+
+		data, err := y.shims.YamlMarshal(contextConfig)
+		if err != nil {
+			return fmt.Errorf("error marshalling context config: %w", err)
+		}
+
+		if err := y.shims.WriteFile(contextConfigPath, data, 0644); err != nil {
+			return fmt.Errorf("error writing context config: %w", err)
+		}
 	}
 
 	return nil
@@ -364,80 +423,6 @@ var _ ConfigHandler = (*YamlConfigHandler)(nil)
 // =============================================================================
 // Private Methods
 // =============================================================================
-
-// writeRootConfig writes the root windsor.yaml file containing only the version for global identification.
-// The overwrite parameter controls replacement of existing files. Returns an error if any file operation or serialization fails.
-func (y *YamlConfigHandler) writeRootConfig(overwrite bool) error {
-	projectRoot, err := y.shell.GetProjectRoot()
-	if err != nil {
-		return fmt.Errorf("error retrieving project root: %w", err)
-	}
-
-	rootConfigPath := filepath.Join(projectRoot, "windsor.yaml")
-	rootConfig := struct {
-		Version string `yaml:"version"`
-	}{
-		Version: y.config.Version,
-	}
-
-	data, err := y.shims.YamlMarshal(rootConfig)
-	if err != nil {
-		return fmt.Errorf("error marshalling root config: %w", err)
-	}
-
-	if !overwrite {
-		if _, err := y.shims.Stat(rootConfigPath); err == nil {
-			return nil
-		}
-	}
-
-	if err := y.shims.WriteFile(rootConfigPath, data, 0644); err != nil {
-		return fmt.Errorf("error writing root config: %w", err)
-	}
-
-	return nil
-}
-
-// writeContextConfig writes the context-specific windsor.yaml file containing the full configuration for the current context.
-// The overwrite parameter controls replacement of existing files. Returns an error if any file operation or serialization fails.
-func (y *YamlConfigHandler) writeContextConfig(overwrite bool) error {
-	projectRoot, err := y.shell.GetProjectRoot()
-	if err != nil {
-		return fmt.Errorf("error retrieving project root: %w", err)
-	}
-
-	contextName := y.GetContext()
-	var contextConfig v1alpha1.Context
-	if y.config.Contexts != nil && y.config.Contexts[contextName] != nil {
-		contextConfig = *y.config.Contexts[contextName]
-	} else {
-		contextConfig = y.defaultContextConfig
-	}
-
-	contextDir := filepath.Join(projectRoot, "contexts", contextName)
-	if err := y.shims.MkdirAll(contextDir, 0755); err != nil {
-		return fmt.Errorf("error creating context directory: %w", err)
-	}
-
-	contextConfigPath := filepath.Join(contextDir, "windsor.yaml")
-
-	data, err := y.shims.YamlMarshal(contextConfig)
-	if err != nil {
-		return fmt.Errorf("error marshalling context config: %w", err)
-	}
-
-	if !overwrite {
-		if _, err := y.shims.Stat(contextConfigPath); err == nil {
-			return nil
-		}
-	}
-
-	if err := y.shims.WriteFile(contextConfigPath, data, 0644); err != nil {
-		return fmt.Errorf("error writing context config: %w", err)
-	}
-
-	return nil
-}
 
 // getValueByPath retrieves a value by navigating through a struct or map using YAML tags.
 func getValueByPath(current any, pathKeys []string) any {
