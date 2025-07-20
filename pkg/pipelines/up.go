@@ -188,6 +188,8 @@ func (p *UpPipeline) Execute(ctx context.Context) error {
 
 	// Configure DNS settings
 	if dnsEnabled := p.configHandler.GetBool("dns.enabled"); dnsEnabled {
+		fmt.Fprintf(os.Stderr, "→ ⚠️  DNS configuration may require administrative privileges\n")
+
 		if err := p.networkManager.ConfigureDNS(); err != nil {
 			return fmt.Errorf("Error configuring DNS: %w", err)
 		}
