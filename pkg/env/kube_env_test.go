@@ -272,19 +272,22 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 		// When getting environment variables
 		envVars, err := printer.GetEnvVars()
 
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
+		// Then no error should be returned (graceful degradation)
+		if err != nil {
+			t.Errorf("Expected no error due to graceful degradation, got %v", err)
 		}
 
-		// And the error should mention querying PVCs
-		if !strings.Contains(err.Error(), "error querying persistent volume claims") {
-			t.Errorf("Expected error about querying PVCs, got %v", err)
+		// And envVars should not be nil (should contain basic kube config vars)
+		if envVars == nil {
+			t.Error("Expected non-nil envVars with basic kube config")
 		}
 
-		// And envVars should be nil
-		if envVars != nil {
-			t.Errorf("Expected nil envVars, got %v", envVars)
+		// And basic kubernetes environment variables should be present
+		if _, exists := envVars["KUBECONFIG"]; !exists {
+			t.Error("Expected KUBECONFIG to be present in envVars")
+		}
+		if _, exists := envVars["KUBE_CONFIG_PATH"]; !exists {
+			t.Error("Expected KUBE_CONFIG_PATH to be present in envVars")
 		}
 	})
 
