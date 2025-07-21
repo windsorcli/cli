@@ -9,18 +9,17 @@ import (
 )
 
 // The OnePasswordCLISecretsProvider is an implementation of the SecretsProvider interface
-// It provides integration with the 1Password CLI for secret management with automatic shell scrubbing registration
-// It serves as a bridge between the application and 1Password's secure storage with built-in security features
-// It enables retrieval and parsing of secrets from 1Password vaults while automatically registering secrets for output scrubbing
+// It provides integration with 1Password CLI for secrets management with automatic shell scrubbing registration
+// It serves as a bridge between the application and 1Password CLI with built-in security features
+// It enables secure storage and retrieval of secrets using 1Password while automatically registering secrets for output scrubbing
 
 // =============================================================================
 // Types
 // =============================================================================
 
-// OnePasswordCLISecretsProvider is an implementation of the SecretsProvider interface
-// that uses the 1Password CLI to manage secrets.
+// OnePasswordCLISecretsProvider is a struct that implements the SecretsProvider interface using 1Password CLI.
 type OnePasswordCLISecretsProvider struct {
-	BaseSecretsProvider
+	*BaseSecretsProvider
 	vault secretsConfigType.OnePasswordVault
 }
 
@@ -31,7 +30,7 @@ type OnePasswordCLISecretsProvider struct {
 // NewOnePasswordCLISecretsProvider creates a new OnePasswordCLISecretsProvider instance
 func NewOnePasswordCLISecretsProvider(vault secretsConfigType.OnePasswordVault, injector di.Injector) *OnePasswordCLISecretsProvider {
 	return &OnePasswordCLISecretsProvider{
-		BaseSecretsProvider: *NewBaseSecretsProvider(injector),
+		BaseSecretsProvider: NewBaseSecretsProvider(injector),
 		vault:               vault,
 	}
 }
@@ -40,9 +39,9 @@ func NewOnePasswordCLISecretsProvider(vault secretsConfigType.OnePasswordVault, 
 // Public Methods
 // =============================================================================
 
-// GetSecret retrieves a secret value for the specified key and automatically registers it with the shell for output scrubbing.
-// It uses the 1Password CLI to fetch secrets from the configured vault and automatically registers
-// the retrieved secret with the shell's scrubbing system to prevent accidental exposure in command output.
+// GetSecret retrieves a secret value for the given key using 1Password CLI. Registers the secret for shell scrubbing to
+// prevent exposure in output. Executes the CLI directly to avoid leaking secrets before registration. If locked, returns
+// a masked value. Key format: 'secret.field'. Returns the secret or error on failure.
 func (s *OnePasswordCLISecretsProvider) GetSecret(key string) (string, error) {
 	if !s.unlocked {
 		return "********", nil
@@ -54,8 +53,8 @@ func (s *OnePasswordCLISecretsProvider) GetSecret(key string) (string, error) {
 	}
 
 	args := []string{"item", "get", parts[0], "--vault", s.vault.Name, "--fields", parts[1], "--reveal", "--account", s.vault.URL}
-
-	output, err := s.shell.ExecSilent("op", args...)
+	cmd := s.shims.Command("op", args...)
+	output, err := s.shims.CmdOutput(cmd)
 	if err != nil {
 		return "", fmt.Errorf("failed to retrieve secret from 1Password: %w", err)
 	}
