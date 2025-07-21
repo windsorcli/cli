@@ -1419,8 +1419,9 @@ func TestTerraformEnv_DependencyResolution(t *testing.T) {
 		}
 
 		// Set up the current working directory to match the "app" component
+		workingDir := filepath.Join(string(filepath.Separator), "project", "terraform", "app")
 		mocks.Shims.Getwd = func() (string, error) {
-			return "/project/terraform/app", nil
+			return workingDir, nil
 		}
 
 		// When getting environment variables for the "app" component
@@ -1486,7 +1487,7 @@ func TestTerraformEnv_DependencyResolution(t *testing.T) {
 
 		// Set up the current working directory to match one of the components
 		mocks.Shims.Getwd = func() (string, error) {
-			return "/project/terraform/a", nil
+			return filepath.Join(string(filepath.Separator), "project", "terraform", "a"), nil
 		}
 
 		// When getting environment variables
@@ -1517,7 +1518,7 @@ func TestTerraformEnv_DependencyResolution(t *testing.T) {
 
 		// Set up the current working directory to match the component
 		mocks.Shims.Getwd = func() (string, error) {
-			return "/project/terraform/app", nil
+			return filepath.Join(string(filepath.Separator), "project", "terraform", "app"), nil
 		}
 
 		// When getting environment variables
@@ -1561,7 +1562,7 @@ func TestTerraformEnv_DependencyResolution(t *testing.T) {
 
 		// Set up the current working directory to match the dependent component
 		mocks.Shims.Getwd = func() (string, error) {
-			return "/project/terraform/app/frontend", nil
+			return filepath.Join(string(filepath.Separator), "project", "terraform", "app", "frontend"), nil
 		}
 
 		// When getting environment variables
@@ -1610,7 +1611,7 @@ func TestTerraformEnv_DependencyResolution(t *testing.T) {
 
 		// Set up the current working directory to match the dependent component
 		mocks.Shims.Getwd = func() (string, error) {
-			return "/project/terraform/app", nil
+			return filepath.Join(string(filepath.Separator), "project", "terraform", "app"), nil
 		}
 
 		// When getting environment variables
@@ -1644,7 +1645,7 @@ func TestTerraformEnv_DependencyResolution(t *testing.T) {
 
 		// Set up the current working directory to not match any component
 		mocks.Shims.Getwd = func() (string, error) {
-			return "/project/terraform/nonexistent", nil
+			return filepath.FromSlash("/project/terraform/nonexistent"), nil
 		}
 
 		// When getting environment variables
