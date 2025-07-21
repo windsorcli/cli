@@ -17,8 +17,8 @@ import (
 // Public Methods
 // =============================================================================
 
-// PrintEnvVars sorts and prints environment variables. Empty values trigger a removal command.
-func (s *DefaultShell) PrintEnvVars(envVars map[string]string) {
+// printEnvVarsWithExport sorts and prints environment variables with PowerShell commands. Empty values trigger a removal command.
+func (s *DefaultShell) printEnvVarsWithExport(envVars map[string]string) {
 	keys := make([]string, 0, len(envVars))
 	for k := range envVars {
 		keys = append(keys, k)

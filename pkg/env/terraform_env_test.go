@@ -450,7 +450,7 @@ func TestTerraformEnv_Print(t *testing.T) {
 		printer, mocks := setup(t)
 
 		var capturedEnvVars map[string]string
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string, export bool) {
 			capturedEnvVars = envVars
 		}
 

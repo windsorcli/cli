@@ -18,76 +18,56 @@ import (
 // Public Methods
 // =============================================================================
 
-// PrintEnvVars prints the provided environment variables in a sorted order.
-// If the value of an environment variable is an empty string, it will print an unset command.
-func (s *DefaultShell) PrintEnvVars(envVars map[string]string) {
-	// Create a slice to hold the keys of the envVars map
+// printEnvVarsWithExport prints environment variables in sorted order using export commands.
+// If a variable's value is empty, it prints an unset command instead.
+func (s *DefaultShell) printEnvVarsWithExport(envVars map[string]string) {
 	keys := make([]string, 0, len(envVars))
-
-	// Append each key from the envVars map to the keys slice
 	for k := range envVars {
 		keys = append(keys, k)
 	}
-
-	// Sort the keys slice to ensure the environment variables are printed in order
 	sort.Strings(keys)
-
-	// Iterate over the sorted keys and print the corresponding environment variable
 	for _, k := range keys {
 		if envVars[k] == "" {
-			// Print unset command if the value is an empty string
 			fmt.Printf("unset %s\n", k)
 		} else {
-			// Print export command with the key and value
 			fmt.Printf("export %s=\"%s\"\n", k, envVars[k])
 		}
 	}
 }
 
-// PrintAlias prints the aliases for the shell.
+// PrintAlias prints sorted aliases. Empty values print unalias; non-empty print alias with key and value.
 func (s *DefaultShell) PrintAlias(aliases map[string]string) {
-	// Create a slice to hold the keys of the aliases map
 	keys := make([]string, 0, len(aliases))
-
-	// Append each key from the aliases map to the keys slice
 	for k := range aliases {
 		keys = append(keys, k)
 	}
-
-	// Sort the keys slice to ensure the aliases are printed in order
 	sort.Strings(keys)
-
-	// Iterate over the sorted keys and print the corresponding alias
 	for _, k := range keys {
 		if aliases[k] == "" {
-			// Print unset command if the value is an empty string
 			fmt.Printf("unalias %s\n", k)
 		} else {
-			// Print alias command with the key and value
 			fmt.Printf("alias %s=\"%s\"\n", k, aliases[k])
 		}
 	}
 }
 
-// UnsetEnvs generates a command to unset multiple environment variables.
-// For Unix shells, this produces a single 'unset' command with all variables in one line.
+// UnsetEnvs generates a single unset command for multiple environment variables in Unix shells.
+// It prints a single 'unset' command with all provided variable names separated by spaces.
+// If the input slice is empty, no output is produced.
 func (s *DefaultShell) UnsetEnvs(envVars []string) {
 	if len(envVars) == 0 {
 		return
 	}
-
-	// Create a single unset command with all environment variables
 	fmt.Printf("unset %s\n", strings.Join(envVars, " "))
 }
 
-// UnsetAlias generates commands to unset multiple aliases.
-// For Unix shells, this produces a separate 'unalias' command for each alias.
+// UnsetAlias generates individual unalias commands for each alias in Unix shells.
+// It prints a separate 'unalias' command for each alias name provided.
+// If the input slice is empty, no output is produced.
 func (s *DefaultShell) UnsetAlias(aliases []string) {
 	if len(aliases) == 0 {
 		return
 	}
-
-	// Print individual unalias commands for each alias
 	for _, alias := range aliases {
 		fmt.Printf("unalias %s\n", alias)
 	}

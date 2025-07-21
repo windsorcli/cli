@@ -1029,7 +1029,7 @@ func TestMockShell_PrintEnvVars(t *testing.T) {
 		mockShell := setupMockShellMocks(t)
 		called := false
 		expectedEnvVars := map[string]string{"TEST": "value"}
-		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) {
+		mockShell.PrintEnvVarsFunc = func(envVars map[string]string, export bool) {
 			called = true
 			if envVars["TEST"] != "value" {
 				t.Errorf("Expected envVars[TEST] = value, got %v", envVars["TEST"])
@@ -1037,7 +1037,7 @@ func TestMockShell_PrintEnvVars(t *testing.T) {
 		}
 
 		// When PrintEnvVars is called
-		mockShell.PrintEnvVars(expectedEnvVars)
+		mockShell.PrintEnvVars(expectedEnvVars, true)
 
 		// Then the mock function should be called
 		if !called {
@@ -1051,7 +1051,7 @@ func TestMockShell_PrintEnvVars(t *testing.T) {
 
 		// When PrintEnvVars is called
 		// Then it should not panic
-		mockShell.PrintEnvVars(map[string]string{"TEST": "value"})
+		mockShell.PrintEnvVars(map[string]string{"TEST": "value"}, false)
 	})
 }
 

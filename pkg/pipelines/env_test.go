@@ -42,7 +42,7 @@ func setupEnvMocks(t *testing.T, opts ...*SetupOptions) *EnvMocks {
 	baseMocks.Shell.CheckTrustedDirectoryFunc = func() error { return nil }
 	baseMocks.Shell.CheckResetFlagsFunc = func() (bool, error) { return false, nil }
 	baseMocks.Shell.GetSessionTokenFunc = func() (string, error) { return "test-token", nil }
-	baseMocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {}
+	baseMocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string, export bool) {}
 	baseMocks.Shell.ResetFunc = func(args ...bool) {}
 
 	return &EnvMocks{
@@ -521,7 +521,7 @@ func TestEnvPipeline_Execute(t *testing.T) {
 		}
 
 		printCalled := false
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string, export bool) {
 			printCalled = true
 		}
 
@@ -562,7 +562,7 @@ func TestEnvPipeline_Execute(t *testing.T) {
 		}
 
 		printCalled := false
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string, export bool) {
 			printCalled = true
 		}
 
@@ -594,7 +594,7 @@ func TestEnvPipeline_Execute(t *testing.T) {
 			return nil
 		}
 
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {}
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string, export bool) {}
 
 		mockEnvPrinter := env.NewMockEnvPrinter()
 		mockEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
@@ -628,7 +628,7 @@ func TestEnvPipeline_Execute(t *testing.T) {
 			return nil
 		}
 
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {}
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string, export bool) {}
 
 		mockEnvPrinter := env.NewMockEnvPrinter()
 		mockEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
@@ -780,7 +780,7 @@ func TestEnvPipeline_Execute(t *testing.T) {
 		pipeline.envPrinters = []env.EnvPrinter{mockEnvPrinter1, mockEnvPrinter2}
 
 		var capturedEnvVars map[string]string
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string, export bool) {
 			capturedEnvVars = envVars
 		}
 

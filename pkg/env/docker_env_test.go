@@ -655,7 +655,7 @@ func TestDockerEnvPrinter_Print(t *testing.T) {
 
 		// And PrintEnvVarsFunc is mocked
 		var capturedEnvVars map[string]string
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string, export bool) {
 			capturedEnvVars = envVars
 		}
 

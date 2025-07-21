@@ -18,7 +18,7 @@ import (
 type MockShell struct {
 	DefaultShell
 	InitializeFunc                 func() error
-	PrintEnvVarsFunc               func(envVars map[string]string)
+	PrintEnvVarsFunc               func(envVars map[string]string, export bool)
 	PrintAliasFunc                 func(envVars map[string]string)
 	GetProjectRootFunc             func() (string, error)
 	ExecFunc                       func(command string, args ...string) (string, error)
@@ -71,9 +71,9 @@ func (s *MockShell) Initialize() error {
 }
 
 // PrintEnvVars calls the custom PrintEnvVarsFunc if provided.
-func (s *MockShell) PrintEnvVars(envVars map[string]string) {
+func (s *MockShell) PrintEnvVars(envVars map[string]string, export bool) {
 	if s.PrintEnvVarsFunc != nil {
-		s.PrintEnvVarsFunc(envVars)
+		s.PrintEnvVarsFunc(envVars, export)
 	}
 }
 
