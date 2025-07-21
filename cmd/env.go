@@ -25,7 +25,9 @@ var envCmd = &cobra.Command{
 
 		// Set NO_CACHE=true unless --hook is specified or NO_CACHE is already set
 		if !hook && os.Getenv("NO_CACHE") == "" {
-			os.Setenv("NO_CACHE", "true")
+			if err := os.Setenv("NO_CACHE", "true"); err != nil {
+				return fmt.Errorf("failed to set NO_CACHE environment variable: %w", err)
+			}
 		}
 
 		// Create execution context with flags
