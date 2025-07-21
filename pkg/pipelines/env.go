@@ -137,7 +137,7 @@ func (p *EnvPipeline) Execute(ctx context.Context) error {
 	}
 
 	if !quiet {
-		p.shell.PrintEnvVars(allEnvVars)
+		p.shell.PrintEnvVars(allEnvVars, hook)
 
 		var firstError error
 		for _, envPrinter := range p.envPrinters {

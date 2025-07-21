@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/di"
@@ -21,6 +22,11 @@ var envCmd = &cobra.Command{
 		// Get flags
 		hook, _ := cmd.Flags().GetBool("hook")
 		decrypt, _ := cmd.Flags().GetBool("decrypt")
+
+		// Set NO_CACHE=true unless --hook is specified or NO_CACHE is already set
+		if !hook && os.Getenv("NO_CACHE") == "" {
+			os.Setenv("NO_CACHE", "true")
+		}
 
 		// Create execution context with flags
 		ctx := cmd.Context()

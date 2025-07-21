@@ -821,7 +821,7 @@ func TestWindsorEnv_Print(t *testing.T) {
 
 		// And a mock PrintEnvVars function
 		var capturedEnvVars map[string]string
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string, export bool) {
 			capturedEnvVars = envVars
 		}
 

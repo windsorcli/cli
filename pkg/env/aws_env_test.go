@@ -221,7 +221,7 @@ func TestAwsEnv_Print(t *testing.T) {
 
 		// Mock PrintEnvVarsFunc to capture printed vars
 		var capturedEnvVars map[string]string
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string, export bool) {
 			capturedEnvVars = envVars
 		}
 

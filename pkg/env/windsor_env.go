@@ -206,7 +206,8 @@ func (e *WindsorEnvPrinter) parseAndCheckSecrets(strValue string) string {
 	return strValue
 }
 
-// shouldUseCache determines if the cache should be used based on the current and Windsor context.
+// shouldUseCache determines if the cache should be used based on NO_CACHE environment variable.
+// Cache is enabled by default and can be disabled by setting NO_CACHE=1 or NO_CACHE=true.
 func (e *WindsorEnvPrinter) shouldUseCache() bool {
 	noCache, _ := e.shims.LookupEnv("NO_CACHE")
 	return noCache == "" || noCache == "0" || noCache == "false" || noCache == "False"

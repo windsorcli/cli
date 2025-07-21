@@ -91,7 +91,7 @@ func (e *BaseEnvPrinter) Print(customVars ...map[string]string) error {
 		e.SetManagedEnv(key)
 	}
 
-	e.shell.PrintEnvVars(envVars)
+	e.shell.PrintEnvVars(envVars, true)
 	return nil
 }
 

@@ -142,7 +142,7 @@ func TestAzureEnv_Print(t *testing.T) {
 			t.Fatalf("Failed to get config root: %v", err)
 		}
 		var capturedEnvVars map[string]string
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string, export bool) {
 			capturedEnvVars = envVars
 		}
 		err = printer.Print()

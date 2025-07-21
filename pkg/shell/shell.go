@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 
@@ -46,7 +47,7 @@ type HookContext struct {
 type Shell interface {
 	Initialize() error
 	SetVerbosity(verbose bool)
-	PrintEnvVars(envVars map[string]string)
+	PrintEnvVars(envVars map[string]string, export bool)
 	PrintAlias(envVars map[string]string)
 	GetProjectRoot() (string, error)
 	Exec(command string, args ...string) (string, error)
@@ -666,6 +667,33 @@ func (s *DefaultShell) scrubString(input string) string {
 	}
 
 	return result
+}
+
+// PrintEnvVars is a platform-specific method that will be implemented by Unix/Windows-specific files
+// The export parameter controls whether to use OS-specific export commands or plain KEY=value format
+func (s *DefaultShell) PrintEnvVars(envVars map[string]string, export bool) {
+	if export {
+		s.printEnvVarsWithExport(envVars)
+	} else {
+		s.printEnvVarsPlain(envVars)
+	}
+}
+
+// printEnvVarsPlain prints environment variables in plain KEY=value format, sorted by key.
+// If a value is empty, it prints KEY= with no value. Used for non-export output scenarios.
+func (s *DefaultShell) printEnvVarsPlain(envVars map[string]string) {
+	keys := make([]string, 0, len(envVars))
+	for k := range envVars {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if envVars[k] == "" {
+			fmt.Printf("%s=\n", k)
+		} else {
+			fmt.Printf("%s=%s\n", k, envVars[k])
+		}
+	}
 }
 
 // Ensure DefaultShell implements the Shell interface
