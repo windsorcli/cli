@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
@@ -38,6 +40,7 @@ type TerraformArgs struct {
 // TerraformEnvPrinter is a struct that implements Terraform environment configuration
 type TerraformEnvPrinter struct {
 	BaseEnvPrinter
+	blueprintHandler blueprint.BlueprintHandler
 }
 
 // =============================================================================
@@ -55,11 +58,25 @@ func NewTerraformEnvPrinter(injector di.Injector) *TerraformEnvPrinter {
 // Public Methods
 // =============================================================================
 
-// GetEnvVars retrieves environment variables for Terraform.
-// It determines the config root and project path, checks for tfvars files,
-// and sets variables based on the OS. If not in a terraform project folder,
-// it resets all TF_ vars that are already set in the environment.
-// Returns a map of environment variables or an error if any step fails.
+// Initialize resolves and assigns dependencies including the blueprint handler from the injector.
+func (e *TerraformEnvPrinter) Initialize() error {
+	if err := e.BaseEnvPrinter.Initialize(); err != nil {
+		return err
+	}
+
+	blueprintHandler, ok := e.injector.Resolve("blueprintHandler").(blueprint.BlueprintHandler)
+	if !ok {
+		return fmt.Errorf("error resolving blueprintHandler")
+	}
+	e.blueprintHandler = blueprintHandler
+
+	return nil
+}
+
+// GetEnvVars returns a map of environment variables for Terraform operations.
+// If not in a Terraform project directory, it unsets managed TF_ variables present in the environment.
+// Otherwise, it generates Terraform arguments and augments them with dependency variables.
+// Returns the environment variable map or an error if resolution fails.
 func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
@@ -95,6 +112,10 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 		return nil, fmt.Errorf("error generating terraform args: %w", err)
 	}
 
+	if err := e.addDependencyVariables(projectPath, terraformArgs); err != nil {
+		return nil, fmt.Errorf("error adding dependency variables: %w", err)
+	}
+
 	return terraformArgs.TerraformVars, nil
 }
 
@@ -112,7 +133,9 @@ func (e *TerraformEnvPrinter) Print() error {
 	return e.BaseEnvPrinter.Print(envVars)
 }
 
-// GenerateTerraformArgs generates the Terraform arguments for a given project.
+// GenerateTerraformArgs constructs Terraform CLI argument lists and environment variables for the specified project and module paths.
+// It resolves configuration root, locates relevant tfvars files, generates backend configuration arguments, and assembles
+// all required CLI and environment variable values for Terraform operations. Returns a TerraformArgs struct or error.
 func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath string) (*TerraformArgs, error) {
 	configRoot, err := e.configHandler.GetConfigRoot()
 	if err != nil {
@@ -181,7 +204,6 @@ func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath stri
 	terraformVars["TF_VAR_context_path"] = strings.TrimSpace(filepath.ToSlash(configRoot))
 	terraformVars["TF_VAR_context_id"] = strings.TrimSpace(e.configHandler.GetString("id", ""))
 
-	// Set os_type based on the OS
 	if e.shims.Goos() == "windows" {
 		terraformVars["TF_VAR_os_type"] = "windows"
 	} else {
@@ -206,6 +228,223 @@ func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath stri
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// addDependencyVariables sets dependency outputs as TF_VAR_* environment variables for the specified projectPath.
+// It locates the current component, resolves dependency order, captures outputs from dependencies, and injects them
+// into terraformArgs.TerraformVars using the format TF_VAR_<outputKey>. Non-string outputs are stringified.
+// If blueprintHandler is nil, or the component has no dependencies, the function is a no-op. Errors are returned for
+// dependency resolution failures; missing outputs are tolerated.
+func (e *TerraformEnvPrinter) addDependencyVariables(projectPath string, terraformArgs *TerraformArgs) error {
+	if e.blueprintHandler == nil {
+		return nil
+	}
+
+	components := e.blueprintHandler.GetTerraformComponents()
+
+	var currentComponent *blueprintv1alpha1.TerraformComponent
+	for _, component := range components {
+		if component.Path == projectPath {
+			currentComponent = &component
+			break
+		}
+	}
+
+	if currentComponent == nil {
+		return nil
+	}
+
+	if len(currentComponent.DependsOn) == 0 {
+		return nil
+	}
+
+	sortedComponents, err := e.resolveTerraformComponentDependencies(components)
+	if err != nil {
+		return fmt.Errorf("error resolving terraform component dependencies: %w", err)
+	}
+
+	componentOutputs := make(map[string]map[string]any)
+
+	for _, component := range sortedComponents {
+		if component.Path == projectPath {
+			break
+		}
+		outputs, err := e.captureTerraformOutputs(component.FullPath)
+		if err != nil {
+			continue
+		}
+		componentOutputs[component.Path] = outputs
+	}
+
+	for _, depPath := range currentComponent.DependsOn {
+		if outputs, exists := componentOutputs[depPath]; exists {
+			for outputKey, outputValue := range outputs {
+				var valueStr string
+				switch v := outputValue.(type) {
+				case string:
+					valueStr = v
+				case float64:
+					valueStr = fmt.Sprintf("%.0f", v)
+				case bool:
+					valueStr = fmt.Sprintf("%t", v)
+				default:
+					valueStr = fmt.Sprintf("%v", v)
+				}
+				varName := fmt.Sprintf("TF_VAR_%s", outputKey)
+				terraformArgs.TerraformVars[varName] = valueStr
+			}
+		}
+	}
+
+	return nil
+}
+
+// resolveTerraformComponentDependencies returns a topologically sorted slice of Terraform components,
+// ensuring that all dependencies are ordered before their dependents. It detects and reports missing
+// or circular dependencies. The function uses component.Path as the key.
+// Returns an error if a dependency is missing or a cycle is detected.
+func (e *TerraformEnvPrinter) resolveTerraformComponentDependencies(components []blueprintv1alpha1.TerraformComponent) ([]blueprintv1alpha1.TerraformComponent, error) {
+	pathToComponent := make(map[string]blueprintv1alpha1.TerraformComponent)
+	pathToIndex := make(map[string]int)
+
+	for i, component := range components {
+		pathToComponent[component.Path] = component
+		pathToIndex[component.Path] = i
+	}
+
+	graph := make(map[string][]string)
+	inDegree := make(map[string]int)
+
+	for path := range pathToComponent {
+		graph[path] = []string{}
+		inDegree[path] = 0
+	}
+
+	for path, component := range pathToComponent {
+		for _, depPath := range component.DependsOn {
+			if _, exists := pathToComponent[depPath]; !exists {
+				return nil, fmt.Errorf("terraform component %q depends on %q which does not exist", path, depPath)
+			}
+			graph[depPath] = append(graph[depPath], path)
+			inDegree[path]++
+		}
+	}
+
+	var queue []string
+	var sorted []string
+
+	for path, degree := range inDegree {
+		if degree == 0 {
+			queue = append(queue, path)
+		}
+	}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		sorted = append(sorted, current)
+
+		for _, neighbor := range graph[current] {
+			inDegree[neighbor]--
+			if inDegree[neighbor] == 0 {
+				queue = append(queue, neighbor)
+			}
+		}
+	}
+
+	if len(sorted) != len(components) {
+		return nil, fmt.Errorf("circular dependency detected in terraform components")
+	}
+
+	var sortedComponents []blueprintv1alpha1.TerraformComponent
+	for _, path := range sorted {
+		sortedComponents = append(sortedComponents, pathToComponent[path])
+	}
+
+	return sortedComponents, nil
+}
+
+// captureTerraformOutputs executes terraform output with proper environment setup for the specified component.
+// It locates the component path, generates terraform arguments with backend configuration, sets environment variables,
+// creates backend_override.tf, runs terraform output, and performs cleanup. Returns an empty map for any error to avoid blocking the env pipeline.
+func (e *TerraformEnvPrinter) captureTerraformOutputs(modulePath string) (map[string]any, error) {
+	var componentPath string
+	components := e.blueprintHandler.GetTerraformComponents()
+	for _, component := range components {
+		if component.FullPath == modulePath {
+			componentPath = component.Path
+			break
+		}
+	}
+
+	if componentPath == "" {
+		return make(map[string]any), nil
+	}
+
+	terraformArgs, err := e.GenerateTerraformArgs(componentPath, modulePath)
+	if err != nil {
+		return make(map[string]any), nil
+	}
+
+	originalTFDataDir := e.shims.Getenv("TF_DATA_DIR")
+
+	if err := e.setEnvVar("TF_DATA_DIR", terraformArgs.TFDataDir); err != nil {
+		return make(map[string]any), nil
+	}
+
+	if err := e.generateBackendOverrideTf(modulePath); err != nil {
+		e.restoreEnvVar("TF_DATA_DIR", originalTFDataDir)
+		return make(map[string]any), nil
+	}
+
+	cleanup := func() {
+		backendOverridePath := filepath.Join(modulePath, "backend_override.tf")
+		if _, err := e.shims.Stat(backendOverridePath); err == nil {
+			_ = e.shims.Remove(backendOverridePath)
+		}
+		e.restoreEnvVar("TF_DATA_DIR", originalTFDataDir)
+	}
+	defer cleanup()
+
+	outputArgs := []string{fmt.Sprintf("-chdir=%s", modulePath), "output", "-json"}
+	output, err := e.shell.ExecSilent("terraform", outputArgs...)
+	if err != nil {
+		return make(map[string]any), nil
+	}
+
+	if strings.TrimSpace(output) == "" || strings.TrimSpace(output) == "{}" {
+		return make(map[string]any), nil
+	}
+
+	var outputs map[string]any
+	if err := e.shims.JsonUnmarshal([]byte(output), &outputs); err != nil {
+		return make(map[string]any), nil
+	}
+
+	result := make(map[string]any)
+	for key, value := range outputs {
+		if valueMap, ok := value.(map[string]any); ok {
+			if outputValue, exists := valueMap["value"]; exists {
+				result[key] = outputValue
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// setEnvVar sets an environment variable using os.Setenv as a fallback since shims doesn't have Setenv
+func (e *TerraformEnvPrinter) setEnvVar(key, value string) error {
+	return os.Setenv(key, value)
+}
+
+// restoreEnvVar restores an environment variable to its original value or unsets it if it was empty
+func (e *TerraformEnvPrinter) restoreEnvVar(key, originalValue string) {
+	if originalValue != "" {
+		_ = os.Setenv(key, originalValue)
+	} else {
+		_ = os.Unsetenv(key)
+	}
+}
 
 // generateBackendOverrideTf creates the backend_override.tf file for the project by determining
 // the backend type and writing the appropriate configuration to the file.
