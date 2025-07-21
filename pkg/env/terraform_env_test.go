@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 )
 
@@ -20,6 +22,13 @@ import (
 func setupTerraformEnvMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	// Pass the mock config handler to setupMocks
 	mocks := setupMocks(t, opts...)
+
+	// Create and register mock blueprint handler
+	mockBlueprint := blueprint.NewMockBlueprintHandler(mocks.Injector)
+	mockBlueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+		return []blueprintv1alpha1.TerraformComponent{}
+	}
+	mocks.Injector.Register("blueprintHandler", mockBlueprint)
 
 	mocks.Shims.Getwd = func() (string, error) {
 		// Use platform-agnostic path
@@ -1353,6 +1362,302 @@ func TestTerraformEnv_processBackendConfig(t *testing.T) {
 		expectedError := "error unmarshalling backend YAML: mock unmarshal error"
 		if err.Error() != expectedError {
 			t.Errorf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+}
+
+func TestTerraformEnv_DependencyResolution(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformEnvPrinter, *Mocks) {
+		t.Helper()
+		mocks := setupTerraformEnvMocks(t)
+		printer := NewTerraformEnvPrinter(mocks.Injector)
+		printer.shims = mocks.Shims
+		if err := printer.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize printer: %v", err)
+		}
+		return printer, mocks
+	}
+
+	t.Run("ValidDependencyChain", func(t *testing.T) {
+		printer, mocks := setup(t)
+
+		// Get the blueprint handler from the injector and configure it
+		blueprintHandler := mocks.Injector.Resolve("blueprintHandler").(*blueprint.MockBlueprintHandler)
+		blueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:      "vpc",
+					FullPath:  "/project/.windsor/.tf_modules/vpc",
+					DependsOn: []string{},
+				},
+				{
+					Path:      "subnets",
+					FullPath:  "/project/.windsor/.tf_modules/subnets",
+					DependsOn: []string{"vpc"},
+				},
+				{
+					Path:      "app",
+					FullPath:  "/project/.windsor/.tf_modules/app",
+					DependsOn: []string{"subnets"},
+				},
+			}
+		}
+
+		// Mock terraform output for dependencies
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 2 && args[1] == "output" && args[2] == "-json" {
+				if strings.Contains(args[0], "vpc") {
+					return `{"vpc_id": {"value": "vpc-12345"}, "subnet_cidrs": {"value": ["10.0.1.0/24", "10.0.2.0/24"]}}`, nil
+				}
+				if strings.Contains(args[0], "subnets") {
+					return `{"subnet_ids": {"value": ["subnet-abc", "subnet-def"]}, "vpc_id": {"value": "vpc-12345"}}`, nil
+				}
+			}
+			return "", nil
+		}
+
+		// Set up the current working directory to match the "app" component
+		mocks.Shims.Getwd = func() (string, error) {
+			return "/project/terraform/app", nil
+		}
+
+		// When getting environment variables for the "app" component
+		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And dependency variables should be included (only from direct dependencies)
+		expectedVars := map[string]string{
+			"TF_VAR_subnet_ids": "[subnet-abc subnet-def]",
+			"TF_VAR_vpc_id":     "vpc-12345",
+		}
+
+		for expectedKey, expectedValue := range expectedVars {
+			if actualValue, exists := envVars[expectedKey]; !exists {
+				t.Errorf("Expected environment variable %s to be set", expectedKey)
+			} else if actualValue != expectedValue {
+				t.Errorf("Expected %s to be %s, got %s", expectedKey, expectedValue, actualValue)
+			}
+		}
+
+		// Verify that transitive dependencies are NOT included directly
+		// Note: With the new naming format, TF_VAR_vpc_id comes from the direct dependency "subnets"
+		// The transitive "vpc" component's outputs are not directly accessible
+		transitiveVars := []string{
+			"TF_VAR_subnet_cidrs", // This should not be present as it's only in the transitive "vpc" dependency
+		}
+
+		for _, transitiveVar := range transitiveVars {
+			if _, exists := envVars[transitiveVar]; exists {
+				t.Errorf("Expected transitive dependency variable %s to NOT be set directly", transitiveVar)
+			}
+		}
+	})
+
+	t.Run("CircularDependencyDetection", func(t *testing.T) {
+		printer, mocks := setup(t)
+
+		// Get the blueprint handler from the injector and configure it
+		blueprintHandler := mocks.Injector.Resolve("blueprintHandler").(*blueprint.MockBlueprintHandler)
+		blueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:      "a",
+					FullPath:  "/project/.windsor/.tf_modules/a",
+					DependsOn: []string{"b"},
+				},
+				{
+					Path:      "b",
+					FullPath:  "/project/.windsor/.tf_modules/b",
+					DependsOn: []string{"c"},
+				},
+				{
+					Path:      "c",
+					FullPath:  "/project/.windsor/.tf_modules/c",
+					DependsOn: []string{"a"},
+				},
+			}
+		}
+
+		// Set up the current working directory to match one of the components
+		mocks.Shims.Getwd = func() (string, error) {
+			return "/project/terraform/a", nil
+		}
+
+		// When getting environment variables
+		_, err := printer.GetEnvVars()
+
+		// Then it should detect circular dependency
+		if err == nil {
+			t.Errorf("Expected error for circular dependency, but got nil")
+		} else if !strings.Contains(err.Error(), "circular dependency") {
+			t.Errorf("Expected error to contain 'circular dependency', got %v", err)
+		}
+	})
+
+	t.Run("NonExistentDependency", func(t *testing.T) {
+		printer, mocks := setup(t)
+
+		// Get the blueprint handler from the injector and configure it
+		blueprintHandler := mocks.Injector.Resolve("blueprintHandler").(*blueprint.MockBlueprintHandler)
+		blueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:      "app",
+					FullPath:  "/project/.windsor/.tf_modules/app",
+					DependsOn: []string{"nonexistent"},
+				},
+			}
+		}
+
+		// Set up the current working directory to match the component
+		mocks.Shims.Getwd = func() (string, error) {
+			return "/project/terraform/app", nil
+		}
+
+		// When getting environment variables
+		_, err := printer.GetEnvVars()
+
+		// Then it should detect missing dependency
+		if err == nil {
+			t.Errorf("Expected error for non-existent dependency, but got nil")
+		} else if !strings.Contains(err.Error(), "does not exist") {
+			t.Errorf("Expected error to contain 'does not exist', got %v", err)
+		}
+	})
+
+	t.Run("ComponentsWithoutNames", func(t *testing.T) {
+		printer, mocks := setup(t)
+
+		// Get the blueprint handler from the injector and configure it
+		blueprintHandler := mocks.Injector.Resolve("blueprintHandler").(*blueprint.MockBlueprintHandler)
+		blueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:      "vpc/main",
+					FullPath:  "/project/.windsor/.tf_modules/vpc/main",
+					DependsOn: []string{},
+				},
+				{
+					Path:      "app/frontend",
+					FullPath:  "/project/.windsor/.tf_modules/app/frontend",
+					DependsOn: []string{"vpc/main"},
+				},
+			}
+		}
+
+		// Mock terraform output
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 2 && args[1] == "output" && args[2] == "-json" {
+				return `{"vpc_id": {"value": "vpc-12345"}}`, nil
+			}
+			return "", nil
+		}
+
+		// Set up the current working directory to match the dependent component
+		mocks.Shims.Getwd = func() (string, error) {
+			return "/project/terraform/app/frontend", nil
+		}
+
+		// When getting environment variables
+		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And dependency variable should be included
+		if actualValue, exists := envVars["TF_VAR_vpc_id"]; !exists {
+			t.Errorf("Expected environment variable TF_VAR_vpc_id to be set")
+		} else if actualValue != "vpc-12345" {
+			t.Errorf("Expected TF_VAR_vpc_id to be vpc-12345, got %s", actualValue)
+		}
+	})
+
+	t.Run("EmptyTerraformOutput", func(t *testing.T) {
+		printer, mocks := setup(t)
+
+		// Get the blueprint handler from the injector and configure it
+		blueprintHandler := mocks.Injector.Resolve("blueprintHandler").(*blueprint.MockBlueprintHandler)
+		blueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:      "base",
+					FullPath:  "/project/.windsor/.tf_modules/base",
+					DependsOn: []string{},
+				},
+				{
+					Path:      "app",
+					FullPath:  "/project/.windsor/.tf_modules/app",
+					DependsOn: []string{"base"},
+				},
+			}
+		}
+
+		// Mock terraform output with empty response
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 2 && args[1] == "output" && args[2] == "-json" {
+				return "{}", nil
+			}
+			return "", nil
+		}
+
+		// Set up the current working directory to match the dependent component
+		mocks.Shims.Getwd = func() (string, error) {
+			return "/project/terraform/app", nil
+		}
+
+		// When getting environment variables
+		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned even with empty output
+		if err != nil {
+			t.Errorf("Expected no error even with empty output, got %v", err)
+		}
+
+		// And standard terraform env vars should still be present
+		if _, exists := envVars["TF_VAR_context_path"]; !exists {
+			t.Errorf("Expected standard terraform environment variables to be present")
+		}
+	})
+
+	t.Run("NoCurrentComponent", func(t *testing.T) {
+		printer, mocks := setup(t)
+
+		// Get the blueprint handler from the injector and configure it
+		blueprintHandler := mocks.Injector.Resolve("blueprintHandler").(*blueprint.MockBlueprintHandler)
+		blueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:      "vpc",
+					FullPath:  "/project/.windsor/.tf_modules/vpc",
+					DependsOn: []string{},
+				},
+			}
+		}
+
+		// Set up the current working directory to not match any component
+		mocks.Shims.Getwd = func() (string, error) {
+			return "/project/terraform/nonexistent", nil
+		}
+
+		// When getting environment variables
+		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And no dependency variables should be added
+		for key := range envVars {
+			if strings.HasPrefix(key, "TF_VAR_vpc_") {
+				t.Errorf("Expected no dependency variables, but found %s", key)
+			}
 		}
 	})
 }

@@ -115,6 +115,9 @@ type TerraformComponent struct {
 	// FullPath is the complete path, not serialized to YAML.
 	FullPath string `yaml:"-"`
 
+	// DependsOn lists dependencies of this terraform component.
+	DependsOn []string `yaml:"dependsOn,omitempty"`
+
 	// Values are configuration values for the module.
 	Values map[string]any `yaml:"values,omitempty"`
 
@@ -235,12 +238,15 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 		valuesCopy := make(map[string]any, len(component.Values))
 		maps.Copy(valuesCopy, component.Values)
 
+		dependsOnCopy := append([]string{}, component.DependsOn...)
+
 		terraformComponentsCopy[i] = TerraformComponent{
-			Source:   component.Source,
-			Path:     component.Path,
-			FullPath: component.FullPath,
-			Values:   valuesCopy,
-			Destroy:  component.Destroy,
+			Source:    component.Source,
+			Path:      component.Path,
+			FullPath:  component.FullPath,
+			DependsOn: dependsOnCopy,
+			Values:    valuesCopy,
+			Destroy:   component.Destroy,
 		}
 	}
 
@@ -339,6 +345,10 @@ func (b *Blueprint) Merge(overlay *Blueprint) {
 
 					if overlayComponent.FullPath != "" {
 						mergedComponent.FullPath = overlayComponent.FullPath
+					}
+
+					if overlayComponent.DependsOn != nil {
+						mergedComponent.DependsOn = overlayComponent.DependsOn
 					}
 
 					if overlayComponent.Destroy != nil {

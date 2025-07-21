@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/secrets"
@@ -22,6 +23,7 @@ import (
 // EnvPipeline provides environment variable printing functionality
 type EnvPipeline struct {
 	BasePipeline
+	blueprintHandler blueprint.BlueprintHandler
 	envPrinters      []env.EnvPrinter
 	secretsProviders []secrets.SecretsProvider
 }
@@ -52,6 +54,26 @@ func NewDefaultEnvPipeline() *EnvPipeline {
 func (p *EnvPipeline) Initialize(injector di.Injector, ctx context.Context) error {
 	if err := p.BasePipeline.Initialize(injector, ctx); err != nil {
 		return err
+	}
+
+	kubernetesClient := p.withKubernetesClient()
+	if kubernetesClient != nil {
+		p.injector.Register("kubernetesClient", kubernetesClient)
+	}
+
+	kubernetesManager := p.withKubernetesManager()
+	if kubernetesManager != nil {
+		if err := kubernetesManager.Initialize(); err != nil {
+			return fmt.Errorf("failed to initialize kubernetes manager: %w", err)
+		}
+	}
+
+	p.blueprintHandler = p.withBlueprintHandler()
+	if p.blueprintHandler != nil {
+		if err := p.blueprintHandler.Initialize(); err != nil {
+			return fmt.Errorf("failed to initialize blueprint handler: %w", err)
+		}
+		_ = p.blueprintHandler.LoadConfig()
 	}
 
 	secretsProviders, err := p.withSecretsProviders()

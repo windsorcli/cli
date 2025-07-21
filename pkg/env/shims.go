@@ -7,6 +7,7 @@ package env
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,6 +29,7 @@ type Shims struct {
 	ReadDir        func(string) ([]os.DirEntry, error)
 	YamlUnmarshal  func([]byte, any) error
 	YamlMarshal    func(any) ([]byte, error)
+	JsonUnmarshal  func([]byte, any) error
 	Remove         func(string) error
 	RemoveAll      func(string) error
 	CryptoRandRead func([]byte) (int, error)
@@ -55,6 +57,7 @@ func NewShims() *Shims {
 		ReadDir:        os.ReadDir,
 		YamlUnmarshal:  yaml.Unmarshal,
 		YamlMarshal:    yaml.Marshal,
+		JsonUnmarshal:  json.Unmarshal,
 		Remove:         os.Remove,
 		RemoveAll:      os.RemoveAll,
 		CryptoRandRead: func(b []byte) (int, error) { return rand.Read(b) },
