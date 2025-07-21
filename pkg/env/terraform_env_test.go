@@ -35,11 +35,13 @@ func setupTerraformEnvMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		return filepath.Join("mock", "project", "root", "terraform", "project", "path"), nil
 	}
 
+	// Smart Glob function that handles any terraform directory pattern
 	mocks.Shims.Glob = func(pattern string) ([]string, error) {
 		if strings.Contains(pattern, "*.tf") {
+			// Extract directory from pattern and return a main.tf file in that directory
+			dir := filepath.Dir(pattern)
 			return []string{
-				filepath.Join("real", "terraform", "project", "path", "file1.tf"),
-				filepath.Join("real", "terraform", "project", "path", "file2.tf"),
+				filepath.Join(dir, "main.tf"),
 			}, nil
 		}
 		return nil, nil
