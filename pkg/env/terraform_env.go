@@ -133,9 +133,9 @@ func (e *TerraformEnvPrinter) Print() error {
 	return e.BaseEnvPrinter.Print(envVars)
 }
 
-// GenerateTerraformArgs constructs Terraform CLI argument lists and environment variables for the specified project and module paths.
-// It resolves configuration root, locates relevant tfvars files, generates backend configuration arguments, and assembles
-// all required CLI and environment variable values for Terraform operations. Returns a TerraformArgs struct or error.
+// GenerateTerraformArgs constructs Terraform CLI arguments and environment variables for given project and module paths.
+// Resolves config root, locates tfvars files, generates backend config args, and assembles all CLI/env values needed
+// for Terraform operations. Returns a TerraformArgs struct or error.
 func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath string) (*TerraformArgs, error) {
 	configRoot, err := e.configHandler.GetConfigRoot()
 	if err != nil {
@@ -182,8 +182,7 @@ func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath stri
 	planArgs := []string{fmt.Sprintf("-out=%s", tfPlanPath)}
 	planArgs = append(planArgs, varFileArgs...)
 
-	applyArgs := []string{tfPlanPath}
-
+	applyArgs := []string{}
 	refreshArgs := []string{}
 	refreshArgs = append(refreshArgs, varFileArgs...)
 
@@ -193,14 +192,29 @@ func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath stri
 	destroyArgs := []string{"-auto-approve"}
 	destroyArgs = append(destroyArgs, varFileArgs...)
 
+	var parallelismArg string
+	if e.blueprintHandler != nil {
+		components := e.blueprintHandler.GetTerraformComponents()
+		for _, component := range components {
+			if component.Path == projectPath && component.Parallelism != nil {
+				parallelismArg = fmt.Sprintf(" -parallelism=%d", *component.Parallelism)
+				applyArgs = append(applyArgs, fmt.Sprintf("-parallelism=%d", *component.Parallelism))
+				destroyArgs = append(destroyArgs, fmt.Sprintf("-parallelism=%d", *component.Parallelism))
+				break
+			}
+		}
+	}
+
+	applyArgs = append(applyArgs, tfPlanPath)
+
 	terraformVars := make(map[string]string)
 	terraformVars["TF_DATA_DIR"] = strings.TrimSpace(tfDataDir)
 	terraformVars["TF_CLI_ARGS_init"] = strings.TrimSpace(fmt.Sprintf("-backend=true -force-copy %s", strings.Join(backendConfigArgsForEnv, " ")))
 	terraformVars["TF_CLI_ARGS_plan"] = strings.TrimSpace(fmt.Sprintf("-out=\"%s\" %s", tfPlanPath, strings.Join(varFileArgsForEnv, " ")))
-	terraformVars["TF_CLI_ARGS_apply"] = strings.TrimSpace(fmt.Sprintf("\"%s\"", tfPlanPath))
+	terraformVars["TF_CLI_ARGS_apply"] = strings.TrimSpace(fmt.Sprintf("\"%s\"%s", tfPlanPath, parallelismArg))
 	terraformVars["TF_CLI_ARGS_refresh"] = strings.TrimSpace(strings.Join(varFileArgsForEnv, " "))
 	terraformVars["TF_CLI_ARGS_import"] = strings.TrimSpace(strings.Join(varFileArgsForEnv, " "))
-	terraformVars["TF_CLI_ARGS_destroy"] = strings.TrimSpace(strings.Join(varFileArgsForEnv, " "))
+	terraformVars["TF_CLI_ARGS_destroy"] = strings.TrimSpace(fmt.Sprintf("%s%s", strings.Join(varFileArgsForEnv, " "), parallelismArg))
 	terraformVars["TF_VAR_context_path"] = strings.TrimSpace(filepath.ToSlash(configRoot))
 	terraformVars["TF_VAR_context_id"] = strings.TrimSpace(e.configHandler.GetString("id", ""))
 

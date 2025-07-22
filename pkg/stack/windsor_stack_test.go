@@ -329,7 +329,7 @@ func TestWindsorStack_Up(t *testing.T) {
 		// Then terraform apply should be called with parallelism flag
 		foundApplyWithParallelism := false
 		for _, cmd := range capturedCommands {
-			if len(cmd) >= 5 && cmd[2] == "apply" && cmd[4] == "-parallelism=5" {
+			if len(cmd) >= 5 && cmd[2] == "apply" && cmd[3] == "-parallelism=5" {
 				foundApplyWithParallelism = true
 				break
 			}
