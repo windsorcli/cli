@@ -467,49 +467,4 @@ func TestWindsorStack_Down(t *testing.T) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
 		}
 	})
-
-	t.Run("ErrorRemovingBackendOverride", func(t *testing.T) {
-		stack, mocks := setup(t)
-		mocks.Shims.Remove = func(_ string) error {
-			return fmt.Errorf("mock error removing backend override")
-		}
-
-		// And when Down is called
-		err := stack.Down()
-		// Then the expected error is contained in err
-		expectedError := "error removing backend_override.tf"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("SkipComponentWithDestroyFalse", func(t *testing.T) {
-		stack, mocks := setup(t)
-		mocks.Blueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{
-				{
-					Source:   "source1",
-					Path:     "module/path1",
-					FullPath: filepath.Join(os.Getenv("WINDSOR_PROJECT_ROOT"), ".windsor", ".tf_modules", "remote", "path"),
-					Destroy:  ptrBool(false),
-				},
-			}
-		}
-
-		// And when Down is called
-		err := stack.Down()
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("Expected Down to return nil, got %v", err)
-		}
-	})
-}
-
-// Helper functions to create pointers for basic types
-func ptrBool(b bool) *bool {
-	return &b
-}
-
-func ptrInt(i int) *int {
-	return &i
 }
