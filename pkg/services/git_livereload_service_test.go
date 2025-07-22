@@ -98,4 +98,95 @@ func TestGitLivereloadService_GetComposeConfig(t *testing.T) {
 			t.Fatalf("expected error retrieving project root, got %v", err)
 		}
 	})
+
+	t.Run("SuccessWithRsyncInclude", func(t *testing.T) {
+		// Given a mock config handler, shell, context, and service with rsync_include configured
+		mocks := setupMocks(t)
+		gitLivereloadService := NewGitLivereloadService(mocks.Injector)
+		err := gitLivereloadService.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// Set the service name
+		gitLivereloadService.SetName("git")
+
+		// Configure rsync_include in the mock config
+		mocks.ConfigHandler.SetContextValue("git.livereload.rsync_include", "kustomize")
+
+		// When GetComposeConfig is called
+		composeConfig, err := gitLivereloadService.GetComposeConfig()
+		if err != nil {
+			t.Fatalf("GetComposeConfig() error = %v", err)
+		}
+
+		// Then verify the configuration contains the expected service with RSYNC_INCLUDE
+		expectedName := "git"
+		serviceFound := false
+		rsyncIncludeFound := false
+
+		for _, service := range composeConfig.Services {
+			if service.Name == expectedName {
+				serviceFound = true
+				// Check if RSYNC_INCLUDE environment variable is set
+				if rsyncInclude, exists := service.Environment["RSYNC_INCLUDE"]; exists && rsyncInclude != nil {
+					if *rsyncInclude == "kustomize" {
+						rsyncIncludeFound = true
+					}
+				}
+				break
+			}
+		}
+
+		if !serviceFound {
+			t.Errorf("expected service with name %q to be in the list of configurations", expectedName)
+		}
+		if !rsyncIncludeFound {
+			t.Errorf("expected RSYNC_INCLUDE environment variable to be set to 'kustomize'")
+		}
+	})
+
+	t.Run("SuccessWithoutRsyncInclude", func(t *testing.T) {
+		// Given a mock config handler, shell, context, and service without rsync_include configured
+		mocks := setupMocks(t)
+		gitLivereloadService := NewGitLivereloadService(mocks.Injector)
+		err := gitLivereloadService.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// Set the service name
+		gitLivereloadService.SetName("git")
+
+		// When GetComposeConfig is called (using default empty rsync_include)
+		composeConfig, err := gitLivereloadService.GetComposeConfig()
+		if err != nil {
+			t.Fatalf("GetComposeConfig() error = %v", err)
+		}
+
+		// Then verify the configuration contains the expected service with default RSYNC_INCLUDE
+		expectedName := "git"
+		serviceFound := false
+		rsyncIncludeFound := false
+
+		for _, service := range composeConfig.Services {
+			if service.Name == expectedName {
+				serviceFound = true
+				// Check if RSYNC_INCLUDE environment variable is set to default value
+				if rsyncInclude, exists := service.Environment["RSYNC_INCLUDE"]; exists && rsyncInclude != nil {
+					if *rsyncInclude == "kustomize" {
+						rsyncIncludeFound = true
+					}
+				}
+				break
+			}
+		}
+
+		if !serviceFound {
+			t.Errorf("expected service with name %q to be in the list of configurations", expectedName)
+		}
+		if !rsyncIncludeFound {
+			t.Errorf("expected RSYNC_INCLUDE environment variable to be set to default value 'kustomize'")
+		}
+	})
 }

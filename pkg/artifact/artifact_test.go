@@ -34,7 +34,7 @@ func (m *mockFileInfo) Size() int64        { return 0 }
 func (m *mockFileInfo) Mode() os.FileMode  { return 0 }
 func (m *mockFileInfo) ModTime() time.Time { return time.Time{} }
 func (m *mockFileInfo) IsDir() bool        { return m.isDir }
-func (m *mockFileInfo) Sys() interface{}   { return nil }
+func (m *mockFileInfo) Sys() any           { return nil }
 
 type ArtifactMocks struct {
 	Injector di.Injector
@@ -1005,7 +1005,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorFromCreateFluxCDCompatibleImage", func(t *testing.T) {
+	t.Run("ErrorFromCreateOCIArtifactImage", func(t *testing.T) {
 		// Given a builder with valid metadata
 		builder, mocks := setup(t)
 
@@ -2077,7 +2077,7 @@ func TestArtifactBuilder_getBuilderInfo(t *testing.T) {
 	})
 }
 
-func TestArtifactBuilder_createFluxCDCompatibleImage(t *testing.T) {
+func TestArtifactBuilder_createOCIArtifactImage(t *testing.T) {
 	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
 		t.Helper()
 		mocks := setupArtifactMocks(t)
@@ -2104,8 +2104,8 @@ func TestArtifactBuilder_createFluxCDCompatibleImage(t *testing.T) {
 			return nil, fmt.Errorf("append layers failed")
 		}
 
-		// When creating FluxCD compatible image
-		_, err := builder.createFluxCDCompatibleImage(nil, "test-repo", "v1.0.0")
+		// When creating OCI artifact image
+		_, err := builder.createOCIArtifactImage(nil, "test-repo", "v1.0.0")
 
 		// Then should get append layers error
 		if err == nil || !strings.Contains(err.Error(), "failed to append layer to image") {
@@ -2160,8 +2160,8 @@ func TestArtifactBuilder_createFluxCDCompatibleImage(t *testing.T) {
 			return mockImage
 		}
 
-		// When creating FluxCD compatible image
-		img, err := builder.createFluxCDCompatibleImage(nil, "test-repo", "v1.0.0")
+		// When creating OCI artifact image
+		img, err := builder.createOCIArtifactImage(nil, "test-repo", "v1.0.0")
 
 		// Then should succeed
 		if err != nil {
@@ -2212,8 +2212,8 @@ func TestArtifactBuilder_createFluxCDCompatibleImage(t *testing.T) {
 			return mockImage
 		}
 
-		// When creating FluxCD compatible image
-		img, err := builder.createFluxCDCompatibleImage(nil, "test-repo", "v1.0.0")
+		// When creating OCI artifact image
+		img, err := builder.createOCIArtifactImage(nil, "test-repo", "v1.0.0")
 
 		// Then should succeed
 		if err != nil {
@@ -2272,8 +2272,8 @@ func TestArtifactBuilder_createFluxCDCompatibleImage(t *testing.T) {
 			return mockImage
 		}
 
-		// When creating FluxCD compatible image
-		img, err := builder.createFluxCDCompatibleImage(nil, "test-repo", "v1.0.0")
+		// When creating OCI artifact image
+		img, err := builder.createOCIArtifactImage(nil, "test-repo", "v1.0.0")
 
 		// Then should succeed
 		if err != nil {
@@ -2994,3 +2994,441 @@ func (m *mockReference) Identifier() string         { return "" }
 func (m *mockReference) Name() string               { return "" }
 func (m *mockReference) String() string             { return "" }
 func (m *mockReference) Scope(action string) string { return "" }
+
+func TestArtifactBuilder_GetTemplateData(t *testing.T) {
+	t.Run("InvalidOCIReference", func(t *testing.T) {
+		// Given an artifact builder
+		builder := NewArtifactBuilder()
+
+		// When calling GetTemplateData with invalid reference
+		templateData, err := builder.GetTemplateData("invalid-ref")
+
+		// Then should return error
+		if err == nil {
+			t.Fatal("Expected error for invalid OCI reference")
+		}
+		if !strings.Contains(err.Error(), "invalid OCI reference") {
+			t.Errorf("Expected error to contain 'invalid OCI reference', got %v", err)
+		}
+		if templateData != nil {
+			t.Error("Expected nil template data on error")
+		}
+	})
+
+	t.Run("ErrorParsingOCIReference", func(t *testing.T) {
+		// Given an artifact builder with mock shims
+		builder := NewArtifactBuilder()
+		builder.shims = &Shims{
+			ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
+				return nil, fmt.Errorf("parse error")
+			},
+		}
+
+		// When calling GetTemplateData with malformed OCI reference
+		templateData, err := builder.GetTemplateData("oci://invalid")
+
+		// Then should return error
+		if err == nil {
+			t.Fatal("Expected error for malformed OCI reference")
+		}
+		if !strings.Contains(err.Error(), "failed to parse OCI reference") {
+			t.Errorf("Expected error to contain 'failed to parse OCI reference', got %v", err)
+		}
+		if templateData != nil {
+			t.Error("Expected nil template data on error")
+		}
+	})
+
+	t.Run("UsesCachedArtifact", func(t *testing.T) {
+		// Given an artifact builder with cached data
+		builder := NewArtifactBuilder()
+
+		// Create test tar.gz data
+		testData := createTestTarGz(t, map[string][]byte{
+			"metadata.yaml":               []byte("name: test\nversion: v1.0.0\n"),
+			"_template/blueprint.jsonnet": []byte("{ blueprint: 'content' }"),
+			"template.jsonnet":            []byte("{ template: 'content' }"),
+			"ignored.yaml":                []byte("ignored: content"),
+		})
+
+		// Pre-populate cache
+		builder.ociCache["registry.example.com/test:v1.0.0"] = testData
+
+		downloadCalled := false
+		builder.shims = &Shims{
+			ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
+				return &mockReference{}, nil
+			},
+			RemoteImage: func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+				downloadCalled = true
+				return nil, fmt.Errorf("should not be called")
+			},
+			YamlUnmarshal: func(data []byte, v any) error {
+				if metadata, ok := v.(*BlueprintMetadata); ok {
+					metadata.Name = "test"
+					metadata.Version = "v1.0.0"
+				}
+				return nil
+			},
+		}
+
+		// When calling GetTemplateData
+		templateData, err := builder.GetTemplateData("oci://registry.example.com/test:v1.0.0")
+
+		// Then should use cached data without downloading
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if downloadCalled {
+			t.Error("Expected download not to be called when using cached data")
+		}
+		if templateData == nil {
+			t.Fatal("Expected template data, got nil")
+		}
+		if len(templateData) != 4 {
+			t.Errorf("Expected 4 files (2 .jsonnet + 2 metadata), got %d", len(templateData))
+		}
+		if string(templateData["template.jsonnet"]) != "{ template: 'content' }" {
+			t.Errorf("Expected template.jsonnet content to be '{ template: 'content' }', got %s", string(templateData["template.jsonnet"]))
+		}
+		if string(templateData["ociUrl"]) != "oci://registry.example.com/test:v1.0.0" {
+			t.Errorf("Expected ociUrl to be 'oci://registry.example.com/test:v1.0.0', got %s", string(templateData["ociUrl"]))
+		}
+		if string(templateData["name"]) != "test" {
+			t.Errorf("Expected name to be 'test', got %s", string(templateData["name"]))
+		}
+		if _, exists := templateData["ignored.yaml"]; exists {
+			t.Error("Expected ignored.yaml to be filtered out")
+		}
+	})
+
+	t.Run("FiltersOnlyJsonnetFiles", func(t *testing.T) {
+		// Given an artifact builder with cached data containing multiple file types
+		builder := NewArtifactBuilder()
+
+		// Create test tar.gz data with mixed file types
+		testData := createTestTarGz(t, map[string][]byte{
+			"metadata.yaml":               []byte("name: test\nversion: v1.0.0\n"),
+			"_template/blueprint.jsonnet": []byte("{ blueprint: 'content' }"),
+			"template.jsonnet":            []byte("{ template: 'content' }"),
+			"config.yaml":                 []byte("config: value"),
+			"script.sh":                   []byte("#!/bin/bash"),
+			"another.jsonnet":             []byte("{ another: 'template' }"),
+			"README.md":                   []byte("# README"),
+			"nested/dir.jsonnet":          []byte("{ nested: 'template' }"),
+			"nested/config.json":          []byte("{ json: 'config' }"),
+		})
+
+		// Pre-populate cache
+		builder.ociCache["registry.example.com/test:v1.0.0"] = testData
+
+		builder.shims = &Shims{
+			ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
+				return &mockReference{}, nil
+			},
+			YamlUnmarshal: func(data []byte, v any) error {
+				if metadata, ok := v.(*BlueprintMetadata); ok {
+					metadata.Name = "test"
+					metadata.Version = "v1.0.0"
+				}
+				return nil
+			},
+		}
+
+		// When calling GetTemplateData
+		templateData, err := builder.GetTemplateData("oci://registry.example.com/test:v1.0.0")
+
+		// Then should only return .jsonnet files
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if templateData == nil {
+			t.Fatal("Expected template data, got nil")
+		}
+		if len(templateData) != 6 {
+			t.Errorf("Expected 6 files (4 .jsonnet + 2 metadata), got %d", len(templateData))
+		}
+
+		// And should contain OCI metadata
+		if string(templateData["ociUrl"]) != "oci://registry.example.com/test:v1.0.0" {
+			t.Errorf("Expected ociUrl to be 'oci://registry.example.com/test:v1.0.0', got %s", string(templateData["ociUrl"]))
+		}
+		if string(templateData["name"]) != "test" {
+			t.Errorf("Expected name to be 'test', got %s", string(templateData["name"]))
+		}
+
+		// And should contain only .jsonnet files
+		expectedFiles := []string{"blueprint.jsonnet", "template.jsonnet", "another.jsonnet", "nested/dir.jsonnet"}
+		for _, expectedFile := range expectedFiles {
+			if _, exists := templateData[expectedFile]; !exists {
+				t.Errorf("Expected %s to be included", expectedFile)
+			}
+		}
+
+		// And should not contain non-.jsonnet files
+		excludedFiles := []string{"config.yaml", "script.sh", "README.md", "nested/config.json"}
+		for _, excludedFile := range excludedFiles {
+			if _, exists := templateData[excludedFile]; exists {
+				t.Errorf("Expected %s to be filtered out", excludedFile)
+			}
+		}
+	})
+
+	t.Run("ErrorWhenMissingMetadata", func(t *testing.T) {
+		// Given an artifact builder with cached data missing metadata.yaml
+		builder := NewArtifactBuilder()
+
+		// Create test tar.gz data without metadata.yaml
+		testData := createTestTarGz(t, map[string][]byte{
+			"_template/blueprint.jsonnet": []byte("{ template: 'content' }"),
+			"other.jsonnet":               []byte("{ other: 'content' }"),
+		})
+
+		// Pre-populate cache
+		builder.ociCache["registry.example.com/test:v1.0.0"] = testData
+
+		builder.shims = &Shims{
+			ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
+				return &mockReference{}, nil
+			},
+		}
+
+		// When calling GetTemplateData
+		templateData, err := builder.GetTemplateData("oci://registry.example.com/test:v1.0.0")
+
+		// Then should return error
+		if err == nil {
+			t.Fatal("Expected error for missing metadata.yaml")
+		}
+		if !strings.Contains(err.Error(), "OCI artifact missing required metadata.yaml file") {
+			t.Errorf("Expected error to contain 'OCI artifact missing required metadata.yaml file', got %v", err)
+		}
+		if templateData != nil {
+			t.Error("Expected nil template data on error")
+		}
+	})
+
+	t.Run("ErrorWhenMissingBlueprintJsonnet", func(t *testing.T) {
+		// Given an artifact builder with cached data missing _template/blueprint.jsonnet
+		builder := NewArtifactBuilder()
+
+		// Create test tar.gz data without _template/blueprint.jsonnet
+		testData := createTestTarGz(t, map[string][]byte{
+			"metadata.yaml":  []byte("name: test\nversion: v1.0.0\n"),
+			"other.jsonnet":  []byte("{ other: 'content' }"),
+			"config.jsonnet": []byte("{ config: 'content' }"),
+		})
+
+		// Pre-populate cache
+		builder.ociCache["registry.example.com/test:v1.0.0"] = testData
+
+		builder.shims = &Shims{
+			ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
+				return &mockReference{}, nil
+			},
+			YamlUnmarshal: func(data []byte, v any) error {
+				if metadata, ok := v.(*BlueprintMetadata); ok {
+					metadata.Name = "test"
+					metadata.Version = "v1.0.0"
+				}
+				return nil
+			},
+		}
+
+		// When calling GetTemplateData
+		templateData, err := builder.GetTemplateData("oci://registry.example.com/test:v1.0.0")
+
+		// Then should return error
+		if err == nil {
+			t.Fatal("Expected error for missing _template/blueprint.jsonnet")
+		}
+		if !strings.Contains(err.Error(), "OCI artifact missing required _template/blueprint.jsonnet file") {
+			t.Errorf("Expected error to contain 'OCI artifact missing required _template/blueprint.jsonnet file', got %v", err)
+		}
+		if templateData != nil {
+			t.Error("Expected nil template data on error")
+		}
+	})
+
+	t.Run("SuccessWithRequiredFiles", func(t *testing.T) {
+		// Given an artifact builder with cached data containing required files
+		builder := NewArtifactBuilder()
+
+		// Create test tar.gz data with required files
+		testData := createTestTarGz(t, map[string][]byte{
+			"metadata.yaml":               []byte("name: test\nversion: v1.0.0\n"),
+			"_template/blueprint.jsonnet": []byte("{ blueprint: 'content' }"),
+			"_template/other.jsonnet":     []byte("{ other: 'content' }"),
+			"config.yaml":                 []byte("config: value"),
+		})
+
+		// Pre-populate cache
+		builder.ociCache["registry.example.com/test:v1.0.0"] = testData
+
+		builder.shims = &Shims{
+			ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
+				return &mockReference{}, nil
+			},
+			YamlUnmarshal: func(data []byte, v any) error {
+				if metadata, ok := v.(*BlueprintMetadata); ok {
+					metadata.Name = "test"
+					metadata.Version = "v1.0.0"
+				}
+				return nil
+			},
+		}
+
+		// When calling GetTemplateData
+		templateData, err := builder.GetTemplateData("oci://registry.example.com/test:v1.0.0")
+
+		// Then should succeed
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if templateData == nil {
+			t.Fatal("Expected template data, got nil")
+		}
+
+		// And should contain required files
+		if _, exists := templateData["blueprint.jsonnet"]; !exists {
+			t.Error("Expected blueprint.jsonnet to be included")
+		}
+		if _, exists := templateData["other.jsonnet"]; !exists {
+			t.Error("Expected other.jsonnet to be included")
+		}
+		if string(templateData["name"]) != "test" {
+			t.Errorf("Expected name to be 'test', got %s", string(templateData["name"]))
+		}
+		if string(templateData["ociUrl"]) != "oci://registry.example.com/test:v1.0.0" {
+			t.Errorf("Expected ociUrl to be 'oci://registry.example.com/test:v1.0.0', got %s", string(templateData["ociUrl"]))
+		}
+	})
+}
+
+// createTestTarGz creates a test tar archive with the given files
+func createTestTarGz(t *testing.T, files map[string][]byte) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	tarWriter := tar.NewWriter(&buf)
+
+	for path, content := range files {
+		header := &tar.Header{
+			Name: path,
+			Mode: 0644,
+			Size: int64(len(content)),
+		}
+
+		if err := tarWriter.WriteHeader(header); err != nil {
+			t.Fatalf("Failed to write tar header: %v", err)
+		}
+
+		if _, err := tarWriter.Write(content); err != nil {
+			t.Fatalf("Failed to write tar content: %v", err)
+		}
+	}
+
+	tarWriter.Close()
+
+	return buf.Bytes()
+}
+
+// =============================================================================
+// Test Package Functions
+// =============================================================================
+
+func TestParseOCIReference(t *testing.T) {
+	testCases := []struct {
+		name        string
+		input       string
+		expected    *OCIArtifactInfo
+		expectError bool
+	}{
+		{
+			name:        "EmptyString",
+			input:       "",
+			expected:    nil,
+			expectError: false,
+		},
+		{
+			name:  "FullOCIURL",
+			input: "oci://ghcr.io/windsorcli/core:v1.0.0",
+			expected: &OCIArtifactInfo{
+				Name: "core",
+				URL:  "oci://ghcr.io/windsorcli/core:v1.0.0",
+				Tag:  "v1.0.0",
+			},
+			expectError: false,
+		},
+		{
+			name:  "ShortFormat",
+			input: "windsorcli/core:v1.0.0",
+			expected: &OCIArtifactInfo{
+				Name: "core",
+				URL:  "oci://ghcr.io/windsorcli/core:v1.0.0",
+				Tag:  "v1.0.0",
+			},
+			expectError: false,
+		},
+		{
+			name:        "MissingVersion",
+			input:       "windsorcli/core",
+			expected:    nil,
+			expectError: true,
+		},
+		{
+			name:        "InvalidFormat",
+			input:       "core:v1.0.0",
+			expected:    nil,
+			expectError: true,
+		},
+		{
+			name:        "EmptyVersion",
+			input:       "windsorcli/core:",
+			expected:    nil,
+			expectError: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := ParseOCIReference(tc.input)
+
+			if tc.expectError {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if tc.expected == nil {
+				if result != nil {
+					t.Errorf("Expected nil result but got: %+v", result)
+				}
+				return
+			}
+
+			if result == nil {
+				t.Errorf("Expected result but got nil")
+				return
+			}
+
+			if result.Name != tc.expected.Name {
+				t.Errorf("Expected name %s but got %s", tc.expected.Name, result.Name)
+			}
+
+			if result.URL != tc.expected.URL {
+				t.Errorf("Expected URL %s but got %s", tc.expected.URL, result.URL)
+			}
+
+			if result.Tag != tc.expected.Tag {
+				t.Errorf("Expected tag %s but got %s", tc.expected.Tag, result.Tag)
+			}
+		})
+	}
+}

@@ -684,3 +684,34 @@ func TestBaseConfigHandler_SetSecretsProvider(t *testing.T) {
 		}
 	})
 }
+
+// =============================================================================
+// LoadContextConfig Tests
+// =============================================================================
+
+func TestBaseConfigHandler_LoadContextConfig(t *testing.T) {
+	setup := func(t *testing.T) *BaseConfigHandler {
+		t.Helper()
+		injector := di.NewInjector()
+		handler := NewBaseConfigHandler(injector)
+		return handler
+	}
+
+	t.Run("ReturnsNotImplementedError", func(t *testing.T) {
+		// Given a BaseConfigHandler
+		handler := setup(t)
+
+		// When LoadContextConfig is called
+		err := handler.LoadContextConfig()
+
+		// Then it should return the expected error
+		if err == nil {
+			t.Fatal("LoadContextConfig() expected error, got nil")
+		}
+
+		expectedError := "LoadContextConfig not implemented in base config handler"
+		if err.Error() != expectedError {
+			t.Errorf("LoadContextConfig() error = %v, expected '%s'", err, expectedError)
+		}
+	})
+}

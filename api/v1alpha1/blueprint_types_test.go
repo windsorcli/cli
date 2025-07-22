@@ -34,11 +34,12 @@ func TestBlueprint_Merge(t *testing.T) {
 			},
 			TerraformComponents: []TerraformComponent{
 				{
-					Source:   "source1",
-					Path:     "module/path1",
-					Values:   map[string]any{"key1": "value1"},
-					FullPath: "original/full/path",
-					Destroy:  ptrBool(true),
+					Source:    "source1",
+					Path:      "module/path1",
+					Values:    map[string]any{"key1": "value1"},
+					FullPath:  "original/full/path",
+					DependsOn: []string{},
+					Destroy:   ptrBool(true),
 				},
 			},
 			Kustomizations: []Kustomization{
@@ -80,18 +81,20 @@ func TestBlueprint_Merge(t *testing.T) {
 			},
 			TerraformComponents: []TerraformComponent{
 				{
-					Source:   "source1",
-					Path:     "module/path1",
-					Values:   map[string]any{"key2": "value2"},
-					FullPath: "updated/full/path",
-					Destroy:  ptrBool(false),
+					Source:    "source1",
+					Path:      "module/path1",
+					Values:    map[string]any{"key2": "value2"},
+					FullPath:  "updated/full/path",
+					DependsOn: []string{"module/path2"},
+					Destroy:   ptrBool(false),
 				},
 				{
-					Source:   "source2",
-					Path:     "module/path2",
-					Values:   map[string]any{"key3": "value3"},
-					FullPath: "new/full/path",
-					Destroy:  ptrBool(true),
+					Source:    "source2",
+					Path:      "module/path2",
+					Values:    map[string]any{"key3": "value3"},
+					FullPath:  "new/full/path",
+					DependsOn: []string{},
+					Destroy:   ptrBool(true),
 				},
 			},
 			Kustomizations: []Kustomization{
@@ -170,6 +173,9 @@ func TestBlueprint_Merge(t *testing.T) {
 		if component1.FullPath != "updated/full/path" {
 			t.Errorf("Expected FullPath to be 'updated/full/path', but got '%s'", component1.FullPath)
 		}
+		if len(component1.DependsOn) != 1 || component1.DependsOn[0] != "module/path2" {
+			t.Errorf("Expected DependsOn to contain ['module/path2'], but got %v", component1.DependsOn)
+		}
 		if component1.Destroy == nil || *component1.Destroy != false {
 			t.Errorf("Expected Destroy to be false, but got %v", component1.Destroy)
 		}
@@ -180,6 +186,9 @@ func TestBlueprint_Merge(t *testing.T) {
 		}
 		if component2.FullPath != "new/full/path" {
 			t.Errorf("Expected FullPath to be 'new/full/path', but got '%s'", component2.FullPath)
+		}
+		if len(component2.DependsOn) != 0 {
+			t.Errorf("Expected DependsOn to be empty, but got %v", component2.DependsOn)
 		}
 		if component2.Destroy == nil || *component2.Destroy != true {
 			t.Errorf("Expected Destroy to be true, but got %v", component2.Destroy)
@@ -216,11 +225,12 @@ func TestBlueprint_Merge(t *testing.T) {
 			ApiVersion: "v1alpha1",
 			TerraformComponents: []TerraformComponent{
 				{
-					Source:   "source1",
-					Path:     "module/path1",
-					Values:   nil, // Initialize with nil
-					FullPath: "original/full/path",
-					Destroy:  ptrBool(true),
+					Source:    "source1",
+					Path:      "module/path1",
+					Values:    nil, // Initialize with nil
+					FullPath:  "original/full/path",
+					DependsOn: []string{},
+					Destroy:   ptrBool(true),
 				},
 			},
 		}
@@ -233,8 +243,9 @@ func TestBlueprint_Merge(t *testing.T) {
 					Values: map[string]any{
 						"key1": "value1",
 					},
-					FullPath: "overlay/full/path",
-					Destroy:  ptrBool(false),
+					FullPath:  "overlay/full/path",
+					DependsOn: []string{"dependency1"},
+					Destroy:   ptrBool(false),
 				},
 			},
 		}
@@ -1097,6 +1108,57 @@ func TestBlueprint_DeepCopy(t *testing.T) {
 		copy := blueprint.DeepCopy()
 		if copy != nil {
 			t.Errorf("Expected copy to be nil, but got non-nil")
+		}
+	})
+}
+
+// TestPostBuildOmitEmpty verifies that empty PostBuild objects are omitted from YAML serialization
+func TestPostBuildOmitEmpty(t *testing.T) {
+	t.Run("EmptyPostBuildOmitted", func(t *testing.T) {
+		kustomization := Kustomization{
+			Name: "test-kustomization",
+			Path: "test/path",
+			PostBuild: &PostBuild{
+				Substitute:     map[string]string{},
+				SubstituteFrom: []SubstituteReference{},
+			},
+		}
+
+		// Create a copy using DeepCopy which should omit empty PostBuild
+		copied := kustomization.DeepCopy()
+
+		// Verify that PostBuild is nil for empty content
+		if copied.PostBuild != nil {
+			t.Errorf("Expected PostBuild to be nil for empty content, but got %v", copied.PostBuild)
+		}
+	})
+
+	t.Run("NonEmptyPostBuildPreserved", func(t *testing.T) {
+		kustomization := Kustomization{
+			Name: "test-kustomization",
+			Path: "test/path",
+			PostBuild: &PostBuild{
+				Substitute: map[string]string{
+					"key": "value",
+				},
+				SubstituteFrom: []SubstituteReference{
+					{Kind: "ConfigMap", Name: "test"},
+				},
+			},
+		}
+
+		// Create a copy using DeepCopy which should preserve non-empty PostBuild
+		copied := kustomization.DeepCopy()
+
+		// Verify that PostBuild is preserved for non-empty content
+		if copied.PostBuild == nil {
+			t.Error("Expected PostBuild to be preserved for non-empty content, but got nil")
+		}
+		if copied.PostBuild.Substitute["key"] != "value" {
+			t.Errorf("Expected substitute key to be 'value', but got %s", copied.PostBuild.Substitute["key"])
+		}
+		if len(copied.PostBuild.SubstituteFrom) != 1 {
+			t.Errorf("Expected 1 substitute reference, but got %d", len(copied.PostBuild.SubstituteFrom))
 		}
 	})
 }

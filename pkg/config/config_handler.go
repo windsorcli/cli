@@ -21,6 +21,7 @@ type ConfigHandler interface {
 	Initialize() error
 	LoadConfig(path string) error
 	LoadConfigString(content string) error
+	LoadContextConfig() error
 	GetString(key string, defaultValue ...string) string
 	GetInt(key string, defaultValue ...int) int
 	GetBool(key string, defaultValue ...bool) bool
@@ -29,7 +30,7 @@ type ConfigHandler interface {
 	Set(key string, value any) error
 	SetContextValue(key string, value any) error
 	Get(key string) any
-	SaveConfig(path string, overwrite ...bool) error
+	SaveConfig(overwrite ...bool) error
 	SetDefault(context v1alpha1.Context) error
 	GetConfig() *v1alpha1.Context
 	GetContext() string
@@ -174,6 +175,11 @@ func (c *BaseConfigHandler) Clean() error {
 // IsLoaded checks if the configuration has been loaded
 func (c *BaseConfigHandler) IsLoaded() bool {
 	return c.loaded
+}
+
+// LoadContextConfig provides a base implementation that should be overridden by concrete implementations
+func (c *BaseConfigHandler) LoadContextConfig() error {
+	return fmt.Errorf("LoadContextConfig not implemented in base config handler")
 }
 
 // SetSecretsProvider sets the secrets provider for the config handler

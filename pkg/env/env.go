@@ -24,7 +24,7 @@ type EnvPrinter interface {
 	Print() error
 	GetEnvVars() (map[string]string, error)
 	GetAlias() (map[string]string, error)
-	PostEnvHook() error
+	PostEnvHook(directory ...string) error
 	GetManagedEnv() []string
 	GetManagedAlias() []string
 	SetManagedEnv(env string)
@@ -91,7 +91,7 @@ func (e *BaseEnvPrinter) Print(customVars ...map[string]string) error {
 		e.SetManagedEnv(key)
 	}
 
-	e.shell.PrintEnvVars(envVars)
+	e.shell.PrintEnvVars(envVars, true)
 	return nil
 }
 
@@ -132,7 +132,7 @@ func (e *BaseEnvPrinter) GetAlias() (map[string]string, error) {
 }
 
 // PostEnvHook simulates running any necessary commands after the environment variables have been set.
-func (e *BaseEnvPrinter) PostEnvHook() error {
+func (e *BaseEnvPrinter) PostEnvHook(directory ...string) error {
 	// Placeholder for post-processing logic
 	return nil
 }

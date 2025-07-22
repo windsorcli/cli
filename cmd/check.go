@@ -7,7 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/constants"
-	ctrl "github.com/windsorcli/cli/pkg/controller"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/pipelines"
 )
 
 var (
@@ -22,34 +23,29 @@ var checkCmd = &cobra.Command{
 	Long:         "Check the tool versions required by the project",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
+		// Get shared dependency injector from context
+		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		if err := controller.InitializeWithRequirements(ctrl.Requirements{
-			ConfigLoaded: true,
-			Tools:        true,
-			CommandName:  cmd.Name(),
-			Flags: map[string]bool{
-				"verbose": cmd.Flags().Changed("verbose"),
-			},
-		}); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
+		// Create output function
+		outputFunc := func(output string) {
+			fmt.Fprintln(cmd.OutOrStdout(), output)
 		}
 
-		// Check if projectName is set in the configuration
-		configHandler := controller.ResolveConfigHandler()
-		if !configHandler.IsLoaded() {
-			return fmt.Errorf("Nothing to check. Have you run \033[1mwindsor init\033[0m?")
+		// Create execution context with operation and output function
+		ctx := context.WithValue(cmd.Context(), "operation", "tools")
+		ctx = context.WithValue(ctx, "output", outputFunc)
+
+		// Set up the check pipeline
+		pipeline, err := pipelines.WithPipeline(injector, ctx, "checkPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up check pipeline: %w", err)
 		}
 
-		// Check tools
-		toolsManager := controller.ResolveToolsManager()
-		if toolsManager == nil {
-			return fmt.Errorf("No tools manager found")
+		// Execute the pipeline
+		if err := pipeline.Execute(ctx); err != nil {
+			return fmt.Errorf("Error executing check pipeline: %w", err)
 		}
-		if err := toolsManager.Check(); err != nil {
-			return fmt.Errorf("Error checking tools: %w", err)
-		}
-		fmt.Fprintln(cmd.OutOrStdout(), "All tools are up to date.")
+
 		return nil
 	},
 }
@@ -60,31 +56,8 @@ var checkNodeHealthCmd = &cobra.Command{
 	Long:         "Check the health status of specified cluster nodes",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
-
-		if err := controller.InitializeWithRequirements(ctrl.Requirements{
-			ConfigLoaded: true,
-			Cluster:      true,
-			CommandName:  cmd.Name(),
-			Flags: map[string]bool{
-				"verbose": cmd.Flags().Changed("verbose"),
-			},
-		}); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
-		}
-
-		// Check if projectName is set in the configuration
-		configHandler := controller.ResolveConfigHandler()
-		if !configHandler.IsLoaded() {
-			return fmt.Errorf("Nothing to check. Have you run \033[1mwindsor init\033[0m?")
-		}
-
-		// Get the cluster client
-		clusterClient := controller.ResolveClusterClient()
-		if clusterClient == nil {
-			return fmt.Errorf("No cluster client found")
-		}
-		defer clusterClient.Close()
+		// Get shared dependency injector from context
+		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
 		// Require nodes to be specified
 		if len(nodeHealthNodes) == 0 {
@@ -96,21 +69,28 @@ var checkNodeHealthCmd = &cobra.Command{
 			nodeHealthTimeout = constants.DEFAULT_NODE_HEALTH_CHECK_TIMEOUT
 		}
 
-		// Create context with timeout
-		ctx, cancel := context.WithTimeout(cmd.Context(), nodeHealthTimeout)
-		defer cancel()
-
-		// Wait for nodes to be healthy (and correct version if specified)
-		if err := clusterClient.WaitForNodesHealthy(ctx, nodeHealthNodes, nodeHealthVersion); err != nil {
-			return fmt.Errorf("nodes failed health check: %w", err)
+		// Create output function
+		outputFunc := func(output string) {
+			fmt.Fprintln(cmd.OutOrStdout(), output)
 		}
 
-		// Success message
-		fmt.Fprintf(cmd.OutOrStdout(), "All %d nodes are healthy", len(nodeHealthNodes))
-		if nodeHealthVersion != "" {
-			fmt.Fprintf(cmd.OutOrStdout(), " and running version %s", nodeHealthVersion)
+		// Create execution context with operation, nodes, timeout, version, and output function
+		ctx := context.WithValue(cmd.Context(), "operation", "node-health")
+		ctx = context.WithValue(ctx, "nodes", nodeHealthNodes)
+		ctx = context.WithValue(ctx, "timeout", nodeHealthTimeout)
+		ctx = context.WithValue(ctx, "version", nodeHealthVersion)
+		ctx = context.WithValue(ctx, "output", outputFunc)
+
+		// Set up the check pipeline
+		pipeline, err := pipelines.WithPipeline(injector, ctx, "checkPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up check pipeline: %w", err)
 		}
-		fmt.Fprintln(cmd.OutOrStdout())
+
+		// Execute the pipeline
+		if err := pipeline.Execute(ctx); err != nil {
+			return fmt.Errorf("Error executing check pipeline: %w", err)
+		}
 
 		return nil
 	},

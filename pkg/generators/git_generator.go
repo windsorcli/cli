@@ -57,9 +57,19 @@ func NewGitGenerator(injector di.Injector) *GitGenerator {
 // Public Methods
 // =============================================================================
 
-// Write generates the Git configuration files by creating or updating the .gitignore file.
-// It ensures that Windsor-specific entries are added while preserving any existing user-defined entries.
+// Write generates the Git configuration files by delegating to the Generate method.
+// It maintains backward compatibility while Generate handles the actual file generation.
+// The overwrite parameter is currently not used but preserved for interface compatibility.
 func (g *GitGenerator) Write(overwrite ...bool) error {
+	return g.Generate(nil)
+}
+
+// Generate creates the Git configuration files by creating or updating the .gitignore file.
+// It ensures that Windsor-specific entries are added while preserving any existing user-defined entries.
+// For GitGenerator, the data parameter is not used since it always generates the .gitignore file
+// in the project root based on predefined rules. The overwrite parameter is not used since
+// the GitGenerator always merges with existing content rather than overwriting.
+func (g *GitGenerator) Generate(data map[string]any, overwrite ...bool) error {
 	projectRoot, err := g.shell.GetProjectRoot()
 	if err != nil {
 		return fmt.Errorf("failed to get project root: %w", err)
@@ -77,10 +87,21 @@ func (g *GitGenerator) Write(overwrite ...bool) error {
 	}
 
 	existingLines := make(map[string]struct{})
+	commentedNormalized := make(map[string]struct{})
 	var unmanagedLines []string
 	lines := strings.Split(string(content), "\n")
 	for i, line := range lines {
 		existingLines[line] = struct{}{}
+
+		// Track normalized commented versions of Windsor entries
+		trimmed := strings.TrimLeft(line, " \t")
+		if strings.HasPrefix(trimmed, "#") {
+			norm := normalizeGitignoreComment(trimmed)
+			if norm != "" {
+				commentedNormalized[norm] = struct{}{}
+			}
+		}
+
 		if i == len(lines)-1 && line == "" {
 			continue
 		}
@@ -88,11 +109,18 @@ func (g *GitGenerator) Write(overwrite ...bool) error {
 	}
 
 	for _, line := range gitIgnoreLines {
-		if _, exists := existingLines[line]; !exists {
-			if line == "# managed by windsor cli" {
+		if line == "# managed by windsor cli" {
+			if _, exists := existingLines[line]; !exists {
 				unmanagedLines = append(unmanagedLines, "")
+				unmanagedLines = append(unmanagedLines, line)
 			}
-			unmanagedLines = append(unmanagedLines, line)
+			continue
+		}
+
+		if _, exists := existingLines[line]; !exists {
+			if _, commentedExists := commentedNormalized[line]; !commentedExists {
+				unmanagedLines = append(unmanagedLines, line)
+			}
 		}
 	}
 
@@ -107,6 +135,23 @@ func (g *GitGenerator) Write(overwrite ...bool) error {
 	}
 
 	return nil
+}
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+// normalizeGitignoreComment normalizes a commented .gitignore line to its uncommented form.
+// It removes all leading #, whitespace, and trailing whitespace.
+func normalizeGitignoreComment(line string) string {
+	trimmed := strings.TrimLeft(line, " \t")
+	if !strings.HasPrefix(trimmed, "#") {
+		return ""
+	}
+	// Remove all leading # and whitespace after #
+	noHash := strings.TrimLeft(trimmed, "#")
+	noHash = strings.TrimLeft(noHash, " \t")
+	return strings.TrimSpace(noHash)
 }
 
 // =============================================================================

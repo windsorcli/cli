@@ -25,6 +25,7 @@ type Shims struct {
 	Stat          func(name string) (os.FileInfo, error)
 	Mkdir         func(path string, perm os.FileMode) error
 	MkdirAll      func(path string, perm os.FileMode) error
+	RemoveAll     func(path string) error
 	Rename        func(oldpath, newpath string) error
 	YamlMarshal   func(in any) ([]byte, error)
 	YamlUnmarshal func(in []byte, out any) error
@@ -41,6 +42,7 @@ func NewShims() *Shims {
 		Stat:          os.Stat,
 		Mkdir:         os.Mkdir,
 		MkdirAll:      os.MkdirAll,
+		RemoveAll:     os.RemoveAll,
 		Rename:        os.Rename,
 		YamlMarshal:   yaml.Marshal,
 		YamlUnmarshal: yaml.Unmarshal,

@@ -348,3 +348,242 @@ func TestMockArtifact_Pull(t *testing.T) {
 		}
 	})
 }
+
+func TestMockArtifact_GetTemplateData(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a MockArtifact with GetTemplateDataFunc set
+		mock := NewMockArtifact()
+		expectedTemplateData := map[string][]byte{
+			"template.yaml": []byte("test: template"),
+			"config.json":   []byte(`{"key": "value"}`),
+		}
+		mock.GetTemplateDataFunc = func(ociRef string) (map[string][]byte, error) {
+			return expectedTemplateData, nil
+		}
+
+		// When GetTemplateData is called
+		templateData, err := mock.GetTemplateData("oci://registry.example.com/repo:v1.0.0")
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And the expected template data should be returned
+		if len(templateData) != len(expectedTemplateData) {
+			t.Errorf("expected %d template files, got %d", len(expectedTemplateData), len(templateData))
+		}
+
+		for key, expectedData := range expectedTemplateData {
+			if actualData, exists := templateData[key]; !exists {
+				t.Errorf("expected template file %s to exist", key)
+			} else if string(actualData) != string(expectedData) {
+				t.Errorf("expected template data %s, got %s", expectedData, actualData)
+			}
+		}
+	})
+
+	t.Run("ErrorFromGetTemplateDataFunc", func(t *testing.T) {
+		// Given a MockArtifact with GetTemplateDataFunc that returns an error
+		mock := NewMockArtifact()
+		expectedError := fmt.Errorf("mock get template data error")
+		mock.GetTemplateDataFunc = func(ociRef string) (map[string][]byte, error) {
+			return nil, expectedError
+		}
+
+		// When GetTemplateData is called
+		templateData, err := mock.GetTemplateData("oci://registry.example.com/repo:v1.0.0")
+
+		// Then the expected error should be returned
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("expected error %v, got %v", expectedError, err)
+		}
+
+		// And template data should be nil
+		if templateData != nil {
+			t.Errorf("expected nil template data, got %v", templateData)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a MockArtifact with no GetTemplateDataFunc set
+		mock := NewMockArtifact()
+
+		// When GetTemplateData is called
+		templateData, err := mock.GetTemplateData("oci://registry.example.com/repo:v1.0.0")
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And an empty map should be returned
+		if templateData == nil {
+			t.Errorf("expected empty map, got nil")
+		}
+		if len(templateData) != 0 {
+			t.Errorf("expected empty map, got %d items", len(templateData))
+		}
+	})
+
+	t.Run("VerifyGetTemplateDataFuncParameters", func(t *testing.T) {
+		// Given a MockArtifact with GetTemplateDataFunc that verifies parameters
+		mock := NewMockArtifact()
+		var receivedOCIRef string
+		mock.GetTemplateDataFunc = func(ociRef string) (map[string][]byte, error) {
+			receivedOCIRef = ociRef
+			return make(map[string][]byte), nil
+		}
+
+		// When GetTemplateData is called with specific parameters
+		expectedOCIRef := "oci://registry.example.com/repo:v1.0.0"
+		_, err := mock.GetTemplateData(expectedOCIRef)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And the GetTemplateDataFunc should receive the correct parameters
+		if receivedOCIRef != expectedOCIRef {
+			t.Errorf("expected OCI ref %s, got %s", expectedOCIRef, receivedOCIRef)
+		}
+	})
+
+	t.Run("MultipleCallsWithDifferentBehavior", func(t *testing.T) {
+		// Given a MockArtifact with GetTemplateDataFunc that changes behavior
+		mock := NewMockArtifact()
+		callCount := 0
+		mock.GetTemplateDataFunc = func(ociRef string) (map[string][]byte, error) {
+			callCount++
+			if callCount == 1 {
+				return map[string][]byte{
+					"first.yaml": []byte("first call data"),
+				}, nil
+			}
+			return map[string][]byte{
+				"second.yaml": []byte("second call data"),
+			}, nil
+		}
+
+		// When GetTemplateData is called multiple times
+		ociRef := "oci://registry.example.com/repo:v1.0.0"
+
+		templateData1, err1 := mock.GetTemplateData(ociRef)
+		if err1 != nil {
+			t.Errorf("expected no error on first call, got %v", err1)
+		}
+
+		templateData2, err2 := mock.GetTemplateData(ociRef)
+		if err2 != nil {
+			t.Errorf("expected no error on second call, got %v", err2)
+		}
+
+		// Then each call should return different data
+		if string(templateData1["first.yaml"]) != "first call data" {
+			t.Errorf("expected first call data, got %s", templateData1["first.yaml"])
+		}
+		if string(templateData2["second.yaml"]) != "second call data" {
+			t.Errorf("expected second call data, got %s", templateData2["second.yaml"])
+		}
+
+		// And both calls should have been made
+		if callCount != 2 {
+			t.Errorf("expected 2 calls, got %d", callCount)
+		}
+	})
+
+	t.Run("EmptyTemplateData", func(t *testing.T) {
+		// Given a MockArtifact with GetTemplateDataFunc that returns empty data
+		mock := NewMockArtifact()
+		mock.GetTemplateDataFunc = func(ociRef string) (map[string][]byte, error) {
+			return make(map[string][]byte), nil
+		}
+
+		// When GetTemplateData is called
+		templateData, err := mock.GetTemplateData("oci://registry.example.com/repo:v1.0.0")
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And an empty map should be returned
+		if templateData == nil {
+			t.Errorf("expected empty map, got nil")
+		}
+		if len(templateData) != 0 {
+			t.Errorf("expected empty map, got %d items", len(templateData))
+		}
+	})
+
+	t.Run("LargeTemplateData", func(t *testing.T) {
+		// Given a MockArtifact with GetTemplateDataFunc that returns large data
+		mock := NewMockArtifact()
+		expectedTemplateData := map[string][]byte{
+			"template1.yaml": []byte("large template data 1"),
+			"template2.yaml": []byte("large template data 2"),
+			"template3.yaml": []byte("large template data 3"),
+			"config.json":    []byte(`{"large": "config", "data": "here"}`),
+			"metadata.yaml":  []byte("name: test\nversion: v1.0.0\ndescription: test blueprint"),
+		}
+		mock.GetTemplateDataFunc = func(ociRef string) (map[string][]byte, error) {
+			return expectedTemplateData, nil
+		}
+
+		// When GetTemplateData is called
+		templateData, err := mock.GetTemplateData("oci://registry.example.com/repo:v1.0.0")
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And all template data should be returned correctly
+		if len(templateData) != len(expectedTemplateData) {
+			t.Errorf("expected %d template files, got %d", len(expectedTemplateData), len(templateData))
+		}
+
+		for key, expectedData := range expectedTemplateData {
+			if actualData, exists := templateData[key]; !exists {
+				t.Errorf("expected template file %s to exist", key)
+			} else if string(actualData) != string(expectedData) {
+				t.Errorf("expected template data %s, got %s", expectedData, actualData)
+			}
+		}
+	})
+
+	t.Run("SpecialCharactersInOCIRef", func(t *testing.T) {
+		// Given a MockArtifact with GetTemplateDataFunc that handles special characters
+		mock := NewMockArtifact()
+		var receivedOCIRef string
+		mock.GetTemplateDataFunc = func(ociRef string) (map[string][]byte, error) {
+			receivedOCIRef = ociRef
+			return map[string][]byte{
+				"template.yaml": []byte("test: data"),
+			}, nil
+		}
+
+		// When GetTemplateData is called with special characters in OCI ref
+		specialOCIRef := "oci://registry.example.com/my-org/my-repo:v1.0.0-beta.1"
+		templateData, err := mock.GetTemplateData(specialOCIRef)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And the correct OCI ref should be received
+		if receivedOCIRef != specialOCIRef {
+			t.Errorf("expected OCI ref %s, got %s", specialOCIRef, receivedOCIRef)
+		}
+
+		// And template data should be returned
+		if len(templateData) != 1 {
+			t.Errorf("expected 1 template file, got %d", len(templateData))
+		}
+	})
+}

@@ -38,6 +38,9 @@ func TestNewShims(t *testing.T) {
 	if shims.Rename == nil {
 		t.Error("Rename should be set")
 	}
+	if shims.Stat == nil {
+		t.Error("Stat should be set")
+	}
 	if shims.GOARCH == nil {
 		t.Error("GOARCH should be set")
 	}

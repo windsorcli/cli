@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 
@@ -46,7 +47,7 @@ type HookContext struct {
 type Shell interface {
 	Initialize() error
 	SetVerbosity(verbose bool)
-	PrintEnvVars(envVars map[string]string)
+	PrintEnvVars(envVars map[string]string, export bool)
 	PrintAlias(envVars map[string]string)
 	GetProjectRoot() (string, error)
 	Exec(command string, args ...string) (string, error)
@@ -61,7 +62,7 @@ type Shell interface {
 	WriteResetToken() (string, error)
 	GetSessionToken() (string, error)
 	CheckResetFlags() (bool, error)
-	Reset()
+	Reset(quiet ...bool)
 	RegisterSecret(value string)
 }
 
@@ -159,6 +160,10 @@ func (s *DefaultShell) Exec(command string, args ...string) (string, error) {
 	if command == "sudo" {
 		cmd.Stdin = os.Stdin
 	}
+	// Ensure the command inherits the current environment
+	if cmd.Env == nil {
+		cmd.Env = s.shims.Environ()
+	}
 	if err := s.shims.CmdStart(cmd); err != nil {
 		return stdoutBuf.String(), fmt.Errorf("command start failed: %w", err)
 	}
@@ -185,6 +190,11 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 	cmd := s.shims.Command(command, args...)
 	if cmd == nil {
 		return "", fmt.Errorf("failed to create command")
+	}
+
+	// Ensure the command inherits the current environment
+	if cmd.Env == nil {
+		cmd.Env = s.shims.Environ()
 	}
 
 	tty, err := s.shims.OpenFile("/dev/tty", os.O_RDWR, 0)
@@ -231,6 +241,10 @@ func (s *DefaultShell) ExecSilent(command string, args ...string) (string, error
 
 	cmd.Stdout = &stdoutBuf
 	cmd.Stderr = &stderrBuf
+	// Ensure the command inherits the current environment
+	if cmd.Env == nil {
+		cmd.Env = s.shims.Environ()
+	}
 
 	if err := s.shims.CmdRun(cmd); err != nil {
 		return s.scrubString(stdoutBuf.String()), fmt.Errorf("command execution failed: %w\n%s", err, s.scrubString(stderrBuf.String()))
@@ -252,6 +266,11 @@ func (s *DefaultShell) ExecProgress(message string, command string, args ...stri
 	cmd := s.shims.Command(command, args...)
 	if cmd == nil {
 		return "", fmt.Errorf("failed to create command")
+	}
+
+	// Ensure the command inherits the current environment
+	if cmd.Env == nil {
+		cmd.Env = s.shims.Environ()
 	}
 
 	stdoutPipe, err := s.shims.StdoutPipe(cmd)
@@ -542,10 +561,13 @@ func (s *DefaultShell) RegisterSecret(value string) {
 // It uses the environment variables "WINDSOR_MANAGED_ENV" and "WINDSOR_MANAGED_ALIAS"
 // to retrieve the previous set of managed environment variables and aliases, respectively.
 // These environment variables represent the previous set of managed values that need to be reset.
-func (s *DefaultShell) Reset() {
+// The optional quiet parameter controls whether shell commands are printed during reset.
+func (s *DefaultShell) Reset(quiet ...bool) {
+	isQuiet := len(quiet) > 0 && quiet[0]
+
 	var managedEnvs []string
 	if envStr := s.shims.Getenv("WINDSOR_MANAGED_ENV"); envStr != "" {
-		for _, env := range strings.Split(envStr, ",") {
+		for env := range strings.SplitSeq(envStr, ",") {
 			env = strings.TrimSpace(env)
 			if env != "" {
 				managedEnvs = append(managedEnvs, env)
@@ -556,7 +578,7 @@ func (s *DefaultShell) Reset() {
 
 	var managedAliases []string
 	if aliasStr := s.shims.Getenv("WINDSOR_MANAGED_ALIAS"); aliasStr != "" {
-		for _, alias := range strings.Split(aliasStr, ",") {
+		for alias := range strings.SplitSeq(aliasStr, ",") {
 			alias = strings.TrimSpace(alias)
 			if alias != "" {
 				managedAliases = append(managedAliases, alias)
@@ -564,11 +586,13 @@ func (s *DefaultShell) Reset() {
 		}
 	}
 
-	if len(managedEnvs) > 0 {
-		s.UnsetEnvs(managedEnvs)
-	}
-	if len(managedAliases) > 0 {
-		s.UnsetAlias(managedAliases)
+	if !isQuiet {
+		if len(managedEnvs) > 0 {
+			s.UnsetEnvs(managedEnvs)
+		}
+		if len(managedAliases) > 0 {
+			s.UnsetAlias(managedAliases)
+		}
 	}
 }
 
@@ -643,6 +667,33 @@ func (s *DefaultShell) scrubString(input string) string {
 	}
 
 	return result
+}
+
+// PrintEnvVars is a platform-specific method that will be implemented by Unix/Windows-specific files
+// The export parameter controls whether to use OS-specific export commands or plain KEY=value format
+func (s *DefaultShell) PrintEnvVars(envVars map[string]string, export bool) {
+	if export {
+		s.printEnvVarsWithExport(envVars)
+	} else {
+		s.printEnvVarsPlain(envVars)
+	}
+}
+
+// printEnvVarsPlain prints environment variables in plain KEY=value format, sorted by key.
+// If a value is empty, it prints KEY= with no value. Used for non-export output scenarios.
+func (s *DefaultShell) printEnvVarsPlain(envVars map[string]string) {
+	keys := make([]string, 0, len(envVars))
+	for k := range envVars {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if envVars[k] == "" {
+			fmt.Printf("%s=\n", k)
+		} else {
+			fmt.Printf("%s=%s\n", k, envVars[k])
+		}
+	}
 }
 
 // Ensure DefaultShell implements the Shell interface

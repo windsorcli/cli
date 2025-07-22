@@ -42,7 +42,7 @@ func TestDefaultShell_PrintEnvVars(t *testing.T) {
 
 		// When capturing the output of PrintEnvVars
 		output := captureStdout(t, func() {
-			shell.PrintEnvVars(envVars)
+			shell.PrintEnvVars(envVars, true)
 		})
 
 		// Then the output should match the expected output

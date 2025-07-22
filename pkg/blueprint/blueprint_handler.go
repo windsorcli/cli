@@ -10,6 +10,7 @@ import (
 
 	_ "embed"
 
+	"github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
@@ -35,14 +36,17 @@ import (
 
 type BlueprintHandler interface {
 	Initialize() error
-	LoadConfig(reset ...bool) error
+	LoadConfig() error
+	LoadData(data map[string]any, ociInfo ...*artifact.OCIArtifactInfo) error
+	Write(overwrite ...bool) error
 	Install() error
 	GetMetadata() blueprintv1alpha1.Metadata
 	GetSources() []blueprintv1alpha1.Source
 	GetRepository() blueprintv1alpha1.Repository
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
 	WaitForKustomizations(message string, names ...string) error
-	ProcessContextTemplates(contextName string, reset ...bool) error
+	GetDefaultTemplateData(contextName string) (map[string][]byte, error)
+	GetLocalTemplateData() (map[string][]byte, error)
 	Down() error
 }
 
@@ -67,7 +71,6 @@ type BaseBlueprintHandler struct {
 	configHandler     config.ConfigHandler
 	shell             shell.Shell
 	kubernetesManager kubernetes.KubernetesManager
-	localBlueprint    blueprintv1alpha1.Blueprint
 	blueprint         blueprintv1alpha1.Blueprint
 	projectRoot       string
 	shims             *Shims
@@ -115,17 +118,13 @@ func (b *BaseBlueprintHandler) Initialize() error {
 	}
 	b.projectRoot = projectRoot
 
-	if err := b.configHandler.SetContextValue("projectName", filepath.Base(projectRoot)); err != nil {
-		return fmt.Errorf("error setting project name in config: %w", err)
-	}
-
 	return nil
 }
 
 // LoadConfig reads blueprint configuration from blueprint.yaml file.
-// Only loads existing blueprint.yaml files - no templating or generation.
-// All template processing happens in ProcessContextTemplates during init.
-func (b *BaseBlueprintHandler) LoadConfig(reset ...bool) error {
+// Returns an error if blueprint.yaml does not exist.
+// Template processing is now handled by the pkg/template package.
+func (b *BaseBlueprintHandler) LoadConfig() error {
 	configRoot, err := b.configHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("error getting config root: %w", err)
@@ -133,12 +132,7 @@ func (b *BaseBlueprintHandler) LoadConfig(reset ...bool) error {
 
 	yamlPath := filepath.Join(configRoot, "blueprint.yaml")
 	if _, err := b.shims.Stat(yamlPath); err != nil {
-		// No blueprint.yaml exists - use default blueprint
-		context := b.configHandler.GetContext()
-		b.blueprint = *DefaultBlueprint.DeepCopy()
-		b.blueprint.Metadata.Name = context
-		b.blueprint.Metadata.Description = fmt.Sprintf("This blueprint outlines resources in the %s context", context)
-		return nil
+		return fmt.Errorf("blueprint.yaml not found at %s", yamlPath)
 	}
 
 	yamlData, err := b.shims.ReadFile(yamlPath)
@@ -146,6 +140,64 @@ func (b *BaseBlueprintHandler) LoadConfig(reset ...bool) error {
 		return err
 	}
 	return b.processBlueprintData(yamlData, &b.blueprint)
+}
+
+// LoadData loads blueprint configuration from a map containing blueprint data.
+// It marshals the input map to YAML, processes it as a Blueprint object, and updates the handler's blueprint state.
+// The ociInfo parameter optionally provides OCI artifact source information for source resolution and tracking.
+func (b *BaseBlueprintHandler) LoadData(data map[string]any, ociInfo ...*artifact.OCIArtifactInfo) error {
+	yamlData, err := b.shims.YamlMarshal(data)
+	if err != nil {
+		return fmt.Errorf("error marshalling blueprint data to yaml: %w", err)
+	}
+
+	if err := b.processBlueprintData(yamlData, &b.blueprint, ociInfo...); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Write persists the current blueprint state to blueprint.yaml in the configuration root directory.
+// If overwrite is true, the file is overwritten regardless of existence. If overwrite is false or omitted,
+// the file is only written if it does not already exist. The method ensures the target directory exists,
+// marshals the blueprint to YAML, and writes the file using the configured shims.
+// Terraform variables are filtered out to prevent them from appearing in the final blueprint.yaml.
+func (b *BaseBlueprintHandler) Write(overwrite ...bool) error {
+	shouldOverwrite := false
+	if len(overwrite) > 0 {
+		shouldOverwrite = overwrite[0]
+	}
+
+	configRoot, err := b.configHandler.GetConfigRoot()
+	if err != nil {
+		return fmt.Errorf("error getting config root: %w", err)
+	}
+
+	yamlPath := filepath.Join(configRoot, "blueprint.yaml")
+
+	if !shouldOverwrite {
+		if _, err := b.shims.Stat(yamlPath); err == nil {
+			return nil
+		}
+	}
+
+	if err := b.shims.MkdirAll(filepath.Dir(yamlPath), 0755); err != nil {
+		return fmt.Errorf("error creating directory: %w", err)
+	}
+
+	cleanedBlueprint := b.createCleanedBlueprint()
+
+	data, err := b.shims.YamlMarshal(cleanedBlueprint)
+	if err != nil {
+		return fmt.Errorf("error marshalling blueprint data: %w", err)
+	}
+
+	if err := b.shims.WriteFile(yamlPath, data, 0644); err != nil {
+		return fmt.Errorf("error writing blueprint.yaml: %w", err)
+	}
+
+	return nil
 }
 
 // WaitForKustomizations waits for the specified kustomizations to be ready.
@@ -214,23 +266,21 @@ func (b *BaseBlueprintHandler) WaitForKustomizations(message string, names ...st
 	}
 }
 
-// Install applies the blueprint's Kubernetes resources to the cluster. It handles GitRepositories
-// for the main repository and sources, Kustomizations for deployments, and a ConfigMap containing
-// context-specific configuration. Uses environment KUBECONFIG or falls back to in-cluster config.
+// Install applies all blueprint Kubernetes resources to the cluster, including the main repository, additional sources, Kustomizations, and the context ConfigMap.
+// The method ensures the target namespace exists, applies the main and additional source repositories, creates the ConfigMap, and applies all Kustomizations.
+// Uses the environment KUBECONFIG or in-cluster configuration for access. Returns an error if any resource application fails.
 func (b *BaseBlueprintHandler) Install() error {
 	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
 	spin.Suffix = " 📐 Installing blueprint resources"
 	spin.Start()
 	defer spin.Stop()
 
-	// Ensure namespace exists
 	if err := b.createManagedNamespace(constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
 		spin.Stop()
 		fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 		return fmt.Errorf("failed to create namespace: %w", err)
 	}
 
-	// Apply blueprint repository
 	if b.blueprint.Repository.Url != "" {
 		source := blueprintv1alpha1.Source{
 			Name:       b.blueprint.Metadata.Name,
@@ -245,7 +295,6 @@ func (b *BaseBlueprintHandler) Install() error {
 		}
 	}
 
-	// Apply other sources
 	for _, source := range b.blueprint.Sources {
 		if err := b.applySourceRepository(source, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
 			spin.Stop()
@@ -254,14 +303,12 @@ func (b *BaseBlueprintHandler) Install() error {
 		}
 	}
 
-	// Apply ConfigMap
 	if err := b.applyConfigMap(); err != nil {
 		spin.Stop()
 		fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 		return fmt.Errorf("failed to apply configmap: %w", err)
 	}
 
-	// Apply Kustomizations
 	kustomizations := b.getKustomizations()
 	kustomizationNames := make([]string, len(kustomizations))
 	for i, k := range kustomizations {
@@ -318,17 +365,65 @@ func (b *BaseBlueprintHandler) GetTerraformComponents() []blueprintv1alpha1.Terr
 	return resolvedBlueprint.TerraformComponents
 }
 
-// Down orchestrates the controlled teardown of all kustomizations and their associated resources.
-// It follows a specific sequence to ensure safe deletion:
-// 1. Suspends all kustomizations and their associated helmreleases to prevent reconciliation
-// 2. Applies cleanup kustomizations if defined, which handle resource cleanup tasks
-// 3. Waits for cleanup kustomizations to complete their operations
-// 4. Deletes main kustomizations in reverse dependency order
-// 5. Deletes cleanup kustomizations and their namespace
+// GetDefaultTemplateData generates default template data based on the provider configuration.
+// It uses the embedded provider templates to create a map of template files that can be
+// used by the init pipeline for generating context-specific configurations.
+func (b *BaseBlueprintHandler) GetDefaultTemplateData(contextName string) (map[string][]byte, error) {
+	provider := b.configHandler.GetString("provider")
+	if provider == "" {
+		provider = b.configHandler.GetString("cluster.platform")
+	}
+
+	templateData, err := b.loadPlatformTemplate(provider)
+	if err != nil || len(templateData) == 0 {
+		templateData, err = b.loadPlatformTemplate("default")
+		if err != nil {
+			return nil, fmt.Errorf("error loading default template: %w", err)
+		}
+	}
+
+	if len(templateData) == 0 {
+		return map[string][]byte{}, nil
+	}
+
+	return map[string][]byte{
+		"blueprint.jsonnet": templateData,
+	}, nil
+}
+
+// GetLocalTemplateData collects template data from the local contexts/_template directory.
+// It recursively walks through the template directory and collects only .jsonnet files,
+// maintaining the relative path structure from the template directory root.
+func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error) {
+	projectRoot, err := b.shell.GetProjectRoot()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	templateDir := filepath.Join(projectRoot, "contexts", "_template")
+	if _, err := b.shims.Stat(templateDir); err != nil {
+		// Template directory doesn't exist, return empty map
+		return make(map[string][]byte), nil
+	}
+
+	templateData := make(map[string][]byte)
+	if err := b.walkAndCollectTemplates(templateDir, templateDir, templateData); err != nil {
+		return nil, fmt.Errorf("failed to collect local templates: %w", err)
+	}
+
+	return templateData, nil
+}
+
+// Down orchestrates the teardown of all kustomizations and associated resources, skipping "not found" errors.
+// Sequence:
+// 1. Suspend all kustomizations and associated helmreleases to prevent reconciliation (ignoring not found errors)
+// 2. Apply cleanup kustomizations if defined for resource cleanup tasks
+// 3. Wait for cleanup kustomizations to complete
+// 4. Delete main kustomizations in reverse dependency order, skipping not found errors
+// 5. Delete cleanup kustomizations and their namespace, skipping not found errors
 //
-// The function handles dependency resolution through topological sorting to ensure
-// resources are deleted in the correct order. It also manages a dedicated cleanup
-// namespace for cleanup kustomizations when needed.
+// Dependency resolution is handled via topological sorting to ensure correct deletion order.
+// A dedicated cleanup namespace is managed for cleanup kustomizations when required.
 func (b *BaseBlueprintHandler) Down() error {
 	kustomizations := b.getKustomizations()
 	if len(kustomizations) == 0 {
@@ -390,9 +485,11 @@ func (b *BaseBlueprintHandler) Down() error {
 		k := nameToK[name]
 
 		if err := b.kubernetesManager.SuspendKustomization(k.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
-			return fmt.Errorf("failed to suspend kustomization %s: %w", k.Name, err)
+			if !isNotFoundError(err) {
+				spin.Stop()
+				fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
+				return fmt.Errorf("failed to suspend kustomization %s: %w", k.Name, err)
+			}
 		}
 
 		helmReleases, err := b.kubernetesManager.GetHelmReleasesForKustomization(k.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)
@@ -404,9 +501,11 @@ func (b *BaseBlueprintHandler) Down() error {
 
 		for _, hr := range helmReleases {
 			if err := b.kubernetesManager.SuspendHelmRelease(hr.Name, hr.Namespace); err != nil {
-				spin.Stop()
-				fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
-				return fmt.Errorf("failed to suspend helmrelease %s in namespace %s: %w", hr.Name, hr.Namespace, err)
+				if !isNotFoundError(err) {
+					spin.Stop()
+					fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
+					return fmt.Errorf("failed to suspend helmrelease %s in namespace %s: %w", hr.Name, hr.Namespace, err)
+				}
 			}
 		}
 	}
@@ -481,212 +580,57 @@ func (b *BaseBlueprintHandler) Down() error {
 	return nil
 }
 
-// ProcessContextTemplates processes jsonnet templates from the contexts/_template directory
-// and generates corresponding blueprint files in the specified context directory. The function handles
-// three scenarios:
-//  1. Blueprint Flag Processing: If --blueprint flag is specified, uses embedded platform templates
-//     and ignores any _template directory to ensure consistent behavior
-//  2. Template Processing: If no --blueprint flag and contexts/_template exists, processes blueprint.jsonnet files,
-//     evaluating them with context data and writing blueprint.yaml files
-//  3. Default Blueprint Generation: Falls back to generating platform-specific blueprints
-//
-// Other template types (terraform, kustomize, etc.) are handled by their respective generators
-// during the WriteConfigurationFiles phase.
-func (b *BaseBlueprintHandler) ProcessContextTemplates(contextName string, reset ...bool) error {
-	resetMode := len(reset) > 0 && reset[0]
-
-	projectRoot, err := b.shell.GetProjectRoot()
-	if err != nil {
-		return fmt.Errorf("error getting project root: %w", err)
-	}
-
-	contextDir := filepath.Join(projectRoot, "contexts", contextName)
-	if err := b.shims.MkdirAll(contextDir, 0755); err != nil {
-		return fmt.Errorf("error creating context directory: %w", err)
-	}
-
-	blueprintValue := b.configHandler.GetString("blueprint")
-	if blueprintValue != "" {
-		return b.generateDefaultBlueprint(contextDir, contextName, resetMode)
-	}
-
-	templateDir := filepath.Join(projectRoot, "contexts", "_template")
-	if _, err := b.shims.Stat(templateDir); err == nil {
-		return b.processTemplateDirectory(templateDir, contextDir, contextName, resetMode)
-	}
-
-	// Fall back to platform/default templates (lowest priority)
-	return b.generateDefaultBlueprint(contextDir, contextName, resetMode)
-}
-
-// processTemplateDirectory processes blueprint templates from the _template directory
-func (b *BaseBlueprintHandler) processTemplateDirectory(templateDir, contextDir, contextName string, resetMode bool) error {
-	entries, err := b.shims.ReadDir(templateDir)
-	if err != nil {
-		return fmt.Errorf("error reading template directory: %w", err)
-	}
-
-	for _, entry := range entries {
-		if entry.Name() == "blueprint.jsonnet" {
-			templateFile := filepath.Join(templateDir, entry.Name())
-			return b.processJsonnetTemplate(templateFile, contextDir, contextName, resetMode)
-		}
-	}
-
-	return b.generateDefaultBlueprint(contextDir, contextName, resetMode)
-}
-
-// processJsonnetTemplate reads and evaluates a jsonnet template file to generate blueprint configuration.
-// It loads the template file, marshals the current context configuration to JSON for use as template data,
-// evaluates the jsonnet template with the context data injected via ExtCode, and processes the resulting
-// blueprint content through the standard blueprint template processing pipeline.
-func (b *BaseBlueprintHandler) processJsonnetTemplate(templateFile, contextDir, contextName string, resetMode bool) error {
-	jsonnetData, err := b.shims.ReadFile(templateFile)
-	if err != nil {
-		return fmt.Errorf("error reading template file: %w", err)
-	}
-
-	config := b.configHandler.GetConfig()
-	contextYAML, err := b.configHandler.YamlMarshalWithDefinedPaths(config)
-	if err != nil {
-		return fmt.Errorf("error marshalling context to YAML: %w", err)
-	}
-
-	var contextMap map[string]any = make(map[string]any)
-	if err := b.shims.YamlUnmarshal(contextYAML, &contextMap); err != nil {
-		return fmt.Errorf("error unmarshalling context YAML: %w", err)
-	}
-
-	contextMap["name"] = contextName
-	contextJSON, err := b.shims.JsonMarshal(contextMap)
-	if err != nil {
-		return fmt.Errorf("error marshalling context map to JSON: %w", err)
-	}
-
-	vm := b.shims.NewJsonnetVM()
-	vm.ExtCode("context", string(contextJSON))
-	evaluatedContent, err := vm.EvaluateAnonymousSnippet(templateFile, string(jsonnetData))
-	if err != nil {
-		return fmt.Errorf("error evaluating jsonnet template: %w", err)
-	}
-
-	outputPath := filepath.Join(contextDir, "blueprint.yaml")
-	return b.processBlueprintTemplate(outputPath, evaluatedContent, contextName, resetMode)
-}
-
-// generateDefaultBlueprint generates a default blueprint when no templates exist
-func (b *BaseBlueprintHandler) generateDefaultBlueprint(contextDir, contextName string, resetMode bool) error {
-	blueprintPath := filepath.Join(contextDir, "blueprint.yaml")
-	if _, err := b.shims.Stat(blueprintPath); err != nil || resetMode {
-		// === Platform Template Loading ===
-		// --platform flag determines which template file to use
-		platform := b.configHandler.GetString("platform")
-		if platform == "" {
-			platform = b.configHandler.GetString("cluster.platform")
-		}
-		templateData, err := b.loadPlatformTemplate(platform)
-		if err != nil || len(templateData) == 0 {
-			templateData, err = b.loadPlatformTemplate("default")
-			if err != nil {
-				return fmt.Errorf("error loading default template: %w", err)
-			}
-		}
-
-		// === Blueprint Data Generation ===
-		if len(templateData) > 0 {
-			config := b.configHandler.GetConfig()
-			contextYAML, err := b.configHandler.YamlMarshalWithDefinedPaths(config)
-			if err != nil {
-				return fmt.Errorf("error marshalling context to YAML: %w", err)
-			}
-			var contextMap map[string]any = make(map[string]any)
-			if err := b.shims.YamlUnmarshal(contextYAML, &contextMap); err != nil {
-				return fmt.Errorf("error unmarshalling context YAML: %w", err)
-			}
-			contextMap["name"] = contextName
-
-			// --blueprint flag controls the context.blueprint field value
-			// Only set if explicitly provided via --blueprint flag
-			blueprintValue := b.configHandler.GetString("blueprint")
-			if blueprintValue != "" {
-				contextMap["blueprint"] = blueprintValue
-			}
-
-			contextJSON, err := b.shims.JsonMarshal(contextMap)
-			if err != nil {
-				return fmt.Errorf("error marshalling context map to JSON: %w", err)
-			}
-
-			// Use ExtCode to make context available via std.extVar("context")
-			// Templates must include: local context = std.extVar("context");
-			// This follows standard jsonnet patterns and is explicit and debuggable
-			vm := b.shims.NewJsonnetVM()
-			vm.ExtCode("context", string(contextJSON))
-			evaluatedContent, err := vm.EvaluateAnonymousSnippet("blueprint.jsonnet", string(templateData))
-			if err != nil {
-				return fmt.Errorf("error generating blueprint from jsonnet: %w", err)
-			}
-			if evaluatedContent != "" {
-				// Process through standard pipeline (validates, converts to YAML, applies metadata)
-				return b.processBlueprintTemplate(blueprintPath, evaluatedContent, contextName, resetMode)
-			}
-		}
-
-		// === Fallback Blueprint Creation ===
-		blueprint := *DefaultBlueprint.DeepCopy()
-		blueprint.Metadata.Name = contextName
-		blueprint.Metadata.Description = fmt.Sprintf("This blueprint outlines resources in the %s context", contextName)
-		blueprintData, err := b.shims.YamlMarshal(blueprint)
-		if err != nil {
-			return fmt.Errorf("error marshalling default blueprint: %w", err)
-		}
-
-		// === Blueprint File Write ===
-		if err := b.shims.WriteFile(blueprintPath, blueprintData, 0644); err != nil {
-			return fmt.Errorf("error writing blueprint file: %w", err)
-		}
-	}
-
-	return nil
-}
-
-// processBlueprintTemplate validates blueprint template output against the Blueprint schema,
-// applies context-specific metadata overrides, and writes the result as a properly formatted
-// blueprint.yaml file. It ensures template content conforms to the Blueprint schema before
-// persisting to disk and automatically sets the blueprint name and description based on context.
-func (b *BaseBlueprintHandler) processBlueprintTemplate(outputPath, content, contextName string, resetMode bool) error {
-	if !resetMode {
-		if _, err := b.shims.Stat(outputPath); err == nil {
-			return nil
-		}
-	}
-
-	var testBlueprint blueprintv1alpha1.Blueprint
-	if err := b.processBlueprintData([]byte(content), &testBlueprint); err != nil {
-		return fmt.Errorf("error validating blueprint template: %w", err)
-	}
-
-	testBlueprint.Metadata.Name = contextName
-	testBlueprint.Metadata.Description = fmt.Sprintf("This blueprint outlines resources in the %s context", contextName)
-
-	yamlData, err := b.shims.YamlMarshal(testBlueprint)
-	if err != nil {
-		return fmt.Errorf("error converting blueprint to YAML: %w", err)
-	}
-
-	if err := b.shims.WriteFile(outputPath, yamlData, 0644); err != nil {
-		return fmt.Errorf("error writing blueprint file: %w", err)
-	}
-
-	return nil
-}
-
 // =============================================================================
 // Private Methods
 // =============================================================================
 
-// resolveComponentSources transforms component source names into fully qualified
-// URL with path prefix and reference information based on the associated source configuration.
+// createCleanedBlueprint returns a deep copy of the blueprint with all Terraform component Values fields removed.
+// All Values maps are cleared, as these should not be persisted in the final blueprint.yaml.
+func (b *BaseBlueprintHandler) createCleanedBlueprint() *blueprintv1alpha1.Blueprint {
+	cleaned := b.blueprint.DeepCopy()
+	for i := range cleaned.TerraformComponents {
+		cleaned.TerraformComponents[i].Values = map[string]any{}
+	}
+	return cleaned
+}
+
+// walkAndCollectTemplates recursively walks through template directories and collects .jsonnet files.
+func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir, templateRoot string, templateData map[string][]byte) error {
+	entries, err := b.shims.ReadDir(templateDir)
+	if err != nil {
+		return fmt.Errorf("failed to read template directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		entryPath := filepath.Join(templateDir, entry.Name())
+
+		if entry.IsDir() {
+			if err := b.walkAndCollectTemplates(entryPath, templateRoot, templateData); err != nil {
+				return err
+			}
+		} else if strings.HasSuffix(entry.Name(), ".jsonnet") {
+			content, err := b.shims.ReadFile(filepath.Clean(entryPath))
+			if err != nil {
+				return fmt.Errorf("failed to read template file %s: %w", entryPath, err)
+			}
+
+			relPath, err := filepath.Rel(templateRoot, entryPath)
+			if err != nil {
+				return fmt.Errorf("failed to get relative path: %w", err)
+			}
+
+			templateData[filepath.ToSlash(relPath)] = content
+		}
+	}
+
+	return nil
+}
+
+// resolveComponentSources transforms component source names into fully qualified URLs
+// with path prefix and reference information based on the associated source configuration.
+// It processes both OCI and Git sources, constructing appropriate URL formats for each type.
+// For OCI sources, it creates URLs in the format oci://registry/repo:tag//path/to/module.
+// For Git sources, it uses the format url//path/to/module?ref=reference.
 func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *blueprintv1alpha1.Blueprint) {
 	resolvedComponents := make([]blueprintv1alpha1.TerraformComponent, len(blueprint.TerraformComponents))
 	copy(resolvedComponents, blueprint.TerraformComponents)
@@ -694,11 +638,6 @@ func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *blueprintv1alp
 	for i, component := range resolvedComponents {
 		for _, source := range blueprint.Sources {
 			if component.Source == source.Name {
-				// Skip URL resolution for OCI sources - let terraform generator handle them
-				if strings.HasPrefix(source.Url, "oci://") {
-					break
-				}
-
 				pathPrefix := source.PathPrefix
 				if pathPrefix == "" {
 					pathPrefix = "terraform"
@@ -715,7 +654,15 @@ func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *blueprintv1alp
 					ref = source.Ref.Branch
 				}
 
-				resolvedComponents[i].Source = source.Url + "//" + pathPrefix + "/" + component.Path + "?ref=" + ref
+				if strings.HasPrefix(source.Url, "oci://") {
+					baseURL := source.Url
+					if ref != "" && !strings.Contains(baseURL, ":") {
+						baseURL = baseURL + ":" + ref
+					}
+					resolvedComponents[i].Source = baseURL + "//" + pathPrefix + "/" + component.Path
+				} else {
+					resolvedComponents[i].Source = source.Url + "//" + pathPrefix + "/" + component.Path + "?ref=" + ref
+				}
 				break
 			}
 		}
@@ -726,7 +673,8 @@ func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *blueprintv1alp
 
 // resolveComponentPaths determines the full filesystem path for each Terraform component,
 // using either the module cache location for remote sources or the project's terraform directory
-// for local modules.
+// for local modules. It processes all components in the blueprint, checking source types to
+// determine appropriate path resolution strategies and updating component paths accordingly.
 func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *blueprintv1alpha1.Blueprint) {
 	projectRoot := b.projectRoot
 
@@ -736,7 +684,6 @@ func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *blueprintv1alpha
 	for i, component := range resolvedComponents {
 		componentCopy := component
 
-		// Check if this is a remote source (Git URL) or OCI source
 		if b.isValidTerraformRemoteSource(componentCopy.Source) || b.isOCISource(componentCopy.Source) {
 			componentCopy.FullPath = filepath.Join(projectRoot, ".windsor", ".tf_modules", componentCopy.Path)
 		} else {
@@ -751,9 +698,12 @@ func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *blueprintv1alpha
 	blueprint.TerraformComponents = resolvedComponents
 }
 
-// processBlueprintData unmarshals and validates blueprint configuration data, ensuring required
-// fields are present and converting any raw kustomization data into strongly typed objects.
-func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *blueprintv1alpha1.Blueprint) error {
+// processBlueprintData parses blueprint YAML data into a Blueprint object.
+// Parses and validates required fields, converts kustomization maps to typed objects, and merges results into
+// the target blueprint. If ociInfo is provided, injects the OCI source into the sources list, updates Terraform
+// components and kustomizations lacking a source to use the OCI source, and ensures the OCI source is present
+// or updated in the sources slice.
+func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *blueprintv1alpha1.Blueprint, ociInfo ...*artifact.OCIArtifactInfo) error {
 	newBlueprint := &blueprintv1alpha1.PartialBlueprint{}
 	if err := b.shims.YamlUnmarshal(data, newBlueprint); err != nil {
 		return fmt.Errorf("error unmarshalling blueprint data: %w", err)
@@ -776,12 +726,48 @@ func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *blue
 		kustomizations = append(kustomizations, kustomization)
 	}
 
+	sources := newBlueprint.Sources
+	terraformComponents := newBlueprint.TerraformComponents
+
+	if len(ociInfo) > 0 && ociInfo[0] != nil {
+		oci := ociInfo[0]
+		ociSource := blueprintv1alpha1.Source{
+			Name: oci.Name,
+			Url:  oci.URL,
+		}
+
+		sourceExists := false
+		for i, source := range sources {
+			if source.Name == oci.Name {
+				sources[i] = ociSource
+				sourceExists = true
+				break
+			}
+		}
+
+		if !sourceExists {
+			sources = append(sources, ociSource)
+		}
+
+		for i, component := range terraformComponents {
+			if component.Source == "" {
+				terraformComponents[i].Source = oci.Name
+			}
+		}
+
+		for i, kustomization := range kustomizations {
+			if kustomization.Source == "" {
+				kustomizations[i].Source = oci.Name
+			}
+		}
+	}
+
 	completeBlueprint := &blueprintv1alpha1.Blueprint{
 		Kind:                newBlueprint.Kind,
 		ApiVersion:          newBlueprint.ApiVersion,
 		Metadata:            newBlueprint.Metadata,
-		Sources:             newBlueprint.Sources,
-		TerraformComponents: newBlueprint.TerraformComponents,
+		Sources:             sources,
+		TerraformComponents: terraformComponents,
 		Kustomizations:      kustomizations,
 		Repository:          newBlueprint.Repository,
 	}
@@ -1232,18 +1218,41 @@ func (b *BaseBlueprintHandler) toKubernetesKustomization(k blueprintv1alpha1.Kus
 	}
 }
 
-// isOCISource determines whether a given source name corresponds to an OCI repository
-// source by examining the URL prefix of the blueprint's main repository and any additional sources
-func (b *BaseBlueprintHandler) isOCISource(sourceName string) bool {
-	if sourceName == b.blueprint.Metadata.Name && strings.HasPrefix(b.blueprint.Repository.Url, "oci://") {
+// isOCISource determines whether a given source name or resolved URL corresponds to an OCI repository
+// source by examining the URL prefix of the blueprint's main repository and any additional sources,
+// or by checking if the input is already a resolved OCI URL.
+func (b *BaseBlueprintHandler) isOCISource(sourceNameOrURL string) bool {
+	// Check if it's already a resolved OCI URL
+	if strings.HasPrefix(sourceNameOrURL, "oci://") {
+		return true
+	}
+
+	// Check if it's a source name that maps to an OCI URL
+	if sourceNameOrURL == b.blueprint.Metadata.Name && strings.HasPrefix(b.blueprint.Repository.Url, "oci://") {
 		return true
 	}
 
 	for _, source := range b.blueprint.Sources {
-		if source.Name == sourceName && strings.HasPrefix(source.Url, "oci://") {
+		if source.Name == sourceNameOrURL && strings.HasPrefix(source.Url, "oci://") {
 			return true
 		}
 	}
 
 	return false
+}
+
+// isNotFoundError checks if an error is a Kubernetes resource not found error
+// This is used during cleanup to ignore errors when resources don't exist
+func isNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errMsg := strings.ToLower(err.Error())
+	// Check for resource not found errors, but not namespace not found errors
+	return (strings.Contains(errMsg, "resource not found") ||
+		strings.Contains(errMsg, "could not find the requested resource") ||
+		strings.Contains(errMsg, "the server could not find the requested resource") ||
+		strings.Contains(errMsg, "\" not found")) &&
+		!strings.Contains(errMsg, "namespace not found")
 }

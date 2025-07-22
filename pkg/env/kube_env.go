@@ -50,6 +50,9 @@ func NewKubeEnvPrinter(injector di.Injector) *KubeEnvPrinter {
 // It checks for a project-specific volume directory and returns current variables
 // if it doesn't exist. If it does, it ensures each PVC directory has a corresponding
 // "PV_" environment variable, returning the map if all are accounted for.
+// If not all volumes are accounted for, it attempts to query the Kubernetes API
+// to create environment variables for matching PVCs. If the API is unavailable,
+// it gracefully degrades by returning the basic environment variables without failing.
 func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 	configRoot, err := e.configHandler.GetConfigRoot()
@@ -111,7 +114,7 @@ func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 	pvcs, err := queryPersistentVolumeClaims(kubeConfigPath)
 	if err != nil {
-		return nil, fmt.Errorf("error querying persistent volume claims: %w", err)
+		return envVars, nil
 	}
 
 	if pvcs != nil && pvcs.Items != nil {

@@ -80,7 +80,7 @@ type Source struct {
 	PathPrefix string `yaml:"pathPrefix,omitempty"`
 
 	// Ref details the branch, tag, or commit to use.
-	Ref Reference `yaml:"ref"`
+	Ref Reference `yaml:"ref,omitempty"`
 
 	// SecretName is the secret for source access.
 	SecretName string `yaml:"secretName,omitempty"`
@@ -114,6 +114,9 @@ type TerraformComponent struct {
 
 	// FullPath is the complete path, not serialized to YAML.
 	FullPath string `yaml:"-"`
+
+	// DependsOn lists dependencies of this terraform component.
+	DependsOn []string `yaml:"dependsOn,omitempty"`
 
 	// Values are configuration values for the module.
 	Values map[string]any `yaml:"values,omitempty"`
@@ -239,10 +242,13 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 		valuesCopy := make(map[string]any, len(component.Values))
 		maps.Copy(valuesCopy, component.Values)
 
+		dependsOnCopy := append([]string{}, component.DependsOn...)
+
 		terraformComponentsCopy[i] = TerraformComponent{
 			Source:      component.Source,
 			Path:        component.Path,
 			FullPath:    component.FullPath,
+			DependsOn:   dependsOnCopy,
 			Values:      valuesCopy,
 			Destroy:     component.Destroy,
 			Parallelism: component.Parallelism,
@@ -251,38 +257,7 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 
 	kustomizationsCopy := make([]Kustomization, len(b.Kustomizations))
 	for i, kustomization := range b.Kustomizations {
-		var substituteFromCopy []SubstituteReference
-		if kustomization.PostBuild != nil {
-			substituteFromCopy = make([]SubstituteReference, len(kustomization.PostBuild.SubstituteFrom))
-			copy(substituteFromCopy, kustomization.PostBuild.SubstituteFrom)
-		}
-
-		postBuildCopy := &PostBuild{
-			Substitute:     make(map[string]string),
-			SubstituteFrom: substituteFromCopy,
-		}
-		if kustomization.PostBuild != nil {
-			for key, value := range kustomization.PostBuild.Substitute {
-				postBuildCopy.Substitute[key] = value
-			}
-		}
-
-		kustomizationsCopy[i] = Kustomization{
-			Name:          kustomization.Name,
-			Path:          kustomization.Path,
-			Source:        kustomization.Source,
-			DependsOn:     slices.Clone(kustomization.DependsOn),
-			Interval:      kustomization.Interval,
-			RetryInterval: kustomization.RetryInterval,
-			Timeout:       kustomization.Timeout,
-			Patches:       slices.Clone(kustomization.Patches),
-			Wait:          kustomization.Wait,
-			Force:         kustomization.Force,
-			Prune:         kustomization.Prune,
-			Components:    slices.Clone(kustomization.Components),
-			Cleanup:       slices.Clone(kustomization.Cleanup),
-			PostBuild:     postBuildCopy,
-		}
+		kustomizationsCopy[i] = *kustomization.DeepCopy()
 	}
 
 	return &Blueprint{
@@ -371,12 +346,14 @@ func (b *Blueprint) Merge(overlay *Blueprint) {
 					if mergedComponent.Values == nil {
 						mergedComponent.Values = make(map[string]any)
 					}
-					for k, v := range overlayComponent.Values {
-						mergedComponent.Values[k] = v
-					}
+					maps.Copy(mergedComponent.Values, overlayComponent.Values)
 
 					if overlayComponent.FullPath != "" {
 						mergedComponent.FullPath = overlayComponent.FullPath
+					}
+
+					if overlayComponent.DependsOn != nil {
+						mergedComponent.DependsOn = overlayComponent.DependsOn
 					}
 
 					if overlayComponent.Destroy != nil {
@@ -411,12 +388,14 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 
 	var postBuildCopy *PostBuild
 	if k.PostBuild != nil {
-		postBuildCopy = &PostBuild{
-			Substitute:     make(map[string]string),
-			SubstituteFrom: slices.Clone(k.PostBuild.SubstituteFrom),
-		}
-		for key, value := range k.PostBuild.Substitute {
-			postBuildCopy.Substitute[key] = value
+		substituteCopy := maps.Clone(k.PostBuild.Substitute)
+		substituteFromCopy := slices.Clone(k.PostBuild.SubstituteFrom)
+
+		if len(substituteCopy) > 0 || len(substituteFromCopy) > 0 {
+			postBuildCopy = &PostBuild{
+				Substitute:     substituteCopy,
+				SubstituteFrom: substituteFromCopy,
+			}
 		}
 	}
 

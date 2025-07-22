@@ -220,6 +220,20 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 			t.Error("Expected error, got nil")
 		}
 	})
+
+	t.Run("KustomizationNotFound", func(t *testing.T) {
+		manager := setup(t)
+		client := NewMockKubernetesClient()
+		client.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = client
+
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		if err != nil {
+			t.Errorf("Expected no error for not found resource, got %v", err)
+		}
+	})
 }
 
 func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
@@ -1088,6 +1102,23 @@ func TestBaseKubernetesManager_GetHelmReleasesForKustomization(t *testing.T) {
 		}
 	})
 
+	t.Run("KustomizationNotFound", func(t *testing.T) {
+		manager := setup(t)
+		client := NewMockKubernetesClient()
+		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = client
+
+		releases, err := manager.GetHelmReleasesForKustomization("test-kustomization", "test-namespace")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(releases) != 0 {
+			t.Errorf("Expected 0 releases, got %d", len(releases))
+		}
+	})
+
 	t.Run("FromUnstructuredError", func(t *testing.T) {
 		manager := setup(t)
 		client := NewMockKubernetesClient()
@@ -1153,7 +1184,7 @@ func TestBaseKubernetesManager_SuspendKustomization(t *testing.T) {
 		}
 	})
 
-	t.Run("InvalidName", func(t *testing.T) {
+	t.Run("ResourceNotFound", func(t *testing.T) {
 		manager := setup(t)
 		client := NewMockKubernetesClient()
 		client.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
@@ -1161,7 +1192,7 @@ func TestBaseKubernetesManager_SuspendKustomization(t *testing.T) {
 		}
 		manager.client = client
 
-		err := manager.SuspendKustomization("", "test-namespace")
+		err := manager.SuspendKustomization("nonexistent-kustomization", "test-namespace")
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -1170,7 +1201,7 @@ func TestBaseKubernetesManager_SuspendKustomization(t *testing.T) {
 		}
 	})
 
-	t.Run("InvalidNamespace", func(t *testing.T) {
+	t.Run("PatchResourceError", func(t *testing.T) {
 		manager := setup(t)
 		client := NewMockKubernetesClient()
 		client.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
@@ -1178,12 +1209,29 @@ func TestBaseKubernetesManager_SuspendKustomization(t *testing.T) {
 		}
 		manager.client = client
 
-		err := manager.SuspendKustomization("test-kustomization", "")
+		err := manager.SuspendKustomization("test-kustomization", "nonexistent-namespace")
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
 		if !strings.Contains(err.Error(), "namespace not found") {
 			t.Errorf("Expected error containing 'namespace not found', got %v", err)
+		}
+	})
+
+	t.Run("ServerCouldNotFindResource", func(t *testing.T) {
+		manager := setup(t)
+		client := NewMockKubernetesClient()
+		client.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = client
+
+		err := manager.SuspendKustomization("observability", "test-namespace")
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "the server could not find the requested resource") {
+			t.Errorf("Expected error containing 'the server could not find the requested resource', got %v", err)
 		}
 	})
 }
@@ -1234,7 +1282,7 @@ func TestBaseKubernetesManager_SuspendHelmRelease(t *testing.T) {
 		}
 	})
 
-	t.Run("InvalidName", func(t *testing.T) {
+	t.Run("ResourceNotFound", func(t *testing.T) {
 		manager := setup(t)
 		client := NewMockKubernetesClient()
 		client.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
@@ -1242,7 +1290,7 @@ func TestBaseKubernetesManager_SuspendHelmRelease(t *testing.T) {
 		}
 		manager.client = client
 
-		err := manager.SuspendHelmRelease("", "test-namespace")
+		err := manager.SuspendHelmRelease("nonexistent-release", "test-namespace")
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -1251,7 +1299,7 @@ func TestBaseKubernetesManager_SuspendHelmRelease(t *testing.T) {
 		}
 	})
 
-	t.Run("InvalidNamespace", func(t *testing.T) {
+	t.Run("PatchResourceError", func(t *testing.T) {
 		manager := setup(t)
 		client := NewMockKubernetesClient()
 		client.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
@@ -1259,12 +1307,29 @@ func TestBaseKubernetesManager_SuspendHelmRelease(t *testing.T) {
 		}
 		manager.client = client
 
-		err := manager.SuspendHelmRelease("test-release", "")
+		err := manager.SuspendHelmRelease("test-release", "nonexistent-namespace")
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
 		if !strings.Contains(err.Error(), "namespace not found") {
 			t.Errorf("Expected error containing 'namespace not found', got %v", err)
+		}
+	})
+
+	t.Run("ServerCouldNotFindResource", func(t *testing.T) {
+		manager := setup(t)
+		client := NewMockKubernetesClient()
+		client.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = client
+
+		err := manager.SuspendHelmRelease("observability", "test-namespace")
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "the server could not find the requested resource") {
+			t.Errorf("Expected error containing 'the server could not find the requested resource', got %v", err)
 		}
 	})
 }

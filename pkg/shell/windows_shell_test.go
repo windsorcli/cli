@@ -5,48 +5,16 @@ package shell
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"golang.org/x/sys/windows"
 )
 
 // The WindowsShellTest is a test suite for Windows-specific shell operations.
 // It provides comprehensive test coverage for PowerShell environment management,
 // project root detection, and alias handling on Windows systems.
 // The WindowsShellTest ensures reliable shell operations on Windows platforms.
-
-// =============================================================================
-// Test Setup
-// =============================================================================
-
-// Helper function to get the long path name on Windows
-// This function converts a short path to its long form
-func getLongPathName(shortPath string) (string, error) {
-	p, err := windows.UTF16PtrFromString(shortPath)
-	if err != nil {
-		return "", err
-	}
-	b := make([]uint16, windows.MAX_LONG_PATH)
-	r, err := windows.GetLongPathName(p, &b[0], uint32(len(b)))
-	if r == 0 {
-		return "", err
-	}
-	return windows.UTF16ToString(b), nil
-}
-
-// Helper function to normalize a Windows path
-// This function ensures the path is in its long form and normalized
-func normalizeWindowsPath(path string) string {
-	longPath, err := getLongPathName(path)
-	if err != nil {
-		return normalizePath(path)
-	}
-	return normalizePath(longPath)
-}
 
 // =============================================================================
 // Test Public Methods
@@ -74,7 +42,7 @@ func TestDefaultShell_PrintEnvVars(t *testing.T) {
 
 		// When capturing the output of PrintEnvVars
 		output := captureStdout(t, func() {
-			shell.PrintEnvVars(envVars)
+			shell.PrintEnvVars(envVars, true)
 		})
 
 		// Then the output should match the expected output
@@ -183,8 +151,8 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 		})
 
 		// Then the output should contain the expected alias and remove alias commands
-		expectedAliasLine := fmt.Sprintf("Set-Alias -Name ALIAS1 -Value \"command1\"\n")
-		expectedRemoveAliasLine := fmt.Sprintf("Remove-Item Alias:ALIAS2\n")
+		expectedAliasLine := "Set-Alias -Name ALIAS1 -Value \"command1\"\n"
+		expectedRemoveAliasLine := "Remove-Item Alias:ALIAS2\n"
 
 		if !strings.Contains(output, expectedAliasLine) {
 			t.Errorf("PrintAlias() output missing expected line: %v", expectedAliasLine)
@@ -279,51 +247,4 @@ func TestDefaultShell_UnsetAlias(t *testing.T) {
 			t.Errorf("UnsetAlias() with empty list should produce no output, got %v", output)
 		}
 	})
-}
-
-// =============================================================================
-// Helper Functions
-// =============================================================================
-
-// Helper function to change the current directory
-func changeDir(t *testing.T, dir string) {
-	t.Helper()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("Failed to change directory to %s: %v", dir, err)
-	}
-}
-
-// Helper function to normalize a path for comparison
-func normalizePath(path string) string {
-	return filepath.Clean(path)
-}
-
-// Helper function to capture stdout from a function
-func captureStdoutFromFunc(t *testing.T, fn func()) string {
-	t.Helper()
-
-	// Create a pipe to capture stdout
-	oldStdout := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("Failed to create pipe: %v", err)
-	}
-	os.Stdout = w
-
-	// Run the function
-	fn()
-
-	// Close the writer
-	w.Close()
-
-	// Restore stdout
-	os.Stdout = oldStdout
-
-	// Read the output
-	buf, err := io.ReadAll(r)
-	if err != nil {
-		t.Fatalf("Failed to read from pipe: %v", err)
-	}
-
-	return string(buf)
 }

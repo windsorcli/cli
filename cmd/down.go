@@ -1,17 +1,18 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
-	ctrl "github.com/windsorcli/cli/pkg/controller"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/pipelines"
 )
 
 var (
-	cleanFlag   bool
-	skipK8sFlag bool
+	cleanFlag         bool
+	skipK8sFlag       bool
+	skipTerraformFlag bool
 )
 
 var downCmd = &cobra.Command{
@@ -20,97 +21,53 @@ var downCmd = &cobra.Command{
 	Long:         "Tear down the Windsor environment by executing necessary shell commands.",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
+		// Get shared dependency injector from context
+		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		// Initialize with requirements
-		if err := controller.InitializeWithRequirements(ctrl.Requirements{
-			ConfigLoaded: true,
-			Trust:        true,
-			Env:          true,
-			VM:           true,
-			Containers:   true,
-			Network:      true,
-			Blueprint:    true,
-			Cluster:      true,
-			Stack:        true,
-			CommandName:  cmd.Name(),
-			Flags: map[string]bool{
-				"verbose": verbose,
-			},
-		}); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
+		// First, run the env pipeline in quiet mode to set up environment variables
+		var envPipeline pipelines.Pipeline
+		envPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "envPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up env pipeline: %w", err)
+		}
+		envCtx := context.WithValue(cmd.Context(), "quiet", true)
+		envCtx = context.WithValue(envCtx, "decrypt", true)
+		if err := envPipeline.Execute(envCtx); err != nil {
+			return fmt.Errorf("failed to set up environment: %w", err)
 		}
 
-		// Set the environment variables internally in the process
-		if err := controller.SetEnvironmentVariables(); err != nil {
-			return fmt.Errorf("Error setting environment variables: %w", err)
+		// Then, run the init pipeline to initialize the environment
+		var initPipeline pipelines.Pipeline
+		initPipeline, err = pipelines.WithPipeline(injector, cmd.Context(), "initPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up init pipeline: %w", err)
+		}
+		if err := initPipeline.Execute(cmd.Context()); err != nil {
+			return fmt.Errorf("failed to initialize environment: %w", err)
 		}
 
-		// Resolve components
-		shell := controller.ResolveShell()
-		configHandler := controller.ResolveConfigHandler()
-
-		// Run blueprint cleanup before stack down
-		blueprintHandler := controller.ResolveBlueprintHandler()
-		if blueprintHandler == nil {
-			return fmt.Errorf("No blueprint handler found")
-		}
-		if err := blueprintHandler.LoadConfig(); err != nil {
-			return fmt.Errorf("Error loading blueprint config: %w", err)
-		}
-		if !skipK8sFlag {
-			if err := blueprintHandler.Down(); err != nil {
-				return fmt.Errorf("Error running blueprint down: %w", err)
-			}
-		} else {
-			fmt.Fprintln(os.Stderr, "Skipping Kubernetes cleanup (--skip-k8s set)")
+		// Finally, run the down pipeline for infrastructure teardown
+		downPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "downPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up down pipeline: %w", err)
 		}
 
-		// Tear down the stack components
-		stack := controller.ResolveStack()
-		if stack == nil {
-			return fmt.Errorf("No stack found")
-		}
-		if err := stack.Down(); err != nil {
-			return fmt.Errorf("Error running stack Down command: %w", err)
-		}
-
-		// Determine if the container runtime is enabled
-		containerRuntimeEnabled := configHandler.GetBool("docker.enabled")
-
-		// Tear down the container runtime if enabled in configuration
-		if containerRuntimeEnabled {
-			// Resolve container runtime
-			containerRuntime := controller.ResolveContainerRuntime()
-			if containerRuntime == nil {
-				return fmt.Errorf("No container runtime found")
-			}
-
-			// Tear down the container runtime
-			if err := containerRuntime.Down(); err != nil {
-				return fmt.Errorf("Error running container runtime Down command: %w", err)
-			}
-		}
-
-		// Clean up context specific artifacts if --clean flag is set
+		// Create execution context with flags
+		ctx := cmd.Context()
 		if cleanFlag {
-			if err := configHandler.Clean(); err != nil {
-				return fmt.Errorf("Error cleaning up context specific artifacts: %w", err)
-			}
-
-			// Delete everything in the .volumes folder
-			projectRoot, err := shell.GetProjectRoot()
-			if err != nil {
-				return fmt.Errorf("Error retrieving project root: %w", err)
-			}
-			volumesPath := filepath.Join(projectRoot, ".volumes")
-			if err := shims.RemoveAll(volumesPath); err != nil {
-				return fmt.Errorf("Error deleting .volumes folder: %w", err)
-			}
+			ctx = context.WithValue(ctx, "clean", true)
+		}
+		if skipK8sFlag {
+			ctx = context.WithValue(ctx, "skipK8s", true)
+		}
+		if skipTerraformFlag {
+			ctx = context.WithValue(ctx, "skipTerraform", true)
 		}
 
-		// Print success message
-		fmt.Fprintln(os.Stderr, "Windsor environment torn down successfully.")
+		// Execute the down pipeline
+		if err := downPipeline.Execute(ctx); err != nil {
+			return fmt.Errorf("Error executing down pipeline: %w", err)
+		}
 
 		return nil
 	},
@@ -119,5 +76,6 @@ var downCmd = &cobra.Command{
 func init() {
 	downCmd.Flags().BoolVar(&cleanFlag, "clean", false, "Clean up context specific artifacts")
 	downCmd.Flags().BoolVar(&skipK8sFlag, "skip-k8s", false, "Skip Kubernetes cleanup (blueprint cleanup)")
+	downCmd.Flags().BoolVar(&skipTerraformFlag, "skip-tf", false, "Skip Terraform cleanup")
 	rootCmd.AddCommand(downCmd)
 }

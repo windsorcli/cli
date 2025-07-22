@@ -230,7 +230,7 @@ func TestEnv_Print(t *testing.T) {
 
 		// And a mock PrintEnvVarsFunc
 		var capturedEnvVars map[string]string
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string, export bool) {
 			capturedEnvVars = envVars
 		}
 
@@ -256,7 +256,7 @@ func TestEnv_Print(t *testing.T) {
 
 		// And a mock PrintEnvVarsFunc
 		var capturedEnvVars map[string]string
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string, export bool) {
 			capturedEnvVars = envVars
 		}
 
@@ -580,7 +580,7 @@ func TestBaseEnvPrinter_Reset(t *testing.T) {
 
 		// And a mock Reset function
 		resetCalled := false
-		mocks.Shell.ResetFunc = func() {
+		mocks.Shell.ResetFunc = func(...bool) {
 			resetCalled = true
 		}
 
@@ -607,7 +607,7 @@ func TestBaseEnvPrinter_Reset(t *testing.T) {
 
 		// And a mock Reset function
 		resetCalled := false
-		mocks.Shell.ResetFunc = func() {
+		mocks.Shell.ResetFunc = func(...bool) {
 			resetCalled = true
 		}
 
@@ -632,7 +632,7 @@ func TestBaseEnvPrinter_Reset(t *testing.T) {
 
 		// And a mock Reset function
 		resetCalled := false
-		mocks.Shell.ResetFunc = func() {
+		mocks.Shell.ResetFunc = func(...bool) {
 			resetCalled = true
 		}
 

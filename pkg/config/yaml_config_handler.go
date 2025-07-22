@@ -24,6 +24,7 @@ type YamlConfigHandler struct {
 	BaseConfigHandler
 	path                 string
 	defaultContextConfig v1alpha1.Context
+	rootContexts         map[string]bool // tracks which contexts were originally loaded from root config
 }
 
 // =============================================================================
@@ -32,16 +33,25 @@ type YamlConfigHandler struct {
 
 // NewYamlConfigHandler creates a new instance of YamlConfigHandler with default context configuration.
 func NewYamlConfigHandler(injector di.Injector) *YamlConfigHandler {
-	return &YamlConfigHandler{
+	handler := &YamlConfigHandler{
 		BaseConfigHandler: *NewBaseConfigHandler(injector),
+		rootContexts:      make(map[string]bool),
 	}
+
+	// Initialize the config version
+	handler.config.Version = "v1alpha1"
+
+	return handler
 }
 
 // =============================================================================
 // Public Methods
 // =============================================================================
 
-// LoadConfigString loads the configuration from the provided string content.
+// LoadConfigString loads configuration from the provided YAML string content.
+// It unmarshals the YAML into the internal config structure, tracks root contexts,
+// validates and sets the config version, and marks the configuration as loaded.
+// Returns an error if unmarshalling fails or if the config version is unsupported.
 func (y *YamlConfigHandler) LoadConfigString(content string) error {
 	if content == "" {
 		return nil
@@ -51,7 +61,12 @@ func (y *YamlConfigHandler) LoadConfigString(content string) error {
 		return fmt.Errorf("error unmarshalling yaml: %w", err)
 	}
 
-	// Check and set the config version
+	if y.config.Contexts != nil {
+		for contextName := range y.config.Contexts {
+			y.rootContexts[contextName] = true
+		}
+	}
+
 	if y.BaseConfigHandler.config.Version == "" {
 		y.BaseConfigHandler.config.Version = "v1alpha1"
 	} else if y.BaseConfigHandler.config.Version != "v1alpha1" {
@@ -77,48 +92,141 @@ func (y *YamlConfigHandler) LoadConfig(path string) error {
 	return y.LoadConfigString(string(data))
 }
 
-// SaveConfig saves the current configuration to the specified path. If the path is empty, it uses the previously loaded path.
-// If overwrite is false and the file exists, it will not overwrite the file
-func (y *YamlConfigHandler) SaveConfig(path string, overwrite ...bool) error {
-	shouldOverwrite := true
-	if len(overwrite) > 0 {
-		shouldOverwrite = overwrite[0]
+// LoadContextConfig loads context-specific windsor.yaml configuration and merges it with the existing configuration.
+// It looks for windsor.yaml files in the current context's directory (contexts/<context>/windsor.yaml).
+// The context-specific configuration is expected to contain only the context configuration values without
+// the top-level "contexts" key. These values are merged into the current context configuration.
+func (y *YamlConfigHandler) LoadContextConfig() error {
+	if y.shell == nil {
+		return fmt.Errorf("shell not initialized")
 	}
 
-	if path == "" {
-		if y.path == "" {
-			return fmt.Errorf("path cannot be empty")
-		}
-		path = y.path
-	}
-
-	dir := filepath.Dir(path)
-	if err := y.shims.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("error creating directories: %w", err)
-	}
-
-	// Check if file exists and we should not overwrite
-	if !shouldOverwrite {
-		if _, err := y.shims.Stat(path); err == nil {
-			return nil
-		}
-	}
-
-	// Ensure the config version is set to "v1alpha1" before saving
-	y.config.Version = "v1alpha1"
-
-	data, err := y.shims.YamlMarshal(y.config)
+	projectRoot, err := y.shell.GetProjectRoot()
 	if err != nil {
-		return fmt.Errorf("error marshalling yaml: %w", err)
+		return fmt.Errorf("error retrieving project root: %w", err)
 	}
 
-	if err := y.shims.WriteFile(path, data, 0644); err != nil {
-		return fmt.Errorf("error writing config file: %w", err)
+	contextName := y.GetContext()
+	contextConfigDir := filepath.Join(projectRoot, "contexts", contextName)
+
+	yamlPath := filepath.Join(contextConfigDir, "windsor.yaml")
+	ymlPath := filepath.Join(contextConfigDir, "windsor.yml")
+
+	var contextConfigPath string
+	if _, err := y.shims.Stat(yamlPath); err == nil {
+		contextConfigPath = yamlPath
+	} else if _, err := y.shims.Stat(ymlPath); err == nil {
+		contextConfigPath = ymlPath
 	}
+
+	if contextConfigPath == "" {
+		return nil
+	}
+
+	data, err := y.shims.ReadFile(contextConfigPath)
+	if err != nil {
+		return fmt.Errorf("error reading context config file: %w", err)
+	}
+
+	var contextConfig v1alpha1.Context
+	if err := y.shims.YamlUnmarshal(data, &contextConfig); err != nil {
+		return fmt.Errorf("error unmarshalling context yaml: %w", err)
+	}
+
+	if y.config.Contexts == nil {
+		y.config.Contexts = make(map[string]*v1alpha1.Context)
+	}
+
+	if y.config.Contexts[contextName] == nil {
+		y.config.Contexts[contextName] = &v1alpha1.Context{}
+	}
+
+	y.config.Contexts[contextName].Merge(&contextConfig)
+
 	return nil
 }
 
-// SetDefault sets the given context configuration as the default.
+// SaveConfig writes configuration to root windsor.yaml and the current context's windsor.yaml.
+// Root windsor.yaml contains only the version field. The context file contains the context config
+// without the contexts wrapper. Files are created only if absent: root windsor.yaml is created if
+// missing; context windsor.yaml is created if missing and context is not in root config. Existing
+// files are never overwritten.
+func (y *YamlConfigHandler) SaveConfig(overwrite ...bool) error {
+	if y.shell == nil {
+		return fmt.Errorf("shell not initialized")
+	}
+
+	projectRoot, err := y.shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("error retrieving project root: %w", err)
+	}
+
+	rootConfigPath := filepath.Join(projectRoot, "windsor.yaml")
+	contextName := y.GetContext()
+	contextConfigPath := filepath.Join(projectRoot, "contexts", contextName, "windsor.yaml")
+
+	rootExists := false
+	if _, err := y.shims.Stat(rootConfigPath); err == nil {
+		rootExists = true
+	}
+
+	contextExists := false
+	if _, err := y.shims.Stat(contextConfigPath); err == nil {
+		contextExists = true
+	}
+
+	contextExistsInRoot := y.rootContexts[contextName]
+
+	shouldCreateRootConfig := !rootExists
+	shouldCreateContextConfig := !contextExists && !contextExistsInRoot
+
+	if shouldCreateRootConfig {
+		rootConfig := struct {
+			Version string `yaml:"version"`
+		}{
+			Version: y.config.Version,
+		}
+
+		data, err := y.shims.YamlMarshal(rootConfig)
+		if err != nil {
+			return fmt.Errorf("error marshalling root config: %w", err)
+		}
+
+		if err := y.shims.WriteFile(rootConfigPath, data, 0644); err != nil {
+			return fmt.Errorf("error writing root config: %w", err)
+		}
+	}
+
+	if shouldCreateContextConfig {
+		var contextConfig v1alpha1.Context
+		if y.config.Contexts != nil && y.config.Contexts[contextName] != nil {
+			contextConfig = *y.config.Contexts[contextName]
+		} else {
+			contextConfig = y.defaultContextConfig
+		}
+
+		contextDir := filepath.Join(projectRoot, "contexts", contextName)
+		if err := y.shims.MkdirAll(contextDir, 0755); err != nil {
+			return fmt.Errorf("error creating context directory: %w", err)
+		}
+
+		data, err := y.shims.YamlMarshal(contextConfig)
+		if err != nil {
+			return fmt.Errorf("error marshalling context config: %w", err)
+		}
+
+		if err := y.shims.WriteFile(contextConfigPath, data, 0644); err != nil {
+			return fmt.Errorf("error writing context config: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// SetDefault sets the given context configuration as the default and merges it with any
+// existing context configuration. If no context exists, the default becomes the context.
+// If a context exists, it merges the default with the existing context, with existing
+// values taking precedence over defaults.
 func (y *YamlConfigHandler) SetDefault(context v1alpha1.Context) error {
 	y.defaultContextConfig = context
 	currentContext := y.GetContext()
@@ -127,23 +235,34 @@ func (y *YamlConfigHandler) SetDefault(context v1alpha1.Context) error {
 
 	if y.Get(contextKey) == nil {
 		return y.Set(contextKey, &context)
+	} else {
+		if y.config.Contexts == nil {
+			y.config.Contexts = make(map[string]*v1alpha1.Context)
+		}
+
+		if y.config.Contexts[currentContext] == nil {
+			y.config.Contexts[currentContext] = &v1alpha1.Context{}
+		}
+
+		defaultCopy := context.DeepCopy()
+		existingCopy := y.config.Contexts[currentContext].DeepCopy()
+		defaultCopy.Merge(existingCopy)
+		y.config.Contexts[currentContext] = defaultCopy
 	}
 
 	return nil
 }
 
-// Get retrieves the value at the specified path in the configuration. It checks both the current and default context configurations.
+// Get returns the value at the given configuration path, checking current and default context if needed.
 func (y *YamlConfigHandler) Get(path string) any {
 	if path == "" {
 		return nil
 	}
 	pathKeys := parsePath(path)
-
 	value := getValueByPath(y.config, pathKeys)
 	if value == nil && len(pathKeys) >= 2 && pathKeys[0] == "contexts" {
 		value = getValueByPath(y.defaultContextConfig, pathKeys[2:])
 	}
-
 	return value
 }
 
@@ -464,7 +583,9 @@ func setValueByPath(currValue reflect.Value, pathKeys []string, value any, fullP
 	return nil
 }
 
-// assignValue assigns a value to a field, converting types if necessary.
+// assignValue assigns a value to a struct field, performing type conversion if necessary.
+// It supports string-to-type conversion, pointer assignment, and type compatibility checks.
+// Returns a reflect.Value suitable for assignment or an error if conversion is not possible.
 func assignValue(fieldValue reflect.Value, value any) (reflect.Value, error) {
 	if !fieldValue.CanSet() {
 		return reflect.Value{}, fmt.Errorf("cannot set field")
@@ -473,17 +594,22 @@ func assignValue(fieldValue reflect.Value, value any) (reflect.Value, error) {
 	fieldType := fieldValue.Type()
 	valueType := reflect.TypeOf(value)
 
+	if strValue, ok := value.(string); ok {
+		convertedValue, err := convertValue(strValue, fieldType)
+		if err == nil {
+			return reflect.ValueOf(convertedValue), nil
+		}
+	}
+
 	if fieldType.Kind() == reflect.Ptr {
 		elemType := fieldType.Elem()
 		newValue := reflect.New(elemType)
 		val := reflect.ValueOf(value)
 
-		// If the value is already a pointer of the correct type, use it directly
 		if valueType.AssignableTo(fieldType) {
 			return val, nil
 		}
 
-		// If the value is convertible to the element type, convert and wrap in pointer
 		if val.Type().ConvertibleTo(elemType) {
 			val = val.Convert(elemType)
 			newValue.Elem().Set(val)

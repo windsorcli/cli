@@ -25,6 +25,7 @@ import (
 type Generator interface {
 	Initialize() error
 	Write(overwrite ...bool) error
+	Generate(data map[string]any, overwrite ...bool) error
 }
 
 // =============================================================================
@@ -90,5 +91,13 @@ func (g *BaseGenerator) Initialize() error {
 // Write is a placeholder implementation of the Write method.
 // Concrete implementations should override this method to provide specific generation logic.
 func (g *BaseGenerator) Write(overwrite ...bool) error {
+	return nil
+}
+
+// Generate is a placeholder implementation of the Generate method.
+// Concrete implementations should override this method to provide specific generation logic.
+// The data parameter contains the processed template data from pkg/template's Process function.
+// The overwrite parameter controls whether existing files should be overwritten.
+func (g *BaseGenerator) Generate(data map[string]any, overwrite ...bool) error {
 	return nil
 }

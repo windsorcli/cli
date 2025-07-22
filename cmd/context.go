@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
-	ctrl "github.com/windsorcli/cli/pkg/controller"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/pipelines"
 )
 
 // getContextCmd represents the get command
@@ -14,34 +16,29 @@ var getContextCmd = &cobra.Command{
 	Long:         "Retrieve and display the current context from the configuration",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
+		// Get shared dependency injector from context
+		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		// Initialize environment components
-		if err := controller.InitializeWithRequirements(ctrl.Requirements{
-			Env:         true,
-			CommandName: cmd.Name(),
-		}); err != nil {
-			return fmt.Errorf("Error initializing environment components: %w", err)
+		// Create output function
+		outputFunc := func(output string) {
+			fmt.Fprintln(cmd.OutOrStdout(), output)
 		}
 
-		// Resolve config handler
-		configHandler := controller.ResolveConfigHandler()
+		// Create execution context with operation and output function
+		ctx := context.WithValue(cmd.Context(), "operation", "get")
+		ctx = context.WithValue(ctx, "output", outputFunc)
 
-		// Check if config is loaded
-		if !configHandler.IsLoaded() {
-			return fmt.Errorf("No context is available. Have you run `windsor init`?")
+		// Set up the context pipeline
+		pipeline, err := pipelines.WithPipeline(injector, ctx, "contextPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up context pipeline: %w", err)
 		}
 
-		// Set the environment variables internally in the process
-		if err := controller.SetEnvironmentVariables(); err != nil {
-			return fmt.Errorf("Error setting environment variables: %w", err)
+		// Execute the pipeline
+		if err := pipeline.Execute(ctx); err != nil {
+			return fmt.Errorf("Error executing context pipeline: %w", err)
 		}
 
-		// Get the current context
-		currentContext := configHandler.GetContext()
-
-		// Print the current context
-		fmt.Fprintln(cmd.OutOrStdout(), currentContext)
 		return nil
 	},
 }
@@ -53,39 +50,30 @@ var setContextCmd = &cobra.Command{
 	Long:  "Set the current context in the configuration and save it",
 	Args:  cobra.ExactArgs(1), // Ensure exactly one argument is provided
 	RunE: func(cmd *cobra.Command, args []string) error {
-		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
+		// Get shared dependency injector from context
+		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		// Initialize environment components
-		if err := controller.InitializeWithRequirements(ctrl.Requirements{
-			ConfigLoaded: true,
-			Env:          true,
-			CommandName:  cmd.Name(),
-		}); err != nil {
-			return fmt.Errorf("Error initializing environment components: %w", err)
+		// Create output function
+		outputFunc := func(output string) {
+			fmt.Fprintln(cmd.OutOrStdout(), output)
 		}
 
-		// Set the environment variables internally in the process
-		if err := controller.SetEnvironmentVariables(); err != nil {
-			return fmt.Errorf("Error setting environment variables: %w", err)
+		// Create execution context with operation, context name, and output function
+		ctx := context.WithValue(cmd.Context(), "operation", "set")
+		ctx = context.WithValue(ctx, "contextName", args[0])
+		ctx = context.WithValue(ctx, "output", outputFunc)
+
+		// Set up the context pipeline
+		pipeline, err := pipelines.WithPipeline(injector, ctx, "contextPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up context pipeline: %w", err)
 		}
 
-		// Resolve config handler
-		configHandler := controller.ResolveConfigHandler()
-
-		// Write a reset token to reset the session
-		shell := controller.ResolveShell()
-		if _, err := shell.WriteResetToken(); err != nil {
-			return fmt.Errorf("Error writing reset token: %w", err)
+		// Execute the pipeline
+		if err := pipeline.Execute(ctx); err != nil {
+			return fmt.Errorf("Error executing context pipeline: %w", err)
 		}
 
-		// Set the context
-		contextName := args[0]
-		if err := configHandler.SetContext(contextName); err != nil {
-			return fmt.Errorf("Error setting context: %w", err)
-		}
-
-		// Print the context
-		fmt.Fprintln(cmd.OutOrStdout(), "Context set to:", contextName)
 		return nil
 	},
 }

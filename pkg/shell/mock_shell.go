@@ -18,7 +18,7 @@ import (
 type MockShell struct {
 	DefaultShell
 	InitializeFunc                 func() error
-	PrintEnvVarsFunc               func(envVars map[string]string)
+	PrintEnvVarsFunc               func(envVars map[string]string, export bool)
 	PrintAliasFunc                 func(envVars map[string]string)
 	GetProjectRootFunc             func() (string, error)
 	ExecFunc                       func(command string, args ...string) (string, error)
@@ -34,7 +34,7 @@ type MockShell struct {
 	WriteResetTokenFunc            func() (string, error)
 	GetSessionTokenFunc            func() (string, error)
 	CheckResetFlagsFunc            func() (bool, error)
-	ResetFunc                      func()
+	ResetFunc                      func(...bool)
 	RegisterSecretFunc             func(value string)
 }
 
@@ -71,9 +71,9 @@ func (s *MockShell) Initialize() error {
 }
 
 // PrintEnvVars calls the custom PrintEnvVarsFunc if provided.
-func (s *MockShell) PrintEnvVars(envVars map[string]string) {
+func (s *MockShell) PrintEnvVars(envVars map[string]string, export bool) {
 	if s.PrintEnvVarsFunc != nil {
-		s.PrintEnvVarsFunc(envVars)
+		s.PrintEnvVarsFunc(envVars, export)
 	}
 }
 
@@ -194,9 +194,9 @@ func (s *MockShell) CheckResetFlags() (bool, error) {
 }
 
 // Reset calls the custom ResetFunc if provided.
-func (s *MockShell) Reset() {
+func (s *MockShell) Reset(quiet ...bool) {
 	if s.ResetFunc != nil {
-		s.ResetFunc()
+		s.ResetFunc(quiet...)
 	}
 }
 

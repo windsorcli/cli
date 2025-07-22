@@ -16,12 +16,9 @@ import (
 
 	"github.com/goccy/go-yaml"
 
-	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	bundler "github.com/windsorcli/cli/pkg/artifact"
-	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -87,7 +84,9 @@ func createMockFile() (*os.File, error) {
 }
 
 // setupTerraformGeneratorMocks extends base mocks with terraform generator specific mocking
-func setupTerraformGeneratorMocks(mocks *Mocks) {
+func setupTerraformGeneratorMocks(t *testing.T) *Mocks {
+	mocks := setupMocks(t)
+
 	// Tar extraction mocks
 	mocks.Shims.NewBytesReader = func(data []byte) io.Reader {
 		return bytes.NewReader(data)
@@ -110,6 +109,8 @@ func setupTerraformGeneratorMocks(mocks *Mocks) {
 	mocks.Shims.Chmod = func(name string, mode os.FileMode) error {
 		return nil // Default to successful chmod
 	}
+
+	return mocks
 }
 
 // =============================================================================
@@ -145,6 +146,14 @@ func TestTerraformGenerator_Write(t *testing.T) {
 		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
 			return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-05-09T16:25:03Z","message_code":"initializing_modules_message","type":"init_output"}
 {"@level":"info","@message":"- main in /path/to/module","@module":"terraform.ui","@timestamp":"2025-05-09T12:25:04.557548-04:00","type":"log"}`, nil
+		}
+
+		// And Stat is mocked to return success for variables.tf files
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			if strings.HasSuffix(path, "variables.tf") {
+				return &mockFileInfo{name: "variables.tf", isDir: false}, nil
+			}
+			return nil, os.ErrNotExist
 		}
 
 		// And ReadFile is mocked to return content for variables.tf
@@ -195,9 +204,28 @@ func TestTerraformGenerator_Write(t *testing.T) {
 		// Given a TerraformGenerator with mocks
 		generator, mocks := setup(t)
 
-		// And MkdirAll is mocked to return an error
-		mocks.Shims.MkdirAll = func(_ string, _ fs.FileMode) error {
-			return fmt.Errorf("mock error creating directory")
+		// And a component that will trigger variables.tf lookup
+		component := blueprintv1alpha1.TerraformComponent{
+			Source:   "fake-source",
+			Path:     "test-component",
+			FullPath: "/tmp/terraform/test-component",
+		}
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{component}
+		}
+
+		// Mock processTemplates to succeed
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/tmp", nil
+		}
+
+		// And Stat is mocked to return os.ErrNotExist for variables.tf lookup
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/tmp/context", nil
 		}
 
 		// When Write is called
@@ -208,10 +236,9 @@ func TestTerraformGenerator_Write(t *testing.T) {
 			t.Fatalf("expected an error, got nil")
 		}
 
-		// And the error should match the expected error
-		expectedError := "failed to create terraform directory: mock error creating directory"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %s, got %s", expectedError, err.Error())
+		// And the error should indicate variables.tf not found
+		if !strings.Contains(err.Error(), "failed to find variables.tf for component") {
+			t.Errorf("expected error to contain 'failed to find variables.tf for component', got %s", err.Error())
 		}
 	})
 
@@ -243,17 +270,9 @@ func TestTerraformGenerator_Write(t *testing.T) {
 		// Given a TerraformGenerator with mocks
 		generator, mocks := setup(t)
 
-		// And .terraform directory exists
-		var removedPath string
-		mocks.Shims.Stat = func(path string) (os.FileInfo, error) {
-			if strings.HasSuffix(path, ".terraform") {
-				return nil, nil // exists
-			}
-			return nil, os.ErrNotExist
-		}
-		mocks.Shims.RemoveAll = func(path string) error {
-			removedPath = path
-			return nil
+		// And no components to process
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{}
 		}
 		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
 			return "/mock/context", nil
@@ -261,26 +280,13 @@ func TestTerraformGenerator_Write(t *testing.T) {
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project", nil
 		}
-		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{}
-		}
-		mocks.Shims.MkdirAll = func(_ string, _ fs.FileMode) error { return nil }
-		mocks.Shims.WriteFile = func(_ string, _ []byte, _ fs.FileMode) error { return nil }
-		mocks.Shims.ReadFile = func(_ string) ([]byte, error) { return []byte{}, nil }
-		mocks.Shims.Chdir = func(_ string) error { return nil }
 
 		// When Write is called with reset=true
 		err := generator.Write(true)
 
-		// Then no error should occur
+		// Then no error should occur (no components to process)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
-		}
-
-		// And the .terraform directory should be removed
-		want := filepath.Join("/mock/context", ".terraform")
-		if removedPath != want {
-			t.Errorf("expected RemoveAll called with %q, got %q", want, removedPath)
 		}
 	})
 
@@ -288,15 +294,9 @@ func TestTerraformGenerator_Write(t *testing.T) {
 		// Given a TerraformGenerator with mocks
 		generator, mocks := setup(t)
 
-		// And .terraform directory exists but RemoveAll fails
-		mocks.Shims.Stat = func(path string) (os.FileInfo, error) {
-			if strings.HasSuffix(path, ".terraform") {
-				return nil, nil // exists
-			}
-			return nil, os.ErrNotExist
-		}
-		mocks.Shims.RemoveAll = func(path string) error {
-			return fmt.Errorf("mock error removing directory")
+		// And no components to process
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{}
 		}
 		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
 			return "/mock/context", nil
@@ -304,70 +304,13 @@ func TestTerraformGenerator_Write(t *testing.T) {
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project", nil
 		}
-		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{}
-		}
 
 		// When Write is called with reset=true
 		err := generator.Write(true)
 
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("expected error, got nil")
-		}
-
-		// And the error should match the expected message
-		expectedError := "failed to remove .terraform directory: mock error removing directory"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorFromGenerateModuleShim", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with source that will cause generateModuleShim to fail
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "test-component",
-			FullPath: "/tmp/terraform/test-component",
-		}
-		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{component}
-		}
-
-		// Mock processTemplates to succeed
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "/tmp", nil
-		}
-
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
-			return "/tmp/context", nil
-		}
-
-		mocks.Shims.MkdirAll = func(path string, _ fs.FileMode) error {
-			if strings.Contains(path, "terraform") && !strings.Contains(path, "test-component") {
-				return nil // Allow terraform folder creation
-			}
-			return fmt.Errorf("mock error creating module directory")
-		}
-
-		// When Write is called
-		err := generator.Write()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should contain the expected message
-		if !strings.Contains(err.Error(), "failed to generate module shim") {
-			t.Errorf("expected error to contain 'failed to generate module shim', got %v", err)
+		// Then no error should occur (no components to process)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 
@@ -1547,1267 +1490,6 @@ func TestTerraformGenerator_processJsonnetTemplate(t *testing.T) {
 	})
 }
 
-func TestTerraformGenerator_generateModuleShim(t *testing.T) {
-	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
-		mocks := setupMocks(t)
-		generator := NewTerraformGenerator(mocks.Injector)
-		generator.shims = mocks.Shims
-		if err := generator.Initialize(); err != nil {
-			t.Fatalf("failed to initialize TerraformGenerator: %v", err)
-		}
-		return generator, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with source
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-		}
-
-		// And ExecSilent is mocked to return output with module path
-		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
-			return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-05-09T16:25:03Z","message_code":"initializing_modules_message","type":"init_output"}
-{"@level":"info","@message":"- main in /path/to/module","@module":"terraform.ui","@timestamp":"2025-05-09T12:25:04.557548-04:00","type":"log"}`, nil
-		}
-
-		// And Stat is mocked to return success for the module path
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			if path == "/path/to/module" {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// And ReadFile is mocked to return content for variables.tf
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`variable "test" {
-  description = "Test variable"
-  type        = string
-}`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// When generateModuleShim is called
-		err := generator.generateModuleShim(component, make(map[string][]byte))
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorMkdirAll", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with source
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-		}
-
-		// And MkdirAll is mocked to return an error
-		mocks.Shims.MkdirAll = func(_ string, _ fs.FileMode) error {
-			return fmt.Errorf("mock error creating directory")
-		}
-
-		// When generateModuleShim is called
-		err := generator.generateModuleShim(component, make(map[string][]byte))
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should match the expected error
-		expectedError := "failed to create module directory: mock error creating directory"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %s, got %s", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorChdir", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with source
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-		}
-
-		// And Chdir is mocked to return an error
-		mocks.Shims.Chdir = func(_ string) error {
-			return fmt.Errorf("mock error changing directory")
-		}
-
-		// When generateModuleShim is called
-		err := generator.generateModuleShim(component, make(map[string][]byte))
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should match the expected error
-		expectedError := "failed to change to module directory: mock error changing directory"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %s, got %s", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorSetenv", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with source
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-		}
-
-		// And Setenv is mocked to return an error
-		mocks.Shims.Setenv = func(_ string, _ string) error {
-			return fmt.Errorf("mock error setting environment variable")
-		}
-
-		// When generateModuleShim is called
-		err := generator.generateModuleShim(component, make(map[string][]byte))
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should match the expected error
-		expectedError := "failed to set TF_DATA_DIR: mock error setting environment variable"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %s, got %s", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorExecSilent", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with source
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-		}
-
-		// And ExecProgress is mocked to return an error
-		mocks.Shell.ExecProgressFunc = func(msg string, cmd string, args ...string) (string, error) {
-			return "", fmt.Errorf("mock error running terraform init")
-		}
-
-		// When generateModuleShim is called
-		err := generator.generateModuleShim(component, make(map[string][]byte))
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should match the expected error
-		expectedError := "failed to initialize terraform: mock error running terraform init"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %s, got %s", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorGetConfigRoot", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with source
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-		}
-
-		// And GetConfigRoot is mocked to return an error
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
-			return "", fmt.Errorf("mock error getting config root")
-		}
-
-		// When generateModuleShim is called
-		err := generator.generateModuleShim(component, make(map[string][]byte))
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should match the expected error
-		expectedError := "failed to get config root: mock error getting config root"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %s, got %s", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorReadingVariables", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with source
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-		}
-
-		// And ExecSilent is mocked to return output with module path
-		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
-			return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-05-09T16:25:03Z","message_code":"initializing_modules_message","type":"init_output"}
-{"@level":"info","@message":"- main in /path/to/module","@module":"terraform.ui","@timestamp":"2025-05-09T12:25:04.557548-04:00","type":"log"}`, nil
-		}
-
-		// And Stat is mocked to return success for the module path
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			if path == "/path/to/module" {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// And ReadFile is mocked to return an error for variables.tf
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return nil, fmt.Errorf("mock error reading variables.tf")
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// When generateModuleShim is called
-		err := generator.generateModuleShim(component, make(map[string][]byte))
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should match the expected error
-		expectedError := "failed to read variables.tf: mock error reading variables.tf"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %s, got %s", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorWritingMainTf", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with source
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-		}
-
-		// And ExecSilent is mocked to return output with module path
-		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
-			return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-05-09T16:25:03Z","message_code":"initializing_modules_message","type":"init_output"}
-{"@level":"info","@message":"- main in /path/to/module","@module":"terraform.ui","@timestamp":"2025-05-09T12:25:04.557548-04:00","type":"log"}`, nil
-		}
-
-		// And Stat is mocked to return success for the module path
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			if path == "/path/to/module" {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// And ReadFile is mocked to return content for variables.tf
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`variable "test" {
-  description = "Test variable"
-  type        = string
-}`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// And WriteFile is mocked to return an error for main.tf
-		mocks.Shims.WriteFile = func(path string, _ []byte, _ fs.FileMode) error {
-			if strings.HasSuffix(path, "main.tf") {
-				return fmt.Errorf("mock error writing main.tf")
-			}
-			return nil
-		}
-
-		// When generateModuleShim is called
-		err := generator.generateModuleShim(component, make(map[string][]byte))
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should match the expected error
-		expectedError := "failed to write main.tf: mock error writing main.tf"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %s, got %s", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorWritingVariablesTf", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with source
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-		}
-
-		// And ExecSilent is mocked to return output with module path
-		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
-			return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-05-09T16:25:03Z","message_code":"initializing_modules_message","type":"init_output"}
-{"@level":"info","@message":"- main in /path/to/module","@module":"terraform.ui","@timestamp":"2025-05-09T12:25:04.557548-04:00","type":"log"}`, nil
-		}
-
-		// And Stat is mocked to return success for the module path
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			if path == "/path/to/module" {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// And ReadFile is mocked to return content for variables.tf
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`variable "test" {
-  description = "Test variable"
-  type        = string
-}`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// And WriteFile is mocked to return an error for variables.tf
-		mocks.Shims.WriteFile = func(path string, _ []byte, _ fs.FileMode) error {
-			if strings.HasSuffix(path, "variables.tf") {
-				return fmt.Errorf("mock error writing variables.tf")
-			}
-			return nil
-		}
-
-		// When generateModuleShim is called
-		err := generator.generateModuleShim(component, make(map[string][]byte))
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should match the expected error
-		expectedError := "failed to write shim variables.tf: mock error writing variables.tf"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %s, got %s", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorWritingOutputsTf", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with source
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-		}
-
-		// And ExecSilent is mocked to return output with module path
-		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
-			return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-05-09T16:25:03Z","message_code":"initializing_modules_message","type":"init_output"}
-{"@level":"info","@message":"- main in /path/to/module","@module":"terraform.ui","@timestamp":"2025-05-09T12:25:04.557548-04:00","type":"log"}`, nil
-		}
-
-		// And Stat is mocked to return success for the module path and outputs.tf
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			if path == "/path/to/module" || strings.HasSuffix(path, "outputs.tf") {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// And ReadFile is mocked to return content for variables.tf and outputs.tf
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`variable "test" {
-  description = "Test variable"
-  type        = string
-}`), nil
-			}
-			if strings.HasSuffix(path, "outputs.tf") {
-				return []byte(`output "test" {
-  value = "test"
-}`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// And WriteFile is mocked to return an error for outputs.tf
-		mocks.Shims.WriteFile = func(path string, _ []byte, _ fs.FileMode) error {
-			if strings.HasSuffix(path, "outputs.tf") {
-				return fmt.Errorf("mock error writing outputs.tf")
-			}
-			return nil
-		}
-
-		// When generateModuleShim is called
-		err := generator.generateModuleShim(component, make(map[string][]byte))
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should match the expected error
-		expectedError := "failed to write shim outputs.tf: mock error writing outputs.tf"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %s, got %s", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ModulePathResolution", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with source
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-		}
-
-		// And ExecSilent is mocked to return output without module path
-		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
-			return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-05-09T16:25:03Z"}`, nil
-		}
-
-		// And Stat is mocked to return success for .tf_modules/variables.tf
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			// Convert path to forward slashes for consistent comparison
-			path = filepath.ToSlash(path)
-			if strings.HasSuffix(path, ".tf_modules/variables.tf") {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// And ReadFile is mocked to return content for variables.tf
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			// Convert path to forward slashes for consistent comparison
-			path = filepath.ToSlash(path)
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`variable "test" {
-  description = "Test variable"
-  type        = string
-}`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// When generateModuleShim is called
-		err := generator.generateModuleShim(component, make(map[string][]byte))
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ModulePathResolutionFailure", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with source
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-		}
-
-		// And ExecSilent is mocked to return output without module path
-		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
-			return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-05-09T16:25:03Z"}`, nil
-		}
-
-		// And Stat is mocked to return success for the standard path
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// And ReadFile is mocked to return content for variables.tf
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`variable "test" {
-  description = "Test variable"
-  type        = string
-}`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// When generateModuleShim is called
-		err := generator.generateModuleShim(component, make(map[string][]byte))
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorInTerraformInit", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with source
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: filepath.Join(t.TempDir(), "module/path1"),
-		}
-
-		// Mock the WriteFile method to succeed
-		originalWriteFile := generator.shims.WriteFile
-		generator.shims.WriteFile = func(path string, data []byte, perm fs.FileMode) error {
-			return nil
-		}
-		// Restore original WriteFile after test
-		defer func() {
-			generator.shims.WriteFile = originalWriteFile
-		}()
-
-		// And ExecProgress is mocked to return an error
-		mocks.Shell.ExecProgressFunc = func(msg string, cmd string, args ...string) (string, error) {
-			if cmd == "terraform" && len(args) > 0 && args[0] == "init" {
-				return "", fmt.Errorf("terraform init failed")
-			}
-			return "", nil
-		}
-
-		// When generateModuleShim is called
-		err := generator.generateModuleShim(component, make(map[string][]byte))
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should indicate terraform init failure
-		expectedError := "failed to initialize terraform"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Errorf("expected error containing %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("NoValidModulePath", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with source
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: filepath.Join(t.TempDir(), "module/path1"),
-		}
-
-		// Mock WriteFile to succeed
-		originalWriteFile := generator.shims.WriteFile
-		generator.shims.WriteFile = func(path string, data []byte, perm fs.FileMode) error {
-			return nil
-		}
-		defer func() {
-			generator.shims.WriteFile = originalWriteFile
-		}()
-
-		// Mock ExecProgress to return output without a valid module path
-		mocks.Shell.ExecProgressFunc = func(msg string, cmd string, args ...string) (string, error) {
-			if cmd == "terraform" && len(args) > 0 && args[0] == "init" {
-				return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-05-09T16:25:03Z"}
-{"@level":"info","@message":"No modules to initialize","@module":"terraform.ui","@timestamp":"2025-05-09T12:25:04.557548-04:00","type":"log"}`, nil
-			}
-			return "", nil
-		}
-
-		// And mock Stat to return not exist for all paths
-		originalStat := generator.shims.Stat
-		generator.shims.Stat = func(path string) (fs.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-		defer func() {
-			generator.shims.Stat = originalStat
-		}()
-
-		// When generateModuleShim is called
-		err := generator.generateModuleShim(component, make(map[string][]byte))
-
-		// Then no error should be returned because the function handles missing files
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("BlankOutputLine", func(t *testing.T) {
-		generator, mocks := setup(t)
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-		}
-		mocks.Shell.ExecProgressFunc = func(msg string, cmd string, args ...string) (string, error) {
-			return "\n", nil
-		}
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`variable "test" { type = "string" }`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-		err := generator.generateModuleShim(component, make(map[string][]byte))
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("MalformedJSONOutput", func(t *testing.T) {
-		generator, mocks := setup(t)
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-		}
-		mocks.Shell.ExecProgressFunc = func(msg string, cmd string, args ...string) (string, error) {
-			return "not-json-line", nil
-		}
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`variable "test" { type = "string" }`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-		err := generator.generateModuleShim(component, make(map[string][]byte))
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("LogLineWithoutMainIn", func(t *testing.T) {
-		generator, mocks := setup(t)
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-		}
-		mocks.Shell.ExecProgressFunc = func(msg string, cmd string, args ...string) (string, error) {
-			return `{"@level":"info","@message":"No main here","@module":"terraform.ui","@timestamp":"2025-05-09T12:25:04.557548-04:00","type":"log"}`, nil
-		}
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`variable "test" { type = "string" }`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-		err := generator.generateModuleShim(component, make(map[string][]byte))
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("MainInAtEndOfString", func(t *testing.T) {
-		generator, mocks := setup(t)
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-		}
-		mocks.Shell.ExecProgressFunc = func(msg string, cmd string, args ...string) (string, error) {
-			return `{"@level":"info","@message":"- main in","@module":"terraform.ui","@timestamp":"2025-05-09T12:25:04.557548-04:00","type":"log"}`, nil
-		}
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`variable "test" { type = "string" }`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-		err := generator.generateModuleShim(component, make(map[string][]byte))
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("EmptyPathAfterMainIn", func(t *testing.T) {
-		generator, mocks := setup(t)
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-		}
-		mocks.Shell.ExecProgressFunc = func(msg string, cmd string, args ...string) (string, error) {
-			return `{"@level":"info","@message":"- main in   ","@module":"terraform.ui","@timestamp":"2025-05-09T12:25:04.557548-04:00","type":"log"}`, nil
-		}
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`variable "test" { type = "string" }`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-		err := generator.generateModuleShim(component, make(map[string][]byte))
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("StatFailsForDetectedPath", func(t *testing.T) {
-		generator, mocks := setup(t)
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-		}
-		mocks.Shell.ExecProgressFunc = func(msg string, cmd string, args ...string) (string, error) {
-			return `{"@level":"info","@message":"- main in /not/a/real/path","@module":"terraform.ui","@timestamp":"2025-05-09T12:25:04.557548-04:00","type":"log"}`, nil
-		}
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`variable "test" { type = "string" }`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-		err := generator.generateModuleShim(component, make(map[string][]byte))
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("SuccessWithOCISource", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with OCI source
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "core-oci",
-			Path:     "cluster/talos",
-			FullPath: "/project/terraform/cluster/talos",
-		}
-
-		// And blueprint handler returns OCI sources
-		mocks.BlueprintHandler.GetSourcesFunc = func() []blueprintv1alpha1.Source {
-			return []blueprintv1alpha1.Source{
-				{
-					Name: "core-oci",
-					Url:  "oci://ghcr.io/windsorcli/core:v0.0.1",
-				},
-			}
-		}
-
-		// And shell GetProjectRoot returns project root
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "/project", nil
-		}
-
-		// And FilepathRel calculates relative path
-		mocks.Shims.FilepathRel = func(basepath, targpath string) (string, error) {
-			return "../../../.windsor/.oci_extracted/ghcr.io-windsorcli_core-v0.0.1/terraform/cluster/talos", nil
-		}
-
-		// And the extracted module path exists
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			if strings.Contains(path, ".oci_extracted") {
-				return &mockFileInfo{name: "talos", isDir: true}, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// And ReadFile returns content from extracted module
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`variable "cluster_name" {
-  description = "Name of the Talos cluster"
-  type        = string
-}`), nil
-			}
-			if strings.HasSuffix(path, "outputs.tf") {
-				return []byte(`output "cluster_endpoint" {
-  description = "Cluster endpoint"
-  value       = "https://cluster.example.com"
-}`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// And MkdirAll is mocked to avoid filesystem operations
-		mocks.Shims.MkdirAll = func(path string, perm fs.FileMode) error {
-			return nil
-		}
-
-		// And WriteFile is mocked to avoid filesystem operations
-		mocks.Shims.WriteFile = func(path string, data []byte, perm fs.FileMode) error {
-			return nil
-		}
-
-		// And ociArtifacts contains pre-extracted data
-		ociArtifacts := map[string][]byte{
-			"ghcr.io/windsorcli/core:v0.0.1": []byte("mock-artifact-data"),
-		}
-
-		// When generateModuleShim is called with OCI source
-		err := generator.generateModuleShim(component, ociArtifacts)
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-}
-
-func TestTerraformGenerator_writeModuleFile(t *testing.T) {
-	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
-		mocks := setupMocks(t)
-		generator := NewTerraformGenerator(mocks.Injector)
-		generator.shims = mocks.Shims
-		if err := generator.Initialize(); err != nil {
-			t.Fatalf("failed to initialize TerraformGenerator: %v", err)
-		}
-		return generator, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with source
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-		}
-
-		// And ReadFile is mocked to return content for variables.tf
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`variable "test" {
-  description = "Test variable"
-  type        = string
-}`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// When writeModuleFile is called
-		err := generator.writeModuleFile("test_dir", component)
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorReadFile", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with source
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-		}
-
-		// And ReadFile is mocked to return an error
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			return nil, fmt.Errorf("mock error reading file")
-		}
-
-		// When writeModuleFile is called
-		err := generator.writeModuleFile("test_dir", component)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should match the expected error
-		expectedError := "failed to read variables.tf: mock error reading file"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %s, got %s", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorWriteFile", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with source
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-		}
-
-		// And ReadFile is mocked to return content for variables.tf
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`variable "test" {
-  description = "Test variable"
-  type        = string
-}`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// And WriteFile is mocked to return an error
-		mocks.Shims.WriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
-			return fmt.Errorf("mock error writing file")
-		}
-
-		// When writeModuleFile is called
-		err := generator.writeModuleFile("test_dir", component)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should match the expected error
-		expectedError := "mock error writing file"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %s, got %s", expectedError, err.Error())
-		}
-	})
-}
-
-func TestTerraformGenerator_writeTfvarsFile(t *testing.T) {
-	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
-		mocks := setupMocks(t)
-		generator := NewTerraformGenerator(mocks.Injector)
-		generator.shims = mocks.Shims
-		if err := generator.Initialize(); err != nil {
-			t.Fatalf("failed to initialize TerraformGenerator: %v", err)
-		}
-		return generator, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with source
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-		}
-
-		// And ReadFile is mocked to return content for variables.tf
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`variable "test" {
-  description = "Test variable"
-  type        = string
-}`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// When writeTfvarsFile is called
-		err := generator.writeTfvarsFile("test_dir", component)
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorMkdirAll", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with source
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-		}
-
-		// And MkdirAll is mocked to return an error
-		mocks.Shims.MkdirAll = func(_ string, _ fs.FileMode) error {
-			return fmt.Errorf("mock error creating directory")
-		}
-
-		// When writeTfvarsFile is called
-		err := generator.writeTfvarsFile("test_dir", component)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should match the expected error
-		expectedError := "failed to create directory: mock error creating directory"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %s, got %s", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorWriteFile", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with source
-		component := blueprintv1alpha1.TerraformComponent{
-			Source:   "fake-source",
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-		}
-
-		// And ReadFile is mocked to return content for variables.tf
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`variable "test" {
-  description = "Test variable"
-  type        = string
-}`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// And WriteFile is mocked to return an error
-		mocks.Shims.WriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
-			return fmt.Errorf("mock error writing file")
-		}
-
-		// When writeTfvarsFile is called
-		err := generator.writeTfvarsFile("test_dir", component)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should match the expected error
-		expectedError := "error writing tfvars file: mock error writing file"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %s, got %s", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorCheckExistingTfvarsFile", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with values
-		component := blueprintv1alpha1.TerraformComponent{
-			Path: "module/path1",
-			Values: map[string]interface{}{
-				"test": "value",
-			},
-		}
-
-		// And Stat is mocked to return an error
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			return nil, fmt.Errorf("mock error checking existing tfvars file")
-		}
-
-		// When writeTfvarsFile is called
-		err := generator.writeTfvarsFile("test.tfvars", component)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should match the expected error
-		expectedError := "error checking tfvars file: mock error checking existing tfvars file"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %s, got %s", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorReadFile", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with values
-		component := blueprintv1alpha1.TerraformComponent{
-			Path: "module/path1",
-			Values: map[string]interface{}{
-				"test": "value",
-			},
-		}
-
-		// And Stat is mocked to return success
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			return nil, nil
-		}
-
-		// And ReadFile is mocked to return an error
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`variable "test" {
-  description = "Test variable"
-  type        = string
-}`), nil
-			}
-			return nil, fmt.Errorf("mock error reading existing tfvars file")
-		}
-
-		// When writeTfvarsFile is called
-		err := generator.writeTfvarsFile("test.tfvars", component)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should match the expected error
-		expectedError := "failed to read existing tfvars file: mock error reading existing tfvars file"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %s, got %s", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorWriteComponentValues", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with values
-		component := blueprintv1alpha1.TerraformComponent{
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-			Values: map[string]interface{}{
-				"test": "value",
-			},
-		}
-
-		// And Stat is mocked to return not exist
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-
-		// And ReadFile is mocked to return content for variables.tf
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`variable "test" {
-  description = "Test variable"
-  type        = string
-}`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// And WriteFile is mocked to return an error for component values
-		mocks.Shims.WriteFile = func(path string, content []byte, _ fs.FileMode) error {
-			return fmt.Errorf("mock error writing component values")
-		}
-
-		// When writeTfvarsFile is called
-		err := generator.writeTfvarsFile("test.tfvars", component)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should match the expected error
-		expectedError := "error writing tfvars file: mock error writing component values"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %s, got %s", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorWriteFileAfterValues", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a component with values
-		component := blueprintv1alpha1.TerraformComponent{
-			Path:     "module/path1",
-			FullPath: "original/full/path",
-			Values: map[string]interface{}{
-				"test": "value",
-			},
-		}
-
-		// And Stat is mocked to return not exist
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-
-		// And ReadFile is mocked to return content for variables.tf
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`variable "test" {
-  description = "Test variable"
-  type        = string
-}`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// And WriteFile is mocked to return an error
-		mocks.Shims.WriteFile = func(path string, _ []byte, _ fs.FileMode) error {
-			return fmt.Errorf("mock error writing final tfvars file")
-		}
-
-		// When writeTfvarsFile is called
-		err := generator.writeTfvarsFile("test.tfvars", component)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should match the expected error
-		expectedError := "error writing tfvars file: mock error writing final tfvars file"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %s, got %s", expectedError, err.Error())
-		}
-	})
-}
-
 func TestTerraformGenerator_checkExistingTfvarsFile(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
 		mocks := setupMocks(t)
@@ -2922,459 +1604,6 @@ func TestTerraformGenerator_addTfvarsHeader(t *testing.T) {
 `
 		if string(file.Bytes()) != expected {
 			t.Errorf("expected %q, got %q", expected, string(file.Bytes()))
-		}
-	})
-}
-
-func TestTerraformGenerator_writeShimVariablesTf(t *testing.T) {
-	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
-		mocks := setupMocks(t)
-		generator := NewTerraformGenerator(mocks.Injector)
-		generator.shims = mocks.Shims
-		if err := generator.Initialize(); err != nil {
-			t.Fatalf("failed to initialize TerraformGenerator: %v", err)
-		}
-		return generator, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And ReadFile is mocked to return content for variables.tf
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`variable "test" {
-  description = "Test variable"
-  type        = string
-}`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// When writeShimVariablesTf is called
-		err := generator.writeShimVariablesTf("test_dir", "module_path", "fake-source")
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorWriteFile", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And ReadFile is mocked to return content for variables.tf
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`variable "test" {
-  description = "Test variable"
-  type        = string
-}`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// And WriteFile is mocked to return an error
-		mocks.Shims.WriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
-			return fmt.Errorf("mock error writing file")
-		}
-
-		// When writeShimVariablesTf is called
-		err := generator.writeShimVariablesTf("test_dir", "module_path", "fake-source")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should match the expected error
-		expectedError := "failed to write shim variables.tf: mock error writing file"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %s, got %s", expectedError, err.Error())
-		}
-	})
-
-	t.Run("CopiesSensitiveAttribute", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And ReadFile is mocked to return variables.tf with sensitive attribute
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`variable "sensitive_var" {
-  description = "Sensitive variable"
-  type        = string
-  sensitive   = true
-}`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// And WriteFile is mocked to capture the content
-		var writtenContent []byte
-		mocks.Shims.WriteFile = func(path string, content []byte, _ fs.FileMode) error {
-			if strings.HasSuffix(path, "variables.tf") {
-				writtenContent = content
-			}
-			return nil
-		}
-
-		// When writeShimVariablesTf is called
-		err := generator.writeShimVariablesTf("test_dir", "module_path", "fake-source")
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-
-		// And the sensitive attribute should be copied
-		file, diags := hclwrite.ParseConfig(writtenContent, "variables.tf", hcl.Pos{Line: 1, Column: 1})
-		if diags.HasErrors() {
-			t.Fatalf("failed to parse HCL: %v", diags)
-		}
-		body := file.Body()
-		block := body.Blocks()[0]
-		attr := block.Body().GetAttribute("sensitive")
-		if attr == nil {
-			t.Error("expected sensitive attribute to be present")
-		} else {
-			tokens := attr.Expr().BuildTokens(nil)
-			if len(tokens) < 1 || tokens[0].Type != hclsyntax.TokenIdent || string(tokens[0].Bytes) != "true" {
-				t.Error("expected sensitive attribute to be true")
-			}
-		}
-	})
-
-	t.Run("ErrorReadingVariables", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And ReadFile is mocked to return an error for variables.tf
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return nil, fmt.Errorf("mock error reading variables.tf")
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// When writeShimVariablesTf is called
-		err := generator.writeShimVariablesTf("test_dir", "module_path", "fake-source")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should contain the expected message
-		if !strings.Contains(err.Error(), "failed to read variables.tf") {
-			t.Errorf("expected error to contain 'failed to read variables.tf', got %v", err)
-		}
-	})
-
-	t.Run("ErrorParsingVariables", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And ReadFile is mocked to return invalid HCL content
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`invalid hcl syntax {`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// When writeShimVariablesTf is called
-		err := generator.writeShimVariablesTf("test_dir", "module_path", "fake-source")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should contain the expected message
-		if !strings.Contains(err.Error(), "failed to parse variables.tf") {
-			t.Errorf("expected error to contain 'failed to parse variables.tf', got %v", err)
-		}
-	})
-
-	t.Run("ErrorWritingMainTf", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And ReadFile is mocked to return content for variables.tf
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return []byte(`variable "test" {
-  description = "Test variable"
-  type        = string
-}`), nil
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// And WriteFile is mocked to fail only for main.tf
-		mocks.Shims.WriteFile = func(path string, _ []byte, _ fs.FileMode) error {
-			if strings.HasSuffix(path, "main.tf") {
-				return fmt.Errorf("mock error writing main.tf")
-			}
-			return nil // Success for variables.tf
-		}
-
-		// When writeShimVariablesTf is called
-		err := generator.writeShimVariablesTf("test_dir", "module_path", "fake-source")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should contain the expected message
-		if !strings.Contains(err.Error(), "failed to write shim main.tf") {
-			t.Errorf("expected error to contain 'failed to write shim main.tf', got %v", err)
-		}
-	})
-}
-
-func TestTerraformGenerator_writeShimOutputsTf(t *testing.T) {
-	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
-		mocks := setupMocks(t)
-		generator := NewTerraformGenerator(mocks.Injector)
-		generator.shims = mocks.Shims
-		if err := generator.Initialize(); err != nil {
-			t.Fatalf("failed to initialize TerraformGenerator: %v", err)
-		}
-		return generator, mocks
-	}
-
-	t.Run("ErrorReadingOutputs", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And Stat is mocked to return success for outputs.tf
-		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
-			if strings.HasSuffix(path, "outputs.tf") {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// And ReadFile is mocked to return an error for outputs.tf
-		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "outputs.tf") {
-				return nil, fmt.Errorf("mock error reading outputs.tf")
-			}
-			return nil, fmt.Errorf("unexpected file read: %s", path)
-		}
-
-		// When writeShimOutputsTf is called
-		err := generator.writeShimOutputsTf("test_dir", "module_path")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should match the expected error
-		expectedError := "failed to read outputs.tf: mock error reading outputs.tf"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %s, got %s", expectedError, err.Error())
-		}
-	})
-}
-
-func TestTerraformGenerator_isOCISource(t *testing.T) {
-	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
-		mocks := setupMocks(t)
-		generator := NewTerraformGenerator(mocks.Injector)
-		generator.shims = mocks.Shims
-		if err := generator.Initialize(); err != nil {
-			t.Fatalf("failed to initialize TerraformGenerator: %v", err)
-		}
-		return generator, mocks
-	}
-
-	t.Run("DirectOCIURL", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, _ := setup(t)
-
-		// When isOCISource is called with a direct OCI URL
-		result := generator.isOCISource("oci://registry.example.com/repo:tag")
-
-		// Then it should return true
-		if !result {
-			t.Error("expected isOCISource to return true for direct OCI URL")
-		}
-	})
-
-	t.Run("NamedOCISource", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-		mockBH := mocks.Injector.Resolve("blueprintHandler").(*blueprint.MockBlueprintHandler)
-		mockBH.GetSourcesFunc = func() []blueprintv1alpha1.Source {
-			return []blueprintv1alpha1.Source{
-				{
-					Name: "oci-source",
-					Url:  "oci://registry.example.com/terraform-modules:v1.0.0",
-				},
-			}
-		}
-
-		// When isOCISource is called with a named OCI source
-		result := generator.isOCISource("oci-source")
-
-		// Then it should return true
-		if !result {
-			t.Error("expected isOCISource to return true for named OCI source")
-		}
-	})
-
-	t.Run("NonOCISources", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-		mockBH := mocks.Injector.Resolve("blueprintHandler").(*blueprint.MockBlueprintHandler)
-		mockBH.GetSourcesFunc = func() []blueprintv1alpha1.Source {
-			return []blueprintv1alpha1.Source{
-				{
-					Name: "git-source",
-					Url:  "git::https://github.com/example/repo.git",
-				},
-			}
-		}
-
-		testCases := []string{
-			"/path/to/.oci_extracted/module",
-			"git::https://github.com/example/repo.git",
-			"./local/path",
-			"git-source",
-			"unknown-source",
-			"",
-		}
-
-		for _, source := range testCases {
-			// When isOCISource is called
-			result := generator.isOCISource(source)
-
-			// Then it should return false
-			if result {
-				t.Errorf("expected isOCISource to return false for %s", source)
-			}
-		}
-	})
-}
-
-func TestTerraformGenerator_extractOCIModule(t *testing.T) {
-	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
-		mocks := setupMocks(t)
-		generator := NewTerraformGenerator(mocks.Injector)
-		generator.shims = mocks.Shims
-		if err := generator.Initialize(); err != nil {
-			t.Fatalf("failed to initialize TerraformGenerator: %v", err)
-		}
-		return generator, mocks
-	}
-
-	t.Run("ModuleAlreadyExtracted", func(t *testing.T) {
-		// Given a TerraformGenerator with existing extracted module
-		generator, mocks := setup(t)
-		mockBH := mocks.Injector.Resolve("blueprintHandler").(*blueprint.MockBlueprintHandler)
-		mockBH.GetSourcesFunc = func() []blueprintv1alpha1.Source {
-			return []blueprintv1alpha1.Source{
-				{Name: "test-source", Url: "oci://registry.example.com/modules:v1.0.0"},
-			}
-		}
-
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "/tmp/project", nil
-		}
-
-		mocks.Shims.Stat = func(path string) (os.FileInfo, error) {
-			return nil, nil // Module already exists
-		}
-
-		// When extractOCIModule is called
-		result, err := generator.extractOCIModule("test-source", "test/module", make(map[string][]byte))
-
-		// Then it should return the existing path without error
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-		expectedPath := "/tmp/project/.windsor/.oci_extracted/registry.example.com-modules-v1.0.0/terraform/test/module"
-		if filepath.ToSlash(result) != expectedPath {
-			t.Errorf("expected path %s, got %s", expectedPath, filepath.ToSlash(result))
-		}
-	})
-
-	t.Run("SourceNotFound", func(t *testing.T) {
-		// Given a TerraformGenerator with no matching source
-		generator, mocks := setup(t)
-		mockBH := mocks.Injector.Resolve("blueprintHandler").(*blueprint.MockBlueprintHandler)
-		mockBH.GetSourcesFunc = func() []blueprintv1alpha1.Source {
-			return []blueprintv1alpha1.Source{}
-		}
-
-		// When extractOCIModule is called with unknown source
-		_, err := generator.extractOCIModule("unknown-source", "test/module", make(map[string][]byte))
-
-		// Then it should return an error
-		if err == nil {
-			t.Error("expected error for unknown source")
-		}
-		if !strings.Contains(err.Error(), "source unknown-source not found") {
-			t.Errorf("expected 'source not found' error, got %v", err)
-		}
-	})
-
-	t.Run("UsesCachedArtifact", func(t *testing.T) {
-		// Given a TerraformGenerator with cached OCI artifact
-		generator, mocks := setup(t)
-		mockBH := mocks.Injector.Resolve("blueprintHandler").(*blueprint.MockBlueprintHandler)
-		mockBH.GetSourcesFunc = func() []blueprintv1alpha1.Source {
-			return []blueprintv1alpha1.Source{
-				{Name: "test-source", Url: "oci://registry.example.com/modules:v1.0.0"},
-			}
-		}
-
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "/tmp/project", nil
-		}
-
-		mocks.Shims.Stat = func(path string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist // Module doesn't exist yet
-		}
-
-		// Mock tar extraction - create a minimal valid tar stream
-		mocks.Shims.NewBytesReader = func(data []byte) io.Reader {
-			// Create a minimal tar file with just an EOF
-			var buf bytes.Buffer
-			tw := tar.NewWriter(&buf)
-			tw.Close() // This creates a valid empty tar file
-			return bytes.NewReader(buf.Bytes())
-		}
-
-		mocks.Shims.NewTarReader = func(r io.Reader) *tar.Reader {
-			return tar.NewReader(r)
-		}
-
-		mocks.Shims.EOFError = func() error { return io.EOF }
-
-		// And cached artifact data
-		cachedData := []byte("mock tar data")
-		ociArtifacts := map[string][]byte{
-			"registry.example.com/modules:v1.0.0": cachedData,
-		}
-
-		// When extractOCIModule is called
-		result, err := generator.extractOCIModule("test-source", "test/module", ociArtifacts)
-
-		// Then it should succeed and return correct path (even with empty tar)
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-		expectedPath := "/tmp/project/.windsor/.oci_extracted/registry.example.com-modules-v1.0.0/terraform/test/module"
-		if filepath.ToSlash(result) != expectedPath {
-			t.Errorf("expected path %s, got %s", expectedPath, filepath.ToSlash(result))
 		}
 	})
 }
@@ -4349,9 +2578,9 @@ last line`
 	})
 }
 
-func TestTerraformGenerator_parseOCIRef(t *testing.T) {
+func TestTerraformGenerator_Generate(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
-		mocks := setupMocks(t)
+		mocks := setupTerraformGeneratorMocks(t)
 		generator := NewTerraformGenerator(mocks.Injector)
 		generator.shims = mocks.Shims
 		if err := generator.Initialize(); err != nil {
@@ -4360,116 +2589,520 @@ func TestTerraformGenerator_parseOCIRef(t *testing.T) {
 		return generator, mocks
 	}
 
-	t.Run("ValidOCIReference", func(t *testing.T) {
-		// Given a TerraformGenerator
-		generator, _ := setup(t)
+	t.Run("Success", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
 
-		// When parseOCIRef is called with valid OCI reference
-		registry, repository, tag, err := generator.parseOCIRef("oci://registry.example.com/my-repo:v1.0.0")
+		// And mock paths for project and context
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project", nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/mock/context", nil
+		}
+
+		// And mock blueprint handler to return terraform components
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:     "cluster",
+					Source:   "", // No source, so should look in terraform/ directory
+					FullPath: "/mock/project/terraform/cluster",
+				},
+				{
+					Path:     "network",
+					Source:   "", // No source, so should look in terraform/ directory
+					FullPath: "/mock/project/terraform/network",
+				},
+			}
+		}
+
+		// And mock Stat to simulate finding variables.tf files
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			// Normalize path separators for cross-platform compatibility
+			normalizedPath := filepath.ToSlash(path)
+			if strings.Contains(normalizedPath, "terraform/cluster/variables.tf") ||
+				strings.Contains(normalizedPath, "terraform/network/variables.tf") {
+				return &mockFileInfo{name: "variables.tf", isDir: false}, nil // File exists
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// And mock ReadFile to return variables.tf content
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			if strings.HasSuffix(path, "variables.tf") {
+				return []byte(`variable "cluster_name" {
+  description = "Name of the cluster"
+  type        = string
+}
+
+variable "instance_type" {
+  description = "EC2 instance type"
+  type        = string
+  default     = "t3.micro"
+}`), nil
+			}
+			return nil, fmt.Errorf("unexpected file read: %s", path)
+		}
+
+		// And mock MkdirAll to avoid filesystem operations
+		mocks.Shims.MkdirAll = func(path string, perm fs.FileMode) error {
+			return nil
+		}
+
+		// And track written files
+		var writtenFiles []string
+		mocks.Shims.WriteFile = func(path string, data []byte, perm fs.FileMode) error {
+			writtenFiles = append(writtenFiles, path)
+			return nil
+		}
+
+		// When Generate is called with terraform template data
+		data := map[string]any{
+			"terraform/cluster": map[string]any{
+				"cluster_name":  "test-cluster",
+				"instance_type": "t3.large",
+			},
+			"terraform/network": map[string]any{
+				"vpc_cidr": "10.0.0.0/16",
+			},
+			"blueprint": map[string]any{
+				"kind": "Blueprint",
+			},
+		}
+
+		err := generator.Generate(data)
 
 		// Then no error should occur
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
 
-		// And the components should be parsed correctly
-		if registry != "registry.example.com" {
-			t.Errorf("expected registry 'registry.example.com', got %s", registry)
+		// And tfvars files should be written for terraform components only
+		expectedFiles := []string{
+			"/mock/context/terraform/cluster.tfvars",
+			"/mock/context/terraform/network.tfvars",
 		}
-		if repository != "my-repo" {
-			t.Errorf("expected repository 'my-repo', got %s", repository)
+		if len(writtenFiles) != len(expectedFiles) {
+			t.Errorf("expected %d files written, got %d", len(expectedFiles), len(writtenFiles))
 		}
-		if tag != "v1.0.0" {
-			t.Errorf("expected tag 'v1.0.0', got %s", tag)
-		}
-	})
-
-	t.Run("InvalidOCIPrefix", func(t *testing.T) {
-		// Given a TerraformGenerator
-		generator, _ := setup(t)
-
-		// When parseOCIRef is called with invalid prefix
-		_, _, _, err := generator.parseOCIRef("https://registry.example.com/my-repo:v1.0.0")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should contain the expected message
-		expectedError := "invalid OCI reference format: https://registry.example.com/my-repo:v1.0.0"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %q, got %q", expectedError, err.Error())
+		for _, expectedFile := range expectedFiles {
+			found := false
+			for _, writtenFile := range writtenFiles {
+				// Normalize both paths for cross-platform comparison
+				if filepath.ToSlash(writtenFile) == filepath.ToSlash(expectedFile) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("expected file %s to be written", expectedFile)
+			}
 		}
 	})
 
-	t.Run("MissingTag", func(t *testing.T) {
-		// Given a TerraformGenerator
-		generator, _ := setup(t)
+	t.Run("SkipsNonTerraformData", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
 
-		// When parseOCIRef is called with missing tag
-		_, _, _, err := generator.parseOCIRef("oci://registry.example.com/my-repo")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
+		// And mock paths
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project", nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/mock/context", nil
 		}
 
-		// And the error should contain the expected message
-		expectedError := "invalid OCI reference format, expected registry/repository:tag: oci://registry.example.com/my-repo"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("MissingRepository", func(t *testing.T) {
-		// Given a TerraformGenerator
-		generator, _ := setup(t)
-
-		// When parseOCIRef is called with missing repository
-		_, _, _, err := generator.parseOCIRef("oci://registry.example.com:v1.0.0")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
+		// And mock blueprint handler to return no terraform components
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{}
 		}
 
-		// And the error should contain the expected message
-		expectedError := "invalid OCI reference format, expected registry/repository:tag: oci://registry.example.com:v1.0.0"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %q, got %q", expectedError, err.Error())
+		// And mock MkdirAll to avoid filesystem operations
+		mocks.Shims.MkdirAll = func(path string, perm fs.FileMode) error {
+			return nil
 		}
-	})
 
-	t.Run("NestedRepositoryPath", func(t *testing.T) {
-		// Given a TerraformGenerator
-		generator, _ := setup(t)
+		// And track written files
+		var writtenFiles []string
+		mocks.Shims.WriteFile = func(path string, data []byte, perm fs.FileMode) error {
+			writtenFiles = append(writtenFiles, path)
+			return nil
+		}
 
-		// When parseOCIRef is called with nested repository path
-		registry, repository, tag, err := generator.parseOCIRef("oci://registry.example.com/organization/my-repo:v1.0.0")
+		// When Generate is called with non-terraform data only
+		data := map[string]any{
+			"blueprint": map[string]any{
+				"kind": "Blueprint",
+			},
+			"config": map[string]any{
+				"setting": "value",
+			},
+		}
+
+		err := generator.Generate(data)
 
 		// Then no error should occur
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
 
-		// And the components should be parsed correctly
-		if registry != "registry.example.com" {
-			t.Errorf("expected registry 'registry.example.com', got %s", registry)
+		// And no files should be written
+		if len(writtenFiles) != 0 {
+			t.Errorf("expected no files written, got %d", len(writtenFiles))
 		}
-		if repository != "organization/my-repo" {
-			t.Errorf("expected repository 'organization/my-repo', got %s", repository)
+	})
+
+	t.Run("ErrorOnInvalidDataFormat", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And mock paths
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project", nil
 		}
-		if tag != "v1.0.0" {
-			t.Errorf("expected tag 'v1.0.0', got %s", tag)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/mock/context", nil
+		}
+
+		// When Generate is called with invalid data format
+		data := map[string]any{
+			"terraform/cluster": "invalid-string-instead-of-map",
+		}
+
+		err := generator.Generate(data)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("expected error for invalid data format, got nil")
+		}
+		if !strings.Contains(err.Error(), "invalid data format") {
+			t.Errorf("expected error about invalid data format, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenComponentNotFoundInBlueprint", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And mock paths
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project", nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/mock/context", nil
+		}
+
+		// And mock blueprint handler to return empty components
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{}
+		}
+
+		// When Generate is called with terraform data for non-existent component
+		data := map[string]any{
+			"terraform/cluster": map[string]any{
+				"cluster_name": "test-cluster",
+			},
+		}
+
+		err := generator.Generate(data)
+
+		// Then no error should be returned (component should be skipped)
+		if err != nil {
+			t.Errorf("expected no error when component not found in blueprint, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenVariablesTfNotFound", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And mock paths
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project", nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/mock/context", nil
+		}
+
+		// And mock blueprint handler to return terraform components without source
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:     "cluster",
+					Source:   "", // No source to avoid module shim generation
+					FullPath: "/mock/project/terraform/cluster",
+				},
+			}
+		}
+
+		// And mock MkdirAll to avoid filesystem operations
+		mocks.Shims.MkdirAll = func(path string, perm fs.FileMode) error {
+			return nil
+		}
+
+		// And mock Stat to simulate variables.tf not found
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		// When Generate is called with terraform data
+		data := map[string]any{
+			"terraform/cluster": map[string]any{
+				"cluster_name": "test-cluster",
+			},
+		}
+
+		err := generator.Generate(data)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("expected error when variables.tf not found, got nil")
+		}
+		if !strings.Contains(err.Error(), "variables.tf not found") {
+			t.Errorf("expected error about variables.tf not found, got: %v", err)
+		}
+	})
+
+	t.Run("SkipsComponentNotFoundInBlueprint", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And mock paths
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project", nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/mock/context", nil
+		}
+
+		// And mock blueprint handler to return empty components
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{}
+		}
+
+		// When Generate is called with terraform data for non-existent component
+		data := map[string]any{
+			"terraform/cluster": map[string]any{
+				"cluster_name": "test-cluster",
+			},
+		}
+
+		err := generator.Generate(data)
+
+		// Then no error should be returned (component should be skipped)
+		if err != nil {
+			t.Errorf("expected no error when component not found in blueprint, got: %v", err)
+		}
+	})
+
+	t.Run("SkipsMultipleComponentsNotInBlueprintAndProcessesExisting", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And mock paths
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project", nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/mock/context", nil
+		}
+
+		// And mock blueprint handler to return only AWS components (simulating AWS provider)
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:     "cluster/aws-eks",
+					Source:   "core",
+					FullPath: "/mock/project/.windsor/.tf_modules/cluster/aws-eks",
+				},
+				{
+					Path:     "network/aws-vpc",
+					Source:   "core",
+					FullPath: "/mock/project/.windsor/.tf_modules/network/aws-vpc",
+				},
+			}
+		}
+
+		// And mock Stat to simulate finding variables.tf files for AWS components only
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			normalizedPath := filepath.ToSlash(path)
+			if strings.Contains(normalizedPath, "cluster/aws-eks/variables.tf") ||
+				strings.Contains(normalizedPath, "network/aws-vpc/variables.tf") {
+				return &mockFileInfo{name: "variables.tf", isDir: false}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// And mock ReadFile to return variables.tf content for AWS components
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			if strings.Contains(path, "variables.tf") {
+				return []byte(`variable "cluster_name" {
+  description = "Name of the cluster"
+  type        = string
+}`), nil
+			}
+			return nil, fmt.Errorf("unexpected file read: %s", path)
+		}
+
+		// And mock MkdirAll and WriteFile
+		var writtenFiles []string
+		mocks.Shims.MkdirAll = func(path string, perm fs.FileMode) error { return nil }
+		mocks.Shims.WriteFile = func(name string, data []byte, perm fs.FileMode) error {
+			writtenFiles = append(writtenFiles, name)
+			return nil
+		}
+
+		// When Generate is called with mixed provider template data
+		data := map[string]any{
+			// AWS components that exist in blueprint
+			"terraform/cluster/aws-eks": map[string]any{
+				"cluster_name": "test-aws-cluster",
+			},
+			"terraform/network/aws-vpc": map[string]any{
+				"vpc_name": "test-vpc",
+			},
+			// Azure components that DON'T exist in blueprint (should be skipped)
+			"terraform/cluster/azure-aks": map[string]any{
+				"cluster_name": "test-azure-cluster",
+			},
+			"terraform/network/azure-vnet": map[string]any{
+				"vnet_name": "test-vnet",
+			},
+		}
+
+		err := generator.Generate(data)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("expected no error with mixed provider templates, got: %v", err)
+		}
+
+		// And only AWS component tfvars files should be written
+		expectedFiles := []string{
+			"/mock/context/terraform/cluster/aws-eks.tfvars",
+			"/mock/context/terraform/network/aws-vpc.tfvars",
+		}
+
+		if len(writtenFiles) != len(expectedFiles) {
+			t.Errorf("expected %d tfvars files to be written, got %d: %v", len(expectedFiles), len(writtenFiles), writtenFiles)
+		}
+
+		for _, expectedFile := range expectedFiles {
+			found := false
+			for _, writtenFile := range writtenFiles {
+				// Normalize both paths for cross-platform comparison
+				if filepath.ToSlash(writtenFile) == filepath.ToSlash(expectedFile) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("expected tfvars file %s to be written, but it wasn't", expectedFile)
+			}
+		}
+
+		// Verify no Azure files were written
+		for _, writtenFile := range writtenFiles {
+			if strings.Contains(writtenFile, "azure") {
+				t.Errorf("unexpected Azure tfvars file written: %s", writtenFile)
+			}
 		}
 	})
 }
 
-func TestTerraformGenerator_extractModuleFromArtifact(t *testing.T) {
+func TestTerraformGenerator_generateTfvarsFile_AdditionalCases(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
-		mocks := setupMocks(t)
-		setupTerraformGeneratorMocks(mocks) // Add terraform-specific mocks
+		mocks := setupTerraformGeneratorMocks(t)
+		generator := NewTerraformGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
+		if err := generator.Initialize(); err != nil {
+			t.Fatalf("failed to initialize TerraformGenerator: %v", err)
+		}
+		return generator, mocks
+	}
+
+	t.Run("ErrorParsingVariablesFile", func(t *testing.T) {
+		// Given a TerraformGenerator
+		generator, mocks := setup(t)
+
+		// And ReadFile returns invalid HCL content
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			return []byte("invalid hcl content {{{"), nil
+		}
+
+		// When generateTfvarsFile is called
+		err := generator.generateTfvarsFile("/test/output.tfvars", "/test/variables.tf", map[string]any{}, "")
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("Expected error from parsing variables file, got nil")
+		}
+	})
+
+	t.Run("ErrorCreatingParentDirectory", func(t *testing.T) {
+		// Given a TerraformGenerator
+		generator, mocks := setup(t)
+
+		// And ReadFile returns valid variables.tf content
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			return []byte(`variable "test_var" {
+  description = "A test variable"
+  type        = string
+  default     = "default_value"
+}`), nil
+		}
+
+		// And MkdirAll returns an error
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return fmt.Errorf("mkdir error")
+		}
+
+		// When generateTfvarsFile is called
+		err := generator.generateTfvarsFile("/test/subdir/output.tfvars", "/test/variables.tf", map[string]any{}, "")
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("Expected error from MkdirAll, got nil")
+		}
+	})
+
+	t.Run("ErrorWritingTfvarsFile", func(t *testing.T) {
+		// Given a TerraformGenerator
+		generator, mocks := setup(t)
+
+		// And ReadFile returns valid variables.tf content
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			return []byte(`variable "test_var" {
+  description = "A test variable"
+  type        = string
+  default     = "default_value"
+}`), nil
+		}
+
+		// And MkdirAll succeeds
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		// And WriteFile returns an error
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			return fmt.Errorf("write error")
+		}
+
+		// When generateTfvarsFile is called
+		err := generator.generateTfvarsFile("/test/output.tfvars", "/test/variables.tf", map[string]any{}, "")
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("Expected error from WriteFile, got nil")
+		}
+	})
+}
+
+func TestTerraformGenerator_Generate_AdditionalCases(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
+		mocks := setupTerraformGeneratorMocks(t)
 		generator := NewTerraformGenerator(mocks.Injector)
 		generator.shims = mocks.Shims
 
@@ -4484,401 +3117,135 @@ func TestTerraformGenerator_extractModuleFromArtifact(t *testing.T) {
 		return generator, mocks
 	}
 
-	// Helper function to create a tar archive with test data
-	createTestTarData := func(files map[string]string, dirs []string) []byte {
-		var buf bytes.Buffer
-		tw := tar.NewWriter(&buf)
-		defer tw.Close()
-
-		// Add directories first
-		for _, dir := range dirs {
-			header := &tar.Header{
-				Name:     dir,
-				Mode:     0755,
-				Typeflag: tar.TypeDir,
-			}
-			if err := tw.WriteHeader(header); err != nil {
-				panic(err)
-			}
-		}
-
-		// Add files
-		for filename, content := range files {
-			header := &tar.Header{
-				Name: filename,
-				Mode: 0644,
-				Size: int64(len(content)),
-			}
-			if err := tw.WriteHeader(header); err != nil {
-				panic(err)
-			}
-			if _, err := tw.Write([]byte(content)); err != nil {
-				panic(err)
-			}
-		}
-
-		return buf.Bytes()
-	}
-
-	t.Run("SuccessfulExtraction", func(t *testing.T) {
+	t.Run("ErrorGetProjectRoot", func(t *testing.T) {
 		// Given a TerraformGenerator with mocks
 		generator, mocks := setup(t)
 
-		// And a tar archive with test files
-		testFiles := map[string]string{
-			"terraform/test/module/main.tf":      "module content",
-			"terraform/test/module/variables.tf": "variables content",
-			"terraform/test/module/outputs.tf":   "outputs content",
-		}
-		testDirs := []string{
-			"terraform/test/module",
-		}
-		tarData := createTestTarData(testFiles, testDirs)
-
-		// And tracking variables for mocked operations
-		var extractedFiles []string
-		var createdDirs []string
-
-		mocks.Shims.MkdirAll = func(path string, perm fs.FileMode) error {
-			createdDirs = append(createdDirs, path)
-			return nil
-		}
-		mocks.Shims.Create = func(path string) (*os.File, error) {
-			extractedFiles = append(extractedFiles, path)
-			// Return a mock file that doesn't actually write to disk
-			return createMockFile()
-		}
-		mocks.Shims.Copy = func(dst io.Writer, src io.Reader) (int64, error) {
-			return 100, nil // Simulate successful copy
-		}
-		mocks.Shims.Chmod = func(name string, mode os.FileMode) error {
-			return nil // Simulate successful chmod
+		// And GetProjectRoot returns an error
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("project root error")
 		}
 
-		// When extractModuleFromArtifact is called
-		err := generator.extractModuleFromArtifact(tarData, "test/module", "test-extraction-key")
+		// And valid terraform data
+		data := map[string]any{
+			"terraform/cluster": map[string]any{
+				"cluster_name": "test-cluster",
+			},
+		}
 
-		// Then no error should occur
+		// When Generate is called
+		err := generator.Generate(data)
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("Expected error from GetProjectRoot, got nil")
+		}
+	})
+
+	t.Run("ErrorPreloadingOCIArtifacts", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And blueprint handler returns components with OCI sources
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:   "cluster",
+					Source: "oci://registry.example.com/terraform/cluster:v1.0.0",
+				},
+			}
+		}
+
+		// And artifact builder returns an error
+		artifactBuilder := mocks.Injector.Resolve("artifactBuilder").(bundler.Artifact)
+		if mockArtifact, ok := artifactBuilder.(*bundler.MockArtifact); ok {
+			mockArtifact.PullFunc = func(refs []string) (map[string][]byte, error) {
+				return nil, fmt.Errorf("artifact pull error")
+			}
+		}
+
+		// And valid terraform data
+		data := map[string]any{
+			"terraform/cluster": map[string]any{
+				"cluster_name": "test-cluster",
+			},
+		}
+
+		// When Generate is called
+		err := generator.Generate(data)
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("Expected error from preloadOCIArtifacts, got nil")
+		}
+	})
+
+	t.Run("ErrorFindingVariablesTfFile", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And blueprint handler returns components
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:     "cluster",
+					Source:   "", // No source, so should look in terraform/ directory
+					FullPath: "/project/terraform/cluster",
+				},
+			}
+		}
+
+		// And Stat returns file not found for variables.tf
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "variables.tf") {
+				return nil, os.ErrNotExist
+			}
+			return &mockFileInfo{name: "somefile"}, nil
+		}
+
+		// And valid terraform data
+		data := map[string]any{
+			"terraform/cluster": map[string]any{
+				"cluster_name": "test-cluster",
+			},
+		}
+
+		// When Generate is called
+		err := generator.Generate(data)
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("Expected error from findVariablesTfFileForComponent, got nil")
+		}
+	})
+
+	t.Run("ComponentNotFoundInBlueprint", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And blueprint handler returns no components
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{}
+		}
+
+		// And valid terraform data for a component that doesn't exist in blueprint
+		data := map[string]any{
+			"terraform/nonexistent": map[string]any{
+				"some_var": "value",
+			},
+		}
+
+		// When Generate is called
+		err := generator.Generate(data)
+
+		// Then no error should occur (component should be skipped)
 		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-
-		// And the correct files should be extracted
-		expectedFiles := map[string]bool{
-			"/project/.windsor/.oci_extracted/test-extraction-key/terraform/test/module/main.tf":      true,
-			"/project/.windsor/.oci_extracted/test-extraction-key/terraform/test/module/variables.tf": true,
-			"/project/.windsor/.oci_extracted/test-extraction-key/terraform/test/module/outputs.tf":   true,
-		}
-		if len(extractedFiles) != len(expectedFiles) {
-			t.Errorf("expected %d files extracted, got %d", len(expectedFiles), len(extractedFiles))
-		}
-		for _, extractedFile := range extractedFiles {
-			normalizedPath := filepath.ToSlash(extractedFile)
-			if !expectedFiles[normalizedPath] {
-				t.Errorf("unexpected file extracted: %q", normalizedPath)
-			}
-		}
-
-		// And the correct directory should be created
-		expectedDir := "/project/.windsor/.oci_extracted/test-extraction-key/terraform/test/module"
-		found := false
-		for _, dir := range createdDirs {
-			if filepath.ToSlash(dir) == expectedDir {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("expected directory %q to be created", expectedDir)
-		}
-	})
-
-	t.Run("PathFiltering", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a tar archive with files that should be filtered out
-		testFiles := map[string]string{
-			"terraform/test/module/main.tf":  "module content",
-			"terraform/other/module/main.tf": "other content",  // Should be filtered out
-			"docs/README.md":                 "readme content", // Should be filtered out
-		}
-		tarData := createTestTarData(testFiles, []string{})
-
-		var extractedFiles []string
-
-		mocks.Shims.MkdirAll = func(path string, perm fs.FileMode) error {
-			return nil
-		}
-		mocks.Shims.Create = func(path string) (*os.File, error) {
-			extractedFiles = append(extractedFiles, path)
-			return createMockFile()
-		}
-		mocks.Shims.Copy = func(dst io.Writer, src io.Reader) (int64, error) {
-			return 100, nil
-		}
-		mocks.Shims.Chmod = func(name string, mode os.FileMode) error {
-			return nil // Simulate successful chmod
-		}
-
-		// When extractModuleFromArtifact is called
-		err := generator.extractModuleFromArtifact(tarData, "test/module", "test-extraction-key")
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-
-		// And only matching files should be extracted
-		if len(extractedFiles) != 1 {
-			t.Errorf("expected 1 file extracted, got %d", len(extractedFiles))
-		}
-		if len(extractedFiles) > 0 && filepath.ToSlash(extractedFiles[0]) != "/project/.windsor/.oci_extracted/test-extraction-key/terraform/test/module/main.tf" {
-			t.Errorf("expected only test/module/main.tf to be extracted, got %v", extractedFiles)
-		}
-	})
-
-	t.Run("DirectoryCreationError", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a tar archive with directory entries
-		testDirs := []string{"terraform/test/module"}
-		tarData := createTestTarData(map[string]string{}, testDirs)
-
-		mocks.Shims.MkdirAll = func(path string, perm fs.FileMode) error {
-			return fmt.Errorf("permission denied")
-		}
-		mocks.Shims.Chmod = func(name string, mode os.FileMode) error {
-			return nil // Won't be called due to directory creation error
-		}
-
-		// When extractModuleFromArtifact is called
-		err := generator.extractModuleFromArtifact(tarData, "test/module", "test-extraction-key")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should contain the expected message
-		if !strings.Contains(err.Error(), "failed to create directory") {
-			t.Errorf("expected error to contain 'failed to create directory', got %v", err)
-		}
-	})
-
-	t.Run("FileCreationError", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a tar archive with file entries
-		testFiles := map[string]string{
-			"terraform/test/module/main.tf": "module content",
-		}
-		tarData := createTestTarData(testFiles, []string{})
-
-		mocks.Shims.MkdirAll = func(path string, perm fs.FileMode) error {
-			return nil
-		}
-		mocks.Shims.Create = func(path string) (*os.File, error) {
-			return nil, fmt.Errorf("permission denied")
-		}
-		mocks.Shims.Chmod = func(name string, mode os.FileMode) error {
-			return nil // Won't be called due to file creation error
-		}
-
-		// When extractModuleFromArtifact is called
-		err := generator.extractModuleFromArtifact(tarData, "test/module", "test-extraction-key")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should contain the expected message
-		if !strings.Contains(err.Error(), "failed to create file") {
-			t.Errorf("expected error to contain 'failed to create file', got %v", err)
-		}
-	})
-
-	t.Run("FileCopyError", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a tar archive with file entries
-		testFiles := map[string]string{
-			"terraform/test/module/main.tf": "module content",
-		}
-		tarData := createTestTarData(testFiles, []string{})
-
-		mocks.Shims.MkdirAll = func(path string, perm fs.FileMode) error {
-			return nil
-		}
-		mocks.Shims.Create = func(path string) (*os.File, error) {
-			return createMockFile()
-		}
-		mocks.Shims.Copy = func(dst io.Writer, src io.Reader) (int64, error) {
-			return 0, fmt.Errorf("write error")
-		}
-		mocks.Shims.Chmod = func(name string, mode os.FileMode) error {
-			return nil // Won't be called due to copy error
-		}
-
-		// When extractModuleFromArtifact is called
-		err := generator.extractModuleFromArtifact(tarData, "test/module", "test-extraction-key")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should contain the expected message
-		if !strings.Contains(err.Error(), "failed to write file") {
-			t.Errorf("expected error to contain 'failed to write file', got %v", err)
-		}
-	})
-
-	t.Run("EmptyTarArchive", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, _ := setup(t)
-
-		// And an empty tar archive
-		tarData := createTestTarData(map[string]string{}, []string{})
-
-		// When extractModuleFromArtifact is called
-		err := generator.extractModuleFromArtifact(tarData, "test/module", "test-extraction-key")
-
-		// Then no error should occur (empty extraction is valid)
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("InvalidTarData", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, _ := setup(t)
-
-		// And invalid tar data
-		invalidTarData := []byte("invalid tar data")
-
-		// When extractModuleFromArtifact is called
-		err := generator.extractModuleFromArtifact(invalidTarData, "test/module", "/project")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should contain the expected message
-		if !strings.Contains(err.Error(), "failed to read tar header") {
-			t.Errorf("expected error to contain 'failed to read tar header', got %v", err)
-		}
-	})
-
-	t.Run("FilePermissionsPreserved", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a tar archive with executable files
-		testFiles := map[string]string{
-			"terraform/test/module/main.tf":        "module content",
-			"terraform/test/module/scripts/run.sh": "#!/bin/bash\necho 'hello'",
-		}
-		tarData := createTestTarData(testFiles, []string{})
-
-		// And mocks for file operations
-		mocks.Shims.MkdirAll = func(path string, perm fs.FileMode) error {
-			return nil
-		}
-		mocks.Shims.Create = func(path string) (*os.File, error) {
-			return createMockFile()
-		}
-		mocks.Shims.Copy = func(dst io.Writer, src io.Reader) (int64, error) {
-			return 100, nil
-		}
-
-		// And track chmod calls
-		chmodCalls := make(map[string]os.FileMode)
-		mocks.Shims.Chmod = func(name string, mode os.FileMode) error {
-			chmodCalls[name] = mode
-			return nil
-		}
-
-		// When extractModuleFromArtifact is called
-		err := generator.extractModuleFromArtifact(tarData, "test/module", "test-extraction-key")
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-
-		// And chmod should have been called for all files
-		if len(chmodCalls) == 0 {
-			t.Errorf("expected chmod to be called for extracted files")
-		}
-
-		// And permissions should be preserved (the test tar data creates files with 0644)
-		for path, mode := range chmodCalls {
-			normalizedPath := filepath.ToSlash(path)
-			if !strings.Contains(normalizedPath, "/project/.windsor/.oci_extracted/test-extraction-key/terraform/test/module/") {
-				t.Errorf("unexpected file path in chmod call: %s", normalizedPath)
-			}
-			// createTestTarData creates regular files with 0644 mode
-			// but .sh files get execute permissions added (0755)
-			if strings.HasSuffix(path, ".sh") {
-				if mode != 0755 {
-					t.Errorf("expected file mode 0755 for .sh file, got %o for file %s", mode, path)
-				}
-			} else {
-				if mode != 0644 {
-					t.Errorf("expected file mode 0644, got %o for file %s", mode, path)
-				}
-			}
-		}
-	})
-
-	t.Run("ChmodError", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And a tar archive with files
-		testFiles := map[string]string{
-			"terraform/test/module/main.tf": "module content",
-		}
-		tarData := createTestTarData(testFiles, []string{})
-
-		// And mocks for file operations
-		mocks.Shims.MkdirAll = func(path string, perm fs.FileMode) error {
-			return nil
-		}
-		mocks.Shims.Create = func(path string) (*os.File, error) {
-			return createMockFile()
-		}
-		mocks.Shims.Copy = func(dst io.Writer, src io.Reader) (int64, error) {
-			return 100, nil
-		}
-
-		// And chmod returns an error
-		mocks.Shims.Chmod = func(name string, mode os.FileMode) error {
-			return fmt.Errorf("permission denied")
-		}
-
-		// When extractModuleFromArtifact is called
-		err := generator.extractModuleFromArtifact(tarData, "test/module", "test-extraction-key")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And the error should contain the expected message
-		if !strings.Contains(err.Error(), "failed to set file permissions") {
-			t.Errorf("expected error to contain 'failed to set file permissions', got %v", err)
+			t.Errorf("Expected no error when component not found in blueprint, got: %v", err)
 		}
 	})
 }
 
-func TestTerraformGenerator_preloadOCIArtifacts(t *testing.T) {
+func TestTerraformGenerator_Generate_ResetFlag(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
 		mocks := setupMocks(t)
 		generator := NewTerraformGenerator(mocks.Injector)
@@ -4889,371 +3256,96 @@ func TestTerraformGenerator_preloadOCIArtifacts(t *testing.T) {
 		return generator, mocks
 	}
 
-	t.Run("NoOCISources", func(t *testing.T) {
+	t.Run("GenerateRespectsResetFlag", func(t *testing.T) {
 		// Given a TerraformGenerator with mocks
 		generator, mocks := setup(t)
 
-		// And GetSources returns no OCI sources
-		mocks.BlueprintHandler.GetSourcesFunc = func() []blueprintv1alpha1.Source {
-			return []blueprintv1alpha1.Source{
-				{Name: "git-source", Url: "https://github.com/example/repo.git"},
-				{Name: "local-source", Url: "file:///local/path"},
-			}
+		// Set up project and context paths
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project", nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/mock/context", nil
 		}
 
-		// When preloadOCIArtifacts is called
-		artifacts, err := generator.preloadOCIArtifacts()
+		// Set up component that the generator can process
+		component := blueprintv1alpha1.TerraformComponent{
+			Path:     "test-module",
+			FullPath: "/mock/project/terraform/test-module",
+		}
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{component}
+		}
+
+		// Mock variables.tf file exists
+		mocks.Shims.Stat = func(path string) (fs.FileInfo, error) {
+			if strings.HasSuffix(path, "variables.tf") {
+				return &mockFileInfo{name: "variables.tf", isDir: false}, nil
+			}
+			// Return that tfvars file exists
+			if strings.HasSuffix(path, ".tfvars") {
+				return &mockFileInfo{name: "test.tfvars", isDir: false}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock variables.tf content
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			if strings.HasSuffix(path, "variables.tf") {
+				return []byte(`variable "test_var" {
+  description = "Test variable"
+  type        = string
+}`), nil
+			}
+			// Return existing tfvars content
+			if strings.HasSuffix(path, ".tfvars") {
+				return []byte("# existing content"), nil
+			}
+			return nil, fmt.Errorf("unexpected file read: %s", path)
+		}
+
+		// Track if WriteFile was called
+		writeFileCalled := false
+		mocks.Shims.WriteFile = func(path string, data []byte, perm fs.FileMode) error {
+			writeFileCalled = true
+			return nil
+		}
+		mocks.Shims.MkdirAll = func(path string, perm fs.FileMode) error {
+			return nil
+		}
+
+		// When Generate is called WITHOUT reset flag (overwrite=false)
+		data := map[string]any{
+			"terraform/test-module": map[string]any{
+				"test_var": "test_value",
+			},
+		}
+		err := generator.Generate(data, false)
 
 		// Then no error should occur
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
 
-		// And an empty map should be returned
-		if len(artifacts) != 0 {
-			t.Errorf("expected empty artifacts map, got %d items", len(artifacts))
-		}
-	})
-
-	t.Run("EmptySourcesList", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And GetSources returns empty list
-		mocks.BlueprintHandler.GetSourcesFunc = func() []blueprintv1alpha1.Source {
-			return []blueprintv1alpha1.Source{}
+		// And WriteFile should NOT be called (file should not be overwritten)
+		if writeFileCalled {
+			t.Error("expected WriteFile to not be called when reset=false and file exists")
 		}
 
-		// When preloadOCIArtifacts is called
-		artifacts, err := generator.preloadOCIArtifacts()
+		// Reset the flag for the next test
+		writeFileCalled = false
+
+		// When Generate is called WITH reset flag (overwrite=true)
+		err = generator.Generate(data, true)
 
 		// Then no error should occur
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
 
-		// And an empty map should be returned
-		if len(artifacts) != 0 {
-			t.Errorf("expected empty artifacts map, got %d items", len(artifacts))
-		}
-	})
-
-	t.Run("SingleOCISourceSuccess", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And GetSources returns one OCI source
-		mocks.BlueprintHandler.GetSourcesFunc = func() []blueprintv1alpha1.Source {
-			return []blueprintv1alpha1.Source{
-				{Name: "oci-source", Url: "oci://registry.example.com/my-repo:v1.0.0"},
-			}
-		}
-
-		// And the artifact builder is set up to return expected data
-		mockArtifact := mocks.Injector.Resolve("artifactBuilder").(*bundler.MockArtifact)
-		mockArtifact.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
-			if len(ociRefs) != 1 || ociRefs[0] != "oci://registry.example.com/my-repo:v1.0.0" {
-				return nil, fmt.Errorf("unexpected OCI refs: %v", ociRefs)
-			}
-			return map[string][]byte{
-				"registry.example.com/my-repo:v1.0.0": []byte("test artifact data"),
-			}, nil
-		}
-
-		// When preloadOCIArtifacts is called
-		artifacts, err := generator.preloadOCIArtifacts()
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-
-		// And the artifacts map should contain the cached data
-		expectedKey := "registry.example.com/my-repo:v1.0.0"
-		if len(artifacts) != 1 {
-			t.Errorf("expected 1 artifact, got %d", len(artifacts))
-		}
-		expectedData := []byte("test artifact data")
-		if !bytes.Equal(artifacts[expectedKey], expectedData) {
-			t.Errorf("expected artifact data to match test data")
-		}
-	})
-
-	t.Run("MultipleOCISourcesDifferentArtifacts", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And GetSources returns multiple different OCI sources
-		mocks.BlueprintHandler.GetSourcesFunc = func() []blueprintv1alpha1.Source {
-			return []blueprintv1alpha1.Source{
-				{Name: "oci-source1", Url: "oci://registry.example.com/repo1:v1.0.0"},
-				{Name: "oci-source2", Url: "oci://registry.example.com/repo2:v2.0.0"},
-			}
-		}
-
-		// And the artifact builder is set up to return data for both artifacts
-		mockArtifact := mocks.Injector.Resolve("artifactBuilder").(*bundler.MockArtifact)
-		mockArtifact.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
-			expected := []string{
-				"oci://registry.example.com/repo1:v1.0.0",
-				"oci://registry.example.com/repo2:v2.0.0",
-			}
-			if len(ociRefs) != 2 {
-				return nil, fmt.Errorf("expected 2 OCI refs, got %d", len(ociRefs))
-			}
-			for _, expected := range expected {
-				found := false
-				for _, actual := range ociRefs {
-					if actual == expected {
-						found = true
-						break
-					}
-				}
-				if !found {
-					return nil, fmt.Errorf("expected OCI ref %s not found", expected)
-				}
-			}
-			return map[string][]byte{
-				"registry.example.com/repo1:v1.0.0": []byte("test artifact data 1"),
-				"registry.example.com/repo2:v2.0.0": []byte("test artifact data 2"),
-			}, nil
-		}
-
-		// When preloadOCIArtifacts is called
-		artifacts, err := generator.preloadOCIArtifacts()
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-
-		// And the artifacts map should contain both entries
-		if len(artifacts) != 2 {
-			t.Errorf("expected 2 artifacts, got %d", len(artifacts))
-		}
-
-		// And both artifacts should be present
-		key1 := "registry.example.com/repo1:v1.0.0"
-		key2 := "registry.example.com/repo2:v2.0.0"
-		if _, exists := artifacts[key1]; !exists {
-			t.Errorf("expected artifact %s to exist", key1)
-		}
-		if _, exists := artifacts[key2]; !exists {
-			t.Errorf("expected artifact %s to exist", key2)
-		}
-	})
-
-	t.Run("MultipleOCISourcesSameArtifact", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And GetSources returns multiple sources pointing to same OCI artifact
-		mocks.BlueprintHandler.GetSourcesFunc = func() []blueprintv1alpha1.Source {
-			return []blueprintv1alpha1.Source{
-				{Name: "oci-source1", Url: "oci://registry.example.com/my-repo:v1.0.0"},
-				{Name: "oci-source2", Url: "oci://registry.example.com/my-repo:v1.0.0"},
-				{Name: "git-source", Url: "https://github.com/example/repo.git"},
-			}
-		}
-
-		// And the artifact builder is set up to return data for the unique OCI artifact
-		testData := []byte("test artifact data")
-		mockArtifact := mocks.Injector.Resolve("artifactBuilder").(*bundler.MockArtifact)
-		mockArtifact.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
-			if len(ociRefs) != 2 {
-				return nil, fmt.Errorf("expected 2 OCI refs (with duplicates), got %d", len(ociRefs))
-			}
-			for _, ref := range ociRefs {
-				if ref != "oci://registry.example.com/my-repo:v1.0.0" {
-					return nil, fmt.Errorf("unexpected OCI ref: %s", ref)
-				}
-			}
-			// The bundler handles deduplication, so return just one artifact
-			return map[string][]byte{
-				"registry.example.com/my-repo:v1.0.0": testData,
-			}, nil
-		}
-
-		// When preloadOCIArtifacts is called
-		artifacts, err := generator.preloadOCIArtifacts()
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-
-		// And the artifacts map should contain only one entry (deduplicated by bundler)
-		if len(artifacts) != 1 {
-			t.Errorf("expected 1 artifact, got %d", len(artifacts))
-		}
-
-		expectedKey := "registry.example.com/my-repo:v1.0.0"
-		if !bytes.Equal(artifacts[expectedKey], testData) {
-			t.Errorf("expected artifact data to match test data")
-		}
-	})
-
-	t.Run("ErrorParsingOCIReference", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And GetSources returns an invalid OCI source (missing repository part)
-		mocks.BlueprintHandler.GetSourcesFunc = func() []blueprintv1alpha1.Source {
-			return []blueprintv1alpha1.Source{
-				{Name: "invalid-oci", Url: "oci://registry.example.com:v1.0.0"},
-			}
-		}
-
-		// And the artifact builder is set up to return an error for invalid OCI reference
-		mockArtifact := mocks.Injector.Resolve("artifactBuilder").(*bundler.MockArtifact)
-		mockArtifact.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
-			return nil, fmt.Errorf("invalid OCI reference format")
-		}
-
-		// When preloadOCIArtifacts is called
-		artifacts, err := generator.preloadOCIArtifacts()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And artifacts should be nil
-		if artifacts != nil {
-			t.Errorf("expected nil artifacts, got %v", artifacts)
-		}
-	})
-
-	t.Run("ErrorDownloadingOCIArtifact", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And GetSources returns a valid OCI source
-		mocks.BlueprintHandler.GetSourcesFunc = func() []blueprintv1alpha1.Source {
-			return []blueprintv1alpha1.Source{
-				{Name: "oci-source", Url: "oci://registry.example.com/my-repo:v1.0.0"},
-			}
-		}
-
-		// And the artifact builder is set up to return a download error
-		mockArtifact := mocks.Injector.Resolve("artifactBuilder").(*bundler.MockArtifact)
-		mockArtifact.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
-			return nil, fmt.Errorf("mock download error")
-		}
-
-		// When preloadOCIArtifacts is called
-		artifacts, err := generator.preloadOCIArtifacts()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And artifacts should be nil
-		if artifacts != nil {
-			t.Errorf("expected nil artifacts, got %v", artifacts)
-		}
-	})
-
-	t.Run("ErrorFromRemoteImage", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And GetSources returns a valid OCI source
-		mocks.BlueprintHandler.GetSourcesFunc = func() []blueprintv1alpha1.Source {
-			return []blueprintv1alpha1.Source{
-				{Name: "oci-source", Url: "oci://registry.example.com/my-repo:v1.0.0"},
-			}
-		}
-
-		// And the artifact builder is set up to return a remote image error
-		mockArtifact := mocks.Injector.Resolve("artifactBuilder").(*bundler.MockArtifact)
-		mockArtifact.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
-			return nil, fmt.Errorf("mock remote image error")
-		}
-
-		// When preloadOCIArtifacts is called
-		artifacts, err := generator.preloadOCIArtifacts()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// And artifacts should be nil
-		if artifacts != nil {
-			t.Errorf("expected nil artifacts, got %v", artifacts)
-		}
-	})
-
-	t.Run("MixedSourceTypesWithOCI", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And GetSources returns mixed source types including one OCI source
-		mocks.BlueprintHandler.GetSourcesFunc = func() []blueprintv1alpha1.Source {
-			return []blueprintv1alpha1.Source{
-				{Name: "git-source", Url: "https://github.com/example/repo.git"},
-				{Name: "oci-source", Url: "oci://registry.example.com/my-repo:v1.0.0"},
-				{Name: "local-source", Url: "file:///local/path"},
-			}
-		}
-
-		// And the artifact builder is set up to return data for only the OCI source
-		mockArtifact := mocks.Injector.Resolve("artifactBuilder").(*bundler.MockArtifact)
-		mockArtifact.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
-			if len(ociRefs) != 1 || ociRefs[0] != "oci://registry.example.com/my-repo:v1.0.0" {
-				return nil, fmt.Errorf("unexpected OCI refs: %v", ociRefs)
-			}
-			return map[string][]byte{
-				"registry.example.com/my-repo:v1.0.0": []byte("test artifact data"),
-			}, nil
-		}
-
-		// When preloadOCIArtifacts is called
-		artifacts, err := generator.preloadOCIArtifacts()
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-
-		// And only the OCI artifact should be cached (non-OCI sources ignored)
-		if len(artifacts) != 1 {
-			t.Errorf("expected 1 artifact, got %d", len(artifacts))
-		}
-
-		expectedKey := "registry.example.com/my-repo:v1.0.0"
-		expectedData := []byte("test artifact data")
-		if !bytes.Equal(artifacts[expectedKey], expectedData) {
-			t.Errorf("expected artifact data to match test data")
-		}
-	})
-
-	t.Run("MixedSourceTypesNoOCI", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And GetSources returns mixed source types with no OCI sources
-		mocks.BlueprintHandler.GetSourcesFunc = func() []blueprintv1alpha1.Source {
-			return []blueprintv1alpha1.Source{
-				{Name: "git-source", Url: "https://github.com/example/repo.git"},
-				{Name: "local-source", Url: "file:///local/path"},
-				{Name: "http-source", Url: "https://releases.example.com/module.tar.gz"},
-			}
-		}
-
-		// When preloadOCIArtifacts is called
-		artifacts, err := generator.preloadOCIArtifacts()
-
-		// Then no error should occur (non-OCI sources should be ignored)
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-
-		// And artifacts map should be empty (no OCI sources to process)
-		if len(artifacts) != 0 {
-			t.Errorf("expected 0 artifacts, got %d", len(artifacts))
+		// And WriteFile should be called (file should be overwritten)
+		if !writeFileCalled {
+			t.Error("expected WriteFile to be called when reset=true")
 		}
 	})
 }

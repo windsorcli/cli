@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
-	ctrl "github.com/windsorcli/cli/pkg/controller"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/pipelines"
 )
 
 // bundleCmd represents the bundle command
@@ -29,41 +31,29 @@ Examples:
   # Bundle using metadata.yaml for name/version
   windsor bundle`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
-
-		// Initialize with requirements including bundler functionality
-		if err := controller.InitializeWithRequirements(ctrl.Requirements{
-			CommandName: cmd.Name(),
-			Bundler:     true,
-		}); err != nil {
-			return fmt.Errorf("failed to initialize controller: %w", err)
-		}
-
-		// Resolve artifact builder from controller
-		artifact := controller.ResolveArtifactBuilder()
-		if artifact == nil {
-			return fmt.Errorf("artifact builder not available")
-		}
-
-		// Resolve all bundlers and run them
-		bundlers := controller.ResolveAllBundlers()
-		for _, bundler := range bundlers {
-			if err := bundler.Bundle(artifact); err != nil {
-				return fmt.Errorf("bundling failed: %w", err)
-			}
-		}
+		// Get shared dependency injector from context
+		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
 		// Get tag and output path from flags
 		tag, _ := cmd.Flags().GetString("tag")
 		outputPath, _ := cmd.Flags().GetString("output")
 
-		// Create the final artifact
-		actualOutputPath, err := artifact.Create(outputPath, tag)
+		// Set up the artifact pipeline
+		artifactPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "artifactPipeline")
 		if err != nil {
-			return fmt.Errorf("failed to create artifact: %w", err)
+			return fmt.Errorf("failed to set up artifact pipeline: %w", err)
 		}
 
-		fmt.Printf("Blueprint bundled successfully: %s\n", actualOutputPath)
+		// Create execution context with bundle mode and parameters
+		ctx := context.WithValue(cmd.Context(), "artifactMode", "bundle")
+		ctx = context.WithValue(ctx, "outputPath", outputPath)
+		ctx = context.WithValue(ctx, "tag", tag)
+
+		// Execute the artifact pipeline in bundle mode
+		if err := artifactPipeline.Execute(ctx); err != nil {
+			return fmt.Errorf("failed to bundle artifacts: %w", err)
+		}
+
 		return nil
 	},
 }

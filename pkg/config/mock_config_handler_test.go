@@ -348,10 +348,10 @@ func TestMockConfigHandler_SaveConfig(t *testing.T) {
 	t.Run("WithPath", func(t *testing.T) {
 		// Given a mock config handler with SaveConfigFunc set to return an error
 		handler := NewMockConfigHandler()
-		handler.SaveConfigFunc = func(path string, overwrite ...bool) error { return mockSaveErr }
+		handler.SaveConfigFunc = func(overwrite ...bool) error { return mockSaveErr }
 
-		// When SaveConfig is called with a path
-		err := handler.SaveConfig("some/path")
+		// When SaveConfig is called
+		err := handler.SaveConfig()
 
 		// Then the error should match the expected mock error
 		if err != mockSaveErr {
@@ -363,12 +363,12 @@ func TestMockConfigHandler_SaveConfig(t *testing.T) {
 		// Given a mock config handler without SaveConfigFunc set
 		handler := NewMockConfigHandler()
 
-		// When SaveConfig is called with a path
-		err := handler.SaveConfig("some/path")
+		// When SaveConfig is called
+		err := handler.SaveConfig()
 
 		// Then no error should be returned
 		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
+			t.Errorf("Expected SaveConfig to return nil, got %v", err)
 		}
 	})
 }
@@ -732,6 +732,78 @@ func TestMockConfigHandler_GenerateContextID(t *testing.T) {
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+	})
+}
+
+func TestMockConfigHandler_LoadContextConfig(t *testing.T) {
+	t.Run("WithFuncSet", func(t *testing.T) {
+		// Given a MockConfigHandler with LoadContextConfigFunc set
+		mockHandler := NewMockConfigHandler()
+		expectedError := fmt.Errorf("mocked load context config error")
+		mockHandler.LoadContextConfigFunc = func() error {
+			return expectedError
+		}
+
+		// When LoadContextConfig is called
+		err := mockHandler.LoadContextConfig()
+
+		// Then it should return the mocked error
+		if err != expectedError {
+			t.Errorf("LoadContextConfig() error = %v, expected %v", err, expectedError)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a MockConfigHandler with no LoadContextConfigFunc set
+		mockHandler := NewMockConfigHandler()
+
+		// When LoadContextConfig is called
+		err := mockHandler.LoadContextConfig()
+
+		// Then it should return nil
+		if err != nil {
+			t.Errorf("LoadContextConfig() error = %v, expected nil", err)
+		}
+	})
+}
+
+func TestMockConfigHandler_YamlMarshalWithDefinedPaths(t *testing.T) {
+	t.Run("WithFuncSet", func(t *testing.T) {
+		// Given a MockConfigHandler with YamlMarshalWithDefinedPathsFunc set
+		mockHandler := NewMockConfigHandler()
+		expectedResult := []byte("mocked: yaml")
+		expectedError := fmt.Errorf("mocked marshal error")
+		mockHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+			return expectedResult, expectedError
+		}
+
+		// When YamlMarshalWithDefinedPaths is called
+		result, err := mockHandler.YamlMarshalWithDefinedPaths("test")
+
+		// Then it should return the mocked result and error
+		if string(result) != string(expectedResult) {
+			t.Errorf("YamlMarshalWithDefinedPaths() result = %v, expected %v", result, expectedResult)
+		}
+		if err != expectedError {
+			t.Errorf("YamlMarshalWithDefinedPaths() error = %v, expected %v", err, expectedError)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a MockConfigHandler with no YamlMarshalWithDefinedPathsFunc set
+		mockHandler := NewMockConfigHandler()
+
+		// When YamlMarshalWithDefinedPaths is called
+		result, err := mockHandler.YamlMarshalWithDefinedPaths("test")
+
+		// Then it should return the default YAML content and no error
+		expectedDefault := []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com")
+		if string(result) != string(expectedDefault) {
+			t.Errorf("YamlMarshalWithDefinedPaths() result = %v, expected %v", result, expectedDefault)
+		}
+		if err != nil {
+			t.Errorf("YamlMarshalWithDefinedPaths() error = %v, expected nil", err)
 		}
 	})
 }

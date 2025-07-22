@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"bytes"
 	"fmt"
+	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,6 +59,16 @@ type BuilderInfo struct {
 	Email string `json:"email"`
 }
 
+// OCIArtifactInfo contains information about the OCI artifact source for blueprint data
+type OCIArtifactInfo struct {
+	// Name is the name of the OCI artifact
+	Name string
+	// URL is the full OCI URL of the artifact
+	URL string
+	// Tag is the tag/version of the OCI artifact
+	Tag string
+}
+
 // BlueprintMetadataInput represents the input metadata from contexts/_template/metadata.yaml
 type BlueprintMetadataInput struct {
 	Name        string   `yaml:"name"`
@@ -79,6 +91,7 @@ type Artifact interface {
 	Create(outputPath string, tag string) (string, error)
 	Push(registryBase string, repoName string, tag string) error
 	Pull(ociRefs []string) (map[string][]byte, error)
+	GetTemplateData(ociRef string) (map[string][]byte, error)
 }
 
 // =============================================================================
@@ -191,7 +204,7 @@ func (a *ArtifactBuilder) Push(registryBase string, repoName string, tag string)
 
 	layer := static.NewLayer(tarballContent, types.DockerLayer)
 
-	img, err := a.createFluxCDCompatibleImage(layer, finalName, tagName)
+	img, err := a.createOCIArtifactImage(layer, finalName, tagName)
 	if err != nil {
 		return fmt.Errorf("failed to create OCI image: %w", err)
 	}
@@ -324,6 +337,150 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
 	}
 
 	return ociArtifacts, nil
+}
+
+// GetTemplateData extracts and returns template data from an OCI artifact reference.
+// Downloads and caches the OCI artifact, decompresses the tar.gz payload, and returns a map
+// with forward-slash file paths as keys and file contents as values. The returned map always includes
+// "ociUrl" (the original OCI reference) and "name" (from metadata.yaml if present). Only .jsonnet files
+// are included as template data. Returns an error on invalid reference, download failure, or extraction error.
+func (a *ArtifactBuilder) GetTemplateData(ociRef string) (map[string][]byte, error) {
+	if !strings.HasPrefix(ociRef, "oci://") {
+		return nil, fmt.Errorf("invalid OCI reference: %s", ociRef)
+	}
+
+	registry, repository, tag, err := a.parseOCIRef(ociRef)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse OCI reference %s: %w", ociRef, err)
+	}
+
+	cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+	var artifactData []byte
+	if cached, ok := a.ociCache[cacheKey]; ok {
+		artifactData = cached
+	} else {
+		artifactData, err = a.downloadOCIArtifact(registry, repository, tag)
+		if err != nil {
+			return nil, fmt.Errorf("failed to download OCI artifact %s: %w", ociRef, err)
+		}
+		a.ociCache[cacheKey] = artifactData
+	}
+
+	templateData := make(map[string][]byte)
+	templateData["ociUrl"] = []byte(ociRef)
+
+	tarReader := tar.NewReader(bytes.NewReader(artifactData))
+
+	var metadataName string
+	jsonnetFiles := make(map[string][]byte)
+	var hasMetadata, hasBlueprintJsonnet bool
+
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tar header: %w", err)
+		}
+		if header.Typeflag != tar.TypeReg {
+			continue
+		}
+		name := filepath.ToSlash(header.Name)
+		switch {
+		case name == "metadata.yaml":
+			hasMetadata = true
+			content, err := io.ReadAll(tarReader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read metadata.yaml: %w", err)
+			}
+			var metadata BlueprintMetadata
+			if err := a.shims.YamlUnmarshal(content, &metadata); err != nil {
+				return nil, fmt.Errorf("failed to parse metadata.yaml: %w", err)
+			}
+			metadataName = metadata.Name
+		case strings.HasSuffix(name, ".jsonnet"):
+			normalized := strings.TrimPrefix(name, "_template/")
+			if normalized == "blueprint.jsonnet" {
+				hasBlueprintJsonnet = true
+			}
+			content, err := io.ReadAll(tarReader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read file %s: %w", name, err)
+			}
+			jsonnetFiles[filepath.ToSlash(normalized)] = content
+		}
+	}
+
+	if !hasMetadata {
+		return nil, fmt.Errorf("OCI artifact missing required metadata.yaml file")
+	}
+	if !hasBlueprintJsonnet {
+		return nil, fmt.Errorf("OCI artifact missing required _template/blueprint.jsonnet file")
+	}
+
+	templateData["name"] = []byte(metadataName)
+	maps.Copy(templateData, jsonnetFiles)
+
+	return templateData, nil
+}
+
+// =============================================================================
+// Package Functions
+// =============================================================================
+
+// ParseOCIReference parses a blueprint reference string in OCI URL or org/repo:tag format and returns an OCIArtifactInfo struct.
+// Accepts full OCI URLs (e.g., oci://ghcr.io/org/repo:v1.0.0) and org/repo:v1.0.0 formats only.
+// Returns nil if the reference is empty, missing a version, or not in a supported format.
+func ParseOCIReference(ociRef string) (*OCIArtifactInfo, error) {
+	if ociRef == "" {
+		return nil, nil
+	}
+
+	var name, version, fullURL string
+
+	if strings.HasPrefix(ociRef, "oci://") {
+		fullURL = ociRef
+		remaining := strings.TrimPrefix(ociRef, "oci://")
+		if lastColon := strings.LastIndex(remaining, ":"); lastColon > 0 {
+			version = remaining[lastColon+1:]
+			pathPart := remaining[:lastColon]
+			if lastSlash := strings.LastIndex(pathPart, "/"); lastSlash >= 0 {
+				name = pathPart[lastSlash+1:]
+			} else {
+				return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
+			}
+		} else {
+			return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
+		}
+	} else {
+		if colonIdx := strings.LastIndex(ociRef, ":"); colonIdx > 0 {
+			pathPart := ociRef[:colonIdx]
+			version = ociRef[colonIdx+1:]
+			if strings.Count(pathPart, "/") >= 1 {
+				if lastSlash := strings.LastIndex(pathPart, "/"); lastSlash >= 0 {
+					name = pathPart[lastSlash+1:]
+				} else {
+					return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
+				}
+				fullURL = "oci://ghcr.io/" + ociRef
+			} else {
+				return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
+			}
+		} else {
+			return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
+		}
+	}
+
+	if version == "" || name == "" {
+		return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
+	}
+
+	return &OCIArtifactInfo{
+		Name: name,
+		URL:  fullURL,
+		Tag:  version,
+	}, nil
 }
 
 // =============================================================================
@@ -515,13 +672,13 @@ func (a *ArtifactBuilder) createTarballToDisk(outputPath string, metadata []byte
 	return nil
 }
 
-// createFluxCDCompatibleImage constructs an OCI image from a layer with FluxCD-specific media types and annotations.
-// Creates a FluxCD-compatible config file with empty JSON content as required by FluxCD.
-// Sets architecture to amd64 and OS to linux, though FluxCD doesn't enforce these for config artifacts.
-// Applies FluxCD-specific media types: manifest v1+json and flux config v1+json.
+// createOCIArtifactImage constructs an OCI image from a layer with generic OCI artifact media types and annotations.
+// Creates a generic OCI artifact config file compatible with both FluxCD and blueprint consumers.
+// Sets architecture to amd64 and OS to linux for compatibility with container runtimes.
+// Uses standard OCI media types with optional artifactType for tool-specific identification.
 // Adds comprehensive OCI annotations including creation time, source, revision, title, and version.
-// Returns a complete OCI image ready for pushing to FluxCD-compatible registries.
-func (a *ArtifactBuilder) createFluxCDCompatibleImage(layer v1.Layer, repoName, tagName string) (v1.Image, error) {
+// Returns a complete OCI image ready for pushing to any OCI 1.1 compatible registry.
+func (a *ArtifactBuilder) createOCIArtifactImage(layer v1.Layer, repoName, tagName string) (v1.Image, error) {
 	gitProvenance, err := a.getGitProvenance()
 	if err != nil {
 		gitProvenance = GitProvenance{}
@@ -543,7 +700,7 @@ func (a *ArtifactBuilder) createFluxCDCompatibleImage(layer v1.Layer, repoName, 
 		Config: v1.Config{
 			Labels: map[string]string{
 				"org.opencontainers.image.title":       repoName,
-				"org.opencontainers.image.description": fmt.Sprintf("FluxCD artifact for %s", repoName),
+				"org.opencontainers.image.description": fmt.Sprintf("Windsor blueprint artifact for %s", repoName),
 			},
 		},
 		RootFS: v1.RootFS{
@@ -552,7 +709,7 @@ func (a *ArtifactBuilder) createFluxCDCompatibleImage(layer v1.Layer, repoName, 
 		History: []v1.History{
 			{
 				Created: v1.Time{Time: time.Now()},
-				Comment: "FluxCD artifact layer",
+				Comment: "Windsor blueprint artifact layer",
 			},
 		},
 	}
@@ -568,7 +725,7 @@ func (a *ArtifactBuilder) createFluxCDCompatibleImage(layer v1.Layer, repoName, 
 	}
 
 	img = a.shims.MediaType(img, "application/vnd.oci.image.manifest.v1+json")
-	img = a.shims.ConfigMediaType(img, "application/vnd.cncf.flux.config.v1+json")
+	img = a.shims.ConfigMediaType(img, "application/vnd.windsorcli.blueprint.v1+json")
 
 	annotations := map[string]string{
 		"org.opencontainers.image.created":  time.Now().UTC().Format(time.RFC3339),

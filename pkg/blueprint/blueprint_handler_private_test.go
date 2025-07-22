@@ -11,7 +11,6 @@ import (
 	kustomize "github.com/fluxcd/pkg/apis/kustomize"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/kubernetes"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -720,338 +719,6 @@ metadata:
 	})
 }
 
-func TestBlueprintHandler_processJsonnetTemplate(t *testing.T) {
-	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
-		t.Helper()
-		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-		if err := handler.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
-		}
-		return handler, mocks
-	}
-
-	t.Run("ErrorReadingTemplateFile", func(t *testing.T) {
-		// Given a blueprint handler with mocked dependencies
-		handler, mocks := setup(t)
-
-		// And ReadFile returns an error
-		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			return nil, fmt.Errorf("read file error")
-		}
-
-		// When calling processJsonnetTemplate
-		err := handler.processJsonnetTemplate("/template/test.jsonnet", "/context", "test-context", false)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error reading template file") {
-			t.Errorf("Expected 'error reading template file' in error, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorMarshallingContextToYAML", func(t *testing.T) {
-		// Given a blueprint handler with mocked dependencies
-		handler, mocks := setup(t)
-
-		// And ReadFile succeeds but YamlMarshalWithDefinedPaths fails
-		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			return []byte("{}"), nil
-		}
-
-		// Mock the config handler's YamlMarshalWithDefinedPaths method
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
-			return nil, fmt.Errorf("yaml marshal error")
-		}
-
-		// When calling processJsonnetTemplate
-		err := handler.processJsonnetTemplate("/template/test.jsonnet", "/context", "test-context", false)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error marshalling context to YAML") {
-			t.Errorf("Expected 'error marshalling context to YAML' in error, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorUnmarshallingContextYAML", func(t *testing.T) {
-		// Given a blueprint handler with mocked dependencies
-		handler, mocks := setup(t)
-
-		// And ReadFile succeeds but YamlUnmarshal fails
-		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			return []byte("{}"), nil
-		}
-		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
-			return fmt.Errorf("yaml unmarshal error")
-		}
-
-		// When calling processJsonnetTemplate
-		err := handler.processJsonnetTemplate("/template/test.jsonnet", "/context", "test-context", false)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error unmarshalling context YAML") {
-			t.Errorf("Expected 'error unmarshalling context YAML' in error, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorMarshallingContextMapToJSON", func(t *testing.T) {
-		// Given a blueprint handler with mocked dependencies
-		handler, mocks := setup(t)
-
-		// And ReadFile succeeds but JsonMarshal fails
-		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			return []byte("{}"), nil
-		}
-		mocks.Shims.JsonMarshal = func(v any) ([]byte, error) {
-			return nil, fmt.Errorf("json marshal error")
-		}
-
-		// When calling processJsonnetTemplate
-		err := handler.processJsonnetTemplate("/template/test.jsonnet", "/context", "test-context", false)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error marshalling context map to JSON") {
-			t.Errorf("Expected 'error marshalling context map to JSON' in error, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorEvaluatingJsonnetTemplate", func(t *testing.T) {
-		// Given a blueprint handler with mocked dependencies
-		handler, mocks := setup(t)
-
-		// And ReadFile succeeds but jsonnet evaluation fails
-		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			return []byte("{}"), nil
-		}
-		mocks.Shims.NewJsonnetVM = func() JsonnetVM {
-			return NewMockJsonnetVM(func(filename, snippet string) (string, error) {
-				return "", fmt.Errorf("jsonnet evaluation error")
-			})
-		}
-
-		// When calling processJsonnetTemplate
-		err := handler.processJsonnetTemplate("/template/test.jsonnet", "/context", "test-context", false)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error evaluating jsonnet template") {
-			t.Errorf("Expected 'error evaluating jsonnet template' in error, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorWritingBlueprintFile", func(t *testing.T) {
-		// Given a blueprint handler with mocked dependencies
-		handler, mocks := setup(t)
-
-		// And ReadFile succeeds
-		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			return []byte("local context = std.extVar('context'); {}"), nil
-		}
-
-		// And jsonnet evaluation returns valid blueprint content
-		mocks.Shims.NewJsonnetVM = func() JsonnetVM {
-			return NewMockJsonnetVM(func(filename, snippet string) (string, error) {
-				return `kind: Blueprint
-metadata:
-  name: test-context
-  description: Test blueprint
-  authors: ["test"]`, nil
-			})
-		}
-
-		// And Stat returns file not exists (so we proceed to write)
-		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-
-		// And WriteFile returns an error
-		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			return fmt.Errorf("write file error")
-		}
-
-		// When calling processJsonnetTemplate
-		err := handler.processJsonnetTemplate("/template/test.jsonnet", "/context", "test-context", false)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error writing blueprint file") {
-			t.Errorf("Expected 'error writing blueprint file' in error, got: %v", err)
-		}
-	})
-
-	t.Run("BlueprintFileExtension", func(t *testing.T) {
-		// Given a blueprint handler with mocked dependencies
-		handler, mocks := setup(t)
-
-		// And ReadFile succeeds
-		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			return []byte("kind: Blueprint"), nil
-		}
-
-		// And output file doesn't exist
-		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-
-		var writtenPath string
-		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			writtenPath = name
-			return nil
-		}
-
-		// When calling processJsonnetTemplate with blueprint file
-		err := handler.processJsonnetTemplate("/template/blueprint.jsonnet", "/context", "test-context", false)
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		// And the output path should have .yaml extension
-		if !strings.HasSuffix(writtenPath, "blueprint.yaml") {
-			t.Errorf("Expected blueprint.yaml extension, got: %s", writtenPath)
-		}
-	})
-
-	t.Run("SkipsExistingFileWithoutReset", func(t *testing.T) {
-		// Given a blueprint handler with mocked dependencies
-		handler, mocks := setup(t)
-
-		// And ReadFile succeeds
-		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			return []byte("{}"), nil
-		}
-
-		// And output file already exists
-		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if strings.HasSuffix(name, ".yaml") {
-				return mockFileInfo{name: "test.yaml"}, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		writeFileCalled := false
-		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			writeFileCalled = true
-			return nil
-		}
-
-		// When calling processJsonnetTemplate without reset
-		err := handler.processJsonnetTemplate("/template/test.jsonnet", "/context", "test-context", false)
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		// And WriteFile should not be called
-		if writeFileCalled {
-			t.Error("WriteFile should not be called when file exists and reset is false")
-		}
-	})
-
-	t.Run("OverwritesExistingFileWithReset", func(t *testing.T) {
-		// Given a blueprint handler with mocked dependencies
-		handler, mocks := setup(t)
-
-		// And ReadFile succeeds
-		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			return []byte("{}"), nil
-		}
-
-		// And output file already exists
-		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if strings.HasSuffix(name, ".yaml") {
-				return mockFileInfo{name: "test.yaml"}, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		writeFileCalled := false
-		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			writeFileCalled = true
-			return nil
-		}
-
-		// When calling processJsonnetTemplate with reset
-		err := handler.processJsonnetTemplate("/template/test.jsonnet", "/context", "test-context", true)
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		// And WriteFile should be called
-		if !writeFileCalled {
-			t.Error("WriteFile should be called when reset is true")
-		}
-	})
-
-	t.Run("SuccessfulProcessing", func(t *testing.T) {
-		// Given a blueprint handler with mocked dependencies
-		handler, mocks := setup(t)
-
-		// And ReadFile succeeds
-		templateContent := `{
-			kind: "Blueprint",
-			metadata: {
-				name: std.extVar("context").name
-			}
-		}`
-		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			return []byte(templateContent), nil
-		}
-
-		// And output file doesn't exist
-		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-
-		// And jsonnet evaluation returns content
-		mocks.Shims.NewJsonnetVM = func() JsonnetVM {
-			return NewMockJsonnetVM(func(filename, snippet string) (string, error) {
-				return `{"kind": "Blueprint", "metadata": {"name": "test-context"}}`, nil
-			})
-		}
-
-		var writtenContent []byte
-		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			writtenContent = data
-			return nil
-		}
-
-		// When calling processJsonnetTemplate
-		err := handler.processJsonnetTemplate("/template/blueprint.jsonnet", "/context", "test-context", false)
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		// And the content should be processed
-		if len(writtenContent) == 0 {
-			t.Error("Expected content to be written")
-		}
-	})
-}
-
 func TestBlueprintHandler_toKubernetesKustomization(t *testing.T) {
 	setup := func(t *testing.T) *BaseBlueprintHandler {
 		t.Helper()
@@ -1426,6 +1093,500 @@ func TestBlueprintHandler_toKubernetesKustomization(t *testing.T) {
 		}
 		if result.Spec.PostBuild == nil {
 			t.Error("Expected postBuild to be set, got nil")
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_applySourceRepository(t *testing.T) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		return handler, mocks
+	}
+
+	t.Run("GitSource", func(t *testing.T) {
+		// Given a blueprint handler with a git source
+		handler, mocks := setup(t)
+
+		gitSource := blueprintv1alpha1.Source{
+			Name: "git-source",
+			Url:  "https://github.com/example/repo.git",
+			Ref:  blueprintv1alpha1.Reference{Branch: "main"},
+		}
+
+		gitRepoApplied := false
+		mocks.KubernetesManager.ApplyGitRepositoryFunc = func(repo *sourcev1.GitRepository) error {
+			gitRepoApplied = true
+			if repo.Name != "git-source" {
+				t.Errorf("Expected repo name 'git-source', got %s", repo.Name)
+			}
+			if repo.Spec.URL != "https://github.com/example/repo.git" {
+				t.Errorf("Expected URL 'https://github.com/example/repo.git', got %s", repo.Spec.URL)
+			}
+			return nil
+		}
+
+		// When applying the source repository
+		err := handler.applySourceRepository(gitSource, "default")
+
+		// Then it should call ApplyGitRepository
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if !gitRepoApplied {
+			t.Error("Expected ApplyGitRepository to be called")
+		}
+	})
+
+	t.Run("OCISource", func(t *testing.T) {
+		// Given a blueprint handler with an OCI source
+		handler, mocks := setup(t)
+
+		ociSource := blueprintv1alpha1.Source{
+			Name: "oci-source",
+			Url:  "oci://ghcr.io/example/repo:v1.0.0",
+		}
+
+		ociRepoApplied := false
+		mocks.KubernetesManager.ApplyOCIRepositoryFunc = func(repo *sourcev1.OCIRepository) error {
+			ociRepoApplied = true
+			if repo.Name != "oci-source" {
+				t.Errorf("Expected repo name 'oci-source', got %s", repo.Name)
+			}
+			if repo.Spec.URL != "oci://ghcr.io/example/repo" {
+				t.Errorf("Expected URL 'oci://ghcr.io/example/repo', got %s", repo.Spec.URL)
+			}
+			if repo.Spec.Reference.Tag != "v1.0.0" {
+				t.Errorf("Expected tag 'v1.0.0', got %s", repo.Spec.Reference.Tag)
+			}
+			return nil
+		}
+
+		// When applying the source repository
+		err := handler.applySourceRepository(ociSource, "default")
+
+		// Then it should call ApplyOCIRepository
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if !ociRepoApplied {
+			t.Error("Expected ApplyOCIRepository to be called")
+		}
+	})
+
+	t.Run("GitSourceError", func(t *testing.T) {
+		// Given a blueprint handler with git source that fails
+		handler, mocks := setup(t)
+
+		gitSource := blueprintv1alpha1.Source{
+			Name: "git-source",
+			Url:  "https://github.com/example/repo.git",
+		}
+
+		mocks.KubernetesManager.ApplyGitRepositoryFunc = func(repo *sourcev1.GitRepository) error {
+			return fmt.Errorf("git repository error")
+		}
+
+		// When applying the source repository
+		err := handler.applySourceRepository(gitSource, "default")
+
+		// Then it should return the error
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "git repository error") {
+			t.Errorf("Expected git repository error, got: %v", err)
+		}
+	})
+
+	t.Run("OCISourceError", func(t *testing.T) {
+		// Given a blueprint handler with OCI source that fails
+		handler, mocks := setup(t)
+
+		ociSource := blueprintv1alpha1.Source{
+			Name: "oci-source",
+			Url:  "oci://ghcr.io/example/repo:v1.0.0",
+		}
+
+		mocks.KubernetesManager.ApplyOCIRepositoryFunc = func(repo *sourcev1.OCIRepository) error {
+			return fmt.Errorf("oci repository error")
+		}
+
+		// When applying the source repository
+		err := handler.applySourceRepository(ociSource, "default")
+
+		// Then it should return the error
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "oci repository error") {
+			t.Errorf("Expected oci repository error, got: %v", err)
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_applyOCIRepository(t *testing.T) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		return handler, mocks
+	}
+
+	t.Run("BasicOCIRepository", func(t *testing.T) {
+		// Given a blueprint handler with basic OCI source
+		handler, mocks := setup(t)
+
+		source := blueprintv1alpha1.Source{
+			Name: "basic-oci",
+			Url:  "oci://registry.example.com/repo:v1.0.0",
+		}
+
+		var appliedRepo *sourcev1.OCIRepository
+		mocks.KubernetesManager.ApplyOCIRepositoryFunc = func(repo *sourcev1.OCIRepository) error {
+			appliedRepo = repo
+			return nil
+		}
+
+		// When applying the OCI repository
+		err := handler.applyOCIRepository(source, "test-namespace")
+
+		// Then it should create the correct OCIRepository
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if appliedRepo == nil {
+			t.Fatal("Expected OCIRepository to be applied")
+		}
+		if appliedRepo.Name != "basic-oci" {
+			t.Errorf("Expected name 'basic-oci', got %s", appliedRepo.Name)
+		}
+		if appliedRepo.Namespace != "test-namespace" {
+			t.Errorf("Expected namespace 'test-namespace', got %s", appliedRepo.Namespace)
+		}
+		if appliedRepo.Spec.URL != "oci://registry.example.com/repo" {
+			t.Errorf("Expected URL 'oci://registry.example.com/repo', got %s", appliedRepo.Spec.URL)
+		}
+		if appliedRepo.Spec.Reference.Tag != "v1.0.0" {
+			t.Errorf("Expected tag 'v1.0.0', got %s", appliedRepo.Spec.Reference.Tag)
+		}
+	})
+
+	t.Run("OCIRepositoryWithoutTag", func(t *testing.T) {
+		// Given an OCI source without embedded tag
+		handler, mocks := setup(t)
+
+		source := blueprintv1alpha1.Source{
+			Name: "no-tag-oci",
+			Url:  "oci://registry.example.com/repo",
+		}
+
+		var appliedRepo *sourcev1.OCIRepository
+		mocks.KubernetesManager.ApplyOCIRepositoryFunc = func(repo *sourcev1.OCIRepository) error {
+			appliedRepo = repo
+			return nil
+		}
+
+		// When applying the OCI repository
+		err := handler.applyOCIRepository(source, "test-namespace")
+
+		// Then it should default to latest tag
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if appliedRepo.Spec.Reference.Tag != "latest" {
+			t.Errorf("Expected default tag 'latest', got %s", appliedRepo.Spec.Reference.Tag)
+		}
+	})
+
+	t.Run("OCIRepositoryWithRefField", func(t *testing.T) {
+		// Given an OCI source with ref field instead of embedded tag
+		handler, mocks := setup(t)
+
+		source := blueprintv1alpha1.Source{
+			Name: "ref-field-oci",
+			Url:  "oci://registry.example.com/repo",
+			Ref: blueprintv1alpha1.Reference{
+				Tag: "v2.0.0",
+			},
+		}
+
+		var appliedRepo *sourcev1.OCIRepository
+		mocks.KubernetesManager.ApplyOCIRepositoryFunc = func(repo *sourcev1.OCIRepository) error {
+			appliedRepo = repo
+			return nil
+		}
+
+		// When applying the OCI repository
+		err := handler.applyOCIRepository(source, "test-namespace")
+
+		// Then it should use the ref field tag
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if appliedRepo.Spec.Reference.Tag != "v2.0.0" {
+			t.Errorf("Expected tag 'v2.0.0', got %s", appliedRepo.Spec.Reference.Tag)
+		}
+	})
+
+	t.Run("OCIRepositoryWithSemVer", func(t *testing.T) {
+		// Given an OCI source with semver reference
+		handler, mocks := setup(t)
+
+		source := blueprintv1alpha1.Source{
+			Name: "semver-oci",
+			Url:  "oci://registry.example.com/repo",
+			Ref: blueprintv1alpha1.Reference{
+				SemVer: ">=1.0.0 <2.0.0",
+			},
+		}
+
+		var appliedRepo *sourcev1.OCIRepository
+		mocks.KubernetesManager.ApplyOCIRepositoryFunc = func(repo *sourcev1.OCIRepository) error {
+			appliedRepo = repo
+			return nil
+		}
+
+		// When applying the OCI repository
+		err := handler.applyOCIRepository(source, "test-namespace")
+
+		// Then it should use the semver reference
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if appliedRepo.Spec.Reference.SemVer != ">=1.0.0 <2.0.0" {
+			t.Errorf("Expected semver '>=1.0.0 <2.0.0', got %s", appliedRepo.Spec.Reference.SemVer)
+		}
+	})
+
+	t.Run("OCIRepositoryWithDigest", func(t *testing.T) {
+		// Given an OCI source with commit/digest reference
+		handler, mocks := setup(t)
+
+		source := blueprintv1alpha1.Source{
+			Name: "digest-oci",
+			Url:  "oci://registry.example.com/repo",
+			Ref: blueprintv1alpha1.Reference{
+				Commit: "sha256:abc123",
+			},
+		}
+
+		var appliedRepo *sourcev1.OCIRepository
+		mocks.KubernetesManager.ApplyOCIRepositoryFunc = func(repo *sourcev1.OCIRepository) error {
+			appliedRepo = repo
+			return nil
+		}
+
+		// When applying the OCI repository
+		err := handler.applyOCIRepository(source, "test-namespace")
+
+		// Then it should use the digest reference
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if appliedRepo.Spec.Reference.Digest != "sha256:abc123" {
+			t.Errorf("Expected digest 'sha256:abc123', got %s", appliedRepo.Spec.Reference.Digest)
+		}
+	})
+
+	t.Run("OCIRepositoryWithSecret", func(t *testing.T) {
+		// Given an OCI source with secret name
+		handler, mocks := setup(t)
+
+		source := blueprintv1alpha1.Source{
+			Name:       "secret-oci",
+			Url:        "oci://private-registry.example.com/repo:v1.0.0",
+			SecretName: "registry-credentials",
+		}
+
+		var appliedRepo *sourcev1.OCIRepository
+		mocks.KubernetesManager.ApplyOCIRepositoryFunc = func(repo *sourcev1.OCIRepository) error {
+			appliedRepo = repo
+			return nil
+		}
+
+		// When applying the OCI repository
+		err := handler.applyOCIRepository(source, "test-namespace")
+
+		// Then it should include the secret reference
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if appliedRepo.Spec.SecretRef == nil {
+			t.Error("Expected SecretRef to be set")
+		} else if appliedRepo.Spec.SecretRef.Name != "registry-credentials" {
+			t.Errorf("Expected secret name 'registry-credentials', got %s", appliedRepo.Spec.SecretRef.Name)
+		}
+	})
+
+	t.Run("OCIRepositoryWithPortInURL", func(t *testing.T) {
+		// Given an OCI source with port in URL (should not be treated as tag)
+		handler, mocks := setup(t)
+
+		source := blueprintv1alpha1.Source{
+			Name: "port-oci",
+			Url:  "oci://registry.example.com:5000/repo",
+			Ref: blueprintv1alpha1.Reference{
+				Tag: "v1.0.0",
+			},
+		}
+
+		var appliedRepo *sourcev1.OCIRepository
+		mocks.KubernetesManager.ApplyOCIRepositoryFunc = func(repo *sourcev1.OCIRepository) error {
+			appliedRepo = repo
+			return nil
+		}
+
+		// When applying the OCI repository
+		err := handler.applyOCIRepository(source, "test-namespace")
+
+		// Then it should preserve the port and use ref field
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if appliedRepo.Spec.URL != "oci://registry.example.com:5000/repo" {
+			t.Errorf("Expected URL with port 'oci://registry.example.com:5000/repo', got %s", appliedRepo.Spec.URL)
+		}
+		if appliedRepo.Spec.Reference.Tag != "v1.0.0" {
+			t.Errorf("Expected tag 'v1.0.0', got %s", appliedRepo.Spec.Reference.Tag)
+		}
+	})
+
+	t.Run("OCIRepositoryError", func(t *testing.T) {
+		// Given an OCI source that fails to apply
+		handler, mocks := setup(t)
+
+		source := blueprintv1alpha1.Source{
+			Name: "error-oci",
+			Url:  "oci://registry.example.com/repo:v1.0.0",
+		}
+
+		mocks.KubernetesManager.ApplyOCIRepositoryFunc = func(repo *sourcev1.OCIRepository) error {
+			return fmt.Errorf("failed to apply oci repository")
+		}
+
+		// When applying the OCI repository
+		err := handler.applyOCIRepository(source, "test-namespace")
+
+		// Then it should return the error
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to apply oci repository") {
+			t.Errorf("Expected oci repository error, got: %v", err)
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_isOCISource(t *testing.T) {
+	setup := func(t *testing.T) *BaseBlueprintHandler {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		return handler
+	}
+
+	t.Run("MainRepositoryOCI", func(t *testing.T) {
+		// Given a blueprint with OCI main repository
+		handler := setup(t)
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Repository: blueprintv1alpha1.Repository{
+				Url: "oci://ghcr.io/example/blueprint:v1.0.0",
+			},
+		}
+
+		// When checking if main repository is OCI
+		result := handler.isOCISource("test-blueprint")
+
+		// Then it should return true
+		if !result {
+			t.Error("Expected main repository to be identified as OCI source")
+		}
+	})
+
+	t.Run("MainRepositoryGit", func(t *testing.T) {
+		// Given a blueprint with Git main repository
+		handler := setup(t)
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Repository: blueprintv1alpha1.Repository{
+				Url: "https://github.com/example/blueprint.git",
+			},
+		}
+
+		// When checking if main repository is OCI
+		result := handler.isOCISource("test-blueprint")
+
+		// Then it should return false
+		if result {
+			t.Error("Expected main repository to not be identified as OCI source")
+		}
+	})
+
+	t.Run("AdditionalSourceOCI", func(t *testing.T) {
+		// Given a blueprint with OCI additional source
+		handler := setup(t)
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Repository: blueprintv1alpha1.Repository{
+				Url: "https://github.com/example/blueprint.git",
+			},
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name: "oci-source",
+					Url:  "oci://ghcr.io/example/source:latest",
+				},
+				{
+					Name: "git-source",
+					Url:  "https://github.com/example/source.git",
+				},
+			},
+		}
+
+		// When checking if additional source is OCI
+		result := handler.isOCISource("oci-source")
+
+		// Then it should return true
+		if !result {
+			t.Error("Expected additional source to be identified as OCI source")
+		}
+	})
+
+	t.Run("AdditionalSourceGit", func(t *testing.T) {
+		// Given a blueprint with Git additional source
+		handler := setup(t)
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name: "git-source",
+					Url:  "https://github.com/example/source.git",
+				},
+			},
+		}
+
+		// When checking if additional source is OCI
+		result := handler.isOCISource("git-source")
+
+		// Then it should return false
+		if result {
+			t.Error("Expected additional source to not be identified as OCI source")
 		}
 	})
 }

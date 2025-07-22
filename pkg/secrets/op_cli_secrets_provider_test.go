@@ -7,6 +7,8 @@ package secrets
 
 import (
 	"errors"
+	"os/exec"
+	"strings"
 	"testing"
 
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
@@ -65,11 +67,12 @@ func TestOnePasswordCLISecretsProvider_GetSecret(t *testing.T) {
 		}
 		provider.unlocked = true
 
-		// And a mock shell that returns a successful result
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		// And mock shims for command execution
+		mockShims := NewShims()
+		mockShims.Command = func(name string, args ...string) *exec.Cmd {
 			// Verify the command and arguments
-			if command != "op" {
-				t.Errorf("Expected command to be 'op', got %s", command)
+			if name != "op" {
+				t.Errorf("Expected command to be 'op', got %s", name)
 			}
 
 			// Check that the arguments contain the expected values
@@ -84,9 +87,13 @@ func TestOnePasswordCLISecretsProvider_GetSecret(t *testing.T) {
 				}
 			}
 
-			// Return a successful result
-			return "secret-value", nil
+			// Return a mock command
+			return &exec.Cmd{}
 		}
+		mockShims.CmdOutput = func(cmd *exec.Cmd) ([]byte, error) {
+			return []byte("secret-value"), nil
+		}
+		provider.shims = mockShims
 
 		// When GetSecret is called
 		value, err := provider.GetSecret("test-secret.password")
@@ -190,10 +197,15 @@ func TestOnePasswordCLISecretsProvider_GetSecret(t *testing.T) {
 		}
 		provider.unlocked = true
 
-		// And a mock shell that returns an error
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			return "", errors.New("command execution error")
+		// And mock shims that return an error
+		mockShims := NewShims()
+		mockShims.Command = func(name string, args ...string) *exec.Cmd {
+			return &exec.Cmd{}
 		}
+		mockShims.CmdOutput = func(cmd *exec.Cmd) ([]byte, error) {
+			return nil, errors.New("command execution error")
+		}
+		provider.shims = mockShims
 
 		// When GetSecret is called
 		value, err := provider.GetSecret("test-secret.password")
@@ -203,10 +215,12 @@ func TestOnePasswordCLISecretsProvider_GetSecret(t *testing.T) {
 			t.Error("Expected an error, got nil")
 		}
 
-		// And the error message should be correct
-		expectedError := "failed to retrieve secret from 1Password: command execution error"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error to be '%s', got '%s'", expectedError, err.Error())
+		// And the error message should contain the expected text
+		if !strings.Contains(err.Error(), "failed to retrieve secret from 1Password") {
+			t.Errorf("Expected error to contain 'failed to retrieve secret from 1Password', got '%s'", err.Error())
+		}
+		if !strings.Contains(err.Error(), "command execution error") {
+			t.Errorf("Expected error to contain 'command execution error', got '%s'", err.Error())
 		}
 
 		// And the value should be empty
@@ -236,10 +250,15 @@ func TestParseSecrets(t *testing.T) {
 		}
 		provider.unlocked = true
 
-		// And a mock shell that returns a successful result
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			return "secret-value", nil
+		// And mock shims for command execution
+		mockShims := NewShims()
+		mockShims.Command = func(name string, args ...string) *exec.Cmd {
+			return &exec.Cmd{}
 		}
+		mockShims.CmdOutput = func(cmd *exec.Cmd) ([]byte, error) {
+			return []byte("secret-value"), nil
+		}
+		provider.shims = mockShims
 
 		// When ParseSecrets is called with standard notation
 		input := "This is a secret: ${{ op.test-id.test-secret.password }}"

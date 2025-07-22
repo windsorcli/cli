@@ -13,6 +13,7 @@ func TestGitConfig_Merge(t *testing.T) {
 		}
 		*base.Livereload = GitLivereloadConfig{
 			Enabled:      ptrBool(true),
+			RsyncInclude: ptrString("include-pattern"),
 			RsyncExclude: ptrString("exclude-pattern"),
 			RsyncProtect: ptrString("protect-pattern"),
 			Username:     ptrString("user"),
@@ -25,6 +26,7 @@ func TestGitConfig_Merge(t *testing.T) {
 		overlay := &GitConfig{
 			Livereload: &GitLivereloadConfig{
 				Enabled:      ptrBool(false),
+				RsyncInclude: ptrString("new-include-pattern"),
 				RsyncExclude: ptrString("new-exclude-pattern"),
 				RsyncProtect: ptrString("new-protect-pattern"),
 				Username:     ptrString("new-user"),
@@ -39,6 +41,9 @@ func TestGitConfig_Merge(t *testing.T) {
 
 		if base.Livereload.Enabled == nil || *base.Livereload.Enabled != false {
 			t.Errorf("Enabled mismatch: expected %v, got %v", false, *base.Livereload.Enabled)
+		}
+		if base.Livereload.RsyncInclude == nil || *base.Livereload.RsyncInclude != "new-include-pattern" {
+			t.Errorf("RsyncInclude mismatch: expected %v, got %v", "new-include-pattern", *base.Livereload.RsyncInclude)
 		}
 		if base.Livereload.RsyncExclude == nil || *base.Livereload.RsyncExclude != "new-exclude-pattern" {
 			t.Errorf("RsyncExclude mismatch: expected %v, got %v", "new-exclude-pattern", *base.Livereload.RsyncExclude)
@@ -71,6 +76,7 @@ func TestGitConfig_Merge(t *testing.T) {
 		overlay := &GitConfig{
 			Livereload: &GitLivereloadConfig{
 				Enabled:      ptrBool(true),
+				RsyncInclude: ptrString("include-pattern"),
 				RsyncExclude: ptrString("exclude-pattern"),
 				RsyncProtect: ptrString("protect-pattern"),
 				Username:     ptrString("user"),
@@ -85,6 +91,9 @@ func TestGitConfig_Merge(t *testing.T) {
 
 		if base.Livereload.Enabled == nil || *base.Livereload.Enabled != true {
 			t.Errorf("Enabled mismatch: expected %v, got %v", true, *base.Livereload.Enabled)
+		}
+		if base.Livereload.RsyncInclude == nil || *base.Livereload.RsyncInclude != "include-pattern" {
+			t.Errorf("RsyncInclude mismatch: expected %v, got %v", "include-pattern", *base.Livereload.RsyncInclude)
 		}
 		if base.Livereload.RsyncExclude == nil || *base.Livereload.RsyncExclude != "exclude-pattern" {
 			t.Errorf("RsyncExclude mismatch: expected %v, got %v", "exclude-pattern", *base.Livereload.RsyncExclude)
@@ -118,6 +127,7 @@ func TestGitConfig_Copy(t *testing.T) {
 		}
 		*original.Livereload = GitLivereloadConfig{
 			Enabled:      ptrBool(true),
+			RsyncInclude: ptrString("include-pattern"),
 			RsyncExclude: ptrString("exclude-pattern"),
 			RsyncProtect: ptrString("protect-pattern"),
 			Username:     ptrString("user"),

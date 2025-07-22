@@ -1,71 +1,50 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
-	ctrl "github.com/windsorcli/cli/pkg/controller"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/pipelines"
 )
+
+var installWaitFlag bool
 
 var installCmd = &cobra.Command{
 	Use:          "install",
 	Short:        "Install the blueprint's cluster-level services",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
+		// Get shared dependency injector from context
+		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		// Initialize with requirements
-		if err := controller.InitializeWithRequirements(ctrl.Requirements{
-			ConfigLoaded: true,
-			Env:          true,
-			Secrets:      true,
-			VM:           true,
-			Containers:   true,
-			Services:     true,
-			Network:      true,
-			Blueprint:    true,
-			Cluster:      true,
-			Generators:   true,
-			Stack:        true,
-			CommandName:  cmd.Name(),
-			Flags: map[string]bool{
-				"verbose": verbose,
-			},
-		}); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
+		// First, run the env pipeline in quiet mode to set up environment variables
+		envPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "envPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up env pipeline: %w", err)
+		}
+		envCtx := context.WithValue(cmd.Context(), "quiet", true)
+		envCtx = context.WithValue(envCtx, "decrypt", true)
+		if err := envPipeline.Execute(envCtx); err != nil {
+			return fmt.Errorf("failed to set up environment: %w", err)
 		}
 
-		// Unlock the SecretProvider
-		secretsProviders := controller.ResolveAllSecretsProviders()
-		if len(secretsProviders) > 0 {
-			for _, secretsProvider := range secretsProviders {
-				if err := secretsProvider.LoadSecrets(); err != nil {
-					return fmt.Errorf("Error loading secrets: %w", err)
-				}
-			}
+		// Then, run the install pipeline for blueprint installation
+		installPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "installPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up install pipeline: %w", err)
 		}
 
-		// Set the environment variables internally in the process
-		if err := controller.SetEnvironmentVariables(); err != nil {
-			return fmt.Errorf("Error setting environment variables: %w", err)
+		// Create execution context with flags
+		ctx := cmd.Context()
+		if installWaitFlag {
+			ctx = context.WithValue(ctx, "wait", true)
 		}
 
-		// Resolve the blueprint handler
-		blueprintHandler := controller.ResolveBlueprintHandler()
-		if blueprintHandler == nil {
-			return fmt.Errorf("No blueprint handler found")
-		}
-
-		// Install the blueprint
-		if err := blueprintHandler.Install(); err != nil {
-			return fmt.Errorf("Error installing blueprint: %w", err)
-		}
-
-		// If wait flag is set, wait for kustomizations to be ready
-		if waitFlag {
-			if err := blueprintHandler.WaitForKustomizations("⏳ Waiting for kustomizations to be ready"); err != nil {
-				return fmt.Errorf("failed waiting for kustomizations: %w", err)
-			}
+		// Execute the install pipeline
+		if err := installPipeline.Execute(ctx); err != nil {
+			return fmt.Errorf("Error executing install pipeline: %w", err)
 		}
 
 		return nil
@@ -73,6 +52,6 @@ var installCmd = &cobra.Command{
 }
 
 func init() {
-	installCmd.Flags().BoolVar(&waitFlag, "wait", false, "Wait for kustomization resources to be ready")
+	installCmd.Flags().BoolVar(&installWaitFlag, "wait", false, "Wait for kustomizations to be ready")
 	rootCmd.AddCommand(installCmd)
 }

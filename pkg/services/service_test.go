@@ -3,6 +3,7 @@ package services
 import (
 	"os"
 	"testing"
+	"time"
 
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
@@ -17,6 +18,18 @@ import (
 // =============================================================================
 // Test Setup
 // =============================================================================
+
+// mockFileInfo implements os.FileInfo for testing
+type mockFileInfo struct {
+	isDir bool
+}
+
+func (m *mockFileInfo) Name() string       { return "mockfile" }
+func (m *mockFileInfo) Size() int64        { return 0 }
+func (m *mockFileInfo) Mode() os.FileMode  { return 0644 }
+func (m *mockFileInfo) ModTime() time.Time { return time.Now() }
+func (m *mockFileInfo) IsDir() bool        { return m.isDir }
+func (m *mockFileInfo) Sys() interface{}   { return nil }
 
 type Mocks struct {
 	Injector      di.Injector
@@ -45,12 +58,16 @@ func setupShims(t *testing.T) *Shims {
 		return nil
 	}
 	shims.Stat = func(name string) (os.FileInfo, error) {
-		return nil, nil
+		// Return a mock file info that indicates it's not a directory
+		return &mockFileInfo{isDir: false}, nil
 	}
 	shims.Mkdir = func(path string, perm os.FileMode) error {
 		return nil
 	}
 	shims.MkdirAll = func(path string, perm os.FileMode) error {
+		return nil
+	}
+	shims.RemoveAll = func(path string) error {
 		return nil
 	}
 	shims.Rename = func(oldpath, newpath string) error {

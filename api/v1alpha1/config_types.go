@@ -23,8 +23,7 @@ type Config struct {
 // Context represents the context configuration
 type Context struct {
 	ID          *string                    `yaml:"id,omitempty"`
-	ProjectName *string                    `yaml:"projectName,omitempty"`
-	Blueprint   *string                    `yaml:"blueprint,omitempty"`
+	Provider    *string                    `yaml:"provider,omitempty"`
 	Environment map[string]string          `yaml:"environment,omitempty"`
 	Secrets     *secrets.SecretsConfig     `yaml:"secrets,omitempty"`
 	AWS         *aws.AWSConfig             `yaml:"aws,omitempty"`
@@ -46,8 +45,8 @@ func (base *Context) Merge(overlay *Context) {
 	if overlay.ID != nil {
 		base.ID = overlay.ID
 	}
-	if overlay.ProjectName != nil {
-		base.ProjectName = overlay.ProjectName
+	if overlay.Provider != nil {
+		base.Provider = overlay.Provider
 	}
 	if overlay.Environment != nil {
 		if base.Environment == nil {
@@ -117,9 +116,6 @@ func (base *Context) Merge(overlay *Context) {
 		}
 		base.DNS.Merge(overlay.DNS)
 	}
-	if overlay.Blueprint != nil {
-		base.Blueprint = overlay.Blueprint
-	}
 }
 
 // DeepCopy creates a deep copy of the Context object
@@ -136,8 +132,7 @@ func (c *Context) DeepCopy() *Context {
 	}
 	return &Context{
 		ID:          c.ID,
-		ProjectName: c.ProjectName,
-		Blueprint:   c.Blueprint,
+		Provider:    c.Provider,
 		Environment: environmentCopy,
 		Secrets:     c.Secrets.Copy(),
 		AWS:         c.AWS.Copy(),

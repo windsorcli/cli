@@ -14,26 +14,21 @@ var hookCmd = &cobra.Command{
 	Short:        "Prints out shell hook information per platform (zsh,bash,fish,tcsh,powershell).",
 	Long:         "Prints out shell hook information for each platform (zsh,bash,fish,tcsh,powershell).",
 	SilenceUsage: true,
+	Args:         cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if len(args) == 0 {
-			return fmt.Errorf("No shell name provided")
-		}
-
-		// Create dependency injector
-		injector := di.NewInjector()
-
-		// Create hook pipeline
-		pipeline := pipelines.NewHookPipeline()
-
-		// Initialize the pipeline
-		if err := pipeline.Initialize(injector); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
-		}
+		// Get shared dependency injector from context
+		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
 		// Create execution context with shell type
 		ctx := context.WithValue(cmd.Context(), "shellType", args[0])
 		if verbose {
 			ctx = context.WithValue(ctx, "verbose", true)
+		}
+
+		// Set up the hook pipeline
+		pipeline, err := pipelines.WithPipeline(injector, ctx, "hookPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up hook pipeline: %w", err)
 		}
 
 		// Execute the pipeline

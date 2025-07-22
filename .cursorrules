@@ -7,6 +7,71 @@ Must follow Windsor CLI style guidelines in STYLE.md:
 3. Testing Patterns
 4. Code Organization
 
+## COMMENT PLACEMENT RULES
+CRITICAL: Function comments must ONLY be placed in function headers, NEVER inside function bodies:
+
+1. FUNCTION HEADER DOCUMENTATION
+   - All function description must be in the function header comment
+   - Use comprehensive documentation explaining purpose, parameters, and behavior
+   - Include any relevant context or usage notes in the header
+
+2. PROHIBITED INLINE COMMENTS
+   - NEVER place comments inside function bodies
+   - NO explanatory comments within function implementation
+   - NO step-by-step comments inside methods
+
+3. ALLOWED COMMENT LOCATIONS
+   - Function/method header documentation
+   - Package-level documentation
+   - Type/struct field documentation
+   - Constant/variable documentation at package level
+   - Section headers using the prescribed format
+
+4. ENFORCEMENT
+   - Any code generation must follow this rule strictly
+   - All function bodies must be comment-free
+   - Documentation belongs in function signatures, not implementations
+
+Example CORRECT format:
+```go
+// LoadConfiguration loads and validates the application configuration from the specified path.
+// It handles environment variable substitution, validates required fields, and returns
+// a fully initialized configuration object or an error if validation fails.
+func LoadConfiguration(path string) (*Config, error) {
+    data, err := os.ReadFile(path)
+    if err != nil {
+        return nil, err
+    }
+    
+    config := &Config{}
+    if err := yaml.Unmarshal(data, config); err != nil {
+        return nil, err
+    }
+    
+    return config, config.Validate()
+}
+```
+
+Example INCORRECT format (DO NOT USE):
+```go
+func LoadConfiguration(path string) (*Config, error) {
+    // Read the configuration file
+    data, err := os.ReadFile(path)
+    if err != nil {
+        return nil, err
+    }
+    
+    // Parse the YAML content
+    config := &Config{}
+    if err := yaml.Unmarshal(data, config); err != nil {
+        return nil, err
+    }
+    
+    // Validate and return
+    return config, config.Validate()
+}
+```
+
 ## MANDATORY TEST SUITE STRUCTURE
 1. TEMPLATE FIRST
    - Must show complete test suite structure with all t.Run() stubs

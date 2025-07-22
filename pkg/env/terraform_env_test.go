@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 )
 
@@ -21,16 +23,25 @@ func setupTerraformEnvMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	// Pass the mock config handler to setupMocks
 	mocks := setupMocks(t, opts...)
 
+	// Create and register mock blueprint handler
+	mockBlueprint := blueprint.NewMockBlueprintHandler(mocks.Injector)
+	mockBlueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+		return []blueprintv1alpha1.TerraformComponent{}
+	}
+	mocks.Injector.Register("blueprintHandler", mockBlueprint)
+
 	mocks.Shims.Getwd = func() (string, error) {
 		// Use platform-agnostic path
 		return filepath.Join("mock", "project", "root", "terraform", "project", "path"), nil
 	}
 
+	// Smart Glob function that handles any terraform directory pattern
 	mocks.Shims.Glob = func(pattern string) ([]string, error) {
 		if strings.Contains(pattern, "*.tf") {
+			// Extract directory from pattern and return a main.tf file in that directory
+			dir := filepath.Dir(pattern)
 			return []string{
-				filepath.Join("real", "terraform", "project", "path", "file1.tf"),
-				filepath.Join("real", "terraform", "project", "path", "file2.tf"),
+				filepath.Join(dir, "main.tf"),
 			}, nil
 		}
 		return nil, nil
@@ -93,7 +104,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 
 		expectedEnvVars := map[string]string{
 			"TF_DATA_DIR":      filepath.ToSlash(filepath.Join(configRoot, ".terraform/project/path")),
-			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate/project/path/terraform.tfstate"))),
+			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -force-copy -backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate/project/path/terraform.tfstate"))),
 			"TF_CLI_ARGS_plan": fmt.Sprintf(`-out="%s" -var-file="%s" -var-file="%s"`,
 				filepath.ToSlash(filepath.Join(configRoot, ".terraform/project/path/terraform.tfplan")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
@@ -251,7 +262,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		_, err := printer.GetEnvVars()
 
 		// Then appropriate error should be returned
-		expectedErrorMessage := "error checking file: mock error checking file"
+		expectedErrorMessage := "error generating terraform args: error checking file: mock error checking file"
 		if err == nil || err.Error() != expectedErrorMessage {
 			t.Errorf("Expected error %q, got %v", expectedErrorMessage, err)
 		}
@@ -310,7 +321,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		// And environment variables should be set correctly
 		expectedEnvVars := map[string]string{
 			"TF_DATA_DIR":      filepath.ToSlash(filepath.Join(configRoot, ".terraform/project/path")),
-			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate/project/path/terraform.tfstate"))),
+			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -force-copy -backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate/project/path/terraform.tfstate"))),
 			"TF_CLI_ARGS_plan": fmt.Sprintf(`-out="%s" -var-file="%s" -var-file="%s"`,
 				filepath.ToSlash(filepath.Join(configRoot, ".terraform/project/path/terraform.tfplan")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
@@ -450,7 +461,7 @@ func TestTerraformEnv_Print(t *testing.T) {
 		printer, mocks := setup(t)
 
 		var capturedEnvVars map[string]string
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string, export bool) {
 			capturedEnvVars = envVars
 		}
 
@@ -473,12 +484,15 @@ func TestTerraformEnv_Print(t *testing.T) {
 
 		expectedEnvVars := map[string]string{
 			"TF_DATA_DIR":      filepath.Join(configRoot, ".terraform/project/path"),
-			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -backend-config="path=%s"`, filepath.Join(configRoot, ".tfstate/project/path/terraform.tfstate")),
+			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -force-copy -backend-config="path=%s"`, filepath.Join(configRoot, ".tfstate/project/path/terraform.tfstate")),
 			"TF_CLI_ARGS_plan": fmt.Sprintf(`-out="%s" -var-file="%s" -var-file="%s"`,
 				filepath.Join(configRoot, ".terraform/project/path/terraform.tfplan"),
 				filepath.Join(configRoot, "terraform/project/path.tfvars"),
 				filepath.Join(configRoot, "terraform/project/path.tfvars.json")),
 			"TF_CLI_ARGS_apply": fmt.Sprintf(`"%s"`, filepath.Join(configRoot, ".terraform/project/path/terraform.tfplan")),
+			"TF_CLI_ARGS_refresh": fmt.Sprintf(`-var-file="%s" -var-file="%s"`,
+				filepath.Join(configRoot, "terraform/project/path.tfvars"),
+				filepath.Join(configRoot, "terraform/project/path.tfvars.json")),
 			"TF_CLI_ARGS_import": fmt.Sprintf(`-var-file="%s" -var-file="%s"`,
 				filepath.Join(configRoot, "terraform/project/path.tfvars"),
 				filepath.Join(configRoot, "terraform/project/path.tfvars.json")),
@@ -512,7 +526,10 @@ func TestTerraformEnv_Print(t *testing.T) {
 			ConfigHandler: configHandler,
 		})
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
-		terraformEnvPrinter.Initialize()
+		terraformEnvPrinter.shims = mocks.Shims
+		if err := terraformEnvPrinter.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize printer: %v", err)
+		}
 
 		// When Print is called
 		err := terraformEnvPrinter.Print()
@@ -938,6 +955,65 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 			t.Errorf("Expected error message to contain 'error removing backend_override.tf', got %v", err)
 		}
 	})
+
+	t.Run("WithSpecificDirectory", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with mock configuration
+		printer, mocks := setup(t)
+
+		// Track which directory was used for finding terraform files
+		var usedDirectory string
+		originalGlob := mocks.Shims.Glob
+		mocks.Shims.Glob = func(pattern string) ([]string, error) {
+			// Extract the directory from the pattern
+			if strings.Contains(pattern, "*.tf") {
+				usedDirectory = filepath.Dir(pattern)
+				// Return terraform files in the specified directory
+				return []string{
+					filepath.Join(usedDirectory, "file1.tf"),
+					filepath.Join(usedDirectory, "file2.tf"),
+				}, nil
+			}
+			return originalGlob(pattern)
+		}
+
+		// Mock WriteFile to capture the output
+		var writtenData []byte
+		var writtenPath string
+		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
+			writtenData = data
+			writtenPath = filename
+			return nil
+		}
+
+		// Specify a custom directory
+		customDir := filepath.Join("custom", "terraform", "module", "path")
+
+		// When generateBackendOverrideTf is called with a specific directory
+		err := printer.generateBackendOverrideTf(customDir)
+
+		// Then no error should occur and the custom directory should be used
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify that the custom directory was used for finding terraform files
+		if !strings.Contains(usedDirectory, customDir) {
+			t.Errorf("Expected directory %q to be used, but got %q", customDir, usedDirectory)
+		}
+
+		// Verify that the backend_override.tf file is written to the custom directory
+		if !strings.Contains(writtenPath, customDir) {
+			t.Errorf("Expected backend_override.tf to be written to %q, but got %q", customDir, writtenPath)
+		}
+
+		// Verify the content is correct
+		expectedContent := `terraform {
+  backend "local" {}
+}`
+		if string(writtenData) != expectedContent {
+			t.Errorf("Expected backend config %q, got %q", expectedContent, string(writtenData))
+		}
+	})
 }
 
 func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
@@ -959,7 +1035,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		configRoot := "/mock/config/root"
 
 		// When generateBackendConfigArgs is called
-		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then no error should occur and the expected arguments should be returned
 		if err != nil {
@@ -967,7 +1043,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			`-backend-config="path=/mock/config/root/.tfstate/project/path/terraform.tfstate"`,
+			`-backend-config=path=/mock/config/root/.tfstate/project/path/terraform.tfstate`,
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -983,7 +1059,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		configRoot := "/mock/config/root"
 
 		// When generateBackendConfigArgs is called
-		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then no error should occur and the expected arguments should be returned
 		if err != nil {
@@ -991,7 +1067,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			`-backend-config="path=/mock/config/root/.tfstate/mock-prefix/project/path/terraform.tfstate"`,
+			`-backend-config=path=/mock/config/root/.tfstate/mock-prefix/project/path/terraform.tfstate`,
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1011,7 +1087,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		configRoot := "/mock/config/root"
 
 		// When generateBackendConfigArgs is called
-		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then no error should occur and the expected arguments should be returned
 		if err != nil {
@@ -1019,10 +1095,10 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			`-backend-config="key=mock-prefix/project/path/terraform.tfstate"`,
-			`-backend-config="bucket=mock-bucket"`,
-			`-backend-config="region=mock-region"`,
-			`-backend-config="secret_key=mock-secret-key"`,
+			`-backend-config=key=mock-prefix/project/path/terraform.tfstate`,
+			`-backend-config=bucket=mock-bucket`,
+			`-backend-config=region=mock-region`,
+			`-backend-config=secret_key=mock-secret-key`,
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1040,7 +1116,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		configRoot := "/mock/config/root"
 
 		// When generateBackendConfigArgs is called
-		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then no error should occur and the expected arguments should be returned
 		if err != nil {
@@ -1048,8 +1124,8 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			`-backend-config="secret_suffix=mock-prefix-project-path"`,
-			`-backend-config="namespace=mock-namespace"`,
+			`-backend-config=secret_suffix=mock-prefix-project-path`,
+			`-backend-config=namespace=mock-namespace`,
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1066,7 +1142,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		configRoot := "/mock/config/root"
 
 		// When generateBackendConfigArgs is called
-		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then no error should occur and the expected arguments should be returned
 		if err != nil {
@@ -1074,7 +1150,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			`-backend-config="path=/mock/config/root/.tfstate/mock-prefix/project/path/terraform.tfstate"`,
+			`-backend-config=path=/mock/config/root/.tfstate/mock-prefix/project/path/terraform.tfstate`,
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1099,7 +1175,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		// When generateBackendConfigArgs is called
-		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then no error should occur and backend.tfvars should be included
 		if err != nil {
@@ -1107,8 +1183,8 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			fmt.Sprintf(`-backend-config="%s"`, filepath.ToSlash(backendTfvarsPath)),
-			`-backend-config="path=/mock/config/root/.tfstate/project/path/terraform.tfstate"`,
+			fmt.Sprintf(`-backend-config=%s`, filepath.ToSlash(backendTfvarsPath)),
+			`-backend-config=path=/mock/config/root/.tfstate/project/path/terraform.tfstate`,
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1133,7 +1209,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		// When generateBackendConfigArgs is called
-		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then no error should occur and backend.tfvars should not be included
 		if err != nil {
@@ -1141,7 +1217,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			`-backend-config="path=/mock/config/root/.tfstate/project/path/terraform.tfstate"`,
+			`-backend-config=path=/mock/config/root/.tfstate/project/path/terraform.tfstate`,
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1161,7 +1237,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		configRoot := "/mock/config/root"
 
 		// When generateBackendConfigArgs is called
-		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then no error should occur and the expected arguments should be returned
 		if err != nil {
@@ -1169,10 +1245,10 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			`-backend-config="key=mock-prefix/project/path/terraform.tfstate"`,
-			`-backend-config="container_name=mock-container"`,
-			`-backend-config="storage_account_name=mock-storage"`,
-			`-backend-config="use_azuread=true"`,
+			`-backend-config=key=mock-prefix/project/path/terraform.tfstate`,
+			`-backend-config=container_name=mock-container`,
+			`-backend-config=storage_account_name=mock-storage`,
+			`-backend-config=use_azuread=true`,
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1188,7 +1264,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		configRoot := "/mock/config/root"
 
 		// When generateBackendConfigArgs is called
-		_, err := printer.generateBackendConfigArgs(projectPath, configRoot)
+		_, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
 		// Then an error should be returned
 		if err == nil {
@@ -1288,6 +1364,303 @@ func TestTerraformEnv_processBackendConfig(t *testing.T) {
 		expectedError := "error unmarshalling backend YAML: mock unmarshal error"
 		if err.Error() != expectedError {
 			t.Errorf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+}
+
+func TestTerraformEnv_DependencyResolution(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformEnvPrinter, *Mocks) {
+		t.Helper()
+		mocks := setupTerraformEnvMocks(t)
+		printer := NewTerraformEnvPrinter(mocks.Injector)
+		printer.shims = mocks.Shims
+		if err := printer.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize printer: %v", err)
+		}
+		return printer, mocks
+	}
+
+	t.Run("ValidDependencyChain", func(t *testing.T) {
+		printer, mocks := setup(t)
+
+		// Get the blueprint handler from the injector and configure it
+		blueprintHandler := mocks.Injector.Resolve("blueprintHandler").(*blueprint.MockBlueprintHandler)
+		blueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:      "vpc",
+					FullPath:  "/project/.windsor/.tf_modules/vpc",
+					DependsOn: []string{},
+				},
+				{
+					Path:      "subnets",
+					FullPath:  "/project/.windsor/.tf_modules/subnets",
+					DependsOn: []string{"vpc"},
+				},
+				{
+					Path:      "app",
+					FullPath:  "/project/.windsor/.tf_modules/app",
+					DependsOn: []string{"subnets"},
+				},
+			}
+		}
+
+		// Mock terraform output for dependencies
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 2 && args[1] == "output" && args[2] == "-json" {
+				if strings.Contains(args[0], "vpc") {
+					return `{"vpc_id": {"value": "vpc-12345"}, "subnet_cidrs": {"value": ["10.0.1.0/24", "10.0.2.0/24"]}}`, nil
+				}
+				if strings.Contains(args[0], "subnets") {
+					return `{"subnet_ids": {"value": ["subnet-abc", "subnet-def"]}, "vpc_id": {"value": "vpc-12345"}}`, nil
+				}
+			}
+			return "", nil
+		}
+
+		// Set up the current working directory to match the "app" component
+		workingDir := filepath.Join(string(filepath.Separator), "project", "terraform", "app")
+		mocks.Shims.Getwd = func() (string, error) {
+			return workingDir, nil
+		}
+
+		// When getting environment variables for the "app" component
+		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And dependency variables should be included (only from direct dependencies)
+		expectedVars := map[string]string{
+			"TF_VAR_subnet_ids": "[subnet-abc subnet-def]",
+			"TF_VAR_vpc_id":     "vpc-12345",
+		}
+
+		for expectedKey, expectedValue := range expectedVars {
+			if actualValue, exists := envVars[expectedKey]; !exists {
+				t.Errorf("Expected environment variable %s to be set", expectedKey)
+			} else if actualValue != expectedValue {
+				t.Errorf("Expected %s to be %s, got %s", expectedKey, expectedValue, actualValue)
+			}
+		}
+
+		// Verify that transitive dependencies are NOT included directly
+		// Note: With the new naming format, TF_VAR_vpc_id comes from the direct dependency "subnets"
+		// The transitive "vpc" component's outputs are not directly accessible
+		transitiveVars := []string{
+			"TF_VAR_subnet_cidrs", // This should not be present as it's only in the transitive "vpc" dependency
+		}
+
+		for _, transitiveVar := range transitiveVars {
+			if _, exists := envVars[transitiveVar]; exists {
+				t.Errorf("Expected transitive dependency variable %s to NOT be set directly", transitiveVar)
+			}
+		}
+	})
+
+	t.Run("CircularDependencyDetection", func(t *testing.T) {
+		printer, mocks := setup(t)
+
+		// Get the blueprint handler from the injector and configure it
+		blueprintHandler := mocks.Injector.Resolve("blueprintHandler").(*blueprint.MockBlueprintHandler)
+		blueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:      "a",
+					FullPath:  "/project/.windsor/.tf_modules/a",
+					DependsOn: []string{"b"},
+				},
+				{
+					Path:      "b",
+					FullPath:  "/project/.windsor/.tf_modules/b",
+					DependsOn: []string{"c"},
+				},
+				{
+					Path:      "c",
+					FullPath:  "/project/.windsor/.tf_modules/c",
+					DependsOn: []string{"a"},
+				},
+			}
+		}
+
+		// Set up the current working directory to match one of the components
+		mocks.Shims.Getwd = func() (string, error) {
+			return filepath.Join(string(filepath.Separator), "project", "terraform", "a"), nil
+		}
+
+		// When getting environment variables
+		_, err := printer.GetEnvVars()
+
+		// Then it should detect circular dependency
+		if err == nil {
+			t.Errorf("Expected error for circular dependency, but got nil")
+		} else if !strings.Contains(err.Error(), "circular dependency") {
+			t.Errorf("Expected error to contain 'circular dependency', got %v", err)
+		}
+	})
+
+	t.Run("NonExistentDependency", func(t *testing.T) {
+		printer, mocks := setup(t)
+
+		// Get the blueprint handler from the injector and configure it
+		blueprintHandler := mocks.Injector.Resolve("blueprintHandler").(*blueprint.MockBlueprintHandler)
+		blueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:      "app",
+					FullPath:  "/project/.windsor/.tf_modules/app",
+					DependsOn: []string{"nonexistent"},
+				},
+			}
+		}
+
+		// Set up the current working directory to match the component
+		mocks.Shims.Getwd = func() (string, error) {
+			return filepath.Join(string(filepath.Separator), "project", "terraform", "app"), nil
+		}
+
+		// When getting environment variables
+		_, err := printer.GetEnvVars()
+
+		// Then it should detect missing dependency
+		if err == nil {
+			t.Errorf("Expected error for non-existent dependency, but got nil")
+		} else if !strings.Contains(err.Error(), "does not exist") {
+			t.Errorf("Expected error to contain 'does not exist', got %v", err)
+		}
+	})
+
+	t.Run("ComponentsWithoutNames", func(t *testing.T) {
+		printer, mocks := setup(t)
+
+		// Get the blueprint handler from the injector and configure it
+		blueprintHandler := mocks.Injector.Resolve("blueprintHandler").(*blueprint.MockBlueprintHandler)
+		blueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:      "vpc/main",
+					FullPath:  "/project/.windsor/.tf_modules/vpc/main",
+					DependsOn: []string{},
+				},
+				{
+					Path:      "app/frontend",
+					FullPath:  "/project/.windsor/.tf_modules/app/frontend",
+					DependsOn: []string{"vpc/main"},
+				},
+			}
+		}
+
+		// Mock terraform output
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 2 && args[1] == "output" && args[2] == "-json" {
+				return `{"vpc_id": {"value": "vpc-12345"}}`, nil
+			}
+			return "", nil
+		}
+
+		// Set up the current working directory to match the dependent component
+		mocks.Shims.Getwd = func() (string, error) {
+			return filepath.Join(string(filepath.Separator), "project", "terraform", "app", "frontend"), nil
+		}
+
+		// When getting environment variables
+		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And dependency variable should be included
+		if actualValue, exists := envVars["TF_VAR_vpc_id"]; !exists {
+			t.Errorf("Expected environment variable TF_VAR_vpc_id to be set")
+		} else if actualValue != "vpc-12345" {
+			t.Errorf("Expected TF_VAR_vpc_id to be vpc-12345, got %s", actualValue)
+		}
+	})
+
+	t.Run("EmptyTerraformOutput", func(t *testing.T) {
+		printer, mocks := setup(t)
+
+		// Get the blueprint handler from the injector and configure it
+		blueprintHandler := mocks.Injector.Resolve("blueprintHandler").(*blueprint.MockBlueprintHandler)
+		blueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:      "base",
+					FullPath:  "/project/.windsor/.tf_modules/base",
+					DependsOn: []string{},
+				},
+				{
+					Path:      "app",
+					FullPath:  "/project/.windsor/.tf_modules/app",
+					DependsOn: []string{"base"},
+				},
+			}
+		}
+
+		// Mock terraform output with empty response
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 2 && args[1] == "output" && args[2] == "-json" {
+				return "{}", nil
+			}
+			return "", nil
+		}
+
+		// Set up the current working directory to match the dependent component
+		mocks.Shims.Getwd = func() (string, error) {
+			return filepath.Join(string(filepath.Separator), "project", "terraform", "app"), nil
+		}
+
+		// When getting environment variables
+		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned even with empty output
+		if err != nil {
+			t.Errorf("Expected no error even with empty output, got %v", err)
+		}
+
+		// And standard terraform env vars should still be present
+		if _, exists := envVars["TF_VAR_context_path"]; !exists {
+			t.Errorf("Expected standard terraform environment variables to be present")
+		}
+	})
+
+	t.Run("NoCurrentComponent", func(t *testing.T) {
+		printer, mocks := setup(t)
+
+		// Get the blueprint handler from the injector and configure it
+		blueprintHandler := mocks.Injector.Resolve("blueprintHandler").(*blueprint.MockBlueprintHandler)
+		blueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:      "vpc",
+					FullPath:  "/project/.windsor/.tf_modules/vpc",
+					DependsOn: []string{},
+				},
+			}
+		}
+
+		// Set up the current working directory to not match any component
+		mocks.Shims.Getwd = func() (string, error) {
+			return filepath.FromSlash("/project/terraform/nonexistent"), nil
+		}
+
+		// When getting environment variables
+		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And no dependency variables should be added
+		for key := range envVars {
+			if strings.HasPrefix(key, "TF_VAR_vpc_") {
+				t.Errorf("Expected no dependency variables, but found %s", key)
+			}
 		}
 	})
 }

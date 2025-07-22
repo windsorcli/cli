@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 
 	"github.com/1password/onepassword-sdk-go"
 	"github.com/getsops/sops/v3/decrypt"
@@ -26,6 +27,8 @@ type Shims struct {
 	DecryptFile          func(string, string) ([]byte, error)
 	NewOnePasswordClient func(context.Context, ...onepassword.ClientOption) (*onepassword.Client, error)
 	ResolveSecret        func(*onepassword.Client, context.Context, string) (string, error)
+	Command              func(name string, arg ...string) *exec.Cmd
+	CmdOutput            func(cmd *exec.Cmd) ([]byte, error)
 }
 
 // =============================================================================
@@ -46,6 +49,10 @@ func NewShims() *Shims {
 				return "", errors.New("client is nil")
 			}
 			return client.Secrets().Resolve(ctx, secretRef)
+		},
+		Command: exec.Command,
+		CmdOutput: func(cmd *exec.Cmd) ([]byte, error) {
+			return cmd.Output()
 		},
 	}
 }

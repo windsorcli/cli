@@ -39,6 +39,7 @@ type Shims struct {
 
 	// Exec operations
 	Command     func(name string, arg ...string) *exec.Cmd
+	Environ     func() []string
 	LookPath    func(file string) (string, error)
 	OpenFile    func(name string, flag int, perm os.FileMode) (*os.File, error)
 	WriteFile   func(name string, data []byte, perm os.FileMode) error
@@ -117,6 +118,7 @@ func NewShims() *Shims {
 
 		// Exec operations
 		Command:     exec.Command,
+		Environ:     os.Environ,
 		LookPath:    exec.LookPath,
 		OpenFile:    os.OpenFile,
 		WriteFile:   os.WriteFile,

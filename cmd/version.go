@@ -18,10 +18,9 @@ var Goos = runtime.GOOS
 
 // versionCmd represents the version command
 var versionCmd = &cobra.Command{
-	Use:               "version",
-	Short:             "Display the current version",
-	Long:              "Display the current version of the application",
-	PersistentPreRunE: func(cmd *cobra.Command, args []string) error { return nil },
+	Use:   "version",
+	Short: "Display the current version",
+	Long:  "Display the current version of the application",
 	Run: func(cmd *cobra.Command, args []string) {
 		platform := fmt.Sprintf("%s/%s", Goos, runtime.GOARCH)
 		cmd.Printf("Version: %s\nCommit SHA: %s\nPlatform: %s\n", version, commitSHA, platform)

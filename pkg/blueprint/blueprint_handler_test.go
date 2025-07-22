@@ -12,7 +12,9 @@ import (
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	"github.com/goccy/go-yaml"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
@@ -529,33 +531,6 @@ func TestBlueprintHandler_Initialize(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorSettingProjectNameInConfig", func(t *testing.T) {
-		// Given a handler with mock config handler that returns error on SetContextValue
-		mockConfigHandler := &config.MockConfigHandler{
-			SetContextValueFunc: func(key string, value any) error {
-				return fmt.Errorf("set context value error")
-			},
-		}
-
-		// Create setup options with the custom config handler
-		opts := &SetupOptions{
-			ConfigHandler: mockConfigHandler,
-		}
-		mocks := setupMocks(t, opts)
-		handler := NewBlueprintHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-
-		// When calling Initialize
-		err := handler.Initialize()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error setting project name in config") {
-			t.Errorf("Expected project name setting error, got: %v", err)
-		}
-	})
 }
 
 func TestBlueprintHandler_LoadConfig(t *testing.T) {
@@ -666,18 +641,14 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		// When loading the config
 		err := handler.LoadConfig()
 
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
+		// Then an error should be returned since blueprint.yaml doesn't exist
+		if err == nil {
+			t.Errorf("Expected error when blueprint.yaml doesn't exist, got nil")
 		}
 
-		// And the default metadata should be set correctly
-		metadata := handler.GetMetadata()
-		if metadata.Name != "local" {
-			t.Errorf("Expected name to be 'local', got %s", metadata.Name)
-		}
-		if metadata.Description != "This blueprint outlines resources in the local context" {
-			t.Errorf("Expected description to be 'This blueprint outlines resources in the local context', got %s", metadata.Description)
+		// And the error should indicate blueprint.yaml not found
+		if !strings.Contains(err.Error(), "blueprint.yaml not found") {
+			t.Errorf("Expected error about blueprint.yaml not found, got: %v", err)
 		}
 	})
 
@@ -838,19 +809,14 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		// When loading the config
 		err := handler.LoadConfig()
 
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error for empty evaluated jsonnet, got: %v", err)
+		// Then an error should be returned since blueprint.yaml doesn't exist
+		if err == nil {
+			t.Errorf("Expected error when blueprint.yaml doesn't exist, got nil")
 		}
 
-		// And the default metadata should be set correctly
-		metadata := handler.GetMetadata()
-		if metadata.Name != "local" {
-			t.Errorf("Expected blueprint name to be 'local', got: %s", metadata.Name)
-		}
-		expectedDesc := "This blueprint outlines resources in the local context"
-		if metadata.Description != expectedDesc {
-			t.Errorf("Expected description '%s', got: %s", expectedDesc, metadata.Description)
+		// And the error should indicate blueprint.yaml not found
+		if !strings.Contains(err.Error(), "blueprint.yaml not found") {
+			t.Errorf("Expected error about blueprint.yaml not found, got: %v", err)
 		}
 	})
 
@@ -2446,10 +2412,60 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 			t.Errorf("Expected path %q, got %q", expectedPath, resolvedComponents[0].FullPath)
 		}
 	})
+
+	t.Run("OCISourceResolution", func(t *testing.T) {
+		// Given a blueprint handler with OCI source and terraform component
+		handler, _ := setup(t)
+
+		// And a project root directory
+		projectRoot := "/test/project"
+		handler.projectRoot = projectRoot
+
+		// And an OCI source
+		sources := []blueprintv1alpha1.Source{
+			{
+				Name:       "oci-source",
+				Url:        "oci://registry.example.com/modules:v1.0.0",
+				Ref:        blueprintv1alpha1.Reference{Tag: "v1.0.0"},
+				PathPrefix: "terraform",
+			},
+		}
+		handler.blueprint.Sources = sources
+
+		// And a terraform component using the OCI source
+		components := []blueprintv1alpha1.TerraformComponent{
+			{
+				Source: "oci-source",
+				Path:   "cluster/talos",
+				Values: map[string]any{"key": "value"},
+			},
+		}
+		handler.blueprint.TerraformComponents = components
+
+		// When getting terraform components
+		resolvedComponents := handler.GetTerraformComponents()
+
+		// Then the components should be returned
+		if len(resolvedComponents) != 1 {
+			t.Fatalf("Expected 1 component, got %d", len(resolvedComponents))
+		}
+
+		// And the component should have the correct resolved OCI source
+		expectedSource := "oci://registry.example.com/modules:v1.0.0//terraform/cluster/talos"
+		if resolvedComponents[0].Source != expectedSource {
+			t.Errorf("Expected source %q, got %q", expectedSource, resolvedComponents[0].Source)
+		}
+
+		// And the component should have the correct full path
+		expectedPath := filepath.FromSlash(filepath.Join(projectRoot, ".windsor", ".tf_modules", "cluster/talos"))
+		if resolvedComponents[0].FullPath != expectedPath {
+			t.Errorf("Expected path %q, got %q", expectedPath, resolvedComponents[0].FullPath)
+		}
+	})
 }
 
-func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
-	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
+func TestBlueprintHandler_GetDefaultTemplateData(t *testing.T) {
+	setup := func(t *testing.T) (BlueprintHandler, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
 		handler := NewBlueprintHandler(mocks.Injector)
@@ -2461,1306 +2477,383 @@ func TestBlueprintHandler_ProcessContextTemplates(t *testing.T) {
 		return handler, mocks
 	}
 
-	t.Run("Success_TemplateProcessing", func(t *testing.T) {
-		// Given a blueprint handler with template directory
+	t.Run("ReturnsDefaultTemplate", func(t *testing.T) {
+		// Given a blueprint handler with default provider
 		handler, mocks := setup(t)
 
-		// Override: template directory exists
-		templateDir := filepath.Join("/mock/project", "contexts", "_template")
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == templateDir {
-				return mockFileInfo{name: "_template"}, nil
+		// Set provider to default
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+				if key == "provider" {
+					return "default"
+				}
+				return ""
 			}
-			return nil, os.ErrNotExist
 		}
 
-		// Override: YamlMarshalWithDefinedPaths returns valid YAML
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
-			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
-		}
+		// When getting default template data
+		result, err := handler.GetDefaultTemplateData("local")
 
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then no error should be returned (empty template directory is valid)
+		// Then no error should occur
 		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And result should contain blueprint.jsonnet
+		if len(result) != 1 {
+			t.Fatalf("Expected 1 template file, got: %d", len(result))
+		}
+
+		if _, exists := result["blueprint.jsonnet"]; !exists {
+			t.Error("Expected blueprint.jsonnet to exist in result")
+		}
+
+		if len(result["blueprint.jsonnet"]) == 0 {
+			t.Error("Expected blueprint.jsonnet to have content")
 		}
 	})
 
-	t.Run("Success_TemplateProcessing_WithJsonnetFiles", func(t *testing.T) {
+	t.Run("ReturnsLocalTemplate", func(t *testing.T) {
+		// Given a blueprint handler with local provider
+		handler, mocks := setup(t)
+
+		// Set provider to local
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+				if key == "provider" {
+					return "local"
+				}
+				return ""
+			}
+		}
+
+		// When getting default template data
+		result, err := handler.GetDefaultTemplateData("local")
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And result should contain blueprint.jsonnet
+		if len(result) != 1 {
+			t.Fatalf("Expected 1 template file, got: %d", len(result))
+		}
+
+		if _, exists := result["blueprint.jsonnet"]; !exists {
+			t.Error("Expected blueprint.jsonnet to exist in result")
+		}
+	})
+
+	t.Run("ReturnsAWSTemplate", func(t *testing.T) {
+		// Given a blueprint handler with AWS platform
+		handler, mocks := setup(t)
+
+		// Set provider to aws
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+				if key == "provider" {
+					return "aws"
+				}
+				return ""
+			}
+		}
+
+		// When getting default template data
+		result, err := handler.GetDefaultTemplateData("local")
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And result should contain blueprint.jsonnet
+		if len(result) != 1 {
+			t.Fatalf("Expected 1 template file, got: %d", len(result))
+		}
+
+		if _, exists := result["blueprint.jsonnet"]; !exists {
+			t.Error("Expected blueprint.jsonnet to exist in result")
+		}
+	})
+
+	t.Run("FallsBackToDefaultWhenProviderEmpty", func(t *testing.T) {
+		// Given a blueprint handler with empty provider
+		handler, mocks := setup(t)
+
+		// Set provider to empty
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+				return ""
+			}
+		}
+
+		// When getting default template data
+		result, err := handler.GetDefaultTemplateData("local")
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And result should contain blueprint.jsonnet
+		if len(result) != 1 {
+			t.Fatalf("Expected 1 template file, got: %d", len(result))
+		}
+
+		if _, exists := result["blueprint.jsonnet"]; !exists {
+			t.Error("Expected blueprint.jsonnet to exist in result")
+		}
+	})
+
+	t.Run("FallsBackToDefaultWhenUnknownProvider", func(t *testing.T) {
+		// Given a blueprint handler with unknown provider
+		handler, mocks := setup(t)
+
+		// Set provider to unknown
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+				if key == "provider" {
+					return "unknown"
+				}
+				return ""
+			}
+		}
+
+		// When getting default template data
+		result, err := handler.GetDefaultTemplateData("local")
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And result should contain default blueprint.jsonnet (fallback behavior)
+		if len(result) != 1 {
+			t.Fatalf("Expected 1 template file, got: %d", len(result))
+		}
+
+		if _, exists := result["blueprint.jsonnet"]; !exists {
+			t.Error("Expected blueprint.jsonnet to exist in result")
+		}
+	})
+}
+
+func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
+	setup := func(t *testing.T) (BlueprintHandler, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		return handler, mocks
+	}
+
+	t.Run("ReturnsEmptyMapWhenTemplateDirectoryNotExists", func(t *testing.T) {
+		// Given a blueprint handler with no template directory
+		handler, mocks := setup(t)
+
+		// Mock shell to return project root
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return filepath.Join("/mock", "project"), nil
+		}
+
+		// Mock shims to return error for template directory (doesn't exist)
+		if baseHandler, ok := handler.(*BaseBlueprintHandler); ok {
+			baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
+				return nil, os.ErrNotExist
+			}
+		}
+
+		// When getting local template data
+		result, err := handler.GetLocalTemplateData()
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And result should be empty map
+		if len(result) != 0 {
+			t.Errorf("Expected empty map, got: %d items", len(result))
+		}
+	})
+
+	t.Run("CollectsJsonnetFilesFromTemplateDirectory", func(t *testing.T) {
 		// Given a blueprint handler with template directory containing jsonnet files
 		handler, mocks := setup(t)
 
-		templateDir := filepath.Join("/mock/project", "contexts", "_template")
-		blueprintJsonnet := "local context = std.extVar('context');\n{\n  kind: 'Blueprint',\n  metadata: { name: context.name }\n}"
-		tfvarsJsonnet := "local context = std.extVar('context');\n'cluster_name = \"' + context.name + '\"'"
+		projectRoot := filepath.Join("/mock", "project")
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
 
-		// Override: template directory exists with jsonnet files
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == templateDir {
-				return mockFileInfo{name: "_template"}, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// Override: YamlMarshalWithDefinedPaths returns valid YAML
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
-			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
-		}
-
-		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-			if path == templateDir {
-				return []os.DirEntry{
-					&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
-					&mockDirEntry{name: "terraform", isDir: true},
-				}, nil
-			}
-			if path == filepath.Join(templateDir, "terraform") {
-				return []os.DirEntry{
-					&mockDirEntry{name: "cluster.jsonnet", isDir: false},
-				}, nil
-			}
-			return nil, fmt.Errorf("directory not found")
-		}
-
-		handler.shims.ReadFile = func(path string) ([]byte, error) {
-			switch path {
-			case filepath.Join(templateDir, "blueprint.jsonnet"):
-				return []byte(blueprintJsonnet), nil
-			case filepath.Join(templateDir, "terraform", "cluster.jsonnet"):
-				return []byte(tfvarsJsonnet), nil
-			default:
-				return nil, fmt.Errorf("file not found")
-			}
-		}
-
-		// Mock jsonnet VM
-		handler.shims.NewJsonnetVM = func() JsonnetVM {
-			return &mockJsonnetVM{
-				EvaluateFunc: func(filename, snippet string) (string, error) {
-					if strings.Contains(snippet, "Blueprint") {
-						return "kind: Blueprint\nmetadata:\n  name: test-context", nil
-					}
-					return "cluster_name = \"test-context\"", nil
-				},
-			}
-		}
-
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("Success_DefaultBlueprintGeneration", func(t *testing.T) {
-		// Given a blueprint handler without template directory (uses default setup)
-		handler, _ := setup(t)
-
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then no error should be returned (default blueprint generation)
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("Success_DefaultBlueprintGeneration_WithPlatformTemplate", func(t *testing.T) {
-		// Given a blueprint handler with specific platform
-		handler, mocks := setup(t)
-
-		// Override: config handler returns specific platform
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			switch key {
-			case "cluster.platform":
-				return "metal"
-			case "context":
-				return "test-context"
-			default:
-				if len(defaultValue) > 0 {
-					return defaultValue[0]
-				}
-				return ""
-			}
-		}
-
-		// Mock jsonnet VM for platform template evaluation
-		handler.shims.NewJsonnetVM = func() JsonnetVM {
-			return &mockJsonnetVM{
-				EvaluateFunc: func(filename, snippet string) (string, error) {
-					return "kind: Blueprint\nmetadata:\n  name: test-context\n  description: Metal platform blueprint", nil
-				},
-			}
-		}
-
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("Success_BlueprintFileExists_NoReset", func(t *testing.T) {
-		// Given a blueprint handler where blueprint.yaml already exists
-		handler, _ := setup(t)
-
-		blueprintPath := filepath.Join("/mock/project", "contexts", "test-context", "blueprint.yaml")
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == blueprintPath {
-				return mockFileInfo{name: "blueprint.yaml"}, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// When processing context templates without reset
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then no error should be returned and no new blueprint should be created
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("Success_BlueprintFileExists_WithReset", func(t *testing.T) {
-		// Given a blueprint handler where blueprint.yaml already exists
-		handler, mocks := setup(t)
-
-		blueprintPath := filepath.Join("/mock/project", "contexts", "test-context", "blueprint.yaml")
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == blueprintPath {
-				return mockFileInfo{name: "blueprint.yaml"}, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// Override: YamlMarshalWithDefinedPaths returns valid YAML
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
-			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
-		}
-
-		// Mock jsonnet VM for platform template evaluation
-		handler.shims.NewJsonnetVM = func() JsonnetVM {
-			return &mockJsonnetVM{
-				EvaluateFunc: func(filename, snippet string) (string, error) {
-					return "kind: Blueprint\nmetadata:\n  name: test-context", nil
-				},
-			}
-		}
-
-		// When processing context templates with reset
-		err := handler.ProcessContextTemplates("test-context", true)
-
-		// Then no error should be returned and blueprint should be recreated
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("Success_EmptyPlatformTemplate_FallsBackToDefault", func(t *testing.T) {
-		// Given a blueprint handler with empty platform template
-		handler, mocks := setup(t)
-
-		// Override: config handler returns unknown platform
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			switch key {
-			case "cluster.platform":
-				return "unknown-platform"
-			case "context":
-				return "test-context"
-			default:
-				if len(defaultValue) > 0 {
-					return defaultValue[0]
-				}
-				return ""
-			}
-		}
-
-		// Mock jsonnet VM for default template evaluation
-		handler.shims.NewJsonnetVM = func() JsonnetVM {
-			return &mockJsonnetVM{
-				EvaluateFunc: func(filename, snippet string) (string, error) {
-					return "kind: Blueprint\nmetadata:\n  name: test-context", nil
-				},
-			}
-		}
-
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("Success_EmptyJsonnetEvaluation_FallsBackToDefaultBlueprint", func(t *testing.T) {
-		// Given a blueprint handler with jsonnet that evaluates to empty string
-		handler, _ := setup(t)
-
-		// Mock jsonnet VM that returns empty string
-		handler.shims.NewJsonnetVM = func() JsonnetVM {
-			return &mockJsonnetVM{
-				EvaluateFunc: func(filename, snippet string) (string, error) {
-					return "", nil
-				},
-			}
-		}
-
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then no error should be returned (falls back to DefaultBlueprint)
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("Error_GetProjectRoot", func(t *testing.T) {
-		// Given a blueprint handler with shell error
-		handler, mocks := setup(t)
-
-		// Override: shell returns error
+		// Mock shell to return project root
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "", fmt.Errorf("project root error")
+			return projectRoot, nil
 		}
 
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
+		// Mock shims to simulate template directory with files
+		if baseHandler, ok := handler.(*BaseBlueprintHandler); ok {
+			baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
+				if path == templateDir {
+					return mockFileInfo{name: "_template"}, nil
+				}
+				return nil, os.ErrNotExist
+			}
 
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		} else if !strings.Contains(err.Error(), "error getting project root") {
-			t.Errorf("Expected project root error, got: %v", err)
+			baseHandler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+				if path == templateDir {
+					return []os.DirEntry{
+						&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
+						&mockDirEntry{name: "config.yaml", isDir: false}, // Should be ignored
+						&mockDirEntry{name: "terraform", isDir: true},
+					}, nil
+				}
+				if path == filepath.Join(templateDir, "terraform") {
+					return []os.DirEntry{
+						&mockDirEntry{name: "cluster.jsonnet", isDir: false},
+						&mockDirEntry{name: "network.jsonnet", isDir: false},
+						&mockDirEntry{name: "README.md", isDir: false}, // Should be ignored
+					}, nil
+				}
+				return nil, fmt.Errorf("directory not found")
+			}
+
+			baseHandler.shims.ReadFile = func(path string) ([]byte, error) {
+				switch path {
+				case filepath.Join(templateDir, "blueprint.jsonnet"):
+					return []byte("{ kind: 'Blueprint' }"), nil
+				case filepath.Join(templateDir, "terraform", "cluster.jsonnet"):
+					return []byte("{ cluster_name: 'test' }"), nil
+				case filepath.Join(templateDir, "terraform", "network.jsonnet"):
+					return []byte("{ vpc_cidr: '10.0.0.0/16' }"), nil
+				default:
+					return nil, fmt.Errorf("file not found: %s", path)
+				}
+			}
+		}
+
+		// When getting local template data
+		result, err := handler.GetLocalTemplateData()
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And result should contain only jsonnet files
+		expectedFiles := []string{
+			"blueprint.jsonnet",
+			"terraform/cluster.jsonnet",
+			"terraform/network.jsonnet",
+		}
+
+		if len(result) != len(expectedFiles) {
+			t.Errorf("Expected %d files, got: %d", len(expectedFiles), len(result))
+		}
+
+		for _, expectedFile := range expectedFiles {
+			if _, exists := result[expectedFile]; !exists {
+				t.Errorf("Expected file %s to exist in result", expectedFile)
+			}
+		}
+
+		// Verify non-jsonnet files are ignored
+		ignoredFiles := []string{
+			"config.yaml",
+			"terraform/README.md",
+		}
+
+		for _, ignoredFile := range ignoredFiles {
+			if _, exists := result[ignoredFile]; exists {
+				t.Errorf("Expected file %s to be ignored", ignoredFile)
+			}
+		}
+
+		// Verify file contents
+		if string(result["blueprint.jsonnet"]) != "{ kind: 'Blueprint' }" {
+			t.Errorf("Expected blueprint.jsonnet content to match")
+		}
+		if string(result["terraform/cluster.jsonnet"]) != "{ cluster_name: 'test' }" {
+			t.Errorf("Expected terraform/cluster.jsonnet content to match")
 		}
 	})
 
-	t.Run("Error_CreateContextDirectory", func(t *testing.T) {
-		// Given a blueprint handler with MkdirAll error
-		handler, _ := setup(t)
-
-		// Override: MkdirAll returns error
-		handler.shims.MkdirAll = func(path string, perm os.FileMode) error {
-			return fmt.Errorf("mkdir error")
-		}
-
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		} else if !strings.Contains(err.Error(), "error creating context directory") {
-			t.Errorf("Expected context directory error, got: %v", err)
-		}
-	})
-
-	t.Run("Error_ReadTemplateDirectory", func(t *testing.T) {
-		// Given a blueprint handler with ReadDir error
-		handler, _ := setup(t)
-
-		// Override: template directory exists but ReadDir fails
-		templateDir := filepath.Join("/mock/project", "contexts", "_template")
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == templateDir {
-				return mockFileInfo{name: "_template"}, nil
-			}
-			return nil, os.ErrNotExist
-		}
-		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-			return nil, fmt.Errorf("read dir error")
-		}
-
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		} else if !strings.Contains(err.Error(), "error reading template directory") {
-			t.Errorf("Expected read directory error, got: %v", err)
-		}
-	})
-
-	t.Run("Error_ProcessJsonnetTemplate_ReadFile", func(t *testing.T) {
-		// Given a blueprint handler with template directory containing jsonnet file
-		handler, _ := setup(t)
-
-		templateDir := filepath.Join("/mock/project", "contexts", "_template")
-
-		// Override: template directory exists with jsonnet file
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == templateDir {
-				return mockFileInfo{name: "_template"}, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-			if path == templateDir {
-				return []os.DirEntry{
-					&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
-				}, nil
-			}
-			return nil, fmt.Errorf("directory not found")
-		}
-
-		handler.shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.Contains(path, "blueprint.jsonnet") {
-				return nil, fmt.Errorf("read file error")
-			}
-			return nil, fmt.Errorf("unexpected file: %s", path)
-		}
-
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		} else if !strings.Contains(err.Error(), "error reading template file") {
-			t.Errorf("Expected template reading error, got: %v", err)
-		}
-	})
-
-	t.Run("Error_ProcessJsonnetTemplate_JsonnetEvaluation", func(t *testing.T) {
-		// Given a blueprint handler with template directory containing jsonnet file
+	t.Run("ReturnsErrorWhenGetProjectRootFails", func(t *testing.T) {
+		// Given a blueprint handler with shell that fails to get project root
 		handler, mocks := setup(t)
 
-		templateDir := filepath.Join("/mock/project", "contexts", "_template")
-		blueprintJsonnet := "invalid jsonnet syntax"
-
-		// Override: template directory exists with jsonnet file
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == templateDir {
-				return mockFileInfo{name: "_template"}, nil
-			}
-			return nil, os.ErrNotExist
+		// Mock shell to return error
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("failed to get project root")
 		}
 
-		// Override: YamlMarshalWithDefinedPaths returns valid YAML
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
-			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
-		}
+		// When getting local template data
+		result, err := handler.GetLocalTemplateData()
 
-		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-			if path == templateDir {
-				return []os.DirEntry{
-					&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
-				}, nil
-			}
-			return nil, fmt.Errorf("directory not found")
-		}
-
-		handler.shims.ReadFile = func(path string) ([]byte, error) {
-			return []byte(blueprintJsonnet), nil
-		}
-
-		// Mock jsonnet VM that returns error
-		handler.shims.NewJsonnetVM = func() JsonnetVM {
-			return &mockJsonnetVM{
-				EvaluateFunc: func(filename, snippet string) (string, error) {
-					return "", fmt.Errorf("jsonnet evaluation error")
-				},
-			}
-		}
-
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then an error should be returned
+		// Then error should occur
 		if err == nil {
-			t.Error("Expected error, got nil")
-		} else if !strings.Contains(err.Error(), "jsonnet evaluation error") {
-			t.Errorf("Expected jsonnet evaluation error, got: %v", err)
+			t.Fatal("Expected error, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "failed to get project root") {
+			t.Errorf("Expected error to contain 'failed to get project root', got: %v", err)
+		}
+
+		// And result should be nil
+		if result != nil {
+			t.Error("Expected result to be nil on error")
 		}
 	})
 
-	t.Run("Error_ProcessJsonnetTemplate_WriteFile", func(t *testing.T) {
-		// Given a blueprint handler with template directory containing jsonnet file
+	t.Run("ReturnsErrorWhenWalkAndCollectTemplatesFails", func(t *testing.T) {
+		// Given a blueprint handler with template directory that fails to read
 		handler, mocks := setup(t)
 
-		templateDir := filepath.Join("/mock/project", "contexts", "_template")
-		blueprintJsonnet := "local context = std.extVar('context');\n{\n  kind: 'Blueprint'\n}"
+		projectRoot := filepath.Join("/mock", "project")
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
 
-		// Override: template directory exists with jsonnet file
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == templateDir {
-				return mockFileInfo{name: "_template"}, nil
+		// Mock shell to return project root
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
+		// Mock shims to simulate template directory exists but ReadDir fails
+		if baseHandler, ok := handler.(*BaseBlueprintHandler); ok {
+			baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
+				if path == templateDir {
+					return mockFileInfo{name: "_template"}, nil
+				}
+				return nil, os.ErrNotExist
 			}
-			return nil, os.ErrNotExist
-		}
 
-		// Override: YamlMarshalWithDefinedPaths returns valid YAML
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
-			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
-		}
-
-		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-			if path == templateDir {
-				return []os.DirEntry{
-					&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
-				}, nil
-			}
-			return nil, fmt.Errorf("directory not found")
-		}
-
-		handler.shims.ReadFile = func(path string) ([]byte, error) {
-			return []byte(blueprintJsonnet), nil
-		}
-
-		// Mock jsonnet VM
-		handler.shims.NewJsonnetVM = func() JsonnetVM {
-			return &mockJsonnetVM{
-				EvaluateFunc: func(filename, snippet string) (string, error) {
-					return "kind: Blueprint", nil
-				},
+			baseHandler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+				return nil, fmt.Errorf("failed to read directory")
 			}
 		}
 
-		// Override: WriteFile returns error
-		handler.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
-			return fmt.Errorf("write file error")
-		}
+		// When getting local template data
+		result, err := handler.GetLocalTemplateData()
 
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then an error should be returned
+		// Then error should occur
 		if err == nil {
-			t.Error("Expected error, got nil")
-		} else if !strings.Contains(err.Error(), "error writing blueprint file") {
-			t.Errorf("Expected blueprint writing error, got: %v", err)
+			t.Fatal("Expected error, got nil")
 		}
-	})
 
-	t.Run("Success_WithResetMode", func(t *testing.T) {
-		// Given a blueprint handler with template directory
-		handler, _ := setup(t)
-
-		// Override: template directory exists
-		templateDir := filepath.Join("/mock/project", "contexts", "_template")
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == templateDir {
-				return mockFileInfo{name: "_template"}, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// When processing context templates with reset mode
-		err := handler.ProcessContextTemplates("test-context", true)
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("Success_ProcessJsonnetTemplate_BlueprintExtension", func(t *testing.T) {
-		// Given a blueprint handler with template directory containing blueprint jsonnet
-		handler, _ := setup(t)
-
-		templateDir := filepath.Join("/mock/project", "contexts", "_template")
-		blueprintJsonnet := "local context = std.extVar('context');\n{\n  kind: 'Blueprint',\n  metadata: { name: context.name }\n}"
-
-		// Override: template directory exists with blueprint jsonnet file
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == templateDir {
-				return mockFileInfo{name: "_template"}, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-			if path == templateDir {
-				return []os.DirEntry{
-					&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
-				}, nil
-			}
-			return nil, fmt.Errorf("directory not found")
-		}
-
-		handler.shims.ReadFile = func(path string) ([]byte, error) {
-			return []byte(blueprintJsonnet), nil
-		}
-
-		// Mock jsonnet VM
-		handler.shims.NewJsonnetVM = func() JsonnetVM {
-			return &mockJsonnetVM{
-				EvaluateFunc: func(filename, snippet string) (string, error) {
-					return "kind: Blueprint\nmetadata:\n  name: test-context", nil
-				},
-			}
-		}
-
-		// Track written files to verify .yaml extension
-		var writtenFiles []string
-		handler.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
-			writtenFiles = append(writtenFiles, path)
-			return nil
-		}
-
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		// And blueprint file should have .yaml extension
-		if len(writtenFiles) != 1 {
-			t.Fatalf("Expected 1 file written, got %d", len(writtenFiles))
-		}
-		if !strings.HasSuffix(writtenFiles[0], "blueprint.yaml") {
-			t.Errorf("Expected blueprint file to have .yaml extension, got: %s", writtenFiles[0])
-		}
-	})
-
-	t.Run("Success_ProcessJsonnetTemplate_TfvarsExtension", func(t *testing.T) {
-		// Given a blueprint handler with template directory containing blueprint jsonnet
-		handler, _ := setup(t)
-
-		templateDir := filepath.Join("/mock/project", "contexts", "_template")
-		blueprintJsonnet := "local context = std.extVar('context');\n{\n  kind: 'Blueprint',\n  metadata: {\n    name: context.name\n  }\n}"
-
-		// Override: template directory exists with blueprint jsonnet file
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == templateDir {
-				return mockFileInfo{name: "_template"}, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-			if path == templateDir {
-				return []os.DirEntry{
-					&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
-				}, nil
-			}
-			return nil, fmt.Errorf("directory not found")
-		}
-
-		handler.shims.ReadFile = func(path string) ([]byte, error) {
-			return []byte(blueprintJsonnet), nil
-		}
-
-		// Mock jsonnet VM
-		handler.shims.NewJsonnetVM = func() JsonnetVM {
-			return &mockJsonnetVM{
-				EvaluateFunc: func(filename, snippet string) (string, error) {
-					return "kind: Blueprint\nmetadata:\n  name: test-context", nil
-				},
-			}
-		}
-
-		// Track written files to verify blueprint.yaml extension
-		var writtenFiles []string
-		handler.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
-			writtenFiles = append(writtenFiles, path)
-			return nil
-		}
-
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		// And blueprint file should have .yaml extension
-		if len(writtenFiles) != 1 {
-			t.Fatalf("Expected 1 file written, got %d", len(writtenFiles))
-		}
-		if !strings.HasSuffix(writtenFiles[0], "blueprint.yaml") {
-			t.Errorf("Expected blueprint file to have .yaml extension, got: %s", writtenFiles[0])
-		}
-	})
-
-	t.Run("Success_ProcessJsonnetTemplate_DefaultYamlExtension", func(t *testing.T) {
-		// Given a blueprint handler with template directory containing non-blueprint jsonnet
-		handler, _ := setup(t)
-
-		templateDir := filepath.Join("/mock/project", "contexts", "_template")
-
-		// Override: template directory exists with non-blueprint jsonnet file
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == templateDir {
-				return mockFileInfo{name: "_template"}, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-			if path == templateDir {
-				return []os.DirEntry{
-					&mockDirEntry{name: "config.jsonnet", isDir: false}, // Not blueprint.jsonnet
-				}, nil
-			}
-			return nil, fmt.Errorf("directory not found")
-		}
-
-		// Track written files to verify default blueprint generation
-		var writtenFiles []string
-		handler.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
-			writtenFiles = append(writtenFiles, path)
-			return nil
-		}
-
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		// And default blueprint should be generated since no blueprint.jsonnet was found
-		if len(writtenFiles) != 1 {
-			t.Fatalf("Expected 1 file written, got %d", len(writtenFiles))
-		}
-		if !strings.HasSuffix(writtenFiles[0], "blueprint.yaml") {
-			t.Errorf("Expected blueprint file to have .yaml extension, got: %s", writtenFiles[0])
-		}
-	})
-
-	t.Run("Success_ProcessJsonnetTemplate_FileExistsNoReset", func(t *testing.T) {
-		// Given a blueprint handler with template directory and existing output file
-		handler, _ := setup(t)
-
-		templateDir := filepath.Join("/mock/project", "contexts", "_template")
-		blueprintJsonnet := "local context = std.extVar('context');\n{\n  kind: 'Blueprint'\n}"
-
-		// Override: template directory exists with jsonnet file
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == templateDir {
-				return mockFileInfo{name: "_template"}, nil
-			}
-			// Simulate output file already exists
-			if strings.HasSuffix(path, "blueprint.yaml") {
-				return mockFileInfo{name: "blueprint.yaml"}, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-			if path == templateDir {
-				return []os.DirEntry{
-					&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
-				}, nil
-			}
-			return nil, fmt.Errorf("directory not found")
-		}
-
-		handler.shims.ReadFile = func(path string) ([]byte, error) {
-			return []byte(blueprintJsonnet), nil
-		}
-
-		// Mock jsonnet VM
-		handler.shims.NewJsonnetVM = func() JsonnetVM {
-			return &mockJsonnetVM{
-				EvaluateFunc: func(filename, snippet string) (string, error) {
-					return "kind: Blueprint", nil
-				},
-			}
-		}
-
-		// Track if WriteFile is called (it shouldn't be)
-		writeFileCalled := false
-		handler.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
-			writeFileCalled = true
-			return nil
-		}
-
-		// When processing context templates without reset
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		// And WriteFile should not be called since file exists
-		if writeFileCalled {
-			t.Error("Expected WriteFile not to be called when file exists and reset is false")
-		}
-	})
-
-	t.Run("Error_ProcessJsonnetTemplate_MkdirAllFails", func(t *testing.T) {
-		// Given a blueprint handler with template directory and MkdirAll error for context directory
-		handler, _ := setup(t)
-
-		templateDir := filepath.Join("/mock/project", "contexts", "_template")
-		blueprintJsonnet := "local context = std.extVar('context');\n{\n  kind: 'Blueprint'\n}"
-
-		// Override: template directory exists with blueprint jsonnet file
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == templateDir {
-				return mockFileInfo{name: "_template"}, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-			if path == templateDir {
-				return []os.DirEntry{
-					&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
-				}, nil
-			}
-			return nil, fmt.Errorf("directory not found")
-		}
-
-		handler.shims.ReadFile = func(path string) ([]byte, error) {
-			return []byte(blueprintJsonnet), nil
-		}
-
-		// Mock jsonnet VM
-		handler.shims.NewJsonnetVM = func() JsonnetVM {
-			return &mockJsonnetVM{
-				EvaluateFunc: func(filename, snippet string) (string, error) {
-					return "kind: Blueprint", nil
-				},
-			}
-		}
-
-		// Override: MkdirAll returns error for context directory creation
-		handler.shims.MkdirAll = func(path string, perm os.FileMode) error {
-			return fmt.Errorf("mkdir error")
-		}
-
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error creating context directory") {
-			t.Errorf("Expected context directory creation error, got: %v", err)
-		}
-	})
-
-	t.Run("Error_ProcessJsonnetTemplate_RelativePathError", func(t *testing.T) {
-		// Given a blueprint handler with template directory and relative path error
-		handler, _ := setup(t)
-
-		templateDir := filepath.Join("/mock/project", "contexts", "_template")
-		blueprintJsonnet := "local context = std.extVar('context');\n{\n  kind: 'Blueprint'\n}"
-
-		// Override: template directory exists with jsonnet file
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == templateDir {
-				return mockFileInfo{name: "_template"}, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-			if path == templateDir {
-				return []os.DirEntry{
-					&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
-				}, nil
-			}
-			return nil, fmt.Errorf("directory not found")
-		}
-
-		handler.shims.ReadFile = func(path string) ([]byte, error) {
-			return []byte(blueprintJsonnet), nil
-		}
-
-		// Mock jsonnet VM
-		handler.shims.NewJsonnetVM = func() JsonnetVM {
-			return &mockJsonnetVM{
-				EvaluateFunc: func(filename, snippet string) (string, error) {
-					return "kind: Blueprint", nil
-				},
-			}
-		}
-
-		// This is harder to test since filepath.Rel rarely fails, but we can simulate
-		// by making the template file path invalid relative to template dir
-		// We'll skip this test as it's very difficult to trigger filepath.Rel error
-	})
-
-	t.Run("Error_ProcessJsonnetTemplate_YamlMarshalError", func(t *testing.T) {
-		// Given a blueprint handler with template directory and YAML marshal error
-		handler, _ := setup(t)
-
-		templateDir := filepath.Join("/mock/project", "contexts", "_template")
-		blueprintJsonnet := "local context = std.extVar('context');\n{\n  kind: 'Blueprint'\n}"
-
-		// Override: template directory exists with jsonnet file
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == templateDir {
-				return mockFileInfo{name: "_template"}, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-			if path == templateDir {
-				return []os.DirEntry{
-					&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
-				}, nil
-			}
-			return nil, fmt.Errorf("directory not found")
-		}
-
-		handler.shims.ReadFile = func(path string) ([]byte, error) {
-			return []byte(blueprintJsonnet), nil
-		}
-
-		// Override: YamlMarshal returns error during context marshaling
-		handler.shims.YamlMarshal = func(v any) ([]byte, error) {
-			return nil, fmt.Errorf("yaml marshal error")
-		}
-
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "yaml marshal error") {
-			t.Errorf("Expected YAML marshalling error, got: %v", err)
-		}
-	})
-
-	t.Run("Error_ProcessJsonnetTemplate_YamlUnmarshalError", func(t *testing.T) {
-		// Given a blueprint handler with template directory and YAML unmarshal error
-		handler, _ := setup(t)
-
-		templateDir := filepath.Join("/mock/project", "contexts", "_template")
-		blueprintJsonnet := "local context = std.extVar('context');\n{\n  kind: 'Blueprint'\n}"
-
-		// Override: template directory exists with jsonnet file
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == templateDir {
-				return mockFileInfo{name: "_template"}, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-			if path == templateDir {
-				return []os.DirEntry{
-					&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
-				}, nil
-			}
-			return nil, fmt.Errorf("directory not found")
-		}
-
-		handler.shims.ReadFile = func(path string) ([]byte, error) {
-			return []byte(blueprintJsonnet), nil
-		}
-
-		// Override: YamlUnmarshal returns error during context unmarshaling
-		handler.shims.YamlUnmarshal = func(data []byte, v any) error {
-			return fmt.Errorf("yaml unmarshal error")
-		}
-
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error unmarshalling context YAML") {
-			t.Errorf("Expected YAML unmarshalling error, got: %v", err)
-		}
-	})
-
-	t.Run("Error_ProcessJsonnetTemplate_JsonMarshalError", func(t *testing.T) {
-		// Given a blueprint handler with template directory and JSON marshal error
-		handler, _ := setup(t)
-
-		templateDir := filepath.Join("/mock/project", "contexts", "_template")
-		blueprintJsonnet := "local context = std.extVar('context');\n{\n  kind: 'Blueprint'\n}"
-
-		// Override: template directory exists with jsonnet file
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == templateDir {
-				return mockFileInfo{name: "_template"}, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-			if path == templateDir {
-				return []os.DirEntry{
-					&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
-				}, nil
-			}
-			return nil, fmt.Errorf("directory not found")
-		}
-
-		handler.shims.ReadFile = func(path string) ([]byte, error) {
-			return []byte(blueprintJsonnet), nil
-		}
-
-		// Override: JsonMarshal returns error during context marshaling
-		handler.shims.JsonMarshal = func(v any) ([]byte, error) {
-			return nil, fmt.Errorf("json marshal error")
-		}
-
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error marshalling context map to JSON") {
-			t.Errorf("Expected JSON marshalling error, got: %v", err)
-		}
-	})
-
-	t.Run("Success_NestedDirectoryWalking", func(t *testing.T) {
-		// Given a blueprint handler with nested template directories but no blueprint.jsonnet in root
-		handler, _ := setup(t)
-
-		templateDir := filepath.Join("/mock/project", "contexts", "_template")
-
-		// Override: template directory exists with nested structure but no blueprint.jsonnet
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == templateDir {
-				return mockFileInfo{name: "_template"}, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-			if path == templateDir {
-				return []os.DirEntry{
-					&mockDirEntry{name: "nested", isDir: true},
-					&mockDirEntry{name: "other.jsonnet", isDir: false}, // Not blueprint.jsonnet
-				}, nil
-			}
-			return nil, fmt.Errorf("directory not found")
-		}
-
-		// Track written files to verify default blueprint generation
-		var writtenFiles []string
-		handler.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
-			writtenFiles = append(writtenFiles, path)
-			return nil
-		}
-
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		// And only default blueprint should be generated since no blueprint.jsonnet was found
-		if len(writtenFiles) != 1 {
-			t.Errorf("Expected 1 file written (default blueprint), got %d: %v", len(writtenFiles), writtenFiles)
-		}
-		if !strings.HasSuffix(writtenFiles[0], "blueprint.yaml") {
-			t.Errorf("Expected blueprint.yaml to be written, got: %s", writtenFiles[0])
-		}
-	})
-
-	t.Run("Error_DefaultBlueprintGeneration_JsonnetEvaluationError", func(t *testing.T) {
-		// Given a blueprint handler with no template directory and jsonnet evaluation error
-		handler, _ := setup(t)
-
-		templateDir := filepath.Join("/mock/project", "contexts", "_template")
-
-		// Override: template directory does not exist
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == templateDir {
-				return nil, os.ErrNotExist
-			}
-			// Blueprint file also doesn't exist
-			if strings.HasSuffix(path, "blueprint.yaml") {
-				return nil, os.ErrNotExist
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// Mock jsonnet VM that returns error
-		handler.shims.NewJsonnetVM = func() JsonnetVM {
-			return &mockJsonnetVM{
-				EvaluateFunc: func(filename, snippet string) (string, error) {
-					return "", fmt.Errorf("jsonnet evaluation error")
-				},
-			}
-		}
-
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error generating blueprint from jsonnet") {
-			t.Errorf("Expected jsonnet evaluation error, got: %v", err)
-		}
-	})
-
-	t.Run("Error_DefaultBlueprintGeneration_YamlMarshalDefaultError", func(t *testing.T) {
-		// Given a blueprint handler with no template directory and YAML marshal error for default blueprint
-		handler, _ := setup(t)
-
-		templateDir := filepath.Join("/mock/project", "contexts", "_template")
-
-		// Override: template directory does not exist
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == templateDir {
-				return nil, os.ErrNotExist
-			}
-			// Blueprint file also doesn't exist
-			if strings.HasSuffix(path, "blueprint.yaml") {
-				return nil, os.ErrNotExist
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// Override: ReadFile returns empty for platform templates (triggers fallback)
-		handler.shims.ReadFile = func(path string) ([]byte, error) {
-			return []byte{}, nil
+		if !strings.Contains(err.Error(), "failed to collect local templates") {
+			t.Errorf("Expected error to contain 'failed to collect local templates', got: %v", err)
 		}
 
-		// Override: YamlMarshal returns error for default blueprint
-		originalYamlMarshal := handler.shims.YamlMarshal
-		handler.shims.YamlMarshal = func(v any) ([]byte, error) {
-			// Allow context marshaling to succeed, but fail on default blueprint
-			if _, ok := v.(map[string]any); ok {
-				return originalYamlMarshal(v)
-			}
-			return nil, fmt.Errorf("yaml marshal default blueprint error")
-		}
-
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error marshalling default blueprint") {
-			t.Errorf("Expected default blueprint marshalling error, got: %v", err)
-		}
-	})
-
-	t.Run("Error_DefaultBlueprintGeneration_WriteFileError", func(t *testing.T) {
-		// Given a blueprint handler with no template directory and write file error
-		handler, _ := setup(t)
-
-		templateDir := filepath.Join("/mock/project", "contexts", "_template")
-
-		// Override: template directory does not exist
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == templateDir {
-				return nil, os.ErrNotExist
-			}
-			// Blueprint file also doesn't exist
-			if strings.HasSuffix(path, "blueprint.yaml") {
-				return nil, os.ErrNotExist
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// Override: ReadFile returns empty for platform templates (triggers fallback)
-		handler.shims.ReadFile = func(path string) ([]byte, error) {
-			return []byte{}, nil
-		}
-
-		// Override: WriteFile returns error
-		handler.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
-			return fmt.Errorf("write file error")
-		}
-
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error writing blueprint file") {
-			t.Errorf("Expected blueprint file writing error, got: %v", err)
-		}
-	})
-
-	t.Run("Success_DefaultBlueprintGeneration_WithPlatformTemplate_EmptyJsonnet", func(t *testing.T) {
-		// Given a blueprint handler with platform template that evaluates to empty
-		handler, _ := setup(t)
-
-		templateDir := filepath.Join("/mock/project", "contexts", "_template")
-
-		// Override: template directory does not exist
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == templateDir {
-				return nil, os.ErrNotExist
-			}
-			// Blueprint file also doesn't exist
-			if strings.HasSuffix(path, "blueprint.yaml") {
-				return nil, os.ErrNotExist
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// Override: ReadFile returns platform template
-		handler.shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.Contains(path, "templates") {
-				return []byte("local context = std.extVar('context'); ''"), nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// Mock jsonnet VM that returns empty string
-		handler.shims.NewJsonnetVM = func() JsonnetVM {
-			return &mockJsonnetVM{
-				EvaluateFunc: func(filename, snippet string) (string, error) {
-					return "", nil // Empty evaluation triggers fallback
-				},
-			}
-		}
-
-		// Track written files
-		var writtenFiles []string
-		var writtenData [][]byte
-		handler.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
-			writtenFiles = append(writtenFiles, path)
-			writtenData = append(writtenData, data)
-			return nil
-		}
-
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		// And default blueprint should be written
-		if len(writtenFiles) != 1 {
-			t.Fatalf("Expected 1 file written, got %d", len(writtenFiles))
-		}
-		if !strings.HasSuffix(writtenFiles[0], "blueprint.yaml") {
-			t.Errorf("Expected blueprint.yaml to be written, got: %s", writtenFiles[0])
-		}
-		// Verify it contains default blueprint content
-		content := string(writtenData[0])
-		if !strings.Contains(content, "test-context") {
-			t.Errorf("Expected blueprint to contain context name, got: %s", content)
-		}
-	})
-
-	t.Run("Error_ContextYamlUnmarshal", func(t *testing.T) {
-		// Given a blueprint handler with platform template
-		handler, _ := setup(t)
-
-		templateDir := filepath.Join("/mock/project", "contexts", "_template")
-
-		// Override: template directory does not exist, triggering platform template path
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == templateDir {
-				return nil, os.ErrNotExist
-			}
-			// Blueprint file also doesn't exist
-			if strings.HasSuffix(path, "blueprint.yaml") {
-				return nil, os.ErrNotExist
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// Override: ReadFile returns platform template
-		handler.shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.Contains(path, "templates") {
-				return []byte("local context = std.extVar('context'); {}"), nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// Override: YamlUnmarshal fails for context YAML
-		handler.shims.YamlUnmarshal = func(data []byte, v any) error {
-			// Let the first call (for config) succeed, fail on context map unmarshal
-			if _, ok := v.(*map[string]any); ok {
-				return fmt.Errorf("yaml unmarshal context error")
-			}
-			return nil
-		}
-
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error unmarshalling context YAML") {
-			t.Errorf("Expected context YAML unmarshalling error, got: %v", err)
-		}
-	})
-
-	t.Run("Error_ContextJsonMarshal", func(t *testing.T) {
-		// Given a blueprint handler with platform template
-		handler, _ := setup(t)
-
-		templateDir := filepath.Join("/mock/project", "contexts", "_template")
-
-		// Override: template directory does not exist, triggering platform template path
-		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == templateDir {
-				return nil, os.ErrNotExist
-			}
-			// Blueprint file also doesn't exist
-			if strings.HasSuffix(path, "blueprint.yaml") {
-				return nil, os.ErrNotExist
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// Override: ReadFile returns platform template
-		handler.shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.Contains(path, "templates") {
-				return []byte("local context = std.extVar('context'); {}"), nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// Override: JsonMarshal fails for context JSON
-		handler.shims.JsonMarshal = func(v any) ([]byte, error) {
-			return nil, fmt.Errorf("json marshal context error")
-		}
-
-		// When processing context templates
-		err := handler.ProcessContextTemplates("test-context")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error marshalling context map to JSON") {
-			t.Errorf("Expected context JSON marshalling error, got: %v", err)
+		// And result should be nil
+		if result != nil {
+			t.Error("Expected result to be nil on error")
 		}
 	})
 }
 
-func TestBaseBlueprintHandler_applySourceRepository(t *testing.T) {
+func TestBlueprintHandler_LoadData(t *testing.T) {
 	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
@@ -3773,128 +2866,167 @@ func TestBaseBlueprintHandler_applySourceRepository(t *testing.T) {
 		return handler, mocks
 	}
 
-	t.Run("GitSource", func(t *testing.T) {
-		// Given a blueprint handler with a git source
-		handler, mocks := setup(t)
+	t.Run("Success", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, _ := setup(t)
 
-		gitSource := blueprintv1alpha1.Source{
-			Name: "git-source",
-			Url:  "https://github.com/example/repo.git",
-			Ref:  blueprintv1alpha1.Reference{Branch: "main"},
+		// And blueprint data
+		blueprintData := map[string]any{
+			"kind":       "Blueprint",
+			"apiVersion": "v1alpha1",
+			"metadata": map[string]any{
+				"name":        "test-blueprint",
+				"description": "A test blueprint from data",
+				"authors":     []any{"John Doe"},
+			},
+			"sources": []any{
+				map[string]any{
+					"name": "test-source",
+					"url":  "https://example.com/test-repo.git",
+				},
+			},
+			"terraform": []any{
+				map[string]any{
+					"source": "test-source",
+					"path":   "path/to/code",
+					"values": map[string]any{
+						"key1": "value1",
+					},
+				},
+			},
 		}
 
-		gitRepoApplied := false
-		mocks.KubernetesManager.ApplyGitRepositoryFunc = func(repo *sourcev1.GitRepository) error {
-			gitRepoApplied = true
-			if repo.Name != "git-source" {
-				t.Errorf("Expected repo name 'git-source', got %s", repo.Name)
-			}
-			if repo.Spec.URL != "https://github.com/example/repo.git" {
-				t.Errorf("Expected URL 'https://github.com/example/repo.git', got %s", repo.Spec.URL)
-			}
-			return nil
-		}
+		// When loading the data
+		err := handler.LoadData(blueprintData)
 
-		// When applying the source repository
-		err := handler.applySourceRepository(gitSource, "default")
-
-		// Then it should call ApplyGitRepository
+		// Then no error should be returned
 		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
+			t.Errorf("Expected no error, got %v", err)
 		}
-		if !gitRepoApplied {
-			t.Error("Expected ApplyGitRepository to be called")
+
+		// And the metadata should be correctly loaded
+		metadata := handler.GetMetadata()
+		if metadata.Name != "test-blueprint" {
+			t.Errorf("Expected name to be test-blueprint, got %s", metadata.Name)
+		}
+		if metadata.Description != "A test blueprint from data" {
+			t.Errorf("Expected description to be 'A test blueprint from data', got %s", metadata.Description)
+		}
+		if len(metadata.Authors) != 1 || metadata.Authors[0] != "John Doe" {
+			t.Errorf("Expected authors to be ['John Doe'], got %v", metadata.Authors)
+		}
+
+		// And the sources should be loaded
+		sources := handler.GetSources()
+		if len(sources) != 1 {
+			t.Errorf("Expected 1 source, got %d", len(sources))
+		}
+		if sources[0].Name != "test-source" {
+			t.Errorf("Expected source name to be 'test-source', got %s", sources[0].Name)
+		}
+
+		// And the terraform components should be loaded
+		components := handler.GetTerraformComponents()
+		if len(components) != 1 {
+			t.Errorf("Expected 1 terraform component, got %d", len(components))
+		}
+		if components[0].Path != "path/to/code" {
+			t.Errorf("Expected component path to be 'path/to/code', got %s", components[0].Path)
+		}
+
+		// Note: The GetTerraformComponents() method resolves sources to full URLs,
+		// so we can't easily test the raw source names without accessing private fields
+	})
+
+	t.Run("MarshalError", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, _ := setup(t)
+
+		// And a mock yaml marshaller that returns an error
+		handler.shims.YamlMarshal = func(v any) ([]byte, error) {
+			return nil, fmt.Errorf("simulated marshalling error")
+		}
+
+		// And blueprint data
+		blueprintData := map[string]any{
+			"kind": "Blueprint",
+		}
+
+		// When loading the data
+		err := handler.LoadData(blueprintData)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Errorf("Expected LoadData to fail due to marshalling error, but it succeeded")
+		}
+		if !strings.Contains(err.Error(), "error marshalling blueprint data to yaml") {
+			t.Errorf("Expected error message to contain 'error marshalling blueprint data to yaml', got %v", err)
 		}
 	})
 
-	t.Run("OCISource", func(t *testing.T) {
-		// Given a blueprint handler with an OCI source
-		handler, mocks := setup(t)
+	t.Run("ProcessBlueprintDataError", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, _ := setup(t)
 
-		ociSource := blueprintv1alpha1.Source{
-			Name: "oci-source",
-			Url:  "oci://ghcr.io/example/repo:v1.0.0",
+		// And a mock yaml unmarshaller that returns an error
+		handler.shims.YamlUnmarshal = func(data []byte, obj any) error {
+			return fmt.Errorf("simulated unmarshalling error")
 		}
 
-		ociRepoApplied := false
-		mocks.KubernetesManager.ApplyOCIRepositoryFunc = func(repo *sourcev1.OCIRepository) error {
-			ociRepoApplied = true
-			if repo.Name != "oci-source" {
-				t.Errorf("Expected repo name 'oci-source', got %s", repo.Name)
-			}
-			if repo.Spec.URL != "oci://ghcr.io/example/repo" {
-				t.Errorf("Expected URL 'oci://ghcr.io/example/repo', got %s", repo.Spec.URL)
-			}
-			if repo.Spec.Reference.Tag != "v1.0.0" {
-				t.Errorf("Expected tag 'v1.0.0', got %s", repo.Spec.Reference.Tag)
-			}
-			return nil
+		// And blueprint data
+		blueprintData := map[string]any{
+			"kind": "Blueprint",
 		}
 
-		// When applying the source repository
-		err := handler.applySourceRepository(ociSource, "default")
+		// When loading the data
+		err := handler.LoadData(blueprintData)
 
-		// Then it should call ApplyOCIRepository
+		// Then an error should be returned
+		if err == nil {
+			t.Errorf("Expected LoadData to fail due to unmarshalling error, but it succeeded")
+		}
+	})
+
+	t.Run("WithOCIArtifactInfo", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, _ := setup(t)
+
+		// And blueprint data
+		blueprintData := map[string]any{
+			"kind":       "Blueprint",
+			"apiVersion": "v1alpha1",
+			"metadata": map[string]any{
+				"name":        "oci-blueprint",
+				"description": "A blueprint from OCI artifact",
+			},
+		}
+
+		// And OCI artifact info
+		ociInfo := &artifact.OCIArtifactInfo{
+			Name: "my-blueprint",
+			URL:  "oci://registry.example.com/my-blueprint:v1.0.0",
+		}
+
+		// When loading the data with OCI info
+		err := handler.LoadData(blueprintData, ociInfo)
+
+		// Then no error should be returned
 		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-		if !ociRepoApplied {
-			t.Error("Expected ApplyOCIRepository to be called")
-		}
-	})
-
-	t.Run("GitSourceError", func(t *testing.T) {
-		// Given a blueprint handler with git source that fails
-		handler, mocks := setup(t)
-
-		gitSource := blueprintv1alpha1.Source{
-			Name: "git-source",
-			Url:  "https://github.com/example/repo.git",
+			t.Errorf("Expected no error, got %v", err)
 		}
 
-		mocks.KubernetesManager.ApplyGitRepositoryFunc = func(repo *sourcev1.GitRepository) error {
-			return fmt.Errorf("git repository error")
+		// And the metadata should be correctly loaded
+		metadata := handler.GetMetadata()
+		if metadata.Name != "oci-blueprint" {
+			t.Errorf("Expected name to be oci-blueprint, got %s", metadata.Name)
 		}
-
-		// When applying the source repository
-		err := handler.applySourceRepository(gitSource, "default")
-
-		// Then it should return the error
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "git repository error") {
-			t.Errorf("Expected git repository error, got: %v", err)
-		}
-	})
-
-	t.Run("OCISourceError", func(t *testing.T) {
-		// Given a blueprint handler with OCI source that fails
-		handler, mocks := setup(t)
-
-		ociSource := blueprintv1alpha1.Source{
-			Name: "oci-source",
-			Url:  "oci://ghcr.io/example/repo:v1.0.0",
-		}
-
-		mocks.KubernetesManager.ApplyOCIRepositoryFunc = func(repo *sourcev1.OCIRepository) error {
-			return fmt.Errorf("oci repository error")
-		}
-
-		// When applying the source repository
-		err := handler.applySourceRepository(ociSource, "default")
-
-		// Then it should return the error
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "oci repository error") {
-			t.Errorf("Expected oci repository error, got: %v", err)
+		if metadata.Description != "A blueprint from OCI artifact" {
+			t.Errorf("Expected description to be 'A blueprint from OCI artifact', got %s", metadata.Description)
 		}
 	})
 }
 
-func TestBaseBlueprintHandler_applyOCIRepository(t *testing.T) {
+func TestBlueprintHandler_Write(t *testing.T) {
 	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
@@ -3907,353 +3039,331 @@ func TestBaseBlueprintHandler_applyOCIRepository(t *testing.T) {
 		return handler, mocks
 	}
 
-	t.Run("BasicOCIRepository", func(t *testing.T) {
-		// Given a blueprint handler with basic OCI source
+	t.Run("Success", func(t *testing.T) {
+		// Given a blueprint handler with a loaded blueprint
 		handler, mocks := setup(t)
 
-		source := blueprintv1alpha1.Source{
-			Name: "basic-oci",
-			Url:  "oci://registry.example.com/repo:v1.0.0",
-		}
-
-		var appliedRepo *sourcev1.OCIRepository
-		mocks.KubernetesManager.ApplyOCIRepositoryFunc = func(repo *sourcev1.OCIRepository) error {
-			appliedRepo = repo
-			return nil
-		}
-
-		// When applying the OCI repository
-		err := handler.applyOCIRepository(source, "test-namespace")
-
-		// Then it should create the correct OCIRepository
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-		if appliedRepo == nil {
-			t.Fatal("Expected OCIRepository to be applied")
-		}
-		if appliedRepo.Name != "basic-oci" {
-			t.Errorf("Expected name 'basic-oci', got %s", appliedRepo.Name)
-		}
-		if appliedRepo.Namespace != "test-namespace" {
-			t.Errorf("Expected namespace 'test-namespace', got %s", appliedRepo.Namespace)
-		}
-		if appliedRepo.Spec.URL != "oci://registry.example.com/repo" {
-			t.Errorf("Expected URL 'oci://registry.example.com/repo', got %s", appliedRepo.Spec.URL)
-		}
-		if appliedRepo.Spec.Reference.Tag != "v1.0.0" {
-			t.Errorf("Expected tag 'v1.0.0', got %s", appliedRepo.Spec.Reference.Tag)
-		}
-	})
-
-	t.Run("OCIRepositoryWithoutTag", func(t *testing.T) {
-		// Given an OCI source without embedded tag
-		handler, mocks := setup(t)
-
-		source := blueprintv1alpha1.Source{
-			Name: "no-tag-oci",
-			Url:  "oci://registry.example.com/repo",
-		}
-
-		var appliedRepo *sourcev1.OCIRepository
-		mocks.KubernetesManager.ApplyOCIRepositoryFunc = func(repo *sourcev1.OCIRepository) error {
-			appliedRepo = repo
-			return nil
-		}
-
-		// When applying the OCI repository
-		err := handler.applyOCIRepository(source, "test-namespace")
-
-		// Then it should default to latest tag
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-		if appliedRepo.Spec.Reference.Tag != "latest" {
-			t.Errorf("Expected default tag 'latest', got %s", appliedRepo.Spec.Reference.Tag)
-		}
-	})
-
-	t.Run("OCIRepositoryWithRefField", func(t *testing.T) {
-		// Given an OCI source with ref field instead of embedded tag
-		handler, mocks := setup(t)
-
-		source := blueprintv1alpha1.Source{
-			Name: "ref-field-oci",
-			Url:  "oci://registry.example.com/repo",
-			Ref: blueprintv1alpha1.Reference{
-				Tag: "v2.0.0",
+		// Set up the blueprint with test data
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Kind:       "Blueprint",
+			ApiVersion: "v1alpha1",
+			Metadata: blueprintv1alpha1.Metadata{
+				Name:        "test-blueprint",
+				Description: "A test blueprint",
+				Authors:     []string{"test-author"},
+			},
+			Repository: blueprintv1alpha1.Repository{
+				Url: "https://github.com/example/repo",
+				Ref: blueprintv1alpha1.Reference{
+					Branch: "main",
+				},
 			},
 		}
 
-		var appliedRepo *sourcev1.OCIRepository
-		mocks.KubernetesManager.ApplyOCIRepositoryFunc = func(repo *sourcev1.OCIRepository) error {
-			appliedRepo = repo
+		// And mock file operations
+		var writtenPath string
+		var writtenContent []byte
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			writtenPath = name
+			writtenContent = data
 			return nil
 		}
 
-		// When applying the OCI repository
-		err := handler.applyOCIRepository(source, "test-namespace")
-
-		// Then it should use the ref field tag
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist // File doesn't exist
 		}
-		if appliedRepo.Spec.Reference.Tag != "v2.0.0" {
-			t.Errorf("Expected tag 'v2.0.0', got %s", appliedRepo.Spec.Reference.Tag)
+
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		mocks.Shims.YamlMarshal = func(v any) ([]byte, error) {
+			return []byte("kind: Blueprint\napiVersion: v1alpha1\nmetadata:\n  name: test-blueprint\n"), nil
+		}
+
+		// When Write is called
+		err := handler.Write()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And the file should be written to the correct path
+		expectedPath := filepath.Join("mock-config-root", "blueprint.yaml")
+		if writtenPath != expectedPath {
+			t.Errorf("Expected file path %s, got %s", expectedPath, writtenPath)
+		}
+
+		// And the content should be written
+		if len(writtenContent) == 0 {
+			t.Errorf("Expected content to be written, got empty content")
 		}
 	})
 
-	t.Run("OCIRepositoryWithSemVer", func(t *testing.T) {
-		// Given an OCI source with semver reference
+	t.Run("WithOverwriteTrue", func(t *testing.T) {
+		// Given a blueprint handler
 		handler, mocks := setup(t)
 
-		source := blueprintv1alpha1.Source{
-			Name: "semver-oci",
-			Url:  "oci://registry.example.com/repo",
-			Ref: blueprintv1alpha1.Reference{
-				SemVer: ">=1.0.0 <2.0.0",
+		// Set up the blueprint with test data
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Kind:       "Blueprint",
+			ApiVersion: "v1alpha1",
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
 			},
 		}
 
-		var appliedRepo *sourcev1.OCIRepository
-		mocks.KubernetesManager.ApplyOCIRepositoryFunc = func(repo *sourcev1.OCIRepository) error {
-			appliedRepo = repo
+		// And mock file operations
+		var writtenPath string
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			writtenPath = name
 			return nil
 		}
 
-		// When applying the OCI repository
-		err := handler.applyOCIRepository(source, "test-namespace")
-
-		// Then it should use the semver reference
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-		if appliedRepo.Spec.Reference.SemVer != ">=1.0.0 <2.0.0" {
-			t.Errorf("Expected semver '>=1.0.0 <2.0.0', got %s", appliedRepo.Spec.Reference.SemVer)
-		}
-	})
-
-	t.Run("OCIRepositoryWithDigest", func(t *testing.T) {
-		// Given an OCI source with commit/digest reference
-		handler, mocks := setup(t)
-
-		source := blueprintv1alpha1.Source{
-			Name: "digest-oci",
-			Url:  "oci://registry.example.com/repo",
-			Ref: blueprintv1alpha1.Reference{
-				Commit: "sha256:abc123",
-			},
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return &mockFileInfo{name: "blueprint.yaml"}, nil // File exists
 		}
 
-		var appliedRepo *sourcev1.OCIRepository
-		mocks.KubernetesManager.ApplyOCIRepositoryFunc = func(repo *sourcev1.OCIRepository) error {
-			appliedRepo = repo
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
 			return nil
 		}
 
-		// When applying the OCI repository
-		err := handler.applyOCIRepository(source, "test-namespace")
-
-		// Then it should use the digest reference
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
+		mocks.Shims.YamlMarshal = func(v any) ([]byte, error) {
+			return []byte("kind: Blueprint\napiVersion: v1alpha1\n"), nil
 		}
-		if appliedRepo.Spec.Reference.Digest != "sha256:abc123" {
-			t.Errorf("Expected digest 'sha256:abc123', got %s", appliedRepo.Spec.Reference.Digest)
+
+		// When Write is called with overwrite true
+		err := handler.Write(true)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And the file should be written (overwrite)
+		expectedPath := filepath.Join("mock-config-root", "blueprint.yaml")
+		if writtenPath != expectedPath {
+			t.Errorf("Expected file path %s, got %s", expectedPath, writtenPath)
 		}
 	})
 
-	t.Run("OCIRepositoryWithSecret", func(t *testing.T) {
-		// Given an OCI source with secret name
+	t.Run("WithOverwriteFalse", func(t *testing.T) {
+		// Given a blueprint handler
 		handler, mocks := setup(t)
 
-		source := blueprintv1alpha1.Source{
-			Name:       "secret-oci",
-			Url:        "oci://private-registry.example.com/repo:v1.0.0",
-			SecretName: "registry-credentials",
-		}
-
-		var appliedRepo *sourcev1.OCIRepository
-		mocks.KubernetesManager.ApplyOCIRepositoryFunc = func(repo *sourcev1.OCIRepository) error {
-			appliedRepo = repo
+		// And mock file operations
+		var writtenPath string
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			writtenPath = name
 			return nil
 		}
 
-		// When applying the OCI repository
-		err := handler.applyOCIRepository(source, "test-namespace")
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return &mockFileInfo{name: "blueprint.yaml"}, nil // File exists
+		}
 
-		// Then it should include the secret reference
+		// When Write is called with overwrite false
+		err := handler.Write(false)
+
+		// Then no error should be returned
 		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-		if appliedRepo.Spec.SecretRef == nil {
-			t.Error("Expected SecretRef to be set")
-		} else if appliedRepo.Spec.SecretRef.Name != "registry-credentials" {
-			t.Errorf("Expected secret name 'registry-credentials', got %s", appliedRepo.Spec.SecretRef.Name)
-		}
-	})
-
-	t.Run("OCIRepositoryWithPortInURL", func(t *testing.T) {
-		// Given an OCI source with port in URL (should not be treated as tag)
-		handler, mocks := setup(t)
-
-		source := blueprintv1alpha1.Source{
-			Name: "port-oci",
-			Url:  "oci://registry.example.com:5000/repo",
-			Ref: blueprintv1alpha1.Reference{
-				Tag: "v1.0.0",
-			},
+			t.Errorf("Expected no error, got %v", err)
 		}
 
-		var appliedRepo *sourcev1.OCIRepository
-		mocks.KubernetesManager.ApplyOCIRepositoryFunc = func(repo *sourcev1.OCIRepository) error {
-			appliedRepo = repo
-			return nil
-		}
-
-		// When applying the OCI repository
-		err := handler.applyOCIRepository(source, "test-namespace")
-
-		// Then it should preserve the port and use ref field
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-		if appliedRepo.Spec.URL != "oci://registry.example.com:5000/repo" {
-			t.Errorf("Expected URL with port 'oci://registry.example.com:5000/repo', got %s", appliedRepo.Spec.URL)
-		}
-		if appliedRepo.Spec.Reference.Tag != "v1.0.0" {
-			t.Errorf("Expected tag 'v1.0.0', got %s", appliedRepo.Spec.Reference.Tag)
+		// And the file should NOT be written (skip existing)
+		if writtenPath != "" {
+			t.Errorf("Expected no file to be written, but got %s", writtenPath)
 		}
 	})
 
-	t.Run("OCIRepositoryError", func(t *testing.T) {
-		// Given an OCI source that fails to apply
-		handler, mocks := setup(t)
-
-		source := blueprintv1alpha1.Source{
-			Name: "error-oci",
-			Url:  "oci://registry.example.com/repo:v1.0.0",
+	t.Run("ErrorGettingConfigRoot", func(t *testing.T) {
+		// Given a blueprint handler with a mock config handler that returns an error
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("config root error")
 		}
-
-		mocks.KubernetesManager.ApplyOCIRepositoryFunc = func(repo *sourcev1.OCIRepository) error {
-			return fmt.Errorf("failed to apply oci repository")
+		opts := &SetupOptions{
+			ConfigHandler: mockConfigHandler,
 		}
-
-		// When applying the OCI repository
-		err := handler.applyOCIRepository(source, "test-namespace")
-
-		// Then it should return the error
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to apply oci repository") {
-			t.Errorf("Expected oci repository error, got: %v", err)
-		}
-	})
-}
-
-func TestBaseBlueprintHandler_isOCISource(t *testing.T) {
-	setup := func(t *testing.T) *BaseBlueprintHandler {
-		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupMocks(t, opts)
 		handler := NewBlueprintHandler(mocks.Injector)
 		handler.shims = mocks.Shims
 		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
-		return handler
-	}
 
-	t.Run("MainRepositoryOCI", func(t *testing.T) {
-		// Given a blueprint with OCI main repository
-		handler := setup(t)
-		handler.blueprint = blueprintv1alpha1.Blueprint{
-			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
-			Repository: blueprintv1alpha1.Repository{
-				Url: "oci://ghcr.io/example/blueprint:v1.0.0",
-			},
-		}
+		// When Write is called
+		err = handler.Write()
 
-		// When checking if main repository is OCI
-		result := handler.isOCISource("test-blueprint")
-
-		// Then it should return true
-		if !result {
-			t.Error("Expected main repository to be identified as OCI source")
+		// Then an error should be returned
+		if err == nil {
+			t.Errorf("Expected error from GetConfigRoot, got nil")
 		}
 	})
 
-	t.Run("MainRepositoryGit", func(t *testing.T) {
-		// Given a blueprint with Git main repository
-		handler := setup(t)
-		handler.blueprint = blueprintv1alpha1.Blueprint{
-			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
-			Repository: blueprintv1alpha1.Repository{
-				Url: "https://github.com/example/blueprint.git",
-			},
+	t.Run("ErrorCreatingDirectory", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, mocks := setup(t)
+
+		// And MkdirAll returns an error
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return fmt.Errorf("mkdir error")
 		}
 
-		// When checking if main repository is OCI
-		result := handler.isOCISource("test-blueprint")
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist // File doesn't exist
+		}
 
-		// Then it should return false
-		if result {
-			t.Error("Expected main repository to not be identified as OCI source")
+		// When Write is called
+		err := handler.Write()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Errorf("Expected error from MkdirAll, got nil")
 		}
 	})
 
-	t.Run("AdditionalSourceOCI", func(t *testing.T) {
-		// Given a blueprint with OCI additional source
-		handler := setup(t)
+	t.Run("ErrorMarshalingBlueprint", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, mocks := setup(t)
+
+		// And YamlMarshal returns an error
+		mocks.Shims.YamlMarshal = func(v any) ([]byte, error) {
+			return nil, fmt.Errorf("marshal error")
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist // File doesn't exist
+		}
+
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		// When Write is called
+		err := handler.Write()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Errorf("Expected error from YamlMarshal, got nil")
+		}
+	})
+
+	t.Run("ClearsAllValues", func(t *testing.T) {
+		// Given a blueprint handler with terraform components containing values
+		handler, mocks := setup(t)
+
+		// Set up a terraform component with both values and terraform variables
 		handler.blueprint = blueprintv1alpha1.Blueprint{
-			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
-			Repository: blueprintv1alpha1.Repository{
-				Url: "https://github.com/example/blueprint.git",
+			Kind:       "Blueprint",
+			ApiVersion: "v1alpha1",
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
 			},
-			Sources: []blueprintv1alpha1.Source{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{
-					Name: "oci-source",
-					Url:  "oci://ghcr.io/example/source:latest",
-				},
-				{
-					Name: "git-source",
-					Url:  "https://github.com/example/source.git",
-				},
-			},
-		}
-
-		// When checking if additional source is OCI
-		result := handler.isOCISource("oci-source")
-
-		// Then it should return true
-		if !result {
-			t.Error("Expected additional source to be identified as OCI source")
-		}
-	})
-
-	t.Run("AdditionalSourceGit", func(t *testing.T) {
-		// Given a blueprint with Git additional source
-		handler := setup(t)
-		handler.blueprint = blueprintv1alpha1.Blueprint{
-			Sources: []blueprintv1alpha1.Source{
-				{
-					Name: "git-source",
-					Url:  "https://github.com/example/source.git",
+					Source: "core",
+					Path:   "cluster/talos",
+					Values: map[string]any{
+						"cluster_name":     "test-cluster",      // Should be kept (not a terraform variable)
+						"cluster_endpoint": "https://test:6443", // Should be filtered if it's a terraform variable
+						"controlplanes":    []string{"node1"},   // Should be filtered if it's a terraform variable
+						"custom_config":    "some-value",        // Should be kept (not a terraform variable)
+					},
 				},
 			},
 		}
 
-		// When checking if additional source is OCI
-		result := handler.isOCISource("git-source")
+		// Set up file system mocks
+		var writtenContent []byte
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			writtenContent = data
+			return nil
+		}
 
-		// Then it should return false
-		if result {
-			t.Error("Expected additional source to not be identified as OCI source")
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist // blueprint.yaml doesn't exist
+		}
+
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		mocks.Shims.YamlMarshal = func(v any) ([]byte, error) {
+			return yaml.Marshal(v)
+		}
+
+		// When Write is called
+		err := handler.Write()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And the written content should have all values cleared
+		if len(writtenContent) == 0 {
+			t.Errorf("Expected content to be written, got empty content")
+		}
+
+		// Parse the written YAML to verify all values are cleared
+		var writtenBlueprint blueprintv1alpha1.Blueprint
+		err = yaml.Unmarshal(writtenContent, &writtenBlueprint)
+		if err != nil {
+			t.Errorf("Failed to unmarshal written YAML: %v", err)
+		}
+
+		// Verify that the terraform component exists
+		if len(writtenBlueprint.TerraformComponents) != 1 {
+			t.Errorf("Expected 1 terraform component, got %d", len(writtenBlueprint.TerraformComponents))
+		}
+
+		component := writtenBlueprint.TerraformComponents[0]
+
+		// Verify all values are cleared from the blueprint.yaml
+		if len(component.Values) != 0 {
+			t.Errorf("Expected all values to be cleared, but got %d values: %v", len(component.Values), component.Values)
+		}
+
+		// Also verify kustomizations have postBuild cleared
+		if len(writtenBlueprint.Kustomizations) > 0 {
+			for i, kustomization := range writtenBlueprint.Kustomizations {
+				if kustomization.PostBuild != nil {
+					t.Errorf("Expected PostBuild to be cleared for kustomization %d, but got %v", i, kustomization.PostBuild)
+				}
+			}
 		}
 	})
 
-	// Removed test case due to blueprint field assignment issue
+	t.Run("ErrorWritingFile", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, mocks := setup(t)
+
+		// And WriteFile returns an error
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			return fmt.Errorf("write error")
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist // File doesn't exist
+		}
+
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		mocks.Shims.YamlMarshal = func(v any) ([]byte, error) {
+			return []byte("test content"), nil
+		}
+
+		// When Write is called
+		err := handler.Write()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Errorf("Expected error from WriteFile, got nil")
+		}
+	})
 }
-
-// Removed problematic test cases due to blueprint field assignment issues

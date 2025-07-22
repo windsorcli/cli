@@ -25,6 +25,7 @@ type Shims struct {
 	Setenv      func(string, string) error
 	Command     func(string, ...string) *exec.Cmd
 	Getenv      func(string) string
+	ReadFile    func(string) ([]byte, error)
 }
 
 // =============================================================================
@@ -42,6 +43,7 @@ func NewShims() *Shims {
 		Setenv:      os.Setenv,
 		Command:     exec.Command,
 		Getenv:      os.Getenv,
+		ReadFile:    os.ReadFile,
 	}
 }
 

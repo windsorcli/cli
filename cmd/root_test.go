@@ -9,11 +9,14 @@ import (
 	"bytes"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	blueprintpkg "github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/secrets"
@@ -27,7 +30,6 @@ import (
 type Mocks struct {
 	Injector         di.Injector
 	ConfigHandler    config.ConfigHandler
-	Controller       *controller.MockController
 	Shell            *shell.MockShell
 	SecretsProvider  *secrets.MockSecretsProvider
 	EnvPrinter       *env.MockEnvPrinter
@@ -38,7 +40,6 @@ type Mocks struct {
 type SetupOptions struct {
 	Injector      di.Injector
 	ConfigHandler config.ConfigHandler
-	Controller    *controller.MockController
 	ConfigStr     string
 	Shims         *Shims
 }
@@ -65,9 +66,13 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		UserHomeDir: func() (string, error) { return t.TempDir(), nil },
 		Stat:        func(string) (os.FileInfo, error) { return nil, nil },
 		RemoveAll:   func(string) error { return nil },
-		Getwd:       func() (string, error) { return t.TempDir(), nil },
+		Getwd:       func() (string, error) { return "/test/project", nil },
 		Command:     func(string, ...string) *exec.Cmd { return exec.Command("echo") },
 		Setenv:      func(string, string) error { return nil },
+		ReadFile: func(filename string) ([]byte, error) {
+			// Mock trusted file content that includes the current directory
+			return []byte("/test/project\n"), nil
+		},
 	}
 
 	// Override with provided shims if any
@@ -97,7 +102,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	mockShell.CheckResetFlagsFunc = func() (bool, error) {
 		return false, nil
 	}
-	mockShell.ResetFunc = func() {}
+	mockShell.ResetFunc = func(...bool) {}
 	injector.Register("shell", mockShell)
 
 	// Create and register mock secrets provider
@@ -112,7 +117,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	mockEnvPrinter.PrintFunc = func() error {
 		return nil
 	}
-	mockEnvPrinter.PostEnvHookFunc = func() error {
+	mockEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
 		return nil
 	}
 	injector.Register("envPrinter", mockEnvPrinter)
@@ -122,7 +127,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	mockWindsorEnvPrinter.PrintFunc = func() error {
 		return nil
 	}
-	mockWindsorEnvPrinter.PostEnvHookFunc = func() error {
+	mockWindsorEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
 		return nil
 	}
 	injector.Register("windsorEnvPrinter", mockWindsorEnvPrinter)
@@ -131,7 +136,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	mockDockerEnvPrinter.PrintFunc = func() error {
 		return nil
 	}
-	mockDockerEnvPrinter.PostEnvHookFunc = func() error {
+	mockDockerEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
 		return nil
 	}
 	injector.Register("dockerEnvPrinter", mockDockerEnvPrinter)
@@ -162,14 +167,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		}
 	}
 
-	// Create mock controller
-	var mockController *controller.MockController
-	if options.Controller == nil {
-		mockController = controller.NewMockController(injector)
-	} else {
-		mockController = options.Controller
-	}
-
 	// Create mock blueprint handler
 	mockBlueprintHandler := blueprintpkg.NewMockBlueprintHandler(injector)
 	mockBlueprintHandler.InstallFunc = func() error {
@@ -180,7 +177,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	return &Mocks{
 		Injector:         injector,
 		ConfigHandler:    configHandler,
-		Controller:       mockController,
 		Shell:            mockShell,
 		SecretsProvider:  mockSecretsProvider,
 		EnvPrinter:       mockEnvPrinter,
@@ -214,7 +210,7 @@ func captureOutput(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
 func TestRootCmd(t *testing.T) {
 	t.Run("RootCmd", func(t *testing.T) {
 		// Given a set of mocks
-		mocks := setupMocks(t)
+		setupMocks(t)
 
 		// When creating the root command
 		cmd := rootCmd
@@ -247,8 +243,11 @@ func TestRootCmd(t *testing.T) {
 			t.Errorf("Expected flag usage to be 'Enable verbose output', got %s", verboseFlag.Usage)
 		}
 
+		// Clear any previously set arguments to ensure we're testing the root command without subcommands
+		rootCmd.SetArgs([]string{})
+
 		// Execute should work without error
-		if err := Execute(mocks.Controller); err != nil {
+		if err := Execute(); err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
@@ -267,4 +266,132 @@ func TestRootCmd_PersistentPreRunE(t *testing.T) {
 			t.Errorf("Expected success, got error: %v", err)
 		}
 	})
+}
+
+func TestCommandPreflight(t *testing.T) {
+	// Set up mocks for all tests
+	setupMocks(t)
+
+	createMockCmd := func(name string) *cobra.Command {
+		return &cobra.Command{
+			Use: name,
+		}
+	}
+
+	t.Run("SkipsTrustCheckForInitCommand", func(t *testing.T) {
+		// Given an init command
+		cmd := createMockCmd("init")
+
+		// When checking trust
+		err := commandPreflight(cmd, []string{})
+
+		// Then no error should occur (trust check is skipped)
+		if err != nil {
+			t.Errorf("Expected no error for init command, got: %v", err)
+		}
+	})
+
+	t.Run("SkipsTrustCheckForEnvCommandWithHookFlag", func(t *testing.T) {
+		// Given an env command with hook flag
+		cmd := createMockCmd("env")
+		cmd.Flags().Bool("hook", false, "hook flag")
+		cmd.Flags().Set("hook", "true")
+
+		// When checking trust
+		err := commandPreflight(cmd, []string{})
+
+		// Then no error should occur (trust check is skipped for env --hook)
+		if err != nil {
+			t.Errorf("Expected no error for env --hook, got: %v", err)
+		}
+	})
+
+	t.Run("ChecksTrustForEnvCommandWithoutHookFlag", func(t *testing.T) {
+		// Given an env command without hook flag in an untrusted directory
+		cmd := createMockCmd("env")
+		cmd.Flags().Bool("hook", false, "hook flag")
+
+		// Override shims to return an untrusted directory
+		tmpDir := t.TempDir()
+		origShims := shims
+		defer func() { shims = origShims }()
+
+		shims = &Shims{
+			Exit:        func(int) {},
+			UserHomeDir: func() (string, error) { return t.TempDir(), nil },
+			Getwd:       func() (string, error) { return tmpDir, nil },
+			ReadFile: func(filename string) ([]byte, error) {
+				// Return trusted file content that does NOT include tmpDir
+				return []byte("/test/project\n"), nil
+			},
+		}
+
+		// When checking trust
+		err := commandPreflight(cmd, []string{})
+
+		// Then an error should occur about untrusted directory
+		if err == nil {
+			t.Error("Expected error for untrusted directory, got nil")
+		}
+		if !strings.Contains(err.Error(), "not in a trusted directory") {
+			t.Errorf("Expected trust error message, got: %v", err)
+		}
+	})
+
+	t.Run("PassesTrustCheckForTrustedDirectory", func(t *testing.T) {
+		// Given a command in a trusted directory
+		cmd := createMockCmd("down")
+
+		// Set up a temporary directory structure with trusted file
+		tmpDir := t.TempDir()
+		testDir := filepath.Join(tmpDir, "project")
+		if err := os.MkdirAll(testDir, 0755); err != nil {
+			t.Fatalf("Failed to create test directory: %v", err)
+		}
+
+		// Create trusted file
+		trustedDir := filepath.Join(tmpDir, ".config", "windsor")
+		if err := os.MkdirAll(trustedDir, 0755); err != nil {
+			t.Fatalf("Failed to create trusted directory: %v", err)
+		}
+
+		trustedFile := filepath.Join(trustedDir, ".trusted")
+		realTestDir, _ := filepath.EvalSymlinks(testDir)
+		trustedContent := realTestDir + "\n"
+		if err := os.WriteFile(trustedFile, []byte(trustedContent), 0644); err != nil {
+			t.Fatalf("Failed to create trusted file: %v", err)
+		}
+
+		// Change to test directory
+		originalDir, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("Failed to get current directory: %v", err)
+		}
+		defer os.Chdir(originalDir)
+
+		if err := os.Chdir(testDir); err != nil {
+			t.Fatalf("Failed to change directory: %v", err)
+		}
+
+		// Mock home directory for cross-platform compatibility
+		var originalHome string
+		if runtime.GOOS == "windows" {
+			originalHome = os.Getenv("USERPROFILE")
+			defer os.Setenv("USERPROFILE", originalHome)
+			os.Setenv("USERPROFILE", tmpDir)
+		} else {
+			originalHome = os.Getenv("HOME")
+			defer os.Setenv("HOME", originalHome)
+			os.Setenv("HOME", tmpDir)
+		}
+
+		// When checking trust
+		err = commandPreflight(cmd, []string{})
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error for trusted directory, got: %v", err)
+		}
+	})
+
 }

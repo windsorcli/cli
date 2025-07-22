@@ -344,3 +344,152 @@ func TestGenerator_Write(t *testing.T) {
 		}
 	})
 }
+
+func TestGenerator_Generate(t *testing.T) {
+	setup := func(t *testing.T) (*BaseGenerator, *Mocks) {
+		mocks := setupMocks(t)
+		generator := NewGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
+		generator.Initialize()
+
+		return generator, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a BaseGenerator
+		generator, _ := setup(t)
+
+		// When the Generate method is called
+		err := generator.Generate(map[string]any{"test": "data"})
+
+		// Then the Generate method should succeed (placeholder implementation)
+		if err != nil {
+			t.Errorf("Expected Generate to succeed, but got error: %v", err)
+		}
+	})
+
+	t.Run("SuccessWithOverwrite", func(t *testing.T) {
+		// Given a BaseGenerator
+		generator, _ := setup(t)
+
+		// When the Generate method is called with overwrite parameter
+		err := generator.Generate(map[string]any{"test": "data"}, true)
+
+		// Then the Generate method should succeed (placeholder implementation)
+		if err != nil {
+			t.Errorf("Expected Generate to succeed, but got error: %v", err)
+		}
+	})
+
+	t.Run("SuccessWithNilData", func(t *testing.T) {
+		// Given a BaseGenerator
+		generator, _ := setup(t)
+
+		// When the Generate method is called with nil data
+		err := generator.Generate(nil)
+
+		// Then the Generate method should succeed (placeholder implementation)
+		if err != nil {
+			t.Errorf("Expected Generate to succeed, but got error: %v", err)
+		}
+	})
+}
+
+func TestNewShims(t *testing.T) {
+	t.Run("CreatesShimsWithDefaultImplementations", func(t *testing.T) {
+		// When NewShims is called
+		shims := NewShims()
+
+		// Then it should return a non-nil Shims instance
+		if shims == nil {
+			t.Errorf("Expected NewShims to return non-nil Shims")
+		}
+
+		// And all function fields should be set
+		if shims.WriteFile == nil {
+			t.Errorf("Expected WriteFile to be set")
+		}
+		if shims.ReadFile == nil {
+			t.Errorf("Expected ReadFile to be set")
+		}
+		if shims.MkdirAll == nil {
+			t.Errorf("Expected MkdirAll to be set")
+		}
+		if shims.Stat == nil {
+			t.Errorf("Expected Stat to be set")
+		}
+		if shims.MarshalYAML == nil {
+			t.Errorf("Expected MarshalYAML to be set")
+		}
+		if shims.RemoveAll == nil {
+			t.Errorf("Expected RemoveAll to be set")
+		}
+		if shims.Chdir == nil {
+			t.Errorf("Expected Chdir to be set")
+		}
+		if shims.ReadDir == nil {
+			t.Errorf("Expected ReadDir to be set")
+		}
+		if shims.Setenv == nil {
+			t.Errorf("Expected Setenv to be set")
+		}
+		if shims.YamlUnmarshal == nil {
+			t.Errorf("Expected YamlUnmarshal to be set")
+		}
+		if shims.JsonMarshal == nil {
+			t.Errorf("Expected JsonMarshal to be set")
+		}
+		if shims.JsonUnmarshal == nil {
+			t.Errorf("Expected JsonUnmarshal to be set")
+		}
+		if shims.FilepathRel == nil {
+			t.Errorf("Expected FilepathRel to be set")
+		}
+		if shims.NewTarReader == nil {
+			t.Errorf("Expected NewTarReader to be set")
+		}
+		if shims.NewBytesReader == nil {
+			t.Errorf("Expected NewBytesReader to be set")
+		}
+		if shims.Create == nil {
+			t.Errorf("Expected Create to be set")
+		}
+		if shims.Copy == nil {
+			t.Errorf("Expected Copy to be set")
+		}
+		if shims.Chmod == nil {
+			t.Errorf("Expected Chmod to be set")
+		}
+		if shims.EOFError == nil {
+			t.Errorf("Expected EOFError to be set")
+		}
+		if shims.TypeDir == nil {
+			t.Errorf("Expected TypeDir to be set")
+		}
+	})
+
+	t.Run("DefaultImplementationsWork", func(t *testing.T) {
+		// Given a new Shims instance
+		shims := NewShims()
+
+		// When testing some of the default implementations
+		// Test EOFError
+		err := shims.EOFError()
+		if err == nil {
+			t.Errorf("Expected EOFError to return an error")
+		}
+
+		// Test TypeDir
+		typeDir := shims.TypeDir()
+		if typeDir == 0 {
+			t.Errorf("Expected TypeDir to return non-zero value")
+		}
+
+		// Test NewBytesReader
+		data := []byte("test data")
+		reader := shims.NewBytesReader(data)
+		if reader == nil {
+			t.Errorf("Expected NewBytesReader to return non-nil reader")
+		}
+	})
+}
