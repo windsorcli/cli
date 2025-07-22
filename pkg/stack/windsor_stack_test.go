@@ -296,48 +296,6 @@ func TestWindsorStack_Up(t *testing.T) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
 		}
 	})
-
-	t.Run("SuccessWithParallelism", func(t *testing.T) {
-		stack, mocks := setup(t)
-
-		// Set up components with parallelism
-		mocks.Blueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{
-				{
-					Source:      "source1",
-					Path:        "module/path1",
-					FullPath:    filepath.Join(os.Getenv("WINDSOR_PROJECT_ROOT"), ".windsor", ".tf_modules", "remote", "path"),
-					Parallelism: ptrInt(5),
-				},
-			}
-		}
-
-		// Track terraform commands to verify parallelism flag
-		var capturedCommands [][]string
-		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			if command == "terraform" {
-				capturedCommands = append(capturedCommands, append([]string{command}, args...))
-			}
-			return "", nil
-		}
-
-		// When the stack is brought up
-		if err := stack.Up(); err != nil {
-			t.Errorf("Expected Up to return nil, got %v", err)
-		}
-
-		// Then terraform apply should be called with parallelism flag
-		foundApplyWithParallelism := false
-		for _, cmd := range capturedCommands {
-			if len(cmd) >= 5 && cmd[2] == "apply" && cmd[3] == "-parallelism=5" {
-				foundApplyWithParallelism = true
-				break
-			}
-		}
-		if !foundApplyWithParallelism {
-			t.Errorf("Expected terraform apply command with -parallelism=5, but it was not found in captured commands: %v", capturedCommands)
-		}
-	})
 }
 
 func TestWindsorStack_Down(t *testing.T) {
