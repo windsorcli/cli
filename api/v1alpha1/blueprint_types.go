@@ -124,6 +124,10 @@ type TerraformComponent struct {
 	// Destroy determines if the component should be destroyed during down operations.
 	// Defaults to true if not specified.
 	Destroy *bool `yaml:"destroy,omitempty"`
+
+	// Parallelism limits the number of concurrent operations as Terraform walks the graph.
+	// This corresponds to the -parallelism flag in terraform apply/destroy commands.
+	Parallelism *int `yaml:"parallelism,omitempty"`
 }
 
 // Kustomization defines a kustomization config in a blueprint.
@@ -241,12 +245,13 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 		dependsOnCopy := append([]string{}, component.DependsOn...)
 
 		terraformComponentsCopy[i] = TerraformComponent{
-			Source:    component.Source,
-			Path:      component.Path,
-			FullPath:  component.FullPath,
-			DependsOn: dependsOnCopy,
-			Values:    valuesCopy,
-			Destroy:   component.Destroy,
+			Source:      component.Source,
+			Path:        component.Path,
+			FullPath:    component.FullPath,
+			DependsOn:   dependsOnCopy,
+			Values:      valuesCopy,
+			Destroy:     component.Destroy,
+			Parallelism: component.Parallelism,
 		}
 	}
 
@@ -353,6 +358,10 @@ func (b *Blueprint) Merge(overlay *Blueprint) {
 
 					if overlayComponent.Destroy != nil {
 						mergedComponent.Destroy = overlayComponent.Destroy
+					}
+
+					if overlayComponent.Parallelism != nil {
+						mergedComponent.Parallelism = overlayComponent.Parallelism
 					}
 
 					b.TerraformComponents = append(b.TerraformComponents, mergedComponent)

@@ -1664,3 +1664,231 @@ func TestTerraformEnv_DependencyResolution(t *testing.T) {
 		}
 	})
 }
+
+func TestTerraformEnv_GenerateTerraformArgs(t *testing.T) {
+	t.Run("GeneratesCorrectArgsWithoutParallelism", func(t *testing.T) {
+		mocks := setupTerraformEnvMocks(t)
+
+		printer := &TerraformEnvPrinter{
+			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Injector),
+		}
+
+		if err := printer.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize printer: %v", err)
+		}
+
+		// When generating terraform args without parallelism
+		args, err := printer.GenerateTerraformArgs("test/path", "test/module")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// And apply args should contain only the plan file path
+		if len(args.ApplyArgs) != 1 {
+			t.Errorf("Expected 1 apply arg, got %d: %v", len(args.ApplyArgs), args.ApplyArgs)
+		}
+
+		// And destroy args should contain only auto-approve
+		expectedDestroyArgs := []string{"-auto-approve"}
+		if !reflect.DeepEqual(args.DestroyArgs, expectedDestroyArgs) {
+			t.Errorf("Expected destroy args %v, got %v", expectedDestroyArgs, args.DestroyArgs)
+		}
+
+		// And environment variables should not contain parallelism
+		if strings.Contains(args.TerraformVars["TF_CLI_ARGS_apply"], "parallelism") {
+			t.Errorf("Apply args should not contain parallelism: %s", args.TerraformVars["TF_CLI_ARGS_apply"])
+		}
+		if strings.Contains(args.TerraformVars["TF_CLI_ARGS_destroy"], "parallelism") {
+			t.Errorf("Destroy args should not contain parallelism: %s", args.TerraformVars["TF_CLI_ARGS_destroy"])
+		}
+	})
+
+	t.Run("GeneratesCorrectArgsWithParallelism", func(t *testing.T) {
+		mocks := setupTerraformEnvMocks(t)
+
+		// Set up blueprint handler with parallelism component
+		mockBlueprint := blueprint.NewMockBlueprintHandler(mocks.Injector)
+		parallelism := 5
+		mockBlueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:        "test/path",
+					Parallelism: &parallelism,
+				},
+			}
+		}
+		mocks.Injector.Register("blueprintHandler", mockBlueprint)
+
+		printer := &TerraformEnvPrinter{
+			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Injector),
+		}
+
+		if err := printer.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize printer: %v", err)
+		}
+
+		// When generating terraform args with parallelism
+		args, err := printer.GenerateTerraformArgs("test/path", "test/module")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// And apply args should contain parallelism flag before plan file
+		expectedApplyArgs := []string{"-parallelism=5"}
+		if len(args.ApplyArgs) < 1 || args.ApplyArgs[0] != expectedApplyArgs[0] {
+			t.Errorf("Expected apply args to start with %v, got %v", expectedApplyArgs, args.ApplyArgs)
+		}
+
+		// And destroy args should contain parallelism flag
+		foundParallelismInDestroy := false
+		for _, arg := range args.DestroyArgs {
+			if arg == "-parallelism=5" {
+				foundParallelismInDestroy = true
+				break
+			}
+		}
+		if !foundParallelismInDestroy {
+			t.Errorf("Expected destroy args to contain -parallelism=5, got %v", args.DestroyArgs)
+		}
+
+		// And environment variables should contain parallelism
+		if !strings.Contains(args.TerraformVars["TF_CLI_ARGS_apply"], " -parallelism=5") {
+			t.Errorf("Apply env var should contain parallelism: %s", args.TerraformVars["TF_CLI_ARGS_apply"])
+		}
+		if !strings.Contains(args.TerraformVars["TF_CLI_ARGS_destroy"], "-parallelism=5") {
+			t.Errorf("Destroy env var should contain parallelism: %s", args.TerraformVars["TF_CLI_ARGS_destroy"])
+		}
+	})
+
+	t.Run("ParallelismOnlyAppliedToMatchingComponent", func(t *testing.T) {
+		mocks := setupTerraformEnvMocks(t)
+
+		// Set up blueprint handler with parallelism for different component
+		mockBlueprint := blueprint.NewMockBlueprintHandler(mocks.Injector)
+		parallelism := 10
+		mockBlueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:        "other/path",
+					Parallelism: &parallelism,
+				},
+				{
+					Path: "test/path",
+					// No parallelism set
+				},
+			}
+		}
+		mocks.Injector.Register("blueprintHandler", mockBlueprint)
+
+		printer := &TerraformEnvPrinter{
+			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Injector),
+		}
+
+		if err := printer.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize printer: %v", err)
+		}
+
+		// When generating terraform args for component without parallelism
+		args, err := printer.GenerateTerraformArgs("test/path", "test/module")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// And apply args should not contain parallelism flag
+		for _, arg := range args.ApplyArgs {
+			if strings.Contains(arg, "parallelism") {
+				t.Errorf("Apply args should not contain parallelism for non-matching component: %v", args.ApplyArgs)
+			}
+		}
+
+		// And environment variables should not contain parallelism
+		if strings.Contains(args.TerraformVars["TF_CLI_ARGS_apply"], "parallelism") {
+			t.Errorf("Apply env var should not contain parallelism: %s", args.TerraformVars["TF_CLI_ARGS_apply"])
+		}
+	})
+
+	t.Run("HandlesNilBlueprintHandler", func(t *testing.T) {
+		mocks := setupTerraformEnvMocks(t)
+
+		printer := &TerraformEnvPrinter{
+			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Injector),
+		}
+
+		// Initialize with the base dependencies but don't fail on missing blueprint handler
+		if err := printer.BaseEnvPrinter.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize base printer: %v", err)
+		}
+
+		// Set blueprint handler to nil explicitly
+		printer.blueprintHandler = nil
+
+		// When generating terraform args with nil blueprint handler
+		args, err := printer.GenerateTerraformArgs("test/path", "test/module")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// And no parallelism should be applied
+		for _, arg := range args.ApplyArgs {
+			if strings.Contains(arg, "parallelism") {
+				t.Errorf("Apply args should not contain parallelism with nil blueprint handler: %v", args.ApplyArgs)
+			}
+		}
+	})
+
+	t.Run("CorrectArgumentOrdering", func(t *testing.T) {
+		mocks := setupTerraformEnvMocks(t)
+
+		// Set up blueprint handler with parallelism
+		mockBlueprint := blueprint.NewMockBlueprintHandler(mocks.Injector)
+		parallelism := 3
+		mockBlueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:        "test/path",
+					Parallelism: &parallelism,
+				},
+			}
+		}
+		mocks.Injector.Register("blueprintHandler", mockBlueprint)
+
+		printer := &TerraformEnvPrinter{
+			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Injector),
+		}
+
+		if err := printer.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize printer: %v", err)
+		}
+
+		// When generating terraform args
+		args, err := printer.GenerateTerraformArgs("test/path", "test/module")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// And apply args should have parallelism flag before plan file path
+		if len(args.ApplyArgs) < 2 {
+			t.Fatalf("Expected at least 2 apply args, got %d: %v", len(args.ApplyArgs), args.ApplyArgs)
+		}
+
+		if args.ApplyArgs[0] != "-parallelism=3" {
+			t.Errorf("Expected first apply arg to be -parallelism=3, got %s", args.ApplyArgs[0])
+		}
+
+		// Plan file should be last argument
+		lastArg := args.ApplyArgs[len(args.ApplyArgs)-1]
+		if !strings.Contains(lastArg, "terraform.tfplan") {
+			t.Errorf("Expected last apply arg to contain terraform.tfplan, got %s", lastArg)
+		}
+	})
+}
