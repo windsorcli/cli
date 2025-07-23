@@ -5,6 +5,8 @@
 package kubernetes
 
 import (
+	"context"
+
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
@@ -32,6 +34,7 @@ type MockKubernetesManager struct {
 	ApplyOCIRepositoryFunc              func(repo *sourcev1.OCIRepository) error
 	WaitForKustomizationsDeletedFunc    func(message string, names ...string) error
 	CheckGitRepositoryStatusFunc        func() error
+	WaitForKubernetesHealthyFunc        func(ctx context.Context, endpoint string) error
 }
 
 // =============================================================================
@@ -163,6 +166,14 @@ func (m *MockKubernetesManager) WaitForKustomizationsDeleted(message string, nam
 func (m *MockKubernetesManager) CheckGitRepositoryStatus() error {
 	if m.CheckGitRepositoryStatusFunc != nil {
 		return m.CheckGitRepositoryStatusFunc()
+	}
+	return nil
+}
+
+// WaitForKubernetesHealthy waits for the Kubernetes API endpoint to be healthy with polling and timeout
+func (m *MockKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, endpoint string) error {
+	if m.WaitForKubernetesHealthyFunc != nil {
+		return m.WaitForKubernetesHealthyFunc(ctx, endpoint)
 	}
 	return nil
 }

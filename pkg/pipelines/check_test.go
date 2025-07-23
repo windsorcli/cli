@@ -11,6 +11,7 @@ import (
 	"github.com/windsorcli/cli/pkg/cluster"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/tools"
 )
@@ -32,14 +33,9 @@ func (m *mockFileInfo) Sys() interface{}   { return nil }
 // CheckMocks extends the base Mocks with check-specific dependencies
 type CheckMocks struct {
 	*Mocks
-	ToolsManager  *tools.MockToolsManager
-	ClusterClient *cluster.MockClusterClient
-}
-
-// setupCheckShims creates shims for check pipeline tests
-func setupCheckShims(t *testing.T) *Shims {
-	t.Helper()
-	return setupShims(t)
+	ToolsManager      *tools.MockToolsManager
+	ClusterClient     *cluster.MockClusterClient
+	KubernetesManager *kubernetes.MockKubernetesManager
 }
 
 // setupCheckMocks creates mocks for check pipeline tests
@@ -88,23 +84,43 @@ func setupCheckMocks(t *testing.T, opts ...*SetupOptions) *CheckMocks {
 		} else {
 			// If existing is not a MockClusterClient, create a new one
 			mockClusterClient = cluster.NewMockClusterClient()
-			mockClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodes []string, version string) error {
+			mockClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string) error {
 				return nil
 			}
 			baseMocks.Injector.Register("clusterClient", mockClusterClient)
 		}
 	} else {
 		mockClusterClient = cluster.NewMockClusterClient()
-		mockClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodes []string, version string) error {
+		mockClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string) error {
 			return nil
 		}
 		baseMocks.Injector.Register("clusterClient", mockClusterClient)
 	}
 
+	// Create kubernetes manager mock
+	var mockKubernetesManager *kubernetes.MockKubernetesManager
+	if existing := baseMocks.Injector.Resolve("kubernetesManager"); existing != nil {
+		if km, ok := existing.(*kubernetes.MockKubernetesManager); ok {
+			mockKubernetesManager = km
+		} else {
+			// If existing is not a MockKubernetesManager, create a new one
+			mockKubernetesManager = kubernetes.NewMockKubernetesManager(baseMocks.Injector)
+			mockKubernetesManager.InitializeFunc = func() error { return nil }
+			mockKubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string) error { return nil }
+			baseMocks.Injector.Register("kubernetesManager", mockKubernetesManager)
+		}
+	} else {
+		mockKubernetesManager = kubernetes.NewMockKubernetesManager(baseMocks.Injector)
+		mockKubernetesManager.InitializeFunc = func() error { return nil }
+		mockKubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string) error { return nil }
+		baseMocks.Injector.Register("kubernetesManager", mockKubernetesManager)
+	}
+
 	return &CheckMocks{
-		Mocks:         baseMocks,
-		ToolsManager:  mockToolsManager,
-		ClusterClient: mockClusterClient,
+		Mocks:             baseMocks,
+		ToolsManager:      mockToolsManager,
+		ClusterClient:     mockClusterClient,
+		KubernetesManager: mockKubernetesManager,
 	}
 }
 
@@ -205,7 +221,8 @@ func TestCheckPipeline_Initialize(t *testing.T) {
 
 	t.Run("ReturnsErrorWhenToolsManagerInitializeFails", func(t *testing.T) {
 		// Given a check pipeline with failing tools manager initialization
-		pipeline, mocks := setup(t)
+		pipeline := NewCheckPipeline()
+		mocks := setupCheckMocks(t)
 
 		mocks.ToolsManager.InitializeFunc = func() error {
 			return fmt.Errorf("tools manager initialization failed")
@@ -365,7 +382,7 @@ func TestCheckPipeline_Execute(t *testing.T) {
 		pipeline, mocks := setup(t)
 
 		waitCalled := false
-		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodes []string, version string) error {
+		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string) error {
 			waitCalled = true
 			return nil
 		}
@@ -392,8 +409,8 @@ func TestCheckPipeline_Execute(t *testing.T) {
 		pipeline, mocks := setup(t)
 
 		var capturedVersion string
-		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodes []string, version string) error {
-			capturedVersion = version
+		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string) error {
+			capturedVersion = expectedVersion
 			return nil
 		}
 
@@ -498,7 +515,7 @@ func TestCheckPipeline_Execute(t *testing.T) {
 		// Given a check pipeline with failing node health check
 		pipeline, mocks := setup(t)
 
-		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodes []string, version string) error {
+		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string) error {
 			return fmt.Errorf("node health check failed")
 		}
 
@@ -619,7 +636,7 @@ func TestCheckPipeline_executeNodeHealthCheck(t *testing.T) {
 		pipeline, mocks := setup(t)
 
 		waitCalled := false
-		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodes []string, version string) error {
+		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string) error {
 			waitCalled = true
 			return nil
 		}
@@ -645,8 +662,8 @@ func TestCheckPipeline_executeNodeHealthCheck(t *testing.T) {
 		pipeline, mocks := setup(t)
 
 		var capturedVersion string
-		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodes []string, version string) error {
-			capturedVersion = version
+		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string) error {
+			capturedVersion = expectedVersion
 			return nil
 		}
 
@@ -702,8 +719,8 @@ func TestCheckPipeline_executeNodeHealthCheck(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsErrorWhenNoNodesSpecified", func(t *testing.T) {
-		// Given a check pipeline with no nodes specified
+	t.Run("ReturnsErrorWhenNoHealthChecksSpecified", func(t *testing.T) {
+		// Given a check pipeline with no health checks specified
 		pipeline, _ := setup(t)
 
 		// When executing node health check
@@ -713,8 +730,8 @@ func TestCheckPipeline_executeNodeHealthCheck(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		if err.Error() != "No nodes specified. Use --nodes flag to specify nodes to check" {
-			t.Errorf("Expected nodes required error, got: %v", err)
+		if err.Error() != "No health checks specified. Use --nodes and/or --k8s-endpoint flags to specify health checks to perform" {
+			t.Errorf("Expected health checks required error, got: %v", err)
 		}
 	})
 
@@ -731,26 +748,29 @@ func TestCheckPipeline_executeNodeHealthCheck(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		if err.Error() != "Invalid nodes parameter type" {
-			t.Errorf("Expected nodes type error, got: %v", err)
+		if err.Error() != "No health checks specified. Use --nodes and/or --k8s-endpoint flags to specify health checks to perform" {
+			t.Errorf("Expected health checks required error, got: %v", err)
 		}
 	})
 
-	t.Run("ReturnsErrorWhenNodesSliceIsEmpty", func(t *testing.T) {
-		// Given a check pipeline with empty nodes slice
-		pipeline, _ := setup(t)
+	t.Run("SucceedsWhenOnlyK8sEndpointSpecified", func(t *testing.T) {
+		// Given a check pipeline with only k8s endpoint specified
+		pipeline, mocks := setup(t)
 
-		ctx := context.WithValue(context.Background(), "nodes", []string{})
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string) error {
+			return nil
+		}
+
+		ctx := context.WithValue(context.Background(), "k8s-endpoint-provided", true)
+		ctx = context.WithValue(ctx, "k8s-endpoint", "")
+		ctx = context.WithValue(ctx, "output", func(msg string) {})
 
 		// When executing node health check
 		err := pipeline.executeNodeHealthCheck(ctx)
 
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-		if err.Error() != "No nodes specified. Use --nodes flag to specify nodes to check" {
-			t.Errorf("Expected nodes empty error, got: %v", err)
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
@@ -758,7 +778,7 @@ func TestCheckPipeline_executeNodeHealthCheck(t *testing.T) {
 		// Given a check pipeline with failing cluster client
 		pipeline, mocks := setup(t)
 
-		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodes []string, version string) error {
+		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string) error {
 			return fmt.Errorf("node health check failed")
 		}
 

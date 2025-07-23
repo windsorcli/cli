@@ -5,7 +5,9 @@
 package kubernetes
 
 import (
+	"context"
 	"fmt"
+	"maps"
 	"os"
 	"strings"
 	"time"
@@ -44,6 +46,7 @@ type KubernetesManager interface {
 	WaitForKustomizationsDeleted(message string, names ...string) error
 	CheckGitRepositoryStatus() error
 	GetKustomizationStatus(names []string) (map[string]bool, error)
+	WaitForKubernetesHealthy(ctx context.Context, endpoint string) error
 }
 
 // =============================================================================
@@ -545,6 +548,36 @@ func (k *BaseKubernetesManager) GetKustomizationStatus(names []string) (map[stri
 	return status, nil
 }
 
+// WaitForKubernetesHealthy polls the Kubernetes API endpoint for health until it is reachable or the context deadline is exceeded.
+// If the client is not initialized, returns an error. Uses a default timeout of 5 minutes if the context has no deadline.
+// Polls every 10 seconds. Returns nil if the API becomes healthy, or an error if the timeout is reached or the context is canceled.
+func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, endpoint string) error {
+	if k.client == nil {
+		return fmt.Errorf("kubernetes client not initialized")
+	}
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		deadline = time.Now().Add(5 * time.Minute)
+	}
+
+	pollInterval := 10 * time.Second
+
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout waiting for Kubernetes API to be healthy")
+		default:
+			if err := k.client.CheckHealth(ctx, endpoint); err == nil {
+				return nil
+			}
+			time.Sleep(pollInterval)
+		}
+	}
+
+	return fmt.Errorf("timeout waiting for Kubernetes API to be healthy")
+}
+
 // applyWithRetry applies a resource using SSA with minimal logic
 func (k *BaseKubernetesManager) applyWithRetry(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) error {
 	existing, err := k.client.GetResource(gvr, obj.GetNamespace(), obj.GetName())
@@ -554,9 +587,7 @@ func (k *BaseKubernetesManager) applyWithRetry(gvr schema.GroupVersionResource, 
 			return fmt.Errorf("failed to convert existing object to unstructured: %w", err)
 		}
 
-		for k, v := range obj.Object {
-			applyConfig[k] = v
-		}
+		maps.Copy(applyConfig, obj.Object)
 
 		mergedObj := &unstructured.Unstructured{Object: applyConfig}
 		mergedObj.SetResourceVersion(existing.GetResourceVersion())

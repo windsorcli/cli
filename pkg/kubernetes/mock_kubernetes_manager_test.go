@@ -5,6 +5,7 @@
 package kubernetes
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"testing"
@@ -377,6 +378,66 @@ func TestMockKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 	t.Run("FuncNotSet", func(t *testing.T) {
 		manager := setup(t)
 		err := manager.CheckGitRepositoryStatus()
+		if err != nil {
+			t.Errorf("Expected nil, got %v", err)
+		}
+	})
+}
+
+func TestMockKubernetesManager_ApplyOCIRepository(t *testing.T) {
+	setup := func(t *testing.T) *MockKubernetesManager {
+		t.Helper()
+		return NewMockKubernetesManager(nil)
+	}
+	repo := &sourcev1.OCIRepository{}
+
+	t.Run("FuncSet", func(t *testing.T) {
+		manager := setup(t)
+		manager.ApplyOCIRepositoryFunc = func(r *sourcev1.OCIRepository) error { return fmt.Errorf("err") }
+		err := manager.ApplyOCIRepository(repo)
+		if err == nil || err.Error() != "err" {
+			t.Errorf("Expected error 'err', got %v", err)
+		}
+	})
+
+	t.Run("FuncNotSet", func(t *testing.T) {
+		manager := setup(t)
+		err := manager.ApplyOCIRepository(repo)
+		if err != nil {
+			t.Errorf("Expected nil, got %v", err)
+		}
+	})
+}
+
+func TestMockKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
+	setup := func(t *testing.T) *MockKubernetesManager {
+		t.Helper()
+		return NewMockKubernetesManager(nil)
+	}
+	ctx := context.Background()
+	endpoint := "https://kubernetes.example.com:6443"
+
+	t.Run("FuncSet", func(t *testing.T) {
+		manager := setup(t)
+		errVal := fmt.Errorf("kubernetes health check failed")
+		manager.WaitForKubernetesHealthyFunc = func(c context.Context, e string) error {
+			if c != ctx {
+				t.Errorf("Expected context %v, got %v", ctx, c)
+			}
+			if e != endpoint {
+				t.Errorf("Expected endpoint %s, got %s", endpoint, e)
+			}
+			return errVal
+		}
+		err := manager.WaitForKubernetesHealthy(ctx, endpoint)
+		if err != errVal {
+			t.Errorf("Expected err, got %v", err)
+		}
+	})
+
+	t.Run("FuncNotSet", func(t *testing.T) {
+		manager := setup(t)
+		err := manager.WaitForKubernetesHealthy(ctx, endpoint)
 		if err != nil {
 			t.Errorf("Expected nil, got %v", err)
 		}

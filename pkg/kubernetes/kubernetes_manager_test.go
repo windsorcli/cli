@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"context"
+
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"github.com/windsorcli/cli/pkg/di"
@@ -1948,6 +1950,91 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 		}
 		if status["k2"] {
 			t.Errorf("Expected k2 to be not ready, got %v", status["k2"])
+		}
+	})
+}
+
+func TestBaseKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
+	setup := func(t *testing.T) *BaseKubernetesManager {
+		t.Helper()
+		mocks := setupMocks(t)
+		manager := NewKubernetesManager(mocks.Injector)
+		if err := manager.Initialize(); err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+		return manager
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		manager := setup(t)
+		client := NewMockKubernetesClient()
+		client.CheckHealthFunc = func(ctx context.Context, endpoint string) error {
+			return nil
+		}
+		manager.client = client
+
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		err := manager.WaitForKubernetesHealthy(ctx, "https://test-endpoint:6443")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ClientNotInitialized", func(t *testing.T) {
+		manager := setup(t)
+		manager.client = nil
+
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		err := manager.WaitForKubernetesHealthy(ctx, "https://test-endpoint:6443")
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "kubernetes client not initialized") {
+			t.Errorf("Expected client not initialized error, got: %v", err)
+		}
+	})
+
+	t.Run("Timeout", func(t *testing.T) {
+		manager := setup(t)
+		client := NewMockKubernetesClient()
+		client.CheckHealthFunc = func(ctx context.Context, endpoint string) error {
+			return fmt.Errorf("health check failed")
+		}
+		manager.client = client
+
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		err := manager.WaitForKubernetesHealthy(ctx, "https://test-endpoint:6443")
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "timeout waiting for Kubernetes API to be healthy") {
+			t.Errorf("Expected timeout error, got: %v", err)
+		}
+	})
+
+	t.Run("ContextCancelled", func(t *testing.T) {
+		manager := setup(t)
+		client := NewMockKubernetesClient()
+		client.CheckHealthFunc = func(ctx context.Context, endpoint string) error {
+			return fmt.Errorf("health check failed")
+		}
+		manager.client = client
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // Cancel immediately
+
+		err := manager.WaitForKubernetesHealthy(ctx, "https://test-endpoint:6443")
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "timeout waiting for Kubernetes API to be healthy") {
+			t.Errorf("Expected timeout error, got: %v", err)
 		}
 	})
 }

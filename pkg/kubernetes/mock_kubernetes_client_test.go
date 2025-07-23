@@ -1,6 +1,7 @@
 package kubernetes
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"testing"
@@ -186,6 +187,41 @@ func TestMockKubernetesClient_PatchResource(t *testing.T) {
 		if res != nil {
 			t.Errorf("Expected nil, got %v", res)
 		}
+		if err != nil {
+			t.Errorf("Expected nil, got %v", err)
+		}
+	})
+}
+
+func TestMockKubernetesClient_CheckHealth(t *testing.T) {
+	setup := func(t *testing.T) *MockKubernetesClient {
+		t.Helper()
+		return NewMockKubernetesClient()
+	}
+	ctx := context.Background()
+	endpoint := "https://kubernetes.example.com:6443"
+
+	t.Run("FuncSet", func(t *testing.T) {
+		client := setup(t)
+		errVal := fmt.Errorf("health check failed")
+		client.CheckHealthFunc = func(c context.Context, e string) error {
+			if c != ctx {
+				t.Errorf("Expected context %v, got %v", ctx, c)
+			}
+			if e != endpoint {
+				t.Errorf("Expected endpoint %s, got %s", endpoint, e)
+			}
+			return errVal
+		}
+		err := client.CheckHealth(ctx, endpoint)
+		if err != errVal {
+			t.Errorf("Expected err, got %v", err)
+		}
+	})
+
+	t.Run("FuncNotSet", func(t *testing.T) {
+		client := setup(t)
+		err := client.CheckHealth(ctx, endpoint)
 		if err != nil {
 			t.Errorf("Expected nil, got %v", err)
 		}

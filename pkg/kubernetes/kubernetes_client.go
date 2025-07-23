@@ -6,6 +6,7 @@ package kubernetes
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,6 +30,7 @@ type KubernetesClient interface {
 	ApplyResource(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error)
 	DeleteResource(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error
 	PatchResource(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error)
+	CheckHealth(ctx context.Context, endpoint string) error
 }
 
 // =============================================================================
@@ -37,7 +39,8 @@ type KubernetesClient interface {
 
 // DynamicKubernetesClient implements KubernetesClient using dynamic client
 type DynamicKubernetesClient struct {
-	client dynamic.Interface
+	client   dynamic.Interface
+	endpoint string
 }
 
 // NewDynamicKubernetesClient creates a new DynamicKubernetesClient
@@ -89,33 +92,66 @@ func (c *DynamicKubernetesClient) PatchResource(gvr schema.GroupVersionResource,
 	return c.client.Resource(gvr).Namespace(namespace).Patch(context.Background(), name, pt, data, opts)
 }
 
+// CheckHealth verifies Kubernetes API connectivity by listing nodes using the dynamic client.
+// If an endpoint is specified, it overrides the default kubeconfig for this check.
+// Returns an error if the client cannot be initialized or the API is unreachable.
+func (c *DynamicKubernetesClient) CheckHealth(ctx context.Context, endpoint string) error {
+	c.endpoint = endpoint
+
+	if err := c.ensureClient(); err != nil {
+		return fmt.Errorf("failed to initialize Kubernetes client: %w", err)
+	}
+
+	nodeGVR := schema.GroupVersionResource{
+		Group:    "",
+		Version:  "v1",
+		Resource: "nodes",
+	}
+
+	_, err := c.client.Resource(nodeGVR).List(ctx, metav1.ListOptions{Limit: 1})
+	if err != nil {
+		return fmt.Errorf("failed to connect to Kubernetes API: %w", err)
+	}
+
+	return nil
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================
 
-// ensureClient lazily initializes the dynamic client if not already set.
-// This is a Windsor CLI exception: see comment above.
+// ensureClient initializes the dynamic Kubernetes client if unset. Uses endpoint, in-cluster, or kubeconfig as available.
+// Returns error if client setup fails at any stage.
 func (c *DynamicKubernetesClient) ensureClient() error {
 	if c.client != nil {
 		return nil
 	}
-	// Try in-cluster config first
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		// Fallback to kubeconfig from KUBECONFIG or default location
-		kubeconfig := os.Getenv("KUBECONFIG")
-		if kubeconfig == "" {
-			home, err := os.UserHomeDir()
+
+	var config *rest.Config
+	var err error
+
+	if c.endpoint != "" {
+		config = &rest.Config{
+			Host: c.endpoint,
+		}
+	} else {
+		config, err = rest.InClusterConfig()
+		if err != nil {
+			kubeconfig := os.Getenv("KUBECONFIG")
+			if kubeconfig == "" {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					return err
+				}
+				kubeconfig = home + "/.kube/config"
+			}
+			config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
 			if err != nil {
 				return err
 			}
-			kubeconfig = home + "/.kube/config"
-		}
-		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
-		if err != nil {
-			return err
 		}
 	}
+
 	cli, err := dynamic.NewForConfig(config)
 	if err != nil {
 		return err

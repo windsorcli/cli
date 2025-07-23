@@ -14,11 +14,13 @@ import (
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
 	bundler "github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/blueprint"
+	"github.com/windsorcli/cli/pkg/cluster"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
+	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/virt"
 )
 
@@ -503,16 +505,20 @@ func TestWithPipeline(t *testing.T) {
 			{"ContextPipeline", "contextPipeline"},
 			{"HookPipeline", "hookPipeline"},
 			{"CheckPipeline", "checkPipeline"},
+			{"UpPipeline", "upPipeline"},
+			{"DownPipeline", "downPipeline"},
+			{"InstallPipeline", "installPipeline"},
+			{"ArtifactPipeline", "artifactPipeline"},
+			{"BasePipeline", "basePipeline"},
 		}
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				// Given an injector and context
-				injector := di.NewInjector()
-				ctx := context.Background()
+				// Given an injector with proper mocks
+				mocks := setupMocks(t)
 
-				// When creating a pipeline with WithPipeline
-				pipeline, err := WithPipeline(injector, ctx, tc.pipelineType)
+				// When creating a pipeline with NewPipeline (without initialization)
+				pipeline, err := WithPipeline(mocks.Injector, context.Background(), tc.pipelineType)
 
 				// Then no error should be returned
 				if err != nil {
@@ -525,34 +531,14 @@ func TestWithPipeline(t *testing.T) {
 				}
 			})
 		}
-
-		// Special test for upPipeline which requires more complex setup
-		t.Run("UpPipeline", func(t *testing.T) {
-			// Given an injector with proper mocks for up pipeline
-			mocks := setupMocks(t)
-
-			// When creating the up pipeline
-			pipeline, err := WithPipeline(mocks.Injector, context.Background(), "upPipeline")
-
-			// Then no error should be returned
-			if err != nil {
-				t.Errorf("Expected no error, got: %v", err)
-			}
-
-			// And a pipeline should be returned
-			if pipeline == nil {
-				t.Error("Expected non-nil pipeline")
-			}
-		})
 	})
 
 	t.Run("UnknownPipelineType", func(t *testing.T) {
-		// Given an injector and context
-		injector := di.NewInjector()
-		ctx := context.Background()
+		// Given an injector with proper mocks
+		mocks := setupMocks(t)
 
 		// When creating a pipeline with unknown type
-		pipeline, err := WithPipeline(injector, ctx, "unknownPipeline")
+		pipeline, err := WithPipeline(mocks.Injector, context.Background(), "unknownPipeline")
 
 		// Then an error should be returned
 		if err == nil {
@@ -565,6 +551,30 @@ func TestWithPipeline(t *testing.T) {
 		// And no pipeline should be returned
 		if pipeline != nil {
 			t.Error("Expected nil pipeline for unknown type")
+		}
+	})
+
+	t.Run("WithPipelineInitialization", func(t *testing.T) {
+		// Given an injector with proper mocks
+		mocks := setupMocks(t)
+
+		// When creating a pipeline with WithPipeline
+		pipeline, err := WithPipeline(mocks.Injector, context.Background(), "envPipeline")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And a pipeline should be returned
+		if pipeline == nil {
+			t.Error("Expected non-nil pipeline")
+		}
+
+		// And the pipeline should be registered in the injector
+		registered := mocks.Injector.Resolve("envPipeline")
+		if registered == nil {
+			t.Error("Expected pipeline to be registered in injector")
 		}
 	})
 
@@ -703,6 +713,28 @@ func TestWithPipeline(t *testing.T) {
 				// Given an injector and context
 				injector := di.NewInjector()
 				ctx := context.Background()
+
+				// Set up required dependencies for check pipeline
+				if pipelineType == "checkPipeline" {
+					// Set up tools manager
+					mockToolsManager := tools.NewMockToolsManager()
+					mockToolsManager.InitializeFunc = func() error { return nil }
+					mockToolsManager.CheckFunc = func() error { return nil }
+					injector.Register("toolsManager", mockToolsManager)
+
+					// Set up cluster client
+					mockClusterClient := cluster.NewMockClusterClient()
+					mockClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string) error {
+						return nil
+					}
+					injector.Register("clusterClient", mockClusterClient)
+
+					// Set up kubernetes manager
+					mockKubernetesManager := kubernetes.NewMockKubernetesManager(injector)
+					mockKubernetesManager.InitializeFunc = func() error { return nil }
+					mockKubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string) error { return nil }
+					injector.Register("kubernetesManager", mockKubernetesManager)
+				}
 
 				// When creating the pipeline
 				pipeline, err := WithPipeline(injector, ctx, pipelineType)

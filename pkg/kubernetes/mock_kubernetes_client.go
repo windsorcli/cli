@@ -5,6 +5,8 @@
 package kubernetes
 
 import (
+	"context"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -22,6 +24,7 @@ type MockKubernetesClient struct {
 	ApplyResourceFunc  func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error)
 	DeleteResourceFunc func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error
 	PatchResourceFunc  func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error)
+	CheckHealthFunc    func(ctx context.Context, endpoint string) error
 }
 
 // =============================================================================
@@ -75,4 +78,12 @@ func (m *MockKubernetesClient) PatchResource(gvr schema.GroupVersionResource, na
 		return m.PatchResourceFunc(gvr, namespace, name, pt, data, opts)
 	}
 	return nil, nil
+}
+
+// CheckHealth implements KubernetesClient interface
+func (m *MockKubernetesClient) CheckHealth(ctx context.Context, endpoint string) error {
+	if m.CheckHealthFunc != nil {
+		return m.CheckHealthFunc(ctx, endpoint)
+	}
+	return nil
 }
