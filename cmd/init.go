@@ -32,10 +32,11 @@ var (
 )
 
 var initCmd = &cobra.Command{
-	Use:   "init [context]",
-	Short: "Initialize the application environment",
-	Long:  "Initialize the application environment with the specified context configuration",
-	Args:  cobra.MaximumNArgs(1),
+	Use:          "init [context]",
+	Short:        "Initialize the application environment",
+	Long:         "Initialize the application environment with the specified context configuration",
+	Args:         cobra.MaximumNArgs(1),
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 		ctx := cmd.Context()

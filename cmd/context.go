@@ -45,10 +45,11 @@ var getContextCmd = &cobra.Command{
 
 // setContextCmd represents the set command
 var setContextCmd = &cobra.Command{
-	Use:   "set [context]",
-	Short: "Set the current context",
-	Long:  "Set the current context in the configuration and save it",
-	Args:  cobra.ExactArgs(1), // Ensure exactly one argument is provided
+	Use:          "set [context]",
+	Short:        "Set the current context",
+	Long:         "Set the current context in the configuration and save it",
+	Args:         cobra.ExactArgs(1), // Ensure exactly one argument is provided
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Get shared dependency injector from context
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
@@ -80,9 +81,10 @@ var setContextCmd = &cobra.Command{
 
 // getContextAliasCmd is an alias for the get command
 var getContextAliasCmd = &cobra.Command{
-	Use:   "get-context",
-	Short: "Alias for 'context get'",
-	Long:  "Alias for 'context get'",
+	Use:          "get-context",
+	Short:        "Alias for 'context get'",
+	Long:         "Alias for 'context get'",
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		rootCmd.SetArgs(append([]string{"context", "get"}, args...))
 		return rootCmd.Execute()
@@ -91,10 +93,11 @@ var getContextAliasCmd = &cobra.Command{
 
 // setContextAliasCmd is an alias for the set command
 var setContextAliasCmd = &cobra.Command{
-	Use:   "set-context [context]",
-	Short: "Alias for 'context set'",
-	Long:  "Alias for 'context set'",
-	Args:  cobra.ExactArgs(1), // Ensure exactly one argument is provided
+	Use:          "set-context [context]",
+	Short:        "Alias for 'context set'",
+	SilenceUsage: true,
+	Long:         "Alias for 'context set'",
+	Args:         cobra.ExactArgs(1), // Ensure exactly one argument is provided
 	RunE: func(cmd *cobra.Command, args []string) error {
 		rootCmd.SetArgs(append([]string{"context", "set"}, args...))
 		return rootCmd.Execute()

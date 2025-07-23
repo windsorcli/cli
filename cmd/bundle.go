@@ -30,6 +30,7 @@ Examples:
 
   # Bundle using metadata.yaml for name/version
   windsor bundle`,
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Get shared dependency injector from context
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
