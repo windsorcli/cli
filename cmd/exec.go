@@ -11,10 +11,11 @@ import (
 
 // execCmd represents the exec command
 var execCmd = &cobra.Command{
-	Use:   "exec [command] [args...]",
-	Short: "Execute a command with environment variables",
-	Long:  "Execute a command with environment variables loaded from configuration and secrets",
-	Args:  cobra.MinimumNArgs(1),
+	Use:          "exec [command] [args...]",
+	Short:        "Execute a command with environment variables",
+	Long:         "Execute a command with environment variables loaded from configuration and secrets",
+	Args:         cobra.MinimumNArgs(1),
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Safety check for arguments
 		if len(args) == 0 {
