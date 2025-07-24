@@ -56,8 +56,8 @@ var defaultJsonnetTemplate string
 //go:embed templates/local.jsonnet
 var localJsonnetTemplate string
 
-//go:embed templates/metal.jsonnet
-var metalJsonnetTemplate string
+//go:embed templates/talos.jsonnet
+var talosJsonnetTemplate string
 
 //go:embed templates/aws.jsonnet
 var awsJsonnetTemplate string
@@ -863,8 +863,8 @@ func (b *BaseBlueprintHandler) loadPlatformTemplate(platform string) ([]byte, er
 	switch platform {
 	case "local":
 		return []byte(localJsonnetTemplate), nil
-	case "metal":
-		return []byte(metalJsonnetTemplate), nil
+	case "talos":
+		return []byte(talosJsonnetTemplate), nil
 	case "aws":
 		return []byte(awsJsonnetTemplate), nil
 	case "azure":

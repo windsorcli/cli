@@ -1,8 +1,3 @@
-// The TalosEnvPrinter is a specialized component that manages Talos environment configuration.
-// It provides Talos-specific environment variable management and configuration,
-// The TalosEnvPrinter handles Talos configuration settings and environment setup,
-// ensuring proper Talos CLI integration and environment setup for operations.
-
 package env
 
 import (
@@ -16,7 +11,8 @@ import (
 // Types
 // =============================================================================
 
-// TalosEnvPrinter is a struct that implements Talos environment configuration
+// TalosEnvPrinter manages Talos environment configuration, providing Talos-specific
+// environment variable management and configuration for CLI integration and environment setup.
 type TalosEnvPrinter struct {
 	BaseEnvPrinter
 }
@@ -25,7 +21,7 @@ type TalosEnvPrinter struct {
 // Constructor
 // =============================================================================
 
-// NewTalosEnvPrinter creates a new TalosEnvPrinter instance
+// NewTalosEnvPrinter creates and returns a new TalosEnvPrinter instance using the provided injector.
 func NewTalosEnvPrinter(injector di.Injector) *TalosEnvPrinter {
 	return &TalosEnvPrinter{
 		BaseEnvPrinter: *NewBaseEnvPrinter(injector),
@@ -36,35 +32,34 @@ func NewTalosEnvPrinter(injector di.Injector) *TalosEnvPrinter {
 // Public Methods
 // =============================================================================
 
-// GetEnvVars retrieves the environment variables for the Talos environment.
+// GetEnvVars returns a map of environment variables for the Talos environment.
+// It sets the TALOSCONFIG variable and, if the cluster driver is "omni", also sets OMNICONFIG.
+// Returns an error if the configuration root cannot be determined.
 func (e *TalosEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
-
-	// Determine the root directory for configuration files.
 	configRoot, err := e.configHandler.GetConfigRoot()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
 	}
-
-	// Construct the path to the talos config file and verify its existence.
 	talosConfigPath := filepath.Join(configRoot, ".talos", "config")
-
-	// Populate environment variables with Talos configuration data.
 	envVars["TALOSCONFIG"] = talosConfigPath
-
+	provider := e.configHandler.GetString("provider", "")
+	if provider == "omni" {
+		omniConfigPath := filepath.Join(configRoot, ".omni", "config")
+		envVars["OMNICONFIG"] = omniConfigPath
+	}
 	return envVars, nil
 }
 
-// Print prints the environment variables for the Talos environment.
+// Print outputs the environment variables for the Talos environment using the embedded BaseEnvPrinter.
+// Returns an error if environment variable retrieval fails or printing fails.
 func (e *TalosEnvPrinter) Print() error {
 	envVars, err := e.GetEnvVars()
 	if err != nil {
-		// Return the error if GetEnvVars fails
 		return fmt.Errorf("error getting environment variables: %w", err)
 	}
-	// Call the Print method of the embedded BaseEnvPrinter struct with the retrieved environment variables
 	return e.BaseEnvPrinter.Print(envVars)
 }
 
-// Ensure TalosEnvPrinter implements the EnvPrinter interface
+// TalosEnvPrinter implements the EnvPrinter interface.
 var _ EnvPrinter = (*TalosEnvPrinter)(nil)

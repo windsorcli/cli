@@ -65,11 +65,11 @@ local repositoryConfig = {
 };
 
 // Terraform configuration
-local terraformConfig = [
-  {
-    path: "cluster/talos",
-    source: "core",
-    values: {
+local talosInfra = if context.provider != "omni" then [{
+  path: "cluster/talos",
+  source: "core",
+  parallelism: 1,
+  values: {
       cluster_endpoint: if endpoint != "" then "https://" + baseUrl + ":6443" else "",
       cluster_name: "talos",
       controlplanes: if std.objectHas(context.cluster, "controlplanes") && std.objectHas(context.cluster.controlplanes, "nodes") then
@@ -172,13 +172,13 @@ local terraformConfig = [
       else
         "",
     },
-  },
-  {
-    path: "gitops/flux",
-    source: "core",
-    destroy: false,
-  }
-];
+  }] else [];
+
+local terraformConfig = talosInfra + [{
+  path: "gitops/flux",
+  source: "core",
+  destroy: false,
+}];
 
 // Kustomize configuration
 local kustomizeConfig = [

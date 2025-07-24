@@ -214,7 +214,7 @@ func TestBaseBlueprintHandler_loadPlatformTemplate(t *testing.T) {
 		handler := &BaseBlueprintHandler{}
 
 		// When loading templates for valid platforms
-		platforms := []string{"local", "metal", "aws", "azure", "default"}
+		platforms := []string{"local", "talos", "aws", "azure", "default"}
 		for _, platform := range platforms {
 			// Then the template should be loaded successfully
 			template, err := handler.loadPlatformTemplate(platform)

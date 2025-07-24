@@ -547,17 +547,7 @@ func (p *BasePipeline) withEnvPrinters() ([]envpkg.EnvPrinter, error) {
 	}
 
 	clusterDriver := p.configHandler.GetString("cluster.driver", "")
-	if clusterDriver == "talos" {
-		talosEnv := envpkg.NewTalosEnvPrinter(p.injector)
-		envPrinters = append(envPrinters, talosEnv)
-		p.injector.Register("talosEnv", talosEnv)
-	}
-
-	if clusterDriver == "omni" {
-		omniEnv := envpkg.NewOmniEnvPrinter(p.injector)
-		envPrinters = append(envPrinters, omniEnv)
-		p.injector.Register("omniEnv", omniEnv)
-
+	if clusterDriver == "talos" || clusterDriver == "omni" {
 		talosEnv := envpkg.NewTalosEnvPrinter(p.injector)
 		envPrinters = append(envPrinters, talosEnv)
 		p.injector.Register("talosEnv", talosEnv)

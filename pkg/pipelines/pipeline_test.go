@@ -1300,7 +1300,7 @@ func TestBasePipeline_withEnvPrinters(t *testing.T) {
 		}
 	})
 
-	t.Run("CreatesOmniAndTalosEnvPrintersWhenOmniProvider", func(t *testing.T) {
+	t.Run("CreatesTalosEnvPrinterWhenOmniProvider", func(t *testing.T) {
 		// Given a base pipeline with omni cluster provider
 		pipeline := NewBasePipeline()
 
@@ -1322,13 +1322,13 @@ func TestBasePipeline_withEnvPrinters(t *testing.T) {
 		// When creating env printers
 		envPrinters, err := pipeline.withEnvPrinters()
 
-		// Then no error should be returned and Omni, Talos, and Windsor env printers should be created
+		// Then no error should be returned and Talos and Windsor env printers should be created
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		// Should have Omni, Talos, and Windsor
-		if len(envPrinters) != 3 {
-			t.Errorf("Expected 3 env printers, got %d", len(envPrinters))
+		// Should have Talos and Windsor
+		if len(envPrinters) != 2 {
+			t.Errorf("Expected 2 env printers, got %d", len(envPrinters))
 		}
 	})
 
@@ -1423,7 +1423,7 @@ func TestBasePipeline_withEnvPrinters(t *testing.T) {
 		}
 	})
 
-	t.Run("RegistersOmniAndTalosEnvPrintersInDIContainer", func(t *testing.T) {
+	t.Run("RegistersTalosEnvPrinterInDIContainer", func(t *testing.T) {
 		// Given a base pipeline with omni cluster provider
 		pipeline := NewBasePipeline()
 
@@ -1456,9 +1456,8 @@ func TestBasePipeline_withEnvPrinters(t *testing.T) {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// And omni, talos, terraform, and windsor env printers should be registered
+		// And talos, terraform, and windsor env printers should be registered
 		expectedRegistrations := []string{
-			"omniEnv",
 			"talosEnv",
 			"terraformEnv", // Always registered
 			"windsorEnv",
@@ -1472,9 +1471,9 @@ func TestBasePipeline_withEnvPrinters(t *testing.T) {
 		}
 
 		// And the correct number of env printers should be returned
-		// Should have Omni, Talos, and Windsor (terraform not included in slice when disabled)
-		if len(envPrinters) != 3 {
-			t.Errorf("Expected 3 env printers, got %d", len(envPrinters))
+		// Should have Talos and Windsor (terraform not included in slice when disabled)
+		if len(envPrinters) != 2 {
+			t.Errorf("Expected 2 env printers, got %d", len(envPrinters))
 		}
 	})
 
