@@ -246,10 +246,10 @@ func TestCheckNodeHealthCmd(t *testing.T) {
 			t.Error("Expected error, got nil")
 		}
 
-		// And error should contain nodes message
-		expectedError := "No nodes specified. Use --nodes flag to specify nodes to check"
+		// And error should contain health checks message
+		expectedError := "No health checks specified. Use --nodes and/or --k8s-endpoint flags to specify health checks to perform"
 		if err.Error() != expectedError {
-			t.Errorf("Expected error about nodes, got: %v", err)
+			t.Errorf("Expected error about health checks, got: %v", err)
 		}
 	})
 
@@ -268,10 +268,10 @@ func TestCheckNodeHealthCmd(t *testing.T) {
 			t.Error("Expected error, got nil")
 		}
 
-		// And error should contain nodes message
-		expectedError := "No nodes specified. Use --nodes flag to specify nodes to check"
+		// And error should contain health checks message
+		expectedError := "No health checks specified. Use --nodes and/or --k8s-endpoint flags to specify health checks to perform"
 		if err.Error() != expectedError {
-			t.Errorf("Expected error about nodes, got: %v", err)
+			t.Errorf("Expected error about health checks, got: %v", err)
 		}
 	})
 }

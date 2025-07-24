@@ -7,6 +7,7 @@ import (
 
 	"github.com/windsorcli/cli/pkg/cluster"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/tools"
 )
 
@@ -19,12 +20,13 @@ import (
 // Types
 // =============================================================================
 
-// CheckPipeline provides tool checking and node health checking functionality
+// CheckPipeline implements health checking functionality for tools and cluster nodes
 type CheckPipeline struct {
 	BasePipeline
 
-	toolsManager  tools.ToolsManager
-	clusterClient cluster.ClusterClient
+	toolsManager      tools.ToolsManager
+	clusterClient     cluster.ClusterClient
+	kubernetesManager kubernetes.KubernetesManager
 }
 
 // =============================================================================
@@ -42,9 +44,7 @@ func NewCheckPipeline() *CheckPipeline {
 // Public Methods
 // =============================================================================
 
-// Initialize creates and registers the required components for the check pipeline including
-// tools manager and cluster client dependencies. It validates component initialization
-// and ensures proper setup for both tool checking and node health monitoring operations.
+// Initialize sets up the CheckPipeline by resolving dependencies
 func (p *CheckPipeline) Initialize(injector di.Injector, ctx context.Context) error {
 	if err := p.BasePipeline.Initialize(injector, ctx); err != nil {
 		return err
@@ -52,10 +52,19 @@ func (p *CheckPipeline) Initialize(injector di.Injector, ctx context.Context) er
 
 	p.toolsManager = p.withToolsManager()
 	p.clusterClient = p.withClusterClient()
+	p.withKubernetesClient()
+
+	p.kubernetesManager = p.withKubernetesManager()
 
 	if p.toolsManager != nil {
 		if err := p.toolsManager.Initialize(); err != nil {
 			return fmt.Errorf("failed to initialize tools manager: %w", err)
+		}
+	}
+
+	if p.kubernetesManager != nil {
+		if err := p.kubernetesManager.Initialize(); err != nil {
+			return fmt.Errorf("failed to initialize kubernetes manager: %w", err)
 		}
 	}
 
@@ -113,65 +122,126 @@ func (p *CheckPipeline) executeToolsCheck(ctx context.Context) error {
 }
 
 // executeNodeHealthCheck performs cluster node health checking using the cluster client.
-// It validates node health status and optionally checks for specific versions,
-// requiring nodes to be specified via context parameters and supporting timeout configuration.
+// It validates node health status and optionally checks for specific versions.
+// Nodes must be specified via context parameters. Supports timeout configuration.
+// If the Kubernetes endpoint flag is provided, performs Kubernetes API health check.
+// Outputs status via the output function in context if present.
 func (p *CheckPipeline) executeNodeHealthCheck(ctx context.Context) error {
-	if p.clusterClient == nil {
-		return fmt.Errorf("No cluster client found")
-	}
-	defer p.clusterClient.Close()
-
 	nodes := ctx.Value("nodes")
-	if nodes == nil {
-		return fmt.Errorf("No nodes specified. Use --nodes flag to specify nodes to check")
-	}
+	k8sEndpointProvided := ctx.Value("k8s-endpoint-provided")
 
-	nodeAddresses, ok := nodes.([]string)
-	if !ok {
-		return fmt.Errorf("Invalid nodes parameter type")
-	}
+	var hasNodeCheck bool
+	var hasK8sCheck bool
 
-	if len(nodeAddresses) == 0 {
-		return fmt.Errorf("No nodes specified. Use --nodes flag to specify nodes to check")
-	}
-
-	timeout := ctx.Value("timeout")
-	var timeoutDuration time.Duration
-	if timeout != nil {
-		if t, ok := timeout.(time.Duration); ok {
-			timeoutDuration = t
+	if nodes != nil {
+		if nodeAddresses, ok := nodes.([]string); ok && len(nodeAddresses) > 0 {
+			hasNodeCheck = true
 		}
 	}
 
-	version := ctx.Value("version")
-	var expectedVersion string
-	if version != nil {
-		if v, ok := version.(string); ok {
-			expectedVersion = v
+	if k8sEndpointProvided != nil {
+		if provided, ok := k8sEndpointProvided.(bool); ok && provided {
+			hasK8sCheck = true
 		}
 	}
 
-	var checkCtx context.Context
-	var cancel context.CancelFunc
-	if timeoutDuration > 0 {
-		checkCtx, cancel = context.WithTimeout(ctx, timeoutDuration)
-	} else {
-		checkCtx, cancel = context.WithCancel(ctx)
-	}
-	defer cancel()
-
-	if err := p.clusterClient.WaitForNodesHealthy(checkCtx, nodeAddresses, expectedVersion); err != nil {
-		return fmt.Errorf("nodes failed health check: %w", err)
+	if !hasNodeCheck && !hasK8sCheck {
+		return fmt.Errorf("No health checks specified. Use --nodes and/or --k8s-endpoint flags to specify health checks to perform")
 	}
 
-	outputFunc := ctx.Value("output")
-	if outputFunc != nil {
-		if fn, ok := outputFunc.(func(string)); ok {
-			message := fmt.Sprintf("All %d nodes are healthy", len(nodeAddresses))
-			if expectedVersion != "" {
-				message += fmt.Sprintf(" and running version %s", expectedVersion)
+	if hasNodeCheck {
+		if p.clusterClient == nil {
+			return fmt.Errorf("No cluster client found")
+		}
+		defer p.clusterClient.Close()
+
+		nodeAddresses, ok := nodes.([]string)
+		if !ok {
+			return fmt.Errorf("Invalid nodes parameter type")
+		}
+
+		timeout := ctx.Value("timeout")
+		var timeoutDuration time.Duration
+		if timeout != nil {
+			if t, ok := timeout.(time.Duration); ok {
+				timeoutDuration = t
 			}
-			fn(message)
+		}
+
+		version := ctx.Value("version")
+		var expectedVersion string
+		if version != nil {
+			if v, ok := version.(string); ok {
+				expectedVersion = v
+			}
+		}
+
+		k8sEndpoint := ctx.Value("k8s-endpoint")
+		k8sEndpointProvided := ctx.Value("k8s-endpoint-provided")
+
+		var k8sEndpointStr string
+		var shouldCheckK8s bool
+
+		if k8sEndpoint != nil {
+			if e, ok := k8sEndpoint.(string); ok {
+				if e == "true" {
+					k8sEndpointStr = ""
+				} else {
+					k8sEndpointStr = e
+				}
+			}
+		}
+
+		if k8sEndpointProvided != nil {
+			if provided, ok := k8sEndpointProvided.(bool); ok {
+				shouldCheckK8s = provided
+			}
+		}
+
+		// Perform node health checks first
+		var checkCtx context.Context
+		var cancel context.CancelFunc
+		if timeoutDuration > 0 {
+			checkCtx, cancel = context.WithTimeout(ctx, timeoutDuration)
+		} else {
+			checkCtx, cancel = context.WithCancel(ctx)
+		}
+		defer cancel()
+
+		if err := p.clusterClient.WaitForNodesHealthy(checkCtx, nodeAddresses, expectedVersion); err != nil {
+			return fmt.Errorf("nodes failed health check: %w", err)
+		}
+
+		outputFunc := ctx.Value("output")
+		if outputFunc != nil {
+			if fn, ok := outputFunc.(func(string)); ok {
+				message := fmt.Sprintf("All %d nodes are healthy", len(nodeAddresses))
+				if expectedVersion != "" {
+					message += fmt.Sprintf(" and running version %s", expectedVersion)
+				}
+				fn(message)
+			}
+		}
+
+		if shouldCheckK8s {
+			if p.kubernetesManager == nil {
+				return fmt.Errorf("No kubernetes manager found")
+			}
+
+			if err := p.kubernetesManager.WaitForKubernetesHealthy(ctx, k8sEndpointStr); err != nil {
+				return fmt.Errorf("Kubernetes health check failed: %w", err)
+			}
+
+			outputFunc := ctx.Value("output")
+			if outputFunc != nil {
+				if fn, ok := outputFunc.(func(string)); ok {
+					if k8sEndpointStr != "" {
+						fn(fmt.Sprintf("Kubernetes API endpoint %s is healthy", k8sEndpointStr))
+					} else {
+						fn("Kubernetes API endpoint (kubeconfig default) is healthy")
+					}
+				}
+			}
 		}
 	}
 

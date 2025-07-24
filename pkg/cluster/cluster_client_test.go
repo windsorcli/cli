@@ -19,13 +19,6 @@ type SetupOptions struct {
 	// Add setup options as needed
 }
 
-// setupMocks creates and configures mock objects for testing
-func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
-	t.Helper()
-
-	return &Mocks{}
-}
-
 // =============================================================================
 // Test Constructor
 // =============================================================================

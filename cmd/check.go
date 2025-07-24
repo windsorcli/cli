@@ -15,6 +15,7 @@ var (
 	nodeHealthTimeout time.Duration
 	nodeHealthNodes   []string
 	nodeHealthVersion string
+	k8sEndpoint       string
 )
 
 var checkCmd = &cobra.Command{
@@ -59,9 +60,9 @@ var checkNodeHealthCmd = &cobra.Command{
 		// Get shared dependency injector from context
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		// Require nodes to be specified
-		if len(nodeHealthNodes) == 0 {
-			return fmt.Errorf("No nodes specified. Use --nodes flag to specify nodes to check")
+		// Require at least one health check type to be specified
+		if len(nodeHealthNodes) == 0 && k8sEndpoint == "" {
+			return fmt.Errorf("No health checks specified. Use --nodes and/or --k8s-endpoint flags to specify health checks to perform")
 		}
 
 		// If timeout is not set via flag, use default
@@ -79,6 +80,8 @@ var checkNodeHealthCmd = &cobra.Command{
 		ctx = context.WithValue(ctx, "nodes", nodeHealthNodes)
 		ctx = context.WithValue(ctx, "timeout", nodeHealthTimeout)
 		ctx = context.WithValue(ctx, "version", nodeHealthVersion)
+		ctx = context.WithValue(ctx, "k8s-endpoint", k8sEndpoint)
+		ctx = context.WithValue(ctx, "k8s-endpoint-provided", k8sEndpoint != "")
 		ctx = context.WithValue(ctx, "output", outputFunc)
 
 		// Set up the check pipeline
@@ -102,7 +105,8 @@ func init() {
 
 	// Add flags for node health check
 	checkNodeHealthCmd.Flags().DurationVar(&nodeHealthTimeout, "timeout", 0, "Maximum time to wait for nodes to be ready (default 5m)")
-	checkNodeHealthCmd.Flags().StringSliceVar(&nodeHealthNodes, "nodes", []string{}, "Nodes to check (required)")
+	checkNodeHealthCmd.Flags().StringSliceVar(&nodeHealthNodes, "nodes", []string{}, "Nodes to check (optional)")
 	checkNodeHealthCmd.Flags().StringVar(&nodeHealthVersion, "version", "", "Expected version to check against (optional)")
-	_ = checkNodeHealthCmd.MarkFlagRequired("nodes")
+	checkNodeHealthCmd.Flags().StringVar(&k8sEndpoint, "k8s-endpoint", "", "Perform Kubernetes API health check (use --k8s-endpoint or --k8s-endpoint=https://endpoint:6443)")
+	checkNodeHealthCmd.Flags().Lookup("k8s-endpoint").NoOptDefVal = "true"
 }

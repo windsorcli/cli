@@ -13,16 +13,6 @@ import (
 	"github.com/windsorcli/cli/pkg/constants"
 )
 
-// =============================================================================
-// Types
-// =============================================================================
-
-// HealthStatus represents the result of a health check.
-type HealthStatus struct {
-	Healthy bool
-	Details string
-}
-
 // ClusterClient defines the interface for cluster operations
 type ClusterClient interface {
 	// WaitForNodesHealthy waits for nodes to be healthy and optionally match a specific version
