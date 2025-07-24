@@ -68,6 +68,7 @@ local repositoryConfig = {
 local talosInfra = if context.provider != "omni" then [{
   path: "cluster/talos",
   source: "core",
+  parallelism: 1,
   values: {
       cluster_endpoint: if endpoint != "" then "https://" + baseUrl + ":6443" else "",
       cluster_name: "talos",
