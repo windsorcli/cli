@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/pipelines"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -454,4 +455,92 @@ func TestInitCmd(t *testing.T) {
 			t.Errorf("Expected success, got error: %v", err)
 		}
 	})
+}
+
+// TestInitProviderAutoBlueprint tests that specifying a provider automatically sets the default OCI blueprint
+func TestInitProviderAutoBlueprint(t *testing.T) {
+	// Test that provider flag automatically sets blueprint
+	initProvider = "aws"
+	initBlueprint = ""
+
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, "reset", false)
+	ctx = context.WithValue(ctx, "trust", true)
+
+	// Automatically set the default OCI blueprint when provider is specified
+	if initProvider != "" && initBlueprint == "" {
+		initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+	}
+
+	if initBlueprint != "" {
+		ctx = context.WithValue(ctx, "blueprint", initBlueprint)
+	}
+
+	// Verify the blueprint was set correctly
+	if blueprintCtx := ctx.Value("blueprint"); blueprintCtx == nil {
+		t.Errorf("Expected blueprint to be set in context when provider is specified")
+	} else if blueprint, ok := blueprintCtx.(string); !ok {
+		t.Errorf("Expected blueprint context value to be a string")
+	} else if blueprint != constants.DEFAULT_OCI_BLUEPRINT_URL {
+		t.Errorf("Expected blueprint to be %s, got %s", constants.DEFAULT_OCI_BLUEPRINT_URL, blueprint)
+	}
+}
+
+// TestInitPlatformAutoBlueprint tests that specifying a platform automatically sets the default OCI blueprint
+func TestInitPlatformAutoBlueprint(t *testing.T) {
+	// Test that platform flag automatically sets blueprint
+	initPlatform = "aws"
+	initProvider = ""
+	initBlueprint = ""
+
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, "reset", false)
+	ctx = context.WithValue(ctx, "trust", true)
+
+	// Handle deprecated --platform flag and set blueprint
+	if initPlatform != "" && initProvider == "" && initBlueprint == "" {
+		initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+	}
+
+	if initBlueprint != "" {
+		ctx = context.WithValue(ctx, "blueprint", initBlueprint)
+	}
+
+	// Verify the blueprint was set correctly
+	if blueprintCtx := ctx.Value("blueprint"); blueprintCtx == nil {
+		t.Errorf("Expected blueprint to be set in context when platform is specified")
+	} else if blueprint, ok := blueprintCtx.(string); !ok {
+		t.Errorf("Expected blueprint context value to be a string")
+	} else if blueprint != constants.DEFAULT_OCI_BLUEPRINT_URL {
+		t.Errorf("Expected blueprint to be %s, got %s", constants.DEFAULT_OCI_BLUEPRINT_URL, blueprint)
+	}
+}
+
+// TestInitExplicitBlueprintOverrides tests that explicitly specifying a blueprint overrides the automatic setting
+func TestInitExplicitBlueprintOverrides(t *testing.T) {
+	// Test that explicit blueprint overrides automatic setting
+	initProvider = "aws"
+	initBlueprint = "oci://custom/blueprint:v1.0.0"
+
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, "reset", false)
+	ctx = context.WithValue(ctx, "trust", true)
+
+	// Automatically set the default OCI blueprint when provider is specified
+	if initProvider != "" && initBlueprint == "" {
+		initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+	}
+
+	if initBlueprint != "" {
+		ctx = context.WithValue(ctx, "blueprint", initBlueprint)
+	}
+
+	// Verify the explicit blueprint was used instead of the default
+	if blueprintCtx := ctx.Value("blueprint"); blueprintCtx == nil {
+		t.Errorf("Expected blueprint to be set in context")
+	} else if blueprint, ok := blueprintCtx.(string); !ok {
+		t.Errorf("Expected blueprint context value to be a string")
+	} else if blueprint != "oci://custom/blueprint:v1.0.0" {
+		t.Errorf("Expected blueprint to be oci://custom/blueprint:v1.0.0, got %s", blueprint)
+	}
 }

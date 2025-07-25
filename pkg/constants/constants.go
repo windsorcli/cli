@@ -97,3 +97,8 @@ const (
 	DEFAULT_NODE_HEALTH_CHECK_TIMEOUT       = 5 * time.Minute
 	DEFAULT_NODE_HEALTH_CHECK_POLL_INTERVAL = 10 * time.Second
 )
+
+// Default OCI blueprint settings
+const (
+	DEFAULT_OCI_BLUEPRINT_URL = "oci://ghcr.io/windsorcli/core:v0.5.0"
+)

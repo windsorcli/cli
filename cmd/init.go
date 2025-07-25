@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/pipelines"
 )
@@ -45,6 +46,17 @@ var initCmd = &cobra.Command{
 		}
 		ctx = context.WithValue(ctx, "reset", initReset)
 		ctx = context.WithValue(ctx, "trust", true)
+
+		// Automatically set the default OCI blueprint when provider is specified
+		if initProvider != "" && initBlueprint == "" {
+			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+		}
+
+		// Handle deprecated --platform flag and set blueprint
+		if initPlatform != "" && initProvider == "" && initBlueprint == "" {
+			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+		}
+
 		if initBlueprint != "" {
 			ctx = context.WithValue(ctx, "blueprint", initBlueprint)
 		}
