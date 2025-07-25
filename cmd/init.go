@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/pipelines"
 )
@@ -45,6 +46,25 @@ var initCmd = &cobra.Command{
 		}
 		ctx = context.WithValue(ctx, "reset", initReset)
 		ctx = context.WithValue(ctx, "trust", true)
+
+		// Handle deprecated --platform flag (must come before automatic provider/blueprint setting)
+		if initPlatform != "" {
+			fmt.Fprintf(os.Stderr, "\033[33mWarning: The --platform flag is deprecated and will be removed in a future version. Please use --provider instead.\033[0m\n")
+			initProvider = initPlatform
+		}
+
+		// If context is "local" and neither provider nor blueprint is set, set both
+		if len(args) > 0 && strings.HasPrefix(args[0], "local") && initProvider == "" && initBlueprint == "" {
+			initProvider = "local"
+			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+		}
+
+		// If provider is set and blueprint is not set, set blueprint (covers all providers, including local)
+		if initProvider != "" && initBlueprint == "" {
+			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+		}
+
+		// If blueprint is set, use it (overrides all)
 		if initBlueprint != "" {
 			ctx = context.WithValue(ctx, "blueprint", initBlueprint)
 		}
@@ -111,19 +131,10 @@ var initCmd = &cobra.Command{
 				return fmt.Errorf("failed to set git.livereload.enabled: %w", err)
 			}
 		}
+
+		// Set provider in context if it's been set (either via --provider or --platform)
 		if initProvider != "" {
 			if err := configHandler.SetContextValue("provider", initProvider); err != nil {
-				return fmt.Errorf("failed to set provider: %w", err)
-			}
-		}
-
-		// Handle deprecated --platform flag
-		if initPlatform != "" {
-			fmt.Fprintf(os.Stderr, "\033[33mWarning: The --platform flag is deprecated and will be removed in a future version. Please use --provider instead.\033[0m\n")
-			if initProvider != "" {
-				return fmt.Errorf("cannot specify both --provider and --platform flags. Please use --provider only")
-			}
-			if err := configHandler.SetContextValue("provider", initPlatform); err != nil {
 				return fmt.Errorf("failed to set provider: %w", err)
 			}
 		}
@@ -165,9 +176,6 @@ func init() {
 	initCmd.Flags().StringVar(&initBlueprint, "blueprint", "", "Specify the blueprint to use")
 	initCmd.Flags().StringVar(&initEndpoint, "endpoint", "", "Specify the kubernetes API endpoint")
 	initCmd.Flags().StringSliceVar(&initSetFlags, "set", []string{}, "Override configuration values. Example: --set dns.enabled=false --set cluster.endpoint=https://localhost:6443")
-
-	// Mark the platform flag as deprecated
-	_ = initCmd.Flags().MarkDeprecated("platform", "use --provider instead")
 
 	rootCmd.AddCommand(initCmd)
 }

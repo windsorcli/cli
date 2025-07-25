@@ -1,4 +1,5 @@
 local context = std.extVar("context");
+local ociUrl = std.extVar("ociUrl");
 
 {
   kind: "Blueprint",
@@ -17,10 +18,7 @@ local context = std.extVar("context");
   sources: [
     {
       name: "core",
-      url: "github.com/windsorcli/core",
-      ref: {
-        branch: "main",
-      },
+      url: ociUrl,
     },
   ],
   terraform: [],

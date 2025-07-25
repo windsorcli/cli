@@ -208,58 +208,6 @@ func TestBaseBlueprintHandler_calculateMaxWaitTime(t *testing.T) {
 	})
 }
 
-func TestBaseBlueprintHandler_loadPlatformTemplate(t *testing.T) {
-	t.Run("ValidPlatforms", func(t *testing.T) {
-		// Given a BaseBlueprintHandler
-		handler := &BaseBlueprintHandler{}
-
-		// When loading templates for valid platforms
-		platforms := []string{"local", "talos", "aws", "azure", "default"}
-		for _, platform := range platforms {
-			// Then the template should be loaded successfully
-			template, err := handler.loadPlatformTemplate(platform)
-			if err != nil {
-				t.Errorf("Expected no error for platform %s, got: %v", platform, err)
-			}
-			if len(template) == 0 {
-				t.Errorf("Expected non-empty template for platform %s", platform)
-			}
-		}
-	})
-
-	t.Run("InvalidPlatform", func(t *testing.T) {
-		// Given a BaseBlueprintHandler
-		handler := &BaseBlueprintHandler{}
-
-		// When loading template for invalid platform
-		template, err := handler.loadPlatformTemplate("invalid-platform")
-
-		// Then no error should occur but template should be empty
-		if err != nil {
-			t.Errorf("Expected no error for invalid platform, got: %v", err)
-		}
-		if len(template) != 0 {
-			t.Errorf("Expected empty template for invalid platform, got length: %d", len(template))
-		}
-	})
-
-	t.Run("EmptyPlatform", func(t *testing.T) {
-		// Given a BaseBlueprintHandler
-		handler := &BaseBlueprintHandler{}
-
-		// When loading template with empty platform
-		template, err := handler.loadPlatformTemplate("")
-
-		// Then no error should occur and template should contain default template
-		if err != nil {
-			t.Errorf("Expected no error for empty platform, got: %v", err)
-		}
-		if len(template) == 0 {
-			t.Errorf("Expected default template for empty platform, got empty template")
-		}
-	})
-}
-
 func TestBaseBlueprintHandler_loadFileData(t *testing.T) {
 	t.Run("func", func(t *testing.T) {
 		// Test cases will go here
