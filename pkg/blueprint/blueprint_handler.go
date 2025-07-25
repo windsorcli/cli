@@ -53,18 +53,6 @@ type BlueprintHandler interface {
 //go:embed templates/default.jsonnet
 var defaultJsonnetTemplate string
 
-//go:embed templates/local.jsonnet
-var localJsonnetTemplate string
-
-//go:embed templates/talos.jsonnet
-var talosJsonnetTemplate string
-
-//go:embed templates/aws.jsonnet
-var awsJsonnetTemplate string
-
-//go:embed templates/azure.jsonnet
-var azureJsonnetTemplate string
-
 type BaseBlueprintHandler struct {
 	BlueprintHandler
 	injector          di.Injector
@@ -366,28 +354,11 @@ func (b *BaseBlueprintHandler) GetTerraformComponents() []blueprintv1alpha1.Terr
 }
 
 // GetDefaultTemplateData generates default template data based on the provider configuration.
-// It uses the embedded provider templates to create a map of template files that can be
+// It uses the embedded default template to create a map of template files that can be
 // used by the init pipeline for generating context-specific configurations.
 func (b *BaseBlueprintHandler) GetDefaultTemplateData(contextName string) (map[string][]byte, error) {
-	provider := b.configHandler.GetString("provider")
-	if provider == "" {
-		provider = b.configHandler.GetString("cluster.platform")
-	}
-
-	templateData, err := b.loadPlatformTemplate(provider)
-	if err != nil || len(templateData) == 0 {
-		templateData, err = b.loadPlatformTemplate("default")
-		if err != nil {
-			return nil, fmt.Errorf("error loading default template: %w", err)
-		}
-	}
-
-	if len(templateData) == 0 {
-		return map[string][]byte{}, nil
-	}
-
 	return map[string][]byte{
-		"blueprint.jsonnet": templateData,
+		"blueprint.jsonnet": []byte(defaultJsonnetTemplate),
 	}, nil
 }
 
@@ -856,27 +827,6 @@ func (b *BaseBlueprintHandler) getKustomizations() []blueprintv1alpha1.Kustomiza
 	}
 
 	return kustomizations
-}
-
-// loadPlatformTemplate loads a platform-specific template or the default template
-func (b *BaseBlueprintHandler) loadPlatformTemplate(platform string) ([]byte, error) {
-	switch platform {
-	case "local":
-		return []byte(localJsonnetTemplate), nil
-	case "talos":
-		return []byte(talosJsonnetTemplate), nil
-	case "aws":
-		return []byte(awsJsonnetTemplate), nil
-	case "azure":
-		return []byte(azureJsonnetTemplate), nil
-	case "default":
-		return []byte(defaultJsonnetTemplate), nil
-	default:
-		if platform == "" {
-			return []byte(defaultJsonnetTemplate), nil
-		}
-		return nil, nil
-	}
 }
 
 // applySourceRepository routes to the appropriate source handler based on URL type

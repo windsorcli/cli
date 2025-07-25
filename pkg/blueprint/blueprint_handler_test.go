@@ -2478,18 +2478,8 @@ func TestBlueprintHandler_GetDefaultTemplateData(t *testing.T) {
 	}
 
 	t.Run("ReturnsDefaultTemplate", func(t *testing.T) {
-		// Given a blueprint handler with default provider
-		handler, mocks := setup(t)
-
-		// Set provider to default
-		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
-			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-				if key == "provider" {
-					return "default"
-				}
-				return ""
-			}
-		}
+		// Given a blueprint handler
+		handler, _ := setup(t)
 
 		// When getting default template data
 		result, err := handler.GetDefaultTemplateData("local")
@@ -2510,131 +2500,6 @@ func TestBlueprintHandler_GetDefaultTemplateData(t *testing.T) {
 
 		if len(result["blueprint.jsonnet"]) == 0 {
 			t.Error("Expected blueprint.jsonnet to have content")
-		}
-	})
-
-	t.Run("ReturnsLocalTemplate", func(t *testing.T) {
-		// Given a blueprint handler with local provider
-		handler, mocks := setup(t)
-
-		// Set provider to local
-		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
-			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-				if key == "provider" {
-					return "local"
-				}
-				return ""
-			}
-		}
-
-		// When getting default template data
-		result, err := handler.GetDefaultTemplateData("local")
-
-		// Then no error should occur
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		// And result should contain blueprint.jsonnet
-		if len(result) != 1 {
-			t.Fatalf("Expected 1 template file, got: %d", len(result))
-		}
-
-		if _, exists := result["blueprint.jsonnet"]; !exists {
-			t.Error("Expected blueprint.jsonnet to exist in result")
-		}
-	})
-
-	t.Run("ReturnsAWSTemplate", func(t *testing.T) {
-		// Given a blueprint handler with AWS platform
-		handler, mocks := setup(t)
-
-		// Set provider to aws
-		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
-			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-				if key == "provider" {
-					return "aws"
-				}
-				return ""
-			}
-		}
-
-		// When getting default template data
-		result, err := handler.GetDefaultTemplateData("local")
-
-		// Then no error should occur
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		// And result should contain blueprint.jsonnet
-		if len(result) != 1 {
-			t.Fatalf("Expected 1 template file, got: %d", len(result))
-		}
-
-		if _, exists := result["blueprint.jsonnet"]; !exists {
-			t.Error("Expected blueprint.jsonnet to exist in result")
-		}
-	})
-
-	t.Run("FallsBackToDefaultWhenProviderEmpty", func(t *testing.T) {
-		// Given a blueprint handler with empty provider
-		handler, mocks := setup(t)
-
-		// Set provider to empty
-		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
-			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-				return ""
-			}
-		}
-
-		// When getting default template data
-		result, err := handler.GetDefaultTemplateData("local")
-
-		// Then no error should occur
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		// And result should contain blueprint.jsonnet
-		if len(result) != 1 {
-			t.Fatalf("Expected 1 template file, got: %d", len(result))
-		}
-
-		if _, exists := result["blueprint.jsonnet"]; !exists {
-			t.Error("Expected blueprint.jsonnet to exist in result")
-		}
-	})
-
-	t.Run("FallsBackToDefaultWhenUnknownProvider", func(t *testing.T) {
-		// Given a blueprint handler with unknown provider
-		handler, mocks := setup(t)
-
-		// Set provider to unknown
-		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
-			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-				if key == "provider" {
-					return "unknown"
-				}
-				return ""
-			}
-		}
-
-		// When getting default template data
-		result, err := handler.GetDefaultTemplateData("local")
-
-		// Then no error should occur
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		// And result should contain default blueprint.jsonnet (fallback behavior)
-		if len(result) != 1 {
-			t.Fatalf("Expected 1 template file, got: %d", len(result))
-		}
-
-		if _, exists := result["blueprint.jsonnet"]; !exists {
-			t.Error("Expected blueprint.jsonnet to exist in result")
 		}
 	})
 }
