@@ -162,10 +162,7 @@ local blueprintMetadata = {
 local sourceConfig = [
   {
     name: "core",
-    url: "github.com/windsorcli/core",
-    ref: {
-      branch: "main",
-    },
+    url: "ghcr.io/windsorcli/core:v0.5.0",
   },
 ];
 

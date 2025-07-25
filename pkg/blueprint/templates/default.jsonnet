@@ -17,10 +17,7 @@ local context = std.extVar("context");
   sources: [
     {
       name: "core",
-      url: "github.com/windsorcli/core",
-      ref: {
-        branch: "main",
-      },
+      url: "ghcr.io/windsorcli/core:v0.5.0",
     },
   ],
   terraform: [],
