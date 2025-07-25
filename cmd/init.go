@@ -47,16 +47,18 @@ var initCmd = &cobra.Command{
 		ctx = context.WithValue(ctx, "reset", initReset)
 		ctx = context.WithValue(ctx, "trust", true)
 
-		// Automatically set the default OCI blueprint when provider is specified
+		// If context is "local" and neither provider nor blueprint is set, set both
+		if len(args) > 0 && strings.HasPrefix(args[0], "local") && initProvider == "" && initBlueprint == "" {
+			initProvider = "local"
+			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+		}
+
+		// If provider is set and blueprint is not set, set blueprint (covers all providers, including local)
 		if initProvider != "" && initBlueprint == "" {
 			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
 		}
 
-		// Handle deprecated --platform flag and set blueprint
-		if initPlatform != "" && initProvider == "" && initBlueprint == "" {
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
-		}
-
+		// If blueprint is set, use it (overrides all)
 		if initBlueprint != "" {
 			ctx = context.WithValue(ctx, "blueprint", initBlueprint)
 		}
