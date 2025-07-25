@@ -1,0 +1,97 @@
+# https://taskfile.dev
+
+version: '3'
+
+vars:
+  CODE_BUCKET_NAME: windsor-bootstrapper-code-bucket
+  OS: linux
+  ARCH: amd64
+  WINDSOR_VERSION: 0.5.6
+  AQUA_VERSION: 2.49.0-0
+  REPOSITORY: https://github.com/tvangundy/bootstrapper.git
+  BUILD_SPEC: cloudformation/buildspec.yml
+  STACK_NAME: WindsorBootstrapper
+  CODEBUILD_PROJECT_NAME: WindsorBootstrapper
+  TEMPLATE_FILE: S3-WindsorBootstrapper.yaml
+  # TEMPLATE_FILE: Github-WindsorBootstrapper.yaml
+
+tasks:
+  deploy-cloudformation:
+    cmds:
+      - |
+        cd cloudformation; \
+        aws cloudformation deploy \
+        --template-file {{.TEMPLATE_FILE}} \
+        --stack-name {{.STACK_NAME}} \
+        --capabilities CAPABILITY_NAMED_IAM \
+        --parameter-overrides \
+          Repository={{.REPOSITORY}} \
+          BuildSpec={{.BUILD_SPEC}} \
+          BucketName={{.CODE_BUCKET_NAME}} \
+          ProjectName={{.CODEBUILD_PROJECT_NAME}}
+
+  start-codebuild-up:
+    cmds:
+      - |
+        cd cloudformation; \
+        aws codebuild start-build \
+          --project-name {{.CODEBUILD_PROJECT_NAME}} \
+          --environment-variables-override \
+            name=OS,value={{.OS}} \
+            name=ARCH,value={{.ARCH}} \
+            name=WINDSOR_VERSION,value={{.WINDSOR_VERSION}} \
+            name=AQUA_VERSION,value={{.AQUA_VERSION}} \
+            name=ACTION,value=up
+
+  start-codebuild-down:
+    cmds:
+      - |
+        cd cloudformation; \
+        aws codebuild start-build \
+          --project-name {{.CODEBUILD_PROJECT_NAME}} \
+          --environment-variables-override \
+            name=OS,value={{.OS}} \
+            name=ARCH,value={{.ARCH}} \
+            name=WINDSOR_VERSION,value={{.WINDSOR_VERSION}} \
+            name=AQUA_VERSION,value={{.AQUA_VERSION}} \
+            name=ACTION,value=down
+
+  destroy-cloudformation:
+    cmds:
+      - |
+        cd cloudformation; \
+        aws cloudformation delete-stack \
+        --stack-name {{.STACK_NAME}}
+
+  debug-cloudformation:
+    cmds:
+      - |
+        cd cloudformation; \
+        aws cloudformation describe-stack-events --stack-name {{.STACK_NAME}}
+
+  create-bucket:
+    cmds:
+      - |
+        aws s3api create-bucket --bucket {{.CODE_BUCKET_NAME}} --region us-east-2 --create-bucket-configuration LocationConstraint=us-east-2
+        
+  upload-source:
+    cmds:
+      - |
+        zip -r bootstrapper.zip . -x '*/.*'
+        aws s3 cp bootstrapper.zip s3://{{.CODE_BUCKET_NAME}}/bootstrapper.zip
+
+  default:
+    cmds:
+      - echo "S3 Approach Only"
+      - echo ""
+      - echo "task create-bucket"
+      - echo "task upload-source"
+      - echo ""
+      - echo "Github/S3 Approaches"
+      - echo ""
+      - echo "task deploy-cloudformation"
+      - echo "task start-codebuild-up"
+      - echo "task start-codebuild-down"
+      - echo "task debug-cloudformation"
+      - echo "task destroy-cloudformation"
+    silent: true
