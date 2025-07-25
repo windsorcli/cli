@@ -392,7 +392,7 @@ local blueprintMetadata = {
 local sourceConfig = [
   {
     name: "core",
-    url: "ghcr.io/windsorcli/core:v0.5.0",
+    url: "oci://ghcr.io/windsorcli/core:v0.5.0",
   },
 ];
 
