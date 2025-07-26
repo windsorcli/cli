@@ -25,6 +25,7 @@ builds:
       - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.version={{ .Version }}'"
       - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/pkg/secrets.version={{ .Version }}'"
       - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.commitSHA={{ .Env.GITHUB_SHA }}'"
+      - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/pkg/constants.PinnedBlueprintURL={{ .Env.PINNED_BLUEPRINT_URL }}'"
 
 # Archive configuration
 archives:

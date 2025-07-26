@@ -100,5 +100,18 @@ const (
 
 // Default OCI blueprint settings
 const (
-	DEFAULT_OCI_BLUEPRINT_URL = "oci://ghcr.io/windsorcli/core:v0.5.0"
+	DEFAULT_OCI_BLUEPRINT_URL = "oci://ghcr.io/windsorcli/core:latest"
 )
+
+// Build-time variable for pinned blueprint URL (set via ldflags)
+var PinnedBlueprintURL = ""
+
+// GetEffectiveBlueprintURL returns the pinned blueprint URL if set at build time,
+// otherwise returns the default blueprint URL. This allows for different behavior
+// between development builds (using :latest) and release builds (using pinned versions).
+func GetEffectiveBlueprintURL() string {
+	if PinnedBlueprintURL != "" {
+		return PinnedBlueprintURL
+	}
+	return DEFAULT_OCI_BLUEPRINT_URL
+}
