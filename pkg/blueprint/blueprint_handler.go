@@ -396,7 +396,18 @@ func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 // Dependency resolution is handled via topological sorting to ensure correct deletion order.
 // A dedicated cleanup namespace is managed for cleanup kustomizations when required.
 func (b *BaseBlueprintHandler) Down() error {
-	kustomizations := b.getKustomizations()
+	allKustomizations := b.getKustomizations()
+	if len(allKustomizations) == 0 {
+		return nil
+	}
+
+	var kustomizations []blueprintv1alpha1.Kustomization
+	for _, k := range allKustomizations {
+		if k.Destroy == nil || *k.Destroy {
+			kustomizations = append(kustomizations, k)
+		}
+	}
+
 	if len(kustomizations) == 0 {
 		return nil
 	}
@@ -505,6 +516,14 @@ func (b *BaseBlueprintHandler) Down() error {
 				return fmt.Errorf("failed to apply cleanup kustomization for %s: %w", k.Name, err)
 			}
 			cleanupNames = append(cleanupNames, cleanupKustomization.Name)
+		}
+	}
+
+	if len(cleanupNames) > 0 {
+		if err := b.kubernetesManager.WaitForKustomizations("⌛️ Waiting for cleanup kustomizations to complete", cleanupNames...); err != nil {
+			spin.Stop()
+			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
+			return fmt.Errorf("failed waiting for cleanup kustomizations to complete: %w", err)
 		}
 	}
 
@@ -813,6 +832,10 @@ func (b *BaseBlueprintHandler) getKustomizations() []blueprintv1alpha1.Kustomiza
 		if kustomizations[i].Force == nil {
 			defaultForce := constants.DEFAULT_FLUX_KUSTOMIZATION_FORCE
 			kustomizations[i].Force = &defaultForce
+		}
+		if kustomizations[i].Destroy == nil {
+			defaultDestroy := true
+			kustomizations[i].Destroy = &defaultDestroy
 		}
 
 		kustomizations[i].PostBuild = &blueprintv1alpha1.PostBuild{
@@ -1134,6 +1157,11 @@ func (b *BaseBlueprintHandler) toKubernetesKustomization(k blueprintv1alpha1.Kus
 		prune = *k.Prune
 	}
 
+	deletionPolicy := "MirrorPrune"
+	if k.Destroy == nil || *k.Destroy {
+		deletionPolicy = "WaitForTermination"
+	}
+
 	sourceKind := "GitRepository"
 	if b.isOCISource(k.Source) {
 		sourceKind = "OCIRepository"
@@ -1153,17 +1181,18 @@ func (b *BaseBlueprintHandler) toKubernetesKustomization(k blueprintv1alpha1.Kus
 				Kind: sourceKind,
 				Name: k.Source,
 			},
-			Path:          k.Path,
-			DependsOn:     dependsOn,
-			Interval:      interval,
-			RetryInterval: &retryInterval,
-			Timeout:       &timeout,
-			Patches:       patches,
-			Force:         *k.Force,
-			PostBuild:     postBuild,
-			Components:    k.Components,
-			Wait:          *k.Wait,
-			Prune:         prune,
+			Path:           k.Path,
+			DependsOn:      dependsOn,
+			Interval:       interval,
+			RetryInterval:  &retryInterval,
+			Timeout:        &timeout,
+			Patches:        patches,
+			Force:          *k.Force,
+			PostBuild:      postBuild,
+			Components:     k.Components,
+			Wait:           *k.Wait,
+			Prune:          prune,
+			DeletionPolicy: deletionPolicy,
 		},
 	}
 }
