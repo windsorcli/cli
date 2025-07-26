@@ -8,7 +8,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/pipelines"
 )
@@ -53,22 +52,6 @@ var initCmd = &cobra.Command{
 			initProvider = initPlatform
 		}
 
-		// If context is "local" and neither provider nor blueprint is set, set both
-		if len(args) > 0 && strings.HasPrefix(args[0], "local") && initProvider == "" && initBlueprint == "" {
-			initProvider = "local"
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
-		}
-
-		// If provider is set and blueprint is not set, set blueprint (covers all providers, including local)
-		if initProvider != "" && initBlueprint == "" {
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
-		}
-
-		// If blueprint is set, use it (overrides all)
-		if initBlueprint != "" {
-			ctx = context.WithValue(ctx, "blueprint", initBlueprint)
-		}
-
 		ctx = context.WithValue(ctx, "quiet", true)
 		ctx = context.WithValue(ctx, "decrypt", true)
 		envPipeline, err := pipelines.WithPipeline(injector, ctx, "envPipeline")
@@ -77,6 +60,19 @@ var initCmd = &cobra.Command{
 		}
 		if err := envPipeline.Execute(ctx); err != nil {
 			return fmt.Errorf("failed to set up environment: %w", err)
+		}
+
+		// Set provider if context is "local" and no provider is specified
+		if len(args) > 0 && strings.HasPrefix(args[0], "local") && initProvider == "" {
+			initProvider = "local"
+		}
+
+		// Pass blueprint and provider to pipeline for decision logic
+		if initBlueprint != "" {
+			ctx = context.WithValue(ctx, "blueprint", initBlueprint)
+		}
+		if initProvider != "" {
+			ctx = context.WithValue(ctx, "provider", initProvider)
 		}
 
 		configHandler := injector.Resolve("configHandler").(config.ConfigHandler)

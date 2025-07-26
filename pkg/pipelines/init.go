@@ -11,6 +11,7 @@ import (
 	"github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
@@ -37,18 +38,19 @@ import (
 // InitPipeline handles the initialization of a Windsor project
 type InitPipeline struct {
 	BasePipeline
-	templateRenderer   template.Template
-	blueprintHandler   blueprint.BlueprintHandler
-	toolsManager       tools.ToolsManager
-	stack              stack.Stack
-	generators         []generators.Generator
-	bundlers           []artifact.Bundler
-	artifactBuilder    artifact.Artifact
-	services           []services.Service
-	virtualMachine     virt.VirtualMachine
-	containerRuntime   virt.ContainerRuntime
-	networkManager     network.NetworkManager
-	terraformResolvers []terraform.ModuleResolver
+	templateRenderer     template.Template
+	blueprintHandler     blueprint.BlueprintHandler
+	toolsManager         tools.ToolsManager
+	stack                stack.Stack
+	generators           []generators.Generator
+	bundlers             []artifact.Bundler
+	artifactBuilder      artifact.Artifact
+	services             []services.Service
+	virtualMachine       virt.VirtualMachine
+	containerRuntime     virt.ContainerRuntime
+	networkManager       network.NetworkManager
+	terraformResolvers   []terraform.ModuleResolver
+	fallbackBlueprintURL string
 }
 
 // =============================================================================
@@ -303,20 +305,17 @@ func (p *InitPipeline) Execute(ctx context.Context) error {
 // Private Methods
 // =============================================================================
 
-// determineContextName determines the context name from arguments, current config, or defaults to "local".
+// determineContextName selects the context name from ctx, config, or defaults to "local" if unset or "local".
 func (p *InitPipeline) determineContextName(ctx context.Context) string {
 	if contextName := ctx.Value("contextName"); contextName != nil {
 		if name, ok := contextName.(string); ok {
 			return name
 		}
 	}
-
-	// If no contextName in context, check the current context from config
 	currentContext := p.configHandler.GetContext()
 	if currentContext != "" && currentContext != "local" {
 		return currentContext
 	}
-
 	return "local"
 }
 
@@ -326,40 +325,39 @@ func (p *InitPipeline) determineContextName(ctx context.Context) string {
 // It also auto-detects VM drivers on macOS/Windows and sets the vm.driver configuration value.
 func (p *InitPipeline) setDefaultConfiguration(_ context.Context, contextName string) error {
 	existingProvider := p.configHandler.GetString("provider")
-	shouldApplyDefaults := true
+	shouldApplyDefaults := existingProvider == ""
 
 	if shouldApplyDefaults {
-		if existingProvider == "local" || contextName == "local" || strings.HasPrefix(contextName, "local-") {
-			vmDriver := p.configHandler.GetString("vm.driver")
+		vmDriver := p.configHandler.GetString("vm.driver")
+		isLocalContext := existingProvider == "local" || contextName == "local" || strings.HasPrefix(contextName, "local-")
 
-			if vmDriver == "" {
-				switch runtime.GOOS {
-				case "darwin", "windows":
-					vmDriver = "docker-desktop"
-				default:
-					vmDriver = "docker"
-				}
-			}
-
-			switch vmDriver {
-			case "docker-desktop":
-				if err := p.configHandler.SetDefault(config.DefaultConfig_Localhost); err != nil {
-					return fmt.Errorf("Error setting default config: %w", err)
-				}
+		if isLocalContext && vmDriver == "" {
+			switch runtime.GOOS {
+			case "darwin", "windows":
+				vmDriver = "docker-desktop"
 			default:
-				if err := p.configHandler.SetDefault(config.DefaultConfig_Full); err != nil {
-					return fmt.Errorf("Error setting default config: %w", err)
-				}
+				vmDriver = "docker"
 			}
+		}
 
-			if p.configHandler.GetString("vm.driver") == "" && vmDriver != "" {
-				if err := p.configHandler.SetContextValue("vm.driver", vmDriver); err != nil {
-					return fmt.Errorf("Error setting vm.driver: %w", err)
-				}
+		// Apply VM driver-specific defaults regardless of context if VM driver is set
+		if vmDriver == "docker-desktop" {
+			if err := p.configHandler.SetDefault(config.DefaultConfig_Localhost); err != nil {
+				return fmt.Errorf("Error setting default config: %w", err)
+			}
+		} else if isLocalContext {
+			if err := p.configHandler.SetDefault(config.DefaultConfig_Full); err != nil {
+				return fmt.Errorf("Error setting default config: %w", err)
 			}
 		} else {
 			if err := p.configHandler.SetDefault(config.DefaultConfig); err != nil {
 				return fmt.Errorf("Error setting default config: %w", err)
+			}
+		}
+
+		if isLocalContext && p.configHandler.GetString("vm.driver") == "" && vmDriver != "" {
+			if err := p.configHandler.SetContextValue("vm.driver", vmDriver); err != nil {
+				return fmt.Errorf("Error setting vm.driver: %w", err)
 			}
 		}
 	}
@@ -419,14 +417,12 @@ func (p *InitPipeline) processPlatformConfiguration(_ context.Context) error {
 	return nil
 }
 
-// prepareTemplateData selects template input sources for template rendering in InitPipeline.
-//
-// Selection priority is as follows:
+// prepareTemplateData selects and returns template input sources for template rendering in InitPipeline.
+// Selection order:
 // 1. If the context "blueprint" value is an OCI reference and artifactBuilder is set, extract template data from the OCI artifact.
 // 2. If blueprintHandler is set, attempt to load template data from the local _template directory.
 // 3. If local template data is unavailable, generate default template data for the current context using blueprintHandler.
 // 4. If none of the above yield data, return an empty map.
-//
 // Returns a map of template file names to contents, or an error if extraction fails at any step.
 func (p *InitPipeline) prepareTemplateData(ctx context.Context) (map[string][]byte, error) {
 	var blueprintValue string
@@ -445,7 +441,6 @@ func (p *InitPipeline) prepareTemplateData(ctx context.Context) (map[string][]by
 			if ociInfo == nil {
 				return nil, fmt.Errorf("invalid blueprint reference: %s", blueprintValue)
 			}
-
 			templateData, err := p.artifactBuilder.GetTemplateData(ociInfo.URL)
 			if err != nil {
 				return nil, fmt.Errorf("failed to get template data from blueprint: %w", err)
@@ -462,7 +457,22 @@ func (p *InitPipeline) prepareTemplateData(ctx context.Context) (map[string][]by
 		if len(localTemplateData) > 0 {
 			return localTemplateData, nil
 		}
+	}
 
+	if p.artifactBuilder != nil {
+		ociInfo, err := artifact.ParseOCIReference(constants.DEFAULT_OCI_BLUEPRINT_URL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse default blueprint reference: %w", err)
+		}
+		templateData, err := p.artifactBuilder.GetTemplateData(ociInfo.URL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get template data from default blueprint: %w", err)
+		}
+		p.fallbackBlueprintURL = constants.DEFAULT_OCI_BLUEPRINT_URL
+		return templateData, nil
+	}
+
+	if p.blueprintHandler != nil {
 		contextName := p.determineContextName(ctx)
 		defaultTemplateData, err := p.blueprintHandler.GetDefaultTemplateData(contextName)
 		if err != nil {
@@ -563,6 +573,10 @@ func (p *InitPipeline) handleBlueprintLoading(ctx context.Context, renderedData 
 	}
 
 	if shouldLoadFromTemplate && len(renderedData) > 0 && renderedData["blueprint"] != nil {
+		// If we have a fallback blueprint URL, set it in the context
+		if p.fallbackBlueprintURL != "" {
+			ctx = context.WithValue(ctx, "blueprint", p.fallbackBlueprintURL)
+		}
 		if err := p.loadBlueprintFromTemplate(ctx, renderedData); err != nil {
 			return err
 		}
