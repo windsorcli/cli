@@ -604,7 +604,30 @@ func TestInitPipeline_setDefaultConfiguration(t *testing.T) {
 	}
 
 	t.Run("UsesContextNameAsProviderWhenNoProviderSet", func(t *testing.T) {
-		// Given a pipeline with no provider set and context name that matches a known provider
+		// Given a pipeline with no provider set and "local" context name
+		pipeline, mockConfigHandler := setup(t, "", "")
+		providerSet := false
+		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+			if key == "provider" {
+				providerSet = true
+			}
+			return nil
+		}
+
+		// When setDefaultConfiguration is called with "local" context
+		err := pipeline.setDefaultConfiguration(context.Background(), "local")
+
+		// Then should set provider to "local" and complete successfully
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !providerSet {
+			t.Error("Expected provider to be set from context name")
+		}
+	})
+
+	t.Run("DoesNotSetProviderForNonLocalContexts", func(t *testing.T) {
+		// Given a pipeline with no provider set and "aws" context name
 		pipeline, mockConfigHandler := setup(t, "", "")
 		providerSet := false
 		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
@@ -617,58 +640,12 @@ func TestInitPipeline_setDefaultConfiguration(t *testing.T) {
 		// When setDefaultConfiguration is called with "aws" context
 		err := pipeline.setDefaultConfiguration(context.Background(), "aws")
 
-		// Then should set provider to "aws" and complete successfully
+		// Then should not set provider automatically
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		if !providerSet {
-			t.Error("Expected provider to be set from context name")
-		}
-	})
-
-	t.Run("UsesContextNameAsProviderForAzure", func(t *testing.T) {
-		// Given a pipeline with no provider set and "azure" context name
-		pipeline, mockConfigHandler := setup(t, "", "")
-		var setProvider string
-		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
-			if key == "provider" {
-				setProvider = value.(string)
-			}
-			return nil
-		}
-
-		// When setDefaultConfiguration is called with "azure" context
-		err := pipeline.setDefaultConfiguration(context.Background(), "azure")
-
-		// Then should set provider to "azure" and complete successfully
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if setProvider != "azure" {
-			t.Errorf("Expected provider to be set to 'azure', got %q", setProvider)
-		}
-	})
-
-	t.Run("UsesContextNameAsProviderForMetal", func(t *testing.T) {
-		// Given a pipeline with no provider set and "metal" context name
-		pipeline, mockConfigHandler := setup(t, "", "")
-		var setProvider string
-		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
-			if key == "provider" {
-				setProvider = value.(string)
-			}
-			return nil
-		}
-
-		// When setDefaultConfiguration is called with "metal" context
-		err := pipeline.setDefaultConfiguration(context.Background(), "metal")
-
-		// Then should set provider to "metal" and complete successfully
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if setProvider != "metal" {
-			t.Errorf("Expected provider to be set to 'metal', got %q", setProvider)
+		if providerSet {
+			t.Error("Expected provider not to be set automatically for non-local contexts")
 		}
 	})
 
@@ -741,7 +718,7 @@ func TestInitPipeline_setDefaultConfiguration(t *testing.T) {
 		}
 	})
 
-	t.Run("SkipsDefaultConfigWhenProviderIsSet", func(t *testing.T) {
+	t.Run("AlwaysAppliesDefaultConfigThenOverridesWithProviderSpecificSettings", func(t *testing.T) {
 		// Given a pipeline with provider already set
 		pipeline, mockConfigHandler := setup(t, "docker-desktop", "aws")
 		defaultConfigSet := false
@@ -753,12 +730,12 @@ func TestInitPipeline_setDefaultConfiguration(t *testing.T) {
 		// When setDefaultConfiguration is called
 		err := pipeline.setDefaultConfiguration(context.Background(), "test")
 
-		// Then should not set default config and complete successfully
+		// Then should always set default config first, then override with provider-specific settings
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		if defaultConfigSet {
-			t.Error("Expected default config not to be set when provider is already set")
+		if !defaultConfigSet {
+			t.Error("Expected default config to be set even when provider is already set")
 		}
 	})
 
@@ -772,8 +749,8 @@ func TestInitPipeline_setDefaultConfiguration(t *testing.T) {
 			return nil
 		}
 
-		// When setDefaultConfiguration is called with "aws" context
-		err := pipeline.setDefaultConfiguration(context.Background(), "aws")
+		// When setDefaultConfiguration is called with "local" context
+		err := pipeline.setDefaultConfiguration(context.Background(), "local")
 
 		// Then should return error
 		if err == nil {
@@ -810,15 +787,15 @@ func TestInitPipeline_setDefaultConfiguration(t *testing.T) {
 			return fmt.Errorf("set context value failed")
 		}
 
-		// When setDefaultConfiguration is called with "aws" context
-		err := pipeline.setDefaultConfiguration(context.Background(), "aws")
+		// When setDefaultConfiguration is called with "local" context
+		err := pipeline.setDefaultConfiguration(context.Background(), "local")
 
 		// Then should return error
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "Error setting provider from context name") {
-			t.Errorf("Expected error to contain 'Error setting provider from context name', got %v", err)
+		if !strings.Contains(err.Error(), "Error setting vm.driver") {
+			t.Errorf("Expected error to contain 'Error setting vm.driver', got %v", err)
 		}
 	})
 }
