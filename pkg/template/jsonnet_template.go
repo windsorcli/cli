@@ -114,7 +114,7 @@ func (t *JsonnetTemplate) processJsonnetTemplate(templateContent string) (map[st
 	vm := t.shims.NewJsonnetVM()
 	vm.ExtCode("helpers", t.buildHelperLibrary())
 	vm.ExtCode("context", string(contextJSON))
-	vm.ExtCode("ociUrl", fmt.Sprintf("%q", constants.DEFAULT_OCI_BLUEPRINT_URL))
+	vm.ExtCode("ociUrl", fmt.Sprintf("%q", constants.GetEffectiveBlueprintURL()))
 
 	result, err := vm.EvaluateAnonymousSnippet("template.jsonnet", templateContent)
 	if err != nil {

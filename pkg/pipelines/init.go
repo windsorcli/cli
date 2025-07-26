@@ -460,7 +460,8 @@ func (p *InitPipeline) prepareTemplateData(ctx context.Context) (map[string][]by
 	}
 
 	if p.artifactBuilder != nil {
-		ociInfo, err := artifact.ParseOCIReference(constants.DEFAULT_OCI_BLUEPRINT_URL)
+		effectiveBlueprintURL := constants.GetEffectiveBlueprintURL()
+		ociInfo, err := artifact.ParseOCIReference(effectiveBlueprintURL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse default blueprint reference: %w", err)
 		}
@@ -468,7 +469,7 @@ func (p *InitPipeline) prepareTemplateData(ctx context.Context) (map[string][]by
 		if err != nil {
 			return nil, fmt.Errorf("failed to get template data from default blueprint: %w", err)
 		}
-		p.fallbackBlueprintURL = constants.DEFAULT_OCI_BLUEPRINT_URL
+		p.fallbackBlueprintURL = effectiveBlueprintURL
 		return templateData, nil
 	}
 
