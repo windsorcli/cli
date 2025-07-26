@@ -81,6 +81,14 @@ var initCmd = &cobra.Command{
 
 		configHandler := injector.Resolve("configHandler").(config.ConfigHandler)
 
+		// Set provider in context if it's been set (either via --provider or --platform)
+		if initProvider != "" {
+			if err := configHandler.SetContextValue("provider", initProvider); err != nil {
+				return fmt.Errorf("failed to set provider: %w", err)
+			}
+		}
+
+		// Set other configuration values
 		if initBackend != "" {
 			if err := configHandler.SetContextValue("terraform.backend.type", initBackend); err != nil {
 				return fmt.Errorf("failed to set terraform.backend.type: %w", err)
@@ -129,13 +137,6 @@ var initCmd = &cobra.Command{
 		if initGitLivereload {
 			if err := configHandler.SetContextValue("git.livereload.enabled", true); err != nil {
 				return fmt.Errorf("failed to set git.livereload.enabled: %w", err)
-			}
-		}
-
-		// Set provider in context if it's been set (either via --provider or --platform)
-		if initProvider != "" {
-			if err := configHandler.SetContextValue("provider", initProvider); err != nil {
-				return fmt.Errorf("failed to set provider: %w", err)
 			}
 		}
 

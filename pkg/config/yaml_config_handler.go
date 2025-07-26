@@ -48,23 +48,28 @@ func NewYamlConfigHandler(injector di.Injector) *YamlConfigHandler {
 // Public Methods
 // =============================================================================
 
-// LoadConfigString loads configuration from the provided YAML string content.
-// It unmarshals the YAML into the internal config structure, tracks root contexts,
-// validates and sets the config version, and marks the configuration as loaded.
-// Returns an error if unmarshalling fails or if the config version is unsupported.
+// LoadConfigString loads configuration from a YAML string into the internal config structure.
+// It unmarshals the YAML, records which contexts were present in the input, validates and sets
+// the config version, and marks the configuration as loaded. Returns an error if unmarshalling
+// fails or if the config version is unsupported.
 func (y *YamlConfigHandler) LoadConfigString(content string) error {
 	if content == "" {
 		return nil
 	}
 
-	if err := y.shims.YamlUnmarshal([]byte(content), &y.BaseConfigHandler.config); err != nil {
+	var tempConfig v1alpha1.Config
+	if err := y.shims.YamlUnmarshal([]byte(content), &tempConfig); err != nil {
 		return fmt.Errorf("error unmarshalling yaml: %w", err)
 	}
 
-	if y.config.Contexts != nil {
-		for contextName := range y.config.Contexts {
+	if tempConfig.Contexts != nil {
+		for contextName := range tempConfig.Contexts {
 			y.rootContexts[contextName] = true
 		}
+	}
+
+	if err := y.shims.YamlUnmarshal([]byte(content), &y.BaseConfigHandler.config); err != nil {
+		return fmt.Errorf("error unmarshalling yaml: %w", err)
 	}
 
 	if y.BaseConfigHandler.config.Version == "" {
@@ -199,6 +204,7 @@ func (y *YamlConfigHandler) SaveConfig(overwrite ...bool) error {
 
 	if shouldCreateContextConfig {
 		var contextConfig v1alpha1.Context
+
 		if y.config.Contexts != nil && y.config.Contexts[contextName] != nil {
 			contextConfig = *y.config.Contexts[contextName]
 		} else {
@@ -244,9 +250,11 @@ func (y *YamlConfigHandler) SetDefault(context v1alpha1.Context) error {
 			y.config.Contexts[currentContext] = &v1alpha1.Context{}
 		}
 
+		// Merge existing values INTO defaults (not the other way around)
+		// This ensures that existing explicit settings take precedence over defaults
 		defaultCopy := context.DeepCopy()
 		existingCopy := y.config.Contexts[currentContext].DeepCopy()
-		defaultCopy.Merge(existingCopy)
+		defaultCopy.Merge(existingCopy) // Merge existing INTO defaults
 		y.config.Contexts[currentContext] = defaultCopy
 	}
 

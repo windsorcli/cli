@@ -197,8 +197,8 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 		}
 	}
 
-	for _, resolver := range p.terraformResolvers {
-		if err := resolver.Initialize(); err != nil {
+	for _, terraformResolver := range p.terraformResolvers {
+		if err := terraformResolver.Initialize(); err != nil {
 			return fmt.Errorf("failed to initialize terraform resolver: %w", err)
 		}
 	}
@@ -206,6 +206,12 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 	if p.templateRenderer != nil {
 		if err := p.templateRenderer.Initialize(); err != nil {
 			return fmt.Errorf("failed to initialize template renderer: %w", err)
+		}
+	}
+
+	if p.networkManager != nil {
+		if err := p.networkManager.Initialize(); err != nil {
+			return fmt.Errorf("failed to initialize network manager: %w", err)
 		}
 	}
 
@@ -226,12 +232,6 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 			if err := secureShellInterface.Initialize(); err != nil {
 				return fmt.Errorf("failed to initialize secure shell: %w", err)
 			}
-		}
-	}
-
-	if p.networkManager != nil {
-		if err := p.networkManager.Initialize(); err != nil {
-			return fmt.Errorf("failed to initialize network manager: %w", err)
 		}
 	}
 
@@ -289,6 +289,11 @@ func (p *InitPipeline) Execute(ctx context.Context) error {
 		return err
 	}
 
+	// Save the configuration to windsor.yaml files
+	if err := p.configHandler.SaveConfig(); err != nil {
+		return fmt.Errorf("failed to save configuration: %w", err)
+	}
+
 	fmt.Fprintln(os.Stderr, "Initialization successful")
 
 	return nil
@@ -315,36 +320,57 @@ func (p *InitPipeline) determineContextName(ctx context.Context) string {
 	return "local"
 }
 
-// setDefaultConfiguration sets the appropriate default configuration based on context and VM driver detection.
+// setDefaultConfiguration sets the appropriate default configuration based on provider and VM driver detection.
+// For local provider, it applies VM driver-specific defaults (DefaultConfig_Localhost for docker-desktop,
+// DefaultConfig_Full for others). For cloud providers, it applies minimal DefaultConfig.
+// It also auto-detects VM drivers on macOS/Windows and sets the vm.driver configuration value.
 func (p *InitPipeline) setDefaultConfiguration(_ context.Context, contextName string) error {
-	vmDriver := p.configHandler.GetString("vm.driver")
-	if vmDriver == "" && (contextName == "local" || strings.HasPrefix(contextName, "local-")) {
-		switch runtime.GOOS {
-		case "darwin", "windows":
-			vmDriver = "docker-desktop"
-		default:
-			vmDriver = "docker"
+	existingProvider := p.configHandler.GetString("provider")
+	shouldApplyDefaults := true
+
+	if shouldApplyDefaults {
+		if existingProvider == "local" || contextName == "local" || strings.HasPrefix(contextName, "local-") {
+			vmDriver := p.configHandler.GetString("vm.driver")
+
+			if vmDriver == "" {
+				switch runtime.GOOS {
+				case "darwin", "windows":
+					vmDriver = "docker-desktop"
+				default:
+					vmDriver = "docker"
+				}
+			}
+
+			switch vmDriver {
+			case "docker-desktop":
+				if err := p.configHandler.SetDefault(config.DefaultConfig_Localhost); err != nil {
+					return fmt.Errorf("Error setting default config: %w", err)
+				}
+			default:
+				if err := p.configHandler.SetDefault(config.DefaultConfig_Full); err != nil {
+					return fmt.Errorf("Error setting default config: %w", err)
+				}
+			}
+
+			if p.configHandler.GetString("vm.driver") == "" && vmDriver != "" {
+				if err := p.configHandler.SetContextValue("vm.driver", vmDriver); err != nil {
+					return fmt.Errorf("Error setting vm.driver: %w", err)
+				}
+			}
+		} else {
+			if err := p.configHandler.SetDefault(config.DefaultConfig); err != nil {
+				return fmt.Errorf("Error setting default config: %w", err)
+			}
 		}
 	}
 
-	switch vmDriver {
-	case "docker-desktop":
-		if err := p.configHandler.SetDefault(config.DefaultConfig_Localhost); err != nil {
-			return fmt.Errorf("Error setting default config: %w", err)
-		}
-	case "colima", "docker":
-		if err := p.configHandler.SetDefault(config.DefaultConfig_Full); err != nil {
-			return fmt.Errorf("Error setting default config: %w", err)
-		}
-	default:
-		if err := p.configHandler.SetDefault(config.DefaultConfig); err != nil {
-			return fmt.Errorf("Error setting default config: %w", err)
-		}
-	}
-
-	if vmDriver != "" {
-		if err := p.configHandler.SetContextValue("vm.driver", vmDriver); err != nil {
-			return fmt.Errorf("Error setting vm.driver: %w", err)
+	existingProvider = p.configHandler.GetString("provider")
+	if existingProvider == "" {
+		switch contextName {
+		case "aws", "azure", "local", "metal":
+			if err := p.configHandler.SetContextValue("provider", contextName); err != nil {
+				return fmt.Errorf("Error setting provider from context name: %w", err)
+			}
 		}
 	}
 
@@ -384,6 +410,9 @@ func (p *InitPipeline) processPlatformConfiguration(_ context.Context) error {
 	case "local":
 		if err := p.configHandler.SetContextValue("cluster.driver", "talos"); err != nil {
 			return fmt.Errorf("Error setting cluster.driver: %w", err)
+		}
+		if err := p.configHandler.SetContextValue("terraform.enabled", true); err != nil {
+			return fmt.Errorf("Error setting terraform.enabled: %w", err)
 		}
 	}
 
