@@ -319,54 +319,51 @@ func (p *InitPipeline) determineContextName(ctx context.Context) string {
 	return "local"
 }
 
-// setDefaultConfiguration sets the appropriate default configuration based on provider and VM driver detection.
-// For local provider, it applies VM driver-specific defaults (DefaultConfig_Localhost for docker-desktop,
-// DefaultConfig_Full for others). For cloud providers, it applies minimal DefaultConfig.
-// It also auto-detects VM drivers on macOS/Windows and sets the vm.driver configuration value.
+// setDefaultConfiguration applies default configuration values based on provider and VM driver detection.
+// For local providers, applies DefaultConfig_Localhost if the VM driver is "docker-desktop", otherwise applies DefaultConfig_Full.
+// For non-local providers, applies DefaultConfig if no provider is set. On macOS and Windows, auto-detects and sets the "vm.driver" value.
+// If the provider is unset and the context is local, sets the provider to "local".
+// Returns an error if any configuration operation fails.
 func (p *InitPipeline) setDefaultConfiguration(_ context.Context, contextName string) error {
 	existingProvider := p.configHandler.GetString("provider")
-	shouldApplyDefaults := existingProvider == ""
+	isLocalContext := existingProvider == "local" || contextName == "local" || strings.HasPrefix(contextName, "local-")
 
-	if shouldApplyDefaults {
-		vmDriver := p.configHandler.GetString("vm.driver")
-		isLocalContext := existingProvider == "local" || contextName == "local" || strings.HasPrefix(contextName, "local-")
+	// Always apply defaults first, then override with provider-specific settings
+	vmDriver := p.configHandler.GetString("vm.driver")
 
-		if isLocalContext && vmDriver == "" {
-			switch runtime.GOOS {
-			case "darwin", "windows":
-				vmDriver = "docker-desktop"
-			default:
-				vmDriver = "docker"
-			}
-		}
-
-		// Apply VM driver-specific defaults regardless of context if VM driver is set
-		if vmDriver == "docker-desktop" {
-			if err := p.configHandler.SetDefault(config.DefaultConfig_Localhost); err != nil {
-				return fmt.Errorf("Error setting default config: %w", err)
-			}
-		} else if isLocalContext {
-			if err := p.configHandler.SetDefault(config.DefaultConfig_Full); err != nil {
-				return fmt.Errorf("Error setting default config: %w", err)
-			}
-		} else {
-			if err := p.configHandler.SetDefault(config.DefaultConfig); err != nil {
-				return fmt.Errorf("Error setting default config: %w", err)
-			}
-		}
-
-		if isLocalContext && p.configHandler.GetString("vm.driver") == "" && vmDriver != "" {
-			if err := p.configHandler.SetContextValue("vm.driver", vmDriver); err != nil {
-				return fmt.Errorf("Error setting vm.driver: %w", err)
-			}
+	if isLocalContext && vmDriver == "" {
+		switch runtime.GOOS {
+		case "darwin", "windows":
+			vmDriver = "docker-desktop"
+		default:
+			vmDriver = "docker"
 		}
 	}
 
-	existingProvider = p.configHandler.GetString("provider")
+	if vmDriver == "docker-desktop" {
+		if err := p.configHandler.SetDefault(config.DefaultConfig_Localhost); err != nil {
+			return fmt.Errorf("Error setting default config: %w", err)
+		}
+	} else if isLocalContext {
+		if err := p.configHandler.SetDefault(config.DefaultConfig_Full); err != nil {
+			return fmt.Errorf("Error setting default config: %w", err)
+		}
+	} else {
+		if err := p.configHandler.SetDefault(config.DefaultConfig); err != nil {
+			return fmt.Errorf("Error setting default config: %w", err)
+		}
+	}
+
+	if isLocalContext && p.configHandler.GetString("vm.driver") == "" && vmDriver != "" {
+		if err := p.configHandler.SetContextValue("vm.driver", vmDriver); err != nil {
+			return fmt.Errorf("Error setting vm.driver: %w", err)
+		}
+	}
+
+	// Set provider from context name if not already set
 	if existingProvider == "" {
-		switch contextName {
-		case "aws", "azure", "local", "metal":
-			if err := p.configHandler.SetContextValue("provider", contextName); err != nil {
+		if contextName == "local" || strings.HasPrefix(contextName, "local-") {
+			if err := p.configHandler.SetContextValue("provider", "local"); err != nil {
 				return fmt.Errorf("Error setting provider from context name: %w", err)
 			}
 		}
@@ -376,6 +373,7 @@ func (p *InitPipeline) setDefaultConfiguration(_ context.Context, contextName st
 }
 
 // processPlatformConfiguration applies provider-specific configuration settings based on the "provider" value in the configuration handler.
+// Since defaults are already applied in setDefaultConfiguration, this function only sets provider-specific overrides.
 // For "aws", it enables AWS and sets the cluster driver to "eks".
 // For "azure", it enables Azure and sets the cluster driver to "aks".
 // For "metal" and "local", it sets the cluster driver to "talos".
@@ -408,9 +406,6 @@ func (p *InitPipeline) processPlatformConfiguration(_ context.Context) error {
 	case "local":
 		if err := p.configHandler.SetContextValue("cluster.driver", "talos"); err != nil {
 			return fmt.Errorf("Error setting cluster.driver: %w", err)
-		}
-		if err := p.configHandler.SetContextValue("terraform.enabled", true); err != nil {
-			return fmt.Errorf("Error setting terraform.enabled: %w", err)
 		}
 	}
 
