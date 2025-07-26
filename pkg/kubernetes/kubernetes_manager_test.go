@@ -1976,7 +1976,7 @@ func TestBaseKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
-		err := manager.WaitForKubernetesHealthy(ctx, "https://test-endpoint:6443")
+		err := manager.WaitForKubernetesHealthy(ctx, "https://test-endpoint:6443", nil)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -1989,7 +1989,7 @@ func TestBaseKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
-		err := manager.WaitForKubernetesHealthy(ctx, "https://test-endpoint:6443")
+		err := manager.WaitForKubernetesHealthy(ctx, "https://test-endpoint:6443", nil)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -2009,7 +2009,7 @@ func TestBaseKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
 
-		err := manager.WaitForKubernetesHealthy(ctx, "https://test-endpoint:6443")
+		err := manager.WaitForKubernetesHealthy(ctx, "https://test-endpoint:6443", nil)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -2029,7 +2029,7 @@ func TestBaseKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
 
-		err := manager.WaitForKubernetesHealthy(ctx, "https://test-endpoint:6443")
+		err := manager.WaitForKubernetesHealthy(ctx, "https://test-endpoint:6443", nil)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}

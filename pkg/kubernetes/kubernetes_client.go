@@ -7,8 +7,6 @@ package kubernetes
 import (
 	"context"
 	"fmt"
-	"strings"
-
 	"os"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,7 +33,6 @@ type KubernetesClient interface {
 	CheckHealth(ctx context.Context, endpoint string) error
 	// Node health operations
 	GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error)
-	GetAllNodes(ctx context.Context) ([]*unstructured.Unstructured, error)
 }
 
 // =============================================================================
@@ -143,11 +140,28 @@ func (c *DynamicKubernetesClient) GetNodeReadyStatus(ctx context.Context, nodeNa
 	var nodes *unstructured.UnstructuredList
 	var err error
 
-	if len(nodeNames) == 0 {
-		nodes, err = c.client.Resource(nodeGVR).List(ctx, metav1.ListOptions{})
-	} else {
-		fieldSelector := fmt.Sprintf("metadata.name in (%s)", strings.Join(nodeNames, ","))
-		nodes, err = c.client.Resource(nodeGVR).List(ctx, metav1.ListOptions{FieldSelector: fieldSelector})
+	// Get all nodes and filter by name if specific nodes are requested
+	nodes, err = c.client.Resource(nodeGVR).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list nodes: %w", err)
+	}
+
+	// Filter nodes if specific node names are requested
+	if len(nodeNames) > 0 {
+		var filteredNodes []unstructured.Unstructured
+		nodeNameSet := make(map[string]bool)
+		for _, name := range nodeNames {
+			nodeNameSet[name] = true
+		}
+
+		for _, node := range nodes.Items {
+			if nodeNameSet[node.GetName()] {
+				filteredNodes = append(filteredNodes, node)
+			}
+		}
+
+		// Replace the items with filtered ones
+		nodes.Items = filteredNodes
 	}
 
 	if err != nil {
@@ -162,32 +176,6 @@ func (c *DynamicKubernetesClient) GetNodeReadyStatus(ctx context.Context, nodeNa
 	}
 
 	return readyStatus, nil
-}
-
-// GetAllNodes retrieves all nodes from the cluster.
-// Returns a slice of unstructured node objects.
-func (c *DynamicKubernetesClient) GetAllNodes(ctx context.Context) ([]*unstructured.Unstructured, error) {
-	if err := c.ensureClient(); err != nil {
-		return nil, fmt.Errorf("failed to initialize Kubernetes client: %w", err)
-	}
-
-	nodeGVR := schema.GroupVersionResource{
-		Group:    "",
-		Version:  "v1",
-		Resource: "nodes",
-	}
-
-	nodes, err := c.client.Resource(nodeGVR).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list nodes: %w", err)
-	}
-
-	result := make([]*unstructured.Unstructured, len(nodes.Items))
-	for i := range nodes.Items {
-		result[i] = &nodes.Items[i]
-	}
-
-	return result, nil
 }
 
 // =============================================================================

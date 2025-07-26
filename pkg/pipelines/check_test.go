@@ -106,13 +106,17 @@ func setupCheckMocks(t *testing.T, opts ...*SetupOptions) *CheckMocks {
 			// If existing is not a MockKubernetesManager, create a new one
 			mockKubernetesManager = kubernetes.NewMockKubernetesManager(baseMocks.Injector)
 			mockKubernetesManager.InitializeFunc = func() error { return nil }
-			mockKubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, nodeNames ...string) error { return nil }
+			mockKubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
+				return nil
+			}
 			baseMocks.Injector.Register("kubernetesManager", mockKubernetesManager)
 		}
 	} else {
 		mockKubernetesManager = kubernetes.NewMockKubernetesManager(baseMocks.Injector)
 		mockKubernetesManager.InitializeFunc = func() error { return nil }
-		mockKubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, nodeNames ...string) error { return nil }
+		mockKubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
+			return nil
+		}
 		baseMocks.Injector.Register("kubernetesManager", mockKubernetesManager)
 	}
 
@@ -700,8 +704,31 @@ func TestCheckPipeline_executeNodeHealthCheck(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsErrorWhenClusterClientIsNil", func(t *testing.T) {
-		// Given a check pipeline with nil cluster client
+	t.Run("SucceedsWhenClusterClientIsNilButK8sEndpointProvided", func(t *testing.T) {
+		// Given a check pipeline with nil cluster client but k8s endpoint provided
+		pipeline, mocks := setup(t)
+		pipeline.clusterClient = nil
+
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
+			return nil
+		}
+
+		ctx := context.WithValue(context.Background(), "nodes", []string{"node1"})
+		ctx = context.WithValue(ctx, "k8s-endpoint-provided", true)
+		ctx = context.WithValue(ctx, "k8s-endpoint", "")
+		ctx = context.WithValue(ctx, "output", func(msg string) {})
+
+		// When executing node health check
+		err := pipeline.executeNodeHealthCheck(ctx)
+
+		// Then no error should be returned (k8s check succeeds)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenClusterClientIsNilAndNoK8sEndpoint", func(t *testing.T) {
+		// Given a check pipeline with nil cluster client and no k8s endpoint
 		pipeline, _ := setup(t)
 		pipeline.clusterClient = nil
 
@@ -714,8 +741,8 @@ func TestCheckPipeline_executeNodeHealthCheck(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		if err.Error() != "No cluster client found" {
-			t.Errorf("Expected cluster client error, got: %v", err)
+		if err.Error() != "No health checks specified. Use --nodes and/or --k8s-endpoint flags to specify health checks to perform" {
+			t.Errorf("Expected health checks required error, got: %v", err)
 		}
 	})
 
@@ -757,7 +784,7 @@ func TestCheckPipeline_executeNodeHealthCheck(t *testing.T) {
 		// Given a check pipeline with only k8s endpoint specified
 		pipeline, mocks := setup(t)
 
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, nodeNames ...string) error {
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
 			return nil
 		}
 
@@ -801,6 +828,348 @@ func TestCheckPipeline_executeNodeHealthCheck(t *testing.T) {
 		pipeline, _ := setup(t)
 
 		ctx := context.WithValue(context.Background(), "nodes", []string{"node1"})
+
+		// When executing node health check
+		err := pipeline.executeNodeHealthCheck(ctx)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	// =============================================================================
+	// --ready flag tests
+	// =============================================================================
+
+	t.Run("K8sEndpointOnly_NoReadyFlag", func(t *testing.T) {
+		// Given a check pipeline with only k8s endpoint specified (no --ready)
+		pipeline, mocks := setup(t)
+
+		var capturedNodeNames []string
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
+			capturedNodeNames = nodeNames
+			return nil
+		}
+
+		ctx := context.WithValue(context.Background(), "k8s-endpoint-provided", true)
+		ctx = context.WithValue(ctx, "k8s-endpoint", "")
+		ctx = context.WithValue(ctx, "output", func(msg string) {})
+
+		// When executing node health check
+		err := pipeline.executeNodeHealthCheck(ctx)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And no node names should be passed (no readiness check)
+		if len(capturedNodeNames) != 0 {
+			t.Errorf("Expected no node names, got %v", capturedNodeNames)
+		}
+	})
+
+	t.Run("K8sEndpointWithReadyFlag_NoSpecificNodes", func(t *testing.T) {
+		// Given a check pipeline with k8s endpoint and --ready flag (no specific nodes)
+		pipeline, _ := setup(t)
+
+		ctx := context.WithValue(context.Background(), "k8s-endpoint-provided", true)
+		ctx = context.WithValue(ctx, "k8s-endpoint", "")
+		ctx = context.WithValue(ctx, "check-node-ready", true)
+		ctx = context.WithValue(ctx, "output", func(msg string) {})
+
+		// When executing node health check
+		err := pipeline.executeNodeHealthCheck(ctx)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "--ready flag requires --nodes to be specified" {
+			t.Errorf("Expected error about --ready requiring --nodes, got: %v", err)
+		}
+	})
+
+	t.Run("K8sEndpointWithReadyFlag_SpecificNodes", func(t *testing.T) {
+		// Given a check pipeline with k8s endpoint, --ready flag, and specific nodes
+		pipeline, mocks := setup(t)
+
+		var capturedNodeNames []string
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
+			capturedNodeNames = nodeNames
+			return nil
+		}
+
+		ctx := context.WithValue(context.Background(), "k8s-endpoint-provided", true)
+		ctx = context.WithValue(ctx, "k8s-endpoint", "")
+		ctx = context.WithValue(ctx, "check-node-ready", true)
+		ctx = context.WithValue(ctx, "nodes", []string{"specific-node1", "specific-node2"})
+		ctx = context.WithValue(ctx, "output", func(msg string) {})
+
+		// When executing node health check
+		err := pipeline.executeNodeHealthCheck(ctx)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And specific node names should be passed for readiness check
+		expectedNodeNames := []string{"specific-node1", "specific-node2"}
+		if len(capturedNodeNames) != len(expectedNodeNames) {
+			t.Errorf("Expected %d node names, got %d", len(expectedNodeNames), len(capturedNodeNames))
+		}
+		for i, name := range expectedNodeNames {
+			if capturedNodeNames[i] != name {
+				t.Errorf("Expected node name %s at index %d, got %s", name, i, capturedNodeNames[i])
+			}
+		}
+	})
+
+	t.Run("K8sEndpointWithNodes_NoReadyFlag", func(t *testing.T) {
+		// Given a check pipeline with k8s endpoint and specific nodes but no --ready flag
+		pipeline, mocks := setup(t)
+
+		var capturedNodeNames []string
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
+			capturedNodeNames = nodeNames
+			return nil
+		}
+
+		ctx := context.WithValue(context.Background(), "k8s-endpoint-provided", true)
+		ctx = context.WithValue(ctx, "k8s-endpoint", "")
+		ctx = context.WithValue(ctx, "nodes", []string{"node1", "node2"})
+		ctx = context.WithValue(ctx, "output", func(msg string) {})
+
+		// When executing node health check
+		err := pipeline.executeNodeHealthCheck(ctx)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And no node names should be passed (no readiness check)
+		if len(capturedNodeNames) != 0 {
+			t.Errorf("Expected no node names, got %v", capturedNodeNames)
+		}
+	})
+
+	t.Run("ReadyFlagOnly_NoK8sEndpoint", func(t *testing.T) {
+		// Given a check pipeline with only --ready flag (no k8s endpoint)
+		pipeline, _ := setup(t)
+
+		ctx := context.WithValue(context.Background(), "check-node-ready", true)
+
+		// When executing node health check
+		err := pipeline.executeNodeHealthCheck(ctx)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "No health checks specified. Use --nodes and/or --k8s-endpoint flags to specify health checks to perform" {
+			t.Errorf("Expected health checks required error, got: %v", err)
+		}
+	})
+
+	t.Run("ReadyFlagFalse", func(t *testing.T) {
+		// Given a check pipeline with k8s endpoint and --ready=false
+		pipeline, mocks := setup(t)
+
+		var capturedNodeNames []string
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
+			capturedNodeNames = nodeNames
+			return nil
+		}
+
+		ctx := context.WithValue(context.Background(), "k8s-endpoint-provided", true)
+		ctx = context.WithValue(ctx, "k8s-endpoint", "")
+		ctx = context.WithValue(ctx, "check-node-ready", false)
+		ctx = context.WithValue(ctx, "output", func(msg string) {})
+
+		// When executing node health check
+		err := pipeline.executeNodeHealthCheck(ctx)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And no node names should be passed (ready=false)
+		if len(capturedNodeNames) != 0 {
+			t.Errorf("Expected no node names, got %v", capturedNodeNames)
+		}
+	})
+
+	t.Run("ReadyFlagNil", func(t *testing.T) {
+		// Given a check pipeline with k8s endpoint and no ready flag (nil)
+		pipeline, mocks := setup(t)
+
+		var capturedNodeNames []string
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
+			capturedNodeNames = nodeNames
+			return nil
+		}
+
+		ctx := context.WithValue(context.Background(), "k8s-endpoint-provided", true)
+		ctx = context.WithValue(ctx, "k8s-endpoint", "")
+		ctx = context.WithValue(ctx, "output", func(msg string) {})
+
+		// When executing node health check
+		err := pipeline.executeNodeHealthCheck(ctx)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And no node names should be passed (ready=nil)
+		if len(capturedNodeNames) != 0 {
+			t.Errorf("Expected no node names, got %v", capturedNodeNames)
+		}
+	})
+
+	t.Run("ShowsWaitingMessageWhenReadyFlagUsed", func(t *testing.T) {
+		// Given a check pipeline with --ready flag and specific nodes
+		pipeline, mocks := setup(t)
+
+		var capturedMessages []string
+		outputFunc := func(msg string) {
+			capturedMessages = append(capturedMessages, msg)
+		}
+
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
+			return nil
+		}
+
+		ctx := context.WithValue(context.Background(), "k8s-endpoint-provided", true)
+		ctx = context.WithValue(ctx, "k8s-endpoint", "")
+		ctx = context.WithValue(ctx, "check-node-ready", true)
+		ctx = context.WithValue(ctx, "nodes", []string{"node1", "node2"})
+		ctx = context.WithValue(ctx, "output", outputFunc)
+
+		// When executing node health check
+		err := pipeline.executeNodeHealthCheck(ctx)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And waiting message should be shown
+		expectedMessage := "Waiting for 2 nodes to be Ready..."
+		found := false
+		for _, msg := range capturedMessages {
+			if msg == expectedMessage {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected waiting message '%s', got messages: %v", expectedMessage, capturedMessages)
+		}
+	})
+
+	t.Run("PassesOutputFuncToWaitForKubernetesHealthy", func(t *testing.T) {
+		// Given a check pipeline with --ready flag
+		pipeline, mocks := setup(t)
+
+		var capturedOutputFunc func(string)
+		var capturedNodeNames []string
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
+			capturedOutputFunc = outputFunc
+			capturedNodeNames = nodeNames
+			return nil
+		}
+
+		outputFunc := func(msg string) {}
+		ctx := context.WithValue(context.Background(), "k8s-endpoint-provided", true)
+		ctx = context.WithValue(ctx, "k8s-endpoint", "")
+		ctx = context.WithValue(ctx, "check-node-ready", true)
+		ctx = context.WithValue(ctx, "nodes", []string{"node1"})
+		ctx = context.WithValue(ctx, "output", outputFunc)
+
+		// When executing node health check
+		err := pipeline.executeNodeHealthCheck(ctx)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And output function should be passed to WaitForKubernetesHealthy
+		if capturedOutputFunc == nil {
+			t.Error("Expected output function to be passed to WaitForKubernetesHealthy")
+		}
+
+		// And node names should be passed
+		if len(capturedNodeNames) != 1 || capturedNodeNames[0] != "node1" {
+			t.Errorf("Expected node names ['node1'], got %v", capturedNodeNames)
+		}
+	})
+
+	t.Run("NoImmediateNotFoundMessages", func(t *testing.T) {
+		// Given a check pipeline with --ready flag
+		pipeline, mocks := setup(t)
+
+		var capturedMessages []string
+		outputFunc := func(msg string) {
+			capturedMessages = append(capturedMessages, msg)
+		}
+
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
+			return nil
+		}
+
+		ctx := context.WithValue(context.Background(), "k8s-endpoint-provided", true)
+		ctx = context.WithValue(ctx, "k8s-endpoint", "")
+		ctx = context.WithValue(ctx, "check-node-ready", true)
+		ctx = context.WithValue(ctx, "nodes", []string{"node1"})
+		ctx = context.WithValue(ctx, "output", outputFunc)
+
+		// When executing node health check
+		err := pipeline.executeNodeHealthCheck(ctx)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And no immediate "NOT FOUND" messages should be shown
+		for _, msg := range capturedMessages {
+			if strings.Contains(msg, "NOT FOUND") {
+				t.Errorf("Expected no immediate NOT FOUND messages, but found: %s", msg)
+			}
+		}
+
+		// And the waiting message should be shown (along with Talos health check messages)
+		waitingMessageFound := false
+		for _, msg := range capturedMessages {
+			if msg == "Waiting for 1 nodes to be Ready..." {
+				waitingMessageFound = true
+				break
+			}
+		}
+		if !waitingMessageFound {
+			t.Errorf("Expected waiting message 'Waiting for 1 nodes to be Ready...', got messages: %v", capturedMessages)
+		}
+	})
+
+	t.Run("HandlesNilOutputFunc", func(t *testing.T) {
+		// Given a check pipeline with --ready flag but no output function
+		pipeline, mocks := setup(t)
+
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
+			return nil
+		}
+
+		ctx := context.WithValue(context.Background(), "k8s-endpoint-provided", true)
+		ctx = context.WithValue(ctx, "k8s-endpoint", "")
+		ctx = context.WithValue(ctx, "check-node-ready", true)
+		ctx = context.WithValue(ctx, "nodes", []string{"node1"})
+		// No output function in context
 
 		// When executing node health check
 		err := pipeline.executeNodeHealthCheck(ctx)

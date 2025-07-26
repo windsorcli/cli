@@ -26,7 +26,6 @@ type MockKubernetesClient struct {
 	PatchResourceFunc      func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error)
 	CheckHealthFunc        func(ctx context.Context, endpoint string) error
 	GetNodeReadyStatusFunc func(ctx context.Context, nodeNames []string) (map[string]bool, error)
-	GetAllNodesFunc        func(ctx context.Context) ([]*unstructured.Unstructured, error)
 }
 
 // =============================================================================
@@ -96,12 +95,4 @@ func (m *MockKubernetesClient) GetNodeReadyStatus(ctx context.Context, nodeNames
 		return m.GetNodeReadyStatusFunc(ctx, nodeNames)
 	}
 	return make(map[string]bool), nil
-}
-
-// GetAllNodes implements KubernetesClient interface
-func (m *MockKubernetesClient) GetAllNodes(ctx context.Context) ([]*unstructured.Unstructured, error) {
-	if m.GetAllNodesFunc != nil {
-		return m.GetAllNodesFunc(ctx)
-	}
-	return []*unstructured.Unstructured{}, nil
 }

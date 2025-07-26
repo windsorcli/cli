@@ -53,7 +53,6 @@ func (p *CheckPipeline) Initialize(injector di.Injector, ctx context.Context) er
 	p.toolsManager = p.withToolsManager()
 	p.clusterClient = p.withClusterClient()
 	p.withKubernetesClient()
-
 	p.kubernetesManager = p.withKubernetesManager()
 
 	if p.toolsManager != nil {
@@ -149,11 +148,13 @@ func (p *CheckPipeline) executeNodeHealthCheck(ctx context.Context) error {
 		return fmt.Errorf("No health checks specified. Use --nodes and/or --k8s-endpoint flags to specify health checks to perform")
 	}
 
-	// Handle provider-specific node health checks
-	if hasNodeCheck {
-		if p.clusterClient == nil {
-			return fmt.Errorf("No cluster client found")
-		}
+	// If we have nodes but no cluster client and no k8s endpoint, we can't perform any checks
+	if hasNodeCheck && p.clusterClient == nil && !hasK8sCheck {
+		return fmt.Errorf("No health checks specified. Use --nodes and/or --k8s-endpoint flags to specify health checks to perform")
+	}
+
+	// Handle provider-specific node health checks (when --nodes is provided and cluster client is available)
+	if hasNodeCheck && p.clusterClient != nil {
 		defer p.clusterClient.Close()
 
 		nodeAddresses, ok := nodes.([]string)
@@ -188,17 +189,22 @@ func (p *CheckPipeline) executeNodeHealthCheck(ctx context.Context) error {
 		defer cancel()
 
 		if err := p.clusterClient.WaitForNodesHealthy(checkCtx, nodeAddresses, expectedVersion); err != nil {
-			return fmt.Errorf("nodes failed health check: %w", err)
-		}
-
-		outputFunc := ctx.Value("output")
-		if outputFunc != nil {
-			if fn, ok := outputFunc.(func(string)); ok {
-				message := fmt.Sprintf("All %d nodes are healthy", len(nodeAddresses))
-				if expectedVersion != "" {
-					message += fmt.Sprintf(" and running version %s", expectedVersion)
+			// If cluster client fails and we have k8s endpoint, continue with k8s checks
+			if hasK8sCheck {
+				fmt.Printf("Warning: Cluster client failed (%v), continuing with Kubernetes checks\n", err)
+			} else {
+				return fmt.Errorf("nodes failed health check: %w", err)
+			}
+		} else {
+			outputFunc := ctx.Value("output")
+			if outputFunc != nil {
+				if fn, ok := outputFunc.(func(string)); ok {
+					message := fmt.Sprintf("All %d nodes are healthy", len(nodeAddresses))
+					if expectedVersion != "" {
+						message += fmt.Sprintf(" and running version %s", expectedVersion)
+					}
+					fn(message)
 				}
-				fn(message)
 			}
 		}
 	}
@@ -221,15 +227,43 @@ func (p *CheckPipeline) executeNodeHealthCheck(ctx context.Context) error {
 			}
 		}
 
-		// If nodes are specified, include them in the K8s health check for Ready state
+		// Only include nodes in the K8s health check if --ready flag is explicitly specified
 		var nodeNames []string
-		if hasNodeCheck {
-			if nodeAddresses, ok := nodes.([]string); ok {
-				nodeNames = nodeAddresses
+		checkNodeReady := ctx.Value("check-node-ready")
+		if checkNodeReady != nil {
+			if ready, ok := checkNodeReady.(bool); ok && ready {
+				if hasNodeCheck {
+					// If specific nodes are provided, check those nodes
+					if nodeAddresses, ok := nodes.([]string); ok {
+						nodeNames = nodeAddresses
+					}
+				} else {
+					// If --ready is specified but no --nodes are provided, return an error
+					return fmt.Errorf("--ready flag requires --nodes to be specified")
+				}
 			}
 		}
 
-		if err := p.kubernetesManager.WaitForKubernetesHealthy(ctx, k8sEndpointStr, nodeNames...); err != nil {
+		// Show waiting message if we're going to check node readiness
+		if len(nodeNames) > 0 {
+			outputFunc := ctx.Value("output")
+			if outputFunc != nil {
+				if fn, ok := outputFunc.(func(string)); ok {
+					fn(fmt.Sprintf("Waiting for %d nodes to be Ready...", len(nodeNames)))
+				}
+			}
+		}
+
+		// Get output function for progress feedback
+		var progressOutputFunc func(string)
+		output := ctx.Value("output")
+		if output != nil {
+			if fn, ok := output.(func(string)); ok {
+				progressOutputFunc = fn
+			}
+		}
+
+		if err := p.kubernetesManager.WaitForKubernetesHealthy(ctx, k8sEndpointStr, progressOutputFunc, nodeNames...); err != nil {
 			return fmt.Errorf("Kubernetes health check failed: %w", err)
 		}
 
@@ -237,10 +271,28 @@ func (p *CheckPipeline) executeNodeHealthCheck(ctx context.Context) error {
 		if outputFunc != nil {
 			if fn, ok := outputFunc.(func(string)); ok {
 				if len(nodeNames) > 0 {
-					if k8sEndpointStr != "" {
-						fn(fmt.Sprintf("Kubernetes API endpoint %s is healthy and all nodes are Ready", k8sEndpointStr))
+					// Check if all requested nodes were found and ready
+					readyStatus, err := p.kubernetesManager.GetNodeReadyStatus(ctx, nodeNames)
+					allFoundAndReady := err == nil && len(readyStatus) == len(nodeNames)
+					for _, ready := range readyStatus {
+						if !ready {
+							allFoundAndReady = false
+							break
+						}
+					}
+
+					if allFoundAndReady {
+						if k8sEndpointStr != "" {
+							fn(fmt.Sprintf("Kubernetes API endpoint %s is healthy and all nodes are Ready", k8sEndpointStr))
+						} else {
+							fn("Kubernetes API endpoint (kubeconfig default) is healthy and all nodes are Ready")
+						}
 					} else {
-						fn("Kubernetes API endpoint (kubeconfig default) is healthy and all nodes are Ready")
+						if k8sEndpointStr != "" {
+							fn(fmt.Sprintf("Kubernetes API endpoint %s is healthy", k8sEndpointStr))
+						} else {
+							fn("Kubernetes API endpoint (kubeconfig default) is healthy")
+						}
 					}
 				} else {
 					if k8sEndpointStr != "" {

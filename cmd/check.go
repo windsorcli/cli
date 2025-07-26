@@ -16,6 +16,7 @@ var (
 	nodeHealthNodes   []string
 	nodeHealthVersion string
 	k8sEndpoint       string
+	checkNodeReady    bool
 )
 
 var checkCmd = &cobra.Command{
@@ -81,7 +82,8 @@ var checkNodeHealthCmd = &cobra.Command{
 		ctx = context.WithValue(ctx, "timeout", nodeHealthTimeout)
 		ctx = context.WithValue(ctx, "version", nodeHealthVersion)
 		ctx = context.WithValue(ctx, "k8s-endpoint", k8sEndpoint)
-		ctx = context.WithValue(ctx, "k8s-endpoint-provided", k8sEndpoint != "")
+		ctx = context.WithValue(ctx, "k8s-endpoint-provided", k8sEndpoint != "" || checkNodeReady)
+		ctx = context.WithValue(ctx, "check-node-ready", checkNodeReady)
 		ctx = context.WithValue(ctx, "output", outputFunc)
 
 		// Set up the check pipeline
@@ -109,4 +111,5 @@ func init() {
 	checkNodeHealthCmd.Flags().StringVar(&nodeHealthVersion, "version", "", "Expected version to check against (optional)")
 	checkNodeHealthCmd.Flags().StringVar(&k8sEndpoint, "k8s-endpoint", "", "Perform Kubernetes API health check (use --k8s-endpoint or --k8s-endpoint=https://endpoint:6443)")
 	checkNodeHealthCmd.Flags().Lookup("k8s-endpoint").NoOptDefVal = "true"
+	checkNodeHealthCmd.Flags().BoolVar(&checkNodeReady, "ready", false, "Check Kubernetes node readiness status")
 }
