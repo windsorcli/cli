@@ -22,14 +22,14 @@ import (
 // DefaultConfig returns the default configuration
 var DefaultConfig = v1alpha1.Context{
 	Provider: ptrString("local"),
+	Cluster: &cluster.ClusterConfig{
+		Enabled: ptrBool(true),
+	},
 	Terraform: &terraform.TerraformConfig{
 		Enabled: ptrBool(true),
 		Backend: &terraform.BackendConfig{
 			Type: "local",
 		},
-	},
-	Cluster: &cluster.ClusterConfig{
-		Enabled: ptrBool(true),
 	},
 }
 

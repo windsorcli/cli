@@ -603,6 +603,187 @@ func TestInitPipeline_setDefaultConfiguration(t *testing.T) {
 		})
 	}
 
+	t.Run("UsesContextNameAsProviderWhenNoProviderSet", func(t *testing.T) {
+		// Given a pipeline with no provider set and context name that matches a known provider
+		pipeline, mockConfigHandler := setup(t, "", "")
+		providerSet := false
+		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+			if key == "provider" {
+				providerSet = true
+			}
+			return nil
+		}
+
+		// When setDefaultConfiguration is called with "aws" context
+		err := pipeline.setDefaultConfiguration(context.Background(), "aws")
+
+		// Then should set provider to "aws" and complete successfully
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !providerSet {
+			t.Error("Expected provider to be set from context name")
+		}
+	})
+
+	t.Run("UsesContextNameAsProviderForAzure", func(t *testing.T) {
+		// Given a pipeline with no provider set and "azure" context name
+		pipeline, mockConfigHandler := setup(t, "", "")
+		var setProvider string
+		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+			if key == "provider" {
+				setProvider = value.(string)
+			}
+			return nil
+		}
+
+		// When setDefaultConfiguration is called with "azure" context
+		err := pipeline.setDefaultConfiguration(context.Background(), "azure")
+
+		// Then should set provider to "azure" and complete successfully
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if setProvider != "azure" {
+			t.Errorf("Expected provider to be set to 'azure', got %q", setProvider)
+		}
+	})
+
+	t.Run("UsesContextNameAsProviderForMetal", func(t *testing.T) {
+		// Given a pipeline with no provider set and "metal" context name
+		pipeline, mockConfigHandler := setup(t, "", "")
+		var setProvider string
+		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+			if key == "provider" {
+				setProvider = value.(string)
+			}
+			return nil
+		}
+
+		// When setDefaultConfiguration is called with "metal" context
+		err := pipeline.setDefaultConfiguration(context.Background(), "metal")
+
+		// Then should set provider to "metal" and complete successfully
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if setProvider != "metal" {
+			t.Errorf("Expected provider to be set to 'metal', got %q", setProvider)
+		}
+	})
+
+	t.Run("UsesContextNameAsProviderForLocal", func(t *testing.T) {
+		// Given a pipeline with no provider set and "local" context name
+		pipeline, mockConfigHandler := setup(t, "", "")
+		var setProvider string
+		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+			if key == "provider" {
+				setProvider = value.(string)
+			}
+			return nil
+		}
+
+		// When setDefaultConfiguration is called with "local" context
+		err := pipeline.setDefaultConfiguration(context.Background(), "local")
+
+		// Then should set provider to "local" and complete successfully
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if setProvider != "local" {
+			t.Errorf("Expected provider to be set to 'local', got %q", setProvider)
+		}
+	})
+
+	t.Run("DoesNotUseContextNameAsProviderWhenProviderAlreadySet", func(t *testing.T) {
+		// Given a pipeline with provider already set to "aws"
+		pipeline, mockConfigHandler := setup(t, "", "aws")
+		providerSetCount := 0
+		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+			if key == "provider" {
+				providerSetCount++
+			}
+			return nil
+		}
+
+		// When setDefaultConfiguration is called with "azure" context
+		err := pipeline.setDefaultConfiguration(context.Background(), "azure")
+
+		// Then should not set provider again and complete successfully
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if providerSetCount > 0 {
+			t.Errorf("Expected provider not to be set again, but it was set %d times", providerSetCount)
+		}
+	})
+
+	t.Run("DoesNotUseContextNameAsProviderForUnknownProvider", func(t *testing.T) {
+		// Given a pipeline with no provider set and unknown context name
+		pipeline, mockConfigHandler := setup(t, "", "")
+		providerSet := false
+		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+			if key == "provider" {
+				providerSet = true
+			}
+			return nil
+		}
+
+		// When setDefaultConfiguration is called with "unknown" context
+		err := pipeline.setDefaultConfiguration(context.Background(), "unknown")
+
+		// Then should not set provider and complete successfully
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if providerSet {
+			t.Error("Expected provider not to be set for unknown context name")
+		}
+	})
+
+	t.Run("SkipsDefaultConfigWhenProviderIsSet", func(t *testing.T) {
+		// Given a pipeline with provider already set
+		pipeline, mockConfigHandler := setup(t, "docker-desktop", "aws")
+		defaultConfigSet := false
+		mockConfigHandler.SetDefaultFunc = func(defaultConfig v1alpha1.Context) error {
+			defaultConfigSet = true
+			return nil
+		}
+
+		// When setDefaultConfiguration is called
+		err := pipeline.setDefaultConfiguration(context.Background(), "test")
+
+		// Then should not set default config and complete successfully
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if defaultConfigSet {
+			t.Error("Expected default config not to be set when provider is already set")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenSetProviderFromContextNameFails", func(t *testing.T) {
+		// Given a pipeline with config handler that fails on SetContextValue for provider
+		pipeline, mockConfigHandler := setup(t, "", "")
+		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+			if key == "provider" {
+				return fmt.Errorf("set provider failed")
+			}
+			return nil
+		}
+
+		// When setDefaultConfiguration is called with "aws" context
+		err := pipeline.setDefaultConfiguration(context.Background(), "aws")
+
+		// Then should return error
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "Error setting provider from context name") {
+			t.Errorf("Expected error to contain 'Error setting provider from context name', got %v", err)
+		}
+	})
+
 	t.Run("ReturnsErrorWhenSetDefaultFails", func(t *testing.T) {
 		// Given a pipeline with config handler that fails on SetDefault
 		pipeline, mockConfigHandler := setup(t, "docker-desktop", "")
@@ -624,20 +805,20 @@ func TestInitPipeline_setDefaultConfiguration(t *testing.T) {
 
 	t.Run("ReturnsErrorWhenSetContextValueFails", func(t *testing.T) {
 		// Given a pipeline with config handler that fails on SetContextValue
-		pipeline, mockConfigHandler := setup(t, "docker", "")
+		pipeline, mockConfigHandler := setup(t, "", "")
 		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
 			return fmt.Errorf("set context value failed")
 		}
 
-		// When setDefaultConfiguration is called
-		err := pipeline.setDefaultConfiguration(context.Background(), "test")
+		// When setDefaultConfiguration is called with "aws" context
+		err := pipeline.setDefaultConfiguration(context.Background(), "aws")
 
 		// Then should return error
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "Error setting vm.driver") {
-			t.Errorf("Expected error to contain 'Error setting vm.driver', got %v", err)
+		if !strings.Contains(err.Error(), "Error setting provider from context name") {
+			t.Errorf("Expected error to contain 'Error setting provider from context name', got %v", err)
 		}
 	})
 }
@@ -709,45 +890,57 @@ func TestInitPipeline_processPlatformConfiguration(t *testing.T) {
 }
 
 func TestInitPipeline_prepareTemplateData(t *testing.T) {
-	t.Run("ReturnsEmptyMapWhenNoBlueprintHandler", func(t *testing.T) {
-		// Given a pipeline with no blueprint handler
+	t.Run("Priority1_ExplicitBlueprintOverridesLocalTemplates", func(t *testing.T) {
+		// Given a pipeline with both explicit blueprint and local templates
 		pipeline := &InitPipeline{}
 
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			return "" // No blueprint flag
+		// Mock artifact builder that succeeds
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		expectedOCIData := map[string][]byte{
+			"blueprint.jsonnet": []byte("{ explicit: 'oci-data' }"),
 		}
-		pipeline.configHandler = mockConfigHandler
+		mockArtifactBuilder.GetTemplateDataFunc = func(ociRef string) (map[string][]byte, error) {
+			return expectedOCIData, nil
+		}
+		pipeline.artifactBuilder = mockArtifactBuilder
 
-		pipeline.blueprintHandler = nil
+		// Mock blueprint handler with local templates
+		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(nil)
+		mockBlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
+			return map[string][]byte{
+				"blueprint.jsonnet": []byte("{ local: 'template-data' }"),
+			}, nil
+		}
+		pipeline.blueprintHandler = mockBlueprintHandler
+
+		// Create context with explicit blueprint value
+		ctx := context.WithValue(context.Background(), "blueprint", "oci://registry.example.com/blueprint:latest")
 
 		// When prepareTemplateData is called
-		templateData, err := pipeline.prepareTemplateData(context.Background())
+		templateData, err := pipeline.prepareTemplateData(ctx)
 
-		// Then should return empty map
+		// Then should use explicit blueprint, not local templates
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		if templateData == nil {
-			t.Error("Expected non-nil template data")
+		if len(templateData) != 1 {
+			t.Errorf("Expected 1 template file, got %d", len(templateData))
 		}
-		if len(templateData) != 0 {
-			t.Error("Expected empty template data")
+		if string(templateData["blueprint.jsonnet"]) != "{ explicit: 'oci-data' }" {
+			t.Error("Expected explicit blueprint data to override local templates")
 		}
 	})
 
-	t.Run("ReturnsErrorWhenOCIFails", func(t *testing.T) {
-		// Given a pipeline with OCI blueprint that fails
+	t.Run("Priority1_ExplicitBlueprintFailsWithError", func(t *testing.T) {
+		// Given a pipeline with explicit blueprint that fails
 		pipeline := &InitPipeline{}
 
-		// Mock artifact builder that fails
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		mockArtifactBuilder.GetTemplateDataFunc = func(ociRef string) (map[string][]byte, error) {
 			return nil, fmt.Errorf("OCI pull failed")
 		}
 		pipeline.artifactBuilder = mockArtifactBuilder
 
-		// Create context with blueprint value
 		ctx := context.WithValue(context.Background(), "blueprint", "oci://registry.example.com/blueprint:latest")
 
 		// When prepareTemplateData is called
@@ -765,18 +958,130 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsEmptyWhenArtifactBuilderMissing", func(t *testing.T) {
-		// Given a pipeline with OCI blueprint but no artifact builder
+	t.Run("Priority2_LocalTemplatesWhenNoExplicitBlueprint", func(t *testing.T) {
+		// Given a pipeline with local templates but no explicit blueprint
+		pipeline := &InitPipeline{}
+
+		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(nil)
+		expectedLocalData := map[string][]byte{
+			"blueprint.jsonnet": []byte("{ local: 'template-data' }"),
+		}
+		mockBlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
+			return expectedLocalData, nil
+		}
+		pipeline.blueprintHandler = mockBlueprintHandler
+
+		// When prepareTemplateData is called with no blueprint context
+		templateData, err := pipeline.prepareTemplateData(context.Background())
+
+		// Then should use local template data
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(templateData) != 1 {
+			t.Errorf("Expected 1 template file, got %d", len(templateData))
+		}
+		if string(templateData["blueprint.jsonnet"]) != "{ local: 'template-data' }" {
+			t.Error("Expected local template data")
+		}
+	})
+
+	t.Run("Priority3_DefaultOCIURLWhenNoLocalTemplates", func(t *testing.T) {
+		// Given a pipeline with no local templates and artifact builder
+		pipeline := &InitPipeline{}
+
+		// Mock artifact builder for default OCI URL
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		expectedDefaultOCIData := map[string][]byte{
+			"blueprint.jsonnet": []byte("{ default: 'oci-data' }"),
+		}
+		var receivedOCIRef string
+		mockArtifactBuilder.GetTemplateDataFunc = func(ociRef string) (map[string][]byte, error) {
+			receivedOCIRef = ociRef
+			return expectedDefaultOCIData, nil
+		}
+		pipeline.artifactBuilder = mockArtifactBuilder
+
+		// Mock blueprint handler with no local templates
+		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(nil)
+		mockBlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
+			return make(map[string][]byte), nil // Empty local templates
+		}
+		pipeline.blueprintHandler = mockBlueprintHandler
+
+		// When prepareTemplateData is called with no blueprint context
+		templateData, err := pipeline.prepareTemplateData(context.Background())
+
+		// Then should use default OCI URL and set fallback URL
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(templateData) != 1 {
+			t.Errorf("Expected 1 template file, got %d", len(templateData))
+		}
+		if string(templateData["blueprint.jsonnet"]) != "{ default: 'oci-data' }" {
+			t.Error("Expected default OCI blueprint data")
+		}
+		// Verify the correct default OCI URL was used
+		if !strings.Contains(receivedOCIRef, "ghcr.io/windsorcli/core") {
+			t.Errorf("Expected default OCI URL to be used, got %s", receivedOCIRef)
+		}
+		// Verify fallback URL is set
+		if pipeline.fallbackBlueprintURL == "" {
+			t.Error("Expected fallbackBlueprintURL to be set")
+		}
+	})
+
+	t.Run("Priority4_EmbeddedDefaultWhenNoArtifactBuilder", func(t *testing.T) {
+		// Given a pipeline with no artifact builder
 		pipeline := &InitPipeline{}
 		pipeline.artifactBuilder = nil
 
-		// Create context with blueprint value
-		ctx := context.WithValue(context.Background(), "blueprint", "oci://registry.example.com/blueprint:latest")
+		// Mock config handler (needed for determineContextName)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextFunc = func() string {
+			return "local"
+		}
+		pipeline.configHandler = mockConfigHandler
+
+		// Mock blueprint handler with no local templates but default template
+		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(nil)
+		mockBlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
+			return make(map[string][]byte), nil // Empty local templates
+		}
+		expectedDefaultData := map[string][]byte{
+			"blueprint.jsonnet": []byte("{ embedded: 'default-template' }"),
+		}
+		mockBlueprintHandler.GetDefaultTemplateDataFunc = func(contextName string) (map[string][]byte, error) {
+			return expectedDefaultData, nil
+		}
+		pipeline.blueprintHandler = mockBlueprintHandler
 
 		// When prepareTemplateData is called
-		templateData, err := pipeline.prepareTemplateData(ctx)
+		templateData, err := pipeline.prepareTemplateData(context.Background())
 
-		// Then should return empty template data
+		// Then should use embedded default template
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(templateData) != 1 {
+			t.Errorf("Expected 1 template file, got %d", len(templateData))
+		}
+		if string(templateData["blueprint.jsonnet"]) != "{ embedded: 'default-template' }" {
+			t.Error("Expected embedded default template data")
+		}
+	})
+
+	t.Run("ReturnsEmptyMapWhenNothingAvailable", func(t *testing.T) {
+		// Given a pipeline with no blueprint handler and no artifact builder
+		pipeline := &InitPipeline{}
+		pipeline.blueprintHandler = nil
+		pipeline.artifactBuilder = nil
+
+		// When prepareTemplateData is called
+		templateData, err := pipeline.prepareTemplateData(context.Background())
+
+		// Then should return empty map
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -788,145 +1093,28 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		}
 	})
 
-	t.Run("UsesArtifactBuilderForOCIBlueprint", func(t *testing.T) {
-		// Given a pipeline with OCI blueprint and artifact builder
+	t.Run("HandlesInvalidOCIReference", func(t *testing.T) {
+		// Given a pipeline with invalid OCI reference
 		pipeline := &InitPipeline{}
 
 		mockArtifactBuilder := artifact.NewMockArtifact()
-		expectedTemplateData := map[string][]byte{
-			"blueprint.jsonnet": []byte("{ test: 'data' }"),
-		}
-		mockArtifactBuilder.GetTemplateDataFunc = func(ociRef string) (map[string][]byte, error) {
-			return expectedTemplateData, nil
-		}
 		pipeline.artifactBuilder = mockArtifactBuilder
 
-		// Create context with blueprint value
-		ctx := context.WithValue(context.Background(), "blueprint", "oci://registry.example.com/blueprint:latest")
+		// Create context with invalid blueprint value
+		ctx := context.WithValue(context.Background(), "blueprint", "invalid-oci-reference")
 
 		// When prepareTemplateData is called
 		templateData, err := pipeline.prepareTemplateData(ctx)
 
-		// Then should use artifact builder
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
+		// Then should return error for invalid reference
+		if err == nil {
+			t.Fatal("Expected error for invalid OCI reference, got nil")
 		}
-		if len(templateData) != 1 {
-			t.Errorf("Expected 1 template file, got %d", len(templateData))
+		if !strings.Contains(err.Error(), "failed to parse blueprint reference") {
+			t.Errorf("Expected error to contain 'failed to parse blueprint reference', got %v", err)
 		}
-		if string(templateData["blueprint.jsonnet"]) != "{ test: 'data' }" {
-			t.Error("Expected correct template data from artifact builder")
-		}
-	})
-
-	t.Run("UsesArtifactBuilderForShortFormatBlueprint", func(t *testing.T) {
-		// Given a pipeline with short format blueprint and artifact builder
-		pipeline := &InitPipeline{}
-
-		mockArtifactBuilder := artifact.NewMockArtifact()
-		expectedTemplateData := map[string][]byte{
-			"blueprint.jsonnet": []byte("{ test: 'short-format' }"),
-		}
-		var receivedOCIRef string
-		mockArtifactBuilder.GetTemplateDataFunc = func(ociRef string) (map[string][]byte, error) {
-			receivedOCIRef = ociRef
-			return expectedTemplateData, nil
-		}
-		pipeline.artifactBuilder = mockArtifactBuilder
-
-		// Create context with short format blueprint value
-		ctx := context.WithValue(context.Background(), "blueprint", "windsorcli/core:v0.0.1")
-
-		// When prepareTemplateData is called
-		templateData, err := pipeline.prepareTemplateData(ctx)
-
-		// Then should use artifact builder with converted full URL
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if len(templateData) != 1 {
-			t.Errorf("Expected 1 template file, got %d", len(templateData))
-		}
-		if string(templateData["blueprint.jsonnet"]) != "{ test: 'short-format' }" {
-			t.Error("Expected correct template data from artifact builder")
-		}
-		// Verify that the short format was converted to full OCI URL
-		expectedURL := "oci://ghcr.io/windsorcli/core:v0.0.1"
-		if receivedOCIRef != expectedURL {
-			t.Errorf("Expected GetTemplateData to be called with %s, got %s", expectedURL, receivedOCIRef)
-		}
-	})
-
-	t.Run("UsesLocalTemplateDataWhenAvailable", func(t *testing.T) {
-		// Given a pipeline with local template data
-		pipeline := &InitPipeline{}
-
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			return "" // No blueprint flag
-		}
-		pipeline.configHandler = mockConfigHandler
-
-		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(nil)
-		expectedLocalData := map[string][]byte{
-			"blueprint.jsonnet": []byte("local template data"),
-		}
-		mockBlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
-			return expectedLocalData, nil
-		}
-		pipeline.blueprintHandler = mockBlueprintHandler
-
-		// When prepareTemplateData is called
-		templateData, err := pipeline.prepareTemplateData(context.Background())
-
-		// Then should use local template data
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if len(templateData) != 1 {
-			t.Errorf("Expected 1 template file, got %d", len(templateData))
-		}
-		if string(templateData["blueprint.jsonnet"]) != "local template data" {
-			t.Error("Expected local template data")
-		}
-	})
-
-	t.Run("FallsBackToDefaultTemplateData", func(t *testing.T) {
-		// Given a pipeline with no local templates but blueprint handler
-		pipeline := &InitPipeline{}
-
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			return "" // No blueprint flag
-		}
-		pipeline.configHandler = mockConfigHandler
-
-		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(nil)
-		// Return empty local template data
-		mockBlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
-			return make(map[string][]byte), nil
-		}
-		// Return default template data
-		expectedDefaultData := map[string][]byte{
-			"blueprint.jsonnet": []byte("default template data"),
-		}
-		mockBlueprintHandler.GetDefaultTemplateDataFunc = func(contextName string) (map[string][]byte, error) {
-			return expectedDefaultData, nil
-		}
-		pipeline.blueprintHandler = mockBlueprintHandler
-
-		// When prepareTemplateData is called
-		templateData, err := pipeline.prepareTemplateData(context.Background())
-
-		// Then should use default template data
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if len(templateData) != 1 {
-			t.Errorf("Expected 1 template file, got %d", len(templateData))
-		}
-		if string(templateData["blueprint.jsonnet"]) != "default template data" {
-			t.Error("Expected default template data")
+		if templateData != nil {
+			t.Error("Expected nil template data on error")
 		}
 	})
 }

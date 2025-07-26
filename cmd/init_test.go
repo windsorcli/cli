@@ -935,9 +935,111 @@ func TestInitCmd(t *testing.T) {
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
-		// Then no error should occur - platform should override auto-set provider
+		// Then no error should occur and platform should override auto-set provider
 		if err != nil {
-			t.Errorf("Expected success when platform overrides auto-set provider, got error: %v", err)
+			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
+	t.Run("RunEContextNameAsProvider", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// When executing the init command with context name that matches a provider
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"aws"}) // No explicit provider flag
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur and context name should be used as provider
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
+	t.Run("RunEContextNameAsProviderForAzure", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// When executing the init command with "azure" context name
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"azure"}) // No explicit provider flag
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur and "azure" should be used as provider
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
+	t.Run("RunEContextNameAsProviderForMetal", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// When executing the init command with "metal" context name
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"metal"}) // No explicit provider flag
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur and "metal" should be used as provider
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
+	t.Run("RunEContextNameAsProviderForLocal", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// When executing the init command with "local" context name
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"local"}) // No explicit provider flag
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur and "local" should be used as provider
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
+	t.Run("RunEExplicitProviderOverridesContextName", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// When executing the init command with explicit provider that differs from context name
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"aws", "--provider", "azure"}) // Context name vs explicit provider
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur and explicit provider should be used
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
+	t.Run("RunEUnknownContextNameDoesNotSetProvider", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// When executing the init command with unknown context name
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"unknown-context"}) // Unknown context name
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur and no provider should be set
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
 		}
 	})
 

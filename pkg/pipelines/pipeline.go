@@ -277,9 +277,12 @@ func (p *BasePipeline) withGenerators() ([]generators.Generator, error) {
 	p.injector.Register("gitGenerator", gitGenerator)
 	generatorList = append(generatorList, gitGenerator)
 
-	terraformGenerator := generators.NewTerraformGenerator(p.injector)
-	p.injector.Register("terraformGenerator", terraformGenerator)
-	generatorList = append(generatorList, terraformGenerator)
+	// Only create Terraform generator if Terraform is enabled
+	if p.configHandler.GetBool("terraform.enabled", false) {
+		terraformGenerator := generators.NewTerraformGenerator(p.injector)
+		p.injector.Register("terraformGenerator", terraformGenerator)
+		generatorList = append(generatorList, terraformGenerator)
+	}
 
 	return generatorList, nil
 }
