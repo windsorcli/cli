@@ -106,13 +106,13 @@ func setupCheckMocks(t *testing.T, opts ...*SetupOptions) *CheckMocks {
 			// If existing is not a MockKubernetesManager, create a new one
 			mockKubernetesManager = kubernetes.NewMockKubernetesManager(baseMocks.Injector)
 			mockKubernetesManager.InitializeFunc = func() error { return nil }
-			mockKubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string) error { return nil }
+			mockKubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, nodeNames ...string) error { return nil }
 			baseMocks.Injector.Register("kubernetesManager", mockKubernetesManager)
 		}
 	} else {
 		mockKubernetesManager = kubernetes.NewMockKubernetesManager(baseMocks.Injector)
 		mockKubernetesManager.InitializeFunc = func() error { return nil }
-		mockKubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string) error { return nil }
+		mockKubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, nodeNames ...string) error { return nil }
 		baseMocks.Injector.Register("kubernetesManager", mockKubernetesManager)
 	}
 
@@ -757,7 +757,7 @@ func TestCheckPipeline_executeNodeHealthCheck(t *testing.T) {
 		// Given a check pipeline with only k8s endpoint specified
 		pipeline, mocks := setup(t)
 
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string) error {
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, nodeNames ...string) error {
 			return nil
 		}
 

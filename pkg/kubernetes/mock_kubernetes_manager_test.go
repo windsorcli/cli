@@ -420,7 +420,7 @@ func TestMockKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 	t.Run("FuncSet", func(t *testing.T) {
 		manager := setup(t)
 		errVal := fmt.Errorf("kubernetes health check failed")
-		manager.WaitForKubernetesHealthyFunc = func(c context.Context, e string) error {
+		manager.WaitForKubernetesHealthyFunc = func(c context.Context, e string, nodeNames ...string) error {
 			if c != ctx {
 				t.Errorf("Expected context %v, got %v", ctx, c)
 			}

@@ -46,7 +46,7 @@ type KubernetesManager interface {
 	WaitForKustomizationsDeleted(message string, names ...string) error
 	CheckGitRepositoryStatus() error
 	GetKustomizationStatus(names []string) (map[string]bool, error)
-	WaitForKubernetesHealthy(ctx context.Context, endpoint string) error
+	WaitForKubernetesHealthy(ctx context.Context, endpoint string, nodeNames ...string) error
 }
 
 // =============================================================================
@@ -548,10 +548,10 @@ func (k *BaseKubernetesManager) GetKustomizationStatus(names []string) (map[stri
 	return status, nil
 }
 
-// WaitForKubernetesHealthy polls the Kubernetes API endpoint for health until it is reachable or the context deadline is exceeded.
-// If the client is not initialized, returns an error. Uses a default timeout of 5 minutes if the context has no deadline.
-// Polls every 10 seconds. Returns nil if the API becomes healthy, or an error if the timeout is reached or the context is canceled.
-func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, endpoint string) error {
+// WaitForKubernetesHealthy waits for the Kubernetes API to be healthy and optionally checks node Ready state.
+// If nodeNames are provided, it will also verify that all specified nodes are in Ready state.
+// Returns an error if the API is unreachable or if any specified nodes are not Ready.
+func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, endpoint string, nodeNames ...string) error {
 	if k.client == nil {
 		return fmt.Errorf("kubernetes client not initialized")
 	}
@@ -568,14 +568,47 @@ func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, en
 		case <-ctx.Done():
 			return fmt.Errorf("timeout waiting for Kubernetes API to be healthy")
 		default:
-			if err := k.client.CheckHealth(ctx, endpoint); err == nil {
-				return nil
+			// Check API connectivity
+			if err := k.client.CheckHealth(ctx, endpoint); err != nil {
+				time.Sleep(pollInterval)
+				continue
 			}
-			time.Sleep(pollInterval)
+
+			// If node names are specified, check their Ready state
+			if len(nodeNames) > 0 {
+				if err := k.waitForNodesReady(ctx, nodeNames); err != nil {
+					time.Sleep(pollInterval)
+					continue
+				}
+			}
+
+			return nil
 		}
 	}
 
 	return fmt.Errorf("timeout waiting for Kubernetes API to be healthy")
+}
+
+// waitForNodesReady waits for all specified nodes to be in Ready state.
+// Returns an error if any nodes are not Ready within the context timeout.
+func (k *BaseKubernetesManager) waitForNodesReady(ctx context.Context, nodeNames []string) error {
+	readyStatus, err := k.client.GetNodeReadyStatus(ctx, nodeNames)
+	if err != nil {
+		return fmt.Errorf("failed to get node ready status: %w", err)
+	}
+
+	var notReadyNodes []string
+	for _, nodeName := range nodeNames {
+		if ready, exists := readyStatus[nodeName]; !exists || !ready {
+			notReadyNodes = append(notReadyNodes, nodeName)
+		}
+	}
+
+	if len(notReadyNodes) > 0 {
+		return fmt.Errorf("nodes not ready: %s", strings.Join(notReadyNodes, ", "))
+	}
+
+	return nil
 }
 
 // applyWithRetry applies a resource using SSA with minimal logic

@@ -34,7 +34,7 @@ type MockKubernetesManager struct {
 	ApplyOCIRepositoryFunc              func(repo *sourcev1.OCIRepository) error
 	WaitForKustomizationsDeletedFunc    func(message string, names ...string) error
 	CheckGitRepositoryStatusFunc        func() error
-	WaitForKubernetesHealthyFunc        func(ctx context.Context, endpoint string) error
+	WaitForKubernetesHealthyFunc        func(ctx context.Context, endpoint string, nodeNames ...string) error
 }
 
 // =============================================================================
@@ -171,9 +171,9 @@ func (m *MockKubernetesManager) CheckGitRepositoryStatus() error {
 }
 
 // WaitForKubernetesHealthy waits for the Kubernetes API endpoint to be healthy with polling and timeout
-func (m *MockKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, endpoint string) error {
+func (m *MockKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, endpoint string, nodeNames ...string) error {
 	if m.WaitForKubernetesHealthyFunc != nil {
-		return m.WaitForKubernetesHealthyFunc(ctx, endpoint)
+		return m.WaitForKubernetesHealthyFunc(ctx, endpoint, nodeNames...)
 	}
 	return nil
 }
