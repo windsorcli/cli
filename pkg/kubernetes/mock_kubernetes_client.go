@@ -19,12 +19,13 @@ import (
 
 // MockKubernetesClient is a mock implementation of KubernetesClient interface for testing
 type MockKubernetesClient struct {
-	GetResourceFunc    func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error)
-	ListResourcesFunc  func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error)
-	ApplyResourceFunc  func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error)
-	DeleteResourceFunc func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error
-	PatchResourceFunc  func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error)
-	CheckHealthFunc    func(ctx context.Context, endpoint string) error
+	GetResourceFunc        func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error)
+	ListResourcesFunc      func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error)
+	ApplyResourceFunc      func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error)
+	DeleteResourceFunc     func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error
+	PatchResourceFunc      func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error)
+	CheckHealthFunc        func(ctx context.Context, endpoint string) error
+	GetNodeReadyStatusFunc func(ctx context.Context, nodeNames []string) (map[string]bool, error)
 }
 
 // =============================================================================
@@ -86,4 +87,12 @@ func (m *MockKubernetesClient) CheckHealth(ctx context.Context, endpoint string)
 		return m.CheckHealthFunc(ctx, endpoint)
 	}
 	return nil
+}
+
+// GetNodeReadyStatus implements KubernetesClient interface
+func (m *MockKubernetesClient) GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error) {
+	if m.GetNodeReadyStatusFunc != nil {
+		return m.GetNodeReadyStatusFunc(ctx, nodeNames)
+	}
+	return make(map[string]bool), nil
 }

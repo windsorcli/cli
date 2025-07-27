@@ -22,7 +22,7 @@ import (
 // Interfaces
 // =============================================================================
 
-// KubernetesClient defines methods for low-level Kubernetes operations
+// KubernetesClient defines methods for Kubernetes resource operations
 type KubernetesClient interface {
 	// Resource operations
 	GetResource(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error)
@@ -31,10 +31,12 @@ type KubernetesClient interface {
 	DeleteResource(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error
 	PatchResource(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error)
 	CheckHealth(ctx context.Context, endpoint string) error
+	// Node health operations
+	GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error)
 }
 
 // =============================================================================
-// Constructor
+// Types
 // =============================================================================
 
 // DynamicKubernetesClient implements KubernetesClient using dynamic client
@@ -42,6 +44,10 @@ type DynamicKubernetesClient struct {
 	client   dynamic.Interface
 	endpoint string
 }
+
+// =============================================================================
+// Constructor
+// =============================================================================
 
 // NewDynamicKubernetesClient creates a new DynamicKubernetesClient
 func NewDynamicKubernetesClient() *DynamicKubernetesClient {
@@ -116,6 +122,62 @@ func (c *DynamicKubernetesClient) CheckHealth(ctx context.Context, endpoint stri
 	return nil
 }
 
+// GetNodeReadyStatus returns a map of node names to their Ready condition status.
+// It checks the Ready condition for each specified node using the dynamic client.
+// If nodeNames is empty, all nodes are checked. Nodes not found are omitted from the result.
+// Returns a map of node names to Ready status (true if Ready, false if NotReady), or an error if listing fails.
+func (c *DynamicKubernetesClient) GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error) {
+	if err := c.ensureClient(); err != nil {
+		return nil, fmt.Errorf("failed to initialize Kubernetes client: %w", err)
+	}
+
+	nodeGVR := schema.GroupVersionResource{
+		Group:    "",
+		Version:  "v1",
+		Resource: "nodes",
+	}
+
+	var nodes *unstructured.UnstructuredList
+	var err error
+
+	// Get all nodes and filter by name if specific nodes are requested
+	nodes, err = c.client.Resource(nodeGVR).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list nodes: %w", err)
+	}
+
+	// Filter nodes if specific node names are requested
+	if len(nodeNames) > 0 {
+		var filteredNodes []unstructured.Unstructured
+		nodeNameSet := make(map[string]bool)
+		for _, name := range nodeNames {
+			nodeNameSet[name] = true
+		}
+
+		for _, node := range nodes.Items {
+			if nodeNameSet[node.GetName()] {
+				filteredNodes = append(filteredNodes, node)
+			}
+		}
+
+		// Replace the items with filtered ones
+		nodes.Items = filteredNodes
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to list nodes: %w", err)
+	}
+
+	readyStatus := make(map[string]bool)
+	for _, node := range nodes.Items {
+		nodeName := node.GetName()
+		ready := c.isNodeReady(&node)
+		readyStatus[nodeName] = ready
+	}
+
+	return readyStatus, nil
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================
@@ -158,4 +220,34 @@ func (c *DynamicKubernetesClient) ensureClient() error {
 	}
 	c.client = cli
 	return nil
+}
+
+// isNodeReady checks if a node is in Ready state by examining its conditions.
+// Returns true if the node has a Ready condition with status "True".
+func (c *DynamicKubernetesClient) isNodeReady(node *unstructured.Unstructured) bool {
+	conditions, found, err := unstructured.NestedSlice(node.Object, "status", "conditions")
+	if err != nil || !found {
+		return false
+	}
+
+	for _, condition := range conditions {
+		conditionMap, ok := condition.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		conditionType, found, err := unstructured.NestedString(conditionMap, "type")
+		if err != nil || !found || conditionType != "Ready" {
+			continue
+		}
+
+		conditionStatus, found, err := unstructured.NestedString(conditionMap, "status")
+		if err != nil || !found {
+			continue
+		}
+
+		return conditionStatus == "True"
+	}
+
+	return false
 }

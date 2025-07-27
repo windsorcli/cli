@@ -732,7 +732,7 @@ func TestWithPipeline(t *testing.T) {
 					// Set up kubernetes manager
 					mockKubernetesManager := kubernetes.NewMockKubernetesManager(injector)
 					mockKubernetesManager.InitializeFunc = func() error { return nil }
-					mockKubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string) error { return nil }
+					mockKubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error { return nil }
 					injector.Register("kubernetesManager", mockKubernetesManager)
 				}
 
