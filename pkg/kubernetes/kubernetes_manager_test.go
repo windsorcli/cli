@@ -1917,6 +1917,55 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 		}
 	})
 
+	t.Run("KustomizationArtifactFailed", func(t *testing.T) {
+		manager := func(t *testing.T) *BaseKubernetesManager {
+			mocks := setupMocks(t)
+			manager := NewKubernetesManager(mocks.Injector)
+			if err := manager.Initialize(); err != nil {
+				t.Fatalf("Initialize failed: %v", err)
+			}
+			return manager
+		}(t)
+		client := NewMockKubernetesClient()
+		client.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{
+				Items: []unstructured.Unstructured{
+					{
+						Object: map[string]any{
+							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+							"kind":       "Kustomization",
+							"metadata": map[string]any{
+								"name": "k1",
+							},
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{
+										"type":    "Ready",
+										"status":  "False",
+										"reason":  "ArtifactFailed",
+										"message": "kustomization path not found: stat /tmp/kustomization-1671333540/kustomize\\ingress\\cleanup: no such file or directory",
+									},
+								},
+							},
+						},
+					},
+				},
+			}, nil
+		}
+		manager.client = client
+
+		status, err := manager.GetKustomizationStatus([]string{"k1"})
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "kustomization k1 failed: kustomization path not found") {
+			t.Errorf("Expected error containing 'kustomization k1 failed: kustomization path not found', got %v", err)
+		}
+		if status != nil {
+			t.Errorf("Expected nil status, got %v", status)
+		}
+	})
+
 	t.Run("KustomizationMissing", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
 			mocks := setupMocks(t)

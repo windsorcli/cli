@@ -1914,6 +1914,35 @@ func TestBlueprintHandler_Down(t *testing.T) {
 		}
 	})
 
+	t.Run("CleanupPathNormalization", func(t *testing.T) {
+		// Given a handler with kustomizations that have cleanup paths with backslashes
+		handler, mocks := setup(t)
+		baseHandler := handler
+		baseHandler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
+			{Name: "k1", Path: "ingress\\base", Cleanup: []string{"cleanup"}},
+		}
+
+		// Track the applied kustomization to verify path normalization
+		var appliedKustomization kustomizev1.Kustomization
+		mocks.KubernetesManager.ApplyKustomizationFunc = func(k kustomizev1.Kustomization) error {
+			appliedKustomization = k
+			return nil
+		}
+
+		// When calling Down
+		err := baseHandler.Down()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+
+		// And the cleanup path should use forward slashes
+		expectedPath := "kustomize/ingress/base/cleanup"
+		if appliedKustomization.Spec.Path != expectedPath {
+			t.Errorf("Expected cleanup path to be normalized to %s, got %s", expectedPath, appliedKustomization.Spec.Path)
+		}
+	})
 }
 
 func TestBlueprintHandler_GetRepository(t *testing.T) {
