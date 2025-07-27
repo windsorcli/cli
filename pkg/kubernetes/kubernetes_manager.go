@@ -517,7 +517,7 @@ func (k *BaseKubernetesManager) GetKustomizationStatus(names []string) (map[stri
 			if condition.Type == "Ready" {
 				if condition.Status == "True" {
 					ready = true
-				} else if condition.Status == "False" && condition.Reason == "ReconciliationFailed" {
+				} else if condition.Status == "False" && (condition.Reason == "ReconciliationFailed" || condition.Reason == "ArtifactFailed") {
 					return nil, fmt.Errorf("kustomization %s failed: %s", kustomizeObj.Name, condition.Message)
 				}
 				break
