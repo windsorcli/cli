@@ -497,7 +497,7 @@ func (b *BaseBlueprintHandler) destroyKustomizations(ctx context.Context, kustom
 
 			cleanupKustomization := &blueprintv1alpha1.Kustomization{
 				Name:          k.Name + "-cleanup",
-				Path:          filepath.Join(k.Path, "cleanup"),
+				Path:          strings.ReplaceAll(filepath.Join(k.Path, "cleanup"), "\\", "/"),
 				Source:        k.Source,
 				Components:    k.Cleanup,
 				Timeout:       &metav1.Duration{Duration: 30 * time.Minute},
