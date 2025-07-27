@@ -417,3 +417,50 @@ func TestMockKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 		}
 	})
 }
+
+func TestMockKubernetesManager_GetNodeReadyStatus(t *testing.T) {
+	setup := func(t *testing.T) *MockKubernetesManager {
+		t.Helper()
+		return NewMockKubernetesManager(nil)
+	}
+	ctx := context.Background()
+	nodeNames := []string{"node1", "node2"}
+
+	t.Run("FuncSet", func(t *testing.T) {
+		manager := setup(t)
+		expectedStatus := map[string]bool{
+			"node1": true,
+			"node2": false,
+		}
+		manager.GetNodeReadyStatusFunc = func(c context.Context, names []string) (map[string]bool, error) {
+			if c != ctx {
+				t.Errorf("Expected context %v, got %v", ctx, c)
+			}
+			if !reflect.DeepEqual(names, nodeNames) {
+				t.Errorf("Expected nodeNames %v, got %v", nodeNames, names)
+			}
+			return expectedStatus, nil
+		}
+		status, err := manager.GetNodeReadyStatus(ctx, nodeNames)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !reflect.DeepEqual(status, expectedStatus) {
+			t.Errorf("Expected status %v, got %v", expectedStatus, status)
+		}
+	})
+
+	t.Run("FuncNotSet", func(t *testing.T) {
+		manager := setup(t)
+		status, err := manager.GetNodeReadyStatus(ctx, nodeNames)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if status == nil {
+			t.Error("Expected empty map, got nil")
+		}
+		if len(status) != 0 {
+			t.Errorf("Expected empty map, got %v", status)
+		}
+	})
+}
