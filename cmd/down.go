@@ -1,13 +1,19 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/pipelines"
 )
 
 var (
-	cleanFlag bool
+	cleanFlag         bool
+	skipK8sFlag       bool
+	skipTerraformFlag bool
+	skipDockerFlag    bool
 )
 
 var downCmd = &cobra.Command{
@@ -15,50 +21,57 @@ var downCmd = &cobra.Command{
 	Short:        "Tear down the Windsor environment",
 	Long:         "Tear down the Windsor environment by executing necessary shell commands.",
 	SilenceUsage: true,
-	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Create virtualization components
-		if err := controller.CreateVirtualizationComponents(); err != nil {
-			return fmt.Errorf("Error creating virtualization components: %w", err)
+		// Get shared dependency injector from context
+		injector := cmd.Context().Value(injectorKey).(di.Injector)
+
+		// First, run the env pipeline in quiet mode to set up environment variables
+		var envPipeline pipelines.Pipeline
+		envPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "envPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up env pipeline: %w", err)
+		}
+		envCtx := context.WithValue(cmd.Context(), "quiet", true)
+		envCtx = context.WithValue(envCtx, "decrypt", true)
+		if err := envPipeline.Execute(envCtx); err != nil {
+			return fmt.Errorf("failed to set up environment: %w", err)
 		}
 
-		// Initialize all components
-		if err := controller.InitializeComponents(); err != nil {
-			return fmt.Errorf("Error initializing components: %w", err)
+		// Then, run the init pipeline to initialize the environment
+		var initPipeline pipelines.Pipeline
+		initPipeline, err = pipelines.WithPipeline(injector, cmd.Context(), "initPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up init pipeline: %w", err)
+		}
+		if err := initPipeline.Execute(cmd.Context()); err != nil {
+			return fmt.Errorf("failed to initialize environment: %w", err)
 		}
 
-		// Resolve the config handler
-		configHandler := controller.ResolveConfigHandler()
-		if configHandler == nil {
-			return fmt.Errorf("No config handler found")
+		// Finally, run the down pipeline for infrastructure teardown
+		downPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "downPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up down pipeline: %w", err)
 		}
 
-		// Determine if the container runtime is enabled
-		containerRuntimeEnabled := configHandler.GetBool("docker.enabled")
-
-		// Tear down the container runtime if enabled in configuration
-		if containerRuntimeEnabled {
-			// Resolve container runtime
-			containerRuntime := controller.ResolveContainerRuntime()
-			if containerRuntime == nil {
-				return fmt.Errorf("No container runtime found")
-			}
-
-			// Tear down the container runtime
-			if err := containerRuntime.Down(); err != nil {
-				return fmt.Errorf("Error running container runtime Down command: %w", err)
-			}
-		}
-
-		// Clean up context specific artifacts if --clean flag is set
+		// Create execution context with flags
+		ctx := cmd.Context()
 		if cleanFlag {
-			if err := controller.ResolveContextHandler().Clean(); err != nil {
-				return fmt.Errorf("Error cleaning up context specific artifacts: %w", err)
-			}
+			ctx = context.WithValue(ctx, "clean", true)
+		}
+		if skipK8sFlag {
+			ctx = context.WithValue(ctx, "skipK8s", true)
+		}
+		if skipTerraformFlag {
+			ctx = context.WithValue(ctx, "skipTerraform", true)
+		}
+		if skipDockerFlag {
+			ctx = context.WithValue(ctx, "skipDocker", true)
 		}
 
-		// Print success message
-		fmt.Println("Windsor environment torn down successfully.")
+		// Execute the down pipeline
+		if err := downPipeline.Execute(ctx); err != nil {
+			return fmt.Errorf("Error executing down pipeline: %w", err)
+		}
 
 		return nil
 	},
@@ -66,5 +79,8 @@ var downCmd = &cobra.Command{
 
 func init() {
 	downCmd.Flags().BoolVar(&cleanFlag, "clean", false, "Clean up context specific artifacts")
+	downCmd.Flags().BoolVar(&skipK8sFlag, "skip-k8s", false, "Skip Kubernetes cleanup (blueprint cleanup)")
+	downCmd.Flags().BoolVar(&skipTerraformFlag, "skip-tf", false, "Skip Terraform cleanup")
+	downCmd.Flags().BoolVar(&skipDockerFlag, "skip-docker", false, "Skip Docker container cleanup")
 	rootCmd.AddCommand(downCmd)
 }

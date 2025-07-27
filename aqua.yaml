@@ -6,23 +6,28 @@
 #   enabled: true
 #   require_checksum: true
 #   supported_envs:
-#   - all
+#     - all
 registries:
   - type: standard
-    ref: v4.285.1 # renovate: depName=aquaproj/aqua-registry
+    ref: v4.393.0 # renovate: depName=aquaproj/aqua-registry
 packages:
-- name: hashicorp/terraform@v1.10.3
-- name: siderolabs/talos@v1.9.1
-- name: siderolabs/omni/omnictl@v0.45.1
-- name: siderolabs/omni/omni@v0.45.1
-- name: kubernetes/kubectl@v1.32.0
-- name: go-task/task@v3.40.1
-- name: golang/go@go1.23.4
-- name: getsops/sops@v3.9.2
+- name: hashicorp/terraform@v1.12.2
+- name: siderolabs/talos@v1.10.5
+- name: siderolabs/omni/omnictl@v1.0.0
+- name: siderolabs/omni/omni@v1.0.0
+- name: kubernetes/kubectl@v1.33.3
+- name: go-task/task@v3.44.1
+- name: golang/go@go1.24.5
+- name: getsops/sops@v3.9.0
 - name: abiosoft/colima@v0.8.1
-- name: lima-vm/lima@v1.0.3
+- name: lima-vm/lima@v1.2.1
 - name: docker/cli@v27.4.1
-- name: securego/gosec@v2.21.4
-- name: docker/compose@v2.32.1
-- name: google/go-jsonnet@v0.20.0
-- name: mikefarah/yq@v4.44.6
+- name: securego/gosec@v2.22.7
+- name: docker/compose@v2.39.1
+- name: google/go-jsonnet@v0.21.0
+- name: mikefarah/yq@v4.47.1
+- name: goreleaser/goreleaser@v2.11.1
+- name: helm/helm@v3.18.4
+- name: 1password/cli@v2.30.3
+- name: fluxcd/flux2@v2.6.4
+- name: aws/aws-cli@2.27.60

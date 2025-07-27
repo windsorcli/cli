@@ -1,359 +1,434 @@
 package cmd
 
 import (
-	"bytes"
+	"context"
 	"fmt"
-	"strings"
+	"os"
 	"testing"
 
-	ctrl "github.com/windsorcli/cli/pkg/controller"
+	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/env"
+	"github.com/windsorcli/cli/pkg/pipelines"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
-func setupSafeExecCmdMocks() *MockObjects {
-	injector := di.NewInjector()
-	mockController := ctrl.NewMockController(injector)
-
-	mockEnvPrinter := &env.MockEnvPrinter{}
-	mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
-		return map[string]string{"KEY": "VALUE"}, nil
-	}
-	mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
-		return []env.EnvPrinter{mockEnvPrinter}
-	}
-
-	mockShell := shell.NewMockShell()
-	mockShell.ExecFunc = func(command string, args ...string) (string, error) {
-		return "hello", nil
-	}
-	mockController.ResolveShellFunc = func() shell.Shell {
-		return mockShell
-	}
-
-	return &MockObjects{
-		Controller: mockController,
-		Shell:      mockShell,
-		EnvPrinter: mockEnvPrinter,
-	}
-}
-
 func TestExecCmd(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
-	t.Cleanup(func() {
-		exitFunc = originalExitFunc
-	})
+	createTestCmd := func() *cobra.Command {
+		return &cobra.Command{
+			Use:          "exec -- [command]",
+			Short:        "Execute a shell command with environment variables",
+			Long:         "Execute a shell command with environment variables set for the application.",
+			Args:         cobra.MinimumNArgs(1),
+			SilenceUsage: true,
+			RunE:         execCmd.RunE,
+		}
+	}
 
 	t.Run("Success", func(t *testing.T) {
-		defer resetRootCmd()
+		tmpDir := t.TempDir()
+		originalDir, _ := os.Getwd()
+		defer func() {
+			os.Chdir(originalDir)
+		}()
+		os.Chdir(tmpDir)
 
-		// Setup mock controller
-		mocks := setupSafeExecCmdMocks()
+		injector := di.NewInjector()
 
-		// Capture stdout using captureStdout
-		output := captureStdout(func() {
-			rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-			err := Execute(mocks.Controller)
-			if err != nil {
-				t.Fatalf("Expected no error, got %v", err)
-			}
-		})
+		// Register mock shell
+		mockShell := shell.NewMockShell()
+		mockShell.CheckTrustedDirectoryFunc = func() error { return nil }
+		injector.Register("shell", mockShell)
 
-		// Then the output should be as expected
-		expectedOutput := "hello"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		// Register mock base pipeline
+		mockBasePipeline := pipelines.NewMockBasePipeline()
+		injector.Register("basePipeline", mockBasePipeline)
+
+		mockEnvPipeline := pipelines.NewMockBasePipeline()
+		mockExecPipeline := pipelines.NewMockBasePipeline()
+
+		injector.Register("envPipeline", mockEnvPipeline)
+		injector.Register("execPipeline", mockExecPipeline)
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		cmd.SetContext(ctx)
+
+		args := []string{"go", "version"}
+		cmd.SetArgs(args)
+
+		err := cmd.Execute()
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("NoCommandProvided", func(t *testing.T) {
-		defer resetRootCmd()
+		tmpDir := t.TempDir()
+		originalDir, _ := os.Getwd()
+		defer func() {
+			os.Chdir(originalDir)
+		}()
+		os.Chdir(tmpDir)
 
-		// Setup mock controller
-		mocks := setupSafeExecCmdMocks()
-
-		// Capture stderr
-		var buf bytes.Buffer
-		rootCmd.SetErr(&buf)
-		rootCmd.SetArgs([]string{"exec"})
-		err := Execute(mocks.Controller)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		output := buf.String()
-
-		// Verify output
-		expectedOutput := "no command provided"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ErrorCreatingEnvComponents", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Setup mock controller
 		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
-		mockController.CreateEnvComponentsFunc = func() error {
-			return fmt.Errorf("error creating environment components")
-		}
 
-		// When the exec command is executed
-		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mockController)
+		// Register mock shell
+		mockShell := shell.NewMockShell()
+		mockShell.CheckTrustedDirectoryFunc = func() error { return nil }
+		injector.Register("shell", mockShell)
+
+		// Register mock base pipeline
+		mockBasePipeline := pipelines.NewMockBasePipeline()
+		injector.Register("basePipeline", mockBasePipeline)
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		cmd.SetContext(ctx)
+
+		args := []string{}
+		cmd.SetArgs(args)
+
+		err := cmd.Execute()
+
 		if err == nil {
-			t.Fatalf("Expected error, got nil")
+			t.Error("Expected error, got nil")
 		}
 
-		// Then the error should indicate the environment components creation error
-		expectedError := "Error creating environment components: error creating environment components"
+		expectedError := "requires at least 1 arg(s), only received 0"
 		if err.Error() != expectedError {
-			t.Errorf("Expected error to be %q, got %q", expectedError, err.Error())
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
-	t.Run("ErrorInitializingComponents", func(t *testing.T) {
-		defer resetRootCmd()
+	t.Run("EnvPipelineExecutionError", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		originalDir, _ := os.Getwd()
+		defer func() {
+			os.Chdir(originalDir)
+		}()
+		os.Chdir(tmpDir)
 
-		// Setup mock controller
 		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
-		mockController.InitializeComponentsFunc = func() error {
-			return fmt.Errorf("error initializing env printer: initialize error")
+
+		// Register mock shell
+		mockShell := shell.NewMockShell()
+		mockShell.CheckTrustedDirectoryFunc = func() error { return nil }
+		injector.Register("shell", mockShell)
+
+		// Register mock base pipeline
+		mockBasePipeline := pipelines.NewMockBasePipeline()
+		injector.Register("basePipeline", mockBasePipeline)
+
+		mockEnvPipeline := pipelines.NewMockBasePipeline()
+		mockEnvPipeline.ExecuteFunc = func(context.Context) error {
+			return fmt.Errorf("env pipeline execution failed")
 		}
+		mockExecPipeline := pipelines.NewMockBasePipeline()
 
-		// Capture stderr
-		var buf bytes.Buffer
-		rootCmd.SetErr(&buf)
+		injector.Register("envPipeline", mockEnvPipeline)
+		injector.Register("execPipeline", mockExecPipeline)
 
-		// When the exec command is executed
-		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mockController)
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		cmd.SetContext(ctx)
+
+		args := []string{"go", "version"}
+		cmd.SetArgs(args)
+
+		err := cmd.Execute()
+
 		if err == nil {
-			t.Fatalf("Expected error, got nil")
+			t.Error("Expected error, got nil")
 		}
 
-		output := buf.String()
-
-		// Then the output should indicate the error
-		expectedOutput := "Error: Error initializing components: error initializing env printer: initialize error\n"
-		if output != expectedOutput {
-			t.Errorf("Expected output to be %q, got %q", expectedOutput, output)
+		expectedError := "failed to set up environment: env pipeline execution failed"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
-	t.Run("ErrorResolvingAllEnvPrinters", func(t *testing.T) {
-		defer resetRootCmd()
+	t.Run("ExecPipelineExecutionError", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		originalDir, _ := os.Getwd()
+		defer func() {
+			os.Chdir(originalDir)
+		}()
+		os.Chdir(tmpDir)
 
-		// Setup mock controller
 		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
-		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+
+		// Register mock shell
+		mockShell := shell.NewMockShell()
+		mockShell.CheckTrustedDirectoryFunc = func() error { return nil }
+		injector.Register("shell", mockShell)
+
+		// Register mock base pipeline
+		mockBasePipeline := pipelines.NewMockBasePipeline()
+		injector.Register("basePipeline", mockBasePipeline)
+
+		mockEnvPipeline := pipelines.NewMockBasePipeline()
+		mockExecPipeline := pipelines.NewMockBasePipeline()
+		mockExecPipeline.ExecuteFunc = func(context.Context) error {
+			return fmt.Errorf("exec pipeline execution failed")
+		}
+
+		injector.Register("envPipeline", mockEnvPipeline)
+		injector.Register("execPipeline", mockExecPipeline)
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		cmd.SetContext(ctx)
+
+		args := []string{"go", "version"}
+		cmd.SetArgs(args)
+
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+
+		expectedError := "failed to execute command: exec pipeline execution failed"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ContextValuesPassedCorrectly", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		originalDir, _ := os.Getwd()
+		defer func() {
+			os.Chdir(originalDir)
+		}()
+		os.Chdir(tmpDir)
+
+		injector := di.NewInjector()
+
+		// Register mock shell
+		mockShell := shell.NewMockShell()
+		mockShell.CheckTrustedDirectoryFunc = func() error { return nil }
+		injector.Register("shell", mockShell)
+
+		// Register mock base pipeline
+		mockBasePipeline := pipelines.NewMockBasePipeline()
+		injector.Register("basePipeline", mockBasePipeline)
+
+		// Capture context values passed to pipelines
+		var envContext, execContext context.Context
+
+		mockEnvPipeline := pipelines.NewMockBasePipeline()
+		mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error {
+			envContext = ctx
 			return nil
 		}
 
-		// Capture stderr
-		var buf bytes.Buffer
-		rootCmd.SetErr(&buf)
-
-		// When the exec command is executed
-		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mockController)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		output := buf.String()
-
-		// Then the output should indicate the error
-		expectedOutput := "Error resolving environment printers: no printers returned"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ErrorPrinting", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Setup mock controller
-		mocks := setupSafeExecCmdMocks()
-		mocks.EnvPrinter.PrintFunc = func() error {
-			return fmt.Errorf("print error")
-		}
-
-		// Capture stderr
-		var buf bytes.Buffer
-		rootCmd.SetErr(&buf)
-
-		// When the exec command is executed
-		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mocks.Controller)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		output := buf.String()
-
-		// Then the output should indicate the error
-		expectedOutput := "Error executing Print: print error"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("GetEnvVarsError", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Setup mock controller
-		mocks := setupSafeExecCmdMocks()
-		mocks.EnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
-			return nil, fmt.Errorf("get env vars error")
-		}
-
-		// Capture stderr
-		var buf bytes.Buffer
-		rootCmd.SetErr(&buf)
-
-		// When the exec command is executed
-		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mocks.Controller)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		output := buf.String()
-
-		// Then the output should indicate the error
-		expectedOutput := "Error getting environment variables: get env vars error"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ErrorPostEnvHook", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Setup mock controller
-		mocks := setupSafeExecCmdMocks()
-		mocks.EnvPrinter.PostEnvHookFunc = func() error {
-			return fmt.Errorf("post env hook error")
-		}
-
-		// Capture stderr
-		var buf bytes.Buffer
-		rootCmd.SetErr(&buf)
-
-		// When the exec command is executed
-		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mocks.Controller)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		output := buf.String()
-
-		// Then the output should indicate the error
-		expectedOutput := "Error executing PostEnvHook: post env hook error"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ErrorSettingEnvVars", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Setup mock controller
-		mocks := setupSafeExecCmdMocks()
-		mocks.EnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
-			return map[string]string{"KEY": "VALUE"}, nil
-		}
-
-		// Mock osSetenv to return an error
-		originalOsSetenv := osSetenv
-		osSetenv = func(key, value string) error {
-			return fmt.Errorf("set env var error")
-		}
-		defer func() { osSetenv = originalOsSetenv }()
-
-		// Capture stderr
-		var buf bytes.Buffer
-		rootCmd.SetErr(&buf)
-
-		// When the exec command is executed
-		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mocks.Controller)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		output := buf.String()
-
-		// Then the output should indicate the error
-		expectedOutput := "Error setting environment variable KEY: set env var error"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Setup mock controller
-		mocks := setupSafeExecCmdMocks()
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+		mockExecPipeline := pipelines.NewMockBasePipeline()
+		mockExecPipeline.ExecuteFunc = func(ctx context.Context) error {
+			execContext = ctx
 			return nil
 		}
 
-		// Capture stderr
-		var buf bytes.Buffer
-		rootCmd.SetErr(&buf)
+		injector.Register("envPipeline", mockEnvPipeline)
+		injector.Register("execPipeline", mockExecPipeline)
 
-		// When the exec command is executed
-		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mocks.Controller)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		cmd.SetContext(ctx)
+
+		args := []string{"test-command", "arg1", "arg2"}
+		cmd.SetArgs(args)
+
+		err := cmd.Execute()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		output := buf.String()
+		// Verify env pipeline context
+		if envContext.Value("quiet") != true {
+			t.Error("Expected env pipeline to receive quiet=true")
+		}
+		if envContext.Value("decrypt") != true {
+			t.Error("Expected env pipeline to receive decrypt=true")
+		}
 
-		// Then the output should indicate the error
-		expectedOutput := "No shell found"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		// Verify exec pipeline context
+		if execContext.Value("command") != "test-command" {
+			t.Errorf("Expected exec pipeline to receive command='test-command', got %v", execContext.Value("command"))
+		}
+		ctxArgs := execContext.Value("args")
+		if ctxArgs == nil {
+			t.Error("Expected exec pipeline to receive args")
+		} else {
+			argsSlice := ctxArgs.([]string)
+			if len(argsSlice) != 2 || argsSlice[0] != "arg1" || argsSlice[1] != "arg2" {
+				t.Errorf("Expected exec pipeline to receive args=['arg1', 'arg2'], got %v", argsSlice)
+			}
 		}
 	})
 
-	t.Run("ErrorExecutingCommand", func(t *testing.T) {
-		defer resetRootCmd()
+	t.Run("PipelineCreationAndRegistration", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		originalDir, _ := os.Getwd()
+		defer func() {
+			os.Chdir(originalDir)
+		}()
+		os.Chdir(tmpDir)
 
-		// Setup mock controller
-		mocks := setupSafeExecCmdMocks()
-		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
-			return "", fmt.Errorf("command execution error")
+		// Create injector with only shell and base pipeline initially
+		injector := di.NewInjector()
+
+		// Register mock shell and base pipeline (required for exec command)
+		mockShell := shell.NewMockShell()
+		mockShell.CheckTrustedDirectoryFunc = func() error { return nil }
+		injector.Register("shell", mockShell)
+
+		mockBasePipeline := pipelines.NewMockBasePipeline()
+		injector.Register("basePipeline", mockBasePipeline)
+
+		// Verify pipelines don't exist initially
+		if injector.Resolve("envPipeline") != nil {
+			t.Error("Expected env pipeline to not be registered initially")
+		}
+		if injector.Resolve("execPipeline") != nil {
+			t.Error("Expected exec pipeline to not be registered initially")
 		}
 
-		// Capture stderr
-		var buf bytes.Buffer
-		rootCmd.SetErr(&buf)
+		// Pre-register the pipelines as mocks to simulate successful creation
+		mockEnvPipeline := pipelines.NewMockBasePipeline()
+		mockExecPipeline := pipelines.NewMockBasePipeline()
+		injector.Register("envPipeline", mockEnvPipeline)
+		injector.Register("execPipeline", mockExecPipeline)
 
-		// When the exec command is executed
-		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mocks.Controller)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		cmd.SetContext(ctx)
+
+		args := []string{"go", "version"}
+		cmd.SetArgs(args)
+
+		err := cmd.Execute()
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 
-		output := buf.String()
+		// Verify both pipelines are still registered (reused from injector)
+		envPipeline := injector.Resolve("envPipeline")
+		if envPipeline == nil {
+			t.Error("Expected env pipeline to be registered")
+		}
 
-		// Then the output should indicate the error
-		expectedOutput := "command execution error"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		execPipeline := injector.Resolve("execPipeline")
+		if execPipeline == nil {
+			t.Error("Expected exec pipeline to be registered")
+		}
+	})
+
+	t.Run("SingleArgumentCommand", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		originalDir, _ := os.Getwd()
+		defer func() {
+			os.Chdir(originalDir)
+		}()
+		os.Chdir(tmpDir)
+
+		injector := di.NewInjector()
+
+		// Register mock shell
+		mockShell := shell.NewMockShell()
+		mockShell.CheckTrustedDirectoryFunc = func() error { return nil }
+		injector.Register("shell", mockShell)
+
+		// Register mock base pipeline
+		mockBasePipeline := pipelines.NewMockBasePipeline()
+		injector.Register("basePipeline", mockBasePipeline)
+
+		var execContext context.Context
+		mockEnvPipeline := pipelines.NewMockBasePipeline()
+		mockExecPipeline := pipelines.NewMockBasePipeline()
+		mockExecPipeline.ExecuteFunc = func(ctx context.Context) error {
+			execContext = ctx
+			return nil
+		}
+
+		injector.Register("envPipeline", mockEnvPipeline)
+		injector.Register("execPipeline", mockExecPipeline)
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		cmd.SetContext(ctx)
+
+		args := []string{"single-command"}
+		cmd.SetArgs(args)
+
+		err := cmd.Execute()
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify command is set correctly
+		command := execContext.Value("command")
+		if command != "single-command" {
+			t.Errorf("Expected command to be 'single-command', got %v", command)
+		}
+
+		// Verify args context value is not set for single command
+		ctxArgs := execContext.Value("args")
+		if ctxArgs != nil {
+			t.Errorf("Expected args to be nil for single command, got %v", ctxArgs)
+		}
+	})
+
+	t.Run("PipelineReuseWhenAlreadyRegistered", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		originalDir, _ := os.Getwd()
+		defer func() {
+			os.Chdir(originalDir)
+		}()
+		os.Chdir(tmpDir)
+
+		injector := di.NewInjector()
+
+		// Register mock shell
+		mockShell := shell.NewMockShell()
+		mockShell.CheckTrustedDirectoryFunc = func() error { return nil }
+		injector.Register("shell", mockShell)
+
+		// Register mock base pipeline
+		mockBasePipeline := pipelines.NewMockBasePipeline()
+		injector.Register("basePipeline", mockBasePipeline)
+
+		// Pre-register pipelines
+		originalEnvPipeline := pipelines.NewMockBasePipeline()
+		originalExecPipeline := pipelines.NewMockBasePipeline()
+
+		injector.Register("envPipeline", originalEnvPipeline)
+		injector.Register("execPipeline", originalExecPipeline)
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		cmd.SetContext(ctx)
+
+		args := []string{"go", "version"}
+		cmd.SetArgs(args)
+
+		err := cmd.Execute()
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify same pipeline instances are reused
+		envPipeline := injector.Resolve("envPipeline")
+		if envPipeline != originalEnvPipeline {
+			t.Error("Expected to reuse existing env pipeline")
+		}
+
+		execPipeline := injector.Resolve("execPipeline")
+		if execPipeline != originalExecPipeline {
+			t.Error("Expected to reuse existing exec pipeline")
 		}
 	})
 }

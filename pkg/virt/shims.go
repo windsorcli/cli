@@ -1,3 +1,8 @@
+// The shims package is a system call abstraction layer
+// It provides mockable wrappers around system and runtime functions
+// It serves as a testing aid by allowing system calls to be intercepted
+// It enables dependency injection and test isolation for system-level operations
+
 package virt
 
 import (
@@ -10,32 +15,55 @@ import (
 	"github.com/shirou/gopsutil/mem"
 )
 
-// osSetenv is a variable that holds the os.Setenv function to set an environment variable.
-var osSetenv = os.Setenv
+// =============================================================================
+// Types
+// =============================================================================
 
-// jsonUnmarshal is a variable that holds the json.Unmarshal function for decoding JSON data.
-var jsonUnmarshal = json.Unmarshal
+// YAMLEncoder is an interface for encoding YAML data.
+type YAMLEncoder interface {
+	Encode(v any) error
+	Close() error
+}
 
-// userHomeDir is a variable that holds the os.UserHomeDir function to get the current user's home directory.
-var userHomeDir = os.UserHomeDir
+// Shims provides mockable wrappers around system and runtime functions
+type Shims struct {
+	Setenv         func(key, value string) error
+	UnmarshalJSON  func(data []byte, v any) error
+	UserHomeDir    func() (string, error)
+	MkdirAll       func(path string, perm os.FileMode) error
+	WriteFile      func(name string, data []byte, perm os.FileMode) error
+	Rename         func(oldpath, newpath string) error
+	Stat           func(name string) (os.FileInfo, error)
+	GOARCH         func() string
+	NumCPU         func() int
+	VirtualMemory  func() (*mem.VirtualMemoryStat, error)
+	MarshalYAML    func(v any) ([]byte, error)
+	NewYAMLEncoder func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder
+}
 
-// mkdirAll is a variable that holds the os.MkdirAll function to create a directory and all necessary parents.
-var mkdirAll = os.MkdirAll
+// =============================================================================
+// Helpers
+// =============================================================================
 
-// writeFile is a variable that holds the os.WriteFile function to write data to a file.
-var writeFile = os.WriteFile
-
-// rename is a variable that holds the os.Rename function to rename a file or directory.
-var rename = os.Rename
-
-// goArch is a variable that holds the runtime.GOARCH function to get the architecture of the current runtime.
-var goArch = runtime.GOARCH
-
-// numCPU is a variable that holds the runtime.NumCPU function to get the number of logical CPUs available to the current process.
-var numCPU = runtime.NumCPU
-
-// Mockable function for mem.VirtualMemory
-var virtualMemory = mem.VirtualMemory
+// NewShims creates a new Shims instance with default implementations
+func NewShims() *Shims {
+	return &Shims{
+		Setenv:        os.Setenv,
+		UnmarshalJSON: json.Unmarshal,
+		UserHomeDir:   os.UserHomeDir,
+		MkdirAll:      os.MkdirAll,
+		WriteFile:     os.WriteFile,
+		Rename:        os.Rename,
+		Stat:          os.Stat,
+		GOARCH:        func() string { return runtime.GOARCH },
+		NumCPU:        func() int { return runtime.NumCPU() },
+		VirtualMemory: mem.VirtualMemory,
+		MarshalYAML:   yaml.Marshal,
+		NewYAMLEncoder: func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
+			return yaml.NewEncoder(w, opts...)
+		},
+	}
+}
 
 // ptrString is a function that creates a pointer to a string.
 func ptrString(s string) *string {
@@ -45,18 +73,4 @@ func ptrString(s string) *string {
 // ptrBool is a function that creates a pointer to a bool.
 func ptrBool(b bool) *bool {
 	return &b
-}
-
-// YAMLEncoder is an interface for encoding YAML data.
-type YAMLEncoder interface {
-	Encode(v interface{}) error
-	Close() error
-}
-
-// yamlMarshal is a variable that holds the yaml.Marshal function to marshal a value to YAML.
-var yamlMarshal = yaml.Marshal
-
-// newYAMLEncoder is a function that returns a new YAML encoder.
-var newYAMLEncoder = func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
-	return yaml.NewEncoder(w, opts...)
 }

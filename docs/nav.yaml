@@ -1,5 +1,19 @@
 nav:
   - 'Home': index.md
-  - 'Install': install/install.md
+  - 'Installation': install.md
+  - 'Quick Start': quick-start.md
+  - 'Guides':
+    - 'Contexts': guides/contexts.md
+    - 'Environment Injection': guides/environment-injection.md
+    - 'Local Workstation': guides/local-workstation.md
+    - 'Secrets Management': guides/secrets-management.md
+    - 'Terraform': guides/terraform.md
+    - 'Kustomize': guides/kustomize.md
   - 'Tutorial': 
-    - 'Quick Start': tutorial/macos-quick-start.md
+    - 'Hello, World!': tutorial/hello-world.md
+  - 'Security':
+    - 'Trusted Folders': security/trusted-folders.md
+  - 'Reference':
+    - 'Blueprint': reference/blueprint.md
+    - 'Configuration': reference/configuration.md
+    - 'Contexts': reference/contexts.md

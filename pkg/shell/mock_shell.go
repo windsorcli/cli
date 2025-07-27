@@ -1,22 +1,46 @@
 package shell
 
 import (
+	"fmt"
+
 	"github.com/windsorcli/cli/pkg/di"
 )
 
-// MockShell is a struct that simulates a shell environment for testing purposes.
+// The MockShell is a mock implementation of the Shell interface for testing purposes.
+// It provides a way to simulate shell operations without executing actual system commands.
+// It allows for controlled testing of shell-dependent functionality by providing mock implementations of all Shell interface methods.
+// Key features include customizable function implementations for each Shell interface method.
+
+// =============================================================================
+// Types
+// =============================================================================
+
 type MockShell struct {
 	DefaultShell
-	InitializeFunc     func() error
-	PrintEnvVarsFunc   func(envVars map[string]string) error
-	PrintAliasFunc     func(envVars map[string]string) error
-	GetProjectRootFunc func() (string, error)
-	ExecFunc           func(command string, args ...string) (string, error)
-	ExecSilentFunc     func(command string, args ...string) (string, error)
-	ExecProgressFunc   func(message string, command string, args ...string) (string, error)
-	ExecSudoFunc       func(message string, command string, args ...string) (string, error)
-	InstallHookFunc    func(shellName string) error
+	InitializeFunc                 func() error
+	PrintEnvVarsFunc               func(envVars map[string]string, export bool)
+	PrintAliasFunc                 func(envVars map[string]string)
+	GetProjectRootFunc             func() (string, error)
+	ExecFunc                       func(command string, args ...string) (string, error)
+	ExecSilentFunc                 func(command string, args ...string) (string, error)
+	ExecProgressFunc               func(message string, command string, args ...string) (string, error)
+	ExecSudoFunc                   func(message string, command string, args ...string) (string, error)
+	InstallHookFunc                func(shellName string) error
+	SetVerbosityFunc               func(verbose bool)
+	AddCurrentDirToTrustedFileFunc func() error
+	CheckTrustedDirectoryFunc      func() error
+	UnsetEnvsFunc                  func(envVars []string)
+	UnsetAliasFunc                 func(aliases []string)
+	WriteResetTokenFunc            func() (string, error)
+	GetSessionTokenFunc            func() (string, error)
+	CheckResetFlagsFunc            func() (bool, error)
+	ResetFunc                      func(...bool)
+	RegisterSecretFunc             func(value string)
 }
+
+// =============================================================================
+// Constructor
+// =============================================================================
 
 // NewMockShell creates a new instance of MockShell. If injector is provided, it sets the injector on MockShell.
 func NewMockShell(injectors ...di.Injector) *MockShell {
@@ -24,12 +48,19 @@ func NewMockShell(injectors ...di.Injector) *MockShell {
 	if len(injectors) > 0 {
 		injector = injectors[0]
 	}
-	return &MockShell{
+
+	mockShell := &MockShell{
 		DefaultShell: DefaultShell{
 			injector: injector,
 		},
 	}
+
+	return mockShell
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize calls the custom InitializeFunc if provided.
 func (s *MockShell) Initialize() error {
@@ -40,19 +71,17 @@ func (s *MockShell) Initialize() error {
 }
 
 // PrintEnvVars calls the custom PrintEnvVarsFunc if provided.
-func (s *MockShell) PrintEnvVars(envVars map[string]string) error {
+func (s *MockShell) PrintEnvVars(envVars map[string]string, export bool) {
 	if s.PrintEnvVarsFunc != nil {
-		return s.PrintEnvVarsFunc(envVars)
+		s.PrintEnvVarsFunc(envVars, export)
 	}
-	return nil
 }
 
 // PrintAlias calls the custom PrintAliasFunc if provided.
-func (s *MockShell) PrintAlias(envVars map[string]string) error {
+func (s *MockShell) PrintAlias(envVars map[string]string) {
 	if s.PrintAliasFunc != nil {
-		return s.PrintAliasFunc(envVars)
+		s.PrintAliasFunc(envVars)
 	}
-	return nil
 }
 
 // GetProjectRoot calls the custom GetProjectRootFunc if provided.
@@ -101,6 +130,81 @@ func (s *MockShell) InstallHook(shellName string) error {
 		return s.InstallHookFunc(shellName)
 	}
 	return nil
+}
+
+// SetVerbosity calls the custom SetVerbosityFunc if provided.
+func (s *MockShell) SetVerbosity(verbose bool) {
+	if s.SetVerbosityFunc != nil {
+		s.SetVerbosityFunc(verbose)
+	}
+}
+
+// AddCurrentDirToTrustedFile calls the custom AddCurrentDirToTrustedFileFunc if provided.
+func (s *MockShell) AddCurrentDirToTrustedFile() error {
+	if s.AddCurrentDirToTrustedFileFunc != nil {
+		return s.AddCurrentDirToTrustedFileFunc()
+	}
+	return nil
+}
+
+// CheckTrustedDirectory calls the custom CheckTrustedDirectoryFunc if provided.
+func (s *MockShell) CheckTrustedDirectory() error {
+	if s.CheckTrustedDirectoryFunc != nil {
+		return s.CheckTrustedDirectoryFunc()
+	}
+	return nil
+}
+
+// UnsetEnvs calls the custom UnsetEnvsFunc if provided.
+func (s *MockShell) UnsetEnvs(envVars []string) {
+	if s.UnsetEnvsFunc != nil {
+		s.UnsetEnvsFunc(envVars)
+	}
+}
+
+// UnsetAlias calls the custom UnsetAliasFunc if provided.
+func (s *MockShell) UnsetAlias(aliases []string) {
+	if s.UnsetAliasFunc != nil {
+		s.UnsetAliasFunc(aliases)
+	}
+}
+
+// WriteResetToken writes a reset token file
+func (s *MockShell) WriteResetToken() (string, error) {
+	if s.WriteResetTokenFunc != nil {
+		return s.WriteResetTokenFunc()
+	}
+	return "", fmt.Errorf("WriteResetToken not implemented")
+}
+
+// GetSessionToken retrieves or generates a session token
+func (s *MockShell) GetSessionToken() (string, error) {
+	if s.GetSessionTokenFunc != nil {
+		return s.GetSessionTokenFunc()
+	}
+	return "", fmt.Errorf("GetSessionToken not implemented")
+}
+
+// CheckResetFlags checks if a reset signal file exists for the current session
+func (s *MockShell) CheckResetFlags() (bool, error) {
+	if s.CheckResetFlagsFunc != nil {
+		return s.CheckResetFlagsFunc()
+	}
+	return false, nil
+}
+
+// Reset calls the custom ResetFunc if provided.
+func (s *MockShell) Reset(quiet ...bool) {
+	if s.ResetFunc != nil {
+		s.ResetFunc(quiet...)
+	}
+}
+
+// RegisterSecret calls the custom RegisterSecretFunc if provided.
+func (s *MockShell) RegisterSecret(value string) {
+	if s.RegisterSecretFunc != nil {
+		s.RegisterSecretFunc(value)
+	}
 }
 
 // Ensure MockShell implements the Shell interface

@@ -1,6 +1,6 @@
 services:
   mkdocs:
-    image: windsorcligithubio-mkdocs
+    image: windsorcligithubio-mkdocs:latest
     ports:
       - "8000:8000"
     volumes:

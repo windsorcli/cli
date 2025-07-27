@@ -3,11 +3,21 @@ package services
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
-	"github.com/compose-spec/compose-go/types"
+	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 )
+
+// The DNSService is a core component that manages DNS configuration and resolution
+// It provides DNS management capabilities for Windsor services and applications
+// The DNSService handles CoreDNS configuration, service discovery, and DNS forwarding
+// enabling seamless DNS resolution across different environments and contexts
+
+// =============================================================================
+// Types
+// =============================================================================
 
 // DNSService handles DNS configuration
 type DNSService struct {
@@ -15,67 +25,60 @@ type DNSService struct {
 	services []Service
 }
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 // NewDNSService creates a new DNSService
 func NewDNSService(injector di.Injector) *DNSService {
 	return &DNSService{
-		BaseService: BaseService{
-			injector: injector,
-			name:     "dns",
-		},
+		BaseService: *NewBaseService(injector),
 	}
 }
 
-// Initialize resolves and sets all the things resolved from the DI
+// =============================================================================
+// Public Methods
+// =============================================================================
+
+// Initialize sets up DNSService by resolving dependencies via DI.
 func (s *DNSService) Initialize() error {
-	// Call the base Initialize method
 	if err := s.BaseService.Initialize(); err != nil {
 		return err
 	}
-
-	// Resolve all services from the injector
 	resolvedServices, err := s.injector.ResolveAll(new(Service))
 	if err != nil {
 		return fmt.Errorf("error resolving services: %w", err)
 	}
-
-	// Set each service on the class
 	for _, serviceInterface := range resolvedServices {
 		service, _ := serviceInterface.(Service)
 		s.services = append(s.services, service)
 	}
-
 	return nil
 }
 
-// SetAddress sets the address for the DNS service
+// SetAddress updates DNS address in config and calls BaseService's SetAddress.
 func (s *DNSService) SetAddress(address string) error {
-	// Set the value of the DNS address in the configuration
 	err := s.configHandler.SetContextValue("dns.address", address)
 	if err != nil {
 		return fmt.Errorf("error setting DNS address: %w", err)
 	}
-
 	return s.BaseService.SetAddress(address)
 }
 
-// GetComposeConfig returns the compose configuration
+// GetComposeConfig sets up CoreDNS with context and domain, configures ports if localhost.
 func (s *DNSService) GetComposeConfig() (*types.Config, error) {
-	// Retrieve the context name
-	contextName := s.contextHandler.GetContext()
+	contextName := s.configHandler.GetContext()
+	serviceName := s.GetName()
+	containerName := s.GetContainerName()
 
-	// Get the TLD from the configuration
-	tld := s.configHandler.GetString("dns.name", "test")
-	fullName := s.name + "." + tld
-
-	// Common configuration for CoreDNS container
 	corednsConfig := types.ServiceConfig{
-		Name:          fullName,
-		ContainerName: fullName,
+		Name:          serviceName,
+		ContainerName: containerName,
 		Image:         constants.DEFAULT_DNS_IMAGE,
 		Restart:       "always",
 		Command:       []string{"-conf", "/etc/coredns/Corefile"},
 		Volumes: []types.ServiceVolumeConfig{
-			{Type: "bind", Source: "./Corefile", Target: "/etc/coredns/Corefile"},
+			{Type: "bind", Source: "${WINDSOR_PROJECT_ROOT}/.windsor/Corefile", Target: "/etc/coredns/Corefile"},
 		},
 		Labels: map[string]string{
 			"managed_by": "windsor",
@@ -84,65 +87,143 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 		},
 	}
 
-	services := []types.ServiceConfig{corednsConfig}
-	volumes := map[string]types.VolumeConfig{
-		"coredns_config": {},
+	if s.isLocalhostMode() {
+		corednsConfig.Ports = []types.ServicePortConfig{
+			{
+				Target:    53,
+				Published: "53",
+				Protocol:  "tcp",
+			},
+			{
+				Target:    53,
+				Published: "53",
+				Protocol:  "udp",
+			},
+		}
 	}
 
-	return &types.Config{Services: services, Volumes: volumes}, nil
+	services := types.Services{
+		serviceName: corednsConfig,
+	}
+
+	return &types.Config{Services: services}, nil
 }
 
-// WriteConfig writes any necessary configuration files needed by the service
+// WriteConfig generates and writes a CoreDNS Corefile for the Windsor project.
+// It collects the project root directory, top-level domain (TLD), and service IP addresses.
+// For each service, it adds DNS entries mapping hostnames to IP addresses, and includes wildcard DNS entries if supported.
+// In localhost mode, it uses a template for local DNS resolution and sets up forwarding rules for DNS queries.
+// The generated Corefile is saved in the .windsor directory for CoreDNS to manage project DNS queries.
 func (s *DNSService) WriteConfig() error {
-	// Retrieve the configuration directory for the current context
-	configDir, err := s.contextHandler.GetConfigRoot()
+	projectRoot, err := s.shell.GetProjectRoot()
 	if err != nil {
-		return fmt.Errorf("error retrieving config root: %w", err)
+		return fmt.Errorf("error retrieving project root: %w", err)
 	}
 
-	// Get the TLD from the configuration
-	tld := s.configHandler.GetString("dns.name", "test")
+	tld := s.configHandler.GetString("dns.domain", "test")
 
-	// Gather the IP address of each service using the Address field
-	var hostEntries string
+	var (
+		hostEntries              string
+		localhostHostEntries     string
+		wildcardEntries          string
+		localhostWildcardEntries string
+	)
+
+	wildcardTemplate := `
+    template IN A {
+        match ^(.*)\.%s\.$
+        answer "{{ .Name }} 60 IN A %s"
+        fallthrough
+    }
+`
+	localhostTemplate := `
+    template IN A {
+        match ^(.*)\.%s\.$
+        answer "{{ .Name }} 60 IN A 127.0.0.1"
+        fallthrough
+    }
+`
+
 	for _, service := range s.services {
 		composeConfig, err := service.GetComposeConfig()
 		if err != nil || composeConfig == nil {
 			continue
 		}
 		for _, svc := range composeConfig.Services {
-			if svc.Name != "" {
-				if addressService, ok := service.(interface{ GetAddress() string }); ok {
-					address := addressService.GetAddress()
-					if address != "" {
-						fullName := svc.Name
-						hostEntries += fmt.Sprintf("        %s %s\n", address, fullName)
-					}
+			if svc.Name == "" {
+				continue
+			}
+			address := service.GetAddress()
+			if address == "" {
+				continue
+			}
+
+			hostname := service.GetHostname()
+			escapedHostname := strings.ReplaceAll(hostname, ".", "\\.")
+
+			hostEntries += fmt.Sprintf("        %s %s\n", address, hostname)
+			if s.isLocalhostMode() {
+				localhostHostEntries += fmt.Sprintf("        127.0.0.1 %s\n", hostname)
+			}
+			if service.SupportsWildcard() {
+				wildcardEntries += fmt.Sprintf(wildcardTemplate, escapedHostname, address)
+				if s.isLocalhostMode() {
+					localhostWildcardEntries += fmt.Sprintf(localhostTemplate, escapedHostname)
 				}
 			}
 		}
 	}
 
-	// Template out the Corefile with information from the services
-	corefileContent := fmt.Sprintf(`
-%s:53 {
-    hosts {
+	for _, record := range s.configHandler.GetStringSlice("dns.records", nil) {
+		hostEntries += fmt.Sprintf("        %s\n", record)
+		if s.isLocalhostMode() {
+			localhostHostEntries += fmt.Sprintf("        %s\n", record)
+		}
+	}
+
+	forwardAddresses := s.configHandler.GetStringSlice("dns.forward", nil)
+	if len(forwardAddresses) == 0 {
+		forwardAddresses = []string{"1.1.1.1", "8.8.8.8"}
+	}
+	forwardAddressesStr := strings.Join(forwardAddresses, " ")
+
+	serverBlockTemplate := `%s:53 {
+%s    hosts {
 %s        fallthrough
     }
+%s
+    reload
+    loop
+    forward . %s
+}
+`
 
+	var corefileContent string
+	if s.isLocalhostMode() {
+		corefileContent = fmt.Sprintf(serverBlockTemplate, tld, "", localhostHostEntries, localhostWildcardEntries, forwardAddressesStr)
+	} else {
+		corefileContent = fmt.Sprintf(serverBlockTemplate, tld, "", hostEntries, wildcardEntries, forwardAddressesStr)
+	}
+
+	corefileContent += `.:53 {
+    reload
+    loop
     forward . 1.1.1.1 8.8.8.8
 }
-`, tld, hostEntries)
+`
 
-	corefilePath := filepath.Join(configDir, "Corefile")
-
-	// Ensure the parent folders exist
-	if err := mkdirAll(filepath.Dir(corefilePath), 0755); err != nil {
+	corefilePath := filepath.Join(projectRoot, ".windsor", "Corefile")
+	if err := s.shims.MkdirAll(filepath.Dir(corefilePath), 0755); err != nil {
 		return fmt.Errorf("error creating parent folders: %w", err)
 	}
 
-	err = writeFile(corefilePath, []byte(corefileContent), 0644)
-	if err != nil {
+	if stat, err := s.shims.Stat(corefilePath); err == nil && stat.IsDir() {
+		if err := s.shims.RemoveAll(corefilePath); err != nil {
+			return fmt.Errorf("error removing Corefile directory: %w", err)
+		}
+	}
+
+	if err := s.shims.WriteFile(corefilePath, []byte(corefileContent), 0644); err != nil {
 		return fmt.Errorf("error writing Corefile: %w", err)
 	}
 

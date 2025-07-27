@@ -8,10 +8,19 @@ import (
 	"strings"
 )
 
+// The LinuxNetworkManager is a platform-specific network manager for Linux systems.
+// It provides network configuration capabilities specific to Linux-based systems,
+// The LinuxNetworkManager handles host route configuration and DNS setup for Linux,
+// ensuring proper network connectivity between the host and guest VM environments.
+
+// =============================================================================
+// Public Methods
+// =============================================================================
+
 // ConfigureHostRoute sets up the local development network for Linux
 func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	// Access the Docker configuration
-	networkCIDR := n.configHandler.GetString("docker.network_cidr")
+	networkCIDR := n.configHandler.GetString("network.cidr_block")
 	if networkCIDR == "" {
 		return fmt.Errorf("network CIDR is not configured")
 	}
@@ -65,39 +74,41 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	return nil
 }
 
-// ConfigureDNS sets up the DNS configuration using systemd-resolved
+// ConfigureDNS sets up DNS using systemd-resolved. If the DNS IP is configured, it ensures systemd-resolved is used
+// by creating a drop-in configuration file. The function checks if /etc/resolv.conf is a symlink to
+// systemd-resolved and restarts the service if necessary. It handles errors at each step to ensure
+// proper DNS configuration.
 func (n *BaseNetworkManager) ConfigureDNS() error {
-	// Access the DNS configuration
-	dnsIP := n.configHandler.GetString("dns.address")
-	if dnsIP == "" {
-		return fmt.Errorf("DNS address is not configured")
-	}
-
-	// Access the DNS domain configuration
-	dnsDomain := n.configHandler.GetString("dns.name")
-	if dnsDomain == "" {
+	tld := n.configHandler.GetString("dns.domain")
+	if tld == "" {
 		return fmt.Errorf("DNS domain is not configured")
 	}
 
-	// Check if /etc/resolv.conf is a symlink to systemd-resolved
-	resolvConf, err := readLink("/etc/resolv.conf")
+	var dnsIP string
+	if n.isLocalhostMode() {
+		dnsIP = "127.0.0.1"
+	} else {
+		dnsIP = n.configHandler.GetString("dns.address")
+		if dnsIP == "" {
+			return fmt.Errorf("DNS address is not configured")
+		}
+	}
+
+	// If DNS address is configured, use systemd-resolved
+	resolvConf, err := n.shims.ReadLink("/etc/resolv.conf")
 	if err != nil || resolvConf != "../run/systemd/resolve/stub-resolv.conf" {
 		return fmt.Errorf("systemd-resolved is not in use. Please configure DNS manually or use a compatible system")
 	}
 
-	// Create a drop-in configuration file for DNS settings
 	dropInDir := "/etc/systemd/resolved.conf.d"
-	dropInFile := fmt.Sprintf("%s/dns-override-%s.conf", dropInDir, dnsDomain)
+	dropInFile := fmt.Sprintf("%s/dns-override-%s.conf", dropInDir, tld)
 
-	// Check if the drop-in file already exists with the correct content
-	existingContent, err := readFile(dropInFile)
+	existingContent, err := n.shims.ReadFile(dropInFile)
 	expectedContent := fmt.Sprintf("[Resolve]\nDNS=%s\n", dnsIP)
 	if err == nil && string(existingContent) == expectedContent {
-		// The drop-in file already exists with the correct content, no need to update
 		return nil
 	}
 
-	// Ensure the drop-in directory exists
 	_, err = n.shell.ExecSilent(
 		"sudo",
 		"mkdir",
@@ -108,7 +119,6 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return fmt.Errorf("failed to create drop-in directory: %w", err)
 	}
 
-	// Write DNS configuration to the drop-in file
 	_, err = n.shell.ExecSudo(
 		"🔐 Writing DNS configuration to "+dropInFile,
 		"bash",
@@ -119,7 +129,6 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return fmt.Errorf("failed to write DNS configuration: %w", err)
 	}
 
-	// Restart systemd-resolved
 	fmt.Println("🔐 Restarting systemd-resolved")
 	_, err = n.shell.ExecSudo(
 		"🔐 Restarting systemd-resolved",

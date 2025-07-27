@@ -1,77 +1,59 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/pipelines"
 )
 
+// execCmd represents the exec command
 var execCmd = &cobra.Command{
-	Use:          "exec -- [command]",
-	Short:        "Execute a shell command with environment variables",
-	Long:         "Execute a shell command with environment variables set for the application.",
+	Use:          "exec [command] [args...]",
+	Short:        "Execute a command with environment variables",
+	Long:         "Execute a command with environment variables loaded from configuration and secrets",
+	Args:         cobra.MinimumNArgs(1),
 	SilenceUsage: true,
-	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Safety check for arguments
 		if len(args) == 0 {
 			return fmt.Errorf("no command provided")
 		}
 
-		// Create environment components
-		if err := controller.CreateEnvComponents(); err != nil {
-			return fmt.Errorf("Error creating environment components: %w", err)
-		}
+		// Get shared dependency injector from context
+		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		// Initialize components
-		if err := controller.InitializeComponents(); err != nil {
-			return fmt.Errorf("Error initializing components: %w", err)
-		}
-
-		// Resolve all environment printers using the controller
-		envPrinters := controller.ResolveAllEnvPrinters()
-		if len(envPrinters) == 0 {
-			return fmt.Errorf("Error resolving environment printers: no printers returned")
-		}
-
-		// Collect environment variables from all printers
-		envVars := make(map[string]string)
-		for _, envPrinter := range envPrinters {
-			if err := envPrinter.Print(); err != nil {
-				return fmt.Errorf("Error executing Print: %w", err)
-			}
-			vars, err := envPrinter.GetEnvVars()
-			if err != nil {
-				return fmt.Errorf("Error getting environment variables: %w", err)
-			}
-			for k, v := range vars {
-				envVars[k] = v
-			}
-			if err := envPrinter.PostEnvHook(); err != nil {
-				return fmt.Errorf("Error executing PostEnvHook: %w", err)
-			}
-		}
-
-		// Set environment variables for the command
-		for k, v := range envVars {
-			if err := osSetenv(k, v); err != nil {
-				return fmt.Errorf("Error setting environment variable %s: %w", k, err)
-			}
-		}
-
-		// Resolve the shell instance using the controller
-		shellInstance := controller.ResolveShell()
-		if shellInstance == nil {
-			return fmt.Errorf("No shell found")
-		}
-
-		// Execute the command using the resolved shell instance
-		output, err := shellInstance.Exec(args[0], args[1:]...)
+		// First, run the env pipeline in quiet mode to set up environment variables
+		envPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "envPipeline")
 		if err != nil {
-			return fmt.Errorf("command execution failed: %w", err)
+			return fmt.Errorf("failed to set up env pipeline: %w", err)
 		}
 
-		// Print the command output
-		fmt.Println(output)
+		// Execute env pipeline in quiet mode (inject environment variables without printing)
+		envCtx := context.WithValue(cmd.Context(), "quiet", true)
+		envCtx = context.WithValue(envCtx, "decrypt", true)
+		if err := envPipeline.Execute(envCtx); err != nil {
+			return fmt.Errorf("failed to set up environment: %w", err)
+		}
+
+		// Then, run the exec pipeline to execute the command
+		execPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "execPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up exec pipeline: %w", err)
+		}
+
+		// Create execution context with command and arguments
+		execCtx := context.WithValue(cmd.Context(), "command", args[0])
+		if len(args) > 1 {
+			execCtx = context.WithValue(execCtx, "args", args[1:])
+		}
+
+		// Execute the command
+		if err := execPipeline.Execute(execCtx); err != nil {
+			return fmt.Errorf("failed to execute command: %w", err)
+		}
 
 		return nil
 	},

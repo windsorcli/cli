@@ -1,35 +1,53 @@
+// The mock_virt_test package is a test suite for the MockVirt implementation
+// It provides comprehensive test coverage for all MockVirt interface methods
+// It serves as a verification framework for the mock virtualization layer
+// It enables testing of components that depend on virtualization without real VMs
+
 package virt
 
 import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
+// =============================================================================
+// Test Setup
+// =============================================================================
+
 type MockComponents struct {
 	Injector          di.Injector
-	MockContext       *context.MockContext
 	MockShell         *shell.MockShell
 	MockConfigHandler *config.MockConfigHandler
 	MockService       *services.MockService
 }
 
+// mockYAMLEncoder is a mock implementation of YAMLEncoder for testing
 type mockYAMLEncoder struct {
-	encodeFunc func(v interface{}) error
+	encodeFunc func(v any) error
 	closeFunc  func() error
 }
 
-func (m *mockYAMLEncoder) Encode(v interface{}) error {
-	return m.encodeFunc(v)
+func (m *mockYAMLEncoder) Encode(v any) error {
+	if m.encodeFunc != nil {
+		return m.encodeFunc(v)
+	}
+	return nil
 }
 
 func (m *mockYAMLEncoder) Close() error {
-	return m.closeFunc()
+	if m.closeFunc != nil {
+		return m.closeFunc()
+	}
+	return nil
 }
+
+// =============================================================================
+// Test Public Methods
+// =============================================================================
 
 // TestMockVirt_Initialize tests the Initialize method of MockVirt.
 func TestMockVirt_Initialize(t *testing.T) {

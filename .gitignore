@@ -15,6 +15,9 @@ coverage.html
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
+# Cursor
+.cursor/
+
 # Go workspace file
 go.work
 
@@ -29,10 +32,13 @@ age.key
 age.public.key
 
 # Temporary development folders
-contexts/
-.tf_modules/
+/contexts/
+/kustomize/
+/terraform/
+windsor.yaml
 
 # managed by windsor cli
+.windsor/
 .volumes/
 terraform/**/backend_override.tf
 contexts/**/.terraform/
@@ -40,4 +46,5 @@ contexts/**/.tfstate/
 contexts/**/.kube/
 contexts/**/.talos/
 contexts/**/.aws/
-.docker-cache/
+contexts/**/.omni/
+contexts/**/.azure/

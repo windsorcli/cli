@@ -1,9 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/pipelines"
 )
 
 var envCmd = &cobra.Command{
@@ -11,44 +15,39 @@ var envCmd = &cobra.Command{
 	Short:        "Output commands to set environment variables",
 	Long:         "Output commands to set environment variables for the application.",
 	SilenceUsage: true,
-	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Create environment components
-		if err := controller.CreateEnvComponents(); err != nil {
-			if verbose {
-				return fmt.Errorf("Error creating environment components: %w", err)
+		// Get shared dependency injector from context
+		injector := cmd.Context().Value(injectorKey).(di.Injector)
+
+		// Get flags
+		hook, _ := cmd.Flags().GetBool("hook")
+		decrypt, _ := cmd.Flags().GetBool("decrypt")
+
+		// Set NO_CACHE=true unless --hook is specified or NO_CACHE is already set
+		if !hook && os.Getenv("NO_CACHE") == "" {
+			if err := os.Setenv("NO_CACHE", "true"); err != nil {
+				return fmt.Errorf("failed to set NO_CACHE environment variable: %w", err)
 			}
-			return nil
 		}
 
-		// Initialize components
-		if err := controller.InitializeComponents(); err != nil {
-			if verbose {
-				return fmt.Errorf("Error initializing components: %w", err)
-			}
-			return nil
+		// Create execution context with flags
+		ctx := cmd.Context()
+		if decrypt {
+			ctx = context.WithValue(ctx, "decrypt", true)
+		}
+		if hook {
+			ctx = context.WithValue(ctx, "hook", true)
 		}
 
-		// Resolve all environment printers using the controller
-		envPrinters := controller.ResolveAllEnvPrinters()
-		if len(envPrinters) == 0 && verbose {
-			return fmt.Errorf("Error resolving environment printers: no printers returned")
+		// Set up the env pipeline
+		pipeline, err := pipelines.WithPipeline(injector, ctx, "envPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up env pipeline: %w", err)
 		}
 
-		// Iterate through all environment printers and run their Print and PostEnvHook functions
-		for _, envPrinter := range envPrinters {
-			if err := envPrinter.Print(); err != nil {
-				if verbose {
-					return fmt.Errorf("Error executing Print: %w", err)
-				}
-				return nil
-			}
-			if err := envPrinter.PostEnvHook(); err != nil {
-				if verbose {
-					return fmt.Errorf("Error executing PostEnvHook: %w", err)
-				}
-				return nil
-			}
+		// Execute the pipeline
+		if err := pipeline.Execute(ctx); err != nil {
+			return fmt.Errorf("Error executing env pipeline: %w", err)
 		}
 
 		return nil
@@ -56,5 +55,7 @@ var envCmd = &cobra.Command{
 }
 
 func init() {
+	envCmd.Flags().Bool("decrypt", false, "Decrypt secrets before setting environment variables")
+	envCmd.Flags().Bool("hook", false, "Flag that indicates the command is being executed by the hook")
 	rootCmd.AddCommand(envCmd)
 }

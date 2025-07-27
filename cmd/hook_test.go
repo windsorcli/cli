@@ -2,123 +2,90 @@ package cmd
 
 import (
 	"bytes"
-	"fmt"
-	"strings"
 	"testing"
-
-	"github.com/windsorcli/cli/pkg/context"
-	ctrl "github.com/windsorcli/cli/pkg/controller"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/shell"
 )
 
-func setupSafeHookCmdMocks() *MockObjects {
-	injector := di.NewInjector()
-	mockController := ctrl.NewMockController(injector)
-
-	// Setup mock context handler
-	mockContextHandler := context.NewMockContext()
-	mockContextHandler.GetContextFunc = func() string {
-		return "test-context"
-	}
-	injector.Register("contextHandler", mockContextHandler)
-
-	mockShell := shell.NewMockShell()
-	mockShell.InstallHookFunc = func(shellName string) error {
-		if shellName == "" {
-			return fmt.Errorf("No shell name provided")
-		}
-		return nil
-	}
-	mockController.ResolveShellFunc = func() shell.Shell {
-		return mockShell
-	}
-
-	return &MockObjects{
-		Controller: mockController,
-		Shell:      mockShell,
-	}
-}
-
 func TestHookCmd(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
-	t.Cleanup(func() {
-		exitFunc = originalExitFunc
-	})
+	setup := func(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
+		t.Helper()
+		stdout, stderr := captureOutput(t)
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(stderr)
+		return stdout, stderr
+	}
 
 	t.Run("Success", func(t *testing.T) {
-		defer resetRootCmd()
+		// Given proper output capture
+		_, stderr := setup(t)
 
-		// Setup mock controller
-		mocks := setupSafeHookCmdMocks()
+		rootCmd.SetArgs([]string{"hook", "zsh"})
 
-		// Capture stdout using captureStdout
-		output := captureStdout(func() {
-			rootCmd.SetArgs([]string{"hook", "bash"})
-			err := Execute(mocks.Controller)
-			if err != nil {
-				t.Fatalf("Expected no error, got %v", err)
-			}
-		})
+		// When executing the command
+		err := Execute()
 
-		// Then the output should be empty as InstallHook does not return output
-		expectedOutput := ""
-		if output != expectedOutput {
-			t.Errorf("Expected output to be %q, got %q", expectedOutput, output)
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+
+		// And stderr should be empty
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
 		}
 	})
 
-	t.Run("NoShellNameProvided", func(t *testing.T) {
-		defer resetRootCmd()
+	t.Run("NoShellName", func(t *testing.T) {
+		// Given proper output capture
+		setup(t)
 
-		// Setup mock controller
-		mocks := setupSafeHookCmdMocks()
-
-		// Capture stderr
-		var buf bytes.Buffer
-		rootCmd.SetErr(&buf)
 		rootCmd.SetArgs([]string{"hook"})
-		err := Execute(mocks.Controller)
+
+		// When executing the command without shell name
+		err := Execute()
+
+		// Then an error should occur
 		if err == nil {
-			t.Fatalf("Expected error, got nil")
+			t.Error("Expected error, got nil")
 		}
 
-		output := buf.String()
-
-		// Verify output
-		expectedOutput := "No shell name provided"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		// And error should contain usage message
+		expectedError := "accepts 1 arg(s), received 0"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
-	t.Run("ErrorInstallingHook", func(t *testing.T) {
-		defer resetRootCmd()
+	t.Run("UnsupportedShell", func(t *testing.T) {
+		// Given proper output capture
+		setup(t)
 
-		// Setup mock controller
-		mocks := setupSafeHookCmdMocks()
-		mocks.Shell.InstallHookFunc = func(shellName string) error {
-			return fmt.Errorf("hook installation error")
-		}
+		rootCmd.SetArgs([]string{"hook", "unsupported"})
 
-		// Capture stderr
-		var buf bytes.Buffer
-		rootCmd.SetErr(&buf)
+		// When executing the command with unsupported shell
+		err := Execute()
 
-		// When the hook command is executed
-		rootCmd.SetArgs([]string{"hook", "bash"})
-		err := Execute(mocks.Controller)
+		// Then an error should occur
 		if err == nil {
-			t.Fatalf("Expected error, got nil")
+			t.Error("Expected error, got nil")
 		}
 
-		output := buf.String()
-
-		// Then the output should indicate the error
-		expectedOutput := "hook installation error"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		// And error should contain unsupported shell message
+		if !contains(err.Error(), "Unsupported shell") {
+			t.Errorf("Expected error to contain 'Unsupported shell', got %q", err.Error())
 		}
 	})
+}
+
+// Helper function to check if string contains substring
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || (len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || containsSubstring(s, substr))))
+}
+
+func containsSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

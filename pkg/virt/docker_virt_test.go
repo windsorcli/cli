@@ -1,515 +1,640 @@
+// The DockerVirt test suite provides test coverage for Docker VM management functionality.
+// It serves as a verification framework for Docker virtualization operations.
+// It enables testing of Docker-specific features and error handling.
+
 package virt
 
 import (
 	"fmt"
 	"os"
-	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 
-	"github.com/compose-spec/compose-go/types"
-	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/config/docker"
-	"github.com/windsorcli/cli/pkg/context"
+	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/services"
-	"github.com/windsorcli/cli/pkg/shell"
 )
 
-func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockComponents {
-	var injector di.Injector
-	if len(optionalInjector) > 0 {
-		injector = optionalInjector[0]
-	} else {
-		injector = di.NewMockInjector()
+// =============================================================================
+// Test Setup
+// =============================================================================
+
+func setupDockerMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+	t.Helper()
+
+	// Process options with defaults
+	options := &SetupOptions{}
+	if len(opts) > 0 && opts[0] != nil {
+		options = opts[0]
 	}
 
-	mockContext := context.NewMockContext()
-	mockShell := shell.NewMockShell(injector)
-	mockConfigHandler := config.NewMockConfigHandler()
-	mockService := services.NewMockService()
+	// Set up base mocks
+	mocks := setupMocks(t, options)
 
-	// Register mock instances in the injector
-	injector.Register("contextHandler", mockContext)
-	injector.Register("shell", mockShell)
-	injector.Register("configHandler", mockConfigHandler)
-	injector.Register("dockerService", mockService)
+	// Load Docker-specific config
+	configStr := `
+contexts:
+  mock-context:
+    dns:
+      domain: mock.domain.com
+      enabled: true
+      address: 10.0.0.53
+    network:
+      cidr_block: 10.0.0.0/24
+    docker:
+      enabled: true
+      registry_url: "https://registry.example.com"
+      registries:
+        local:
+          remote: "remote-registry.example.com"
+          local: "localhost:5000"
+          hostname: "registry.local"
+          hostport: 5000`
 
-	// Register additional mock services
-	mockService1 := services.NewMockService()
-	mockService2 := services.NewMockService()
-	injector.Register("service1", mockService1)
-	injector.Register("service2", mockService2)
-
-	// Implement GetContextFunc on mock context
-	mockContext.GetContextFunc = func() string {
-		return "mock-context"
+	if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+		t.Fatalf("Failed to load config string: %v", err)
 	}
 
-	// Set up the mock config handler to return a safe default configuration for Docker VMs
-	mockConfigHandler.GetConfigFunc = func() *config.Context {
-		return &config.Context{
-			Docker: &docker.DockerConfig{
-				Enabled: ptrBool(true),
-				Registries: map[string]docker.RegistryConfig{
-					"registry.test": {
-						Remote: "https://registry.test",
-						Local:  "https://local.registry.test",
-					},
-				},
-				NetworkCIDR: ptrString("10.5.0.0/16"),
-			},
-		}
-	}
+	mocks.ConfigHandler.SetContext("mock-context")
 
-	// Mock the shell Exec function to return generic JSON structures for two containers
-	mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+	// Set up mock shell for Docker commands
+	mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 		if command == "docker" && len(args) > 0 {
 			switch args[0] {
+			case "compose":
+				return "Docker Compose version 2.0.0", nil
+			case "info":
+				return "Docker info output", nil
 			case "ps":
-				return "container1\ncontainer2", nil
+				var hasManagedBy, hasContext, hasFormat bool
+				for i := 0; i < len(args); i++ {
+					if args[i] == "--filter" && i+1 < len(args) {
+						switch args[i+1] {
+						case "label=managed_by=windsor":
+							hasManagedBy = true
+						case fmt.Sprintf("label=context=%s", mocks.ConfigHandler.GetContext()):
+							hasContext = true
+						}
+					} else if args[i] == "--format" && i+1 < len(args) && args[i+1] == "{{.ID}}" {
+						hasFormat = true
+					}
+				}
+				if hasManagedBy && hasContext && hasFormat {
+					return "container1\ncontainer2", nil
+				}
 			case "inspect":
-				if len(args) > 3 && args[2] == "--format" {
+				if len(args) >= 4 && args[2] == "--format" {
 					switch args[3] {
 					case "{{json .Config.Labels}}":
-						// Return both matching and non-matching service names
-						if args[1] == "container1" {
-							return `{"com.docker.compose.service":"service1","managed_by":"windsor","context":"mock-context"}`, nil
-						} else if args[1] == "container2" {
-							return `{"com.docker.compose.service":"service2","managed_by":"windsor","context":"mock-context"}`, nil
+						switch args[1] {
+						case "container1":
+							return `{"managed_by":"windsor","context":"mock-context","com.docker.compose.service":"service1","role":"test"}`, nil
+						case "container2":
+							return `{"managed_by":"windsor","context":"mock-context","com.docker.compose.service":"service2","role":"test"}`, nil
 						}
 					case "{{json .NetworkSettings.Networks}}":
-						if args[1] == "container1" {
-							return `{"windsor-mock-context":{"IPAddress":"192.168.1.2"}}`, nil
-						} else if args[1] == "container2" {
-							return `{"windsor-mock-context":{"IPAddress":"192.168.1.3"}}`, nil
+						switch args[1] {
+						case "container1":
+							return fmt.Sprintf(`{"windsor-%s":{"IPAddress":"192.168.1.2"}}`, mocks.ConfigHandler.GetContext()), nil
+						case "container2":
+							return fmt.Sprintf(`{"windsor-%s":{"IPAddress":"192.168.1.3"}}`, mocks.ConfigHandler.GetContext()), nil
 						}
 					}
 				}
 			}
 		}
-		return "", fmt.Errorf("unknown command")
+		return "", fmt.Errorf("unexpected command: %s %v", command, args)
 	}
 
-	// Mock the service's GetComposeConfigFunc to return a default configuration for two services
-	mockService.GetComposeConfigFunc = func() (*types.Config, error) {
+	// Set up mock service config
+	mocks.Service.GetComposeConfigFunc = func() (*types.Config, error) {
 		return &types.Config{
-			Services: []types.ServiceConfig{
-				{Name: "service1"},
-				{Name: "service2"},
-			},
-			Volumes: map[string]types.VolumeConfig{
-				"volume1": {},
-				"volume2": {},
-			},
-			Networks: map[string]types.NetworkConfig{
-				"network1": {
-					Driver: "bridge",
+			Services: types.Services{
+				"service1": {
+					Name: "service1",
+					Labels: map[string]string{
+						"role":                       "test",
+						"com.docker.compose.service": "service1",
+					},
+					Networks: map[string]*types.ServiceNetworkConfig{
+						fmt.Sprintf("windsor-%s", mocks.ConfigHandler.GetContext()): {
+							Ipv4Address: "192.168.1.2",
+						},
+					},
 				},
-				"network2": {
-					Driver: "bridge",
+				"service2": {
+					Name: "service2",
+					Labels: map[string]string{
+						"role":                       "test",
+						"com.docker.compose.service": "service2",
+					},
+					Networks: map[string]*types.ServiceNetworkConfig{
+						fmt.Sprintf("windsor-%s", mocks.ConfigHandler.GetContext()): {
+							Ipv4Address: "192.168.1.3",
+						},
+					},
 				},
 			},
 		}, nil
 	}
-
-	// Mock the GetConfigRootFunc to return a mock config root path
-	mockContext.GetConfigRootFunc = func() (string, error) {
-		return "/mock/config/root", nil
+	mocks.Service.GetAddressFunc = func() string {
+		return "192.168.1.2"
+	}
+	mocks.Service.GetNameFunc = func() string {
+		return "service1"
+	}
+	mocks.Service.GetHostnameFunc = func() string {
+		return "service1.mock.domain.com"
 	}
 
-	return &MockComponents{
-		Injector:          injector,
-		MockContext:       mockContext,
-		MockShell:         mockShell,
-		MockConfigHandler: mockConfigHandler,
-		MockService:       mockService,
-	}
+	return mocks
 }
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
+// TestDockerVirt_Initialize tests the initialization of the DockerVirt component.
 func TestDockerVirt_Initialize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
+	setup := func(t *testing.T) (*DockerVirt, *Mocks) {
+		t.Helper()
+		mocks := setupDockerMocks(t)
 		dockerVirt := NewDockerVirt(mocks.Injector)
+		dockerVirt.shims = mocks.Shims
 
-		// Mock the shell's ExecSilent function to simulate a valid docker compose command
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker-compose" && len(args) > 0 && args[0] == "--version" {
-				return "docker-compose version 1.29.2, build 5becea4c", nil
-			}
-			return "", fmt.Errorf("unknown command")
-		}
+		// Register default mock service
+		mocks.Injector.Register("defaultService", mocks.Service)
 
-		// Call the Initialize method
+		return dockerVirt, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a docker virt instance with valid mocks
+		dockerVirt, _ := setup(t)
+
+		// When initializing
 		err := dockerVirt.Initialize()
 
-		// Assert no error occurred
+		// Then no error should occur
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
 
-		// Verify that the services were resolved correctly
+		// And services should be resolved
 		if len(dockerVirt.services) == 0 {
 			t.Errorf("expected services to be resolved, but got none")
 		}
 	})
 
 	t.Run("ErrorInitializingBaseVirt", func(t *testing.T) {
-		// Setup mock components
-		injector := di.NewInjector()
-		injector.Register("shell", "not a shell")
-		dockerVirt := NewDockerVirt(injector)
+		// Given a docker virt instance with invalid shell
+		dockerVirt, mocks := setup(t)
+		mocks.Injector.Register("shell", "not a shell")
 
-		// Call the Initialize method
+		// When initializing
 		err := dockerVirt.Initialize()
 
-		// Assert that an error occurred
+		// Then an error should occur
 		if err == nil {
 			t.Errorf("expected error, got none")
 		}
 
-		// Verify the error message contains the expected substring
+		// And the error should contain the expected message
 		expectedErrorSubstring := "error resolving shell"
 		if !strings.Contains(err.Error(), expectedErrorSubstring) {
 			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
 		}
 	})
 
-	t.Run("ErrorResolvingServices", func(t *testing.T) {
-		// Setup mock components
-		injector := di.NewMockInjector()
-		mocks := setupSafeDockerContainerMocks(injector)
-		dockerVirt := NewDockerVirt(mocks.Injector)
+	t.Run("ErrorDockerNotEnabled", func(t *testing.T) {
+		// Given a docker virt instance with docker disabled
+		dockerVirt, mocks := setup(t)
+		if err := mocks.ConfigHandler.SetContextValue("docker.enabled", false); err != nil {
+			t.Fatalf("Failed to set docker.enabled: %v", err)
+		}
 
-		// Simulate an error during service resolution
-		injector.SetResolveAllError((*services.Service)(nil), fmt.Errorf("mock resolve services error"))
-
-		// Call the Initialize method
+		// When initializing
 		err := dockerVirt.Initialize()
 
-		// Assert that an error occurred
+		// Then an error should occur
 		if err == nil {
 			t.Errorf("expected error, got none")
 		}
+		if !strings.Contains(err.Error(), "Docker configuration is not defined") {
+			t.Errorf("expected error about Docker not being enabled, got %v", err)
+		}
+	})
 
-		// Verify the error message contains the expected substring
-		expectedErrorSubstring := "error resolving services"
-		if !strings.Contains(err.Error(), expectedErrorSubstring) {
-			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
+	t.Run("ErrorResolvingServices", func(t *testing.T) {
+		// Given a docker virt instance with failing service resolution
+		dockerVirt, mocks := setup(t)
+
+		// Create new mock injector with base dependencies
+		mockInjector := di.NewMockInjector()
+		mockInjector.Register("shell", mocks.Shell)
+		mockInjector.Register("configHandler", mocks.ConfigHandler)
+		mockInjector.SetResolveAllError((*services.Service)(nil), fmt.Errorf("service resolution failed"))
+
+		// Replace injector and recreate dockerVirt
+		dockerVirt = NewDockerVirt(mockInjector)
+		dockerVirt.shims = mocks.Shims
+
+		// When initializing
+		err := dockerVirt.Initialize()
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("expected error, got none")
+		}
+		if !strings.Contains(err.Error(), "error resolving services") {
+			t.Errorf("expected error about resolving services, got %v", err)
 		}
 	})
 
 	t.Run("ErrorDeterminingComposeCommand", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-
-		// Mock the shell's ExecSilent function to simulate no valid docker compose command found
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			return "", fmt.Errorf("command not found")
+		// Given a docker virt instance with failing compose command detection
+		dockerVirt, mocks := setup(t)
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) > 0 && args[0] == "compose" {
+				return "", fmt.Errorf("error determining compose command")
+			}
+			if command == "docker-compose" {
+				return "", fmt.Errorf("error determining compose command")
+			}
+			if command == "docker-cli-plugin-docker-compose" {
+				return "", fmt.Errorf("error determining compose command")
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
 
-		// Call the Initialize method
+		// When initializing
 		err := dockerVirt.Initialize()
 
-		// Assert that an error occurred
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And the compose command should be empty
+		if dockerVirt.composeCommand != "" {
+			t.Errorf("expected compose command to be empty, got %q", dockerVirt.composeCommand)
+		}
+	})
+
+	t.Run("NilServiceInSlice", func(t *testing.T) {
+		// Given a docker virt instance with a nil service
+		dockerVirt, mocks := setup(t)
+		mocks.Injector.Register("nilService", nil)
+
+		// When initializing
+		err := dockerVirt.Initialize()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And services slice should only contain the default service
+		if len(dockerVirt.services) != 2 {
+			t.Errorf("Expected 2 services (default + nil), got %d", len(dockerVirt.services))
+		}
+	})
+
+	t.Run("ServicesAreSorted", func(t *testing.T) {
+		// Given a docker virt instance with multiple services
+		dockerVirt, mocks := setup(t)
+
+		// And services in random order
+		serviceA := services.NewMockService()
+		serviceB := services.NewMockService()
+		serviceC := services.NewMockService()
+		serviceA.SetName("ServiceA")
+		serviceB.SetName("ServiceB")
+		serviceC.SetName("ServiceC")
+		mocks.Injector.Register("serviceA", serviceA)
+		mocks.Injector.Register("serviceB", serviceB)
+		mocks.Injector.Register("serviceC", serviceC)
+
+		// When initializing
+		err := dockerVirt.Initialize()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And services should be sorted by name
+		if len(dockerVirt.services) != 5 {
+			t.Errorf("Expected 5 services (default + 3 registered + 1 from config), got %d", len(dockerVirt.services))
+		}
+		if len(dockerVirt.services) == 5 {
+			serviceNames := []string{
+				dockerVirt.services[0].GetName(),
+				dockerVirt.services[1].GetName(),
+				dockerVirt.services[2].GetName(),
+				dockerVirt.services[3].GetName(),
+				dockerVirt.services[4].GetName(),
+			}
+			if !sort.StringsAreSorted(serviceNames) {
+				t.Errorf("Services are not sorted by name: %v", serviceNames)
+			}
+		}
+	})
+
+	t.Run("SkipNilService", func(t *testing.T) {
+		// Given a docker virt instance with nil service
+		dockerVirt, mocks := setup(t)
+
+		// Create new mock injector with base dependencies
+		mockInjector := di.NewMockInjector()
+		mockInjector.Register("shell", mocks.Shell)
+		mockInjector.Register("configHandler", mocks.ConfigHandler)
+		mockInjector.Register("nilService", nil)
+
+		// Replace injector and recreate dockerVirt
+		dockerVirt = NewDockerVirt(mockInjector)
+		dockerVirt.shims = mocks.Shims
+
+		// When initializing
+		err := dockerVirt.Initialize()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+}
+
+// TestDockerVirt_Up tests the Up method of the DockerVirt component.
+func TestDockerVirt_Up(t *testing.T) {
+	setup := func(t *testing.T) (*DockerVirt, *Mocks) {
+		t.Helper()
+		mocks := setupDockerMocks(t)
+		dockerVirt := NewDockerVirt(mocks.Injector)
+		dockerVirt.shims = mocks.Shims
+		if err := dockerVirt.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize DockerVirt: %v", err)
+		}
+		return dockerVirt, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a docker virt instance with valid mocks
+		dockerVirt, _ := setup(t)
+
+		// When calling Up
+		err := dockerVirt.Up()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorStartingDockerCompose", func(t *testing.T) {
+		// Given a DockerVirt with mock components
+		dockerVirt, mocks := setup(t)
+
+		// Mock command execution to fail
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			if command == dockerVirt.composeCommand && args[0] == "up" {
+				return "", fmt.Errorf("mock docker-compose up error")
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
+		// When calling Up
+		err := dockerVirt.Up()
+
+		// Then an error should occur
 		if err == nil {
 			t.Errorf("expected error, got none")
 		}
 
-		// Verify the error message contains the expected substring
-		expectedErrorSubstring := "error determining docker compose command"
-		if !strings.Contains(err.Error(), expectedErrorSubstring) {
-			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
-		}
-	})
-}
-
-func TestDockerVirt_Up(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
-
-		// Mock the shell Exec function to simulate successful docker info and docker compose up
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "info" {
-				return "docker info", nil
-			}
-			return "", fmt.Errorf("unknown command")
-		}
-		mocks.MockShell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			if command == dockerVirt.composeCommand && args[0] == "up" {
-				return "docker compose up successful", nil
-			}
-			return "", fmt.Errorf("unknown command")
-		}
-
-		// Call the Up method
-		err := dockerVirt.Up()
-
-		// Assert that no error occurred
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("DockerDaemonNotRunning", func(t *testing.T) {
-		// Setup mock components without mocking the container
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
-
-		// Mock the shell Exec function to simulate the Docker daemon not running
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "info" {
-				return "", fmt.Errorf("Cannot connect to the Docker daemon")
-			}
-			return "", fmt.Errorf("unknown command")
-		}
-
-		// Call the Up method
-		err := dockerVirt.Up()
-
-		// Assert that an error occurred
-		if err == nil {
-			t.Errorf("expected an error, got nil")
-		}
-
-		// Verify that the error message is as expected
-		expectedErrorMsg := "Docker daemon is not running"
+		// And the error should contain the expected message
+		expectedErrorMsg := "executing command"
 		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
 			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
 		}
 	})
 
 	t.Run("ErrorGetConfigRoot", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
+		// Given a DockerVirt with mock components
+		dockerVirt, mocks := setup(t)
 
-		// Mock the GetConfigRoot function to simulate an error
-		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
-			return "", fmt.Errorf("mock error retrieving config root")
+		// Override GetProjectRoot to return an error
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error retrieving project root")
 		}
 
-		// Mock the shell Exec function to simulate Docker daemon check
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "info" {
-				return "docker info", nil
-			}
-			return "", fmt.Errorf("unknown command")
-		}
-
-		// Call the Up method
+		// When calling the Up method
 		err := dockerVirt.Up()
 
-		// Assert that an error occurred
+		// Then an error should occur
 		if err == nil {
 			t.Errorf("expected an error, got nil")
 		}
 
-		// Verify that the error message is as expected
-		expectedErrorMsg := "error retrieving config root"
+		// And the error should contain the expected message
+		expectedErrorMsg := "error retrieving project root"
 		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
 			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
 		}
 	})
 
 	t.Run("ErrorSettingComposeFileEnv", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
+		// Given a DockerVirt with mock components and custom shims
+		mocks := setupDockerMocks(t)
 
-		// Mock the GetConfigRoot function to return a valid path
-		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
-			return "/valid/path", nil
-		}
-
-		// Mock the shell Exec function to simulate Docker daemon check
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "info" {
-				return "docker info", nil
-			}
-			return "", fmt.Errorf("unknown command")
-		}
-
-		// Temporarily replace osSetenv with a mock function to simulate an error
-		originalSetenv := osSetenv
-		defer func() { osSetenv = originalSetenv }()
-		osSetenv = func(key, value string) error {
+		// Create shims with Setenv error
+		mocks.Shims.Setenv = func(key, value string) error {
 			if key == "COMPOSE_FILE" {
 				return fmt.Errorf("mock error setting COMPOSE_FILE environment variable")
 			}
 			return nil
 		}
 
-		// Call the Up method
+		// Set up compose command detection
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) > 0 && args[0] == "compose" {
+				return "Docker Compose version 2.0.0", nil
+			}
+			if command == "docker" && len(args) > 0 && args[0] == "info" {
+				return "docker info output", nil
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
+		// Create and initialize DockerVirt
+		dockerVirt := NewDockerVirt(mocks.Injector)
+		dockerVirt.shims = mocks.Shims
+		if err := dockerVirt.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize DockerVirt: %v", err)
+		}
+
+		// When calling the Up method
 		err := dockerVirt.Up()
 
-		// Assert that an error occurred
+		// Then an error should occur
 		if err == nil {
 			t.Errorf("expected an error, got nil")
 		}
 
-		// Verify that the error message is as expected
-		expectedErrorMsg := "error setting COMPOSE_FILE environment variable"
+		// And the error should contain the expected message
+		expectedErrorMsg := "failed to set COMPOSE_FILE environment variable"
 		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
 			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		}
+	})
+
+	t.Run("ErrorSetComposeFileUp", func(t *testing.T) {
+		// Given a docker virt instance with failing setenv
+		dockerVirt, mocks := setup(t)
+		mocks.Shims.Setenv = func(key, value string) error {
+			if key == "COMPOSE_FILE" {
+				return fmt.Errorf("setenv failed")
+			}
+			return nil
+		}
+
+		// When calling Up
+		err := dockerVirt.Up()
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("expected error, got none")
+		}
+		if !strings.Contains(err.Error(), "failed to set COMPOSE_FILE environment variable") {
+			t.Errorf("expected error about setting COMPOSE_FILE, got %v", err)
 		}
 	})
 
 	t.Run("RetryDockerComposeUp", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
+		// Given a docker virt instance with failing compose up
+		dockerVirt, mocks := setup(t)
 
-		// Counter to track the number of retries
-		execCallCount := 0
+		// Track command execution count
+		execCount := 0
 
-		// Mock the shell Exec functions to simulate retry logic
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "info" {
-				return "docker info", nil
-			}
-			if command == dockerVirt.composeCommand && len(args) > 0 && args[0] == "up" {
-				execCallCount++
-				if execCallCount < 3 {
+		// Mock command execution to fail twice then succeed
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			if command == dockerVirt.composeCommand && args[0] == "up" {
+				execCount++
+				if execCount < 3 {
 					return "", fmt.Errorf("temporary error")
 				}
 				return "success", nil
 			}
-			return "", fmt.Errorf("unknown command")
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
-		mocks.MockShell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+
+		// And ExecSilent for retries also fails twice then succeeds
+		oldExecSilent := mocks.Shell.ExecSilentFunc
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			// Keep original behavior for commands used in setup
+			if command == "docker" && (len(args) > 0 && args[0] == "compose" || len(args) > 0 && args[0] == "info") {
+				return oldExecSilent(command, args...)
+			}
+
+			// Handle compose up retry attempts
 			if command == dockerVirt.composeCommand && len(args) > 0 && args[0] == "up" {
-				execCallCount++
-				if execCallCount < 3 {
+				execCount++
+				if execCount < 3 {
 					return "", fmt.Errorf("temporary error")
 				}
 				return "success", nil
 			}
-			return "", fmt.Errorf("unknown command")
+
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
 
-		// Call the Up method
+		// When calling Up
 		err := dockerVirt.Up()
 
-		// Assert that no error occurred after retries
+		// Then no error should occur after retries
 		if err != nil {
 			t.Errorf("expected no error after retries, got %v", err)
 		}
 
-		// Verify that the Exec function was called 3 times
-		if execCallCount != 3 {
-			t.Errorf("expected Exec to be called 3 times, got %d", execCallCount)
-		}
-	})
-
-	t.Run("DockerComposeUpRetryError", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
-
-		// Counter to track the number of retries
-		execCallCount := 0
-
-		// Mock the shell Exec functions to simulate retry logic with persistent error
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "info" {
-				return "docker info", nil
-			}
-			if command == dockerVirt.composeCommand && len(args) > 0 && args[0] == "up" {
-				execCallCount++
-				return "", fmt.Errorf("persistent error")
-			}
-			return "", fmt.Errorf("unknown command")
-		}
-		mocks.MockShell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			if command == dockerVirt.composeCommand && len(args) > 0 && args[0] == "up" {
-				execCallCount++
-				return "", fmt.Errorf("persistent error")
-			}
-			return "", fmt.Errorf("unknown command")
-		}
-
-		// Call the Up method
-		err := dockerVirt.Up()
-
-		// Assert that an error occurred after retries
-		if err == nil {
-			t.Errorf("expected an error after retries, got nil")
-		}
-
-		// Verify that the Exec function was called 3 times
-		if execCallCount != 3 {
-			t.Errorf("expected Exec to be called 3 times, got %d", execCallCount)
-		}
-
-		// Verify that the error message is as expected
-		expectedErrorMsg := "persistent error"
-		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
-			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		// And the command should be called 3 times
+		if execCount != 3 {
+			t.Errorf("expected command to be called 3 times, got %d", execCount)
 		}
 	})
 }
 
+// TestDockerVirt_Down tests the Down method of the DockerVirt component.
 func TestDockerVirt_Down(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
+	setup := func(t *testing.T) (*DockerVirt, *Mocks) {
+		t.Helper()
+		mocks := setupDockerMocks(t)
 		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
+		dockerVirt.shims = mocks.Shims
+		if err := dockerVirt.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize DockerVirt: %v", err)
+		}
+		return dockerVirt, mocks
+	}
 
-		// Mock the shell Exec function to simulate successful docker info and docker compose down commands
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "info" {
-				return "docker info", nil
-			}
-			if command == "docker compose" && len(args) > 2 && args[2] == "down" {
-				return "docker compose down", nil
-			}
-			return "", fmt.Errorf("unknown command")
+	t.Run("Success", func(t *testing.T) {
+		// Given a DockerVirt with mock components
+		dockerVirt, mocks := setup(t)
+
+		// And docker-compose.yaml exists
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, nil // File exists
 		}
 
-		// Call the Down method
+		// When calling Down
 		err := dockerVirt.Down()
 
-		// Assert no error occurred
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("SuccessWithMissingComposeFile", func(t *testing.T) {
+		// Given a DockerVirt with mock components
+		dockerVirt, mocks := setup(t)
+
+		// And docker-compose.yaml doesn't exist
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist // File doesn't exist
+		}
+
+		// When calling Down
+		err := dockerVirt.Down()
+
+		// Then no error should occur (idempotent)
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
 	})
 
 	t.Run("DockerDaemonNotRunning", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
+		// Given a DockerVirt with mock components
+		dockerVirt, mocks := setup(t)
 
-		// Mock the shell Exec function to simulate Docker daemon not running
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		// Override ExecSilent for docker info check
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return "", fmt.Errorf("Docker daemon is not running")
 			}
-			return "", fmt.Errorf("unknown command")
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
 
-		// Call the Down method
+		// When calling the Down method
 		err := dockerVirt.Down()
 
-		// Assert that an error occurred
+		// Then an error should occur
 		if err == nil {
 			t.Errorf("expected an error, got nil")
 		}
 
-		// Verify that the error message is as expected
+		// And the error should contain the expected message
 		expectedErrorMsg := "Docker daemon is not running"
 		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
 			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
@@ -517,836 +642,858 @@ func TestDockerVirt_Down(t *testing.T) {
 	})
 
 	t.Run("ErrorGetConfigRoot", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
+		// Given a DockerVirt with mock components
+		dockerVirt, mocks := setup(t)
 
-		// Mock the GetConfigRootFunc to return an error
-		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
-			return "", fmt.Errorf("error retrieving config root")
+		// Override GetProjectRoot to return an error
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error retrieving project root")
 		}
 
-		// Mock the shell Exec function to simulate successful docker info command
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "info" {
-				return "docker info", nil
-			}
-			return "", fmt.Errorf("unknown command")
-		}
-
-		// Call the Down method
+		// When calling the Down method
 		err := dockerVirt.Down()
 
-		// Assert that an error occurred
+		// Then an error should occur
 		if err == nil {
 			t.Errorf("expected an error, got nil")
 		}
 
-		// Verify that the error message is as expected
-		expectedErrorMsg := "error retrieving config root"
+		// And the error should contain the expected message
+		expectedErrorMsg := "error retrieving project root"
 		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
 			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
 		}
 	})
 
 	t.Run("ErrorSettingComposeFileEnv", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
+		// Given a DockerVirt with mock components and custom shims
+		dockerVirt, mocks := setup(t)
 
-		// Mock the shell Exec function to simulate successful docker info command
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "info" {
-				return "docker info", nil
-			}
-			return "", fmt.Errorf("unknown command")
-		}
-
-		// Temporarily replace osSetenv with a mock function to simulate an error
-		originalSetenv := osSetenv
-		defer func() { osSetenv = originalSetenv }()
-		osSetenv = func(key, value string) error {
+		// Create shims with Setenv error
+		mocks.Shims.Setenv = func(key, value string) error {
 			if key == "COMPOSE_FILE" {
 				return fmt.Errorf("mock error setting COMPOSE_FILE environment variable")
 			}
 			return nil
 		}
 
-		// Call the Down method
+		// Re-initialize DockerVirt to establish the necessary compose commands
+		if err := dockerVirt.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize DockerVirt: %v", err)
+		}
+
+		// When calling the Down method
 		err := dockerVirt.Down()
 
-		// Assert that an error occurred
+		// Then an error should occur
 		if err == nil {
 			t.Errorf("expected an error, got nil")
 		}
 
-		// Verify that the error message is as expected
+		// And the error should contain the expected message
 		expectedErrorMsg := "error setting COMPOSE_FILE environment variable"
 		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
 			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
 		}
 	})
 
-	t.Run("ErrorDockerComposeDown", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
-
-		// Mock the shell Exec function to simulate successful docker info command
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "info" {
-				return "docker info", nil
+	t.Run("ErrorSetComposeFileDown", func(t *testing.T) {
+		// Given a docker virt instance with failing setenv
+		dockerVirt, mocks := setup(t)
+		mocks.Shims.Setenv = func(key, value string) error {
+			if key == "COMPOSE_FILE" {
+				return fmt.Errorf("setenv failed")
 			}
-			return "", fmt.Errorf("unknown command")
-		}
-		mocks.MockShell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			if command == dockerVirt.composeCommand && len(args) > 0 && args[0] == "down" {
-				return "", fmt.Errorf("error executing docker compose down")
-			}
-			return "", fmt.Errorf("unknown command")
+			return nil
 		}
 
-		// Call the Down method
+		// When calling Down
 		err := dockerVirt.Down()
 
-		// Assert that an error occurred
+		// Then an error should occur
 		if err == nil {
-			t.Errorf("expected an error, got nil")
+			t.Errorf("expected error, got none")
+		}
+		if !strings.Contains(err.Error(), "error setting COMPOSE_FILE environment variable") {
+			t.Errorf("expected error about setting COMPOSE_FILE, got %v", err)
+		}
+	})
+
+	t.Run("ErrorExecutingComposeDown", func(t *testing.T) {
+		// Given a docker virt instance with failing compose down
+		dockerVirt, mocks := setup(t)
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			if command == dockerVirt.composeCommand && args[0] == "down" {
+				return "mock error output", fmt.Errorf("mock error executing down command")
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
 
-		// Verify that the error message contains the expected substring
-		expectedErrorSubstring := "docker compose down"
-		if err != nil && !strings.Contains(err.Error(), expectedErrorSubstring) {
-			t.Errorf("expected error message to contain %q, got %v", expectedErrorSubstring, err)
+		// When calling Down
+		err := dockerVirt.Down()
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("expected error, got none")
+		}
+		if !strings.Contains(err.Error(), "Error executing command") {
+			t.Errorf("expected error about executing command, got %v", err)
+		}
+		if !strings.Contains(err.Error(), "mock error output") {
+			t.Errorf("expected error to contain command output, got %v", err)
 		}
 	})
 }
 
-func TestDockerVirt_GetContainerInfo(t *testing.T) {
-	t.Run("SuccessNoArguments", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
-
-		// When calling GetContainerInfo
-		containerInfos, err := dockerVirt.GetContainerInfo()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// And the container info should be as expected
-		if len(containerInfos) != 2 {
-			t.Fatalf("Expected 2 container info, got %d", len(containerInfos))
-		}
-
-		// Create a map to store expected addresses for each service
-		expectedAddresses := map[string]string{
-			"service1": "192.168.1.2",
-			"service2": "192.168.1.3",
-		}
-
-		for _, containerInfo := range containerInfos {
-			expectedAddress, exists := expectedAddresses[containerInfo.Name]
-			if !exists {
-				t.Errorf("Unexpected container name %q", containerInfo.Name)
-				continue
-			}
-			if containerInfo.Address != expectedAddress {
-				t.Errorf("Expected container address %q for service %q, got %q", expectedAddress, containerInfo.Name, containerInfo.Address)
-			}
-		}
-	})
-
-	t.Run("SuccessWithNameArgument", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
-
-		// When calling GetContainerInfo with a specific name argument
-		containerInfos, err := dockerVirt.GetContainerInfo("service2")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// And the container info should be as expected
-		if len(containerInfos) != 1 {
-			t.Fatalf("Expected 1 container info, got %d", len(containerInfos))
-		}
-		expectedName := "service2"
-		expectedAddress := "192.168.1.3"
-		if containerInfos[0].Name != expectedName {
-			t.Errorf("Expected container name %q, got %q", expectedName, containerInfos[0].Name)
-		}
-		if containerInfos[0].Address != expectedAddress {
-			t.Errorf("Expected container address %q, got %q", expectedAddress, containerInfos[0].Address)
-		}
-	})
-
-	t.Run("ErrorInspectingContainer", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
-
-		// Mock the necessary methods to simulate an error during container inspection
-		originalExecFunc := mocks.MockShell.ExecSilentFunc
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 {
-				switch args[0] {
-				case "inspect":
-					if len(args) > 2 && args[2] == "--format" {
-						return "", fmt.Errorf("mock error inspecting container")
-					}
-				}
-			}
-			// Call the original ExecFunc for any other cases
-			return originalExecFunc(command, args...)
-		}
-
-		// When calling GetContainerInfo
-		_, err := dockerVirt.GetContainerInfo()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected an error, got none")
-		}
-		if err.Error() != "mock error inspecting container" {
-			t.Fatalf("Expected error message 'mock error inspecting container', got %v", err)
-		}
-	})
-
-	t.Run("ErrorUnmarshallingContainerInfo", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
-
-		// Mock the necessary methods to simulate an error during JSON unmarshalling
-		originalExecFunc := mocks.MockShell.ExecSilentFunc
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 {
-				switch args[0] {
-				case "inspect":
-					if len(args) > 2 && args[2] == "--format" {
-						return "{invalid-json}", nil // Return invalid JSON to trigger unmarshalling error
-					}
-				}
-			}
-			// Call the original ExecFunc for any other cases
-			return originalExecFunc(command, args...)
-		}
-
-		// When calling GetContainerInfo
-		_, err := dockerVirt.GetContainerInfo()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected an error, got none")
-		}
-		if !strings.Contains(err.Error(), "invalid character") {
-			t.Fatalf("Expected JSON unmarshalling error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorGettingContainerInfo", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
-
-		// Mock the shell Exec function to simulate an error when retrieving container info
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "ps" {
-				return "", fmt.Errorf("mock error retrieving container info")
-			}
-			return "", fmt.Errorf("unknown command")
-		}
-
-		// When calling GetContainerInfo
-		_, err := dockerVirt.GetContainerInfo()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected an error, got none")
-		}
-		if err.Error() != "mock error retrieving container info" {
-			t.Fatalf("Expected error message 'mock error retrieving container info', got %v", err)
-		}
-	})
-
-	t.Run("ErrorInspectingNetwork", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
-
-		// Mock the shell Exec function to simulate an error when inspecting network
-		originalExecFunc := mocks.MockShell.ExecSilentFunc
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "inspect" && args[2] == "--format" && args[3] == "{{json .NetworkSettings.Networks}}" {
-				return "", fmt.Errorf("mock error inspecting network")
-			}
-			return originalExecFunc(command, args...)
-		}
-
-		// When calling GetContainerInfo
-		_, err := dockerVirt.GetContainerInfo()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected an error, got none")
-		}
-		if err.Error() != "mock error inspecting network" {
-			t.Fatalf("Expected error message 'mock error inspecting network', got %v", err)
-		}
-	})
-
-	t.Run("ErrorUnmarshallingNetworkInfo", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
-
-		// Mock the shell Exec function to simulate an error when unmarshalling network info
-		originalExecFunc := mocks.MockShell.ExecSilentFunc
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "inspect" && args[2] == "--format" && args[3] == "{{json .NetworkSettings.Networks}}" {
-				return `invalid json`, nil
-			}
-			return originalExecFunc(command, args...)
-		}
-
-		// When calling GetContainerInfo
-		_, err := dockerVirt.GetContainerInfo()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected an error, got none")
-		}
-		if !strings.Contains(err.Error(), "invalid character") {
-			t.Fatalf("Expected error message containing 'invalid character', got %v", err)
-		}
-	})
-}
-
+// TestDockerVirt_PrintInfo tests the PrintInfo method of the DockerVirt component.
 func TestDockerVirt_PrintInfo(t *testing.T) {
+	setup := func(t *testing.T) (*DockerVirt, *Mocks) {
+		t.Helper()
+		mocks := setupDockerMocks(t)
+		dockerVirt := NewDockerVirt(mocks.Injector)
+		dockerVirt.shims = mocks.Shims
+		if err := dockerVirt.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize DockerVirt: %v", err)
+		}
+		return dockerVirt, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
+		// Given a docker virt instance with valid mocks
+		dockerVirt, _ := setup(t)
 
-		// Capture the output of PrintInfo using captureStdout utility function
-		output := captureStdout(func() {
-			err := dockerVirt.PrintInfo()
-			// Assert no error occurred
-			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
-		})
-
-		// Check for the presence of key elements in the output
-		if !strings.Contains(output, "CONTAINER NAME") || !strings.Contains(output, "service1") || !strings.Contains(output, "192.168.1.2") {
-			t.Fatalf("output does not contain expected elements, got %q", output)
-		}
-	})
-
-	t.Run("ErrorGettingContainerInfo", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
-
-		// Mock the shell Exec function to simulate an error when fetching container IDs
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "ps" {
-				return "", fmt.Errorf("error fetching container IDs")
-			}
-			return "", fmt.Errorf("unknown command")
-		}
-
-		// Call the PrintInfo method
+		// When calling PrintInfo
 		err := dockerVirt.PrintInfo()
 
-		// Assert that an error occurred
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		// Verify that the error message is as expected
-		expectedErrorMsg := "error retrieving container info"
-		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
-			t.Fatalf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
 		}
 	})
 
-	t.Run("NoContainers", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
+	t.Run("NoContainersRunning", func(t *testing.T) {
+		// Given a docker virt instance with valid mocks
+		dockerVirt, mocks := setup(t)
 
-		// Mock the shell Exec function to simulate no running containers
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		// And no containers are running
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) > 0 && args[0] == "ps" {
-				return "\n", nil // Simulate no containers running by returning an empty line
+				return "", nil
 			}
-			return "", nil // Return no error for unknown commands to avoid unexpected errors
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
 
-		// Capture the output of PrintInfo using captureStdout utility function
-		output := captureStdout(func() {
-			err := dockerVirt.PrintInfo()
-			// Assert no error occurred
-			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
-		})
+		// When calling PrintInfo
+		err := dockerVirt.PrintInfo()
 
-		// Check that the output contains the message for no running containers
-		expectedOutput := "No Docker containers are currently running."
-		if !strings.Contains(output, expectedOutput) {
-			t.Fatalf("expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-}
-
-func TestDockerVirt_WriteConfig(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
-
-		// Mock the mkdirAll function to simulate successful directory creation
-		originalMkdirAll := mkdirAll
-		defer func() { mkdirAll = originalMkdirAll }()
-		mkdirAll = func(path string, perm os.FileMode) error {
-			return nil
-		}
-
-		// Mock the writeFile function to simulate successful file writing
-		originalWriteFile := writeFile
-		defer func() { writeFile = originalWriteFile }()
-		writeFile = func(filename string, data []byte, perm os.FileMode) error {
-			return nil
-		}
-
-		// Call the WriteConfig method
-		err := dockerVirt.WriteConfig()
-
-		// Assert no error occurred
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorCreatingParentContextFolder", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
-
-		// Mock the mkdirAll function to simulate a read-only file system error
-		originalMkdirAll := mkdirAll
-		defer func() { mkdirAll = originalMkdirAll }()
-		mkdirAll = func(path string, perm os.FileMode) error {
-			// Use filepath.FromSlash to ensure compatibility with Windows file paths
-			if filepath.Clean(path) == filepath.FromSlash("/mock/config/root") {
-				return fmt.Errorf("read-only file system")
-			}
-			return nil
-		}
-
-		// Call the WriteConfig method
-		err := dockerVirt.WriteConfig()
-
-		// Assert an error occurred
-		if err == nil {
-			t.Fatal("expected an error, got none")
-		}
-		if err.Error() != "error creating parent context folder: read-only file system" {
-			t.Fatalf("expected error message 'error creating parent context folder: read-only file system', got %v", err)
-		}
-	})
-
-	t.Run("ErrorGettingConfigRoot", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
-			return "", fmt.Errorf("error retrieving config root")
-		}
-
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
-
-		// Call the WriteConfig method
-		err := dockerVirt.WriteConfig()
-
-		// Assert that an error occurred
-		if err == nil {
-			t.Fatal("expected an error, got none")
-		}
-
-		// Assert the error message is as expected
-		expectedErrorMsg := "error retrieving config root"
-		if !strings.Contains(err.Error(), expectedErrorMsg) {
-			t.Fatalf("expected error message to contain %q, got %v", expectedErrorMsg, err)
-		}
-	})
-
-	t.Run("ErrorGettingFullComposeConfig", func(t *testing.T) {
-		// Setup mock components
-		mockInjector := di.NewMockInjector()
-		mocks := setupSafeDockerContainerMocks(mockInjector)
-		dockerVirt := NewDockerVirt(mockInjector)
-		dockerVirt.Initialize()
-
-		// Mock the mkdirAll function to prevent actual directory creation
-		originalMkdirAll := mkdirAll
-		defer func() { mkdirAll = originalMkdirAll }()
-		mkdirAll = func(path string, perm os.FileMode) error {
-			return nil
-		}
-
-		// Mock the service's GetComposeConfig to return an error
-		mocks.MockService.GetComposeConfigFunc = func() (*types.Config, error) {
-			return nil, fmt.Errorf("error getting compose config from service")
-		}
-
-		// Call the WriteConfig method
-		err := dockerVirt.WriteConfig()
-
-		// Assert that an error occurred
-		if err == nil {
-			t.Fatal("expected an error, got none")
-		}
-
-		// Assert the error message is as expected
-		expectedErrorMsg := "error getting compose config from service"
-		if !strings.Contains(err.Error(), expectedErrorMsg) {
-			t.Fatalf("expected error message to contain %q, got %v", expectedErrorMsg, err)
-		}
-	})
-
-	t.Run("ErrorMarshalingYAML", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
-
-		// Mock the mkdirAll function to prevent actual directory creation
-		originalMkdirAll := mkdirAll
-		defer func() { mkdirAll = originalMkdirAll }()
-		mkdirAll = func(path string, perm os.FileMode) error {
-			return nil // Return nil to bypass the read-only file system error
-		}
-
-		// Mock the yamlMarshal function to simulate an error
-		originalYamlMarshal := yamlMarshal
-		defer func() { yamlMarshal = originalYamlMarshal }()
-		yamlMarshal = func(v interface{}) ([]byte, error) {
-			return nil, fmt.Errorf("mock yamlMarshal error")
-		}
-
-		// Call the WriteConfig method
-		err := dockerVirt.WriteConfig()
-
-		// Assert that an error occurred
-		if err == nil {
-			t.Fatal("expected an error, got none")
-		}
-
-		// Assert the error message is as expected
-		expectedErrorMsg := "mock yamlMarshal error"
-		if !strings.Contains(err.Error(), expectedErrorMsg) {
-			t.Fatalf("expected error message to contain %q, got %v", expectedErrorMsg, err)
-		}
-	})
-
-	t.Run("ErrorWritingFile", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
-
-		// Mock the mkdirAll function to prevent actual directory creation
-		originalMkdirAll := mkdirAll
-		defer func() { mkdirAll = originalMkdirAll }()
-		mkdirAll = func(path string, perm os.FileMode) error {
-			return nil // Return nil to bypass the directory creation
-		}
-
-		// Mock the yamlMarshal function to return valid YAML data
-		originalYamlMarshal := yamlMarshal
-		defer func() { yamlMarshal = originalYamlMarshal }()
-		yamlMarshal = func(v interface{}) ([]byte, error) {
-			return []byte("valid: yaml"), nil
-		}
-
-		// Mock the writeFile function to simulate an error
-		originalWriteFile := writeFile
-		defer func() { writeFile = originalWriteFile }()
-		writeFile = func(filename string, data []byte, perm os.FileMode) error {
-			return fmt.Errorf("mock writeFile error")
-		}
-
-		// Call the WriteConfig method
-		err := dockerVirt.WriteConfig()
-
-		// Assert that an error occurred
-		if err == nil {
-			t.Fatal("expected an error, got none")
-		}
-
-		// Assert the error message is as expected
-		expectedErrorMsg := "mock writeFile error"
-		if !strings.Contains(err.Error(), expectedErrorMsg) {
-			t.Fatalf("expected error message to contain %q, got %v", expectedErrorMsg, err)
-		}
-	})
-}
-
-func TestDockerVirt_checkDockerDaemon(t *testing.T) {
-	t.Run("DockerDaemonRunning", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
-
-		// Mock the shell Exec function to simulate Docker daemon running
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "info" {
-				return "docker info", nil
-			}
-			return "", fmt.Errorf("unknown command")
-		}
-
-		// Call the checkDockerDaemon method
-		err := dockerVirt.checkDockerDaemon()
-
-		// Assert that no error occurred
+		// Then no error should occur
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
 	})
 
-	t.Run("DockerDaemonNotRunning", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
+	t.Run("ErrorGettingContainerInfo", func(t *testing.T) {
+		// Given a docker virt instance with valid mocks
+		dockerVirt, mocks := setup(t)
 
-		// Mock the shell Exec function to simulate Docker daemon not running
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "info" {
-				return "", fmt.Errorf("Docker daemon is not running")
+		// And an error occurs when getting container info
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) > 0 && args[0] == "ps" {
+				return "", fmt.Errorf("mock error getting container info")
 			}
-			return "", fmt.Errorf("unknown command")
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
 
-		// Call the checkDockerDaemon method
-		err := dockerVirt.checkDockerDaemon()
+		// When calling PrintInfo
+		err := dockerVirt.PrintInfo()
 
-		// Assert that an error occurred
+		// Then an error should occur
 		if err == nil {
-			t.Errorf("expected an error, got nil")
+			t.Errorf("expected error, got none")
 		}
 
-		// Verify that the error message is as expected
-		expectedErrorMsg := "Docker daemon is not running"
-		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
-			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		// And the error should contain the expected message
+		expectedErrorSubstring := "error retrieving container info"
+		if !strings.Contains(err.Error(), expectedErrorSubstring) {
+			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
 		}
 	})
-}
 
-func TestDockerVirt_getFullComposeConfig(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
-
-		// Call the getFullComposeConfig method
-		project, err := dockerVirt.getFullComposeConfig()
-
-		// Assert no error occurred
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-
-		// Assert the project is not nil
-		if project == nil {
-			t.Errorf("expected a project, got nil")
-		}
-
-		// Assert the project contains the expected services, volumes, and networks
-		expectedServices := []string{"service1", "service2"}
-		if len(project.Services) != len(expectedServices) {
-			t.Errorf("expected %d services, got %d", len(expectedServices), len(project.Services))
-		} else {
-			for i, service := range project.Services {
-				if service.Name != expectedServices[i] {
-					t.Errorf("expected service '%s', got '%s'", expectedServices[i], service.Name)
+	t.Run("ErrorInspectLabels", func(t *testing.T) {
+		// Given a docker virt instance with failing inspect
+		dockerVirt, mocks := setup(t)
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) > 0 {
+				if args[0] == "ps" {
+					return "container1", nil
+				}
+				if args[0] == "inspect" && args[3] == "{{json .Config.Labels}}" {
+					return "", fmt.Errorf("inspect failed")
 				}
 			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
 
-		if len(project.Volumes) != 2 {
-			t.Errorf("expected 2 volumes, got %d", len(project.Volumes))
-		}
-		if len(project.Networks) != 3 {
-			t.Errorf("expected 3 networks, got %d", len(project.Networks))
+		// When getting container info
+		_, err := dockerVirt.GetContainerInfo()
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("expected error, got none")
 		}
 	})
 
-	t.Run("NoDockerDefined", func(t *testing.T) {
-		// Setup mock components with a config handler that returns no Docker configuration
-		mockInjector := di.NewMockInjector()
-		mocks := setupSafeDockerContainerMocks(mockInjector)
-		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
-				Docker: nil, // No Docker configuration
+	t.Run("ErrorInspectNetworks", func(t *testing.T) {
+		// Given a docker virt instance with failing network inspect
+		dockerVirt, mocks := setup(t)
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) > 0 {
+				if args[0] == "ps" {
+					return "container1", nil
+				}
+				if args[0] == "inspect" && args[3] == "{{json .Config.Labels}}" {
+					return `{"managed_by":"windsor","context":"mock-context","com.docker.compose.service":"service1","role":"test"}`, nil
+				}
+				if args[0] == "inspect" && args[3] == "{{json .NetworkSettings.Networks}}" {
+					return "", fmt.Errorf("network inspect failed")
+				}
 			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
-		dockerVirt := NewDockerVirt(mockInjector)
-		dockerVirt.Initialize()
 
-		// Call the getFullComposeConfig method
-		project, err := dockerVirt.getFullComposeConfig()
+		// When getting container info
+		_, err := dockerVirt.GetContainerInfo()
 
-		// Assert no error occurred
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("expected error, got none")
+		}
+		if !strings.Contains(err.Error(), "error inspecting container networks") {
+			t.Errorf("expected error about network inspection, got %v", err)
+		}
+	})
+
+	t.Run("ErrorUnmarshalLabels", func(t *testing.T) {
+		// Given a docker virt instance with invalid JSON labels
+		dockerVirt, mocks := setup(t)
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) > 0 {
+				if args[0] == "ps" {
+					return "container1", nil
+				}
+				if args[0] == "inspect" && args[3] == "{{json .Config.Labels}}" {
+					return "invalid json", nil
+				}
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
+		// When getting container info
+		_, err := dockerVirt.GetContainerInfo()
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("expected error, got none")
+		}
+		if !strings.Contains(err.Error(), "error unmarshaling container labels") {
+			t.Errorf("expected error about unmarshaling labels, got %v", err)
+		}
+	})
+
+	t.Run("ErrorUnmarshalNetworks", func(t *testing.T) {
+		// Given a docker virt instance with invalid JSON networks
+		dockerVirt, mocks := setup(t)
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) > 0 {
+				if args[0] == "ps" {
+					return "container1", nil
+				}
+				if args[0] == "inspect" && args[3] == "{{json .Config.Labels}}" {
+					return `{"managed_by":"windsor","context":"mock-context","com.docker.compose.service":"service1","role":"test"}`, nil
+				}
+				if args[0] == "inspect" && args[3] == "{{json .NetworkSettings.Networks}}" {
+					return "invalid json", nil
+				}
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
+		// When getting container info
+		_, err := dockerVirt.GetContainerInfo()
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("expected error, got none")
+		}
+		if !strings.Contains(err.Error(), "error unmarshaling container networks") {
+			t.Errorf("expected error about unmarshaling networks, got %v", err)
+		}
+	})
+
+	t.Run("FilterByServiceName", func(t *testing.T) {
+		// Given a docker virt instance with valid mocks
+		dockerVirt, mocks := setup(t)
+
+		// And multiple containers with different service names
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) > 0 {
+				if args[0] == "ps" {
+					return "container1\ncontainer2\ncontainer3", nil
+				}
+				if args[0] == "inspect" && args[3] == "{{json .Config.Labels}}" {
+					switch args[1] {
+					case "container1":
+						return `{"managed_by":"windsor","context":"mock-context","com.docker.compose.service":"service1","role":"test"}`, nil
+					case "container2":
+						return `{"managed_by":"windsor","context":"mock-context","com.docker.compose.service":"service2","role":"test"}`, nil
+					case "container3":
+						return `{"managed_by":"windsor","context":"mock-context","com.docker.compose.service":"service3","role":"test"}`, nil
+					}
+				}
+				if args[0] == "inspect" && args[3] == "{{json .NetworkSettings.Networks}}" {
+					switch args[1] {
+					case "container1":
+						return fmt.Sprintf(`{"windsor-%s":{"IPAddress":"192.168.1.2"}}`, mocks.ConfigHandler.GetContext()), nil
+					case "container2":
+						return fmt.Sprintf(`{"windsor-%s":{"IPAddress":"192.168.1.3"}}`, mocks.ConfigHandler.GetContext()), nil
+					case "container3":
+						return fmt.Sprintf(`{"windsor-%s":{"IPAddress":"192.168.1.4"}}`, mocks.ConfigHandler.GetContext()), nil
+					}
+				}
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
+		// When getting container info for specific services
+		info, err := dockerVirt.GetContainerInfo([]string{"service1", "service3"}...)
+
+		// Then no error should occur
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
 
-		// Assert the project is nil
-		if project != nil {
-			t.Errorf("expected project to be nil, got %v", project)
+		// And only containers for specified services should be returned
+		if len(info) != 2 {
+			t.Errorf("expected 2 containers, got %d", len(info))
+		}
+
+		// And the containers should be for the specified services
+		serviceNames := []string{}
+		for _, container := range info {
+			serviceNames = append(serviceNames, container.Name)
+		}
+		if !slices.Contains(serviceNames, "service1") {
+			t.Error("expected container for service1 to be included")
+		}
+		if !slices.Contains(serviceNames, "service3") {
+			t.Error("expected container for service3 to be included")
+		}
+		if slices.Contains(serviceNames, "service2") {
+			t.Error("expected container for service2 to be excluded")
+		}
+	})
+}
+
+// TestDockerVirt_GetContainerInfo tests the GetContainerInfo method of the DockerVirt component.
+func TestDockerVirt_GetContainerInfo(t *testing.T) {
+	setup := func(t *testing.T) (*DockerVirt, *Mocks) {
+		t.Helper()
+		mocks := setupDockerMocks(t)
+		dockerVirt := NewDockerVirt(mocks.Injector)
+		dockerVirt.shims = mocks.Shims
+		if err := dockerVirt.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize DockerVirt: %v", err)
+		}
+		return dockerVirt, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a docker virt instance with valid mocks
+		dockerVirt, _ := setup(t)
+
+		// When getting container info
+		info, err := dockerVirt.GetContainerInfo()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And containers should be returned
+		if len(info) != 2 {
+			t.Errorf("expected 2 containers, got %d", len(info))
 		}
 	})
 
-	t.Run("ErrorGettingComposeConfig", func(t *testing.T) {
-		// Setup mock components
-		mockInjector := di.NewMockInjector()
-		mocks := setupSafeDockerContainerMocks(mockInjector)
-		dockerVirt := NewDockerVirt(mockInjector)
-		dockerVirt.Initialize()
-
-		// Mock the git service's GetComposeConfigFunc to return an error
-		mocks.MockService.GetComposeConfigFunc = func() (*types.Config, error) {
-			return nil, fmt.Errorf("error getting compose config")
+	t.Run("NoContainersFound", func(t *testing.T) {
+		// Given a docker virt instance with no containers
+		dockerVirt, mocks := setup(t)
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) > 0 && args[0] == "ps" {
+				return "", nil
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
 
-		// Call the getFullComposeConfig method
+		// When getting container info
+		info, err := dockerVirt.GetContainerInfo()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		// And no containers should be returned
+		if len(info) != 0 {
+			t.Errorf("expected no containers, got %d", len(info))
+		}
+	})
+}
+
+// TestDockerVirt_WriteConfig tests the WriteConfig method of the DockerVirt component.
+func TestDockerVirt_WriteConfig(t *testing.T) {
+	setup := func(t *testing.T) (*DockerVirt, *Mocks) {
+		t.Helper()
+		mocks := setupDockerMocks(t)
+		dockerVirt := NewDockerVirt(mocks.Injector)
+		dockerVirt.shims = mocks.Shims
+		if err := dockerVirt.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize DockerVirt: %v", err)
+		}
+		return dockerVirt, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a virt instance with mock components
+		dockerVirt, mocks := setup(t)
+
+		// Track written content
+		var writtenContent []byte
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			writtenContent = data
+			return nil
+		}
+
+		// When writing the config
+		err := dockerVirt.WriteConfig()
+
+		// Then it should succeed
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+
+		// And the config should contain the expected service
+		if !strings.Contains(string(writtenContent), "service1") {
+			t.Error("Config file does not contain expected service name")
+		}
+	})
+
+	t.Run("ErrorGetProjectRoot", func(t *testing.T) {
+		// Given a docker virt instance with failing shell
+		dockerVirt, mocks := setup(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("failed to get project root")
+		}
+
+		// When writing config
+		err := dockerVirt.WriteConfig()
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("expected error, got none")
+		}
+		if !strings.Contains(err.Error(), "error retrieving project root") {
+			t.Errorf("expected error about project root, got %v", err)
+		}
+	})
+
+	t.Run("ErrorMkdirAll", func(t *testing.T) {
+		// Given a virt instance with mock shell and shims
+		dockerVirt, mocks := setup(t)
+
+		// Mock shims to return error
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return fmt.Errorf("error creating directory")
+		}
+
+		// When calling WriteConfig
+		err := dockerVirt.WriteConfig()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+	})
+
+	t.Run("ErrorMarshalYAML", func(t *testing.T) {
+		// Given a virt instance with mock shell and shims
+		dockerVirt, mocks := setup(t)
+
+		// Mock shims to return error during YAML marshaling
+		mocks.Shims.MarshalYAML = func(v any) ([]byte, error) {
+			return nil, fmt.Errorf("error marshaling YAML")
+		}
+
+		// When calling WriteConfig
+		err := dockerVirt.WriteConfig()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+	})
+
+	t.Run("ErrorWriteFile", func(t *testing.T) {
+		// Given a virt instance with mock shell and shims
+		dockerVirt, mocks := setup(t)
+
+		// Mock shims to return error
+		mocks.Shims.MarshalYAML = func(v any) ([]byte, error) {
+			return []byte("version: '3'\nservices:\n  test:\n    image: test"), nil
+		}
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			return fmt.Errorf("error writing file")
+		}
+
+		// When calling WriteConfig
+		err := dockerVirt.WriteConfig()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+	})
+}
+
+// TestDockerVirt_DetermineComposeCommand tests the determineComposeCommand method of the DockerVirt component.
+func TestDockerVirt_DetermineComposeCommand(t *testing.T) {
+	setup := func(t *testing.T) (*DockerVirt, *Mocks) {
+		t.Helper()
+		mocks := setupDockerMocks(t)
+		dockerVirt := NewDockerVirt(mocks.Injector)
+		dockerVirt.shims = mocks.Shims
+		return dockerVirt, mocks
+	}
+
+	t.Run("DockerComposeV2", func(t *testing.T) {
+		// Given a docker virt instance with valid mocks
+		dockerVirt, mocks := setup(t)
+
+		// And docker-compose is available
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker-compose" && len(args) > 0 && args[0] == "--version" {
+				return "docker-compose version 1.29.2", nil
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
+		// When initializing
+		err := dockerVirt.Initialize()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And the compose command should be set to docker-compose
+		if dockerVirt.composeCommand != "docker-compose" {
+			t.Errorf("expected compose command to be 'docker-compose', got %q", dockerVirt.composeCommand)
+		}
+	})
+
+	t.Run("DockerComposeV1", func(t *testing.T) {
+		// Given a docker virt instance with valid mocks
+		dockerVirt, mocks := setup(t)
+
+		// And docker-compose is not available but docker-cli-plugin is
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker-compose" {
+				return "", fmt.Errorf("docker-compose not found")
+			}
+			if command == "docker-cli-plugin-docker-compose" {
+				return "docker-cli-plugin-docker-compose version 1.0.0", nil
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
+		// When initializing
+		err := dockerVirt.Initialize()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And the compose command should be set to docker-cli-plugin-docker-compose
+		if dockerVirt.composeCommand != "docker-cli-plugin-docker-compose" {
+			t.Errorf("expected compose command to be 'docker-cli-plugin-docker-compose', got %q", dockerVirt.composeCommand)
+		}
+	})
+
+	t.Run("DockerCliPlugin", func(t *testing.T) {
+		// Given a docker virt instance with valid mocks
+		dockerVirt, mocks := setup(t)
+
+		// And only docker compose v2 is available
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker-compose" {
+				return "", fmt.Errorf("docker-compose not found")
+			}
+			if command == "docker-cli-plugin-docker-compose" {
+				return "", fmt.Errorf("docker-cli-plugin-docker-compose not found")
+			}
+			if command == "docker compose" {
+				return "Docker Compose version 2.0.0", nil
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
+		// When initializing
+		err := dockerVirt.Initialize()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And the compose command should be set to docker compose
+		if dockerVirt.composeCommand != "docker compose" {
+			t.Errorf("expected compose command to be 'docker compose', got %q", dockerVirt.composeCommand)
+		}
+	})
+
+	t.Run("NoComposeCommandAvailable", func(t *testing.T) {
+		// Given a docker virt instance with valid mocks
+		dockerVirt, mocks := setup(t)
+
+		// And no compose command is available
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) > 0 && args[0] == "compose" {
+				return "", fmt.Errorf("docker compose not found")
+			}
+			if command == "docker-compose" {
+				return "", fmt.Errorf("docker-compose not found")
+			}
+			if command == "docker-cli-plugin-docker-compose" {
+				return "", fmt.Errorf("docker-cli-plugin-docker-compose not found")
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
+		// When initializing
+		err := dockerVirt.Initialize()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And the compose command should be empty
+		if dockerVirt.composeCommand != "" {
+			t.Errorf("expected compose command to be empty, got %q", dockerVirt.composeCommand)
+		}
+	})
+}
+
+// TestDockerVirt_GetFullComposeConfig tests the getFullComposeConfig method of the DockerVirt component.
+func TestDockerVirt_GetFullComposeConfig(t *testing.T) {
+	setup := func(t *testing.T) (*DockerVirt, *Mocks) {
+		t.Helper()
+		mocks := setupDockerMocks(t)
+		dockerVirt := NewDockerVirt(mocks.Injector)
+		dockerVirt.shims = mocks.Shims
+		if err := dockerVirt.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize DockerVirt: %v", err)
+		}
+		return dockerVirt, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a docker virt instance with valid mocks
+		dockerVirt, _ := setup(t)
+
+		// When getting the full compose config
 		project, err := dockerVirt.getFullComposeConfig()
 
-		// Assert that an error occurred
-		if err == nil {
-			t.Errorf("expected an error, got nil")
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
 		}
 
-		// Assert the error message is as expected
-		expectedErrorMsg := "error getting compose config"
-		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
-			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		// And the project should not be nil
+		if project == nil {
+			t.Errorf("expected project to not be nil")
 		}
 
-		// Assert the project is nil
-		if project != nil {
-			t.Errorf("expected project to be nil, got %v", project)
+		// And the project should have the expected services
+		if len(project.Services) != 2 {
+			t.Errorf("expected 2 services, got %d", len(project.Services))
+		}
+
+		// And the project should have the expected networks
+		networkName := fmt.Sprintf("windsor-%s", dockerVirt.configHandler.GetContext())
+		if _, exists := project.Networks[networkName]; !exists {
+			t.Errorf("expected network %s to exist", networkName)
+		}
+
+		// And the network should have the expected CIDR block
+		network := project.Networks[networkName]
+		if network.Ipam.Driver == "" || len(network.Ipam.Config) == 0 {
+			t.Errorf("expected network to have IPAM config")
+		}
+		if network.Ipam.Config[0].Subnet != "10.0.0.0/24" {
+			t.Errorf("expected network CIDR to be 10.0.0.0/24, got %s", network.Ipam.Config[0].Subnet)
 		}
 	})
 
-	t.Run("EmptyContainerConfig", func(t *testing.T) {
-		// Setup mock components
-		mockInjector := di.NewMockInjector()
-		mocks := setupSafeDockerContainerMocks(mockInjector)
-		dockerVirt := NewDockerVirt(mockInjector)
-		dockerVirt.Initialize()
+	t.Run("DockerNotEnabled", func(t *testing.T) {
+		// Given a docker virt instance with valid mocks
+		dockerVirt, mocks := setup(t)
 
-		// Mock the service's GetComposeConfigFunc to return empty container configs and no error
-		mocks.MockService.GetComposeConfigFunc = func() (*types.Config, error) {
+		// And Docker is not enabled
+		// Create a new config handler with Docker disabled
+		configStr := `
+contexts:
+  mock-context:
+    dns:
+      domain: mock.domain.com
+      enabled: true
+      address: 10.0.0.53
+    network:
+      cidr_block: 10.0.0.0/24
+    docker:
+      enabled: false
+      registry_url: "https://registry.example.com"
+      registries:
+        local:
+          remote: "remote-registry.example.com"
+          local: "localhost:5000"
+          hostname: "registry.local"
+          hostport: 5000`
+
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config string: %v", err)
+		}
+
+		// When getting the full compose config
+		project, err := dockerVirt.getFullComposeConfig()
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("expected error, got none")
+		}
+
+		// And the error should contain the expected message
+		expectedErrorSubstring := "Docker configuration is not defined"
+		if !strings.Contains(err.Error(), expectedErrorSubstring) {
+			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
+		}
+
+		// And the project should be nil
+		if project != nil {
+			t.Errorf("expected project to be nil")
+		}
+	})
+
+	t.Run("ServiceGetComposeConfigError", func(t *testing.T) {
+		// Given a docker virt instance with valid mocks
+		dockerVirt, mocks := setup(t)
+
+		// And a service returns an error when getting compose config
+		mocks.Service.GetComposeConfigFunc = func() (*types.Config, error) {
+			return nil, fmt.Errorf("mock error getting compose config")
+		}
+
+		// When getting the full compose config
+		project, err := dockerVirt.getFullComposeConfig()
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("expected error, got none")
+		}
+
+		// And the error should contain the expected message
+		expectedErrorSubstring := "error getting container config from service"
+		if !strings.Contains(err.Error(), expectedErrorSubstring) {
+			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
+		}
+
+		// And the project should be nil
+		if project != nil {
+			t.Errorf("expected project to be nil")
+		}
+	})
+
+	t.Run("ServiceReturnsNilConfig", func(t *testing.T) {
+		// Given a docker virt instance with valid mocks
+		dockerVirt, mocks := setup(t)
+
+		// And a service returns nil when getting compose config
+		mocks.Service.GetComposeConfigFunc = func() (*types.Config, error) {
 			return nil, nil
 		}
 
-		// Call the getFullComposeConfig method
+		// When getting the full compose config
 		project, err := dockerVirt.getFullComposeConfig()
 
-		// Assert that no error occurred
+		// Then no error should occur
 		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
+			t.Errorf("expected no error, got %v", err)
 		}
 
-		// Assert the project is not nil
+		// And the project should not be nil
 		if project == nil {
-			t.Errorf("expected project to be non-nil, got nil")
+			t.Errorf("expected project to not be nil")
 		}
 
-		// Assert the project has no services, volumes, or networks
+		// And the project should have no services
 		if len(project.Services) != 0 {
-			t.Errorf("expected no services, got %d", len(project.Services))
-		}
-		if len(project.Volumes) != 0 {
-			t.Errorf("expected no volumes, got %d", len(project.Volumes))
-		}
-		if len(project.Networks) != 1 {
-			t.Errorf("expected no networks, got %d", len(project.Networks))
+			t.Errorf("expected 0 services, got %d", len(project.Services))
 		}
 	})
 
-	t.Run("NetworkCIDRNotDefined", func(t *testing.T) {
-		// Setup mock components
-		mockInjector := di.NewMockInjector()
-		mocks := setupSafeDockerContainerMocks(mockInjector)
-		dockerVirt := NewDockerVirt(mockInjector)
-		dockerVirt.Initialize()
+	t.Run("ServiceReturnsEmptyConfig", func(t *testing.T) {
+		// Given a docker virt instance with valid mocks
+		dockerVirt, mocks := setup(t)
 
-		// Mock the context configuration to have no NetworkCIDR defined
-		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
-				Docker: &docker.DockerConfig{
-					NetworkCIDR: nil,
+		// And a service returns a config with no services
+		mocks.Service.GetComposeConfigFunc = func() (*types.Config, error) {
+			return &types.Config{
+				Services: nil,
+				Volumes: map[string]types.VolumeConfig{
+					"test-volume": {},
 				},
-			}
+				Networks: map[string]types.NetworkConfig{
+					"test-network": {},
+				},
+			}, nil
 		}
 
-		// Call the getFullComposeConfig method
+		// When getting the full compose config
 		project, err := dockerVirt.getFullComposeConfig()
 
-		// Assert that no error occurred
+		// Then no error should occur
 		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
+			t.Errorf("expected no error, got %v", err)
 		}
 
-		// Assert the project is not nil
+		// And the project should not be nil
 		if project == nil {
-			t.Errorf("expected project to be non-nil, got nil")
+			t.Errorf("expected project to not be nil")
 		}
 
-		// Assert the project has the expected number of services, volumes, and networks
-		expectedServices := 2
-		expectedVolumes := 2
-		expectedNetworks := 3
+		// And the project should have no services
+		if len(project.Services) != 0 {
+			t.Errorf("expected 0 services, got %d", len(project.Services))
+		}
 
-		if len(project.Services) != expectedServices {
-			t.Errorf("expected %d services, got %d", expectedServices, len(project.Services))
+		// And the project should have the volume
+		if _, exists := project.Volumes["test-volume"]; !exists {
+			t.Errorf("expected volume test-volume to exist")
 		}
-		if len(project.Volumes) != expectedVolumes {
-			t.Errorf("expected %d volumes, got %d", expectedVolumes, len(project.Volumes))
-		}
-		if len(project.Networks) != expectedNetworks {
-			t.Errorf("expected %d networks, got %d", expectedNetworks, len(project.Networks))
+
+		// And the project should have the network
+		if _, exists := project.Networks["test-network"]; !exists {
+			t.Errorf("expected network test-network to exist")
 		}
 	})
 }

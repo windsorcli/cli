@@ -13,14 +13,18 @@ var (
 	commitSHA = "none"
 )
 
+// Goos returns the operating system, can be mocked for testing
+var Goos = runtime.GOOS
+
 // versionCmd represents the version command
 var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Display the current version",
-	Long:  "Display the current version of the application",
+	Use:          "version",
+	Short:        "Display the current version",
+	Long:         "Display the current version of the application",
+	SilenceUsage: true,
 	Run: func(cmd *cobra.Command, args []string) {
-		platform := fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
-		fmt.Printf("Version: %s\nCommit SHA: %s\nPlatform: %s\n", version, commitSHA, platform)
+		platform := fmt.Sprintf("%s/%s", Goos, runtime.GOARCH)
+		cmd.Printf("Version: %s\nCommit SHA: %s\nPlatform: %s\n", version, commitSHA, platform)
 	},
 }
 

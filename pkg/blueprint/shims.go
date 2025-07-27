@@ -2,89 +2,133 @@ package blueprint
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"regexp"
+	"time"
 
 	"github.com/goccy/go-yaml"
 	"github.com/google/go-jsonnet"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
-// yamlMarshalNonNull marshals the given struct into YAML data, omitting null values
-var yamlMarshalNonNull = func(v interface{}) ([]byte, error) {
-	return yaml.Marshal(v)
+// =============================================================================
+// Shims
+// =============================================================================
+
+// Shims provides mockable wrappers around system and runtime functions
+type Shims struct {
+	// YAML and JSON shims
+	YamlMarshalNonNull func(v any) ([]byte, error)
+	YamlMarshal        func(any) ([]byte, error)
+	YamlUnmarshal      func([]byte, any) error
+	JsonMarshal        func(any) ([]byte, error)
+	JsonUnmarshal      func([]byte, any) error
+	K8sYamlUnmarshal   func([]byte, any) error
+
+	// File system shims
+	WriteFile func(string, []byte, os.FileMode) error
+	MkdirAll  func(string, os.FileMode) error
+	Stat      func(string) (os.FileInfo, error)
+	ReadFile  func(string) ([]byte, error)
+	ReadDir   func(string) ([]os.DirEntry, error)
+
+	// Utility shims
+	RegexpMatchString func(pattern string, s string) (bool, error)
+
+	// Timing shims
+	TimeAfter  func(time.Duration) <-chan time.Time
+	NewTicker  func(time.Duration) *time.Ticker
+	TickerStop func(*time.Ticker)
+
+	// Kubernetes shims
+	ClientcmdBuildConfigFromFlags func(masterUrl, kubeconfigPath string) (*rest.Config, error)
+	RestInClusterConfig           func() (*rest.Config, error)
+	KubernetesNewForConfig        func(*rest.Config) (*kubernetes.Clientset, error)
+
+	// Jsonnet shims
+	NewJsonnetVM func() JsonnetVM
 }
 
-// yamlMarshal is a wrapper around yaml.Marshal
-var yamlMarshal = yaml.Marshal
+// NewShims creates a new Shims instance with default implementations
+func NewShims() *Shims {
+	return &Shims{
+		// YAML and JSON shims
+		YamlMarshalNonNull: func(v any) ([]byte, error) {
+			return yaml.Marshal(v)
+		},
+		YamlMarshal:      yaml.Marshal,
+		YamlUnmarshal:    yaml.Unmarshal,
+		JsonMarshal:      json.Marshal,
+		JsonUnmarshal:    json.Unmarshal,
+		K8sYamlUnmarshal: yaml.Unmarshal,
 
-// yamlUnmarshal is a wrapper around yaml.Unmarshal
-var yamlUnmarshal = yaml.Unmarshal
+		// File system shims
+		WriteFile: os.WriteFile,
+		MkdirAll:  os.MkdirAll,
+		Stat:      os.Stat,
+		ReadFile:  os.ReadFile,
+		ReadDir:   os.ReadDir,
 
-// osWriteFile is a wrapper around os.WriteFile
-var osWriteFile = os.WriteFile
+		// Utility shims
+		RegexpMatchString: regexp.MatchString,
 
-// osReadFile is a wrapper around os.ReadFile
-var osReadFile = os.ReadFile
+		// Timing shims
+		TimeAfter:  time.After,
+		NewTicker:  time.NewTicker,
+		TickerStop: func(t *time.Ticker) { t.Stop() },
 
-// osStat is a wrapper around os.Stat
-var osStat = os.Stat
+		// Kubernetes shims
+		ClientcmdBuildConfigFromFlags: clientcmd.BuildConfigFromFlags,
+		RestInClusterConfig:           rest.InClusterConfig,
+		KubernetesNewForConfig:        kubernetes.NewForConfig,
 
-// osMkdirAll is a wrapper around os.MkdirAll
-var osMkdirAll = os.MkdirAll
+		// Jsonnet shims
+		NewJsonnetVM: NewJsonnetVM,
+	}
+}
 
-// regexpMatchString is a shim for regexp.MatchString
-var regexpMatchString = regexp.MatchString
+// =============================================================================
+// Jsonnet VM Implementation
+// =============================================================================
 
-// jsonMarshal is a wrapper around json.Marshal
-var jsonMarshal = json.Marshal
-
-// jsonUnmarshal is a wrapper around json.Unmarshal
-var jsonUnmarshal = json.Unmarshal
-
-// yamlJSONToYAML is a wrapper around yaml.JSONToYAML
-var yamlJSONToYAML = yaml.JSONToYAML
-
-// jsonnetMakeVMFunc is a function type for creating a new jsonnet VM
-type jsonnetMakeVMFunc func() jsonnetVMInterface
-
-// jsonnetVMInterface defines the interface for a jsonnet VM
-type jsonnetVMInterface interface {
+// JsonnetVM defines the interface for Jsonnet virtual machines
+type JsonnetVM interface {
+	// TLACode sets a top-level argument using code
 	TLACode(key, val string)
-	EvaluateAnonymousSnippet(filename, snippet string) (string, error)
+	// ExtCode sets an external variable using code
 	ExtCode(key, val string)
+	// EvaluateAnonymousSnippet evaluates a jsonnet snippet
+	EvaluateAnonymousSnippet(filename, snippet string) (string, error)
 }
 
-// jsonnetMakeVM is a variable holding the function to create a new jsonnet VM
-var jsonnetMakeVM jsonnetMakeVMFunc = func() jsonnetVMInterface {
-	return &jsonnetVM{VM: jsonnet.MakeVM()}
+// realJsonnetVM implements JsonnetVM using the actual jsonnet implementation
+type realJsonnetVM struct {
+	vm *jsonnet.VM
 }
 
-// jsonnetVM is a wrapper around jsonnet.VM that implements jsonnetVMInterface
-type jsonnetVM struct {
-	*jsonnet.VM
+// NewJsonnetVM creates a new JsonnetVM using the real jsonnet implementation
+func NewJsonnetVM() JsonnetVM {
+	return &realJsonnetVM{vm: jsonnet.MakeVM()}
 }
 
-// EvaluateAnonymousSnippet is a wrapper around jsonnet.VM.EvaluateAnonymousSnippet
-func (vm *jsonnetVM) EvaluateAnonymousSnippet(filename, snippet string) (string, error) {
-	return vm.VM.EvaluateAnonymousSnippet(filename, snippet)
+func (j *realJsonnetVM) TLACode(key, val string) {
+	j.vm.TLACode(key, val)
 }
 
-// ExtCode is a wrapper around jsonnet.VM.ExtCode
-func (vm *jsonnetVM) ExtCode(key, val string) {
-	vm.VM.ExtCode(key, val)
+func (j *realJsonnetVM) ExtCode(key, val string) {
+	j.vm.ExtCode(key, val)
 }
 
-// mockJsonnetVM is a mock implementation of jsonnetVMInterface for testing
-type mockJsonnetVM struct{}
-
-// TLACode is a mock implementation that does nothing
-func (vm *mockJsonnetVM) TLACode(key, val string) {}
-
-// EvaluateAnonymousSnippet is a mock implementation that returns an error
-func (vm *mockJsonnetVM) EvaluateAnonymousSnippet(filename, snippet string) (string, error) {
-	return "", fmt.Errorf("error evaluating snippet")
+func (j *realJsonnetVM) EvaluateAnonymousSnippet(filename, snippet string) (string, error) {
+	return j.vm.EvaluateAnonymousSnippet(filename, snippet)
 }
 
-// ExtCode is a mock implementation that does nothing
-func (vm *mockJsonnetVM) ExtCode(key, val string) {}
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+// metav1Duration is a shim for metav1.Duration
+type metav1Duration = metav1.Duration

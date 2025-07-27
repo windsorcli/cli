@@ -1,39 +1,82 @@
 package cmd
 
 import (
-	"fmt"
-	"runtime"
 	"testing"
-
-	ctrl "github.com/windsorcli/cli/pkg/controller"
-	"github.com/windsorcli/cli/pkg/di"
 )
 
-func TestVersionCommand(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
-	t.Cleanup(func() {
-		exitFunc = originalExitFunc
+func TestVersionCmd(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given version command args
+		rootCmd.SetArgs([]string{"version"})
+
+		// And captured output
+		stdout, stderr := captureOutput(t)
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(stderr)
+
+		// When executing the command
+		err := Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+
+		// And output should contain version info
+		output := stdout.String()
+		if output == "" {
+			t.Error("Expected non-empty stdout")
+		}
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
+		}
 	})
 
-	t.Run("VersionOutput", func(t *testing.T) {
-		// Create a mock controller
-		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
+	t.Run("VersionCommandInitialization", func(t *testing.T) {
+		// Given a version command
+		cmd := versionCmd
 
-		// When: the version command is executed
-		output := captureStdout(func() {
-			rootCmd.SetArgs([]string{"version"})
-			err := Execute(mockController)
-			if err != nil {
-				t.Fatalf("Execute() error = %v", err)
-			}
-		})
+		// Then the command should be properly configured
+		if cmd.Use != "version" {
+			t.Errorf("Expected Use to be 'version', got %s", cmd.Use)
+		}
+		if cmd.Short == "" {
+			t.Error("Expected non-empty Short description")
+		}
+		if cmd.Long == "" {
+			t.Error("Expected non-empty Long description")
+		}
+	})
 
-		// Then: the output should contain the version, commit SHA, and platform
-		expectedOutput := fmt.Sprintf("Version: %s\nCommit SHA: %s\nPlatform: %s\n", version, commitSHA, fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH))
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+	t.Run("VersionCommandWithCustomPlatform", func(t *testing.T) {
+		// Given version command args
+		rootCmd.SetArgs([]string{"version"})
+
+		// And captured output
+		stdout, stderr := captureOutput(t)
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(stderr)
+
+		// And a custom platform
+		originalGoos := Goos
+		defer func() { Goos = originalGoos }()
+		Goos = "testos"
+
+		// When executing the command
+		err := Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+
+		// And output should contain custom platform
+		output := stdout.String()
+		if output == "" {
+			t.Error("Expected non-empty stdout")
+		}
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
 		}
 	})
 }

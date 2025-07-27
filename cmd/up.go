@@ -1,9 +1,17 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/pipelines"
+)
+
+var (
+	installFlag bool // Declare the install flag
+	waitFlag    bool // Declare the wait flag
 )
 
 var upCmd = &cobra.Command{
@@ -11,126 +19,75 @@ var upCmd = &cobra.Command{
 	Short:        "Set up the Windsor environment",
 	Long:         "Set up the Windsor environment by executing necessary shell commands.",
 	SilenceUsage: true,
-	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Create project components
-		if err := controller.CreateProjectComponents(); err != nil {
-			return fmt.Errorf("Error creating project components: %w", err)
+		// Get shared dependency injector from context
+		injector := cmd.Context().Value(injectorKey).(di.Injector)
+
+		// First, run the env pipeline in quiet mode to set up environment variables
+		envPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "envPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up env pipeline: %w", err)
+		}
+		envCtx := context.WithValue(cmd.Context(), "quiet", true)
+		envCtx = context.WithValue(envCtx, "decrypt", true)
+		if err := envPipeline.Execute(envCtx); err != nil {
+			return fmt.Errorf("failed to set up environment: %w", err)
 		}
 
-		// Create environment components
-		if err := controller.CreateEnvComponents(); err != nil {
-			return fmt.Errorf("Error creating environment components: %w", err)
+		// Then, run the init pipeline to initialize the environment
+		var initPipeline pipelines.Pipeline
+		initPipeline, err = pipelines.WithPipeline(injector, cmd.Context(), "initPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up init pipeline: %w", err)
+		}
+		if err := initPipeline.Execute(cmd.Context()); err != nil {
+			return fmt.Errorf("failed to initialize environment: %w", err)
 		}
 
-		// Create virtualization components
-		if err := controller.CreateVirtualizationComponents(); err != nil {
-			return fmt.Errorf("Error creating virtualization components: %w", err)
+		// Finally, run the up pipeline for infrastructure setup
+		upPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "upPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up up pipeline: %w", err)
 		}
 
-		// Create service components
-		if err := controller.CreateServiceComponents(); err != nil {
-			return fmt.Errorf("Error creating services components: %w", err)
+		// Create execution context with flags
+		ctx := cmd.Context()
+		if installFlag {
+			ctx = context.WithValue(ctx, "install", true)
+		}
+		if waitFlag {
+			ctx = context.WithValue(ctx, "wait", true)
 		}
 
-		// Create stack components
-		if err := controller.CreateStackComponents(); err != nil {
-			return fmt.Errorf("Error creating stack components: %w", err)
+		// Execute the up pipeline
+		if err := upPipeline.Execute(ctx); err != nil {
+			return fmt.Errorf("Error executing up pipeline: %w", err)
 		}
 
-		// Initialize all components
-		if err := controller.InitializeComponents(); err != nil {
-			return fmt.Errorf("Error initializing components: %w", err)
-		}
-
-		// Write configuration files
-		if err := controller.WriteConfigurationFiles(); err != nil {
-			return fmt.Errorf("Error writing configuration files: %w", err)
-		}
-
-		// Resolve the config handler
-		configHandler := controller.ResolveConfigHandler()
-		if configHandler == nil {
-			return fmt.Errorf("No config handler found")
-		}
-
-		// Determine if a virtualization driver is being used
-		vmDriver := configHandler.GetString("vm.driver")
-
-		// Start the virtual machine if enabled in configuration
-		if vmDriver != "" {
-			virtualMachine := controller.ResolveVirtualMachine()
-			if virtualMachine == nil {
-				return fmt.Errorf("No virtual machine found")
-			}
-			if err := virtualMachine.Up(); err != nil {
-				return fmt.Errorf("Error running virtual machine Up command: %w", err)
-			}
-		}
-
-		// Start the container runtime if enabled in configuration
-		containerRuntimeEnabled := configHandler.GetBool("docker.enabled")
-
-		// Configure container runtime if enabled in configuration
-		if containerRuntimeEnabled {
-			// Resolve container runtime
-			containerRuntime := controller.ResolveContainerRuntime()
-			if containerRuntime == nil {
-				return fmt.Errorf("No container runtime found")
+		// Run install pipeline if requested
+		if installFlag {
+			installPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "installPipeline")
+			if err != nil {
+				return fmt.Errorf("failed to set up install pipeline: %w", err)
 			}
 
-			// Run the container runtime Up command
-			if err := containerRuntime.Up(); err != nil {
-				return fmt.Errorf("Error running container runtime Up command: %w", err)
+			// Create installation context with wait flag if needed
+			installCtx := cmd.Context()
+			if waitFlag {
+				installCtx = context.WithValue(installCtx, "wait", true)
+			}
+
+			if err := installPipeline.Execute(installCtx); err != nil {
+				return fmt.Errorf("Error executing install pipeline: %w", err)
 			}
 		}
-
-		// Configure networking only if a VM driver is defined
-		if vmDriver != "" {
-			// Get the DNS name and address
-			dnsName := configHandler.GetString("dns.name")
-			dnsAddress := configHandler.GetString("dns.address")
-
-			// Resolve networkManager
-			networkManager := controller.ResolveNetworkManager()
-			if networkManager == nil {
-				return fmt.Errorf("No network manager found")
-			}
-
-			// Configure the guest network
-			if err := networkManager.ConfigureGuest(); err != nil {
-				return fmt.Errorf("Error configuring guest network: %w", err)
-			}
-
-			// Configure the host route for the network
-			if err := networkManager.ConfigureHostRoute(); err != nil {
-				return fmt.Errorf("Error configuring host network: %w", err)
-			}
-
-			// Configure DNS if dns.name is set
-			if dnsName != "" && dnsAddress != "" {
-				if err := networkManager.ConfigureDNS(); err != nil {
-					return fmt.Errorf("Error configuring DNS: %w", err)
-				}
-			}
-		}
-
-		// Stack up
-		stack := controller.ResolveStack()
-		if stack == nil {
-			return fmt.Errorf("No stack found")
-		}
-		if err := stack.Up(); err != nil {
-			return fmt.Errorf("Error running stack Up command: %w", err)
-		}
-
-		// Print success message
-		fmt.Println("Windsor environment set up successfully.")
 
 		return nil
 	},
 }
 
 func init() {
+	upCmd.Flags().BoolVar(&installFlag, "install", false, "Install the blueprint after setting up the environment")
+	upCmd.Flags().BoolVar(&waitFlag, "wait", false, "Wait for kustomization resources to be ready")
 	rootCmd.AddCommand(upCmd)
 }

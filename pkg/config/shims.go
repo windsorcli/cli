@@ -1,28 +1,49 @@
 package config
 
 import (
+	"crypto/rand"
 	"os"
 
 	"github.com/goccy/go-yaml"
 )
 
-// osReadFile is a variable to allow mocking os.ReadFile in tests
-var osReadFile = os.ReadFile
+// =============================================================================
+// New Shims
+// =============================================================================
 
-// osWriteFile is a variable to allow mocking os.WriteFile in tests
-var osWriteFile = os.WriteFile
+// Shims provides mockable wrappers around system and runtime functions
+type Shims struct {
+	ReadFile       func(string) ([]byte, error)
+	WriteFile      func(string, []byte, os.FileMode) error
+	RemoveAll      func(string) error
+	Getenv         func(string) string
+	Setenv         func(string, string) error
+	Stat           func(string) (os.FileInfo, error)
+	MkdirAll       func(string, os.FileMode) error
+	YamlMarshal    func(any) ([]byte, error)
+	YamlUnmarshal  func([]byte, any) error
+	CryptoRandRead func([]byte) (int, error)
+}
 
-// Override variable for yamlMarshal
-var yamlMarshal = yaml.Marshal
+// NewShims creates a new Shims instance with default implementations
+func NewShims() *Shims {
+	return &Shims{
+		ReadFile:       os.ReadFile,
+		WriteFile:      os.WriteFile,
+		RemoveAll:      os.RemoveAll,
+		Getenv:         os.Getenv,
+		Setenv:         os.Setenv,
+		Stat:           os.Stat,
+		MkdirAll:       os.MkdirAll,
+		YamlMarshal:    yaml.Marshal,
+		YamlUnmarshal:  yaml.Unmarshal,
+		CryptoRandRead: func(b []byte) (int, error) { return rand.Read(b) },
+	}
+}
 
-// Override variable for yamlUnmarshal
-var yamlUnmarshal = yaml.Unmarshal
-
-// osStat is a variable to allow mocking os.Stat in tests
-var osStat = os.Stat
-
-// osMkdirAll is a variable to allow mocking os.MkdirAll in tests
-var osMkdirAll = os.MkdirAll
+// =============================================================================
+// Helper Functions
+// =============================================================================
 
 // Helper functions to create pointers for basic types
 func ptrString(s string) *string {

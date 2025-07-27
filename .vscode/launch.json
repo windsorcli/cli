@@ -14,7 +14,10 @@
         "request": "launch",
         "mode": "auto",
         "program": "${workspaceFolder}/cmd/windsor/main.go",
-        "args": ["env", "--verbose"]
+        "args": ["env", "--verbose", "--decrypt"],
+        "env": {
+          "WINDSOR_SESSION_TOKEN": "local"
+        }
     },
     {
       "name": "Windsor Init",
@@ -22,7 +25,7 @@
       "request": "launch",
       "mode": "auto",
       "program": "${workspaceFolder}/cmd/windsor/main.go",
-      "args": ["init"]
+      "args": ["init", "local"]
     },
     {
       "name": "Windsor Up",
@@ -32,7 +35,7 @@
       "program": "${workspaceFolder}/cmd/windsor/main.go",
       "args": ["up", "--verbose"],
       "env": {
-        "COMPOSE_FILE": "${workspaceFolder}/contexts/local/compose.yaml",
+        "COMPOSE_FILE": "${workspaceFolder}/.windsor/docker-compose.yaml",
         "WINDSOR_CONTEXT": "local",
         "WINDSOR_PROJECT_ROOT": "${workspaceFolder}"
       }
@@ -45,10 +48,47 @@
       "program": "${workspaceFolder}/cmd/windsor/main.go",
       "args": ["down", "--verbose"],
       "env": {
-        "COMPOSE_FILE": "${workspaceFolder}/contexts/local/compose.yaml",
+        "COMPOSE_FILE": "${workspaceFolder}/.windsor/docker-compose.yaml",
         "WINDSOR_CONTEXT": "local",
         "WINDSOR_PROJECT_ROOT": "${workspaceFolder}"
       }
     },
+    {
+      "name": "Windsor Install",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/windsor/main.go",
+      "args": ["install", "--verbose"],
+      "env": {
+        "COMPOSE_FILE": "${workspaceFolder}/.windsor/docker-compose.yaml",
+        "WINDSOR_CONTEXT": "local",
+        "WINDSOR_PROJECT_ROOT": "${workspaceFolder}",
+        "KUBECONFIG": "${workspaceFolder}/contexts/local/.kube/config"
+      }
+    },
+    {
+      "name": "Windsor Check",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/windsor/main.go",
+      "args": ["check"],
+      "env": {
+        "WINDSOR_CONTEXT": "local",
+        "WINDSOR_PROJECT_ROOT": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "Windsor Context Set",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/windsor/main.go",
+      "args": ["context", "set", "local"],
+      "env": {
+        "WINDSOR_SESSION_TOKEN": "local",
+      }
+    }
   ]
 }

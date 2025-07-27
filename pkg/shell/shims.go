@@ -1,79 +1,173 @@
+// The shims package is a system call abstraction layer
+// It provides mockable wrappers around system and runtime functions
+// It serves as a testing aid by allowing system calls to be intercepted
+// It enables dependency injection and test isolation for system-level operations
+
 package shell
 
 import (
 	"bufio"
+	"crypto/rand"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"text/template"
 )
 
-// getwd is a variable that points to os.Getwd, allowing it to be overridden in tests
-var getwd = os.Getwd
+// =============================================================================
+// Types
+// =============================================================================
 
-// execCommand is a variable that points to exec.Command, allowing it to be overridden in tests
-var execCommand = osExecCommand
+// Shims provides mockable wrappers around system and runtime functions
+type Shims struct {
+	// OS operations
+	Getwd      func() (string, error)
+	Stat       func(name string) (os.FileInfo, error)
+	Executable func() (string, error)
 
-// osExecCommand is a wrapper around exec.Command to allow it to be overridden in tests
-func osExecCommand(name string, arg ...string) *exec.Cmd {
-	return exec.Command(name, arg...)
+	// Standard I/O operations
+	Stderr    func() io.Writer
+	SetStderr func(w io.Writer)
+	Stdout    func() io.Writer
+	SetStdout func(w io.Writer)
+	Pipe      func() (*os.File, *os.File, error)
+
+	// Shell operations
+	UnsetEnvs  func(envVars []string)
+	UnsetAlias func(aliases []string)
+
+	// Exec operations
+	Command     func(name string, arg ...string) *exec.Cmd
+	Environ     func() []string
+	LookPath    func(file string) (string, error)
+	OpenFile    func(name string, flag int, perm os.FileMode) (*os.File, error)
+	WriteFile   func(name string, data []byte, perm os.FileMode) error
+	ReadFile    func(name string) ([]byte, error)
+	MkdirAll    func(path string, perm os.FileMode) error
+	Remove      func(name string) error
+	RemoveAll   func(path string) error
+	Chdir       func(dir string) error
+	Setenv      func(key, value string) error
+	Getenv      func(key string) string
+	UserHomeDir func() (string, error)
+
+	// Exec operations
+	CmdRun     func(cmd *exec.Cmd) error
+	CmdStart   func(cmd *exec.Cmd) error
+	CmdWait    func(cmd *exec.Cmd) error
+	StdoutPipe func(cmd *exec.Cmd) (io.ReadCloser, error)
+	StderrPipe func(cmd *exec.Cmd) (io.ReadCloser, error)
+	StdinPipe  func(cmd *exec.Cmd) (io.WriteCloser, error)
+
+	// Template operations
+	NewTemplate     func(name string) *template.Template
+	TemplateParse   func(tmpl *template.Template, text string) (*template.Template, error)
+	TemplateExecute func(tmpl *template.Template, wr io.Writer, data any) error
+	ExecuteTemplate func(tmpl *template.Template, data any) error
+
+	// Bufio operations
+	NewScanner  func(r io.Reader) *bufio.Scanner
+	ScannerScan func(scanner *bufio.Scanner) bool
+	ScannerErr  func(scanner *bufio.Scanner) error
+	ScannerText func(scanner *bufio.Scanner) string
+	NewWriter   func(w io.Writer) *bufio.Writer
+
+	// Filepath operations
+	Glob func(pattern string) ([]string, error)
+	Join func(elem ...string) string
+
+	// Random operations
+	RandRead func(b []byte) (n int, err error)
 }
 
-// cmdRun is a variable that points to cmd.Run, allowing it to be overridden in tests
-var cmdRun = func(cmd *exec.Cmd) error {
-	return cmd.Run()
-}
+// =============================================================================
+// Constructor
+// =============================================================================
 
-// cmdStart is a variable that points to cmd.Start, allowing it to be overridden in tests
-var cmdStart = func(cmd *exec.Cmd) error {
-	return cmd.Start()
-}
+// NewShims creates a new Shims instance with default implementations
+func NewShims() *Shims {
+	s := &Shims{
+		// OS operations
+		Getwd:      os.Getwd,
+		Stat:       os.Stat,
+		Executable: os.Executable,
 
-// osOpenFile is a variable that points to os.OpenFile, allowing it to be overridden in tests
-var osOpenFile = os.OpenFile
+		// Standard I/O operations
+		Stderr: func() io.Writer {
+			return os.Stderr
+		},
+		SetStderr: func(w io.Writer) {
+			if f, ok := w.(*os.File); ok {
+				os.Stderr = f
+			}
+		},
+		Stdout: func() io.Writer {
+			return os.Stdout
+		},
+		SetStdout: func(w io.Writer) {
+			if f, ok := w.(*os.File); ok {
+				os.Stdout = f
+			}
+		},
+		Pipe: os.Pipe,
 
-// osReadFile is a variable that points to os.ReadFile, allowing it to be overridden in tests
-var osReadFile = os.ReadFile
+		// Shell operations
+		UnsetEnvs:  func(envVars []string) {},
+		UnsetAlias: func(aliases []string) {},
 
-// cmdWait is a variable that points to cmd.Wait, allowing it to be overridden in tests
-var cmdWait = func(cmd *exec.Cmd) error {
-	return cmd.Wait()
-}
+		// Exec operations
+		Command:     exec.Command,
+		Environ:     os.Environ,
+		LookPath:    exec.LookPath,
+		OpenFile:    os.OpenFile,
+		WriteFile:   os.WriteFile,
+		ReadFile:    os.ReadFile,
+		MkdirAll:    os.MkdirAll,
+		Remove:      os.Remove,
+		RemoveAll:   os.RemoveAll,
+		Chdir:       os.Chdir,
+		Setenv:      os.Setenv,
+		Getenv:      os.Getenv,
+		UserHomeDir: os.UserHomeDir,
 
-// cmdStdoutPipe is a variable that points to cmd.StdoutPipe, allowing it to be overridden in tests
-var cmdStdoutPipe = func(cmd *exec.Cmd) (io.ReadCloser, error) {
-	return cmd.StdoutPipe()
-}
+		// Exec operations
+		CmdRun:     (*exec.Cmd).Run,
+		CmdStart:   (*exec.Cmd).Start,
+		CmdWait:    (*exec.Cmd).Wait,
+		StdoutPipe: (*exec.Cmd).StdoutPipe,
+		StderrPipe: (*exec.Cmd).StderrPipe,
+		StdinPipe:  (*exec.Cmd).StdinPipe,
 
-// cmdStderrPipe is a variable that points to cmd.StderrPipe, allowing it to be overridden in tests
-var cmdStderrPipe = func(cmd *exec.Cmd) (io.ReadCloser, error) {
-	return cmd.StderrPipe()
-}
+		// Template operations
+		NewTemplate:     template.New,
+		TemplateParse:   (*template.Template).Parse,
+		TemplateExecute: (*template.Template).Execute,
+		ExecuteTemplate: func(tmpl *template.Template, data any) error {
+			return tmpl.Execute(os.Stdout, data)
+		},
 
-// bufioScannerScan is a variable that points to bufio.Scanner.Scan, allowing it to be overridden in tests
-var bufioScannerScan = func(scanner *bufio.Scanner) bool {
-	return scanner.Scan()
-}
+		// Bufio operations
+		NewScanner: bufio.NewScanner,
+		ScannerScan: func(scanner *bufio.Scanner) bool {
+			return scanner.Scan()
+		},
+		ScannerErr: func(scanner *bufio.Scanner) error {
+			return scanner.Err()
+		},
+		ScannerText: func(scanner *bufio.Scanner) string {
+			return scanner.Text()
+		},
+		NewWriter: bufio.NewWriter,
 
-// bufioScannerErr is a variable that points to bufio.Scanner.Err, allowing it to be overridden in tests
-var bufioScannerErr = func(scanner *bufio.Scanner) error {
-	return scanner.Err()
-}
+		// Filepath operations
+		Glob: filepath.Glob,
+		Join: filepath.Join,
 
-// osExecutable is a variable that points to os.Executable, allowing it to be overridden in tests
-var osExecutable = os.Executable
-
-// hookTemplateNew is a variable that points to template.New, allowing it to be overridden in tests
-var hookTemplateNew = func(name string) *template.Template {
-	return template.New(name)
-}
-
-// hookTemplateParse is a variable that points to template.Template.Parse, allowing it to be overridden in tests
-var hookTemplateParse = func(tmpl *template.Template, text string) (*template.Template, error) {
-	return tmpl.Parse(text)
-}
-
-// hookTemplateExecute is a variable that points to template.Template.Execute, allowing it to be overridden in tests
-var hookTemplateExecute = func(tmpl *template.Template, wr io.Writer, data interface{}) error {
-	return tmpl.Execute(wr, data)
+		// Random operations
+		RandRead: func(b []byte) (n int, err error) {
+			return rand.Read(b)
+		},
+	}
+	return s
 }

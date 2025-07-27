@@ -8,35 +8,33 @@ import (
 	"sort"
 )
 
-// PrintEnvVars prints the provided environment variables in a sorted order.
-// If the value of an environment variable is an empty string, it will print a command to remove the variable.
-func (s *DefaultShell) PrintEnvVars(envVars map[string]string) error {
-	// Create a slice to hold the keys of the envVars map
-	keys := make([]string, 0, len(envVars))
+// The WindowsShell is a platform-specific implementation of shell operations for Windows systems.
+// It provides Windows PowerShell-specific implementations of environment variable and alias management.
+// It handles the differences between Windows PowerShell and Unix shells.
+// Key features include PowerShell-specific command generation for environment variables and aliases.
 
-	// Append each key from the envVars map to the keys slice
+// =============================================================================
+// Public Methods
+// =============================================================================
+
+// printEnvVarsWithExport sorts and prints environment variables with PowerShell commands. Empty values trigger a removal command.
+func (s *DefaultShell) printEnvVarsWithExport(envVars map[string]string) {
+	keys := make([]string, 0, len(envVars))
 	for k := range envVars {
 		keys = append(keys, k)
 	}
-
-	// Sort the keys slice to ensure the environment variables are printed in order
 	sort.Strings(keys)
-
-	// Iterate over the sorted keys and print the corresponding environment variable
 	for _, k := range keys {
 		if envVars[k] == "" {
-			// Print command to remove the environment variable if the value is an empty string
 			fmt.Printf("Remove-Item Env:%s\n", k)
 		} else {
-			// Print command to set the environment variable with the key and value
-			fmt.Printf("$env:%s=\"%s\"\n", k, envVars[k])
+			fmt.Printf("$env:%s='%s'\n", k, envVars[k])
 		}
 	}
-	return nil
 }
 
 // PrintAlias prints the aliases for the shell.
-func (s *DefaultShell) PrintAlias(aliases map[string]string) error {
+func (s *DefaultShell) PrintAlias(aliases map[string]string) {
 	// Create a slice to hold the keys of the aliases map
 	keys := make([]string, 0, len(aliases))
 
@@ -58,5 +56,30 @@ func (s *DefaultShell) PrintAlias(aliases map[string]string) error {
 			fmt.Printf("Set-Alias -Name %s -Value \"%s\"\n", k, aliases[k])
 		}
 	}
-	return nil
+}
+
+// UnsetEnvs generates commands to unset multiple environment variables.
+// For Windows PowerShell, this produces a Remove-Item command for each environment variable.
+func (s *DefaultShell) UnsetEnvs(envVars []string) {
+	if len(envVars) == 0 {
+		return
+	}
+
+	// Print Remove-Item commands for each environment variable
+	for _, env := range envVars {
+		fmt.Printf("Remove-Item Env:%s\n", env)
+	}
+}
+
+// UnsetAlias generates commands to unset multiple aliases.
+// For Windows PowerShell, this produces a Remove-Item command for each alias.
+func (s *DefaultShell) UnsetAlias(aliases []string) {
+	if len(aliases) == 0 {
+		return
+	}
+
+	// Print Remove-Item commands for each alias
+	for _, alias := range aliases {
+		fmt.Printf("Remove-Item Alias:%s\n", alias)
+	}
 }

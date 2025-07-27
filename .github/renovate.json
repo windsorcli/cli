@@ -2,10 +2,17 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended",
-    "github>aquaproj/aqua-renovate-config#2.6.0",
+    "github>aquaproj/aqua-renovate-config#2.8.2",
     ":dependencyDashboard"
   ],
   "packageRules": [
+    {
+      "description": "Pin SOPS to v3.9.0",
+      "matchPackageNames": [
+        "getsops/sops"
+      ],
+      "allowedVersions": "3.9.0"
+    },
     {
       "description": "Pin GitHub Actions to specific commit SHAs",
       "matchManagers": [
@@ -39,7 +46,6 @@
       "matchManagers": [
         "gomod"
       ],
-      "enabled": true,
       "automerge": true,
       "automergeType": "pr",
       "automergeStrategy": "squash",
@@ -47,6 +53,13 @@
         "go",
         "dependencies"
       ]
+    },
+    {
+      "description": "Enable Go version updates",
+      "matchManagers": ["gomod"],
+      "matchDepNames": ["go"],
+      "matchDepTypes": ["golang"],
+      "rangeStrategy": "replace"
     },
     {
       "description": "Update Taskfile dependencies",
@@ -66,8 +79,8 @@
   "customManagers": [
     {
       "customType": "regex",
-      "fileMatch": [
-        "^pkg/constants/constants.go$"
+      "managerFilePatterns": [
+        "/^pkg/constants/constants.go$/"
       ],
       "matchStrings": [
         "// renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\n\\s*const\\s+\\S+\\s*=\\s*\"(?<currentValue>[^\"]+)\""
@@ -77,8 +90,8 @@
     },
     {
       "customType": "regex",
-      "fileMatch": [
-        "^Taskfile.yaml$"
+      "managerFilePatterns": [
+        "/^Taskfile.yaml$/"
       ],
       "matchStrings": [
         "go install (?<depName>\\S+)@(?<currentValue>\\S+)"
@@ -88,8 +101,8 @@
     },
     {
       "customType": "regex",
-      "fileMatch": [
-        "^Taskfile.yaml$"
+      "managerFilePatterns": [
+        "/^Taskfile.yaml$/"
       ],
       "matchStrings": [
         "choco install (?<depName>\\S+) --version=(?<currentValue>\\S+)"
@@ -100,5 +113,8 @@
   ],
   "labels": [
     "dependencies"
+  ],
+  "postUpdateOptions": [
+    "gomodTidy"
   ]
 }

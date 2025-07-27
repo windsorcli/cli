@@ -1,97 +1,192 @@
 package stack
 
+// The StackTest provides comprehensive test coverage for the Stack interface implementation.
+// It provides validation of stack initialization, component management, and infrastructure operations,
+// The StackTest ensures proper dependency injection and component lifecycle management,
+// verifying error handling, mock interactions, and infrastructure state management.
+
 import (
-	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/blueprint"
+	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
-type MockSafeComponents struct {
-	Injector         di.Injector
-	BlueprintHandler *blueprint.MockBlueprintHandler
-	EnvPrinter       *env.MockEnvPrinter
-	Shell            *shell.MockShell
+// =============================================================================
+// Test Setup
+// =============================================================================
+
+type Mocks struct {
+	Injector      di.Injector
+	ConfigHandler config.ConfigHandler
+	Shell         *shell.MockShell
+	Blueprint     *blueprint.MockBlueprintHandler
+	Shims         *Shims
 }
 
-// setupSafeMocks creates mock components for testing the stack
-func setupSafeMocks(injector ...di.Injector) MockSafeComponents {
-	var mockInjector di.Injector
-	if len(injector) > 0 {
-		mockInjector = injector[0]
+type SetupOptions struct {
+	Injector      di.Injector
+	ConfigHandler config.ConfigHandler
+	ConfigStr     string
+}
+
+// setupMocks creates mock components for testing the stack
+func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+	t.Helper()
+
+	// Store original directory and create temp dir
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get working directory: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Failed to change to temp directory: %v", err)
+	}
+
+	// Set project root environment variable
+	os.Setenv("WINDSOR_PROJECT_ROOT", tmpDir)
+
+	// Process options with defaults
+	options := &SetupOptions{}
+	if len(opts) > 0 && opts[0] != nil {
+		options = opts[0]
+	}
+
+	// Create injector
+	var injector di.Injector
+	if options.Injector == nil {
+		injector = di.NewMockInjector()
 	} else {
-		mockInjector = di.NewMockInjector()
+		injector = options.Injector
 	}
 
-	// Create a mock blueprint handler
-	mockBlueprintHandler := blueprint.NewMockBlueprintHandler(mockInjector)
-	mockBlueprintHandler.GetTerraformComponentsFunc = func() []blueprint.TerraformComponentV1Alpha1 {
-		// Define common components
-		remoteComponent := blueprint.TerraformComponentV1Alpha1{
-			Source:   "git::https://github.com/terraform-aws-modules/terraform-aws-vpc.git//terraform/remote/path@v1.0.0",
-			Path:     "remote/path",
-			FullPath: "/mock/project/root/.tf_modules/remote/path",
-			Values: map[string]interface{}{
-				"remote_variable1": "default_value",
-			},
-		}
-		localComponent := blueprint.TerraformComponentV1Alpha1{
-			Source:   "",
-			Path:     "local/path",
-			FullPath: "/mock/project/root/terraform/local/path",
-			Values: map[string]interface{}{
-				"local_variable1": "default_value",
-			},
-		}
-
-		return []blueprint.TerraformComponentV1Alpha1{remoteComponent, localComponent}
-	}
-	mockInjector.Register("blueprintHandler", mockBlueprintHandler)
-
-	// Create a mock env printer
-	mockEnvPrinter := env.NewMockEnvPrinter()
-	mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
-		return map[string]string{
-			"MOCK_ENV_VAR": "mock_value",
-		}, nil
-	}
-	mockInjector.Register("envPrinter", mockEnvPrinter)
-
-	// Create a mock shell
+	// Create mock shell
 	mockShell := shell.NewMockShell()
-	mockInjector.Register("shell", mockShell)
 
-	// Mock osStat and osChdir functions
-	osStat = func(_ string) (os.FileInfo, error) {
+	// Create mock blueprint handler
+	mockBlueprint := blueprint.NewMockBlueprintHandler(injector)
+	mockBlueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+		return []blueprintv1alpha1.TerraformComponent{
+			{
+				Source:   "git::https://github.com/terraform-aws-modules/terraform-aws-vpc.git//terraform/remote/path@v1.0.0",
+				Path:     "remote/path",
+				FullPath: filepath.Join(tmpDir, ".windsor", ".tf_modules", "remote", "path"),
+				Values: map[string]any{
+					"remote_variable1": "default_value",
+				},
+			},
+			{
+				Source:   "",
+				Path:     "local/path",
+				FullPath: filepath.Join(tmpDir, "terraform", "local", "path"),
+				Values: map[string]any{
+					"local_variable1": "default_value",
+				},
+			},
+		}
+	}
+
+	// Register dependencies
+	injector.Register("shell", mockShell)
+	injector.Register("blueprintHandler", mockBlueprint)
+
+	// Create config handler
+	var configHandler config.ConfigHandler
+	if options.ConfigHandler == nil {
+		configHandler = config.NewYamlConfigHandler(injector)
+	} else {
+		configHandler = options.ConfigHandler
+	}
+
+	// Initialize config handler
+	if err := configHandler.Initialize(); err != nil {
+		t.Fatalf("Failed to initialize config handler: %v", err)
+	}
+	if err := configHandler.SetContext("mock-context"); err != nil {
+		t.Fatalf("Failed to set context: %v", err)
+	}
+
+	// Load default config string
+	defaultConfigStr := `
+contexts:
+  mock-context:
+    dns:
+      domain: mock.domain.com`
+
+	if err := configHandler.LoadConfigString(defaultConfigStr); err != nil {
+		t.Fatalf("Failed to load default config string: %v", err)
+	}
+	if options.ConfigStr != "" {
+		if err := configHandler.LoadConfigString(options.ConfigStr); err != nil {
+			t.Fatalf("Failed to load config string: %v", err)
+		}
+	}
+
+	// Register config handler
+	injector.Register("configHandler", configHandler)
+
+	// Mock system calls
+	shims := &Shims{}
+
+	shims.Stat = func(path string) (os.FileInfo, error) {
 		return nil, nil
 	}
-	osChdir = func(_ string) error {
+	shims.Chdir = func(_ string) error {
 		return nil
 	}
-	osRemove = func(_ string) error {
+	shims.Getwd = func() (string, error) {
+		return tmpDir, nil
+	}
+	shims.Setenv = func(key, value string) error {
+		return os.Setenv(key, value)
+	}
+	shims.Unsetenv = func(key string) error {
+		return os.Unsetenv(key)
+	}
+	shims.Remove = func(_ string) error {
 		return nil
 	}
 
-	return MockSafeComponents{
-		Injector:         mockInjector,
-		BlueprintHandler: mockBlueprintHandler,
-		EnvPrinter:       mockEnvPrinter,
-		Shell:            mockShell,
+	// Register cleanup to restore original state
+	t.Cleanup(func() {
+		os.Unsetenv("WINDSOR_PROJECT_ROOT")
+		if err := os.Chdir(origDir); err != nil {
+			t.Logf("Warning: Failed to change back to original directory: %v", err)
+		}
+	})
+
+	return &Mocks{
+		Injector:      injector,
+		ConfigHandler: configHandler,
+		Shell:         mockShell,
+		Blueprint:     mockBlueprint,
+		Shims:         shims,
 	}
 }
 
-func TestStack_NewStack(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a new injector
-		injector := di.NewInjector()
+// =============================================================================
+// Test Public Methods
+// =============================================================================
 
-		// When a new BaseStack is created
-		stack := NewBaseStack(injector)
+func TestStack_NewStack(t *testing.T) {
+	setup := func(t *testing.T) (*BaseStack, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		stack := NewBaseStack(mocks.Injector)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		stack, _ := setup(t)
 
 		// Then the stack should be non-nil
 		if stack == nil {
@@ -101,12 +196,18 @@ func TestStack_NewStack(t *testing.T) {
 }
 
 func TestStack_Initialize(t *testing.T) {
+	setup := func(t *testing.T) (*BaseStack, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		stack := NewBaseStack(mocks.Injector)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
-		// Given safe mock components
-		mocks := setupSafeMocks()
+		stack, _ := setup(t)
 
 		// When a new BaseStack is initialized
-		stack := NewBaseStack(mocks.Injector)
 		if err := stack.Initialize(); err != nil {
 			// Then no error should occur
 			t.Errorf("Expected Initialize to return nil, got %v", err)
@@ -115,7 +216,7 @@ func TestStack_Initialize(t *testing.T) {
 
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
 		// Given safe mock components
-		mocks := setupSafeMocks()
+		mocks := setupMocks(t)
 
 		// And the shell is unregistered to simulate an error
 		mocks.Injector.Register("shell", nil)
@@ -137,7 +238,7 @@ func TestStack_Initialize(t *testing.T) {
 
 	t.Run("ErrorResolvingBlueprintHandler", func(t *testing.T) {
 		// Given safe mock components
-		mocks := setupSafeMocks()
+		mocks := setupMocks(t)
 
 		// And the blueprintHandler is unregistered to simulate an error
 		mocks.Injector.Register("blueprintHandler", nil)
@@ -150,39 +251,109 @@ func TestStack_Initialize(t *testing.T) {
 			t.Errorf("Expected Initialize to return an error")
 		}
 	})
-
-	t.Run("ErrorResolvingEnvPrinters", func(t *testing.T) {
-		// Given safe mock components
-		mockInjector := di.NewMockInjector()
-		mockInjector.SetResolveAllError((*env.EnvPrinter)(nil), fmt.Errorf("mock error resolving envPrinters"))
-		mocks := setupSafeMocks(mockInjector)
-
-		// When a new BaseStack is initialized
-		stack := NewBaseStack(mocks.Injector)
-		err := stack.Initialize()
-
-		// Then an error should occur
-		if err == nil {
-			t.Errorf("Expected Initialize to return an error")
-		} else {
-			expectedError := "error resolving envPrinters"
-			if !strings.Contains(err.Error(), expectedError) {
-				t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
-			}
-		}
-	})
 }
 
 func TestStack_Up(t *testing.T) {
+	setup := func(t *testing.T) (*BaseStack, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		stack := NewBaseStack(mocks.Injector)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given safe mock components
-		mocks := setupSafeMocks()
+		stack, _ := setup(t)
 
-		// When a new BaseStack is brought up
-		stack := NewBaseStack(mocks.Injector)
+		// When a new BaseStack is created and initialized
+		if err := stack.Initialize(); err != nil {
+			t.Fatalf("Expected no error during initialization, got %v", err)
+		}
+
+		// And when Up is called
 		if err := stack.Up(); err != nil {
 			// Then no error should occur
 			t.Errorf("Expected Up to return nil, got %v", err)
 		}
+	})
+
+	t.Run("UninitializedStack", func(t *testing.T) {
+		// Given a new BaseStack without initialization
+		stack, _ := setup(t)
+
+		// When Up is called without initializing
+		if err := stack.Up(); err != nil {
+			// Then no error should occur since base implementation is empty
+			t.Errorf("Expected Up to return nil even without initialization, got %v", err)
+		}
+	})
+
+	t.Run("NilInjector", func(t *testing.T) {
+		// Given a BaseStack with nil injector
+		stack := NewBaseStack(nil)
+
+		// When Up is called
+		if err := stack.Up(); err != nil {
+			// Then no error should occur since base implementation is empty
+			t.Errorf("Expected Up to return nil even with nil injector, got %v", err)
+		}
+	})
+}
+
+func TestStack_Down(t *testing.T) {
+	setup := func(t *testing.T) (*BaseStack, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		stack := NewBaseStack(mocks.Injector)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given safe mock components
+		stack, _ := setup(t)
+
+		// When a new BaseStack is created and initialized
+		if err := stack.Initialize(); err != nil {
+			t.Fatalf("Expected no error during initialization, got %v", err)
+		}
+
+		// And when Down is called
+		if err := stack.Down(); err != nil {
+			// Then no error should occur
+			t.Errorf("Expected Down to return nil, got %v", err)
+		}
+	})
+
+	t.Run("UninitializedStack", func(t *testing.T) {
+		// Given a new BaseStack without initialization
+		stack, _ := setup(t)
+
+		// When Down is called without initializing
+		if err := stack.Down(); err != nil {
+			// Then no error should occur since base implementation is empty
+			t.Errorf("Expected Down to return nil even without initialization, got %v", err)
+		}
+	})
+
+	t.Run("NilInjector", func(t *testing.T) {
+		// Given a BaseStack with nil injector
+		stack := NewBaseStack(nil)
+
+		// When Down is called
+		if err := stack.Down(); err != nil {
+			// Then no error should occur since base implementation is empty
+			t.Errorf("Expected Down to return nil even with nil injector, got %v", err)
+		}
+	})
+}
+
+func TestStack_Interface(t *testing.T) {
+	t.Run("BaseStackImplementsStack", func(t *testing.T) {
+		// Given a type assertion for Stack interface
+		var _ Stack = (*BaseStack)(nil)
+
+		// Then the code should compile, indicating BaseStack implements Stack
 	})
 }

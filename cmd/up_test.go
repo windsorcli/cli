@@ -1,418 +1,480 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
-	"github.com/windsorcli/cli/pkg/network"
-	"github.com/windsorcli/cli/pkg/stack"
-
-	ctrl "github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/pipelines"
 	"github.com/windsorcli/cli/pkg/shell"
-	"github.com/windsorcli/cli/pkg/virt"
 )
 
-type MockSafeUpCmdComponents struct {
-	Injector             di.Injector
-	MockController       *ctrl.MockController
-	MockContextHandler   *context.MockContext
-	MockConfigHandler    *config.MockConfigHandler
-	MockShell            *shell.MockShell
-	MockNetworkManager   *network.MockNetworkManager
-	MockVirtualMachine   *virt.MockVirt
-	MockContainerRuntime *virt.MockVirt
+// =============================================================================
+// Test Setup
+// =============================================================================
+
+type UpMocks struct {
+	Injector      di.Injector
+	ConfigHandler config.ConfigHandler
+	Shell         *shell.MockShell
+	Shims         *Shims
 }
 
-// setupSafeUpCmdMocks creates mock components for testing the up command
-func setupSafeUpCmdMocks(optionalInjector ...di.Injector) MockSafeUpCmdComponents {
-	var mockController *ctrl.MockController
-	var injector di.Injector
+func setupUpTest(t *testing.T, opts ...*SetupOptions) *UpMocks {
+	t.Helper()
 
-	// Use the provided injector if passed, otherwise create a new one
-	if len(optionalInjector) > 0 {
-		injector = optionalInjector[0]
-	} else {
-		injector = di.NewInjector()
-	}
+	// Set up temporary directory and change to it
+	tmpDir := t.TempDir()
+	oldDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	t.Cleanup(func() { os.Chdir(oldDir) })
 
-	// Use the injector to create a mock controller
-	mockController = ctrl.NewMockController(injector)
+	// Get base mocks
+	baseMocks := setupMocks(t, opts...)
 
-	// Manually override and set up components
-	mockController.CreateCommonComponentsFunc = func() error {
-		return nil
-	}
+	// Register mock env pipeline in injector (needed since up runs env pipeline first)
+	mockEnvPipeline := pipelines.NewMockBasePipeline()
+	mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+	mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
+	baseMocks.Injector.Register("envPipeline", mockEnvPipeline)
 
-	// Setup mock context handler
-	mockContextHandler := context.NewMockContext()
-	mockContextHandler.GetContextFunc = func() string {
-		return "test-context"
-	}
-	injector.Register("contextHandler", mockContextHandler)
+	// Register mock init pipeline in injector (needed since up runs init pipeline second)
+	mockInitPipeline := pipelines.NewMockBasePipeline()
+	mockInitPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+	mockInitPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
+	baseMocks.Injector.Register("initPipeline", mockInitPipeline)
 
-	// Setup mock config handler
-	mockConfigHandler := config.NewMockConfigHandler()
-	mockConfigHandler.SetFunc = func(key string, value interface{}) error {
-		return nil
-	}
-	injector.Register("configHandler", mockConfigHandler)
+	// Register mock up pipeline in injector
+	mockUpPipeline := pipelines.NewMockBasePipeline()
+	mockUpPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+	mockUpPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
+	baseMocks.Injector.Register("upPipeline", mockUpPipeline)
 
-	// Setup mock shell
-	mockShell := shell.NewMockShell()
-	injector.Register("shell", mockShell)
+	// Register mock install pipeline in injector (needed since up conditionally runs install pipeline)
+	mockInstallPipeline := pipelines.NewMockBasePipeline()
+	mockInstallPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+	mockInstallPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
+	baseMocks.Injector.Register("installPipeline", mockInstallPipeline)
 
-	// Setup mock network manager
-	mockNetworkManager := network.NewMockNetworkManager()
-	injector.Register("networkManager", mockNetworkManager)
-
-	// Setup mock virtual machine
-	mockVirtualMachine := virt.NewMockVirt()
-	injector.Register("virtualMachine", mockVirtualMachine)
-
-	// Setup mock container runtime
-	mockContainerRuntime := virt.NewMockVirt()
-	injector.Register("containerRuntime", mockContainerRuntime)
-
-	return MockSafeUpCmdComponents{
-		Injector:             injector,
-		MockController:       mockController,
-		MockContextHandler:   mockContextHandler,
-		MockConfigHandler:    mockConfigHandler,
-		MockShell:            mockShell,
-		MockNetworkManager:   mockNetworkManager,
-		MockVirtualMachine:   mockVirtualMachine,
-		MockContainerRuntime: mockContainerRuntime,
+	return &UpMocks{
+		Injector:      baseMocks.Injector,
+		ConfigHandler: baseMocks.ConfigHandler,
+		Shell:         baseMocks.Shell,
+		Shims:         baseMocks.Shims,
 	}
 }
+
+// =============================================================================
+// Test Cases
+// =============================================================================
 
 func TestUpCmd(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
-	t.Cleanup(func() {
-		exitFunc = originalExitFunc
-	})
+	createTestUpCmd := func() *cobra.Command {
+		// Create a new command with the same RunE as upCmd
+		cmd := &cobra.Command{
+			Use:   "up",
+			Short: "Set up the Windsor environment",
+			RunE:  upCmd.RunE,
+		}
 
-	t.Run("Success", func(t *testing.T) {
-		// Given a set of mock components
-		mocks := setupSafeUpCmdMocks()
-
-		// When the up command is executed
-		output := captureStdout(func() {
-			rootCmd.SetArgs([]string{"up"})
-			if err := Execute(mocks.MockController); err != nil {
-				t.Fatalf("Execute() error = %v", err)
-			}
+		// Copy all flags from upCmd to ensure they're available
+		upCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+			cmd.Flags().AddFlag(flag)
 		})
 
-		// Then the output should indicate success
-		expectedOutput := "Windsor environment set up successfully.\n"
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		// Disable help text printing
+		cmd.SilenceUsage = true
+		cmd.SilenceErrors = true
+
+		return cmd
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupUpTest(t)
+
+		// When executing the up command
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
 		}
 	})
 
-	t.Run("ErrorCreatingProjectComponents", func(t *testing.T) {
-		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.CreateProjectComponentsFunc = func() error {
-			return fmt.Errorf("error creating project components")
-		}
+	t.Run("SuccessWithInstallFlag", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupUpTest(t)
 
-		// Given a mock controller that returns an error when creating project components
-		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
-		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "error creating project components") {
-			t.Fatalf("Expected error containing 'error creating project components', got %v", err)
-		}
-	})
+		// When executing the up command with install flag
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"--install"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
 
-	t.Run("ErrorCreatingEnvComponents", func(t *testing.T) {
-		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.CreateEnvComponentsFunc = func() error {
-			return fmt.Errorf("Error creating environment components: %w", fmt.Errorf("error creating environment components"))
-		}
-
-		// Given a mock controller that returns an error when creating environment components
-		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
-		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "Error creating environment components: error creating environment components") {
-			t.Fatalf("Expected error containing 'Error creating environment components: error creating environment components', got %v", err)
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
 		}
 	})
 
-	t.Run("ErrorCreatingServiceComponents", func(t *testing.T) {
-		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.CreateServiceComponentsFunc = func() error {
-			return fmt.Errorf("Error creating service components: %w", fmt.Errorf("error creating service components"))
-		}
+	t.Run("SuccessWithWaitFlag", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupUpTest(t)
 
-		// Given a mock controller that returns an error when creating service components
-		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
-		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "Error creating service components: error creating service components") {
-			t.Fatalf("Expected error containing 'Error creating service components: error creating service components', got %v", err)
-		}
-	})
+		// When executing the up command with wait flag
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"--wait"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
 
-	t.Run("ErrorCreatingVirtualizationComponents", func(t *testing.T) {
-		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.CreateVirtualizationComponentsFunc = func() error {
-			return fmt.Errorf("Error creating virtualization components: %w", fmt.Errorf("error creating virtualization components"))
-		}
-
-		// Given a mock controller that returns an error when creating virtualization components
-		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
-		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "Error creating virtualization components: error creating virtualization components") {
-			t.Fatalf("Expected error containing 'Error creating virtualization components: error creating virtualization components', got %v", err)
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
 		}
 	})
 
-	t.Run("ErrorCreatingStackComponents", func(t *testing.T) {
-		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.CreateStackComponentsFunc = func() error {
-			return fmt.Errorf("Error creating stack components: %w", fmt.Errorf("error creating stack components"))
-		}
+	t.Run("SuccessWithInstallAndWaitFlags", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupUpTest(t)
 
-		// Given a mock controller that returns an error when creating stack components
-		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
-		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "Error creating stack components: error creating stack components") {
-			t.Fatalf("Expected error containing 'Error creating stack components: error creating stack components', got %v", err)
-		}
-	})
+		// When executing the up command with both install and wait flags
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"--install", "--wait"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
 
-	t.Run("ErrorInitializingComponents", func(t *testing.T) {
-		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.InitializeComponentsFunc = func() error {
-			return fmt.Errorf("Error initializing components: %w", fmt.Errorf("error initializing components"))
-		}
-
-		// Given a mock controller that returns an error when initializing components
-		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
-		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "Error initializing components: error initializing components") {
-			t.Fatalf("Expected error containing 'Error initializing components: error initializing components', got %v", err)
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
 		}
 	})
 
-	t.Run("ErrorWritingConfigurationFiles", func(t *testing.T) {
-		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.WriteConfigurationFilesFunc = func() error {
-			return fmt.Errorf("Error writing configuration files: %w", fmt.Errorf("error writing configuration files"))
-		}
+	t.Run("SuccessWithVerboseContext", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupUpTest(t)
 
-		// Given a mock controller that returns an error when writing configuration files
-		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
-		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "Error writing configuration files: error writing configuration files") {
-			t.Fatalf("Expected error containing 'Error writing configuration files: error writing configuration files', got %v", err)
+		// When executing the up command with verbose context
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx = context.WithValue(ctx, "verbose", true)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
 		}
 	})
 
-	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		mocks := setupSafeUpCmdMocks()
-		// Allows for reaching the second call of the function
-		callCount := 0
-		mocks.MockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
-			callCount++
-			if callCount == 2 {
-				return nil
+	t.Run("EnvPipelineExecutionError", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupUpTest(t)
+
+		// And an env pipeline that fails to execute
+		mockEnvPipeline := pipelines.NewMockBasePipeline()
+		mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+		mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error {
+			return fmt.Errorf("env pipeline execution failed")
+		}
+		mocks.Injector.Register("envPipeline", mockEnvPipeline)
+
+		// When executing the up command
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to set up environment") {
+			t.Errorf("Expected env pipeline execution error, got: %v", err)
+		}
+	})
+
+	t.Run("InitPipelineExecutionError", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupUpTest(t)
+
+		// And an init pipeline that fails to execute
+		mockInitPipeline := pipelines.NewMockBasePipeline()
+		mockInitPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+		mockInitPipeline.ExecuteFunc = func(ctx context.Context) error {
+			return fmt.Errorf("init pipeline execution failed")
+		}
+		mocks.Injector.Register("initPipeline", mockInitPipeline)
+
+		// When executing the up command
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to initialize environment") {
+			t.Errorf("Expected init pipeline execution error, got: %v", err)
+		}
+	})
+
+	t.Run("UpPipelineExecutionError", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupUpTest(t)
+
+		// And an up pipeline that fails to execute
+		mockUpPipeline := pipelines.NewMockBasePipeline()
+		mockUpPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+		mockUpPipeline.ExecuteFunc = func(ctx context.Context) error {
+			return fmt.Errorf("up pipeline execution failed")
+		}
+		mocks.Injector.Register("upPipeline", mockUpPipeline)
+
+		// When executing the up command
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "Error executing up pipeline") {
+			t.Errorf("Expected up pipeline execution error, got: %v", err)
+		}
+	})
+
+	t.Run("ContextPropagation", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupUpTest(t)
+
+		// And an install pipeline that validates context values
+		installPipelineCalled := false
+		waitContextPassed := false
+		mockInstallPipeline := pipelines.NewMockBasePipeline()
+		mockInstallPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+		mockInstallPipeline.ExecuteFunc = func(ctx context.Context) error {
+			installPipelineCalled = true
+			if ctx.Value("wait") == true {
+				waitContextPassed = true
 			}
-			return config.NewMockConfigHandler()
-		}
-
-		// Given a mock controller that returns nil on the second call to ResolveConfigHandler
-		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
-		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "No config handler found") {
-			t.Fatalf("Expected error containing 'No config handler found', got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingVirtualMachine", func(t *testing.T) {
-		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveVirtualMachineFunc = func() virt.VirtualMachine {
 			return nil
 		}
+		mocks.Injector.Register("installPipeline", mockInstallPipeline)
 
-		// Given a mock controller that returns nil when resolving the virtual machine
-		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
-		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "No virtual machine found") {
-			t.Fatalf("Expected error containing 'No virtual machine found', got %v", err)
+		// When executing the up command with install and wait flags
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"--install", "--wait"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur and install pipeline should be called with wait context
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+		if !installPipelineCalled {
+			t.Error("Expected install pipeline to be called when --install flag is set")
+		}
+		if !waitContextPassed {
+			t.Error("Expected wait context to be passed to install pipeline")
 		}
 	})
 
-	t.Run("ErrorRunningVirtualMachineUp", func(t *testing.T) {
-		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveVirtualMachineFunc = func() virt.VirtualMachine {
-			mockVM := virt.NewMockVirt()
-			mockVM.UpFunc = func(verbose ...bool) error {
-				return fmt.Errorf("Error running virtual machine Up command: %w", fmt.Errorf("error running VM up"))
+	t.Run("InstallPipelineExecutionError", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupUpTest(t)
+
+		// And an install pipeline that fails to execute
+		mockInstallPipeline := pipelines.NewMockBasePipeline()
+		mockInstallPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+		mockInstallPipeline.ExecuteFunc = func(ctx context.Context) error {
+			return fmt.Errorf("install pipeline execution failed")
+		}
+		mocks.Injector.Register("installPipeline", mockInstallPipeline)
+
+		// When executing the up command with install flag
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"--install"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "Error executing install pipeline") {
+			t.Errorf("Expected install pipeline execution error, got: %v", err)
+		}
+	})
+
+	t.Run("VerboseContextPropagation", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupUpTest(t)
+
+		// And an up pipeline that validates verbose context
+		verboseValidated := false
+		mockUpPipeline := pipelines.NewMockBasePipeline()
+		mockUpPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+		mockUpPipeline.ExecuteFunc = func(ctx context.Context) error {
+			// Verify that verbose flag is properly propagated
+			if ctx.Value("verbose") == true {
+				verboseValidated = true
 			}
-			return mockVM
-		}
-
-		// Given a mock virtual machine that returns an error when running the Up command
-		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
-		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "Error running virtual machine Up command: error running VM up") {
-			t.Fatalf("Expected error containing 'Error running virtual machine Up command: error running VM up', got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingContainerRuntime", func(t *testing.T) {
-		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveContainerRuntimeFunc = func() virt.ContainerRuntime {
 			return nil
 		}
+		mocks.Injector.Register("upPipeline", mockUpPipeline)
 
-		// Given a mock controller that returns nil when resolving the container runtime
-		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
-		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "No container runtime found") {
-			t.Fatalf("Expected error containing 'No container runtime found', got %v", err)
+		// When executing the up command with verbose flag set in context
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx = context.WithValue(ctx, "verbose", true)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur and verbose context should be validated
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+		if !verboseValidated {
+			t.Error("Expected verbose context value to be properly propagated to up pipeline")
 		}
 	})
 
-	t.Run("ErrorRunningContainerRuntimeUp", func(t *testing.T) {
-		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveContainerRuntimeFunc = func() virt.ContainerRuntime {
-			mockCR := virt.NewMockVirt()
-			mockCR.UpFunc = func(verbose ...bool) error {
-				return fmt.Errorf("Error running container runtime Up command: %w", fmt.Errorf("error running container runtime up"))
+	t.Run("EnvPipelineContextValues", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupUpTest(t)
+
+		// And an env pipeline that validates its context values
+		envContextValidated := false
+		mockEnvPipeline := pipelines.NewMockBasePipeline()
+		mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+		mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error {
+			// Verify that quiet and decrypt flags are set for env pipeline
+			if ctx.Value("quiet") == true && ctx.Value("decrypt") == true {
+				envContextValidated = true
 			}
-			return mockCR
-		}
-
-		// Given a mock container runtime that returns an error when running the Up command
-		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
-		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "Error running container runtime Up command: error running container runtime up") {
-			t.Fatalf("Expected error containing 'Error running container runtime Up command: error running container runtime up', got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingNetworkManager", func(t *testing.T) {
-		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveNetworkManagerFunc = func() network.NetworkManager {
 			return nil
 		}
+		mocks.Injector.Register("envPipeline", mockEnvPipeline)
 
-		// Given a mock controller that returns nil when resolving the network manager
-		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
-		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "No network manager found") {
-			t.Fatalf("Expected error containing 'No network manager found', got %v", err)
+		// When executing the up command
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur and env context should be validated
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+		if !envContextValidated {
+			t.Error("Expected env pipeline to receive quiet=true and decrypt=true context values")
 		}
 	})
 
-	t.Run("ErrorConfiguringGuestNetwork", func(t *testing.T) {
-		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveNetworkManagerFunc = func() network.NetworkManager {
-			mockNM := network.NewMockNetworkManager()
-			mockNM.ConfigureGuestFunc = func() error {
-				return fmt.Errorf("Error configuring guest network: %w", fmt.Errorf("error configuring guest network"))
-			}
-			return mockNM
-		}
+	t.Run("MultipleFlagsCombination", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupUpTest(t)
 
-		// Given a mock network manager that returns an error when configuring the guest network
-		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
-		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "Error configuring guest network") {
-			t.Fatalf("Expected error containing 'Error configuring guest network', got %v", err)
-		}
-	})
+		// When executing the up command with multiple flags
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx = context.WithValue(ctx, "verbose", true)
+		cmd.SetArgs([]string{"--install", "--wait"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
 
-	t.Run("ErrorConfiguringHostRoute", func(t *testing.T) {
-		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveNetworkManagerFunc = func() network.NetworkManager {
-			mockNM := network.NewMockNetworkManager()
-			mockNM.ConfigureHostRouteFunc = func() error {
-				return fmt.Errorf("Error configuring host network: %w", fmt.Errorf("error configuring host route"))
-			}
-			return mockNM
-		}
-
-		// Given a mock network manager that returns an error when configuring the host route
-		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
-		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "Error configuring host network: error configuring host route") {
-			t.Fatalf("Expected error containing 'Error configuring host network: error configuring host route', got %v", err)
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
 		}
 	})
 
-	t.Run("ErrorConfiguringDNS", func(t *testing.T) {
-		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveNetworkManagerFunc = func() network.NetworkManager {
-			mockNM := network.NewMockNetworkManager()
-			mockNM.ConfigureDNSFunc = func() error {
-				return fmt.Errorf("Error configuring DNS: %w", fmt.Errorf("error configuring DNS"))
-			}
-			return mockNM
-		}
+	t.Run("PipelineOrchestrationOrder", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupUpTest(t)
 
-		// Given a mock network manager that returns an error when configuring DNS
-		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
-		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "Error configuring DNS") {
-			t.Fatalf("Expected error containing 'Error configuring DNS', got %v", err)
-		}
-	})
+		// And pipelines that track execution order
+		executionOrder := []string{}
 
-	t.Run("NoStackFound", func(t *testing.T) {
-		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveStackFunc = func() stack.Stack {
+		mockEnvPipeline := pipelines.NewMockBasePipeline()
+		mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+		mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error {
+			executionOrder = append(executionOrder, "env")
 			return nil
 		}
+		mocks.Injector.Register("envPipeline", mockEnvPipeline)
 
-		// Given a mock controller that returns nil when resolving the stack
-		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
-		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "No stack found") {
-			t.Fatalf("Expected error containing 'No stack found', got %v", err)
+		mockInitPipeline := pipelines.NewMockBasePipeline()
+		mockInitPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+		mockInitPipeline.ExecuteFunc = func(ctx context.Context) error {
+			executionOrder = append(executionOrder, "init")
+			return nil
 		}
-	})
+		mocks.Injector.Register("initPipeline", mockInitPipeline)
 
-	t.Run("ErrorRunningStackUp", func(t *testing.T) {
-		mocks := setupSafeUpCmdMocks()
-		injector := mocks.Injector
-		mocks.MockController.ResolveStackFunc = func() stack.Stack {
-			mockStack := stack.NewMockStack(injector)
-			mockStack.UpFunc = func() error {
-				return fmt.Errorf("Error running stack Up command: %w", fmt.Errorf("error running stack up"))
+		mockUpPipeline := pipelines.NewMockBasePipeline()
+		mockUpPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+		mockUpPipeline.ExecuteFunc = func(ctx context.Context) error {
+			executionOrder = append(executionOrder, "up")
+			return nil
+		}
+		mocks.Injector.Register("upPipeline", mockUpPipeline)
+
+		mockInstallPipeline := pipelines.NewMockBasePipeline()
+		mockInstallPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
+		mockInstallPipeline.ExecuteFunc = func(ctx context.Context) error {
+			executionOrder = append(executionOrder, "install")
+			return nil
+		}
+		mocks.Injector.Register("installPipeline", mockInstallPipeline)
+
+		// When executing the up command with install flag
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{"--install"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur and pipelines should execute in correct order
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+		expectedOrder := []string{"env", "init", "up", "install"}
+		if len(executionOrder) != len(expectedOrder) {
+			t.Errorf("Expected %d pipeline executions, got %d", len(expectedOrder), len(executionOrder))
+		}
+		for i, expected := range expectedOrder {
+			if i >= len(executionOrder) || executionOrder[i] != expected {
+				t.Errorf("Expected pipeline execution order %v, got %v", expectedOrder, executionOrder)
+				break
 			}
-			return mockStack
-		}
-
-		// Given a mock stack that returns an error when running the Up command
-		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
-		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "Error running stack Up command: error running stack up") {
-			t.Fatalf("Expected error containing 'Error running stack Up command: error running stack up', got %v", err)
 		}
 	})
+
 }

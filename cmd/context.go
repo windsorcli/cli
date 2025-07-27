@@ -1,9 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/pipelines"
 )
 
 // getContextCmd represents the get command
@@ -12,58 +15,76 @@ var getContextCmd = &cobra.Command{
 	Short:        "Get the current context",
 	Long:         "Retrieve and display the current context from the configuration",
 	SilenceUsage: true,
-	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Initialize components
-		if err := controller.InitializeComponents(); err != nil {
-			return fmt.Errorf("Error initializing components: %w", err)
+		// Get shared dependency injector from context
+		injector := cmd.Context().Value(injectorKey).(di.Injector)
+
+		// Create output function
+		outputFunc := func(output string) {
+			fmt.Fprintln(cmd.OutOrStdout(), output)
 		}
 
-		// Resolve context handler
-		contextHandler := controller.ResolveContextHandler()
+		// Create execution context with operation and output function
+		ctx := context.WithValue(cmd.Context(), "operation", "get")
+		ctx = context.WithValue(ctx, "output", outputFunc)
 
-		// Get the current context
-		currentContext := contextHandler.GetContext()
+		// Set up the context pipeline
+		pipeline, err := pipelines.WithPipeline(injector, ctx, "contextPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up context pipeline: %w", err)
+		}
 
-		// Print the current context
-		fmt.Println(currentContext)
+		// Execute the pipeline
+		if err := pipeline.Execute(ctx); err != nil {
+			return fmt.Errorf("Error executing context pipeline: %w", err)
+		}
+
 		return nil
 	},
 }
 
 // setContextCmd represents the set command
 var setContextCmd = &cobra.Command{
-	Use:     "set [context]",
-	Short:   "Set the current context",
-	Long:    "Set the current context in the configuration and save it",
-	Args:    cobra.ExactArgs(1), // Ensure exactly one argument is provided
-	PreRunE: preRunEInitializeCommonComponents,
+	Use:          "set [context]",
+	Short:        "Set the current context",
+	Long:         "Set the current context in the configuration and save it",
+	Args:         cobra.ExactArgs(1), // Ensure exactly one argument is provided
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Initialize components
-		if err := controller.InitializeComponents(); err != nil {
-			return fmt.Errorf("Error initializing components: %w", err)
+		// Get shared dependency injector from context
+		injector := cmd.Context().Value(injectorKey).(di.Injector)
+
+		// Create output function
+		outputFunc := func(output string) {
+			fmt.Fprintln(cmd.OutOrStdout(), output)
 		}
 
-		// Resolve context handler
-		contextHandler := controller.ResolveContextHandler()
+		// Create execution context with operation, context name, and output function
+		ctx := context.WithValue(cmd.Context(), "operation", "set")
+		ctx = context.WithValue(ctx, "contextName", args[0])
+		ctx = context.WithValue(ctx, "output", outputFunc)
 
-		// Set the context
-		contextName := args[0]
-		if err := contextHandler.SetContext(contextName); err != nil {
-			return fmt.Errorf("Error setting context: %w", err)
+		// Set up the context pipeline
+		pipeline, err := pipelines.WithPipeline(injector, ctx, "contextPipeline")
+		if err != nil {
+			return fmt.Errorf("failed to set up context pipeline: %w", err)
 		}
 
-		// Print the context
-		fmt.Println("Context set to:", contextName)
+		// Execute the pipeline
+		if err := pipeline.Execute(ctx); err != nil {
+			return fmt.Errorf("Error executing context pipeline: %w", err)
+		}
+
 		return nil
 	},
 }
 
 // getContextAliasCmd is an alias for the get command
 var getContextAliasCmd = &cobra.Command{
-	Use:   "get-context",
-	Short: "Alias for 'context get'",
-	Long:  "Alias for 'context get'",
+	Use:          "get-context",
+	Short:        "Alias for 'context get'",
+	Long:         "Alias for 'context get'",
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		rootCmd.SetArgs(append([]string{"context", "get"}, args...))
 		return rootCmd.Execute()
@@ -72,10 +93,11 @@ var getContextAliasCmd = &cobra.Command{
 
 // setContextAliasCmd is an alias for the set command
 var setContextAliasCmd = &cobra.Command{
-	Use:   "set-context [context]",
-	Short: "Alias for 'context set'",
-	Long:  "Alias for 'context set'",
-	Args:  cobra.ExactArgs(1), // Ensure exactly one argument is provided
+	Use:          "set-context [context]",
+	Short:        "Alias for 'context set'",
+	SilenceUsage: true,
+	Long:         "Alias for 'context set'",
+	Args:         cobra.ExactArgs(1), // Ensure exactly one argument is provided
 	RunE: func(cmd *cobra.Command, args []string) error {
 		rootCmd.SetArgs(append([]string{"context", "set"}, args...))
 		return rootCmd.Execute()

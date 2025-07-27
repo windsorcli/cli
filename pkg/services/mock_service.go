@@ -1,32 +1,44 @@
 package services
 
 import (
-	"github.com/compose-spec/compose-go/types"
+	"github.com/compose-spec/compose-go/v2/types"
 )
+
+// The MockService is a test implementation of the Service interface
+// It provides a mockable implementation for testing service interactions
+// The MockService enables isolated testing of service-dependent components
+// by allowing test-specific behavior to be injected through function fields
+
+// =============================================================================
+// Types
+// =============================================================================
 
 // MockService is a mock implementation of the Service interface
 type MockService struct {
 	BaseService
-	// GetComposeConfigFunc is a function that mocks the GetComposeConfig method
 	GetComposeConfigFunc func() (*types.Config, error)
-	// WriteConfigFunc is a function that mocks the WriteConfig method
-	WriteConfigFunc func() error
-	// SetAddressFunc is a function that mocks the SetAddress method
-	SetAddressFunc func(address string) error
-	// GetAddressFunc is a function that mocks the GetAddress method
-	GetAddressFunc func() string
-	// InitializeFunc is a function that mocks the Initialize method
-	InitializeFunc func() error
-	// SetNameFunc is a function that mocks the SetName method
-	SetNameFunc func(name string)
-	// GetNameFunc is a function that mocks the GetName method
-	GetNameFunc func() string
+	WriteConfigFunc      func() error
+	SetAddressFunc       func(address string) error
+	GetAddressFunc       func() string
+	InitializeFunc       func() error
+	SetNameFunc          func(name string)
+	GetNameFunc          func() string
+	GetHostnameFunc      func() string
+	SupportsWildcardFunc func() bool
 }
+
+// =============================================================================
+// Constructor
+// =============================================================================
 
 // NewMockService is a constructor for MockService
 func NewMockService() *MockService {
 	return &MockService{}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize calls the mock InitializeFunc if it is set, otherwise returns nil
 func (m *MockService) Initialize() error {
@@ -76,12 +88,28 @@ func (m *MockService) SetName(name string) {
 	m.name = name
 }
 
-// GetName calls the mock GetNameFunc if it is set, otherwise returns an empty string
+// GetName calls the mock GetNameFunc if it is set, otherwise returns the stored name
 func (m *MockService) GetName() string {
 	if m.GetNameFunc != nil {
 		return m.GetNameFunc()
 	}
+	return m.name
+}
+
+// GetHostname calls the mock GetHostnameFunc if it is set, otherwise returns an empty string
+func (m *MockService) GetHostname() string {
+	if m.GetHostnameFunc != nil {
+		return m.GetHostnameFunc()
+	}
 	return ""
+}
+
+// SupportsWildcard calls the mock SupportsWildcardFunc if it is set, otherwise returns false
+func (m *MockService) SupportsWildcard() bool {
+	if m.SupportsWildcardFunc != nil {
+		return m.SupportsWildcardFunc()
+	}
+	return false
 }
 
 // Ensure MockService implements Service interface
