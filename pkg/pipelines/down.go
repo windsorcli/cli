@@ -163,13 +163,16 @@ func (p *DownPipeline) Execute(ctx context.Context) error {
 
 	// Tear down the container runtime if enabled
 	containerRuntimeEnabled := p.configHandler.GetBool("docker.enabled")
-	if containerRuntimeEnabled {
+	skipDockerFlag := ctx.Value("skipDocker")
+	if containerRuntimeEnabled && (skipDockerFlag == nil || !skipDockerFlag.(bool)) {
 		if p.containerRuntime == nil {
 			return fmt.Errorf("No container runtime found")
 		}
 		if err := p.containerRuntime.Down(); err != nil {
 			return fmt.Errorf("Error running container runtime Down command: %w", err)
 		}
+	} else if skipDockerFlag != nil && skipDockerFlag.(bool) {
+		fmt.Fprintln(os.Stderr, "Skipping Docker container cleanup (--skip-docker set)")
 	}
 
 	// Clean up context specific artifacts if --clean flag is set

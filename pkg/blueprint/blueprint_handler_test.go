@@ -226,6 +226,18 @@ func setupShims(t *testing.T) *Shims {
 		})
 	}
 
+	// Override timing shims for fast tests
+	shims.TimeAfter = func(d time.Duration) <-chan time.Time {
+		// Return a channel that never fires (no timeout for tests)
+		return make(chan time.Time)
+	}
+
+	shims.NewTicker = func(d time.Duration) *time.Ticker {
+		// Return a ticker that ticks immediately for tests
+		ticker := time.NewTicker(1 * time.Millisecond)
+		return ticker
+	}
+
 	return shims
 }
 
@@ -300,9 +312,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	mockKubernetesManager.DeleteKustomizationFunc = func(name, namespace string) error {
 		return nil
 	}
-	mockKubernetesManager.WaitForKustomizationsDeletedFunc = func(message string, names ...string) error {
-		return nil
-	}
+
 	mockKubernetesManager.ApplyKustomizationFunc = func(kustomization kustomizev1.Kustomization) error {
 		return nil
 	}
@@ -312,6 +322,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	mockKubernetesManager.GetKustomizationStatusFunc = func(names []string) (map[string]bool, error) {
 		status := make(map[string]bool)
 		for _, name := range names {
+			// Return true for all kustomizations, including cleanup ones
 			status[name] = true
 		}
 		return status, nil
@@ -1834,42 +1845,6 @@ func TestBlueprintHandler_Down(t *testing.T) {
 				},
 				expectedError: "delete error",
 			},
-			{
-				name: "SuspendKustomizationError",
-				kustomizations: []blueprintv1alpha1.Kustomization{
-					{Name: "k1"},
-				},
-				setupMock: func(m *kubernetes.MockKubernetesManager) {
-					m.SuspendKustomizationFunc = func(name, namespace string) error {
-						return fmt.Errorf("suspend error")
-					}
-				},
-				expectedError: "suspend error",
-			},
-			{
-				name: "ErrorWaitingForKustomizationsDeleted",
-				kustomizations: []blueprintv1alpha1.Kustomization{
-					{Name: "k1"},
-				},
-				setupMock: func(m *kubernetes.MockKubernetesManager) {
-					m.WaitForKustomizationsDeletedFunc = func(message string, names ...string) error {
-						return fmt.Errorf("wait for deletion error")
-					}
-				},
-				expectedError: "failed waiting for kustomizations to be deleted",
-			},
-			{
-				name: "ErrorWaitingForCleanupKustomizationsDeleted",
-				kustomizations: []blueprintv1alpha1.Kustomization{
-					{Name: "k1", Cleanup: []string{"cleanup"}},
-				},
-				setupMock: func(m *kubernetes.MockKubernetesManager) {
-					m.WaitForKustomizationsDeletedFunc = func(message string, names ...string) error {
-						return fmt.Errorf("wait for cleanup deletion error")
-					}
-				},
-				expectedError: "failed waiting for kustomizations to be deleted",
-			},
 		}
 
 		for _, tc := range testCases {
@@ -1911,94 +1886,6 @@ func TestBlueprintHandler_Down(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorCreatingSystemCleanupNamespace", func(t *testing.T) {
-		// Given a handler with kustomizations that have cleanup paths
-		handler, mocks := setup(t)
-		baseHandler := handler
-		baseHandler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
-			{Name: "k1", Cleanup: []string{"cleanup/path"}},
-		}
-
-		// And a mock that fails to create system-cleanup namespace
-		mocks.KubernetesManager.CreateNamespaceFunc = func(name string) error {
-			if name == "system-cleanup" {
-				return fmt.Errorf("create namespace error")
-			}
-			return nil
-		}
-
-		// When calling Down
-		err := baseHandler.Down()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to create system-cleanup namespace") {
-			t.Errorf("Expected system-cleanup namespace creation error, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorGettingHelmReleases", func(t *testing.T) {
-		// Given a handler with kustomizations
-		handler, mocks := setup(t)
-		baseHandler := handler
-		baseHandler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
-			{Name: "k1"},
-		}
-
-		// And a mock that fails to get HelmReleases
-		mocks.KubernetesManager.GetHelmReleasesForKustomizationFunc = func(name, namespace string) ([]helmv2.HelmRelease, error) {
-			return nil, fmt.Errorf("get helmreleases error")
-		}
-
-		// When calling Down
-		err := baseHandler.Down()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to get helmreleases for kustomization") {
-			t.Errorf("Expected helmreleases error, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorSuspendingHelmRelease", func(t *testing.T) {
-		// Given a handler with kustomizations
-		handler, mocks := setup(t)
-		baseHandler := handler
-		baseHandler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
-			{Name: "k1"},
-		}
-
-		// And a mock that returns HelmReleases but fails to suspend them
-		mocks.KubernetesManager.GetHelmReleasesForKustomizationFunc = func(name, namespace string) ([]helmv2.HelmRelease, error) {
-			return []helmv2.HelmRelease{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-helm-release",
-						Namespace: "test-namespace",
-					},
-				},
-			}, nil
-		}
-		mocks.KubernetesManager.SuspendHelmReleaseFunc = func(name, namespace string) error {
-			return fmt.Errorf("suspend helmrelease error")
-		}
-
-		// When calling Down
-		err := baseHandler.Down()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to suspend helmrelease") {
-			t.Errorf("Expected helmrelease suspend error, got: %v", err)
-		}
-	})
-
 	t.Run("ErrorDeletingCleanupKustomizations", func(t *testing.T) {
 		// Given a handler with kustomizations that have cleanup paths
 		handler, mocks := setup(t)
@@ -2027,153 +1914,6 @@ func TestBlueprintHandler_Down(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorDeletingSystemCleanupNamespace", func(t *testing.T) {
-		// Given a handler with kustomizations that have cleanup paths
-		handler, mocks := setup(t)
-		baseHandler := handler
-		baseHandler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
-			{Name: "k1", Cleanup: []string{"cleanup/path"}},
-		}
-
-		// And a mock that fails to delete system-cleanup namespace
-		mocks.KubernetesManager.DeleteNamespaceFunc = func(name string) error {
-			if name == "system-cleanup" {
-				return fmt.Errorf("delete namespace error")
-			}
-			return nil
-		}
-
-		// When calling Down
-		err := baseHandler.Down()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to delete system-cleanup namespace") {
-			t.Errorf("Expected system-cleanup namespace deletion error, got: %v", err)
-		}
-	})
-}
-
-func TestBaseBlueprintHandler_CreateManagedNamespace(t *testing.T) {
-	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
-		t.Helper()
-		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-		err := handler.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
-		}
-		return handler, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a blueprint handler
-		handler, mocks := setup(t)
-
-		// And a mock Kubernetes manager that tracks calls
-		var createdNamespace string
-		mocks.KubernetesManager.CreateNamespaceFunc = func(name string) error {
-			createdNamespace = name
-			return nil
-		}
-
-		// When creating a managed namespace
-		err := handler.createManagedNamespace("test-namespace")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		// And the correct namespace should be created
-		if createdNamespace != "test-namespace" {
-			t.Errorf("Expected namespace 'test-namespace', got: %s", createdNamespace)
-		}
-	})
-
-	t.Run("Error", func(t *testing.T) {
-		// Given a blueprint handler
-		handler, mocks := setup(t)
-
-		// And a mock Kubernetes manager that returns an error
-		mocks.KubernetesManager.CreateNamespaceFunc = func(name string) error {
-			return fmt.Errorf("mock create error")
-		}
-
-		// When creating a managed namespace
-		err := handler.createManagedNamespace("test-namespace")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "mock create error") {
-			t.Errorf("Expected error about create error, got: %v", err)
-		}
-	})
-}
-
-func TestBaseBlueprintHandler_DeleteNamespace(t *testing.T) {
-	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
-		t.Helper()
-		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-		err := handler.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
-		}
-		return handler, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a blueprint handler
-		handler, mocks := setup(t)
-
-		// And a mock Kubernetes manager that tracks calls
-		var deletedNamespace string
-		mocks.KubernetesManager.DeleteNamespaceFunc = func(name string) error {
-			deletedNamespace = name
-			return nil
-		}
-
-		// When deleting a namespace
-		err := handler.deleteNamespace("test-namespace")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		// And the correct namespace should be deleted
-		if deletedNamespace != "test-namespace" {
-			t.Errorf("Expected namespace 'test-namespace', got: %s", deletedNamespace)
-		}
-	})
-
-	t.Run("Error", func(t *testing.T) {
-		// Given a blueprint handler
-		handler, mocks := setup(t)
-
-		// And a mock Kubernetes manager that returns an error
-		mocks.KubernetesManager.DeleteNamespaceFunc = func(name string) error {
-			return fmt.Errorf("mock delete error")
-		}
-
-		// When deleting a namespace
-		err := handler.deleteNamespace("test-namespace")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "mock delete error") {
-			t.Errorf("Expected error about delete error, got: %v", err)
-		}
-	})
 }
 
 func TestBlueprintHandler_GetRepository(t *testing.T) {

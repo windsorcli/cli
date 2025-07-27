@@ -43,7 +43,6 @@ type KubernetesManager interface {
 	SuspendHelmRelease(name, namespace string) error
 	ApplyGitRepository(repo *sourcev1.GitRepository) error
 	ApplyOCIRepository(repo *sourcev1.OCIRepository) error
-	WaitForKustomizationsDeleted(message string, names ...string) error
 	CheckGitRepositoryStatus() error
 	GetKustomizationStatus(names []string) (map[string]bool, error)
 	WaitForKubernetesHealthy(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error
@@ -117,7 +116,9 @@ func (k *BaseKubernetesManager) ApplyKustomization(kustomization kustomizev1.Kus
 	return k.applyWithRetry(gvr, obj, opts)
 }
 
-// DeleteKustomization removes a Kustomization resource
+// DeleteKustomization removes a Kustomization resource using background deletion.
+// Background deletion allows the kustomization to enter "Terminating" state while its
+// children are deleted in the background. The method waits for the deletion to complete.
 func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) error {
 	gvr := schema.GroupVersionResource{
 		Group:    "kustomize.toolkit.fluxcd.io",
@@ -125,11 +126,32 @@ func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) erro
 		Resource: "kustomizations",
 	}
 
-	err := k.client.DeleteResource(gvr, namespace, name, metav1.DeleteOptions{})
+	propagationPolicy := metav1.DeletePropagationBackground
+	deleteOptions := metav1.DeleteOptions{
+		PropagationPolicy: &propagationPolicy,
+	}
+
+	err := k.client.DeleteResource(gvr, namespace, name, deleteOptions)
 	if err != nil && isNotFoundError(err) {
 		return nil
 	}
-	return err
+	if err != nil {
+		return err
+	}
+
+	timeout := time.Now().Add(k.kustomizationReconcileTimeout)
+	for time.Now().Before(timeout) {
+		_, err := k.client.GetResource(gvr, namespace, name)
+		if err != nil && isNotFoundError(err) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("error checking kustomization deletion status: %w", err)
+		}
+		time.Sleep(k.kustomizationWaitPollInterval)
+	}
+
+	return fmt.Errorf("timeout waiting for kustomization %s to be deleted", name)
 }
 
 // WaitForKustomizations waits for kustomizations to be ready
@@ -231,7 +253,10 @@ func (k *BaseKubernetesManager) CreateNamespace(name string) error {
 	return k.applyWithRetry(gvr, obj, opts)
 }
 
-// DeleteNamespace removes a namespace
+// DeleteNamespace deletes the specified namespace using foreground deletion.
+// Foreground deletion ensures all resources in the namespace are removed before the namespace is deleted.
+// This method waits for the deletion to complete before returning. Returns nil if the namespace is deleted successfully,
+// or an error if deletion fails or times out.
 func (k *BaseKubernetesManager) DeleteNamespace(name string) error {
 	gvr := schema.GroupVersionResource{
 		Group:    "",
@@ -408,48 +433,8 @@ func (k *BaseKubernetesManager) ApplyOCIRepository(repo *sourcev1.OCIRepository)
 	return k.applyWithRetry(gvr, obj, opts)
 }
 
-// WaitForKustomizationsDeleted waits for the specified kustomizations to be deleted.
-func (k *BaseKubernetesManager) WaitForKustomizationsDeleted(message string, names ...string) error {
-	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
-	spin.Suffix = " " + message
-	spin.Start()
-	defer spin.Stop()
-
-	timeout := time.After(k.kustomizationReconcileTimeout)
-	ticker := time.NewTicker(k.kustomizationWaitPollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-timeout:
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
-			return fmt.Errorf("timeout waiting for kustomizations to be deleted")
-		case <-ticker.C:
-			allDeleted := true
-			for _, name := range names {
-				_, err := k.client.GetResource(schema.GroupVersionResource{
-					Group:    "kustomize.toolkit.fluxcd.io",
-					Version:  "v1",
-					Resource: "kustomizations",
-				}, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE, name)
-				if err == nil {
-					allDeleted = false
-					break
-				}
-			}
-			if allDeleted {
-				spin.Stop()
-				fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m%s - \033[32mDone\033[0m\n", spin.Suffix)
-				return nil
-			}
-		}
-	}
-}
-
 // CheckGitRepositoryStatus checks the status of all GitRepository and OCIRepository resources
 func (k *BaseKubernetesManager) CheckGitRepositoryStatus() error {
-	// Check GitRepositories
 	gitGvr := schema.GroupVersionResource{
 		Group:    "source.toolkit.fluxcd.io",
 		Version:  "v1",
@@ -474,7 +459,6 @@ func (k *BaseKubernetesManager) CheckGitRepositoryStatus() error {
 		}
 	}
 
-	// Check OCIRepositories
 	ociGvr := schema.GroupVersionResource{
 		Group:    "source.toolkit.fluxcd.io",
 		Version:  "v1",
@@ -502,7 +486,10 @@ func (k *BaseKubernetesManager) CheckGitRepositoryStatus() error {
 	return nil
 }
 
-// GetKustomizationStatus checks the status of kustomizations
+// GetKustomizationStatus returns a map indicating readiness for each specified kustomization in the default
+// Flux system namespace. If a kustomization is not found, its status is set to false. If any kustomization
+// has a Ready condition with Status False and Reason "ReconciliationFailed", an error is returned with the
+// failure message.
 func (k *BaseKubernetesManager) GetKustomizationStatus(names []string) (map[string]bool, error) {
 	gvr := schema.GroupVersionResource{
 		Group:    "kustomize.toolkit.fluxcd.io",
@@ -549,9 +536,9 @@ func (k *BaseKubernetesManager) GetKustomizationStatus(names []string) (map[stri
 	return status, nil
 }
 
-// WaitForKubernetesHealthy waits for the Kubernetes API to be healthy and optionally checks node Ready state.
-// If nodeNames are provided, it will also verify that all specified nodes are in Ready state.
-// Returns an error if the API is unreachable or if any specified nodes are not Ready.
+// WaitForKubernetesHealthy waits for the Kubernetes API to become healthy within the context deadline.
+// If nodeNames are provided, verifies all specified nodes reach Ready state before returning.
+// Returns an error if the API is unreachable or any specified nodes are not Ready within the deadline.
 func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
 	if k.client == nil {
 		return fmt.Errorf("kubernetes client not initialized")
@@ -569,13 +556,11 @@ func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, en
 		case <-ctx.Done():
 			return fmt.Errorf("timeout waiting for Kubernetes API to be healthy")
 		default:
-			// Check API connectivity
 			if err := k.client.CheckHealth(ctx, endpoint); err != nil {
 				time.Sleep(pollInterval)
 				continue
 			}
 
-			// If node names are specified, check their Ready state
 			if len(nodeNames) > 0 {
 				if err := k.waitForNodesReady(ctx, nodeNames, outputFunc); err != nil {
 					time.Sleep(pollInterval)
@@ -590,8 +575,9 @@ func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, en
 	return fmt.Errorf("timeout waiting for Kubernetes API to be healthy")
 }
 
-// waitForNodesReady waits until all specified nodes exist and are in Ready state.
-// Returns an error if any nodes are missing or not Ready within the context deadline.
+// waitForNodesReady blocks until all specified nodes exist and are in Ready state or the context deadline is reached.
+// It periodically queries node status, invokes outputFunc on status changes, and returns an error if any nodes are missing or not Ready within the deadline.
+// If the context is cancelled, returns an error immediately.
 func (k *BaseKubernetesManager) waitForNodesReady(ctx context.Context, nodeNames []string, outputFunc func(string)) error {
 	deadline, ok := ctx.Deadline()
 	if !ok {
@@ -626,7 +612,6 @@ func (k *BaseKubernetesManager) waitForNodesReady(ctx context.Context, nodeNames
 				}
 			}
 
-			// Report status changes
 			if outputFunc != nil {
 				for _, nodeName := range nodeNames {
 					var currentStatus string

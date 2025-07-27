@@ -334,32 +334,6 @@ func TestMockKubernetesManager_ApplyGitRepository(t *testing.T) {
 	})
 }
 
-func TestMockKubernetesManager_WaitForKustomizationsDeleted(t *testing.T) {
-	setup := func(t *testing.T) *MockKubernetesManager {
-		t.Helper()
-		return NewMockKubernetesManager(nil)
-	}
-	msg := "msg"
-	name := "n"
-
-	t.Run("FuncSet", func(t *testing.T) {
-		manager := setup(t)
-		manager.WaitForKustomizationsDeletedFunc = func(m string, n ...string) error { return fmt.Errorf("err") }
-		err := manager.WaitForKustomizationsDeleted(msg, name)
-		if err == nil || err.Error() != "err" {
-			t.Errorf("Expected error 'err', got %v", err)
-		}
-	})
-
-	t.Run("FuncNotSet", func(t *testing.T) {
-		manager := setup(t)
-		err := manager.WaitForKustomizationsDeleted(msg, name)
-		if err != nil {
-			t.Errorf("Expected nil, got %v", err)
-		}
-	})
-}
-
 func TestMockKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 	setup := func(t *testing.T) *MockKubernetesManager {
 		t.Helper()

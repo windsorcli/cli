@@ -32,7 +32,6 @@ type MockKubernetesManager struct {
 	SuspendHelmReleaseFunc              func(name, namespace string) error
 	ApplyGitRepositoryFunc              func(repo *sourcev1.GitRepository) error
 	ApplyOCIRepositoryFunc              func(repo *sourcev1.OCIRepository) error
-	WaitForKustomizationsDeletedFunc    func(message string, names ...string) error
 	CheckGitRepositoryStatusFunc        func() error
 	WaitForKubernetesHealthyFunc        func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error
 	GetNodeReadyStatusFunc              func(ctx context.Context, nodeNames []string) (map[string]bool, error)
@@ -155,13 +154,7 @@ func (m *MockKubernetesManager) ApplyOCIRepository(repo *sourcev1.OCIRepository)
 	return nil
 }
 
-// WaitForKustomizationsDeleted waits for the specified kustomizations to be deleted.
-func (m *MockKubernetesManager) WaitForKustomizationsDeleted(message string, names ...string) error {
-	if m.WaitForKustomizationsDeletedFunc != nil {
-		return m.WaitForKustomizationsDeletedFunc(message, names...)
-	}
-	return nil
-}
+// WaitForKustomizationDeletionProcessed waits for the specified kustomization deletion to be processed.
 
 // CheckGitRepositoryStatus checks the status of all GitRepository resources
 func (m *MockKubernetesManager) CheckGitRepositoryStatus() error {

@@ -13,6 +13,7 @@ var (
 	cleanFlag         bool
 	skipK8sFlag       bool
 	skipTerraformFlag bool
+	skipDockerFlag    bool
 )
 
 var downCmd = &cobra.Command{
@@ -63,6 +64,9 @@ var downCmd = &cobra.Command{
 		if skipTerraformFlag {
 			ctx = context.WithValue(ctx, "skipTerraform", true)
 		}
+		if skipDockerFlag {
+			ctx = context.WithValue(ctx, "skipDocker", true)
+		}
 
 		// Execute the down pipeline
 		if err := downPipeline.Execute(ctx); err != nil {
@@ -77,5 +81,6 @@ func init() {
 	downCmd.Flags().BoolVar(&cleanFlag, "clean", false, "Clean up context specific artifacts")
 	downCmd.Flags().BoolVar(&skipK8sFlag, "skip-k8s", false, "Skip Kubernetes cleanup (blueprint cleanup)")
 	downCmd.Flags().BoolVar(&skipTerraformFlag, "skip-tf", false, "Skip Terraform cleanup")
+	downCmd.Flags().BoolVar(&skipDockerFlag, "skip-docker", false, "Skip Docker container cleanup")
 	rootCmd.AddCommand(downCmd)
 }
