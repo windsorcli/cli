@@ -514,25 +514,23 @@ func (b *BaseBlueprintHandler) destroyKustomizations(ctx context.Context, kustom
 				return fmt.Errorf("failed to apply cleanup kustomization for %s: %w", k.Name, err)
 			}
 
-			timeout := b.shims.TimeAfter(30 * time.Second)
+			timeout := b.shims.TimeAfter(constants.DEFAULT_FLUX_CLEANUP_TIMEOUT)
 			ticker := b.shims.NewTicker(2 * time.Second)
 			defer b.shims.TickerStop(ticker)
 
 			cleanupReady := false
-			attempts := 0
-			maxAttempts := 15
 
-			for !cleanupReady && attempts < maxAttempts {
+		cleanupLoop:
+			for !cleanupReady {
 				select {
 				case <-ctx.Done():
 					return ctx.Err()
 				case <-timeout:
-					attempts = maxAttempts
+					break cleanupLoop
 				case <-ticker.C:
-					attempts++
 					ready, err := b.kubernetesManager.GetKustomizationStatus([]string{cleanupKustomization.Name})
 					if err != nil {
-						continue
+						return fmt.Errorf("cleanup kustomization %s failed: %w", cleanupKustomization.Name, err)
 					}
 					if ready[cleanupKustomization.Name] {
 						cleanupReady = true
@@ -543,7 +541,7 @@ func (b *BaseBlueprintHandler) destroyKustomizations(ctx context.Context, kustom
 			cleanupSpin.Stop()
 
 			if !cleanupReady {
-				fmt.Fprintf(os.Stderr, "Warning: Cleanup kustomization %s did not become ready within 30 seconds, proceeding anyway\n", cleanupKustomization.Name)
+				fmt.Fprintf(os.Stderr, "Warning: Cleanup kustomization %s did not become ready within %v, proceeding anyway\n", cleanupKustomization.Name, constants.DEFAULT_FLUX_CLEANUP_TIMEOUT)
 			}
 			fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🧹 Applying cleanup kustomization for %s - \033[32mDone\033[0m\n", k.Name)
 
