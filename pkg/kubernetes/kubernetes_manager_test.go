@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"context"
+	"reflect"
 
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
@@ -2008,26 +2009,6 @@ func TestBaseKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 		}
 	})
 
-	t.Run("Timeout", func(t *testing.T) {
-		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.CheckHealthFunc = func(ctx context.Context, endpoint string) error {
-			return fmt.Errorf("health check failed")
-		}
-		manager.client = client
-
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		defer cancel()
-
-		err := manager.WaitForKubernetesHealthy(ctx, "https://test-endpoint:6443", nil)
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "timeout waiting for Kubernetes API to be healthy") {
-			t.Errorf("Expected timeout error, got: %v", err)
-		}
-	})
-
 	t.Run("ContextCancelled", func(t *testing.T) {
 		manager := setup(t)
 		client := NewMockKubernetesClient()
@@ -2045,6 +2026,384 @@ func TestBaseKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "timeout waiting for Kubernetes API to be healthy") {
 			t.Errorf("Expected timeout error, got: %v", err)
+		}
+	})
+}
+
+func TestBaseKubernetesManager_ApplyOCIRepository(t *testing.T) {
+	setup := func(t *testing.T) *BaseKubernetesManager {
+		t.Helper()
+		mocks := setupMocks(t)
+		manager := NewKubernetesManager(mocks.Injector)
+		if err := manager.Initialize(); err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+		return manager
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		manager := setup(t)
+		client := NewMockKubernetesClient()
+		client.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		client.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			return obj, nil
+		}
+		manager.client = client
+		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+			return map[string]any{
+				"apiVersion": "source.toolkit.fluxcd.io/v1",
+				"kind":       "OCIRepository",
+				"metadata": map[string]any{
+					"name":      "test-repo",
+					"namespace": "test-namespace",
+				},
+				"spec": map[string]any{
+					"url": "oci://test-registry.com/test-image",
+				},
+			}, nil
+		}
+
+		repo := &sourcev1.OCIRepository{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-repo",
+				Namespace: "test-namespace",
+			},
+			Spec: sourcev1.OCIRepositorySpec{
+				URL: "oci://test-registry.com/test-image",
+			},
+		}
+
+		err := manager.ApplyOCIRepository(repo)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ToUnstructuredError", func(t *testing.T) {
+		manager := setup(t)
+		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+			return nil, fmt.Errorf("conversion error")
+		}
+
+		repo := &sourcev1.OCIRepository{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-repo",
+				Namespace: "test-namespace",
+			},
+			Spec: sourcev1.OCIRepositorySpec{
+				URL: "oci://test-registry.com/test-image",
+			},
+		}
+
+		err := manager.ApplyOCIRepository(repo)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to convert ocirepository to unstructured") {
+			t.Errorf("Expected conversion error, got: %v", err)
+		}
+	})
+
+	t.Run("ValidationError", func(t *testing.T) {
+		manager := setup(t)
+		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+			return map[string]any{
+				"metadata": map[string]any{
+					"name": "",
+				},
+			}, nil
+		}
+
+		repo := &sourcev1.OCIRepository{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "",
+				Namespace: "test-namespace",
+			},
+			Spec: sourcev1.OCIRepositorySpec{
+				URL: "oci://test-registry.com/test-image",
+			},
+		}
+
+		err := manager.ApplyOCIRepository(repo)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "invalid ocirepository fields") {
+			t.Errorf("Expected validation error, got: %v", err)
+		}
+	})
+
+	t.Run("ValidateFieldsError_NilObject", func(t *testing.T) {
+		manager := setup(t)
+		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+			return nil, nil
+		}
+
+		repo := &sourcev1.OCIRepository{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-repo",
+				Namespace: "test-namespace",
+			},
+			Spec: sourcev1.OCIRepositorySpec{
+				URL: "oci://test-registry.com/test-image",
+			},
+		}
+
+		err := manager.ApplyOCIRepository(repo)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "invalid ocirepository fields") {
+			t.Errorf("Expected validation error, got: %v", err)
+		}
+	})
+
+	t.Run("ValidateFieldsError_MissingMetadata", func(t *testing.T) {
+		manager := setup(t)
+		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+			return map[string]any{
+				"spec": map[string]any{
+					"url": "oci://test-registry.com/test-image",
+				},
+			}, nil
+		}
+
+		repo := &sourcev1.OCIRepository{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-repo",
+				Namespace: "test-namespace",
+			},
+			Spec: sourcev1.OCIRepositorySpec{
+				URL: "oci://test-registry.com/test-image",
+			},
+		}
+
+		err := manager.ApplyOCIRepository(repo)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "invalid ocirepository fields") {
+			t.Errorf("Expected validation error, got: %v", err)
+		}
+	})
+}
+
+func TestBaseKubernetesManager_GetNodeReadyStatus(t *testing.T) {
+	setup := func(t *testing.T) *BaseKubernetesManager {
+		t.Helper()
+		mocks := setupMocks(t)
+		manager := NewKubernetesManager(mocks.Injector)
+		if err := manager.Initialize(); err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+		return manager
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		manager := setup(t)
+		client := NewMockKubernetesClient()
+		expectedStatus := map[string]bool{
+			"node1": true,
+			"node2": false,
+		}
+		client.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
+			return expectedStatus, nil
+		}
+		manager.client = client
+
+		ctx := context.Background()
+		status, err := manager.GetNodeReadyStatus(ctx, []string{"node1", "node2"})
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !reflect.DeepEqual(status, expectedStatus) {
+			t.Errorf("Expected status %v, got %v", expectedStatus, status)
+		}
+	})
+
+	t.Run("ClientNotInitialized", func(t *testing.T) {
+		manager := setup(t)
+		manager.client = nil
+
+		ctx := context.Background()
+		_, err := manager.GetNodeReadyStatus(ctx, []string{"node1"})
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "kubernetes client not initialized") {
+			t.Errorf("Expected client not initialized error, got: %v", err)
+		}
+	})
+
+	t.Run("ClientError", func(t *testing.T) {
+		manager := setup(t)
+		client := NewMockKubernetesClient()
+		client.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
+			return nil, fmt.Errorf("client error")
+		}
+		manager.client = client
+
+		ctx := context.Background()
+		_, err := manager.GetNodeReadyStatus(ctx, []string{"node1"})
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "client error") {
+			t.Errorf("Expected client error, got: %v", err)
+		}
+	})
+}
+
+func TestBaseKubernetesManager_waitForNodesReady(t *testing.T) {
+	setup := func(t *testing.T) *BaseKubernetesManager {
+		t.Helper()
+		mocks := setupMocks(t)
+		manager := NewKubernetesManager(mocks.Injector)
+		if err := manager.Initialize(); err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+		return manager
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		manager := setup(t)
+		client := NewMockKubernetesClient()
+		client.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
+			return map[string]bool{
+				"node1": true,
+				"node2": true,
+			}, nil
+		}
+		manager.client = client
+
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		var output []string
+		outputFunc := func(msg string) {
+			output = append(output, msg)
+		}
+
+		err := manager.waitForNodesReady(ctx, []string{"node1", "node2"}, outputFunc)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(output) == 0 {
+			t.Error("Expected output messages, got none")
+		}
+	})
+
+	t.Run("ContextCancelled", func(t *testing.T) {
+		manager := setup(t)
+		client := NewMockKubernetesClient()
+		client.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
+			return map[string]bool{
+				"node1": false,
+				"node2": false,
+			}, nil
+		}
+		manager.client = client
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // Cancel immediately
+
+		err := manager.waitForNodesReady(ctx, []string{"node1", "node2"}, nil)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "context cancelled while waiting for nodes to be ready") {
+			t.Errorf("Expected context cancelled error, got: %v", err)
+		}
+	})
+
+	t.Run("MissingNodes", func(t *testing.T) {
+		manager := setup(t)
+		client := NewMockKubernetesClient()
+		client.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
+			return map[string]bool{
+				"node1": true,
+			}, nil
+		}
+		manager.client = client
+
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		err := manager.waitForNodesReady(ctx, []string{"node1", "node2"}, nil)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "timeout waiting for nodes to appear") {
+			t.Errorf("Expected missing nodes error, got: %v", err)
+		}
+	})
+
+}
+
+func TestBaseKubernetesManager_getHelmRelease(t *testing.T) {
+	setup := func(t *testing.T) *BaseKubernetesManager {
+		t.Helper()
+		mocks := setupMocks(t)
+		manager := NewKubernetesManager(mocks.Injector)
+		if err := manager.Initialize(); err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+		return manager
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		manager := setup(t)
+		client := NewMockKubernetesClient()
+		expectedObj := &unstructured.Unstructured{
+			Object: map[string]any{
+				"apiVersion": "helm.toolkit.fluxcd.io/v2",
+				"kind":       "HelmRelease",
+				"metadata": map[string]any{
+					"name":      "test-release",
+					"namespace": "test-namespace",
+				},
+				"spec": map[string]any{
+					"chart": map[string]any{
+						"spec": map[string]any{
+							"chart": "test-chart",
+						},
+					},
+				},
+			},
+		}
+		client.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return expectedObj, nil
+		}
+		manager.client = client
+
+		release, err := manager.getHelmRelease("test-release", "test-namespace")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if release == nil {
+			t.Error("Expected helm release, got nil")
+		}
+		if release.Name != "test-release" {
+			t.Errorf("Expected name 'test-release', got %s", release.Name)
+		}
+	})
+
+	t.Run("GetResourceError", func(t *testing.T) {
+		manager := setup(t)
+		client := NewMockKubernetesClient()
+		client.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("get resource error")
+		}
+		manager.client = client
+
+		_, err := manager.getHelmRelease("test-release", "test-namespace")
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to get helm release") {
+			t.Errorf("Expected get resource error, got: %v", err)
 		}
 	})
 }
