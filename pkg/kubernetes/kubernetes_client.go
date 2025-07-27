@@ -137,16 +137,11 @@ func (c *DynamicKubernetesClient) GetNodeReadyStatus(ctx context.Context, nodeNa
 		Resource: "nodes",
 	}
 
-	var nodes *unstructured.UnstructuredList
-	var err error
-
-	// Get all nodes and filter by name if specific nodes are requested
-	nodes, err = c.client.Resource(nodeGVR).List(ctx, metav1.ListOptions{})
+	nodes, err := c.client.Resource(nodeGVR).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list nodes: %w", err)
 	}
 
-	// Filter nodes if specific node names are requested
 	if len(nodeNames) > 0 {
 		var filteredNodes []unstructured.Unstructured
 		nodeNameSet := make(map[string]bool)
@@ -160,12 +155,7 @@ func (c *DynamicKubernetesClient) GetNodeReadyStatus(ctx context.Context, nodeNa
 			}
 		}
 
-		// Replace the items with filtered ones
 		nodes.Items = filteredNodes
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to list nodes: %w", err)
 	}
 
 	readyStatus := make(map[string]bool)

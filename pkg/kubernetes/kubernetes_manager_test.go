@@ -203,6 +203,16 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		manager := setup(t)
+		client := NewMockKubernetesClient()
+		client.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		// Mock GetResource to return "not found" immediately to simulate successful deletion
+		client.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = client
+
 		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -234,6 +244,33 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
 		if err != nil {
 			t.Errorf("Expected no error for not found resource, got %v", err)
+		}
+	})
+
+	t.Run("UsesCorrectDeleteOptions", func(t *testing.T) {
+		manager := setup(t)
+		client := NewMockKubernetesClient()
+		var capturedOptions metav1.DeleteOptions
+		client.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			capturedOptions = opts
+			return nil
+		}
+		// Mock GetResource to return "not found" immediately to simulate successful deletion
+		client.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = client
+
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify the correct delete options were used
+		if capturedOptions.PropagationPolicy == nil {
+			t.Error("Expected PropagationPolicy to be set")
+		} else if *capturedOptions.PropagationPolicy != metav1.DeletePropagationBackground {
+			t.Errorf("Expected PropagationPolicy to be DeletePropagationBackground, got %s", *capturedOptions.PropagationPolicy)
 		}
 	})
 }
@@ -476,6 +513,16 @@ func TestBaseKubernetesManager_DeleteNamespace(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		manager := setup(t)
+		client := NewMockKubernetesClient()
+		client.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		// Mock GetResource to return "not found" immediately to simulate successful deletion
+		client.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = client
+
 		err := manager.DeleteNamespace("test-namespace")
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -493,6 +540,27 @@ func TestBaseKubernetesManager_DeleteNamespace(t *testing.T) {
 		err := manager.DeleteNamespace("test-namespace")
 		if err == nil {
 			t.Error("Expected error, got nil")
+		}
+	})
+
+	t.Run("UsesCorrectDeleteOptions", func(t *testing.T) {
+		manager := setup(t)
+		client := NewMockKubernetesClient()
+		var capturedOptions metav1.DeleteOptions
+		client.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			capturedOptions = opts
+			return nil
+		}
+		manager.client = client
+
+		err := manager.DeleteNamespace("test-namespace")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify the delete options were used (no specific policy required)
+		if capturedOptions.PropagationPolicy != nil {
+			t.Errorf("Expected no PropagationPolicy, got %+v", capturedOptions.PropagationPolicy)
 		}
 	})
 }
@@ -1468,64 +1536,6 @@ func TestBaseKubernetesManager_ApplyGitRepository(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "ToUnstructured requires a non-nil pointer to an object") {
 			t.Errorf("Expected error containing 'ToUnstructured requires a non-nil pointer to an object', got %v", err)
-		}
-	})
-}
-
-func TestBaseKubernetesManager_WaitForKustomizationsDeleted(t *testing.T) {
-	setup := func(t *testing.T) *BaseKubernetesManager {
-		t.Helper()
-		mocks := setupMocks(t)
-		manager := NewKubernetesManager(mocks.Injector)
-		if err := manager.Initialize(); err != nil {
-			t.Fatalf("Initialize failed: %v", err)
-		}
-		// Use shorter timeouts for tests
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.kustomizationReconcileSleep = 50 * time.Millisecond
-		return manager
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
-			return nil, fmt.Errorf("not found")
-		}
-		manager.client = client
-
-		err := manager.WaitForKustomizationsDeleted("Waiting for deletion", "k1", "k2")
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("Timeout", func(t *testing.T) {
-		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
-			return &unstructured.Unstructured{}, nil
-		}
-		manager.client = client
-
-		err := manager.WaitForKustomizationsDeleted("Waiting for deletion", "k1", "k2")
-		if err == nil {
-			t.Error("Expected timeout error, got nil")
-		}
-	})
-
-	t.Run("GetResourceError", func(t *testing.T) {
-		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
-			return nil, fmt.Errorf("some transient error")
-		}
-		manager.client = client
-
-		err := manager.WaitForKustomizationsDeleted("Waiting for deletion", "k1", "k2")
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 }

@@ -1,11 +1,14 @@
 package blueprint
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	_ "embed"
@@ -174,7 +177,10 @@ func (b *BaseBlueprintHandler) Write(overwrite ...bool) error {
 		return fmt.Errorf("error creating directory: %w", err)
 	}
 
-	cleanedBlueprint := b.createCleanedBlueprint()
+	cleanedBlueprint := b.blueprint.DeepCopy()
+	for i := range cleanedBlueprint.TerraformComponents {
+		cleanedBlueprint.TerraformComponents[i].Values = map[string]any{}
+	}
 
 	data, err := b.shims.YamlMarshal(cleanedBlueprint)
 	if err != nil {
@@ -263,7 +269,7 @@ func (b *BaseBlueprintHandler) Install() error {
 	spin.Start()
 	defer spin.Stop()
 
-	if err := b.createManagedNamespace(constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+	if err := b.kubernetesManager.CreateNamespace(constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
 		spin.Stop()
 		fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 		return fmt.Errorf("failed to create namespace: %w", err)
@@ -385,27 +391,57 @@ func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 	return templateData, nil
 }
 
-// Down orchestrates the teardown of all kustomizations and associated resources, skipping "not found" errors.
-// Sequence:
-// 1. Suspend all kustomizations and associated helmreleases to prevent reconciliation (ignoring not found errors)
-// 2. Apply cleanup kustomizations if defined for resource cleanup tasks
-// 3. Wait for cleanup kustomizations to complete
-// 4. Delete main kustomizations in reverse dependency order, skipping not found errors
-// 5. Delete cleanup kustomizations and their namespace, skipping not found errors
-//
-// Dependency resolution is handled via topological sorting to ensure correct deletion order.
-// A dedicated cleanup namespace is managed for cleanup kustomizations when required.
+// Down manages the teardown of kustomizations and related resources, ignoring "not found" errors.
+// It suspends kustomizations and helmreleases, applies cleanup kustomizations, waits for completion,
+// deletes main kustomizations in reverse dependency order, and removes cleanup kustomizations and namespaces.
+// The function filters kustomizations for destruction, sorts them by dependencies, and performs cleanup if specified.
+// Dependency resolution is achieved through topological sorting for correct deletion order.
 func (b *BaseBlueprintHandler) Down() error {
-	kustomizations := b.getKustomizations()
+	allKustomizations := b.getKustomizations()
+	if len(allKustomizations) == 0 {
+		return nil
+	}
+
+	var kustomizations []blueprintv1alpha1.Kustomization
+	for _, k := range allKustomizations {
+		if k.Destroy == nil || *k.Destroy {
+			kustomizations = append(kustomizations, k)
+		}
+	}
+
 	if len(kustomizations) == 0 {
 		return nil
 	}
 
-	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
-	spin.Suffix = " 🗑️  Tearing down blueprint resources"
-	spin.Start()
-	defer spin.Stop()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		fmt.Fprintf(os.Stderr, "\nReceived interrupt signal, cancelling operations...\n")
+		cancel()
+	}()
+
+	if err := b.destroyKustomizations(ctx, kustomizations); err != nil {
+		if ctx.Err() == context.Canceled {
+			return fmt.Errorf("operation cancelled by user: %w", err)
+		}
+		return err
+	}
+
+	return nil
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// destroyKustomizations removes kustomizations and performs cleanup tasks.
+// It sorts kustomizations by dependencies, applies cleanup kustomizations if defined,
+// ensures readiness, and deletes them, followed by the main kustomizations.
+func (b *BaseBlueprintHandler) destroyKustomizations(ctx context.Context, kustomizations []blueprintv1alpha1.Kustomization) error {
 	deps := make(map[string][]string)
 	for _, k := range kustomizations {
 		deps[k.Name] = k.DependsOn
@@ -436,55 +472,29 @@ func (b *BaseBlueprintHandler) Down() error {
 		nameToK[k.Name] = k
 	}
 
-	needsCleanupNamespace := false
-	for _, k := range kustomizations {
-		if len(k.Cleanup) > 0 {
-			needsCleanupNamespace = true
-			break
-		}
-	}
-
-	if needsCleanupNamespace {
-		if err := b.createManagedNamespace("system-cleanup"); err != nil {
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
-			return fmt.Errorf("failed to create system-cleanup namespace: %w", err)
-		}
-	}
-
 	for _, name := range sorted {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		k := nameToK[name]
 
-		if err := b.kubernetesManager.SuspendKustomization(k.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
-			if !isNotFoundError(err) {
-				spin.Stop()
-				fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
-				return fmt.Errorf("failed to suspend kustomization %s: %w", k.Name, err)
-			}
-		}
-
-		helmReleases, err := b.kubernetesManager.GetHelmReleasesForKustomization(k.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)
-		if err != nil {
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
-			return fmt.Errorf("failed to get helmreleases for kustomization %s: %w", k.Name, err)
-		}
-
-		for _, hr := range helmReleases {
-			if err := b.kubernetesManager.SuspendHelmRelease(hr.Name, hr.Namespace); err != nil {
-				if !isNotFoundError(err) {
-					spin.Stop()
-					fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
-					return fmt.Errorf("failed to suspend helmrelease %s in namespace %s: %w", hr.Name, hr.Namespace, err)
-				}
-			}
-		}
-	}
-
-	var cleanupNames []string
-	for _, name := range sorted {
-		k := nameToK[name]
 		if len(k.Cleanup) > 0 {
+			status, err := b.kubernetesManager.GetKustomizationStatus([]string{k.Name})
+			if err != nil {
+				return fmt.Errorf("failed to check if kustomization %s exists: %w", k.Name, err)
+			}
+
+			if !status[k.Name] {
+				continue
+			}
+
+			cleanupSpin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+			cleanupSpin.Suffix = fmt.Sprintf(" 🧹 Applying cleanup kustomization for %s", k.Name)
+			cleanupSpin.Start()
+
 			cleanupKustomization := &blueprintv1alpha1.Kustomization{
 				Name:          k.Name + "-cleanup",
 				Path:          filepath.Join(k.Path, "cleanup"),
@@ -499,73 +509,73 @@ func (b *BaseBlueprintHandler) Down() error {
 					SubstituteFrom: []blueprintv1alpha1.SubstituteReference{},
 				},
 			}
+
 			if err := b.kubernetesManager.ApplyKustomization(b.toKubernetesKustomization(*cleanupKustomization, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)); err != nil {
-				spin.Stop()
-				fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 				return fmt.Errorf("failed to apply cleanup kustomization for %s: %w", k.Name, err)
 			}
-			cleanupNames = append(cleanupNames, cleanupKustomization.Name)
-		}
-	}
 
-	for _, name := range sorted {
-		k := nameToK[name]
+			timeout := b.shims.TimeAfter(30 * time.Second)
+			ticker := b.shims.NewTicker(2 * time.Second)
+			defer b.shims.TickerStop(ticker)
+
+			cleanupReady := false
+			attempts := 0
+			maxAttempts := 15
+
+			for !cleanupReady && attempts < maxAttempts {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-timeout:
+					attempts = maxAttempts
+				case <-ticker.C:
+					attempts++
+					ready, err := b.kubernetesManager.GetKustomizationStatus([]string{cleanupKustomization.Name})
+					if err != nil {
+						continue
+					}
+					if ready[cleanupKustomization.Name] {
+						cleanupReady = true
+					}
+				}
+			}
+
+			cleanupSpin.Stop()
+
+			if !cleanupReady {
+				fmt.Fprintf(os.Stderr, "Warning: Cleanup kustomization %s did not become ready within 30 seconds, proceeding anyway\n", cleanupKustomization.Name)
+			}
+			fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🧹 Applying cleanup kustomization for %s - \033[32mDone\033[0m\n", k.Name)
+
+			cleanupDeleteSpin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+			cleanupDeleteSpin.Suffix = fmt.Sprintf(" 🗑️  Deleting cleanup kustomization %s", cleanupKustomization.Name)
+			cleanupDeleteSpin.Start()
+			if err := b.kubernetesManager.DeleteKustomization(cleanupKustomization.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+				return fmt.Errorf("failed to delete cleanup kustomization %s: %w", cleanupKustomization.Name, err)
+			}
+
+			cleanupDeleteSpin.Stop()
+			fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🗑️  Deleting cleanup kustomization %s - \033[32mDone\033[0m\n", cleanupKustomization.Name)
+		}
+
+		deleteSpin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+		deleteSpin.Suffix = fmt.Sprintf(" 🗑️  Deleting kustomization %s", k.Name)
+		deleteSpin.Start()
 		if err := b.kubernetesManager.DeleteKustomization(k.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 			return fmt.Errorf("failed to delete kustomization %s: %w", k.Name, err)
 		}
-	}
 
-	spin.Stop()
-	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m%s - \033[32mDone\033[0m\n", spin.Suffix)
-
-	if err := b.kubernetesManager.WaitForKustomizationsDeleted("⌛️ Waiting for kustomizations to be deleted", sorted...); err != nil {
-		spin.Stop()
-		fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
-		return fmt.Errorf("failed waiting for kustomizations to be deleted: %w", err)
-	}
-
-	if len(cleanupNames) > 0 {
-		for _, cname := range cleanupNames {
-			if err := b.kubernetesManager.DeleteKustomization(cname, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
-				spin.Stop()
-				fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
-				return fmt.Errorf("failed to delete cleanup kustomization %s: %w", cname, err)
-			}
-		}
-
-		if err := b.kubernetesManager.WaitForKustomizationsDeleted("⌛️ Waiting for cleanup kustomizations to be deleted", cleanupNames...); err != nil {
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
-			return fmt.Errorf("failed waiting for cleanup kustomizations to be deleted: %w", err)
-		}
-
-		if err := b.deleteNamespace("system-cleanup"); err != nil {
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
-			return fmt.Errorf("failed to delete system-cleanup namespace: %w", err)
-		}
+		deleteSpin.Stop()
+		fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🗑️  Deleting kustomization %s - \033[32mDone\033[0m\n", k.Name)
 	}
 
 	return nil
 }
 
-// =============================================================================
-// Private Methods
-// =============================================================================
-
-// createCleanedBlueprint returns a deep copy of the blueprint with all Terraform component Values fields removed.
-// All Values maps are cleared, as these should not be persisted in the final blueprint.yaml.
-func (b *BaseBlueprintHandler) createCleanedBlueprint() *blueprintv1alpha1.Blueprint {
-	cleaned := b.blueprint.DeepCopy()
-	for i := range cleaned.TerraformComponents {
-		cleaned.TerraformComponents[i].Values = map[string]any{}
-	}
-	return cleaned
-}
-
-// walkAndCollectTemplates recursively walks through template directories and collects .jsonnet files.
+// walkAndCollectTemplates traverses template directories to gather .jsonnet files.
+// It updates the provided templateData map with the relative paths and content of
+// the .jsonnet files found. The function handles directory recursion and file reading
+// errors, returning an error if any operation fails.
 func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir, templateRoot string, templateData map[string][]byte) error {
 	entries, err := b.shims.ReadDir(templateDir)
 	if err != nil {
@@ -813,6 +823,10 @@ func (b *BaseBlueprintHandler) getKustomizations() []blueprintv1alpha1.Kustomiza
 		if kustomizations[i].Force == nil {
 			defaultForce := constants.DEFAULT_FLUX_KUSTOMIZATION_FORCE
 			kustomizations[i].Force = &defaultForce
+		}
+		if kustomizations[i].Destroy == nil {
+			defaultDestroy := true
+			kustomizations[i].Destroy = &defaultDestroy
 		}
 
 		kustomizations[i].PostBuild = &blueprintv1alpha1.PostBuild{
@@ -1076,14 +1090,6 @@ func (b *BaseBlueprintHandler) calculateMaxWaitTime() time.Duration {
 	return maxPathTime
 }
 
-func (b *BaseBlueprintHandler) createManagedNamespace(name string) error {
-	return b.kubernetesManager.CreateNamespace(name)
-}
-
-func (b *BaseBlueprintHandler) deleteNamespace(name string) error {
-	return b.kubernetesManager.DeleteNamespace(name)
-}
-
 // toKubernetesKustomization converts a blueprint kustomization to a Flux kustomization
 // It handles conversion of dependsOn, patches, and postBuild configurations
 // It maps blueprint fields to their Flux kustomization equivalents
@@ -1134,6 +1140,11 @@ func (b *BaseBlueprintHandler) toKubernetesKustomization(k blueprintv1alpha1.Kus
 		prune = *k.Prune
 	}
 
+	deletionPolicy := "MirrorPrune"
+	if k.Destroy == nil || *k.Destroy {
+		deletionPolicy = "WaitForTermination"
+	}
+
 	sourceKind := "GitRepository"
 	if b.isOCISource(k.Source) {
 		sourceKind = "OCIRepository"
@@ -1153,56 +1164,36 @@ func (b *BaseBlueprintHandler) toKubernetesKustomization(k blueprintv1alpha1.Kus
 				Kind: sourceKind,
 				Name: k.Source,
 			},
-			Path:          k.Path,
-			DependsOn:     dependsOn,
-			Interval:      interval,
-			RetryInterval: &retryInterval,
-			Timeout:       &timeout,
-			Patches:       patches,
-			Force:         *k.Force,
-			PostBuild:     postBuild,
-			Components:    k.Components,
-			Wait:          *k.Wait,
-			Prune:         prune,
+			Path:           k.Path,
+			DependsOn:      dependsOn,
+			Interval:       interval,
+			RetryInterval:  &retryInterval,
+			Timeout:        &timeout,
+			Patches:        patches,
+			Force:          *k.Force,
+			PostBuild:      postBuild,
+			Components:     k.Components,
+			Wait:           *k.Wait,
+			Prune:          prune,
+			DeletionPolicy: deletionPolicy,
 		},
 	}
 }
 
-// isOCISource determines whether a given source name or resolved URL corresponds to an OCI repository
-// source by examining the URL prefix of the blueprint's main repository and any additional sources,
-// or by checking if the input is already a resolved OCI URL.
+// isOCISource returns true if the provided sourceNameOrURL is an OCI repository reference.
+// It checks if the input is a resolved OCI URL, matches the blueprint's main repository with an OCI URL,
+// or matches any additional source with an OCI URL.
 func (b *BaseBlueprintHandler) isOCISource(sourceNameOrURL string) bool {
-	// Check if it's already a resolved OCI URL
 	if strings.HasPrefix(sourceNameOrURL, "oci://") {
 		return true
 	}
-
-	// Check if it's a source name that maps to an OCI URL
 	if sourceNameOrURL == b.blueprint.Metadata.Name && strings.HasPrefix(b.blueprint.Repository.Url, "oci://") {
 		return true
 	}
-
 	for _, source := range b.blueprint.Sources {
 		if source.Name == sourceNameOrURL && strings.HasPrefix(source.Url, "oci://") {
 			return true
 		}
 	}
-
 	return false
-}
-
-// isNotFoundError checks if an error is a Kubernetes resource not found error
-// This is used during cleanup to ignore errors when resources don't exist
-func isNotFoundError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	errMsg := strings.ToLower(err.Error())
-	// Check for resource not found errors, but not namespace not found errors
-	return (strings.Contains(errMsg, "resource not found") ||
-		strings.Contains(errMsg, "could not find the requested resource") ||
-		strings.Contains(errMsg, "the server could not find the requested resource") ||
-		strings.Contains(errMsg, "\" not found")) &&
-		!strings.Contains(errMsg, "namespace not found")
 }

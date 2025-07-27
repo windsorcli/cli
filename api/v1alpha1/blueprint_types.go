@@ -173,6 +173,10 @@ type Kustomization struct {
 
 	// PostBuild is a post-build step to run after the kustomization is applied.
 	PostBuild *PostBuild `yaml:"postBuild,omitempty"`
+
+	// Destroy determines if the kustomization should be destroyed during down operations.
+	// Defaults to true if not specified.
+	Destroy *bool `yaml:"destroy,omitempty"`
 }
 
 // PostBuild is a post-build step to run after the kustomization is applied.
@@ -414,5 +418,6 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 		Components:    slices.Clone(k.Components),
 		Cleanup:       slices.Clone(k.Cleanup),
 		PostBuild:     postBuildCopy,
+		Destroy:       k.Destroy,
 	}
 }

@@ -899,6 +899,60 @@ func TestDownPipeline_Execute(t *testing.T) {
 			t.Errorf("Expected error message containing 'Error performing cleanup', got: %v", err)
 		}
 	})
+
+	t.Run("SkipDockerFlag", func(t *testing.T) {
+		// Given a down pipeline with skipDocker flag set
+		pipeline := NewDownPipeline()
+		mocks := setupDownMocks(t)
+		err := pipeline.Initialize(mocks.Injector, context.Background())
+		if err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
+
+		// Track method calls
+		var blueprintDownCalled bool
+		var stackDownCalled bool
+		var containerRuntimeDownCalled bool
+
+		mocks.BlueprintHandler.DownFunc = func() error {
+			blueprintDownCalled = true
+			return nil
+		}
+		mocks.Stack.DownFunc = func() error {
+			stackDownCalled = true
+			return nil
+		}
+		mocks.ContainerRuntime.DownFunc = func() error {
+			containerRuntimeDownCalled = true
+			return nil
+		}
+
+		// Create context with skipDocker flag
+		ctx := context.WithValue(context.Background(), "skipDocker", true)
+
+		// When executing the pipeline
+		err = pipeline.Execute(ctx)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And blueprint down should be called
+		if !blueprintDownCalled {
+			t.Error("Expected blueprint down to be called")
+		}
+
+		// And stack down should be called
+		if !stackDownCalled {
+			t.Error("Expected stack down to be called")
+		}
+
+		// And container runtime down should NOT be called
+		if containerRuntimeDownCalled {
+			t.Error("Expected container runtime down to NOT be called")
+		}
+	})
 }
 
 // =============================================================================
