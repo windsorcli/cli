@@ -781,10 +781,10 @@ func (b *BaseBlueprintHandler) isValidTerraformRemoteSource(source string) bool 
 	return false
 }
 
-// getKustomizations retrieves and normalizes the blueprint's Kustomization configurations.
-// It provides default values for intervals, timeouts, and paths while ensuring consistent
-// configuration across all kustomizations. The function also adds standard PostBuild
-// configurations for variable substitution from the blueprint ConfigMap.
+// getKustomizations returns a slice of Kustomization objects with default values applied and post-build
+// configuration for variable substitution from the blueprint ConfigMap. It resolves missing fields,
+// applies default intervals, timeouts, and flags, and discovers and attaches patches for each kustomization.
+// Returns nil if no kustomizations are defined in the blueprint.
 func (b *BaseBlueprintHandler) getKustomizations() []blueprintv1alpha1.Kustomization {
 	if b.blueprint.Kustomizations == nil {
 		return nil
@@ -827,6 +827,20 @@ func (b *BaseBlueprintHandler) getKustomizations() []blueprintv1alpha1.Kustomiza
 			kustomizations[i].Destroy = &defaultDestroy
 		}
 
+		discoveredPatches, err := b.discoverKustomizationPatches(kustomizations[i].Name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to discover patches for kustomization %s: %v\n", kustomizations[i].Name, err)
+		} else if len(discoveredPatches) > 0 {
+			blueprintPatches := make([]kustomize.Patch, len(discoveredPatches))
+			copy(blueprintPatches, discoveredPatches)
+
+			if kustomizations[i].Patches != nil {
+				kustomizations[i].Patches = append(kustomizations[i].Patches, blueprintPatches...)
+			} else {
+				kustomizations[i].Patches = blueprintPatches
+			}
+		}
+
 		kustomizations[i].PostBuild = &blueprintv1alpha1.PostBuild{
 			SubstituteFrom: []blueprintv1alpha1.SubstituteReference{
 				{
@@ -839,6 +853,72 @@ func (b *BaseBlueprintHandler) getKustomizations() []blueprintv1alpha1.Kustomiza
 	}
 
 	return kustomizations
+}
+
+// discoverKustomizationPatches discovers and returns Kustomize patches for the specified kustomization.
+// It scans the directory contexts/<context>/patches/<kustomization-name>/ for YAML files, validates their structure,
+// and converts them to kustomize.Patch. Returns a slice of patches or an error if discovery or parsing fails.
+func (b *BaseBlueprintHandler) discoverKustomizationPatches(kustomizationName string) ([]kustomize.Patch, error) {
+	contextName := b.configHandler.GetContext()
+	patchesDir := filepath.Join(b.projectRoot, "contexts", contextName, "patches", kustomizationName)
+
+	if _, err := b.shims.Stat(patchesDir); os.IsNotExist(err) {
+		return nil, nil
+	}
+
+	var patches []kustomize.Patch
+
+	err := b.shims.WalkDir(patchesDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if d.IsDir() {
+			return nil
+		}
+
+		if !strings.HasSuffix(strings.ToLower(path), ".yaml") && !strings.HasSuffix(strings.ToLower(path), ".yml") {
+			return nil
+		}
+
+		data, err := b.shims.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("error reading patch file %s: %w", path, err)
+		}
+
+		var patchObj map[string]any
+		if err := b.shims.YamlUnmarshal(data, &patchObj); err != nil {
+			return fmt.Errorf("invalid YAML in patch file %s: %w", path, err)
+		}
+
+		kind, ok := patchObj["kind"].(string)
+		if !ok || kind == "" {
+			return fmt.Errorf("patch file %s missing or invalid 'kind' field", path)
+		}
+
+		metadata, ok := patchObj["metadata"].(map[string]any)
+		if !ok {
+			return fmt.Errorf("patch file %s missing 'metadata' field", path)
+		}
+
+		name, ok := metadata["name"].(string)
+		if !ok || name == "" {
+			return fmt.Errorf("patch file %s missing or invalid 'metadata.name' field", path)
+		}
+
+		patch := kustomize.Patch{
+			Patch: string(data),
+		}
+
+		patches = append(patches, patch)
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("error walking patches directory: %w", err)
+	}
+
+	return patches, nil
 }
 
 // applySourceRepository routes to the appropriate source handler based on URL type
