@@ -321,29 +321,7 @@ func TestGenerator_Initialize(t *testing.T) {
 	})
 }
 
-func TestGenerator_Write(t *testing.T) {
-	setup := func(t *testing.T) (*BaseGenerator, *Mocks) {
-		mocks := setupMocks(t)
-		generator := NewGenerator(mocks.Injector)
-		generator.shims = mocks.Shims
-		generator.Initialize()
 
-		return generator, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a set of safe mocks
-		generator, _ := setup(t)
-
-		// When the Write method is called
-		err := generator.Write()
-
-		// Then the Write method should succeed
-		if err != nil {
-			t.Errorf("Expected Write to succeed, but got error: %v", err)
-		}
-	})
-}
 
 func TestGenerator_Generate(t *testing.T) {
 	setup := func(t *testing.T) (*BaseGenerator, *Mocks) {

@@ -24,7 +24,6 @@ import (
 // All generators must implement this interface
 type Generator interface {
 	Initialize() error
-	Write(overwrite ...bool) error
 	Generate(data map[string]any, overwrite ...bool) error
 }
 
@@ -85,12 +84,6 @@ func (g *BaseGenerator) Initialize() error {
 	}
 	g.artifactBuilder = artifactBuilder
 
-	return nil
-}
-
-// Write is a placeholder implementation of the Write method.
-// Concrete implementations should override this method to provide specific generation logic.
-func (g *BaseGenerator) Write(overwrite ...bool) error {
 	return nil
 }
 
