@@ -42,42 +42,6 @@ func TestMockGenerator_Initialize(t *testing.T) {
 	})
 }
 
-func TestMockGenerator_Write(t *testing.T) {
-	// Given a mock write error
-	mockWriteErr := fmt.Errorf("mock write error")
-
-	t.Run("WithFuncSet", func(t *testing.T) {
-		// Given a new MockGenerator
-		mock := NewMockGenerator()
-
-		// And the WriteFunc is set to return a mock error
-		mock.WriteFunc = func(overwrite ...bool) error {
-			return mockWriteErr
-		}
-
-		// When Write is called
-		err := mock.Write()
-
-		// Then the mock error should be returned
-		if err != mockWriteErr {
-			t.Errorf("Expected error = %v, got = %v", mockWriteErr, err)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a new MockGenerator
-		mock := NewMockGenerator()
-
-		// When Write is called without setting WriteFunc
-		err := mock.Write()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-	})
-}
-
 func TestMockGenerator_Generate(t *testing.T) {
 	// Given a mock generate error
 	mockGenerateErr := fmt.Errorf("mock generate error")

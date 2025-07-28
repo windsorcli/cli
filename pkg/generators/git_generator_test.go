@@ -102,8 +102,8 @@ func TestGitGenerator_Write(t *testing.T) {
 			return nil
 		}
 
-		// When Write is called
-		err := generator.Write()
+		// When Generate is called
+		err := generator.Generate(nil)
 
 		// Then no error should occur
 		if err != nil {
@@ -151,8 +151,8 @@ func TestGitGenerator_Write(t *testing.T) {
 			t.Fatalf("failed to initialize GitGenerator: %v", err)
 		}
 
-		// When Write is called
-		err := generator.Write()
+		// When Generate is called
+		err := generator.Generate(nil)
 
 		// Then an error should be returned
 		if err == nil {
@@ -175,8 +175,8 @@ func TestGitGenerator_Write(t *testing.T) {
 			return nil, fmt.Errorf("mock error reading .gitignore")
 		}
 
-		// When Write is called
-		err := generator.Write()
+		// When Generate is called
+		err := generator.Generate(nil)
 
 		// Then an error should be returned
 		if err == nil {
@@ -205,7 +205,7 @@ func TestGitGenerator_Write(t *testing.T) {
 		}
 
 		// When Write is called
-		err := generator.Write()
+		err := generator.Generate(nil)
 
 		// Then no error should be returned
 		if err != nil {
@@ -223,7 +223,7 @@ func TestGitGenerator_Write(t *testing.T) {
 		}
 
 		// When Write is called
-		err := generator.Write()
+		err := generator.Generate(nil)
 
 		// Then an error should be returned
 		if err == nil {
@@ -265,7 +265,7 @@ func TestGitGenerator_Write(t *testing.T) {
 		}
 
 		// When Write is called
-		err := generator.Write()
+		err := generator.Generate(nil)
 
 		// Then no error should occur
 		if err != nil {
