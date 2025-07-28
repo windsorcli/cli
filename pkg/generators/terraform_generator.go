@@ -2,7 +2,6 @@ package generators
 
 import (
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -56,38 +55,7 @@ func NewTerraformGenerator(injector di.Injector) *TerraformGenerator {
 // Public Methods
 // =============================================================================
 
-// Write generates Terraform configuration files for all components, including tfvars files.
-// It processes jsonnet templates from the contexts/_template/terraform directory, merges template values into
-// blueprint Terraform components, and delegates file generation to Generate. Module resolution is now handled
-// by the pkg/terraform package.
-func (g *TerraformGenerator) Write(overwrite ...bool) error {
-	shouldOverwrite := false
-	if len(overwrite) > 0 {
-		shouldOverwrite = overwrite[0]
-	}
-	g.reset = shouldOverwrite
 
-	templateValues, err := g.processTemplates(shouldOverwrite)
-	if err != nil {
-		return fmt.Errorf("failed to process terraform templates: %w", err)
-	}
-
-	components := g.blueprintHandler.GetTerraformComponents()
-	generateData := make(map[string]any)
-
-	for _, component := range components {
-		componentValues := make(map[string]any)
-		if component.Values != nil {
-			maps.Copy(componentValues, component.Values)
-		}
-		if templateComponentValues, exists := templateValues[component.Path]; exists {
-			maps.Copy(componentValues, templateComponentValues)
-		}
-		generateData["terraform/"+component.Path] = componentValues
-	}
-
-	return g.Generate(generateData)
-}
 
 // Generate creates Terraform configuration files, including tfvars files, for all blueprint components.
 // It processes template data keyed by "terraform/<module_path>", generating tfvars files at
