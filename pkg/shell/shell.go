@@ -111,22 +111,18 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 	if s.projectRoot != "" {
 		return s.projectRoot, nil
 	}
-
 	originalDir, err := s.shims.Getwd()
 	if err != nil {
 		return "", err
 	}
-
 	currentDir := originalDir
 	depth := 0
 	for {
 		if depth > maxFolderSearchDepth {
 			return originalDir, nil
 		}
-
 		windsorYaml := filepath.Join(currentDir, "windsor.yaml")
 		windsorYml := filepath.Join(currentDir, "windsor.yml")
-
 		if _, err := s.shims.Stat(windsorYaml); err == nil {
 			s.projectRoot = currentDir
 			return s.projectRoot, nil
@@ -135,7 +131,6 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 			s.projectRoot = currentDir
 			return s.projectRoot, nil
 		}
-
 		parentDir := filepath.Dir(currentDir)
 		if parentDir == currentDir {
 			return originalDir, nil

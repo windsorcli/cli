@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
@@ -17,9 +18,15 @@ import (
 // Types
 // =============================================================================
 
+// BlueprintHandler defines the interface for accessing blueprint data
+type BlueprintHandler interface {
+	GetKustomizations() []blueprintv1alpha1.Kustomization
+}
+
 // PatchGenerator is a generator that processes and generates patch files
 type PatchGenerator struct {
 	BaseGenerator
+	blueprintHandler BlueprintHandler
 }
 
 // =============================================================================
@@ -38,10 +45,32 @@ func NewPatchGenerator(injector di.Injector) *PatchGenerator {
 // Public Methods
 // =============================================================================
 
-// Generate creates patch files for kustomizations using provided template data.
-// Processes template data from the init pipeline (renderedData) or patch-specific data from the install pipeline.
-// For init pipeline, extracts patch-relevant information from renderedData.
-// For install pipeline, processes data keyed by "patches/<kustomization_name>" to generate patch files.
+// Initialize sets up the PatchGenerator dependencies including the blueprint handler.
+// Calls the base generator's Initialize method and then resolves the blueprint handler
+// for patch-specific operations.
+func (g *PatchGenerator) Initialize() error {
+	if err := g.BaseGenerator.Initialize(); err != nil {
+		return fmt.Errorf("failed to initialize base generator: %w", err)
+	}
+
+	blueprintHandler := g.injector.Resolve("blueprintHandler")
+	if blueprintHandler == nil {
+		return fmt.Errorf("blueprint handler not found in dependency injector")
+	}
+
+	handler, ok := blueprintHandler.(BlueprintHandler)
+	if !ok {
+		return fmt.Errorf("resolved blueprint handler is not of expected type")
+	}
+
+	g.blueprintHandler = handler
+	return nil
+}
+
+// Generate creates patch files for kustomizations using the provided template data.
+// Processes data keyed by "patches/<kustomization_name>" to generate patch files.
+// Only generates patches that are explicitly referenced in the blueprint's kustomizations.
+// Returns an error if data is nil, if patch generation fails, or if validation fails.
 func (g *PatchGenerator) Generate(data map[string]any, overwrite ...bool) error {
 	if data == nil {
 		return fmt.Errorf("data cannot be nil")
@@ -50,6 +79,16 @@ func (g *PatchGenerator) Generate(data map[string]any, overwrite ...bool) error 
 	shouldOverwrite := false
 	if len(overwrite) > 0 {
 		shouldOverwrite = overwrite[0]
+	}
+
+	kustomizations := g.blueprintHandler.GetKustomizations()
+	if len(kustomizations) == 0 {
+		return nil
+	}
+
+	patchReferences := g.extractPatchReferences(kustomizations)
+	if len(patchReferences) == 0 {
+		return nil
 	}
 
 	configRoot, err := g.configHandler.GetConfigRoot()
@@ -62,128 +101,203 @@ func (g *PatchGenerator) Generate(data map[string]any, overwrite ...bool) error 
 			continue
 		}
 
-		kustomizationName := strings.TrimPrefix(key, "patches/")
-		if err := g.validateKustomizationName(kustomizationName); err != nil {
-			return fmt.Errorf("invalid kustomization name %s: %w", kustomizationName, err)
+		patchPath := strings.TrimPrefix(key, "patches/")
+
+		if !g.isPatchReferenced(patchPath, patchReferences) {
+			continue
 		}
 
-		patchesDir := filepath.Join(configRoot, "patches", kustomizationName)
+		if err := g.validateKustomizationName(patchPath); err != nil {
+			return fmt.Errorf("invalid kustomization name %s: %w", patchPath, err)
+		}
+
+		patchesDir := filepath.Join(configRoot, "patches")
 		if err := g.validatePath(patchesDir, configRoot); err != nil {
 			return fmt.Errorf("invalid patches directory path %s: %w", patchesDir, err)
 		}
 
-		if err := g.shims.MkdirAll(patchesDir, 0755); err != nil {
-			return fmt.Errorf("failed to create patches directory %s: %w", patchesDir, err)
-		}
-
 		valuesMap, ok := values.(map[string]any)
 		if !ok {
-			return fmt.Errorf("values for kustomization %s must be a map, got %T", kustomizationName, values)
+			return fmt.Errorf("values for kustomization %s must be a map, got %T", patchPath, values)
 		}
 
-		if err := g.generatePatchFiles(patchesDir, valuesMap, shouldOverwrite); err != nil {
-			return fmt.Errorf("failed to generate patch files for %s: %w", kustomizationName, err)
+		// Create the full patch path including subdirectories
+		fullPatchPath := filepath.Join(patchesDir, patchPath)
+		if !strings.HasSuffix(fullPatchPath, ".yaml") && !strings.HasSuffix(fullPatchPath, ".yml") {
+			fullPatchPath = fullPatchPath + ".yaml"
+		}
+		if err := g.validatePath(fullPatchPath, configRoot); err != nil {
+			return fmt.Errorf("invalid patch file path %s: %w", fullPatchPath, err)
+		}
+
+		if err := g.generatePatchFiles(fullPatchPath, valuesMap, shouldOverwrite); err != nil {
+			return fmt.Errorf("failed to generate patch files for %s: %w", patchPath, err)
 		}
 	}
 
 	return nil
 }
 
-// generatePatchFiles writes YAML patch files to the specified directory using provided template values.
-// For each entry in values, creates a YAML file named after the key (appending .yaml if necessary).
-// If overwrite is false, existing files are not replaced. Content is marshaled to YAML before writing.
-// Returns an error if marshalling or file operations fail.
-func (g *PatchGenerator) generatePatchFiles(patchesDir string, values map[string]any, overwrite bool) error {
-	for filename, content := range values {
-		if !strings.HasSuffix(filename, ".yaml") && !strings.HasSuffix(filename, ".yml") {
-			filename = filename + ".yaml"
-		}
-		patchFilePath := filepath.Join(patchesDir, filename)
-		if !overwrite {
-			if _, err := g.shims.Stat(patchFilePath); err == nil {
-				continue
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// extractPatchReferences constructs a map associating each kustomization name with its referenced patch target names.
+// For each kustomization with defined patches, collects patch target names from both blueprint (Path field) and Flux (Target.Name field) formats.
+// Only non-empty patch target names are included. Kustomizations without valid patch references are omitted from the result.
+func (g *PatchGenerator) extractPatchReferences(kustomizations []blueprintv1alpha1.Kustomization) map[string][]string {
+	patchReferences := make(map[string][]string)
+
+	for _, kustomization := range kustomizations {
+		if len(kustomization.Patches) > 0 {
+			references := make([]string, 0, len(kustomization.Patches))
+			for _, patch := range kustomization.Patches {
+				if patch.Path != "" {
+					if strings.HasPrefix(patch.Path, "patches/") {
+						pathWithoutPrefix := strings.TrimPrefix(patch.Path, "patches/")
+						pathWithoutExtension := strings.TrimSuffix(pathWithoutPrefix, ".yaml")
+						pathWithoutExtension = strings.TrimSuffix(pathWithoutExtension, ".yml")
+						if pathWithoutExtension != "" {
+							references = append(references, pathWithoutExtension)
+						}
+					}
+				}
+				if patch.Target != nil && patch.Target.Name != "" {
+					references = append(references, patch.Target.Name)
+				}
+			}
+			if len(references) > 0 {
+				patchReferences[kustomization.Name] = references
 			}
 		}
+	}
 
-		if err := g.validateKubernetesManifest(content); err != nil {
-			return fmt.Errorf("invalid Kubernetes manifest in %s: %w", filename, err)
-		}
+	return patchReferences
+}
 
-		yamlData, err := g.shims.MarshalYAML(content)
-		if err != nil {
-			return fmt.Errorf("failed to marshal patch content to YAML: %w", err)
-		}
-		if err := g.shims.WriteFile(patchFilePath, yamlData, 0644); err != nil {
-			return fmt.Errorf("failed to write patch file %s: %w", patchFilePath, err)
+// isPatchReferenced checks if a patch path is referenced by any kustomization.
+// Returns true if the patch is referenced, false otherwise.
+func (g *PatchGenerator) isPatchReferenced(patchPath string, patchReferences map[string][]string) bool {
+	for kustomizationName := range patchReferences {
+		if strings.HasPrefix(patchPath, kustomizationName+"/") || patchPath == kustomizationName {
+			return true
 		}
 	}
-	return nil
+	return false
 }
 
 // validateKustomizationName validates that a kustomization name is safe and valid.
 // Prevents path traversal attacks and ensures names contain only valid characters.
+// Now handles full paths including subdirectories (e.g., "ingress/nginx").
 func (g *PatchGenerator) validateKustomizationName(name string) error {
 	if name == "" {
 		return fmt.Errorf("kustomization name cannot be empty")
 	}
 
-	if strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, "\\") {
+	if strings.Contains(name, "..") || strings.Contains(name, "\\") {
 		return fmt.Errorf("kustomization name cannot contain path traversal characters")
 	}
 
-	if strings.ContainsAny(name, "<>:\"|?*") {
-		return fmt.Errorf("kustomization name contains invalid characters")
+	components := strings.Split(name, "/")
+	for _, component := range components {
+		if component == "" {
+			return fmt.Errorf("kustomization name cannot contain empty path components")
+		}
+
+		for _, char := range component {
+			if !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || char == '-' || char == '_') {
+				return fmt.Errorf("kustomization name component '%s' contains invalid character '%c'", component, char)
+			}
+		}
 	}
 
 	return nil
 }
 
-// validatePath ensures the target path is within the expected directory structure.
-// Prevents directory traversal attacks by ensuring the path is a subdirectory of the base path.
+// validatePath ensures the target path is within the base path to prevent path traversal attacks.
+// Returns an error if the target path is outside the base path or contains invalid characters.
 func (g *PatchGenerator) validatePath(targetPath, basePath string) error {
 	absTarget, err := filepath.Abs(targetPath)
 	if err != nil {
-		return fmt.Errorf("failed to resolve absolute path: %w", err)
+		return fmt.Errorf("failed to get absolute path for %s: %w", targetPath, err)
 	}
 
 	absBase, err := filepath.Abs(basePath)
 	if err != nil {
-		return fmt.Errorf("failed to resolve base path: %w", err)
+		return fmt.Errorf("failed to get absolute path for %s: %w", basePath, err)
 	}
 
 	if !strings.HasPrefix(absTarget, absBase) {
-		return fmt.Errorf("target path %s is outside base path %s", targetPath, basePath)
+		return fmt.Errorf("target path %s is outside base path %s", absTarget, absBase)
 	}
 
 	return nil
 }
 
 // validateKubernetesManifest validates that the content represents a valid Kubernetes manifest.
-// Ensures the content has the required apiVersion, kind, and metadata fields.
+// Checks for required fields like apiVersion, kind, and metadata.name.
+// Returns an error if the manifest is invalid.
 func (g *PatchGenerator) validateKubernetesManifest(content any) error {
 	contentMap, ok := content.(map[string]any)
 	if !ok {
-		return fmt.Errorf("content must be a map")
+		return fmt.Errorf("content must be a map, got %T", content)
 	}
 
 	apiVersion, ok := contentMap["apiVersion"].(string)
 	if !ok || apiVersion == "" {
-		return fmt.Errorf("missing or invalid apiVersion field")
+		return fmt.Errorf("manifest missing or invalid 'apiVersion' field")
 	}
 
 	kind, ok := contentMap["kind"].(string)
 	if !ok || kind == "" {
-		return fmt.Errorf("missing or invalid kind field")
+		return fmt.Errorf("manifest missing or invalid 'kind' field")
 	}
 
 	metadata, ok := contentMap["metadata"].(map[string]any)
 	if !ok {
-		return fmt.Errorf("missing metadata field")
+		return fmt.Errorf("manifest missing 'metadata' field")
 	}
 
 	name, ok := metadata["name"].(string)
 	if !ok || name == "" {
-		return fmt.Errorf("missing or invalid name in metadata")
+		return fmt.Errorf("manifest missing or invalid 'metadata.name' field")
+	}
+
+	return nil
+}
+
+// generatePatchFiles writes a YAML patch file to patchPath using the provided values map.
+// patchPath must be a file path. If it doesn't have a .yaml or .yml extension, .yaml will be automatically appended.
+// For Jsonnet format, values is a direct object. If overwrite is false, existing files are not replaced.
+// The content must be a valid Kubernetes manifest map with non-empty "apiVersion", "kind", and "metadata.name" fields.
+// Returns an error on validation, marshalling, or file operation failure.
+func (g *PatchGenerator) generatePatchFiles(patchPath string, values map[string]any, overwrite bool) error {
+	if !strings.HasSuffix(patchPath, ".yaml") && !strings.HasSuffix(patchPath, ".yml") {
+		patchPath = patchPath + ".yaml"
+	}
+
+	dir := filepath.Dir(patchPath)
+	if err := g.shims.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", dir, err)
+	}
+
+	if !overwrite {
+		if _, err := g.shims.Stat(patchPath); err == nil {
+			return nil
+		}
+	}
+
+	if err := g.validateKubernetesManifest(values); err != nil {
+		return fmt.Errorf("invalid Kubernetes manifest for %s: %w", patchPath, err)
+	}
+
+	yamlData, err := g.shims.MarshalYAML(values)
+	if err != nil {
+		return fmt.Errorf("failed to marshal content to YAML for %s: %w", patchPath, err)
+	}
+
+	if err := g.shims.WriteFile(patchPath, yamlData, 0644); err != nil {
+		return fmt.Errorf("failed to write patch file %s: %w", patchPath, err)
 	}
 
 	return nil

@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	kustomize "github.com/fluxcd/pkg/apis/kustomize"
-	"github.com/windsorcli/cli/api/v1alpha1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/secrets"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,8 +30,8 @@ func (m *mockConfigHandler) Set(key string, value any) error                    
 func (m *mockConfigHandler) SetContextValue(key string, value any) error         { return nil }
 func (m *mockConfigHandler) Get(key string) any                                  { return nil }
 func (m *mockConfigHandler) SaveConfig(overwrite ...bool) error                  { return nil }
-func (m *mockConfigHandler) SetDefault(context v1alpha1.Context) error           { return nil }
-func (m *mockConfigHandler) GetConfig() *v1alpha1.Context                        { return nil }
+func (m *mockConfigHandler) SetDefault(context blueprintv1alpha1.Context) error  { return nil }
+func (m *mockConfigHandler) GetConfig() *blueprintv1alpha1.Context               { return nil }
 func (m *mockConfigHandler) GetContext() string                                  { return "test-context" }
 func (m *mockConfigHandler) SetContext(context string) error                     { return nil }
 func (m *mockConfigHandler) GetConfigRoot() (string, error)                      { return "/tmp", nil }
@@ -253,272 +251,7 @@ func TestBaseBlueprintHandler_calculateMaxWaitTime(t *testing.T) {
 	})
 }
 
-func TestBaseBlueprintHandler_discoverKustomizationPatches(t *testing.T) {
-	t.Run("DirectoryNotExists", func(t *testing.T) {
-		// Given a blueprint handler with a non-existent patches directory
-		handler := &BaseBlueprintHandler{
-			shims:         NewShims(),
-			configHandler: &mockConfigHandler{},
-			projectRoot:   "/tmp",
-		}
-
-		// When discovering patches for a kustomization
-		patches, err := handler.discoverKustomizationPatches("test-kustomization")
-
-		// Then it should return no patches and no error
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-		if len(patches) != 0 {
-			t.Errorf("expected no patches, got %d", len(patches))
-		}
-	})
-
-	t.Run("ValidPatchFile", func(t *testing.T) {
-		// Given a blueprint handler with a valid patch file
-		handler := &BaseBlueprintHandler{
-			shims:         NewShims(),
-			configHandler: &mockConfigHandler{},
-			projectRoot:   "/tmp",
-		}
-
-		// Create a temporary directory structure
-		tempDir := t.TempDir()
-		patchesDir := filepath.Join(tempDir, "contexts", "test-context", "patches", "test-kustomization")
-		if err := os.MkdirAll(patchesDir, 0755); err != nil {
-			t.Fatalf("failed to create patches directory: %v", err)
-		}
-
-		// Create a valid patch file
-		patchContent := `apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: test-config
-data:
-  key: value`
-		patchFile := filepath.Join(patchesDir, "test-patch.yaml")
-		if err := os.WriteFile(patchFile, []byte(patchContent), 0644); err != nil {
-			t.Fatalf("failed to write patch file: %v", err)
-		}
-
-		// Override project root for this test
-		handler.projectRoot = tempDir
-
-		// When discovering patches for the kustomization
-		patches, err := handler.discoverKustomizationPatches("test-kustomization")
-
-		// Then it should return the patch
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-		if len(patches) != 1 {
-			t.Errorf("expected 1 patch, got %d", len(patches))
-		}
-		if patches[0].Patch != patchContent {
-			t.Errorf("expected patch content to match, got %s", patches[0].Patch)
-		}
-	})
-
-	t.Run("InvalidYAMLFile", func(t *testing.T) {
-		// Given a blueprint handler with an invalid YAML file
-		handler := &BaseBlueprintHandler{
-			shims:         NewShims(),
-			configHandler: &mockConfigHandler{},
-			projectRoot:   "/tmp",
-		}
-
-		// Create a temporary directory structure
-		tempDir := t.TempDir()
-		patchesDir := filepath.Join(tempDir, "contexts", "test-context", "patches", "test-kustomization")
-		if err := os.MkdirAll(patchesDir, 0755); err != nil {
-			t.Fatalf("failed to create patches directory: %v", err)
-		}
-
-		// Create an invalid YAML file
-		invalidContent := `invalid: yaml: content:`
-		patchFile := filepath.Join(patchesDir, "invalid-patch.yaml")
-		if err := os.WriteFile(patchFile, []byte(invalidContent), 0644); err != nil {
-			t.Fatalf("failed to write patch file: %v", err)
-		}
-
-		// Override project root for this test
-		handler.projectRoot = tempDir
-
-		// When discovering patches for the kustomization
-		_, err := handler.discoverKustomizationPatches("test-kustomization")
-
-		// Then it should return an error
-		if err == nil {
-			t.Error("expected error for invalid YAML, got nil")
-		}
-		if !strings.Contains(err.Error(), "invalid YAML") {
-			t.Errorf("expected error about invalid YAML, got %v", err)
-		}
-	})
-
-	t.Run("MissingKindField", func(t *testing.T) {
-		// Given a blueprint handler with a patch file missing kind field
-		handler := &BaseBlueprintHandler{
-			shims:         NewShims(),
-			configHandler: &mockConfigHandler{},
-			projectRoot:   "/tmp",
-		}
-
-		// Create a temporary directory structure
-		tempDir := t.TempDir()
-		patchesDir := filepath.Join(tempDir, "contexts", "test-context", "patches", "test-kustomization")
-		if err := os.MkdirAll(patchesDir, 0755); err != nil {
-			t.Fatalf("failed to create patches directory: %v", err)
-		}
-
-		// Create a patch file missing kind field
-		patchContent := `apiVersion: v1
-metadata:
-  name: test-config
-data:
-  key: value`
-		patchFile := filepath.Join(patchesDir, "missing-kind.yaml")
-		if err := os.WriteFile(patchFile, []byte(patchContent), 0644); err != nil {
-			t.Fatalf("failed to write patch file: %v", err)
-		}
-
-		// Override project root for this test
-		handler.projectRoot = tempDir
-
-		// When discovering patches for the kustomization
-		_, err := handler.discoverKustomizationPatches("test-kustomization")
-
-		// Then it should return an error
-		if err == nil {
-			t.Error("expected error for missing kind field, got nil")
-		}
-		if !strings.Contains(err.Error(), "missing or invalid 'kind' field") {
-			t.Errorf("expected error about missing kind field, got %v", err)
-		}
-	})
-
-	t.Run("MissingMetadataField", func(t *testing.T) {
-		// Given a blueprint handler with a patch file missing metadata field
-		handler := &BaseBlueprintHandler{
-			shims:         NewShims(),
-			configHandler: &mockConfigHandler{},
-			projectRoot:   "/tmp",
-		}
-
-		// Create a temporary directory structure
-		tempDir := t.TempDir()
-		patchesDir := filepath.Join(tempDir, "contexts", "test-context", "patches", "test-kustomization")
-		if err := os.MkdirAll(patchesDir, 0755); err != nil {
-			t.Fatalf("failed to create patches directory: %v", err)
-		}
-
-		// Create a patch file missing metadata field
-		patchContent := `apiVersion: v1
-kind: ConfigMap
-data:
-  key: value`
-		patchFile := filepath.Join(patchesDir, "missing-metadata.yaml")
-		if err := os.WriteFile(patchFile, []byte(patchContent), 0644); err != nil {
-			t.Fatalf("failed to write patch file: %v", err)
-		}
-
-		// Override project root for this test
-		handler.projectRoot = tempDir
-
-		// When discovering patches for the kustomization
-		_, err := handler.discoverKustomizationPatches("test-kustomization")
-
-		// Then it should return an error
-		if err == nil {
-			t.Error("expected error for missing metadata field, got nil")
-		}
-		if !strings.Contains(err.Error(), "missing 'metadata' field") {
-			t.Errorf("expected error about missing metadata field, got %v", err)
-		}
-	})
-
-	t.Run("MissingNameField", func(t *testing.T) {
-		// Given a blueprint handler with a patch file missing name field
-		handler := &BaseBlueprintHandler{
-			shims:         NewShims(),
-			configHandler: &mockConfigHandler{},
-			projectRoot:   "/tmp",
-		}
-
-		// Create a temporary directory structure
-		tempDir := t.TempDir()
-		patchesDir := filepath.Join(tempDir, "contexts", "test-context", "patches", "test-kustomization")
-		if err := os.MkdirAll(patchesDir, 0755); err != nil {
-			t.Fatalf("failed to create patches directory: %v", err)
-		}
-
-		// Create a patch file missing name field
-		patchContent := `apiVersion: v1
-kind: ConfigMap
-metadata:
-  labels:
-    app: test
-data:
-  key: value`
-		patchFile := filepath.Join(patchesDir, "missing-name.yaml")
-		if err := os.WriteFile(patchFile, []byte(patchContent), 0644); err != nil {
-			t.Fatalf("failed to write patch file: %v", err)
-		}
-
-		// Override project root for this test
-		handler.projectRoot = tempDir
-
-		// When discovering patches for the kustomization
-		_, err := handler.discoverKustomizationPatches("test-kustomization")
-
-		// Then it should return an error
-		if err == nil {
-			t.Error("expected error for missing name field, got nil")
-		}
-		if !strings.Contains(err.Error(), "missing or invalid 'metadata.name' field") {
-			t.Errorf("expected error about missing name field, got %v", err)
-		}
-	})
-
-	t.Run("NonYAMLFile", func(t *testing.T) {
-		// Given a blueprint handler with a non-YAML file
-		handler := &BaseBlueprintHandler{
-			shims:         NewShims(),
-			configHandler: &mockConfigHandler{},
-			projectRoot:   "/tmp",
-		}
-
-		// Create a temporary directory structure
-		tempDir := t.TempDir()
-		patchesDir := filepath.Join(tempDir, "contexts", "test-context", "patches", "test-kustomization")
-		if err := os.MkdirAll(patchesDir, 0755); err != nil {
-			t.Fatalf("failed to create patches directory: %v", err)
-		}
-
-		// Create a non-YAML file
-		nonYamlContent := `This is not YAML content`
-		nonYamlFile := filepath.Join(patchesDir, "not-yaml.txt")
-		if err := os.WriteFile(nonYamlFile, []byte(nonYamlContent), 0644); err != nil {
-			t.Fatalf("failed to write non-YAML file: %v", err)
-		}
-
-		// Override project root for this test
-		handler.projectRoot = tempDir
-
-		// When discovering patches for the kustomization
-		patches, err := handler.discoverKustomizationPatches("test-kustomization")
-
-		// Then it should return no patches and no error (non-YAML files are ignored)
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-		if len(patches) != 0 {
-			t.Errorf("expected no patches, got %d", len(patches))
-		}
-	})
-}
-
-func TestBaseBlueprintHandler_getKustomizations(t *testing.T) {
+func TestBaseBlueprintHandler_GetKustomizations(t *testing.T) {
 	t.Run("NoKustomizations", func(t *testing.T) {
 		// Given a blueprint handler with no kustomizations
 		handler := &BaseBlueprintHandler{
@@ -531,11 +264,11 @@ func TestBaseBlueprintHandler_getKustomizations(t *testing.T) {
 		}
 
 		// When getting kustomizations
-		result := handler.getKustomizations()
+		result := handler.GetKustomizations()
 
-		// Then it should return nil
-		if result != nil {
-			t.Errorf("expected nil result, got %v", result)
+		// Then it should return empty slice
+		if len(result) != 0 {
+			t.Errorf("expected empty slice, got %v", result)
 		}
 	})
 
@@ -558,7 +291,7 @@ func TestBaseBlueprintHandler_getKustomizations(t *testing.T) {
 		}
 
 		// When getting kustomizations
-		result := handler.getKustomizations()
+		result := handler.GetKustomizations()
 
 		// Then it should return the kustomization with default values
 		if len(result) != 1 {
@@ -580,9 +313,10 @@ func TestBaseBlueprintHandler_getKustomizations(t *testing.T) {
 
 	t.Run("KustomizationWithExistingPatches", func(t *testing.T) {
 		// Given a blueprint handler with a kustomization that has existing patches
-		existingPatches := []kustomize.Patch{
-			{Patch: "existing-patch-1"},
-			{Patch: "existing-patch-2"},
+		existingPatches := []blueprintv1alpha1.BlueprintPatch{
+			{
+				Path: "patches/test-patch.yaml",
+			},
 		}
 		handler := &BaseBlueprintHandler{
 			shims:         NewShims(),
@@ -602,20 +336,17 @@ func TestBaseBlueprintHandler_getKustomizations(t *testing.T) {
 		}
 
 		// When getting kustomizations
-		result := handler.getKustomizations()
+		result := handler.GetKustomizations()
 
 		// Then it should return the kustomization with existing patches preserved
 		if len(result) != 1 {
 			t.Fatalf("expected 1 kustomization, got %d", len(result))
 		}
-		if len(result[0].Patches) != 2 {
-			t.Errorf("expected 2 patches, got %d", len(result[0].Patches))
+		if len(result[0].Patches) != 1 {
+			t.Errorf("expected 1 patch, got %d", len(result[0].Patches))
 		}
-		if result[0].Patches[0].Patch != "existing-patch-1" {
-			t.Errorf("expected first patch 'existing-patch-1', got %s", result[0].Patches[0].Patch)
-		}
-		if result[0].Patches[1].Patch != "existing-patch-2" {
-			t.Errorf("expected second patch 'existing-patch-2', got %s", result[0].Patches[1].Patch)
+		if result[0].Patches[0].Path != "patches/test-patch.yaml" {
+			t.Errorf("expected patch path to match, got %s", result[0].Patches[0].Path)
 		}
 	})
 
@@ -644,7 +375,7 @@ func TestBaseBlueprintHandler_getKustomizations(t *testing.T) {
 			t.Fatalf("failed to create patches directory: %v", err)
 		}
 
-		// Create patch files
+		// Create patch files (these should not be auto-discovered)
 		patch1Content := `apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -671,28 +402,26 @@ data:
 		handler.projectRoot = tempDir
 
 		// When getting kustomizations
-		result := handler.getKustomizations()
+		result := handler.GetKustomizations()
 
-		// Then it should return the kustomization with discovered patches
+		// Then it should return the kustomization with no patches (auto-discovery disabled)
 		if len(result) != 1 {
 			t.Fatalf("expected 1 kustomization, got %d", len(result))
 		}
-		if len(result[0].Patches) != 2 {
-			t.Errorf("expected 2 discovered patches, got %d", len(result[0].Patches))
-		}
-		if result[0].Patches[0].Patch != patch1Content {
-			t.Errorf("expected first patch content to match, got %s", result[0].Patches[0].Patch)
-		}
-		if result[0].Patches[1].Patch != patch2Content {
-			t.Errorf("expected second patch content to match, got %s", result[0].Patches[1].Patch)
+		if len(result[0].Patches) != 0 {
+			t.Errorf("expected 0 discovered patches (auto-discovery disabled), got %d", len(result[0].Patches))
 		}
 	})
 
 	t.Run("KustomizationWithExistingAndDiscoveredPatches", func(t *testing.T) {
 		// Given a blueprint handler with a kustomization that has both existing and discovered patches
-		existingPatches := []kustomize.Patch{
-			{Patch: "existing-patch-1"},
-			{Patch: "existing-patch-2"},
+		existingPatches := []blueprintv1alpha1.BlueprintPatch{
+			{
+				Path: "patches/existing-patch-1.yaml",
+			},
+			{
+				Path: "patches/existing-patch-2.yaml",
+			},
 		}
 		handler := &BaseBlueprintHandler{
 			shims:         NewShims(),
@@ -718,7 +447,7 @@ data:
 			t.Fatalf("failed to create patches directory: %v", err)
 		}
 
-		// Create discovered patch file
+		// Create discovered patch file (this should not be auto-discovered)
 		discoveredPatchContent := `apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -734,25 +463,21 @@ data:
 		handler.projectRoot = tempDir
 
 		// When getting kustomizations
-		result := handler.getKustomizations()
+		result := handler.GetKustomizations()
 
-		// Then it should return the kustomization with both existing and discovered patches
+		// Then it should return the kustomization with only existing patches (auto-discovery disabled)
 		if len(result) != 1 {
 			t.Fatalf("expected 1 kustomization, got %d", len(result))
 		}
-		if len(result[0].Patches) != 3 {
-			t.Errorf("expected 3 patches (2 existing + 1 discovered), got %d", len(result[0].Patches))
+		if len(result[0].Patches) != 2 {
+			t.Errorf("expected 2 patches (only existing, no auto-discovery), got %d", len(result[0].Patches))
 		}
-		// Existing patches should come first
-		if result[0].Patches[0].Patch != "existing-patch-1" {
-			t.Errorf("expected first patch 'existing-patch-1', got %s", result[0].Patches[0].Patch)
+		// Existing patches should be preserved
+		if result[0].Patches[0].Path != "patches/existing-patch-1.yaml" {
+			t.Errorf("expected first patch 'patches/existing-patch-1.yaml', got %s", result[0].Patches[0].Path)
 		}
-		if result[0].Patches[1].Patch != "existing-patch-2" {
-			t.Errorf("expected second patch 'existing-patch-2', got %s", result[0].Patches[1].Patch)
-		}
-		// Discovered patch should come last
-		if result[0].Patches[2].Patch != discoveredPatchContent {
-			t.Errorf("expected third patch to match discovered content, got %s", result[0].Patches[2].Patch)
+		if result[0].Patches[1].Path != "patches/existing-patch-2.yaml" {
+			t.Errorf("expected second patch 'patches/existing-patch-2.yaml', got %s", result[0].Patches[1].Path)
 		}
 	})
 
@@ -781,7 +506,7 @@ data:
 			t.Fatalf("failed to create patches directory: %v", err)
 		}
 
-		// Create an invalid patch file (missing required fields)
+		// Create an invalid patch file (missing required fields) - this should not be auto-discovered
 		invalidPatchContent := `apiVersion: v1
 # Missing kind and metadata
 data:
@@ -795,14 +520,14 @@ data:
 		handler.projectRoot = tempDir
 
 		// When getting kustomizations
-		result := handler.getKustomizations()
+		result := handler.GetKustomizations()
 
-		// Then it should return the kustomization without patches (error is logged but not returned)
+		// Then it should return the kustomization without patches (auto-discovery disabled)
 		if len(result) != 1 {
 			t.Fatalf("expected 1 kustomization, got %d", len(result))
 		}
-		if result[0].Patches != nil {
-			t.Errorf("expected nil patches due to discovery error, got %v", result[0].Patches)
+		if len(result[0].Patches) != 0 {
+			t.Errorf("expected 0 patches (auto-discovery disabled), got %d", len(result[0].Patches))
 		}
 	})
 
@@ -819,8 +544,10 @@ data:
 				Kustomizations: []blueprintv1alpha1.Kustomization{
 					{
 						Name: "kustomization-1",
-						Patches: []kustomize.Patch{
-							{Patch: "existing-patch-1"},
+						Patches: []blueprintv1alpha1.BlueprintPatch{
+							{
+								Path: "patches/existing-patch-1.yaml",
+							},
 						},
 					},
 					{
@@ -837,7 +564,7 @@ data:
 			t.Fatalf("failed to create patches directory: %v", err)
 		}
 
-		// Create patch file for second kustomization
+		// Create patch file for second kustomization (this should not be auto-discovered)
 		patchContent := `apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -853,7 +580,7 @@ data:
 		handler.projectRoot = tempDir
 
 		// When getting kustomizations
-		result := handler.getKustomizations()
+		result := handler.GetKustomizations()
 
 		// Then it should return both kustomizations with appropriate patches
 		if len(result) != 2 {
@@ -867,19 +594,16 @@ data:
 		if len(result[0].Patches) != 1 {
 			t.Errorf("expected 1 patch for first kustomization, got %d", len(result[0].Patches))
 		}
-		if result[0].Patches[0].Patch != "existing-patch-1" {
-			t.Errorf("expected first kustomization patch 'existing-patch-1', got %s", result[0].Patches[0].Patch)
+		if result[0].Patches[0].Path != "patches/existing-patch-1.yaml" {
+			t.Errorf("expected first kustomization patch 'patches/existing-patch-1.yaml', got %s", result[0].Patches[0].Path)
 		}
 
-		// Second kustomization should have discovered patch
+		// Second kustomization should have no patches (auto-discovery disabled)
 		if result[1].Name != "kustomization-2" {
 			t.Errorf("expected second kustomization name 'kustomization-2', got %s", result[1].Name)
 		}
-		if len(result[1].Patches) != 1 {
-			t.Errorf("expected 1 patch for second kustomization, got %d", len(result[1].Patches))
-		}
-		if result[1].Patches[0].Patch != patchContent {
-			t.Errorf("expected second kustomization patch to match discovered content, got %s", result[1].Patches[0].Patch)
+		if len(result[1].Patches) != 0 {
+			t.Errorf("expected 0 patches for second kustomization (auto-discovery disabled), got %d", len(result[1].Patches))
 		}
 	})
 }
