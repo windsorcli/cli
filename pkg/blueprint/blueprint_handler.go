@@ -3,6 +3,7 @@ package blueprint
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 
 	_ "embed"
 
+	"github.com/goccy/go-yaml"
 	"github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/constants"
@@ -47,6 +49,7 @@ type BlueprintHandler interface {
 	GetSources() []blueprintv1alpha1.Source
 	GetRepository() blueprintv1alpha1.Repository
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
+	GetKustomizations() []blueprintv1alpha1.Kustomization
 	WaitForKustomizations(message string, names ...string) error
 	GetDefaultTemplateData(contextName string) (map[string][]byte, error)
 	GetLocalTemplateData() (map[string][]byte, error)
@@ -210,7 +213,7 @@ func (b *BaseBlueprintHandler) WaitForKustomizations(message string, names ...st
 	if len(names) > 0 && len(names[0]) > 0 {
 		kustomizationNames = names
 	} else {
-		kustomizations := b.getKustomizations()
+		kustomizations := b.GetKustomizations()
 		kustomizationNames = make([]string, len(kustomizations))
 		for i, k := range kustomizations {
 			kustomizationNames[i] = k.Name
@@ -303,10 +306,10 @@ func (b *BaseBlueprintHandler) Install() error {
 		return fmt.Errorf("failed to apply configmap: %w", err)
 	}
 
-	kustomizations := b.getKustomizations()
+	kustomizations := b.GetKustomizations()
 	kustomizationNames := make([]string, len(kustomizations))
 	for i, k := range kustomizations {
-		if err := b.kubernetesManager.ApplyKustomization(b.toKubernetesKustomization(k, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)); err != nil {
+		if err := b.kubernetesManager.ApplyKustomization(b.toFluxKustomization(k, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)); err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 			return fmt.Errorf("failed to apply kustomization %s: %w", k.Name, err)
@@ -359,6 +362,62 @@ func (b *BaseBlueprintHandler) GetTerraformComponents() []blueprintv1alpha1.Terr
 	return resolvedBlueprint.TerraformComponents
 }
 
+// GetKustomizations returns the current blueprint's kustomization configurations with all default values resolved.
+// It copies the kustomizations from the blueprint, sets default values for Source, Path, Interval, RetryInterval,
+// Timeout, Wait, Force, and Destroy fields if unset, discovers and appends patches, and sets the PostBuild configuration.
+// This method ensures all kustomization fields are fully populated for downstream processing.
+func (b *BaseBlueprintHandler) GetKustomizations() []blueprintv1alpha1.Kustomization {
+	resolvedBlueprint := b.blueprint
+	kustomizations := make([]blueprintv1alpha1.Kustomization, len(resolvedBlueprint.Kustomizations))
+	copy(kustomizations, resolvedBlueprint.Kustomizations)
+
+	for i := range kustomizations {
+		if kustomizations[i].Source == "" {
+			kustomizations[i].Source = b.blueprint.Metadata.Name
+		}
+
+		if kustomizations[i].Path == "" {
+			kustomizations[i].Path = "kustomize"
+		} else {
+			kustomizations[i].Path = "kustomize/" + strings.ReplaceAll(kustomizations[i].Path, "\\", "/")
+		}
+
+		if kustomizations[i].Interval == nil || kustomizations[i].Interval.Duration == 0 {
+			kustomizations[i].Interval = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL}
+		}
+		if kustomizations[i].RetryInterval == nil || kustomizations[i].RetryInterval.Duration == 0 {
+			kustomizations[i].RetryInterval = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL}
+		}
+		if kustomizations[i].Timeout == nil || kustomizations[i].Timeout.Duration == 0 {
+			kustomizations[i].Timeout = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT}
+		}
+		if kustomizations[i].Wait == nil {
+			defaultWait := constants.DEFAULT_FLUX_KUSTOMIZATION_WAIT
+			kustomizations[i].Wait = &defaultWait
+		}
+		if kustomizations[i].Force == nil {
+			defaultForce := constants.DEFAULT_FLUX_KUSTOMIZATION_FORCE
+			kustomizations[i].Force = &defaultForce
+		}
+		if kustomizations[i].Destroy == nil {
+			defaultDestroy := true
+			kustomizations[i].Destroy = &defaultDestroy
+		}
+
+		kustomizations[i].PostBuild = &blueprintv1alpha1.PostBuild{
+			SubstituteFrom: []blueprintv1alpha1.SubstituteReference{
+				{
+					Kind:     "ConfigMap",
+					Name:     "blueprint",
+					Optional: false,
+				},
+			},
+		}
+	}
+
+	return kustomizations
+}
+
 // GetDefaultTemplateData generates default template data based on the provider configuration.
 // It uses the embedded default template to create a map of template files that can be
 // used by the init pipeline for generating context-specific configurations.
@@ -378,14 +437,13 @@ func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 	}
 
 	templateDir := filepath.Join(projectRoot, "contexts", "_template")
-	if _, err := b.shims.Stat(templateDir); err != nil {
-		// Template directory doesn't exist, return empty map
-		return make(map[string][]byte), nil
+	if _, err := b.shims.Stat(templateDir); os.IsNotExist(err) {
+		return nil, nil
 	}
 
 	templateData := make(map[string][]byte)
 	if err := b.walkAndCollectTemplates(templateDir, templateDir, templateData); err != nil {
-		return nil, fmt.Errorf("failed to collect local templates: %w", err)
+		return nil, fmt.Errorf("failed to collect templates: %w", err)
 	}
 
 	return templateData, nil
@@ -397,7 +455,7 @@ func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 // The function filters kustomizations for destruction, sorts them by dependencies, and performs cleanup if specified.
 // Dependency resolution is achieved through topological sorting for correct deletion order.
 func (b *BaseBlueprintHandler) Down() error {
-	allKustomizations := b.getKustomizations()
+	allKustomizations := b.GetKustomizations()
 	if len(allKustomizations) == 0 {
 		return nil
 	}
@@ -510,7 +568,7 @@ func (b *BaseBlueprintHandler) destroyKustomizations(ctx context.Context, kustom
 				},
 			}
 
-			if err := b.kubernetesManager.ApplyKustomization(b.toKubernetesKustomization(*cleanupKustomization, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)); err != nil {
+			if err := b.kubernetesManager.ApplyKustomization(b.toFluxKustomization(*cleanupKustomization, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)); err != nil {
 				return fmt.Errorf("failed to apply cleanup kustomization for %s: %w", k.Name, err)
 			}
 
@@ -595,10 +653,11 @@ func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir, templateRoot
 
 			relPath, err := filepath.Rel(templateRoot, entryPath)
 			if err != nil {
-				return fmt.Errorf("failed to get relative path: %w", err)
+				return fmt.Errorf("failed to calculate relative path for %s: %w", entryPath, err)
 			}
 
-			templateData[filepath.ToSlash(relPath)] = content
+			relPath = strings.ReplaceAll(relPath, "\\", "/")
+			templateData[relPath] = content
 		}
 	}
 
@@ -781,66 +840,6 @@ func (b *BaseBlueprintHandler) isValidTerraformRemoteSource(source string) bool 
 	return false
 }
 
-// getKustomizations retrieves and normalizes the blueprint's Kustomization configurations.
-// It provides default values for intervals, timeouts, and paths while ensuring consistent
-// configuration across all kustomizations. The function also adds standard PostBuild
-// configurations for variable substitution from the blueprint ConfigMap.
-func (b *BaseBlueprintHandler) getKustomizations() []blueprintv1alpha1.Kustomization {
-	if b.blueprint.Kustomizations == nil {
-		return nil
-	}
-
-	resolvedBlueprint := b.blueprint
-	kustomizations := make([]blueprintv1alpha1.Kustomization, len(resolvedBlueprint.Kustomizations))
-	copy(kustomizations, resolvedBlueprint.Kustomizations)
-
-	for i := range kustomizations {
-		if kustomizations[i].Source == "" {
-			kustomizations[i].Source = b.blueprint.Metadata.Name
-		}
-
-		if kustomizations[i].Path == "" {
-			kustomizations[i].Path = "kustomize"
-		} else {
-			kustomizations[i].Path = "kustomize/" + strings.ReplaceAll(kustomizations[i].Path, "\\", "/")
-		}
-
-		if kustomizations[i].Interval == nil || kustomizations[i].Interval.Duration == 0 {
-			kustomizations[i].Interval = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL}
-		}
-		if kustomizations[i].RetryInterval == nil || kustomizations[i].RetryInterval.Duration == 0 {
-			kustomizations[i].RetryInterval = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL}
-		}
-		if kustomizations[i].Timeout == nil || kustomizations[i].Timeout.Duration == 0 {
-			kustomizations[i].Timeout = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT}
-		}
-		if kustomizations[i].Wait == nil {
-			defaultWait := constants.DEFAULT_FLUX_KUSTOMIZATION_WAIT
-			kustomizations[i].Wait = &defaultWait
-		}
-		if kustomizations[i].Force == nil {
-			defaultForce := constants.DEFAULT_FLUX_KUSTOMIZATION_FORCE
-			kustomizations[i].Force = &defaultForce
-		}
-		if kustomizations[i].Destroy == nil {
-			defaultDestroy := true
-			kustomizations[i].Destroy = &defaultDestroy
-		}
-
-		kustomizations[i].PostBuild = &blueprintv1alpha1.PostBuild{
-			SubstituteFrom: []blueprintv1alpha1.SubstituteReference{
-				{
-					Kind:     "ConfigMap",
-					Name:     "blueprint",
-					Optional: false,
-				},
-			},
-		}
-	}
-
-	return kustomizations
-}
-
 // applySourceRepository routes to the appropriate source handler based on URL type
 func (b *BaseBlueprintHandler) applySourceRepository(source blueprintv1alpha1.Source, namespace string) error {
 	if strings.HasPrefix(source.Url, "oci://") {
@@ -1018,7 +1017,7 @@ func (b *BaseBlueprintHandler) checkKustomizationStatus(kustomizationNames []str
 // exist due to cycles, it starts DFS from every node to ensure complete coverage. Returns the total
 // time needed for the longest dependency path through the kustomization graph.
 func (b *BaseBlueprintHandler) calculateMaxWaitTime() time.Duration {
-	kustomizations := b.getKustomizations()
+	kustomizations := b.GetKustomizations()
 	if len(kustomizations) == 0 {
 		return 0
 	}
@@ -1088,12 +1087,12 @@ func (b *BaseBlueprintHandler) calculateMaxWaitTime() time.Duration {
 	return maxPathTime
 }
 
-// toKubernetesKustomization converts a blueprint kustomization to a Flux kustomization
-// It handles conversion of dependsOn, patches, and postBuild configurations
-// It maps blueprint fields to their Flux kustomization equivalents
-// It maintains namespace context and preserves all configuration options
-// It automatically detects OCI sources and sets the appropriate SourceRef kind
-func (b *BaseBlueprintHandler) toKubernetesKustomization(k blueprintv1alpha1.Kustomization, namespace string) kustomizev1.Kustomization {
+// toFluxKustomization converts a blueprint kustomization to a Flux Kustomization resource.
+// Converts blueprint fields to Flux equivalents, resolves dependencies, patches, post-build configuration,
+// and determines the correct source kind (GitRepository or OCIRepository) based on the source reference.
+// k is the blueprint kustomization to convert. namespace is the target Kubernetes namespace.
+// Returns the constructed Flux Kustomization resource.
+func (b *BaseBlueprintHandler) toFluxKustomization(k blueprintv1alpha1.Kustomization, namespace string) kustomizev1.Kustomization {
 	dependsOn := make([]meta.NamespacedObjectReference, len(k.DependsOn))
 	for i, dep := range k.DependsOn {
 		dependsOn[i] = meta.NamespacedObjectReference{
@@ -1102,14 +1101,68 @@ func (b *BaseBlueprintHandler) toKubernetesKustomization(k blueprintv1alpha1.Kus
 		}
 	}
 
-	patches := make([]kustomize.Patch, len(k.Patches))
-	for i, p := range k.Patches {
-		patches[i] = kustomize.Patch{
-			Patch: p.Patch,
-			Target: &kustomize.Selector{
-				Kind: p.Target.Kind,
-				Name: p.Target.Name,
-			},
+	patches := make([]kustomize.Patch, 0, len(k.Patches))
+	for _, p := range k.Patches {
+		var target *kustomize.Selector
+		var patchContent string
+
+		if p.Path != "" {
+			configRoot, err := b.configHandler.GetConfigRoot()
+			if err != nil {
+				continue
+			}
+			patchFilePath := filepath.Join(configRoot, p.Path)
+			data, err := b.shims.ReadFile(patchFilePath)
+			if err != nil {
+				continue
+			}
+			patchContent = string(data)
+
+			decoder := yaml.NewDecoder(strings.NewReader(patchContent))
+			for {
+				var patchData map[string]any
+				if err := decoder.Decode(&patchData); err != nil {
+					if err == io.EOF {
+						break
+					}
+					continue
+				}
+
+				if kind, ok := patchData["kind"].(string); ok {
+					if metadata, ok := patchData["metadata"].(map[string]any); ok {
+						if name, ok := metadata["name"].(string); ok {
+							patchNamespace := namespace
+							if ns, ok := metadata["namespace"].(string); ok {
+								patchNamespace = ns
+							}
+							target = &kustomize.Selector{
+								Kind:      kind,
+								Name:      name,
+								Namespace: patchNamespace,
+							}
+							break
+						}
+					}
+				}
+			}
+		}
+
+		if p.Patch != "" {
+			patchContent = p.Patch
+		}
+		if p.Target != nil {
+			target = &kustomize.Selector{
+				Kind:      p.Target.Kind,
+				Name:      p.Target.Name,
+				Namespace: p.Target.Namespace,
+			}
+		}
+
+		if patchContent != "" {
+			patches = append(patches, kustomize.Patch{
+				Patch:  patchContent,
+				Target: target,
+			})
 		}
 	}
 

@@ -2,7 +2,9 @@ package blueprint
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"regexp"
 	"time"
 
@@ -34,6 +36,7 @@ type Shims struct {
 	Stat      func(string) (os.FileInfo, error)
 	ReadFile  func(string) ([]byte, error)
 	ReadDir   func(string) ([]os.DirEntry, error)
+	WalkDir   func(string, fs.WalkDirFunc) error
 
 	// Utility shims
 	RegexpMatchString func(pattern string, s string) (bool, error)
@@ -71,6 +74,7 @@ func NewShims() *Shims {
 		Stat:      os.Stat,
 		ReadFile:  os.ReadFile,
 		ReadDir:   os.ReadDir,
+		WalkDir:   filepath.WalkDir,
 
 		// Utility shims
 		RegexpMatchString: regexp.MatchString,

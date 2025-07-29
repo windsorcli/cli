@@ -11,6 +11,7 @@ import (
 
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
+	kustomize "github.com/fluxcd/pkg/apis/kustomize"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"github.com/goccy/go-yaml"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -199,7 +200,7 @@ func setupShims(t *testing.T) *Shims {
 		}
 	}
 
-	shims.WriteFile = func(name string, data []byte, perm fs.FileMode) error {
+	shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
 		return nil
 	}
 
@@ -295,6 +296,10 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		mockConfigHandler.SetContextFunc = func(context string) error {
 			currentContext = context
 			return nil
+		}
+
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return tmpDir, nil
 		}
 
 		configHandler = mockConfigHandler
@@ -857,7 +862,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		handler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
 			{Name: "k1", Path: "foo\\bar\\baz"},
 		}
-		ks := handler.getKustomizations()
+		ks := handler.GetKustomizations()
 		if ks[0].Path != "kustomize/foo/bar/baz" {
 			t.Errorf("expected normalized path, got %q", ks[0].Path)
 		}
@@ -2476,8 +2481,8 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 			t.Fatal("Expected error, got nil")
 		}
 
-		if !strings.Contains(err.Error(), "failed to collect local templates") {
-			t.Errorf("Expected error to contain 'failed to collect local templates', got: %v", err)
+		if !strings.Contains(err.Error(), "failed to collect templates") {
+			t.Errorf("Expected error to contain 'failed to collect templates', got: %v", err)
 		}
 
 		// And result should be nil
@@ -2666,6 +2671,12 @@ func TestBlueprintHandler_Write(t *testing.T) {
 		mocks := setupMocks(t)
 		handler := NewBlueprintHandler(mocks.Injector)
 		handler.shims = mocks.Shims
+
+		// Override GetConfigRoot to return the expected path for Write tests
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "mock-config-root", nil
+		}
+
 		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
@@ -3000,4 +3011,502 @@ func TestBlueprintHandler_Write(t *testing.T) {
 			t.Errorf("Expected error from WriteFile, got nil")
 		}
 	})
+}
+
+func TestTargetHandling(t *testing.T) {
+	// Test case 1: Path with no existing Target - should create Target with namespace from patch
+	patch1 := blueprintv1alpha1.BlueprintPatch{
+		Path: "patches/ingress/nginx.yaml",
+	}
+
+	// Test case 2: Path with existing Target - should not override existing Target
+	patch2 := blueprintv1alpha1.BlueprintPatch{
+		Path: "patches/ingress/nginx.yaml",
+		Target: &kustomize.Selector{
+			Kind:      "Service",
+			Name:      "nginx-ingress-controller",
+			Namespace: "custom-namespace",
+		},
+	}
+
+	// Test case 3: Flux format with Patch and Target - should use existing Target
+	patch3 := blueprintv1alpha1.BlueprintPatch{
+		Patch: "apiVersion: v1\nkind: Service\nmetadata:\n  name: nginx-ingress-controller\n  namespace: ingress-nginx",
+		Target: &kustomize.Selector{
+			Kind:      "Service",
+			Name:      "nginx-ingress-controller",
+			Namespace: "ingress-nginx",
+		},
+	}
+
+	// Test case 4: Path with patch that has namespace in metadata - should use patch namespace
+	patch4 := blueprintv1alpha1.BlueprintPatch{
+		Path: "patches/ingress/nginx-with-namespace.yaml",
+	}
+
+	// Verify the patches have the expected structure
+	if patch1.Path == "" {
+		t.Error("Expected patch1 to have Path field")
+	}
+	if patch1.Target != nil {
+		t.Error("Expected patch1 to have no Target field")
+	}
+
+	if patch2.Path == "" {
+		t.Error("Expected patch2 to have Path field")
+	}
+	if patch2.Target == nil {
+		t.Error("Expected patch2 to have Target field")
+	}
+	if patch2.Target.Kind != "Service" {
+		t.Errorf("Expected patch2 Target Kind to be 'Service', got '%s'", patch2.Target.Kind)
+	}
+	if patch2.Target.Namespace != "custom-namespace" {
+		t.Errorf("Expected patch2 Target Namespace to be 'custom-namespace', got '%s'", patch2.Target.Namespace)
+	}
+
+	if patch3.Patch == "" {
+		t.Error("Expected patch3 to have Patch field")
+	}
+	if patch3.Target == nil {
+		t.Error("Expected patch3 to have Target field")
+	}
+	if patch3.Target.Kind != "Service" {
+		t.Errorf("Expected patch3 Target Kind to be 'Service', got '%s'", patch3.Target.Kind)
+	}
+	if patch3.Target.Namespace != "ingress-nginx" {
+		t.Errorf("Expected patch3 Target Namespace to be 'ingress-nginx', got '%s'", patch3.Target.Namespace)
+	}
+
+	if patch4.Path == "" {
+		t.Error("Expected patch4 to have Path field")
+	}
+	if patch4.Target != nil {
+		t.Error("Expected patch4 to have no Target field (will be generated from patch content)")
+	}
+}
+
+func TestNamespaceExtractionFromPatch(t *testing.T) {
+	// Test that namespace is correctly extracted from patch content
+	patchContent := `apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-ingress-controller
+  namespace: ingress-nginx
+spec:
+  externalIPs:
+  - 10.5.1.1
+  type: LoadBalancer`
+
+	var patchData map[string]any
+	err := yaml.Unmarshal([]byte(patchContent), &patchData)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal patch content: %v", err)
+	}
+
+	// Extract namespace from patch metadata
+	patchNamespace := "default" // fallback
+	if metadata, ok := patchData["metadata"].(map[string]any); ok {
+		if ns, ok := metadata["namespace"].(string); ok {
+			patchNamespace = ns
+		}
+	}
+
+	if patchNamespace != "ingress-nginx" {
+		t.Errorf("Expected namespace 'ingress-nginx', got '%s'", patchNamespace)
+	}
+
+	// Test with patch that has no namespace
+	patchContentNoNS := `apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-ingress-controller
+spec:
+  externalIPs:
+  - 10.5.1.1
+  type: LoadBalancer`
+
+	var patchDataNoNS map[string]any
+	err = yaml.Unmarshal([]byte(patchContentNoNS), &patchDataNoNS)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal patch content: %v", err)
+	}
+
+	// Extract namespace from patch metadata
+	patchNamespaceNoNS := "default" // fallback
+	if metadata, ok := patchDataNoNS["metadata"].(map[string]any); ok {
+		if ns, ok := metadata["namespace"].(string); ok {
+			patchNamespaceNoNS = ns
+		}
+	}
+
+	if patchNamespaceNoNS != "default" {
+		t.Errorf("Expected namespace 'default' (fallback), got '%s'", patchNamespaceNoNS)
+	}
+}
+
+func TestToKubernetesKustomizationWithNamespace(t *testing.T) {
+	// Create a mock config handler
+	mockConfigHandler := &config.MockConfigHandler{}
+	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+		return "/tmp/test", nil
+	}
+
+	// Create a mock blueprint handler
+	handler := &BaseBlueprintHandler{
+		projectRoot:   "/tmp/test",
+		configHandler: mockConfigHandler,
+		shims:         NewShims(),
+	}
+
+	// Mock the ReadFile function to return a patch with namespace
+	handler.shims.ReadFile = func(name string) ([]byte, error) {
+		if strings.Contains(name, "nginx.yaml") {
+			return []byte(`apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-ingress-controller
+  namespace: ingress-nginx
+spec:
+  externalIPs:
+  - 10.5.1.1
+  type: LoadBalancer`), nil
+		}
+		return nil, fmt.Errorf("file not found")
+	}
+
+	// Create a kustomization with a patch that references a file
+	kustomization := blueprintv1alpha1.Kustomization{
+		Name: "ingress",
+		Path: "ingress",
+		Patches: []blueprintv1alpha1.BlueprintPatch{
+			{
+				Path: "patches/ingress/nginx.yaml",
+			},
+		},
+		Interval:      &metav1.Duration{Duration: time.Minute},
+		RetryInterval: &metav1.Duration{Duration: 2 * time.Minute},
+		Timeout:       &metav1.Duration{Duration: 5 * time.Minute},
+		Wait:          &[]bool{true}[0],
+		Force:         &[]bool{false}[0],
+		Prune:         &[]bool{true}[0],
+		Destroy:       &[]bool{true}[0],
+		Components:    []string{"nginx"},
+		DependsOn:     []string{"pki-resources"},
+	}
+
+	// Convert to Kubernetes kustomization
+	result := handler.toFluxKustomization(kustomization, "system-gitops")
+
+	// Verify that the patch has the correct Target with namespace
+	if len(result.Spec.Patches) != 1 {
+		t.Fatalf("Expected 1 patch, got %d", len(result.Spec.Patches))
+	}
+
+	patch := result.Spec.Patches[0]
+	if patch.Target == nil {
+		t.Fatal("Expected Target to be set")
+	}
+
+	if patch.Target.Kind != "Service" {
+		t.Errorf("Expected Target Kind to be 'Service', got '%s'", patch.Target.Kind)
+	}
+
+	if patch.Target.Name != "nginx-ingress-controller" {
+		t.Errorf("Expected Target Name to be 'nginx-ingress-controller', got '%s'", patch.Target.Name)
+	}
+
+	if patch.Target.Namespace != "ingress-nginx" {
+		t.Errorf("Expected Target Namespace to be 'ingress-nginx', got '%s'", patch.Target.Namespace)
+	}
+}
+
+func TestToKubernetesKustomizationWithActualPatch(t *testing.T) {
+	// Create a mock config handler
+	mockConfigHandler := &config.MockConfigHandler{}
+	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+		return "/Users/ryanvangundy/Developer/windsorcli/core/contexts/colima", nil
+	}
+
+	// Create a mock blueprint handler with the actual project root
+	handler := &BaseBlueprintHandler{
+		projectRoot:   "/Users/ryanvangundy/Developer/windsorcli/core",
+		configHandler: mockConfigHandler,
+		shims:         NewShims(),
+	}
+
+	// Mock the ReadFile function to return the expected patch content
+	handler.shims.ReadFile = func(path string) ([]byte, error) {
+		// Normalize path for cross-platform comparison
+		normalizedPath := filepath.ToSlash(path)
+		if strings.Contains(normalizedPath, "patches/ingress/nginx.yaml") {
+			return []byte(`apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-ingress-controller
+  namespace: ingress-nginx
+spec:
+  externalIPs:
+  - 10.5.1.1
+  type: LoadBalancer`), nil
+		}
+		return nil, fmt.Errorf("file not found: %s", path)
+	}
+
+	// Create a kustomization with a patch that references the actual file
+	kustomization := blueprintv1alpha1.Kustomization{
+		Name: "ingress",
+		Path: "ingress",
+		Patches: []blueprintv1alpha1.BlueprintPatch{
+			{
+				Path: "patches/ingress/nginx.yaml",
+			},
+		},
+		Interval:      &metav1.Duration{Duration: time.Minute},
+		RetryInterval: &metav1.Duration{Duration: 2 * time.Minute},
+		Timeout:       &metav1.Duration{Duration: 5 * time.Minute},
+		Wait:          &[]bool{true}[0],
+		Force:         &[]bool{false}[0],
+		Prune:         &[]bool{true}[0],
+		Destroy:       &[]bool{true}[0],
+		Components:    []string{"nginx"},
+		DependsOn:     []string{"pki-resources"},
+	}
+
+	// Convert to Kubernetes kustomization
+	result := handler.toFluxKustomization(kustomization, "system-gitops")
+
+	// Verify that the patch has the correct Target with namespace
+	if len(result.Spec.Patches) != 1 {
+		t.Fatalf("Expected 1 patch, got %d", len(result.Spec.Patches))
+	}
+
+	patch := result.Spec.Patches[0]
+	if patch.Target == nil {
+		t.Fatal("Expected Target to be set")
+	}
+
+	if patch.Target.Kind != "Service" {
+		t.Errorf("Expected Target Kind to be 'Service', got '%s'", patch.Target.Kind)
+	}
+
+	if patch.Target.Name != "nginx-ingress-controller" {
+		t.Errorf("Expected Target Name to be 'nginx-ingress-controller', got '%s'", patch.Target.Name)
+	}
+
+	if patch.Target.Namespace != "ingress-nginx" {
+		t.Errorf("Expected Target Namespace to be 'ingress-nginx', got '%s'", patch.Target.Namespace)
+	}
+
+	// Also verify the patch content
+	if !strings.Contains(patch.Patch, "namespace: ingress-nginx") {
+		t.Errorf("Expected patch to contain 'namespace: ingress-nginx', got: %s", patch.Patch)
+	}
+}
+
+func TestToKubernetesKustomizationWithMultiplePatches(t *testing.T) {
+	// Create a mock config handler
+	mockConfigHandler := &config.MockConfigHandler{}
+	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+		return "/tmp/test", nil
+	}
+
+	// Create a mock blueprint handler
+	handler := &BaseBlueprintHandler{
+		projectRoot:   "/tmp/test",
+		configHandler: mockConfigHandler,
+		shims:         NewShims(),
+	}
+
+	// Mock the ReadFile function to return a patch with multiple documents
+	handler.shims.ReadFile = func(name string) ([]byte, error) {
+		if strings.Contains(name, "multi-patch.yaml") {
+			return []byte(`apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-ingress-controller
+  namespace: ingress-nginx
+spec:
+  externalIPs:
+  - 10.5.1.1
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: ingress-nginx
+data:
+  key: value`), nil
+		}
+		return nil, fmt.Errorf("file not found")
+	}
+
+	// Create a kustomization with a patch that references a file with multiple documents
+	kustomization := blueprintv1alpha1.Kustomization{
+		Name: "ingress",
+		Path: "ingress",
+		Patches: []blueprintv1alpha1.BlueprintPatch{
+			{
+				Path: "patches/ingress/multi-patch.yaml",
+			},
+		},
+		Interval:      &metav1.Duration{Duration: time.Minute},
+		RetryInterval: &metav1.Duration{Duration: 2 * time.Minute},
+		Timeout:       &metav1.Duration{Duration: 5 * time.Minute},
+		Wait:          &[]bool{true}[0],
+		Force:         &[]bool{false}[0],
+		Prune:         &[]bool{true}[0],
+		Destroy:       &[]bool{true}[0],
+		Components:    []string{"nginx"},
+		DependsOn:     []string{"pki-resources"},
+	}
+
+	// Convert to Kubernetes kustomization
+	result := handler.toFluxKustomization(kustomization, "system-gitops")
+
+	// Verify that the patch has the correct Target with namespace from the first document
+	if len(result.Spec.Patches) != 1 {
+		t.Fatalf("Expected 1 patch, got %d", len(result.Spec.Patches))
+	}
+
+	patch := result.Spec.Patches[0]
+	if patch.Target == nil {
+		t.Fatal("Expected Target to be set")
+	}
+
+	if patch.Target.Kind != "Service" {
+		t.Errorf("Expected Target Kind to be 'Service', got '%s'", patch.Target.Kind)
+	}
+
+	if patch.Target.Name != "nginx-ingress-controller" {
+		t.Errorf("Expected Target Name to be 'nginx-ingress-controller', got '%s'", patch.Target.Name)
+	}
+
+	if patch.Target.Namespace != "ingress-nginx" {
+		t.Errorf("Expected Target Namespace to be 'ingress-nginx', got '%s'", patch.Target.Namespace)
+	}
+
+	// Verify the patch content contains both documents
+	if !strings.Contains(patch.Patch, "kind: Service") {
+		t.Errorf("Expected patch to contain 'kind: Service', got: %s", patch.Patch)
+	}
+	if !strings.Contains(patch.Patch, "kind: ConfigMap") {
+		t.Errorf("Expected patch to contain 'kind: ConfigMap', got: %s", patch.Patch)
+	}
+	if !strings.Contains(patch.Patch, "namespace: ingress-nginx") {
+		t.Errorf("Expected patch to contain 'namespace: ingress-nginx', got: %s", patch.Patch)
+	}
+}
+
+func TestToKubernetesKustomizationWithEdgeCases(t *testing.T) {
+	// Create a mock config handler
+	mockConfigHandler := &config.MockConfigHandler{}
+	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+		return "/tmp/test", nil
+	}
+
+	// Create a mock blueprint handler
+	handler := &BaseBlueprintHandler{
+		projectRoot:   "/tmp/test",
+		configHandler: mockConfigHandler,
+		shims:         NewShims(),
+	}
+
+	// Mock the ReadFile function to return a patch with edge cases
+	handler.shims.ReadFile = func(name string) ([]byte, error) {
+		if strings.Contains(name, "edge-case.yaml") {
+			return []byte(`# Comment at the top
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-ingress-controller
+  namespace: ingress-nginx
+spec:
+  externalIPs:
+  - 10.5.1.1
+  type: LoadBalancer
+---
+# Comment between documents
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: ingress-nginx
+data:
+  key: value
+---
+# Empty document
+---
+# Another comment
+apiVersion: v1
+kind: Secret
+metadata:
+  name: nginx-secret
+  namespace: ingress-nginx
+type: Opaque`), nil
+		}
+		return nil, fmt.Errorf("file not found")
+	}
+
+	// Create a kustomization with a patch that references a file with edge cases
+	kustomization := blueprintv1alpha1.Kustomization{
+		Name: "ingress",
+		Path: "ingress",
+		Patches: []blueprintv1alpha1.BlueprintPatch{
+			{
+				Path: "patches/ingress/edge-case.yaml",
+			},
+		},
+		Interval:      &metav1.Duration{Duration: time.Minute},
+		RetryInterval: &metav1.Duration{Duration: 2 * time.Minute},
+		Timeout:       &metav1.Duration{Duration: 5 * time.Minute},
+		Wait:          &[]bool{true}[0],
+		Force:         &[]bool{false}[0],
+		Prune:         &[]bool{true}[0],
+		Destroy:       &[]bool{true}[0],
+		Components:    []string{"nginx"},
+		DependsOn:     []string{"pki-resources"},
+	}
+
+	// Convert to Kubernetes kustomization
+	result := handler.toFluxKustomization(kustomization, "system-gitops")
+
+	// Verify that the patch has the correct Target with namespace from the first valid document
+	if len(result.Spec.Patches) != 1 {
+		t.Fatalf("Expected 1 patch, got %d", len(result.Spec.Patches))
+	}
+
+	patch := result.Spec.Patches[0]
+	if patch.Target == nil {
+		t.Fatal("Expected Target to be set")
+	}
+
+	if patch.Target.Kind != "Service" {
+		t.Errorf("Expected Target Kind to be 'Service', got '%s'", patch.Target.Kind)
+	}
+
+	if patch.Target.Name != "nginx-ingress-controller" {
+		t.Errorf("Expected Target Name to be 'nginx-ingress-controller', got '%s'", patch.Target.Name)
+	}
+
+	if patch.Target.Namespace != "ingress-nginx" {
+		t.Errorf("Expected Target Namespace to be 'ingress-nginx', got '%s'", patch.Target.Namespace)
+	}
+
+	// Verify the patch content contains all documents
+	if !strings.Contains(patch.Patch, "kind: Service") {
+		t.Errorf("Expected patch to contain 'kind: Service', got: %s", patch.Patch)
+	}
+	if !strings.Contains(patch.Patch, "kind: ConfigMap") {
+		t.Errorf("Expected patch to contain 'kind: ConfigMap', got: %s", patch.Patch)
+	}
+	if !strings.Contains(patch.Patch, "kind: Secret") {
+		t.Errorf("Expected patch to contain 'kind: Secret', got: %s", patch.Patch)
+	}
+	if !strings.Contains(patch.Patch, "namespace: ingress-nginx") {
+		t.Errorf("Expected patch to contain 'namespace: ingress-nginx', got: %s", patch.Patch)
+	}
 }

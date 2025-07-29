@@ -412,13 +412,9 @@ func (p *InitPipeline) processPlatformConfiguration(_ context.Context) error {
 	return nil
 }
 
-// prepareTemplateData selects and returns template input sources for template rendering in InitPipeline.
-// Selection order:
-// 1. If the context "blueprint" value is an OCI reference and artifactBuilder is set, extract template data from the OCI artifact.
-// 2. If blueprintHandler is set, attempt to load template data from the local _template directory.
-// 3. If local template data is unavailable, generate default template data for the current context using blueprintHandler.
-// 4. If none of the above yield data, return an empty map.
-// Returns a map of template file names to contents, or an error if extraction fails at any step.
+// prepareTemplateData determines and loads template data for initialization based on blueprint context, artifact builder, and blueprint handler state.
+// It prioritizes blueprint context value, then local blueprint handler data, then the default blueprint artifact, and finally the default template data for the current context.
+// Returns a map of template file names to their byte content, or an error if any retrieval or parsing operation fails.
 func (p *InitPipeline) prepareTemplateData(ctx context.Context) (map[string][]byte, error) {
 	var blueprintValue string
 	if blueprintCtx := ctx.Value("blueprint"); blueprintCtx != nil {
@@ -445,12 +441,14 @@ func (p *InitPipeline) prepareTemplateData(ctx context.Context) (map[string][]by
 	}
 
 	if p.blueprintHandler != nil {
-		localTemplateData, err := p.blueprintHandler.GetLocalTemplateData()
+		// Load all template data
+		blueprintTemplateData, err := p.blueprintHandler.GetLocalTemplateData()
 		if err != nil {
 			return nil, fmt.Errorf("failed to get local template data: %w", err)
 		}
-		if len(localTemplateData) > 0 {
-			return localTemplateData, nil
+
+		if len(blueprintTemplateData) > 0 {
+			return blueprintTemplateData, nil
 		}
 	}
 
@@ -480,13 +478,59 @@ func (p *InitPipeline) prepareTemplateData(ctx context.Context) (map[string][]by
 	return make(map[string][]byte), nil
 }
 
-// processTemplateData processes the template data to load blueprint data and render it.
+// filterTemplatesByBlueprintReferences returns a filtered map of template data containing only templates referenced by blueprint kustomization patches.
+// It inspects all kustomizations from the blueprint handler, collects referenced patch paths (converting .yaml/.yml to .jsonnet),
+// and includes only those patch templates in the result. Non-patch templates are always included.
+func (p *InitPipeline) filterTemplatesByBlueprintReferences(allTemplateData map[string][]byte) map[string][]byte {
+	kustomizations := p.blueprintHandler.GetKustomizations()
+
+	if len(kustomizations) == 0 {
+		return allTemplateData
+	}
+
+	referencedPatches := make(map[string]bool)
+	for _, kustomization := range kustomizations {
+		for _, patch := range kustomization.Patches {
+			if patch.Path != "" {
+				templatePath := strings.TrimSuffix(patch.Path, ".yaml")
+				templatePath = strings.TrimSuffix(templatePath, ".yml")
+				templatePath = templatePath + ".jsonnet"
+				referencedPatches[templatePath] = true
+			}
+		}
+	}
+
+	filteredTemplateData := make(map[string][]byte)
+	for path, content := range allTemplateData {
+		if strings.HasPrefix(path, "patches/") {
+			if referencedPatches[path] {
+				filteredTemplateData[path] = content
+			}
+		} else {
+			filteredTemplateData[path] = content
+		}
+	}
+
+	return filteredTemplateData
+}
+
+// processTemplateData renders and processes template data for the InitPipeline.
+// Filters patch templates based on blueprint kustomization references, renders all filtered templates,
+// and loads blueprint data from the rendered output if present. Returns the rendered template data map
+// or an error if rendering or blueprint loading fails.
 func (p *InitPipeline) processTemplateData(templateData map[string][]byte) (map[string]any, error) {
 	var renderedData map[string]any
 	if p.templateRenderer != nil && len(templateData) > 0 {
+		filteredTemplateData := p.filterTemplatesByBlueprintReferences(templateData)
 		renderedData = make(map[string]any)
-		if err := p.templateRenderer.Process(templateData, renderedData); err != nil {
+		if err := p.templateRenderer.Process(filteredTemplateData, renderedData); err != nil {
 			return nil, fmt.Errorf("failed to process template data: %w", err)
+		}
+		if blueprintData, exists := renderedData["blueprint"]; exists {
+			ctx := context.Background()
+			if err := p.loadBlueprintFromTemplate(ctx, map[string]any{"blueprint": blueprintData}); err != nil {
+				return nil, fmt.Errorf("failed to load blueprint from template: %w", err)
+			}
 		}
 	}
 	return renderedData, nil
@@ -498,6 +542,18 @@ func (p *InitPipeline) processTemplateData(templateData map[string][]byte) (map[
 func (p *InitPipeline) loadBlueprintFromTemplate(ctx context.Context, renderedData map[string]any) error {
 	if blueprintData, exists := renderedData["blueprint"]; exists {
 		if blueprintMap, ok := blueprintData.(map[string]any); ok {
+			if kustomizeData, exists := blueprintMap["kustomize"]; exists {
+				if kustomizeList, ok := kustomizeData.([]any); ok {
+					for _, k := range kustomizeList {
+						if kustomizeMap, ok := k.(map[string]any); ok {
+							if _, exists := kustomizeMap["patches"]; exists {
+								// Patches exist in this kustomization
+							}
+						}
+					}
+				}
+			}
+
 			var ociInfo *artifact.OCIArtifactInfo
 			if blueprintCtx := ctx.Value("blueprint"); blueprintCtx != nil {
 				if blueprintValue, ok := blueprintCtx.(string); ok {
@@ -548,10 +604,9 @@ func (p *InitPipeline) writeConfigurationFiles() error {
 	return nil
 }
 
-// handleBlueprintLoading manages blueprint loading logic based on reset flag and existing blueprint files.
-// If reset is true, loads blueprint from template data if available.
-// If reset is false, prefers existing blueprint.yaml over template data.
-// Falls back to loading from existing config if no template blueprint data exists.
+// handleBlueprintLoading loads blueprint data based on the reset flag and blueprint file presence.
+// If reset is true, loads blueprint from template data if available. If reset is false, prefers an existing blueprint.yaml file over template data.
+// If no template blueprint data exists, loads from existing config. Returns an error if loading fails.
 func (p *InitPipeline) handleBlueprintLoading(ctx context.Context, renderedData map[string]any, reset bool) error {
 	shouldLoadFromTemplate := false
 
@@ -569,7 +624,6 @@ func (p *InitPipeline) handleBlueprintLoading(ctx context.Context, renderedData 
 	}
 
 	if shouldLoadFromTemplate && len(renderedData) > 0 && renderedData["blueprint"] != nil {
-		// If we have a fallback blueprint URL, set it in the context
 		if p.fallbackBlueprintURL != "" {
 			ctx = context.WithValue(ctx, "blueprint", p.fallbackBlueprintURL)
 		}

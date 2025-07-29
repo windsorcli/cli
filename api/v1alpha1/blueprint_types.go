@@ -130,7 +130,21 @@ type TerraformComponent struct {
 	Parallelism *int `yaml:"parallelism,omitempty"`
 }
 
-// Kustomization defines a kustomization config in a blueprint.
+// BlueprintPatch represents a patch in the blueprint format.
+// This is converted to kustomize.Patch during processing.
+// Supports both blueprint format (Path) and Flux format (Patch + Target).
+type BlueprintPatch struct {
+	// Path to the patch file relative to the kustomization (blueprint format).
+	Path string `yaml:"path,omitempty"`
+
+	// Patch content as YAML string (Flux format).
+	Patch string `yaml:"patch,omitempty"`
+
+	// Target selector for the patch (Flux format).
+	Target *kustomize.Selector `yaml:"target,omitempty"`
+}
+
+// Kustomization represents a kustomization configuration.
 type Kustomization struct {
 	// Name of the kustomization.
 	Name string `yaml:"name"`
@@ -154,7 +168,7 @@ type Kustomization struct {
 	Timeout *metav1.Duration `yaml:"timeout,omitempty"`
 
 	// Patches to apply to the kustomization.
-	Patches []kustomize.Patch `yaml:"patches,omitempty"`
+	Patches []BlueprintPatch `yaml:"patches,omitempty"`
 
 	// Wait for the kustomization to be fully applied.
 	Wait *bool `yaml:"wait,omitempty"`

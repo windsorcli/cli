@@ -22,9 +22,10 @@ type JsonnetTemplate struct {
 // =============================================================================
 
 // NewJsonnetTemplate constructs a JsonnetTemplate with default processing rules for blueprint and terraform Jsonnet files.
-// It initializes the embedded BaseTemplate and assigns rules for blueprint.jsonnet and terraform/*.jsonnet path handling.
+// It initializes the embedded BaseTemplate and assigns rules for blueprint.jsonnet, terraform/*.jsonnet, and patches/*.jsonnet path handling.
 // The blueprint rule matches the exact "blueprint.jsonnet" filename and generates the "blueprint" key.
 // The terraform rule matches files under the "terraform/" directory with a ".jsonnet" extension and generates keys by stripping the extension.
+// The patches rule matches files under the "patches/" directory with a ".jsonnet" extension and generates keys in the format "patches/<kustomization_name>".
 func NewJsonnetTemplate(injector di.Injector) *JsonnetTemplate {
 	template := &JsonnetTemplate{
 		BaseTemplate: NewBaseTemplate(injector),
@@ -44,6 +45,15 @@ func NewJsonnetTemplate(injector di.Injector) *JsonnetTemplate {
 			},
 			KeyGenerator: func(path string) string {
 				return strings.TrimSuffix(path, ".jsonnet")
+			},
+		},
+		{
+			PathMatcher: func(path string) bool {
+				return strings.HasPrefix(path, "patches/") && strings.HasSuffix(path, ".jsonnet")
+			},
+			KeyGenerator: func(path string) string {
+				trimmed := strings.TrimSuffix(path, ".jsonnet")
+				return trimmed
 			},
 		},
 	}

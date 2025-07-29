@@ -2,13 +2,44 @@ package blueprint
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/secrets"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+type mockConfigHandler struct{}
+
+func (m *mockConfigHandler) Initialize() error                                            { return nil }
+func (m *mockConfigHandler) LoadConfig(path string) error                                 { return nil }
+func (m *mockConfigHandler) LoadConfigString(content string) error                        { return nil }
+func (m *mockConfigHandler) LoadContextConfig() error                                     { return nil }
+func (m *mockConfigHandler) GetString(key string, defaultValue ...string) string          { return "" }
+func (m *mockConfigHandler) GetInt(key string, defaultValue ...int) int                   { return 0 }
+func (m *mockConfigHandler) GetBool(key string, defaultValue ...bool) bool                { return false }
+func (m *mockConfigHandler) GetStringSlice(key string, defaultValue ...[]string) []string { return nil }
+func (m *mockConfigHandler) GetStringMap(key string, defaultValue ...map[string]string) map[string]string {
+	return nil
+}
+func (m *mockConfigHandler) Set(key string, value any) error                     { return nil }
+func (m *mockConfigHandler) SetContextValue(key string, value any) error         { return nil }
+func (m *mockConfigHandler) Get(key string) any                                  { return nil }
+func (m *mockConfigHandler) SaveConfig(overwrite ...bool) error                  { return nil }
+func (m *mockConfigHandler) SetDefault(context blueprintv1alpha1.Context) error  { return nil }
+func (m *mockConfigHandler) GetConfig() *blueprintv1alpha1.Context               { return nil }
+func (m *mockConfigHandler) GetContext() string                                  { return "test-context" }
+func (m *mockConfigHandler) SetContext(context string) error                     { return nil }
+func (m *mockConfigHandler) GetConfigRoot() (string, error)                      { return "/tmp", nil }
+func (m *mockConfigHandler) Clean() error                                        { return nil }
+func (m *mockConfigHandler) IsLoaded() bool                                      { return true }
+func (m *mockConfigHandler) SetSecretsProvider(provider secrets.SecretsProvider) {}
+func (m *mockConfigHandler) GenerateContextID() error                            { return nil }
+func (m *mockConfigHandler) YamlMarshalWithDefinedPaths(v any) ([]byte, error)   { return nil, nil }
 
 // =============================================================================
 // Test Helper Functions
@@ -61,6 +92,9 @@ func TestBaseBlueprintHandler_calculateMaxWaitTime(t *testing.T) {
 					},
 				},
 			},
+			shims:         NewShims(),
+			configHandler: &mockConfigHandler{},
+			projectRoot:   "/tmp",
 		}
 
 		// When calculating max wait time
@@ -102,6 +136,9 @@ func TestBaseBlueprintHandler_calculateMaxWaitTime(t *testing.T) {
 					},
 				},
 			},
+			shims:         NewShims(),
+			configHandler: &mockConfigHandler{},
+			projectRoot:   "/tmp",
 		}
 
 		// When calculating max wait time
@@ -152,6 +189,9 @@ func TestBaseBlueprintHandler_calculateMaxWaitTime(t *testing.T) {
 					},
 				},
 			},
+			shims:         NewShims(),
+			configHandler: &mockConfigHandler{},
+			projectRoot:   "/tmp",
 		}
 
 		// When calculating max wait time
@@ -195,6 +235,9 @@ func TestBaseBlueprintHandler_calculateMaxWaitTime(t *testing.T) {
 					},
 				},
 			},
+			shims:         NewShims(),
+			configHandler: &mockConfigHandler{},
+			projectRoot:   "/tmp",
 		}
 
 		// When calculating max wait time
@@ -204,6 +247,363 @@ func TestBaseBlueprintHandler_calculateMaxWaitTime(t *testing.T) {
 		expectedTime := timeout1 + timeout2 + timeout3 + timeout3
 		if waitTime != expectedTime {
 			t.Errorf("expected timeout %v, got %v", expectedTime, waitTime)
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_GetKustomizations(t *testing.T) {
+	t.Run("NoKustomizations", func(t *testing.T) {
+		// Given a blueprint handler with no kustomizations
+		handler := &BaseBlueprintHandler{
+			shims:         NewShims(),
+			configHandler: &mockConfigHandler{},
+			projectRoot:   "/tmp",
+			blueprint: blueprintv1alpha1.Blueprint{
+				Kustomizations: nil,
+			},
+		}
+
+		// When getting kustomizations
+		result := handler.GetKustomizations()
+
+		// Then it should return empty slice
+		if len(result) != 0 {
+			t.Errorf("expected empty slice, got %v", result)
+		}
+	})
+
+	t.Run("KustomizationWithNoPatches", func(t *testing.T) {
+		// Given a blueprint handler with a kustomization that has no patches
+		handler := &BaseBlueprintHandler{
+			shims:         NewShims(),
+			configHandler: &mockConfigHandler{},
+			projectRoot:   "/tmp",
+			blueprint: blueprintv1alpha1.Blueprint{
+				Metadata: blueprintv1alpha1.Metadata{
+					Name: "test-blueprint",
+				},
+				Kustomizations: []blueprintv1alpha1.Kustomization{
+					{
+						Name: "test-kustomization",
+					},
+				},
+			},
+		}
+
+		// When getting kustomizations
+		result := handler.GetKustomizations()
+
+		// Then it should return the kustomization with default values
+		if len(result) != 1 {
+			t.Fatalf("expected 1 kustomization, got %d", len(result))
+		}
+		if result[0].Name != "test-kustomization" {
+			t.Errorf("expected name 'test-kustomization', got %s", result[0].Name)
+		}
+		if result[0].Source != "test-blueprint" {
+			t.Errorf("expected source 'test-blueprint', got %s", result[0].Source)
+		}
+		if result[0].Path != "kustomize" {
+			t.Errorf("expected path 'kustomize', got %s", result[0].Path)
+		}
+		if result[0].Patches != nil {
+			t.Errorf("expected nil patches, got %v", result[0].Patches)
+		}
+	})
+
+	t.Run("KustomizationWithExistingPatches", func(t *testing.T) {
+		// Given a blueprint handler with a kustomization that has existing patches
+		existingPatches := []blueprintv1alpha1.BlueprintPatch{
+			{
+				Path: "patches/test-patch.yaml",
+			},
+		}
+		handler := &BaseBlueprintHandler{
+			shims:         NewShims(),
+			configHandler: &mockConfigHandler{},
+			projectRoot:   "/tmp",
+			blueprint: blueprintv1alpha1.Blueprint{
+				Metadata: blueprintv1alpha1.Metadata{
+					Name: "test-blueprint",
+				},
+				Kustomizations: []blueprintv1alpha1.Kustomization{
+					{
+						Name:    "test-kustomization",
+						Patches: existingPatches,
+					},
+				},
+			},
+		}
+
+		// When getting kustomizations
+		result := handler.GetKustomizations()
+
+		// Then it should return the kustomization with existing patches preserved
+		if len(result) != 1 {
+			t.Fatalf("expected 1 kustomization, got %d", len(result))
+		}
+		if len(result[0].Patches) != 1 {
+			t.Errorf("expected 1 patch, got %d", len(result[0].Patches))
+		}
+		if result[0].Patches[0].Path != "patches/test-patch.yaml" {
+			t.Errorf("expected patch path to match, got %s", result[0].Patches[0].Path)
+		}
+	})
+
+	t.Run("KustomizationWithDiscoveredPatches", func(t *testing.T) {
+		// Given a blueprint handler with a kustomization that will have discovered patches
+		handler := &BaseBlueprintHandler{
+			shims:         NewShims(),
+			configHandler: &mockConfigHandler{},
+			projectRoot:   "/tmp",
+			blueprint: blueprintv1alpha1.Blueprint{
+				Metadata: blueprintv1alpha1.Metadata{
+					Name: "test-blueprint",
+				},
+				Kustomizations: []blueprintv1alpha1.Kustomization{
+					{
+						Name: "test-kustomization",
+					},
+				},
+			},
+		}
+
+		// Create a temporary directory structure with patch files
+		tempDir := t.TempDir()
+		patchesDir := filepath.Join(tempDir, "contexts", "test-context", "patches", "test-kustomization")
+		if err := os.MkdirAll(patchesDir, 0755); err != nil {
+			t.Fatalf("failed to create patches directory: %v", err)
+		}
+
+		// Create patch files (these should not be auto-discovered)
+		patch1Content := `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: discovered-patch-1
+data:
+  key1: value1`
+		patch1File := filepath.Join(patchesDir, "patch1.yaml")
+		if err := os.WriteFile(patch1File, []byte(patch1Content), 0644); err != nil {
+			t.Fatalf("failed to write patch file: %v", err)
+		}
+
+		patch2Content := `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: discovered-patch-2
+data:
+  key2: value2`
+		patch2File := filepath.Join(patchesDir, "patch2.yaml")
+		if err := os.WriteFile(patch2File, []byte(patch2Content), 0644); err != nil {
+			t.Fatalf("failed to write patch file: %v", err)
+		}
+
+		// Override project root for this test
+		handler.projectRoot = tempDir
+
+		// When getting kustomizations
+		result := handler.GetKustomizations()
+
+		// Then it should return the kustomization with no patches (auto-discovery disabled)
+		if len(result) != 1 {
+			t.Fatalf("expected 1 kustomization, got %d", len(result))
+		}
+		if len(result[0].Patches) != 0 {
+			t.Errorf("expected 0 discovered patches (auto-discovery disabled), got %d", len(result[0].Patches))
+		}
+	})
+
+	t.Run("KustomizationWithExistingAndDiscoveredPatches", func(t *testing.T) {
+		// Given a blueprint handler with a kustomization that has both existing and discovered patches
+		existingPatches := []blueprintv1alpha1.BlueprintPatch{
+			{
+				Path: "patches/existing-patch-1.yaml",
+			},
+			{
+				Path: "patches/existing-patch-2.yaml",
+			},
+		}
+		handler := &BaseBlueprintHandler{
+			shims:         NewShims(),
+			configHandler: &mockConfigHandler{},
+			projectRoot:   "/tmp",
+			blueprint: blueprintv1alpha1.Blueprint{
+				Metadata: blueprintv1alpha1.Metadata{
+					Name: "test-blueprint",
+				},
+				Kustomizations: []blueprintv1alpha1.Kustomization{
+					{
+						Name:    "test-kustomization",
+						Patches: existingPatches,
+					},
+				},
+			},
+		}
+
+		// Create a temporary directory structure with patch files
+		tempDir := t.TempDir()
+		patchesDir := filepath.Join(tempDir, "contexts", "test-context", "patches", "test-kustomization")
+		if err := os.MkdirAll(patchesDir, 0755); err != nil {
+			t.Fatalf("failed to create patches directory: %v", err)
+		}
+
+		// Create discovered patch file (this should not be auto-discovered)
+		discoveredPatchContent := `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: discovered-patch
+data:
+  key: value`
+		discoveredPatchFile := filepath.Join(patchesDir, "discovered-patch.yaml")
+		if err := os.WriteFile(discoveredPatchFile, []byte(discoveredPatchContent), 0644); err != nil {
+			t.Fatalf("failed to write patch file: %v", err)
+		}
+
+		// Override project root for this test
+		handler.projectRoot = tempDir
+
+		// When getting kustomizations
+		result := handler.GetKustomizations()
+
+		// Then it should return the kustomization with only existing patches (auto-discovery disabled)
+		if len(result) != 1 {
+			t.Fatalf("expected 1 kustomization, got %d", len(result))
+		}
+		if len(result[0].Patches) != 2 {
+			t.Errorf("expected 2 patches (only existing, no auto-discovery), got %d", len(result[0].Patches))
+		}
+		// Existing patches should be preserved
+		if result[0].Patches[0].Path != "patches/existing-patch-1.yaml" {
+			t.Errorf("expected first patch 'patches/existing-patch-1.yaml', got %s", result[0].Patches[0].Path)
+		}
+		if result[0].Patches[1].Path != "patches/existing-patch-2.yaml" {
+			t.Errorf("expected second patch 'patches/existing-patch-2.yaml', got %s", result[0].Patches[1].Path)
+		}
+	})
+
+	t.Run("KustomizationWithPatchDiscoveryError", func(t *testing.T) {
+		// Given a blueprint handler with a kustomization that will have patch discovery errors
+		handler := &BaseBlueprintHandler{
+			shims:         NewShims(),
+			configHandler: &mockConfigHandler{},
+			projectRoot:   "/tmp",
+			blueprint: blueprintv1alpha1.Blueprint{
+				Metadata: blueprintv1alpha1.Metadata{
+					Name: "test-blueprint",
+				},
+				Kustomizations: []blueprintv1alpha1.Kustomization{
+					{
+						Name: "test-kustomization",
+					},
+				},
+			},
+		}
+
+		// Create a temporary directory structure with invalid patch files
+		tempDir := t.TempDir()
+		patchesDir := filepath.Join(tempDir, "contexts", "test-context", "patches", "test-kustomization")
+		if err := os.MkdirAll(patchesDir, 0755); err != nil {
+			t.Fatalf("failed to create patches directory: %v", err)
+		}
+
+		// Create an invalid patch file (missing required fields) - this should not be auto-discovered
+		invalidPatchContent := `apiVersion: v1
+# Missing kind and metadata
+data:
+  key: value`
+		invalidPatchFile := filepath.Join(patchesDir, "invalid-patch.yaml")
+		if err := os.WriteFile(invalidPatchFile, []byte(invalidPatchContent), 0644); err != nil {
+			t.Fatalf("failed to write patch file: %v", err)
+		}
+
+		// Override project root for this test
+		handler.projectRoot = tempDir
+
+		// When getting kustomizations
+		result := handler.GetKustomizations()
+
+		// Then it should return the kustomization without patches (auto-discovery disabled)
+		if len(result) != 1 {
+			t.Fatalf("expected 1 kustomization, got %d", len(result))
+		}
+		if len(result[0].Patches) != 0 {
+			t.Errorf("expected 0 patches (auto-discovery disabled), got %d", len(result[0].Patches))
+		}
+	})
+
+	t.Run("MultipleKustomizations", func(t *testing.T) {
+		// Given a blueprint handler with multiple kustomizations
+		handler := &BaseBlueprintHandler{
+			shims:         NewShims(),
+			configHandler: &mockConfigHandler{},
+			projectRoot:   "/tmp",
+			blueprint: blueprintv1alpha1.Blueprint{
+				Metadata: blueprintv1alpha1.Metadata{
+					Name: "test-blueprint",
+				},
+				Kustomizations: []blueprintv1alpha1.Kustomization{
+					{
+						Name: "kustomization-1",
+						Patches: []blueprintv1alpha1.BlueprintPatch{
+							{
+								Path: "patches/existing-patch-1.yaml",
+							},
+						},
+					},
+					{
+						Name: "kustomization-2",
+					},
+				},
+			},
+		}
+
+		// Create a temporary directory structure with patch files for second kustomization
+		tempDir := t.TempDir()
+		patchesDir := filepath.Join(tempDir, "contexts", "test-context", "patches", "kustomization-2")
+		if err := os.MkdirAll(patchesDir, 0755); err != nil {
+			t.Fatalf("failed to create patches directory: %v", err)
+		}
+
+		// Create patch file for second kustomization (this should not be auto-discovered)
+		patchContent := `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: discovered-patch
+data:
+  key: value`
+		patchFile := filepath.Join(patchesDir, "discovered-patch.yaml")
+		if err := os.WriteFile(patchFile, []byte(patchContent), 0644); err != nil {
+			t.Fatalf("failed to write patch file: %v", err)
+		}
+
+		// Override project root for this test
+		handler.projectRoot = tempDir
+
+		// When getting kustomizations
+		result := handler.GetKustomizations()
+
+		// Then it should return both kustomizations with appropriate patches
+		if len(result) != 2 {
+			t.Fatalf("expected 2 kustomizations, got %d", len(result))
+		}
+
+		// First kustomization should have existing patch
+		if result[0].Name != "kustomization-1" {
+			t.Errorf("expected first kustomization name 'kustomization-1', got %s", result[0].Name)
+		}
+		if len(result[0].Patches) != 1 {
+			t.Errorf("expected 1 patch for first kustomization, got %d", len(result[0].Patches))
+		}
+		if result[0].Patches[0].Path != "patches/existing-patch-1.yaml" {
+			t.Errorf("expected first kustomization patch 'patches/existing-patch-1.yaml', got %s", result[0].Patches[0].Path)
+		}
+
+		// Second kustomization should have no patches (auto-discovery disabled)
+		if result[1].Name != "kustomization-2" {
+			t.Errorf("expected second kustomization name 'kustomization-2', got %s", result[1].Name)
+		}
+		if len(result[1].Patches) != 0 {
+			t.Errorf("expected 0 patches for second kustomization (auto-discovery disabled), got %d", len(result[1].Patches))
 		}
 	})
 }

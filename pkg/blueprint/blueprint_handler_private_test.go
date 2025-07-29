@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	kustomize "github.com/fluxcd/pkg/apis/kustomize"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/kubernetes"
@@ -719,12 +718,48 @@ metadata:
 	})
 }
 
-func TestBlueprintHandler_toKubernetesKustomization(t *testing.T) {
+func TestBlueprintHandler_toFluxKustomization(t *testing.T) {
 	setup := func(t *testing.T) *BaseBlueprintHandler {
 		t.Helper()
 		mocks := setupMocks(t)
 		handler := NewBlueprintHandler(mocks.Injector)
 		handler.shims = mocks.Shims
+		handler.configHandler = mocks.ConfigHandler
+
+		// Set up mock shims to return expected patch content for the test
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			// Extract the relative path from the full path using filepath operations
+			pathParts := strings.Split(path, string(filepath.Separator))
+			var relativePath string
+			for i, part := range pathParts {
+				if part == "patches" {
+					relativePath = strings.Join(pathParts[i:], "/") // Always use forward slashes for consistency
+					break
+				}
+			}
+
+			switch relativePath {
+			case "patches/patch1.yaml":
+				return []byte(`apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-deployment
+  namespace: test-namespace
+spec:
+  replicas: 3`), nil
+			case "patches/patch2.yaml":
+				return []byte(`apiVersion: v1
+kind: Service
+metadata:
+  name: app-service
+  namespace: test-namespace
+spec:
+  type: ClusterIP`), nil
+			default:
+				return nil, fmt.Errorf("file not found: %s", path)
+			}
+		}
+
 		return handler
 	}
 
@@ -745,7 +780,7 @@ func TestBlueprintHandler_toKubernetesKustomization(t *testing.T) {
 		}
 
 		// When converting to kubernetes kustomization
-		result := handler.toKubernetesKustomization(blueprintKustomization, "test-namespace")
+		result := handler.toFluxKustomization(blueprintKustomization, "test-namespace")
 
 		// Then the basic fields should be correctly mapped
 		if result.Name != "test-kustomization" {
@@ -797,33 +832,32 @@ func TestBlueprintHandler_toKubernetesKustomization(t *testing.T) {
 			Timeout:       &metav1.Duration{Duration: 10 * time.Minute},
 			Force:         &[]bool{false}[0],
 			Wait:          &[]bool{true}[0],
-			Patches: []kustomize.Patch{
+			Patches: []blueprintv1alpha1.BlueprintPatch{
 				{
-					Patch: "patch content 1",
-					Target: &kustomize.Selector{
-						Kind: "Deployment",
-						Name: "app-deployment",
-					},
+					Path: "patches/patch1.yaml",
 				},
 				{
-					Patch: "patch content 2",
-					Target: &kustomize.Selector{
-						Kind: "Service",
-						Name: "app-service",
-					},
+					Path: "patches/patch2.yaml",
 				},
 			},
 		}
 
 		// When converting to kubernetes kustomization
-		result := handler.toKubernetesKustomization(blueprintKustomization, "test-namespace")
+		result := handler.toFluxKustomization(blueprintKustomization, "test-namespace")
 
 		// Then the patches should be correctly mapped
 		if len(result.Spec.Patches) != 2 {
 			t.Errorf("Expected 2 patches, got %d", len(result.Spec.Patches))
 		}
-		if result.Spec.Patches[0].Patch != "patch content 1" {
-			t.Errorf("Expected first patch content to be 'patch content 1', got %s", result.Spec.Patches[0].Patch)
+		expectedPatch1 := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-deployment
+  namespace: test-namespace
+spec:
+  replicas: 3`
+		if result.Spec.Patches[0].Patch != expectedPatch1 {
+			t.Errorf("Expected first patch content to be:\n%s\n\ngot:\n%s", expectedPatch1, result.Spec.Patches[0].Patch)
 		}
 		if result.Spec.Patches[0].Target.Kind != "Deployment" {
 			t.Errorf("Expected first patch target kind to be Deployment, got %s", result.Spec.Patches[0].Target.Kind)
@@ -831,8 +865,15 @@ func TestBlueprintHandler_toKubernetesKustomization(t *testing.T) {
 		if result.Spec.Patches[0].Target.Name != "app-deployment" {
 			t.Errorf("Expected first patch target name to be app-deployment, got %s", result.Spec.Patches[0].Target.Name)
 		}
-		if result.Spec.Patches[1].Patch != "patch content 2" {
-			t.Errorf("Expected second patch content to be 'patch content 2', got %s", result.Spec.Patches[1].Patch)
+		expectedPatch2 := `apiVersion: v1
+kind: Service
+metadata:
+  name: app-service
+  namespace: test-namespace
+spec:
+  type: ClusterIP`
+		if result.Spec.Patches[1].Patch != expectedPatch2 {
+			t.Errorf("Expected second patch content to be:\n%s\n\ngot:\n%s", expectedPatch2, result.Spec.Patches[1].Patch)
 		}
 		if result.Spec.Patches[1].Target.Kind != "Service" {
 			t.Errorf("Expected second patch target kind to be Service, got %s", result.Spec.Patches[1].Target.Kind)
@@ -861,7 +902,7 @@ func TestBlueprintHandler_toKubernetesKustomization(t *testing.T) {
 		}
 
 		// When converting to kubernetes kustomization
-		result := handler.toKubernetesKustomization(blueprintKustomization, "test-namespace")
+		result := handler.toFluxKustomization(blueprintKustomization, "test-namespace")
 
 		// Then the custom prune setting should be used
 		if result.Spec.Prune != false {
@@ -887,7 +928,7 @@ func TestBlueprintHandler_toKubernetesKustomization(t *testing.T) {
 		}
 
 		// When converting to kubernetes kustomization
-		result := handler.toKubernetesKustomization(blueprintKustomization, "test-namespace")
+		result := handler.toFluxKustomization(blueprintKustomization, "test-namespace")
 
 		// Then the dependencies should be correctly mapped
 		if len(result.Spec.DependsOn) != 2 {
@@ -942,7 +983,7 @@ func TestBlueprintHandler_toKubernetesKustomization(t *testing.T) {
 		}
 
 		// When converting to kubernetes kustomization
-		result := handler.toKubernetesKustomization(blueprintKustomization, "test-namespace")
+		result := handler.toFluxKustomization(blueprintKustomization, "test-namespace")
 
 		// Then the postBuild should be correctly mapped
 		if result.Spec.PostBuild == nil {
@@ -998,7 +1039,7 @@ func TestBlueprintHandler_toKubernetesKustomization(t *testing.T) {
 		}
 
 		// When converting to kubernetes kustomization
-		result := handler.toKubernetesKustomization(blueprintKustomization, "test-namespace")
+		result := handler.toFluxKustomization(blueprintKustomization, "test-namespace")
 
 		// Then the components should be correctly mapped
 		if len(result.Spec.Components) != 2 {
@@ -1030,13 +1071,12 @@ func TestBlueprintHandler_toKubernetesKustomization(t *testing.T) {
 			Prune:         &customPrune,
 			DependsOn:     []string{"dep-1", "dep-2", "dep-3"},
 			Components:    []string{"comp-1", "comp-2"},
-			Patches: []kustomize.Patch{
+			Patches: []blueprintv1alpha1.BlueprintPatch{
 				{
-					Patch: "complete patch",
-					Target: &kustomize.Selector{
-						Kind: "StatefulSet",
-						Name: "database",
-					},
+					Path: "patches/patch1.yaml",
+				},
+				{
+					Path: "patches/patch2.yaml",
 				},
 			},
 			PostBuild: &blueprintv1alpha1.PostBuild{
@@ -1055,7 +1095,7 @@ func TestBlueprintHandler_toKubernetesKustomization(t *testing.T) {
 		}
 
 		// When converting to kubernetes kustomization
-		result := handler.toKubernetesKustomization(blueprintKustomization, "production-namespace")
+		result := handler.toFluxKustomization(blueprintKustomization, "production-namespace")
 
 		// Then all fields should be correctly converted
 		if result.Name != "complete-kustomization" {
@@ -1088,8 +1128,8 @@ func TestBlueprintHandler_toKubernetesKustomization(t *testing.T) {
 		if len(result.Spec.Components) != 2 {
 			t.Errorf("Expected 2 components, got %d", len(result.Spec.Components))
 		}
-		if len(result.Spec.Patches) != 1 {
-			t.Errorf("Expected 1 patch, got %d", len(result.Spec.Patches))
+		if len(result.Spec.Patches) != 2 {
+			t.Errorf("Expected 2 patches, got %d", len(result.Spec.Patches))
 		}
 		if result.Spec.PostBuild == nil {
 			t.Error("Expected postBuild to be set, got nil")

@@ -184,8 +184,86 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 		if _, exists := renderedData["terraform/main"]; !exists {
 			t.Error("Expected terraform/main to be rendered")
 		}
+
 		if _, exists := renderedData["terraform/cluster"]; !exists {
 			t.Error("Expected terraform/cluster to be rendered")
+		}
+	})
+
+	t.Run("ProcessesPatchesJsonnetTemplates", func(t *testing.T) {
+		// Given a jsonnet template
+		template, mocks := setup(t)
+
+		// And template data containing patches/ .jsonnet files with subdirectory structure
+		templateData := map[string][]byte{
+			"patches/ingress/nginx.jsonnet": []byte(`local context = std.extVar("context"); { apiVersion: "v1", kind: "ConfigMap", metadata: { name: "nginx-config" } }`),
+			"patches/dns/coredns.jsonnet":   []byte(`local context = std.extVar("context"); { apiVersion: "v1", kind: "ConfigMap", metadata: { name: "coredns-config" } }`),
+		}
+		renderedData := make(map[string]any)
+
+		// And a mock jsonnet VM that returns valid patch manifests
+		template.shims.NewJsonnetVM = func() JsonnetVM {
+			mockVM := &mockJsonnetVM{
+				EvaluateFunc: func(filename, snippet string) (string, error) {
+					if strings.Contains(filename, "nginx") {
+						return `{"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "nginx-config"}}`, nil
+					}
+					return `{"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "coredns-config"}}`, nil
+				},
+			}
+			return mockVM
+		}
+
+		// And mock config handler returns valid YAML
+		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
+		}
+
+		// When processing the template data
+		err := template.Process(templateData, renderedData)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And the rendered data should contain the patch manifests with preserved path structure
+		if len(renderedData) != 2 {
+			t.Errorf("Expected 2 rendered items, got %d", len(renderedData))
+		}
+
+		// Verify that the full path structure is preserved (not flattened)
+		if _, exists := renderedData["patches/ingress/nginx"]; !exists {
+			t.Error("Expected patches/ingress/nginx to be rendered with preserved path structure")
+		}
+
+		if _, exists := renderedData["patches/dns/coredns"]; !exists {
+			t.Error("Expected patches/dns/coredns to be rendered with preserved path structure")
+		}
+
+		// Verify the content is correctly processed
+		nginxPatch, ok := renderedData["patches/ingress/nginx"].(map[string]any)
+		if !ok {
+			t.Error("Expected nginx patch to be a map")
+		} else {
+			if nginxPatch["apiVersion"] != "v1" {
+				t.Errorf("Expected apiVersion to be 'v1', got %v", nginxPatch["apiVersion"])
+			}
+			if nginxPatch["kind"] != "ConfigMap" {
+				t.Errorf("Expected kind to be 'ConfigMap', got %v", nginxPatch["kind"])
+			}
+		}
+
+		corednsPatch, ok := renderedData["patches/dns/coredns"].(map[string]any)
+		if !ok {
+			t.Error("Expected coredns patch to be a map")
+		} else {
+			if corednsPatch["apiVersion"] != "v1" {
+				t.Errorf("Expected apiVersion to be 'v1', got %v", corednsPatch["apiVersion"])
+			}
+			if corednsPatch["kind"] != "ConfigMap" {
+				t.Errorf("Expected kind to be 'ConfigMap', got %v", corednsPatch["kind"])
+			}
 		}
 	})
 
