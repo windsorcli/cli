@@ -2,6 +2,7 @@ package generators
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -294,7 +295,10 @@ func TestPatchGenerator_Generate(t *testing.T) {
 		expectedFile := "/test/config/patches/ingress/nginx.yaml"
 		found := false
 		for _, file := range createdFiles {
-			if strings.HasSuffix(file, expectedFile) {
+			// Normalize paths for cross-platform comparison
+			normalizedFile := filepath.ToSlash(file)
+			normalizedExpected := filepath.ToSlash(expectedFile)
+			if strings.HasSuffix(normalizedFile, normalizedExpected) {
 				found = true
 				break
 			}

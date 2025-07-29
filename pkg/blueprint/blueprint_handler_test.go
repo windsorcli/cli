@@ -3237,7 +3237,9 @@ func TestToKubernetesKustomizationWithActualPatch(t *testing.T) {
 
 	// Mock the ReadFile function to return the expected patch content
 	handler.shims.ReadFile = func(path string) ([]byte, error) {
-		if strings.Contains(path, "patches/ingress/nginx.yaml") {
+		// Normalize path for cross-platform comparison
+		normalizedPath := filepath.ToSlash(path)
+		if strings.Contains(normalizedPath, "patches/ingress/nginx.yaml") {
 			return []byte(`apiVersion: v1
 kind: Service
 metadata:

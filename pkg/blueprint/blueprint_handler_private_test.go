@@ -728,12 +728,12 @@ func TestBlueprintHandler_toFluxKustomization(t *testing.T) {
 
 		// Set up mock shims to return expected patch content for the test
 		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
-			// Extract the relative path from the full path
-			pathParts := strings.Split(path, string(os.PathSeparator))
+			// Extract the relative path from the full path using filepath operations
+			pathParts := strings.Split(path, string(filepath.Separator))
 			var relativePath string
 			for i, part := range pathParts {
 				if part == "patches" {
-					relativePath = strings.Join(pathParts[i:], string(os.PathSeparator))
+					relativePath = strings.Join(pathParts[i:], "/") // Always use forward slashes for consistency
 					break
 				}
 			}
