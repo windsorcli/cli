@@ -176,7 +176,7 @@ func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath stri
 		return nil, fmt.Errorf("error generating backend config args for env: %w", err)
 	}
 
-	initArgs := []string{"-backend=true", "-force-copy"}
+	initArgs := []string{"-backend=true", "-force-copy", "-upgrade"}
 	initArgs = append(initArgs, backendConfigArgs...)
 
 	planArgs := []string{fmt.Sprintf("-out=%s", tfPlanPath)}
@@ -209,7 +209,7 @@ func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath stri
 
 	terraformVars := make(map[string]string)
 	terraformVars["TF_DATA_DIR"] = strings.TrimSpace(tfDataDir)
-	terraformVars["TF_CLI_ARGS_init"] = strings.TrimSpace(fmt.Sprintf("-backend=true -force-copy %s", strings.Join(backendConfigArgsForEnv, " ")))
+	terraformVars["TF_CLI_ARGS_init"] = strings.TrimSpace(fmt.Sprintf("-backend=true -force-copy -upgrade %s", strings.Join(backendConfigArgsForEnv, " ")))
 	terraformVars["TF_CLI_ARGS_plan"] = strings.TrimSpace(fmt.Sprintf("-out=\"%s\" %s", tfPlanPath, strings.Join(varFileArgsForEnv, " ")))
 	terraformVars["TF_CLI_ARGS_apply"] = strings.TrimSpace(fmt.Sprintf("\"%s\"%s", tfPlanPath, parallelismArg))
 	terraformVars["TF_CLI_ARGS_refresh"] = strings.TrimSpace(strings.Join(varFileArgsForEnv, " "))
