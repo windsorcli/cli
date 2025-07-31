@@ -3016,12 +3016,12 @@ func TestBlueprintHandler_Write(t *testing.T) {
 func TestTargetHandling(t *testing.T) {
 	// Test case 1: Path with no existing Target - should create Target with namespace from patch
 	patch1 := blueprintv1alpha1.BlueprintPatch{
-		Path: "patches/ingress/nginx.yaml",
+		Path: "kustomize/ingress/nginx.yaml",
 	}
 
 	// Test case 2: Path with existing Target - should not override existing Target
 	patch2 := blueprintv1alpha1.BlueprintPatch{
-		Path: "patches/ingress/nginx.yaml",
+		Path: "kustomize/ingress/nginx.yaml",
 		Target: &kustomize.Selector{
 			Kind:      "Service",
 			Name:      "nginx-ingress-controller",
@@ -3041,7 +3041,7 @@ func TestTargetHandling(t *testing.T) {
 
 	// Test case 4: Path with patch that has namespace in metadata - should use patch namespace
 	patch4 := blueprintv1alpha1.BlueprintPatch{
-		Path: "patches/ingress/nginx-with-namespace.yaml",
+		Path: "kustomize/ingress/nginx-with-namespace.yaml",
 	}
 
 	// Verify the patches have the expected structure
@@ -3181,7 +3181,7 @@ spec:
 		Path: "ingress",
 		Patches: []blueprintv1alpha1.BlueprintPatch{
 			{
-				Path: "patches/ingress/nginx.yaml",
+				Path: "kustomize/ingress/nginx.yaml",
 			},
 		},
 		Interval:      &metav1.Duration{Duration: time.Minute},
@@ -3239,7 +3239,7 @@ func TestToKubernetesKustomizationWithActualPatch(t *testing.T) {
 	handler.shims.ReadFile = func(path string) ([]byte, error) {
 		// Normalize path for cross-platform comparison
 		normalizedPath := filepath.ToSlash(path)
-		if strings.Contains(normalizedPath, "patches/ingress/nginx.yaml") {
+		if strings.Contains(normalizedPath, "kustomize/ingress/nginx.yaml") {
 			return []byte(`apiVersion: v1
 kind: Service
 metadata:
@@ -3259,7 +3259,7 @@ spec:
 		Path: "ingress",
 		Patches: []blueprintv1alpha1.BlueprintPatch{
 			{
-				Path: "patches/ingress/nginx.yaml",
+				Path: "kustomize/ingress/nginx.yaml",
 			},
 		},
 		Interval:      &metav1.Duration{Duration: time.Minute},
@@ -3348,7 +3348,7 @@ data:
 		Path: "ingress",
 		Patches: []blueprintv1alpha1.BlueprintPatch{
 			{
-				Path: "patches/ingress/multi-patch.yaml",
+				Path: "kustomize/ingress/multi-patch.yaml",
 			},
 		},
 		Interval:      &metav1.Duration{Duration: time.Minute},
@@ -3457,7 +3457,7 @@ type: Opaque`), nil
 		Path: "ingress",
 		Patches: []blueprintv1alpha1.BlueprintPatch{
 			{
-				Path: "patches/ingress/edge-case.yaml",
+				Path: "kustomize/ingress/edge-case.yaml",
 			},
 		},
 		Interval:      &metav1.Duration{Duration: time.Minute},

@@ -1111,7 +1111,7 @@ func (b *BaseBlueprintHandler) toFluxKustomization(k blueprintv1alpha1.Kustomiza
 			if err != nil {
 				continue
 			}
-			patchFilePath := filepath.Join(configRoot, p.Path)
+			patchFilePath := filepath.Join(configRoot, "kustomize", p.Path)
 			data, err := b.shims.ReadFile(patchFilePath)
 			if err != nil {
 				continue

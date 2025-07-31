@@ -60,7 +60,7 @@ func setupPatchGeneratorMocks(t *testing.T) *PatchMocks {
 					Name: "dns",
 					Patches: []blueprintv1alpha1.BlueprintPatch{
 						{
-							Path: "patches/dns/coredns.yaml",
+							Path: "kustomize/dns/coredns.yaml",
 						},
 					},
 				},
@@ -68,7 +68,7 @@ func setupPatchGeneratorMocks(t *testing.T) *PatchMocks {
 					Name: "ingress",
 					Patches: []blueprintv1alpha1.BlueprintPatch{
 						{
-							Path: "patches/ingress/nginx.yaml",
+							Path: "kustomize/ingress/nginx.yaml",
 						},
 					},
 				},
@@ -211,7 +211,7 @@ func TestPatchGenerator_Generate(t *testing.T) {
 	}
 
 	t.Run("InitPipelineData", func(t *testing.T) {
-		// Given init pipeline data (no "patches/" prefix)
+		// Given init pipeline data (no "kustomize/" prefix)
 		data := map[string]any{
 			"terraform/vpc": map[string]any{"region": "us-west-2"},
 			"blueprint":     map[string]any{"name": "test"},
@@ -227,9 +227,9 @@ func TestPatchGenerator_Generate(t *testing.T) {
 	})
 
 	t.Run("InstallPipelineData", func(t *testing.T) {
-		// Given install pipeline data (with "patches/" prefix)
+		// Given install pipeline data (with "kustomize/" prefix)
 		data := map[string]any{
-			"patches/dns": map[string]any{
+			"kustomize/dns": map[string]any{
 				"apiVersion": "v1",
 				"kind":       "ConfigMap",
 				"metadata": map[string]any{
@@ -258,7 +258,7 @@ func TestPatchGenerator_Generate(t *testing.T) {
 	t.Run("SubdirectoryStructure", func(t *testing.T) {
 		// Given install pipeline data with subdirectory structure
 		data := map[string]any{
-			"patches/ingress/nginx": map[string]any{
+			"kustomize/ingress/nginx": map[string]any{
 				"apiVersion": "v1",
 				"kind":       "ConfigMap",
 				"metadata": map[string]any{
@@ -292,7 +292,7 @@ func TestPatchGenerator_Generate(t *testing.T) {
 		}
 
 		// And it should create the correct file
-		expectedFile := "/test/config/patches/ingress/nginx.yaml"
+		expectedFile := "/test/config/kustomize/ingress/nginx.yaml"
 		found := false
 		for _, file := range createdFiles {
 			// Normalize paths for cross-platform comparison
@@ -316,7 +316,7 @@ func TestPatchGenerator_Generate(t *testing.T) {
 
 		// And install pipeline data
 		data := map[string]any{
-			"patches/dns": map[string]any{},
+			"kustomize/dns": map[string]any{},
 		}
 
 		// When calling Generate
@@ -355,7 +355,7 @@ func TestPatchGenerator_Generate(t *testing.T) {
 
 		// And patch data with valid content
 		data := map[string]any{
-			"patches/dns": map[string]any{
+			"kustomize/dns": map[string]any{
 				"apiVersion": "v1",
 				"kind":       "ConfigMap",
 				"metadata": map[string]any{
@@ -392,7 +392,7 @@ func TestPatchGenerator_Generate(t *testing.T) {
 
 		// And patch data with valid content
 		data := map[string]any{
-			"patches/dns": map[string]any{
+			"kustomize/dns": map[string]any{
 				"apiVersion": "v1",
 				"kind":       "ConfigMap",
 				"metadata": map[string]any{
@@ -416,7 +416,7 @@ func TestPatchGenerator_Generate(t *testing.T) {
 
 		// And patch data with invalid values type
 		data := map[string]any{
-			"patches/dns": "not-a-map",
+			"kustomize/dns": "not-a-map",
 		}
 
 		// When calling Generate
@@ -431,21 +431,19 @@ func TestPatchGenerator_Generate(t *testing.T) {
 		}
 	})
 
-	t.Run("UnreferencedPatch", func(t *testing.T) {
+	t.Run("EmptyData", func(t *testing.T) {
 		// Given proper config root mock
 		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) { return "/test/config", nil }
 
-		// And patch data for an unreferenced kustomization
-		data := map[string]any{
-			"patches/unreferenced": map[string]any{},
-		}
+		// And empty patch data (no patches to process)
+		data := map[string]any{}
 
 		// When calling Generate
 		err := generator.Generate(data)
 
-		// Then it should succeed (skips unreferenced patches)
+		// Then it should succeed with no patches to process
 		if err != nil {
-			t.Fatalf("expected Generate to succeed with unreferenced patch, got: %v", err)
+			t.Fatalf("expected Generate to succeed with empty data, got: %v", err)
 		}
 	})
 
@@ -455,7 +453,7 @@ func TestPatchGenerator_Generate(t *testing.T) {
 
 		// And patch data
 		data := map[string]any{
-			"patches/dns": map[string]any{
+			"kustomize/dns": map[string]any{
 				"apiVersion": "v1",
 				"kind":       "ConfigMap",
 				"metadata": map[string]any{
@@ -482,180 +480,7 @@ func TestPatchGenerator_Generate(t *testing.T) {
 // Helper Tests
 // =============================================================================
 
-func TestPatchGenerator_extractPatchReferences(t *testing.T) {
-	// Given a patch generator
-	generator, _ := createPatchGeneratorWithMocks(t)
 
-	t.Run("WithValidPatches", func(t *testing.T) {
-		// Given kustomizations with valid patch references
-		kustomizations := []blueprintv1alpha1.Kustomization{
-			{
-				Name: "dns",
-				Patches: []blueprintv1alpha1.BlueprintPatch{
-					{
-						Path: "patches/dns/coredns.yaml",
-					},
-					{
-						Path: "patches/dns/dns-config.yaml",
-					},
-				},
-			},
-			{
-				Name: "ingress",
-				Patches: []blueprintv1alpha1.BlueprintPatch{
-					{
-						Path: "patches/ingress/nginx.yaml",
-					},
-				},
-			},
-		}
-
-		// When extracting patch references
-		result := generator.extractPatchReferences(kustomizations)
-
-		// Then it should return the expected references
-		if len(result) != 2 {
-			t.Errorf("expected 2 kustomizations, got %d", len(result))
-		}
-
-		if dnsRefs, exists := result["dns"]; !exists {
-			t.Error("expected dns kustomization to be present")
-		} else if len(dnsRefs) != 2 {
-			t.Errorf("expected 2 dns references, got %d", len(dnsRefs))
-		}
-
-		if ingressRefs, exists := result["ingress"]; !exists {
-			t.Error("expected ingress kustomization to be present")
-		} else if len(ingressRefs) != 1 {
-			t.Errorf("expected 1 ingress reference, got %d", len(ingressRefs))
-		}
-	})
-
-	t.Run("WithEmptyPatches", func(t *testing.T) {
-		// Given kustomizations with empty patches
-		kustomizations := []blueprintv1alpha1.Kustomization{
-			{
-				Name:    "dns",
-				Patches: []blueprintv1alpha1.BlueprintPatch{},
-			},
-		}
-
-		// When extracting patch references
-		result := generator.extractPatchReferences(kustomizations)
-
-		// Then it should return empty result
-		if len(result) != 0 {
-			t.Errorf("expected empty result, got %d kustomizations", len(result))
-		}
-	})
-
-	t.Run("WithNilTarget", func(t *testing.T) {
-		// Given kustomizations with nil targets
-		kustomizations := []blueprintv1alpha1.Kustomization{
-			{
-				Name: "dns",
-				Patches: []blueprintv1alpha1.BlueprintPatch{
-					{
-						Path: "",
-					},
-				},
-			},
-		}
-
-		// When extracting patch references
-		result := generator.extractPatchReferences(kustomizations)
-
-		// Then it should return empty result
-		if len(result) != 0 {
-			t.Errorf("expected empty result, got %d kustomizations", len(result))
-		}
-	})
-
-	t.Run("WithEmptyTargetName", func(t *testing.T) {
-		// Given kustomizations with empty path
-		kustomizations := []blueprintv1alpha1.Kustomization{
-			{
-				Name: "dns",
-				Patches: []blueprintv1alpha1.BlueprintPatch{
-					{
-						Path: "",
-					},
-				},
-			},
-		}
-
-		// When extracting patch references
-		result := generator.extractPatchReferences(kustomizations)
-
-		// Then it should return empty result
-		if len(result) != 0 {
-			t.Errorf("expected empty result, got %d kustomizations", len(result))
-		}
-	})
-}
-
-func TestPatchGenerator_isPatchReferenced(t *testing.T) {
-	// Given a patch generator
-	generator, _ := createPatchGeneratorWithMocks(t)
-
-	t.Run("ExactMatch", func(t *testing.T) {
-		// Given patch references
-		patchReferences := map[string][]string{
-			"dns": {"patches/dns/coredns.yaml", "patches/dns/dns-config.yaml"},
-		}
-
-		// When checking exact match
-		result := generator.isPatchReferenced("dns", patchReferences)
-
-		// Then it should be referenced
-		if !result {
-			t.Error("expected patch to be referenced")
-		}
-	})
-
-	t.Run("SubdirectoryMatch", func(t *testing.T) {
-		// Given patch references
-		patchReferences := map[string][]string{
-			"ingress": {"patches/ingress/nginx.yaml"},
-		}
-
-		// When checking subdirectory match
-		result := generator.isPatchReferenced("ingress", patchReferences)
-
-		// Then it should be referenced
-		if !result {
-			t.Error("expected patch to be referenced")
-		}
-	})
-
-	t.Run("NoMatch", func(t *testing.T) {
-		// Given patch references
-		patchReferences := map[string][]string{
-			"dns": {"patches/dns/coredns.yaml"},
-		}
-
-		// When checking no match
-		result := generator.isPatchReferenced("unreferenced", patchReferences)
-
-		// Then it should not be referenced
-		if result {
-			t.Error("expected patch to not be referenced")
-		}
-	})
-
-	t.Run("EmptyReferences", func(t *testing.T) {
-		// Given empty patch references
-		patchReferences := map[string][]string{}
-
-		// When checking any patch
-		result := generator.isPatchReferenced("dns", patchReferences)
-
-		// Then it should not be referenced
-		if result {
-			t.Error("expected patch to not be referenced")
-		}
-	})
-}
 
 func TestPatchGenerator_generatePatchFiles(t *testing.T) {
 	// Given a patch generator with mocks
@@ -682,7 +507,7 @@ func TestPatchGenerator_generatePatchFiles(t *testing.T) {
 		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error { return nil }
 
 		// When generating patch files
-		err := generator.generatePatchFiles("/test/patches/test.yaml", values, false)
+		err := generator.generatePatchFiles("/test/kustomize/test.yaml", values, false)
 
 		// Then it should succeed
 		if err != nil {
@@ -706,7 +531,7 @@ func TestPatchGenerator_generatePatchFiles(t *testing.T) {
 		}
 
 		// When generating patch files
-		err := generator.generatePatchFiles("/test/patches/test.yaml", values, false)
+		err := generator.generatePatchFiles("/test/kustomize/test.yaml", values, false)
 
 		// Then it should fail
 		if err == nil {
@@ -734,7 +559,7 @@ func TestPatchGenerator_generatePatchFiles(t *testing.T) {
 		}
 
 		// When generating patch files
-		err := generator.generatePatchFiles("/test/patches/test.yaml", values, false)
+		err := generator.generatePatchFiles("/test/kustomize/test.yaml", values, false)
 
 		// Then it should fail
 		if err == nil {
@@ -762,7 +587,7 @@ func TestPatchGenerator_generatePatchFiles(t *testing.T) {
 		}
 
 		// When generating patch files
-		err := generator.generatePatchFiles("/test/patches/test.yaml", values, false)
+		err := generator.generatePatchFiles("/test/kustomize/test.yaml", values, false)
 
 		// Then it should fail
 		if err == nil {
@@ -784,7 +609,7 @@ func TestPatchGenerator_generatePatchFiles(t *testing.T) {
 		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error { return nil }
 
 		// When generating patch files
-		err := generator.generatePatchFiles("/test/patches/test.yaml", values, false)
+		err := generator.generatePatchFiles("/test/kustomize/test.yaml", values, false)
 
 		// Then it should fail
 		if err == nil {
@@ -818,7 +643,7 @@ func TestPatchGenerator_generatePatchFiles(t *testing.T) {
 		}
 
 		// When generating patch files
-		err := generator.generatePatchFiles("/test/patches/test", values, false)
+		err := generator.generatePatchFiles("/test/kustomize/test", values, false)
 
 		// Then it should succeed
 		if err != nil {
@@ -826,7 +651,7 @@ func TestPatchGenerator_generatePatchFiles(t *testing.T) {
 		}
 
 		// And it should append .yaml extension
-		expectedFile := "/test/patches/test.yaml"
+		expectedFile := "/test/kustomize/test.yaml"
 		found := false
 		for _, file := range writtenFiles {
 			if strings.HasSuffix(file, expectedFile) {

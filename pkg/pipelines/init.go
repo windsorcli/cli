@@ -478,52 +478,16 @@ func (p *InitPipeline) prepareTemplateData(ctx context.Context) (map[string][]by
 	return make(map[string][]byte), nil
 }
 
-// filterTemplatesByBlueprintReferences returns a filtered map of template data containing only templates referenced by blueprint kustomization patches.
-// It inspects all kustomizations from the blueprint handler, collects referenced patch paths (converting .yaml/.yml to .jsonnet),
-// and includes only those patch templates in the result. Non-patch templates are always included.
-func (p *InitPipeline) filterTemplatesByBlueprintReferences(allTemplateData map[string][]byte) map[string][]byte {
-	kustomizations := p.blueprintHandler.GetKustomizations()
 
-	if len(kustomizations) == 0 {
-		return allTemplateData
-	}
-
-	referencedPatches := make(map[string]bool)
-	for _, kustomization := range kustomizations {
-		for _, patch := range kustomization.Patches {
-			if patch.Path != "" {
-				templatePath := strings.TrimSuffix(patch.Path, ".yaml")
-				templatePath = strings.TrimSuffix(templatePath, ".yml")
-				templatePath = templatePath + ".jsonnet"
-				referencedPatches[templatePath] = true
-			}
-		}
-	}
-
-	filteredTemplateData := make(map[string][]byte)
-	for path, content := range allTemplateData {
-		if strings.HasPrefix(path, "patches/") {
-			if referencedPatches[path] {
-				filteredTemplateData[path] = content
-			}
-		} else {
-			filteredTemplateData[path] = content
-		}
-	}
-
-	return filteredTemplateData
-}
 
 // processTemplateData renders and processes template data for the InitPipeline.
-// Filters patch templates based on blueprint kustomization references, renders all filtered templates,
-// and loads blueprint data from the rendered output if present. Returns the rendered template data map
-// or an error if rendering or blueprint loading fails.
+// Renders all templates using the template renderer, and loads blueprint data from the rendered output if present.
+// Returns the rendered template data map or an error if rendering or blueprint loading fails.
 func (p *InitPipeline) processTemplateData(templateData map[string][]byte) (map[string]any, error) {
 	var renderedData map[string]any
 	if p.templateRenderer != nil && len(templateData) > 0 {
-		filteredTemplateData := p.filterTemplatesByBlueprintReferences(templateData)
 		renderedData = make(map[string]any)
-		if err := p.templateRenderer.Process(filteredTemplateData, renderedData); err != nil {
+		if err := p.templateRenderer.Process(templateData, renderedData); err != nil {
 			return nil, fmt.Errorf("failed to process template data: %w", err)
 		}
 		if blueprintData, exists := renderedData["blueprint"]; exists {
