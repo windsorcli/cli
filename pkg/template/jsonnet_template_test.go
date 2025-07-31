@@ -3,6 +3,7 @@ package template
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -1830,7 +1831,8 @@ func TestJsonnetTemplate_extractValuesReferences(t *testing.T) {
 		}
 		template.shims.Stat = func(name string) (os.FileInfo, error) {
 			// Only ingress and database have values.jsonnet files
-			if strings.Contains(name, "ingress/values.jsonnet") || strings.Contains(name, "database/values.jsonnet") {
+			// Use filepath operations to handle cross-platform path separators
+			if strings.Contains(name, filepath.Join("ingress", "values.jsonnet")) || strings.Contains(name, filepath.Join("database", "values.jsonnet")) {
 				return &mockFileInfo{name: "values.jsonnet", isDir: false}, nil
 			}
 			return nil, fmt.Errorf("file not found")

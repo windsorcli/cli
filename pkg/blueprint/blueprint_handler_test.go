@@ -3552,10 +3552,10 @@ func TestBaseBlueprintHandler_applyValuesConfigMaps(t *testing.T) {
 
 		// And mock kustomize directory with global values.yaml
 		handler.shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "/test/config/kustomize" {
+			if name == filepath.Join("/test/config", "kustomize") {
 				return &mockFileInfo{name: "kustomize"}, nil
 			}
-			if name == "/test/config/kustomize/values.yaml" {
+			if name == filepath.Join("/test/config", "kustomize", "values.yaml") {
 				return &mockFileInfo{name: "values.yaml"}, nil
 			}
 			return nil, os.ErrNotExist
@@ -3563,7 +3563,7 @@ func TestBaseBlueprintHandler_applyValuesConfigMaps(t *testing.T) {
 
 		// And mock file read for global values
 		handler.shims.ReadFile = func(name string) ([]byte, error) {
-			if name == "/test/config/kustomize/values.yaml" {
+			if name == filepath.Join("/test/config", "kustomize", "values.yaml") {
 				return []byte(`domain: example.com
 port: 80
 enabled: true`), nil
@@ -3619,10 +3619,10 @@ enabled: true`), nil
 
 		// And mock kustomize directory with component values
 		handler.shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "/test/config/kustomize" {
+			if name == filepath.Join("/test/config", "kustomize") {
 				return &mockFileInfo{name: "kustomize"}, nil
 			}
-			if name == "/test/config/kustomize/ingress/values.yaml" {
+			if name == filepath.Join("/test/config", "kustomize", "ingress", "values.yaml") {
 				return &mockFileInfo{name: "values.yaml"}, nil
 			}
 			return nil, os.ErrNotExist
@@ -3630,7 +3630,7 @@ enabled: true`), nil
 
 		// And mock directory read
 		handler.shims.ReadDir = func(name string) ([]os.DirEntry, error) {
-			if name == "/test/config/kustomize" {
+			if name == filepath.Join("/test/config", "kustomize") {
 				return []os.DirEntry{
 					&mockDirEntry{name: "ingress", isDir: true},
 				}, nil
@@ -3640,7 +3640,7 @@ enabled: true`), nil
 
 		// And mock file read for component values
 		handler.shims.ReadFile = func(name string) ([]byte, error) {
-			if name == "/test/config/kustomize/ingress/values.yaml" {
+			if name == filepath.Join("/test/config", "kustomize", "ingress", "values.yaml") {
 				return []byte(`host: ingress.example.com
 ssl: true`), nil
 			}
