@@ -2,6 +2,7 @@ package template
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/windsorcli/cli/pkg/config"
@@ -63,25 +64,39 @@ func (t *JsonnetTemplate) Initialize() error {
 	return nil
 }
 
-// Process executes a two-phase Jsonnet template processing workflow.
-// Phase 1: Processes "blueprint.jsonnet" to extract patch references.
-// Phase 2: Processes only referenced patches and other templates, then removes the patches field from the blueprint in renderedData.
+// Process performs two-phase Jsonnet template processing for blueprint and related files.
+// Phase 1: Processes "blueprint.jsonnet" to extract patch and values references.
+// Phase 2: Processes only referenced patch and values templates, omitting unreferenced files, and removes the patches field from the blueprint in renderedData.
 // Returns an error if any processing step fails.
 func (t *JsonnetTemplate) Process(templateData map[string][]byte, renderedData map[string]any) error {
 	if err := t.processTemplate("blueprint.jsonnet", templateData, renderedData); err != nil {
 		return err
 	}
 	patchRefs := t.extractPatchReferences(renderedData)
+	valuesRefs := t.extractValuesReferences(renderedData)
 	patchSet := make(map[string]bool)
+	valuesSet := make(map[string]bool)
 	for _, ref := range patchRefs {
 		patchSet[ref] = true
+	}
+	for _, ref := range valuesRefs {
+		valuesSet[ref] = true
 	}
 	for templatePath := range templateData {
 		if templatePath == "blueprint.jsonnet" {
 			continue
 		}
 		if strings.HasPrefix(templatePath, "kustomize/") {
-			if !patchSet[templatePath] {
+			if strings.HasSuffix(templatePath, "/values.jsonnet") {
+				if !valuesSet[templatePath] {
+					continue
+				}
+			} else if !patchSet[templatePath] {
+				continue
+			}
+		}
+		if strings.HasPrefix(templatePath, "values/") {
+			if !valuesSet[templatePath] {
 				continue
 			}
 		}
@@ -136,9 +151,13 @@ func (t *JsonnetTemplate) processJsonnetTemplate(templateContent string) (map[st
 
 // processTemplate processes a single template file and stores the result in renderedData under a key determined by the template path.
 // Recognized mappings:
-//   - "blueprint.jsonnet" → "blueprint"
-//   - "terraform/*.jsonnet" → "terraform/*" (without .jsonnet extension)
-//   - "kustomize/*.jsonnet" → "kustomize/*" (without .jsonnet extension)
+//   - "blueprint.jsonnet" maps to "blueprint"
+//   - "terraform/*.jsonnet" maps to "terraform/*" (without .jsonnet extension)
+//   - "kustomize/*.jsonnet" maps to "kustomize/*" (without .jsonnet extension)
+//   - "kustomize/<component>/values.jsonnet" maps to "values/<component>"
+//   - "kustomize/values.jsonnet" maps to "values/global"
+//   - "values/*.jsonnet" maps to "values/*" (without .jsonnet extension)
+//
 // If the template does not exist in templateData, no action is performed. Returns an error if processing fails. Unrecognized template types are ignored.
 func (t *JsonnetTemplate) processTemplate(templatePath string, templateData map[string][]byte, renderedData map[string]any) error {
 	content, exists := templateData[templatePath]
@@ -152,6 +171,24 @@ func (t *JsonnetTemplate) processTemplate(templatePath string, templateData map[
 	} else if strings.HasPrefix(templatePath, "terraform/") && strings.HasSuffix(templatePath, ".jsonnet") {
 		outputKey = strings.TrimSuffix(templatePath, ".jsonnet")
 	} else if strings.HasPrefix(templatePath, "kustomize/") && strings.HasSuffix(templatePath, ".jsonnet") {
+		if strings.HasSuffix(templatePath, "/values.jsonnet") {
+			pathParts := strings.Split(templatePath, "/")
+			if len(pathParts) == 3 && pathParts[0] == "kustomize" && pathParts[2] == "values.jsonnet" {
+				component := pathParts[1]
+				if component == "values" {
+					outputKey = "values/global"
+				} else {
+					outputKey = "values/" + component
+				}
+			} else if len(pathParts) == 2 && pathParts[0] == "kustomize" && pathParts[1] == "values.jsonnet" {
+				outputKey = "values/global"
+			} else {
+				outputKey = strings.TrimSuffix(templatePath, ".jsonnet")
+			}
+		} else {
+			outputKey = strings.TrimSuffix(templatePath, ".jsonnet")
+		}
+	} else if strings.HasPrefix(templatePath, "values/") && strings.HasSuffix(templatePath, ".jsonnet") {
 		outputKey = strings.TrimSuffix(templatePath, ".jsonnet")
 	} else {
 		return nil
@@ -208,6 +245,47 @@ func (t *JsonnetTemplate) extractPatchReferences(renderedData map[string]any) []
 			}
 		}
 	}
+	return templatePaths
+}
+
+// extractValuesReferences returns a slice of values template file paths found in the kustomize directory structure.
+// Always includes the global values template ("kustomize/values.jsonnet") and automatically discovers component-specific values templates.
+// Returns an empty slice if the blueprint or kustomize section is missing or malformed.
+func (t *JsonnetTemplate) extractValuesReferences(renderedData map[string]any) []string {
+	var templatePaths []string
+	blueprintData, ok := renderedData["blueprint"]
+	if !ok {
+		return templatePaths
+	}
+	blueprintMap, ok := blueprintData.(map[string]any)
+	if !ok {
+		return templatePaths
+	}
+	_, ok = blueprintMap["kustomize"].([]any)
+	if !ok {
+		return templatePaths
+	}
+
+	// Always include global values template
+	templatePaths = append(templatePaths, "kustomize/values.jsonnet")
+
+	// Automatically discover component-specific values templates from kustomize directory
+	projectRoot, err := t.shell.GetProjectRoot()
+	if err == nil {
+		templateDir := filepath.Join(projectRoot, "contexts", "_template", "kustomize")
+		if entries, err := t.shims.ReadDir(templateDir); err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() {
+					componentValuesPath := filepath.Join(templateDir, entry.Name(), "values.jsonnet")
+					if _, err := t.shims.Stat(componentValuesPath); err == nil {
+						templatePath := fmt.Sprintf("kustomize/%s/values.jsonnet", entry.Name())
+						templatePaths = append(templatePaths, templatePath)
+					}
+				}
+			}
+		}
+	}
+
 	return templatePaths
 }
 

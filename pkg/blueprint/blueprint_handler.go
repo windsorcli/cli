@@ -306,6 +306,12 @@ func (b *BaseBlueprintHandler) Install() error {
 		return fmt.Errorf("failed to apply configmap: %w", err)
 	}
 
+	if err := b.applyValuesConfigMaps(); err != nil {
+		spin.Stop()
+		fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
+		return fmt.Errorf("failed to apply values configmaps: %w", err)
+	}
+
 	kustomizations := b.GetKustomizations()
 	kustomizationNames := make([]string, len(kustomizations))
 	for i, k := range kustomizations {
@@ -1087,11 +1093,14 @@ func (b *BaseBlueprintHandler) calculateMaxWaitTime() time.Duration {
 	return maxPathTime
 }
 
-// toFluxKustomization converts a blueprint kustomization to a Flux Kustomization resource.
-// Converts blueprint fields to Flux equivalents, resolves dependencies, patches, post-build configuration,
-// and determines the correct source kind (GitRepository or OCIRepository) based on the source reference.
-// k is the blueprint kustomization to convert. namespace is the target Kubernetes namespace.
-// Returns the constructed Flux Kustomization resource.
+// toFluxKustomization generates a Flux Kustomization resource from a blueprintv1alpha1.Kustomization definition.
+// It performs the following operations:
+//   - Translates blueprint kustomization fields to their Flux equivalents, including name, namespace, path, interval, prune, wait, force, and timeout.
+//   - Resolves and maps dependencies (DependsOn) to Flux NamespacedObjectReference objects for correct dependency graph construction.
+//   - Processes patch definitions: for each patch with a file path, reads the patch file from the kustomize directory, decodes YAML documents, and extracts resource selectors (kind, name, namespace) to build kustomize.Selector objects. Patch content is attached to the Flux patch specification.
+//   - Handles post-build configuration by mapping substituteFrom entries to Flux SubstituteReference objects, supporting ConfigMap and Secret sources.
+//   - Determines the source reference type (GitRepository or OCIRepository) based on the blueprint's SourceRef.Kind, and sets the appropriate reference in the Flux Kustomization spec.
+//   - Assembles and returns a kustomizev1.Kustomization object fully populated for Flux consumption, ready for application to a Kubernetes cluster.
 func (b *BaseBlueprintHandler) toFluxKustomization(k blueprintv1alpha1.Kustomization, namespace string) kustomizev1.Kustomization {
 	dependsOn := make([]meta.NamespacedObjectReference, len(k.DependsOn))
 	for i, dep := range k.DependsOn {
@@ -1167,17 +1176,61 @@ func (b *BaseBlueprintHandler) toFluxKustomization(k blueprintv1alpha1.Kustomiza
 	}
 
 	var postBuild *kustomizev1.PostBuild
+	substituteFrom := make([]kustomizev1.SubstituteReference, 0)
+
+	substituteFrom = append(substituteFrom, kustomizev1.SubstituteReference{
+		Kind:     "ConfigMap",
+		Name:     "blueprint",
+		Optional: false,
+	})
+
+	configRoot, err := b.configHandler.GetConfigRoot()
+	if err == nil {
+		globalValuesPath := filepath.Join(configRoot, "kustomize", "values.yaml")
+		if _, err := b.shims.Stat(globalValuesPath); err == nil {
+			substituteFrom = append(substituteFrom, kustomizev1.SubstituteReference{
+				Kind:     "ConfigMap",
+				Name:     "values-global",
+				Optional: false,
+			})
+		}
+	}
+
+	configMapName := fmt.Sprintf("values-%s", k.Name)
+	if err == nil {
+		valuesPath := filepath.Join(configRoot, "kustomize", k.Name, "values.yaml")
+		if _, err := b.shims.Stat(valuesPath); err == nil {
+			substituteFrom = append(substituteFrom, kustomizev1.SubstituteReference{
+				Kind:     "ConfigMap",
+				Name:     configMapName,
+				Optional: false,
+			})
+		}
+	}
+
 	if k.PostBuild != nil {
-		substituteFrom := make([]kustomizev1.SubstituteReference, len(k.PostBuild.SubstituteFrom))
-		for i, ref := range k.PostBuild.SubstituteFrom {
-			substituteFrom[i] = kustomizev1.SubstituteReference{
-				Kind:     ref.Kind,
-				Name:     ref.Name,
-				Optional: ref.Optional,
+		for _, ref := range k.PostBuild.SubstituteFrom {
+			duplicate := false
+			for _, existing := range substituteFrom {
+				if existing.Kind == ref.Kind && existing.Name == ref.Name {
+					duplicate = true
+					break
+				}
+			}
+			if !duplicate {
+				substituteFrom = append(substituteFrom, kustomizev1.SubstituteReference{
+					Kind:     ref.Kind,
+					Name:     ref.Name,
+					Optional: ref.Optional,
+				})
 			}
 		}
 		postBuild = &kustomizev1.PostBuild{
 			Substitute:     k.PostBuild.Substitute,
+			SubstituteFrom: substituteFrom,
+		}
+	} else {
+		postBuild = &kustomizev1.PostBuild{
 			SubstituteFrom: substituteFrom,
 		}
 	}
@@ -1247,4 +1300,102 @@ func (b *BaseBlueprintHandler) isOCISource(sourceNameOrURL string) bool {
 		}
 	}
 	return false
+}
+
+// applyValuesConfigMaps creates ConfigMaps from values.yaml files in the kustomize directory for post-build variable substitution.
+// It generates a ConfigMap for the global values.yaml if present, and for each component subdirectory containing a values.yaml file.
+// The resulting ConfigMaps can be referenced in PostBuild.SubstituteFrom for variable substitution.
+func (b *BaseBlueprintHandler) applyValuesConfigMaps() error {
+	configRoot, err := b.configHandler.GetConfigRoot()
+	if err != nil {
+		return fmt.Errorf("failed to get config root: %w", err)
+	}
+
+	kustomizeDir := filepath.Join(configRoot, "kustomize")
+	if _, err := b.shims.Stat(kustomizeDir); os.IsNotExist(err) {
+		return nil
+	}
+
+	globalValuesPath := filepath.Join(kustomizeDir, "values.yaml")
+	if _, err := b.shims.Stat(globalValuesPath); err == nil {
+		if err := b.createConfigMapFromValues(globalValuesPath, "values-global"); err != nil {
+			return fmt.Errorf("failed to create global values ConfigMap: %w", err)
+		}
+	}
+
+	entries, err := b.shims.ReadDir(kustomizeDir)
+	if err != nil {
+		return fmt.Errorf("failed to read kustomize directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		componentValuesPath := filepath.Join(kustomizeDir, entry.Name(), "values.yaml")
+		if _, err := b.shims.Stat(componentValuesPath); err == nil {
+			configMapName := fmt.Sprintf("values-%s", entry.Name())
+			if err := b.createConfigMapFromValues(componentValuesPath, configMapName); err != nil {
+				return fmt.Errorf("failed to create ConfigMap for component %s: %w", entry.Name(), err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateValuesForSubstitution checks that all values are valid for Flux post-build variable substitution.
+// Permitted types are string, numeric, and boolean. Complex types (maps, slices) are rejected.
+// Returns an error if any value is not a supported type.
+func (b *BaseBlueprintHandler) validateValuesForSubstitution(values map[string]any) error {
+	for key, value := range values {
+		switch v := value.(type) {
+		case string, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, bool:
+			continue
+		case map[string]any, []any:
+			return fmt.Errorf("values for post-build substitution cannot contain complex types (maps or slices), key '%s' has type %T", key, v)
+		default:
+			return fmt.Errorf("values for post-build substitution can only contain strings, numbers, and booleans, key '%s' has unsupported type %T", key, v)
+		}
+	}
+	return nil
+}
+
+// createConfigMapFromValues reads a values.yaml file from valuesPath, unmarshals its contents, and creates a ConfigMap named configMapName in the "flux-system" namespace for post-build variable substitution.
+// Only scalar values (string, int, float, bool) are supported. Complex types are rejected. The resulting ConfigMap data is a map of string keys to string values.
+func (b *BaseBlueprintHandler) createConfigMapFromValues(valuesPath, configMapName string) error {
+	data, err := b.shims.ReadFile(valuesPath)
+	if err != nil {
+		return fmt.Errorf("failed to read values file %s: %w", valuesPath, err)
+	}
+
+	var values map[string]any
+	if err := b.shims.YamlUnmarshal(data, &values); err != nil {
+		return fmt.Errorf("failed to unmarshal values file %s: %w", valuesPath, err)
+	}
+
+	if err := b.validateValuesForSubstitution(values); err != nil {
+		return fmt.Errorf("invalid values in %s: %w", valuesPath, err)
+	}
+
+	stringValues := make(map[string]string)
+	for key, value := range values {
+		switch v := value.(type) {
+		case string:
+			stringValues[key] = v
+		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+			stringValues[key] = fmt.Sprintf("%v", v)
+		case bool:
+			stringValues[key] = fmt.Sprintf("%t", v)
+		default:
+			return fmt.Errorf("unsupported value type for key %s: %T", key, v)
+		}
+	}
+
+	if err := b.kubernetesManager.ApplyConfigMap(configMapName, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE, stringValues); err != nil {
+		return fmt.Errorf("failed to apply ConfigMap %s: %w", configMapName, err)
+	}
+
+	return nil
 }

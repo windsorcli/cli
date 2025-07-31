@@ -1153,8 +1153,6 @@ func TestInitPipeline_setDefaultConfiguration_HostPortsValidation(t *testing.T) 
 // Additional Coverage Tests
 // =============================================================================
 
-
-
 func TestInitPipeline_loadBlueprintFromTemplate(t *testing.T) {
 	// Given a pipeline with mocks
 	mocks := setupInitMocks(t)
@@ -1499,6 +1497,5 @@ func TestInitPipeline_processTemplateData(t *testing.T) {
 			t.Error("Expected terraform data to be rendered")
 		}
 	})
-
 
 }
