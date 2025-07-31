@@ -4,151 +4,247 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/shell"
 )
+
+// =============================================================================
+// Interfaces
+// =============================================================================
+
+// Template defines the interface for template processors
+type Template interface {
+	Initialize() error
+	Process(templateData map[string][]byte, renderedData map[string]any) error
+}
 
 // =============================================================================
 // Types
 // =============================================================================
 
-// JsonnetTemplate handles jsonnet template processing with configurable rules
+// JsonnetTemplate provides processing for Jsonnet templates for blueprint, terraform, and kustomize files.
+// It applies path-based logic to determine how each template file is processed and keyed in the output.
 type JsonnetTemplate struct {
-	*BaseTemplate
+	injector      di.Injector
+	configHandler config.ConfigHandler
+	shell         shell.Shell
+	shims         *Shims
 }
 
 // =============================================================================
 // Constructor
 // =============================================================================
 
-// NewJsonnetTemplate constructs a JsonnetTemplate with default processing rules for blueprint and terraform Jsonnet files.
-// It initializes the embedded BaseTemplate and assigns rules for blueprint.jsonnet, terraform/*.jsonnet, and patches/*.jsonnet path handling.
-// The blueprint rule matches the exact "blueprint.jsonnet" filename and generates the "blueprint" key.
-// The terraform rule matches files under the "terraform/" directory with a ".jsonnet" extension and generates keys by stripping the extension.
-// The patches rule matches files under the "patches/" directory with a ".jsonnet" extension and generates keys in the format "patches/<kustomization_name>".
+// NewJsonnetTemplate constructs a JsonnetTemplate with the provided dependency injector.
 func NewJsonnetTemplate(injector di.Injector) *JsonnetTemplate {
-	template := &JsonnetTemplate{
-		BaseTemplate: NewBaseTemplate(injector),
+	return &JsonnetTemplate{
+		injector: injector,
+		shims:    NewShims(),
 	}
-	template.rules = []ProcessingRule{
-		{
-			PathMatcher: func(path string) bool {
-				return path == "blueprint.jsonnet"
-			},
-			KeyGenerator: func(path string) string {
-				return "blueprint"
-			},
-		},
-		{
-			PathMatcher: func(path string) bool {
-				return strings.HasPrefix(path, "terraform/") && strings.HasSuffix(path, ".jsonnet")
-			},
-			KeyGenerator: func(path string) string {
-				return strings.TrimSuffix(path, ".jsonnet")
-			},
-		},
-		{
-			PathMatcher: func(path string) bool {
-				return strings.HasPrefix(path, "patches/") && strings.HasSuffix(path, ".jsonnet")
-			},
-			KeyGenerator: func(path string) string {
-				trimmed := strings.TrimSuffix(path, ".jsonnet")
-				return trimmed
-			},
-		},
-	}
-	return template
 }
 
 // =============================================================================
 // Public Methods
 // =============================================================================
 
-// Initialize sets up the JsonnetTemplate dependencies
+// Initialize sets up the JsonnetTemplate dependencies by resolving them from the injector.
+// Returns an error if initialization fails.
 func (t *JsonnetTemplate) Initialize() error {
-	return t.BaseTemplate.Initialize()
-}
-
-// Process applies configured processing rules to jsonnet templates and populates renderedData with evaluated results.
-// For each template in templateData, the method checks all rules for a matching PathMatcher. If a rule matches,
-// it processes the template using processJsonnetTemplate, stores the result in renderedData under the key generated
-// by the rule's KeyGenerator, and skips further rule checks for that template. Returns an error if processing fails.
-func (t *JsonnetTemplate) Process(templateData map[string][]byte, renderedData map[string]any) error {
-	for templatePath, templateContent := range templateData {
-		for _, rule := range t.rules {
-			if rule.PathMatcher(templatePath) {
-				values, err := t.processJsonnetTemplate(string(templateContent))
-				if err != nil {
-					return fmt.Errorf("failed to process jsonnet template %s: %w", templatePath, err)
-				}
-				outputKey := rule.KeyGenerator(templatePath)
-				renderedData[outputKey] = values
-				break
-			}
+	if t.injector != nil {
+		if configHandler := t.injector.Resolve("configHandler"); configHandler != nil {
+			t.configHandler = configHandler.(config.ConfigHandler)
+		}
+		if shellService := t.injector.Resolve("shell"); shellService != nil {
+			t.shell = shellService.(shell.Shell)
 		}
 	}
 	return nil
 }
 
-// processJsonnetTemplate evaluates a Jsonnet template with Windsor context and returns the resulting data as a map.
-// It marshals the Windsor configuration to YAML, converts it to a map, injects context and project name,
-// serializes the context to JSON, and evaluates the Jsonnet template with the context as an external variable.
-// The output must be valid JSON and is unmarshaled into a map for downstream use.
+// Process executes a two-phase Jsonnet template processing workflow.
+// Phase 1: Processes "blueprint.jsonnet" to extract patch references.
+// Phase 2: Processes only referenced patches and other templates, then removes the patches field from the blueprint in renderedData.
+// Returns an error if any processing step fails.
+func (t *JsonnetTemplate) Process(templateData map[string][]byte, renderedData map[string]any) error {
+	if err := t.processTemplate("blueprint.jsonnet", templateData, renderedData); err != nil {
+		return err
+	}
+	patchRefs := t.extractPatchReferences(renderedData)
+	patchSet := make(map[string]bool)
+	for _, ref := range patchRefs {
+		patchSet[ref] = true
+	}
+	for templatePath := range templateData {
+		if templatePath == "blueprint.jsonnet" {
+			continue
+		}
+		if strings.HasPrefix(templatePath, "kustomize/") {
+			if !patchSet[templatePath] {
+				continue
+			}
+		}
+		if err := t.processTemplate(templatePath, templateData, renderedData); err != nil {
+			return err
+		}
+	}
+	t.cleanupBlueprint(renderedData)
+	return nil
+}
+
+// processJsonnetTemplate evaluates a Jsonnet template string using the Windsor context and returns the resulting data as a map.
+// The Windsor configuration is marshaled to YAML, converted to a map, and augmented with context and project name metadata.
+// The context is then serialized to JSON and injected into the Jsonnet VM as an external variable, along with helper functions and the effective blueprint URL.
+// The template is evaluated, and the output is unmarshaled from JSON into a map for downstream use.
+// Returns the resulting map or an error if any step fails.
 func (t *JsonnetTemplate) processJsonnetTemplate(templateContent string) (map[string]any, error) {
 	config := t.configHandler.GetConfig()
 	contextYAML, err := t.configHandler.YamlMarshalWithDefinedPaths(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal context to YAML: %w", err)
 	}
-
 	projectRoot, err := t.shell.GetProjectRoot()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get project root: %w", err)
 	}
-
 	var contextMap map[string]any = make(map[string]any)
 	if err := t.shims.YamlUnmarshal(contextYAML, &contextMap); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal context YAML: %w", err)
 	}
-
-	// Add context metadata to the merged config
 	contextName := t.configHandler.GetContext()
 	contextMap["name"] = contextName
 	contextMap["projectName"] = t.shims.FilepathBase(projectRoot)
-
 	contextJSON, err := t.shims.JsonMarshal(contextMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal context map to JSON: %w", err)
 	}
-
 	vm := t.shims.NewJsonnetVM()
 	vm.ExtCode("helpers", t.buildHelperLibrary())
 	vm.ExtCode("context", string(contextJSON))
 	vm.ExtCode("ociUrl", fmt.Sprintf("%q", constants.GetEffectiveBlueprintURL()))
-
 	result, err := vm.EvaluateAnonymousSnippet("template.jsonnet", templateContent)
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate jsonnet template: %w", err)
 	}
-
 	var values map[string]any
 	if err := t.shims.JsonUnmarshal([]byte(result), &values); err != nil {
 		return nil, fmt.Errorf("jsonnet template must output valid JSON: %w", err)
 	}
-
 	return values, nil
 }
 
-// buildHelperLibrary creates a Jsonnet library with helper functions for safe context access
+// processTemplate processes a single template file and stores the result in renderedData under a key determined by the template path.
+// Recognized mappings:
+//   - "blueprint.jsonnet" → "blueprint"
+//   - "terraform/*.jsonnet" → "terraform/*" (without .jsonnet extension)
+//   - "kustomize/*.jsonnet" → "kustomize/*" (without .jsonnet extension)
+// If the template does not exist in templateData, no action is performed. Returns an error if processing fails. Unrecognized template types are ignored.
+func (t *JsonnetTemplate) processTemplate(templatePath string, templateData map[string][]byte, renderedData map[string]any) error {
+	content, exists := templateData[templatePath]
+	if !exists {
+		return nil
+	}
+
+	var outputKey string
+	if templatePath == "blueprint.jsonnet" {
+		outputKey = "blueprint"
+	} else if strings.HasPrefix(templatePath, "terraform/") && strings.HasSuffix(templatePath, ".jsonnet") {
+		outputKey = strings.TrimSuffix(templatePath, ".jsonnet")
+	} else if strings.HasPrefix(templatePath, "kustomize/") && strings.HasSuffix(templatePath, ".jsonnet") {
+		outputKey = strings.TrimSuffix(templatePath, ".jsonnet")
+	} else {
+		return nil
+	}
+
+	values, err := t.processJsonnetTemplate(string(content))
+	if err != nil {
+		return fmt.Errorf("failed to process template %s: %w", templatePath, err)
+	}
+
+	renderedData[outputKey] = values
+	return nil
+}
+
+// extractPatchReferences returns a slice of template file paths for patch references found in the rendered blueprint within renderedData.
+// The function inspects the "blueprint" key in renderedData, extracts the "kustomize" array, and collects patch paths from each kustomization's "patches" field.
+// Patch paths are normalized to "kustomize/<path>.jsonnet" if not already fully qualified. Returns an empty slice if the blueprint or kustomize section is missing or malformed.
+func (t *JsonnetTemplate) extractPatchReferences(renderedData map[string]any) []string {
+	var templatePaths []string
+	blueprintData, ok := renderedData["blueprint"]
+	if !ok {
+		return templatePaths
+	}
+	blueprintMap, ok := blueprintData.(map[string]any)
+	if !ok {
+		return templatePaths
+	}
+	kustomizeArr, ok := blueprintMap["kustomize"].([]any)
+	if !ok {
+		return templatePaths
+	}
+	for _, k := range kustomizeArr {
+		kMap, ok := k.(map[string]any)
+		if !ok {
+			continue
+		}
+		patches, ok := kMap["patches"].([]any)
+		if !ok {
+			continue
+		}
+		for _, p := range patches {
+			pMap, ok := p.(map[string]any)
+			if !ok {
+				continue
+			}
+			if path, ok := pMap["path"].(string); ok && path != "" {
+				var templatePath string
+				if strings.HasPrefix(path, "kustomize/") {
+					templatePath = path
+				} else {
+					templatePath = "kustomize/" + path + ".jsonnet"
+				}
+				templatePaths = append(templatePaths, templatePath)
+			}
+		}
+	}
+	return templatePaths
+}
+
+// cleanupBlueprint removes the patches field from each kustomization in the blueprint within renderedData.
+// This is used to clean up the output after all referenced patches have been processed.
+func (t *JsonnetTemplate) cleanupBlueprint(renderedData map[string]any) {
+	blueprintData, ok := renderedData["blueprint"]
+	if !ok {
+		return
+	}
+	blueprintMap, ok := blueprintData.(map[string]any)
+	if !ok {
+		return
+	}
+	kustomizeArr, ok := blueprintMap["kustomize"].([]any)
+	if !ok {
+		return
+	}
+	for i, k := range kustomizeArr {
+		if kMap, ok := k.(map[string]any); ok {
+			delete(kMap, "patches")
+			kustomizeArr[i] = kMap
+		}
+	}
+	blueprintMap["kustomize"] = kustomizeArr
+	renderedData["blueprint"] = blueprintMap
+}
+
+// buildHelperLibrary returns a Jsonnet library as a string containing helper functions for safe context access.
+// The library provides functions for retrieving values from objects by path or key, with type assertions and default values.
+// It also includes a baseUrl helper for extracting the base URL from an endpoint string.
 func (jt *JsonnetTemplate) buildHelperLibrary() string {
 	return `{
-  // Smart helpers - handle both path-based ("a.b.c") and key-based ("key") access
   get(obj, path, default=null):
     if std.findSubstr(".", path) == [] then
-      // Simple key access (no dots)
       if std.type(obj) == "object" && path in obj then obj[path] else default
     else
-      // Path-based access (with dots)
       local parts = std.split(path, ".");
       local getValue(o, pathParts) =
         if std.length(pathParts) == 0 then o
@@ -197,7 +293,6 @@ func (jt *JsonnetTemplate) buildHelperLibrary() string {
   has(obj, path):
     self.get(obj, path, null) != null,
 
-  // URL helper functions
   baseUrl(endpoint):
     if endpoint == "" then 
       ""
@@ -220,5 +315,5 @@ func (jt *JsonnetTemplate) buildHelperLibrary() string {
 // Interface Compliance
 // =============================================================================
 
-// Ensure JsonnetTemplate implements Template interface
+// JsonnetTemplate implements the Template interface.
 var _ Template = (*JsonnetTemplate)(nil)

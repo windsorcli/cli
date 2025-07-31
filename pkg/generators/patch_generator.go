@@ -68,8 +68,9 @@ func (g *PatchGenerator) Initialize() error {
 }
 
 // Generate creates patch files for kustomizations using the provided template data.
-// Processes data keyed by "patches/<kustomization_name>" to generate patch files.
-// Only generates patches that are explicitly referenced in the blueprint's kustomizations.
+// Processes data keyed by "kustomize/<kustomization_name>" to generate patch files.
+// The template engine has already filtered to only include referenced patches, so this
+// processes all provided patch data without additional filtering.
 // Returns an error if data is nil, if patch generation fails, or if validation fails.
 func (g *PatchGenerator) Generate(data map[string]any, overwrite ...bool) error {
 	if data == nil {
@@ -81,37 +82,23 @@ func (g *PatchGenerator) Generate(data map[string]any, overwrite ...bool) error 
 		shouldOverwrite = overwrite[0]
 	}
 
-	kustomizations := g.blueprintHandler.GetKustomizations()
-	if len(kustomizations) == 0 {
-		return nil
-	}
-
-	patchReferences := g.extractPatchReferences(kustomizations)
-	if len(patchReferences) == 0 {
-		return nil
-	}
-
 	configRoot, err := g.configHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("failed to get config root: %w", err)
 	}
 
 	for key, values := range data {
-		if !strings.HasPrefix(key, "patches/") {
+		if !strings.HasPrefix(key, "kustomize/") {
 			continue
 		}
 
-		patchPath := strings.TrimPrefix(key, "patches/")
-
-		if !g.isPatchReferenced(patchPath, patchReferences) {
-			continue
-		}
+		patchPath := strings.TrimPrefix(key, "kustomize/")
 
 		if err := g.validateKustomizationName(patchPath); err != nil {
 			return fmt.Errorf("invalid kustomization name %s: %w", patchPath, err)
 		}
 
-		patchesDir := filepath.Join(configRoot, "patches")
+		patchesDir := filepath.Join(configRoot, "kustomize")
 		if err := g.validatePath(patchesDir, configRoot); err != nil {
 			return fmt.Errorf("invalid patches directory path %s: %w", patchesDir, err)
 		}
@@ -141,50 +128,6 @@ func (g *PatchGenerator) Generate(data map[string]any, overwrite ...bool) error 
 // =============================================================================
 // Private Methods
 // =============================================================================
-
-// extractPatchReferences constructs a map associating each kustomization name with its referenced patch target names.
-// For each kustomization with defined patches, collects patch target names from both blueprint (Path field) and Flux (Target.Name field) formats.
-// Only non-empty patch target names are included. Kustomizations without valid patch references are omitted from the result.
-func (g *PatchGenerator) extractPatchReferences(kustomizations []blueprintv1alpha1.Kustomization) map[string][]string {
-	patchReferences := make(map[string][]string)
-
-	for _, kustomization := range kustomizations {
-		if len(kustomization.Patches) > 0 {
-			references := make([]string, 0, len(kustomization.Patches))
-			for _, patch := range kustomization.Patches {
-				if patch.Path != "" {
-					if strings.HasPrefix(patch.Path, "patches/") {
-						pathWithoutPrefix := strings.TrimPrefix(patch.Path, "patches/")
-						pathWithoutExtension := strings.TrimSuffix(pathWithoutPrefix, ".yaml")
-						pathWithoutExtension = strings.TrimSuffix(pathWithoutExtension, ".yml")
-						if pathWithoutExtension != "" {
-							references = append(references, pathWithoutExtension)
-						}
-					}
-				}
-				if patch.Target != nil && patch.Target.Name != "" {
-					references = append(references, patch.Target.Name)
-				}
-			}
-			if len(references) > 0 {
-				patchReferences[kustomization.Name] = references
-			}
-		}
-	}
-
-	return patchReferences
-}
-
-// isPatchReferenced checks if a patch path is referenced by any kustomization.
-// Returns true if the patch is referenced, false otherwise.
-func (g *PatchGenerator) isPatchReferenced(patchPath string, patchReferences map[string][]string) bool {
-	for kustomizationName := range patchReferences {
-		if strings.HasPrefix(patchPath, kustomizationName+"/") || patchPath == kustomizationName {
-			return true
-		}
-	}
-	return false
-}
 
 // validateKustomizationName validates that a kustomization name is safe and valid.
 // Prevents path traversal attacks and ensures names contain only valid characters.

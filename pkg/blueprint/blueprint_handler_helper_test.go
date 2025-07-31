@@ -315,7 +315,7 @@ func TestBaseBlueprintHandler_GetKustomizations(t *testing.T) {
 		// Given a blueprint handler with a kustomization that has existing patches
 		existingPatches := []blueprintv1alpha1.BlueprintPatch{
 			{
-				Path: "patches/test-patch.yaml",
+				Path: "kustomize/test-patch.yaml",
 			},
 		}
 		handler := &BaseBlueprintHandler{
@@ -345,7 +345,7 @@ func TestBaseBlueprintHandler_GetKustomizations(t *testing.T) {
 		if len(result[0].Patches) != 1 {
 			t.Errorf("expected 1 patch, got %d", len(result[0].Patches))
 		}
-		if result[0].Patches[0].Path != "patches/test-patch.yaml" {
+		if result[0].Patches[0].Path != "kustomize/test-patch.yaml" {
 			t.Errorf("expected patch path to match, got %s", result[0].Patches[0].Path)
 		}
 	})
@@ -417,10 +417,10 @@ data:
 		// Given a blueprint handler with a kustomization that has both existing and discovered patches
 		existingPatches := []blueprintv1alpha1.BlueprintPatch{
 			{
-				Path: "patches/existing-patch-1.yaml",
+				Path: "kustomize/existing-patch-1.yaml",
 			},
 			{
-				Path: "patches/existing-patch-2.yaml",
+				Path: "kustomize/existing-patch-2.yaml",
 			},
 		}
 		handler := &BaseBlueprintHandler{
@@ -473,11 +473,11 @@ data:
 			t.Errorf("expected 2 patches (only existing, no auto-discovery), got %d", len(result[0].Patches))
 		}
 		// Existing patches should be preserved
-		if result[0].Patches[0].Path != "patches/existing-patch-1.yaml" {
-			t.Errorf("expected first patch 'patches/existing-patch-1.yaml', got %s", result[0].Patches[0].Path)
+		if result[0].Patches[0].Path != "kustomize/existing-patch-1.yaml" {
+			t.Errorf("expected first patch 'kustomize/existing-patch-1.yaml', got %s", result[0].Patches[0].Path)
 		}
-		if result[0].Patches[1].Path != "patches/existing-patch-2.yaml" {
-			t.Errorf("expected second patch 'patches/existing-patch-2.yaml', got %s", result[0].Patches[1].Path)
+		if result[0].Patches[1].Path != "kustomize/existing-patch-2.yaml" {
+			t.Errorf("expected second patch 'kustomize/existing-patch-2.yaml', got %s", result[0].Patches[1].Path)
 		}
 	})
 
@@ -546,7 +546,7 @@ data:
 						Name: "kustomization-1",
 						Patches: []blueprintv1alpha1.BlueprintPatch{
 							{
-								Path: "patches/existing-patch-1.yaml",
+								Path: "kustomize/existing-patch-1.yaml",
 							},
 						},
 					},
@@ -594,8 +594,8 @@ data:
 		if len(result[0].Patches) != 1 {
 			t.Errorf("expected 1 patch for first kustomization, got %d", len(result[0].Patches))
 		}
-		if result[0].Patches[0].Path != "patches/existing-patch-1.yaml" {
-			t.Errorf("expected first kustomization patch 'patches/existing-patch-1.yaml', got %s", result[0].Patches[0].Path)
+		if result[0].Patches[0].Path != "kustomize/existing-patch-1.yaml" {
+			t.Errorf("expected first kustomization patch 'kustomize/existing-patch-1.yaml', got %s", result[0].Patches[0].Path)
 		}
 
 		// Second kustomization should have no patches (auto-discovery disabled)

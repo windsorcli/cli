@@ -4,12 +4,51 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/shell"
 )
 
 // =============================================================================
-// Test Setup
+// Test Types
 // =============================================================================
 
+// SetupOptions provides configuration for test setup
+type SetupOptions struct {
+	// Add any specific setup options if needed
+}
+
+// Mocks contains all mock implementations needed for testing
+type Mocks struct {
+	Injector      di.Injector
+	ConfigHandler *config.MockConfigHandler
+	Shell         *shell.MockShell
+}
+
+// =============================================================================
+// Test Helpers
+// =============================================================================
+
+// setupMocks creates and configures mock dependencies for testing
+func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+	t.Helper()
+
+	configHandler := &config.MockConfigHandler{}
+	shellService := &shell.MockShell{}
+
+	injector := di.NewMockInjector()
+	injector.Register("configHandler", configHandler)
+	injector.Register("shell", shellService)
+
+	return &Mocks{
+		Injector:      injector,
+		ConfigHandler: configHandler,
+		Shell:         shellService,
+	}
+}
+
+// setupJsonnetTemplateMocks creates mocks and a JsonnetTemplate instance
 func setupJsonnetTemplateMocks(t *testing.T, opts ...*SetupOptions) (*Mocks, *JsonnetTemplate) {
 	t.Helper()
 	mocks := setupMocks(t, opts...)
@@ -22,7 +61,7 @@ func setupJsonnetTemplateMocks(t *testing.T, opts ...*SetupOptions) (*Mocks, *Js
 // =============================================================================
 
 func TestJsonnetTemplate_NewJsonnetTemplate(t *testing.T) {
-	t.Run("CreatesTemplateWithDefaultRules", func(t *testing.T) {
+	t.Run("CreatesTemplateWithDependencies", func(t *testing.T) {
 		// Given an injector
 		mocks := setupMocks(t)
 
@@ -34,12 +73,15 @@ func TestJsonnetTemplate_NewJsonnetTemplate(t *testing.T) {
 			t.Fatal("Expected non-nil template")
 		}
 
-		// And base template should be set
-		if template.BaseTemplate == nil {
-			t.Error("Expected BaseTemplate to be set")
+		// And injector should be set
+		if template.injector == nil {
+			t.Error("Expected injector to be set")
 		}
 
-		// And default rules should be configured (verified by testing Process method)
+		// And shims should be set
+		if template.shims == nil {
+			t.Error("Expected shims to be set")
+		}
 	})
 }
 
@@ -62,23 +104,23 @@ func TestJsonnetTemplate_Initialize(t *testing.T) {
 			t.Errorf("Expected nil error, got %v", err)
 		}
 
-		// And base template dependencies should be injected
-		if template.BaseTemplate.configHandler == nil {
+		// And dependencies should be injected
+		if template.configHandler == nil {
 			t.Error("Expected configHandler to be set after Initialize()")
 		}
-		if template.BaseTemplate.shell == nil {
+		if template.shell == nil {
 			t.Error("Expected shell to be set after Initialize()")
 		}
 	})
 
-	t.Run("HandlesBaseInitializeError", func(t *testing.T) {
-		// Given a jsonnet template with nil injector in base
+	t.Run("HandlesNilInjector", func(t *testing.T) {
+		// Given a jsonnet template with nil injector
 		template := NewJsonnetTemplate(nil)
 
 		// When calling Initialize
 		err := template.Initialize()
 
-		// Then no error should be returned (base template handles nil gracefully)
+		// Then no error should be returned (handles nil gracefully)
 		if err != nil {
 			t.Errorf("Expected nil error, got %v", err)
 		}
@@ -194,18 +236,23 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 		// Given a jsonnet template
 		template, mocks := setup(t)
 
-		// And template data containing patches/ .jsonnet files with subdirectory structure
+		// And template data containing blueprint and kustomize/ .jsonnet files with subdirectory structure
 		templateData := map[string][]byte{
-			"patches/ingress/nginx.jsonnet": []byte(`local context = std.extVar("context"); { apiVersion: "v1", kind: "ConfigMap", metadata: { name: "nginx-config" } }`),
-			"patches/dns/coredns.jsonnet":   []byte(`local context = std.extVar("context"); { apiVersion: "v1", kind: "ConfigMap", metadata: { name: "coredns-config" } }`),
+			"blueprint.jsonnet":                        []byte(`{ kustomize: [{ name: "ingress", patches: [{ path: "ingress/patches/nginx" }] }, { name: "dns", patches: [{ path: "dns/patches/coredns" }] }] }`),
+			"kustomize/ingress/patches/nginx.jsonnet": []byte(`local context = std.extVar("context"); { apiVersion: "v1", kind: "ConfigMap", metadata: { name: "nginx-config" } }`),
+			"kustomize/dns/patches/coredns.jsonnet":   []byte(`local context = std.extVar("context"); { apiVersion: "v1", kind: "ConfigMap", metadata: { name: "coredns-config" } }`),
 		}
 		renderedData := make(map[string]any)
 
-		// And a mock jsonnet VM that returns valid patch manifests
+		// And a mock jsonnet VM that returns valid manifests
 		template.shims.NewJsonnetVM = func() JsonnetVM {
 			mockVM := &mockJsonnetVM{
 				EvaluateFunc: func(filename, snippet string) (string, error) {
-					if strings.Contains(filename, "nginx") {
+					if strings.Contains(snippet, `kustomize:`) && strings.Contains(snippet, `patches:`) {
+						// This is the blueprint template
+						return `{"kustomize": [{"name": "ingress", "patches": [{"path": "ingress/patches/nginx"}]}, {"name": "dns", "patches": [{"path": "dns/patches/coredns"}]}]}`, nil
+					}
+					if strings.Contains(snippet, `nginx-config`) {
 						return `{"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "nginx-config"}}`, nil
 					}
 					return `{"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "coredns-config"}}`, nil
@@ -227,22 +274,27 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		// And the rendered data should contain the patch manifests with preserved path structure
-		if len(renderedData) != 2 {
-			t.Errorf("Expected 2 rendered items, got %d", len(renderedData))
+		// And the rendered data should contain the blueprint and patch manifests with preserved path structure
+		if len(renderedData) != 3 {
+			t.Errorf("Expected 3 rendered items (blueprint + 2 patches), got %d", len(renderedData))
+		}
+
+		// Verify that the blueprint is processed and patches field is cleaned up
+		if _, exists := renderedData["blueprint"]; !exists {
+			t.Error("Expected blueprint to be rendered")
 		}
 
 		// Verify that the full path structure is preserved (not flattened)
-		if _, exists := renderedData["patches/ingress/nginx"]; !exists {
-			t.Error("Expected patches/ingress/nginx to be rendered with preserved path structure")
+		if _, exists := renderedData["kustomize/ingress/patches/nginx"]; !exists {
+			t.Error("Expected kustomize/ingress/patches/nginx to be rendered with preserved path structure")
 		}
 
-		if _, exists := renderedData["patches/dns/coredns"]; !exists {
-			t.Error("Expected patches/dns/coredns to be rendered with preserved path structure")
+		if _, exists := renderedData["kustomize/dns/patches/coredns"]; !exists {
+			t.Error("Expected kustomize/dns/patches/coredns to be rendered with preserved path structure")
 		}
 
 		// Verify the content is correctly processed
-		nginxPatch, ok := renderedData["patches/ingress/nginx"].(map[string]any)
+		nginxPatch, ok := renderedData["kustomize/ingress/patches/nginx"].(map[string]any)
 		if !ok {
 			t.Error("Expected nginx patch to be a map")
 		} else {
@@ -254,7 +306,7 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 			}
 		}
 
-		corednsPatch, ok := renderedData["patches/dns/coredns"].(map[string]any)
+		corednsPatch, ok := renderedData["kustomize/dns/patches/coredns"].(map[string]any)
 		if !ok {
 			t.Error("Expected coredns patch to be a map")
 		} else {
@@ -325,7 +377,7 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 		// Given a jsonnet template
 		template, _ := setup(t)
 
-		// And template data containing files that don't match any rules
+		// And template data containing files that don't match known template patterns
 		templateData := map[string][]byte{
 			"other.jsonnet": []byte(`{"name": "test"}`),
 			"config.yaml":   []byte(`key: value`),
@@ -379,8 +431,8 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "failed to process jsonnet template") {
-			t.Errorf("Expected error about jsonnet template processing, got: %v", err)
+		if !strings.Contains(err.Error(), "failed to process template") {
+			t.Errorf("Expected error about template processing, got: %v", err)
 		}
 	})
 

@@ -732,14 +732,14 @@ func TestBlueprintHandler_toFluxKustomization(t *testing.T) {
 			pathParts := strings.Split(path, string(filepath.Separator))
 			var relativePath string
 			for i, part := range pathParts {
-				if part == "patches" {
+				if part == "kustomize" {
 					relativePath = strings.Join(pathParts[i:], "/") // Always use forward slashes for consistency
 					break
 				}
 			}
 
 			switch relativePath {
-			case "patches/patch1.yaml":
+			case "kustomize/patch1.yaml":
 				return []byte(`apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -747,7 +747,7 @@ metadata:
   namespace: test-namespace
 spec:
   replicas: 3`), nil
-			case "patches/patch2.yaml":
+			case "kustomize/patch2.yaml":
 				return []byte(`apiVersion: v1
 kind: Service
 metadata:
@@ -834,10 +834,10 @@ spec:
 			Wait:          &[]bool{true}[0],
 			Patches: []blueprintv1alpha1.BlueprintPatch{
 				{
-					Path: "patches/patch1.yaml",
+					Path: "patch1.yaml",
 				},
 				{
-					Path: "patches/patch2.yaml",
+					Path: "patch2.yaml",
 				},
 			},
 		}
@@ -1073,10 +1073,10 @@ spec:
 			Components:    []string{"comp-1", "comp-2"},
 			Patches: []blueprintv1alpha1.BlueprintPatch{
 				{
-					Path: "patches/patch1.yaml",
+					Path: "patch1.yaml",
 				},
 				{
-					Path: "patches/patch2.yaml",
+					Path: "patch2.yaml",
 				},
 			},
 			PostBuild: &blueprintv1alpha1.PostBuild{
