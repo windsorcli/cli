@@ -286,9 +286,9 @@ func (p *BasePipeline) withGenerators() ([]generators.Generator, error) {
 
 	// Create patch generator for Kustomize patch templating only if cluster.enabled
 	if p.configHandler.GetBool("cluster.enabled", false) {
-		patchGenerator := generators.NewPatchGenerator(p.injector)
-		p.injector.Register("patchGenerator", patchGenerator)
-		generatorList = append(generatorList, patchGenerator)
+		kustomizeGenerator := generators.NewKustomizeGenerator(p.injector)
+		p.injector.Register("kustomizeGenerator", kustomizeGenerator)
+		generatorList = append(generatorList, kustomizeGenerator)
 	}
 
 	return generatorList, nil
