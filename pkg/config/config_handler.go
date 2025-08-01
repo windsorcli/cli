@@ -38,6 +38,7 @@ type ConfigHandler interface {
 	GetConfigRoot() (string, error)
 	Clean() error
 	IsLoaded() bool
+	IsContextConfigLoaded() bool
 	SetSecretsProvider(provider secrets.SecretsProvider)
 	GenerateContextID() error
 	YamlMarshalWithDefinedPaths(v any) ([]byte, error)

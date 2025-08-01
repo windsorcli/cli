@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/api/v1alpha1/cluster"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -186,6 +187,219 @@ func TestConfigHandler_IsLoaded(t *testing.T) {
 		// Then it should return false
 		if isLoaded {
 			t.Errorf("expected IsLoaded to return false, got true")
+		}
+	})
+}
+
+// TestConfigHandler_IsContextConfigLoaded tests the IsContextConfigLoaded method of the ConfigHandler
+func TestConfigHandler_IsContextConfigLoaded(t *testing.T) {
+	setup := func(t *testing.T) (*YamlConfigHandler, *Mocks) {
+		mocks := setupMocks(t)
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		return handler, mocks
+	}
+
+	t.Run("ReturnsFalseWhenBaseConfigNotLoaded", func(t *testing.T) {
+		// Given a YamlConfigHandler with base config not loaded
+		handler, _ := setup(t)
+		handler.BaseConfigHandler.loaded = false
+
+		// When IsContextConfigLoaded is called
+		isLoaded := handler.IsContextConfigLoaded()
+
+		// Then it should return false
+		if isLoaded {
+			t.Errorf("expected IsContextConfigLoaded to return false when base config not loaded, got true")
+		}
+	})
+
+	t.Run("ReturnsFalseWhenContextNotSet", func(t *testing.T) {
+		// Given a YamlConfigHandler with base config loaded but no context set
+		handler, mocks := setup(t)
+		handler.BaseConfigHandler.loaded = true
+
+		// Mock GetContext to return empty string
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project/root", nil
+		}
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
+			return []byte(""), nil // Empty context
+		}
+		mocks.Shims.Getenv = func(key string) string {
+			return "" // No environment variable
+		}
+		handler.Initialize()
+
+		// When IsContextConfigLoaded is called
+		isLoaded := handler.IsContextConfigLoaded()
+
+		// Then it should return false
+		if isLoaded {
+			t.Errorf("expected IsContextConfigLoaded to return false when context not set, got true")
+		}
+	})
+
+	t.Run("ReturnsFalseWhenContextsMapIsNil", func(t *testing.T) {
+		// Given a YamlConfigHandler with base config loaded and context set, but no contexts map
+		handler, mocks := setup(t)
+		handler.BaseConfigHandler.loaded = true
+		handler.config = v1alpha1.Config{
+			Contexts: nil, // No contexts map
+		}
+
+		// Mock GetContext to return a context name
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project/root", nil
+		}
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
+			return []byte("test-context"), nil
+		}
+		mocks.Shims.Getenv = func(key string) string {
+			return ""
+		}
+		handler.Initialize()
+
+		// When IsContextConfigLoaded is called
+		isLoaded := handler.IsContextConfigLoaded()
+
+		// Then it should return false
+		if isLoaded {
+			t.Errorf("expected IsContextConfigLoaded to return false when contexts map is nil, got true")
+		}
+	})
+
+	t.Run("ReturnsFalseWhenContextDoesNotExist", func(t *testing.T) {
+		// Given a YamlConfigHandler with base config loaded, context set, but context doesn't exist in map
+		handler, mocks := setup(t)
+		handler.BaseConfigHandler.loaded = true
+		handler.config = v1alpha1.Config{
+			Contexts: map[string]*v1alpha1.Context{
+				"other-context": {
+					// Empty context but valid
+				},
+			},
+		}
+
+		// Mock GetContext to return a context name that doesn't exist
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project/root", nil
+		}
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
+			return []byte("test-context"), nil
+		}
+		mocks.Shims.Getenv = func(key string) string {
+			return ""
+		}
+		handler.Initialize()
+
+		// When IsContextConfigLoaded is called
+		isLoaded := handler.IsContextConfigLoaded()
+
+		// Then it should return false
+		if isLoaded {
+			t.Errorf("expected IsContextConfigLoaded to return false when context doesn't exist, got true")
+		}
+	})
+
+	t.Run("ReturnsFalseWhenContextExistsButIsNil", func(t *testing.T) {
+		// Given a YamlConfigHandler with base config loaded, context set, but context value is nil
+		handler, mocks := setup(t)
+		handler.BaseConfigHandler.loaded = true
+		handler.config = v1alpha1.Config{
+			Contexts: map[string]*v1alpha1.Context{
+				"test-context": nil, // Context exists but is nil
+			},
+		}
+
+		// Mock GetContext to return the context name
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project/root", nil
+		}
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
+			return []byte("test-context"), nil
+		}
+		mocks.Shims.Getenv = func(key string) string {
+			return ""
+		}
+		handler.Initialize()
+
+		// When IsContextConfigLoaded is called
+		isLoaded := handler.IsContextConfigLoaded()
+
+		// Then it should return false
+		if isLoaded {
+			t.Errorf("expected IsContextConfigLoaded to return false when context exists but is nil, got true")
+		}
+	})
+
+	t.Run("ReturnsTrueWhenContextExistsAndIsValid", func(t *testing.T) {
+		// Given a YamlConfigHandler with base config loaded, context set, and valid context config
+		handler, mocks := setup(t)
+		handler.BaseConfigHandler.loaded = true
+		handler.config = v1alpha1.Config{
+			Contexts: map[string]*v1alpha1.Context{
+				"test-context": {
+					Cluster: &cluster.ClusterConfig{
+						Workers: cluster.NodeGroupConfig{
+							Volumes: []string{"/var/blah"},
+						},
+					},
+				},
+			},
+		}
+
+		// Mock GetContext to return the context name
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project/root", nil
+		}
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
+			return []byte("test-context"), nil
+		}
+		mocks.Shims.Getenv = func(key string) string {
+			return ""
+		}
+		handler.Initialize()
+
+		// When IsContextConfigLoaded is called
+		isLoaded := handler.IsContextConfigLoaded()
+
+		// Then it should return true
+		if !isLoaded {
+			t.Errorf("expected IsContextConfigLoaded to return true when context exists and is valid, got false")
+		}
+	})
+
+	t.Run("ReturnsTrueWhenContextExistsAndHasEmptyConfig", func(t *testing.T) {
+		// Given a YamlConfigHandler with base config loaded, context set, and context config exists but is empty
+		handler, mocks := setup(t)
+		handler.BaseConfigHandler.loaded = true
+		handler.config = v1alpha1.Config{
+			Contexts: map[string]*v1alpha1.Context{
+				"test-context": {
+					// Empty config but still valid
+				},
+			},
+		}
+
+		// Mock GetContext to return the context name
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project/root", nil
+		}
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
+			return []byte("test-context"), nil
+		}
+		mocks.Shims.Getenv = func(key string) string {
+			return ""
+		}
+		handler.Initialize()
+
+		// When IsContextConfigLoaded is called
+		isLoaded := handler.IsContextConfigLoaded()
+
+		// Then it should return true (empty config is still valid)
+		if !isLoaded {
+			t.Errorf("expected IsContextConfigLoaded to return true when context exists with empty config, got false")
 		}
 	})
 }

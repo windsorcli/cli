@@ -281,7 +281,7 @@ func TestCheckPipeline_Initialize(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		if err.Error() != "failed to load config: error loading config file: config loading failed" {
+		if err.Error() != "failed to load base config: error loading config file: config loading failed" {
 			t.Errorf("Expected config loading error, got: %v", err)
 		}
 	})

@@ -115,6 +115,7 @@ func (t *JsonnetTemplate) Process(templateData map[string][]byte, renderedData m
 // Returns the resulting map or an error if any step fails.
 func (t *JsonnetTemplate) processJsonnetTemplate(templateContent string) (map[string]any, error) {
 	config := t.configHandler.GetConfig()
+
 	contextYAML, err := t.configHandler.YamlMarshalWithDefinedPaths(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal context to YAML: %w", err)
