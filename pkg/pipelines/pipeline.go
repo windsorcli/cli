@@ -143,16 +143,9 @@ func (p *BasePipeline) Initialize(injector di.Injector, ctx context.Context) err
 		return fmt.Errorf("failed to initialize config handler: %w", err)
 	}
 
-	// Only load existing config if reset flag is not set
-	reset := false
-	if resetValue := ctx.Value("reset"); resetValue != nil {
-		reset = resetValue.(bool)
-	}
-
-	if !reset {
-		if err := p.loadConfig(); err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
+	// Load base config first
+	if err := p.loadBaseConfig(); err != nil {
+		return fmt.Errorf("failed to load base config: %w", err)
 	}
 
 	// Set Windsor context if specified in execution context
@@ -160,6 +153,11 @@ func (p *BasePipeline) Initialize(injector di.Injector, ctx context.Context) err
 		if err := p.configHandler.SetContext(contextName); err != nil {
 			return fmt.Errorf("failed to set Windsor context: %w", err)
 		}
+	}
+
+	// Load context config after context is set
+	if err := p.configHandler.LoadContextConfig(); err != nil {
+		return fmt.Errorf("failed to load context config: %w", err)
 	}
 
 	return nil
@@ -519,6 +517,42 @@ func (p *BasePipeline) loadConfig() error {
 
 	if err := p.configHandler.LoadContextConfig(); err != nil {
 		return fmt.Errorf("error loading context config: %w", err)
+	}
+
+	return nil
+}
+
+// loadBaseConfig loads only the base configuration file (windsor.yaml) without loading context config
+func (p *BasePipeline) loadBaseConfig() error {
+	if p.shell == nil {
+		return fmt.Errorf("shell not initialized")
+	}
+	if p.configHandler == nil {
+		return fmt.Errorf("config handler not initialized")
+	}
+	if p.shims == nil {
+		return fmt.Errorf("shims not initialized")
+	}
+
+	projectRoot, err := p.shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("error retrieving project root: %w", err)
+	}
+
+	yamlPath := filepath.Join(projectRoot, "windsor.yaml")
+	ymlPath := filepath.Join(projectRoot, "windsor.yml")
+
+	var cliConfigPath string
+	if _, err := p.shims.Stat(yamlPath); err == nil {
+		cliConfigPath = yamlPath
+	} else if _, err := p.shims.Stat(ymlPath); err == nil {
+		cliConfigPath = ymlPath
+	}
+
+	if cliConfigPath != "" {
+		if err := p.configHandler.LoadConfig(cliConfigPath); err != nil {
+			return fmt.Errorf("error loading config file: %w", err)
+		}
 	}
 
 	return nil

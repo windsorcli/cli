@@ -37,6 +37,7 @@ func (m *mockConfigHandler) SetContext(context string) error                    
 func (m *mockConfigHandler) GetConfigRoot() (string, error)                      { return "/tmp", nil }
 func (m *mockConfigHandler) Clean() error                                        { return nil }
 func (m *mockConfigHandler) IsLoaded() bool                                      { return true }
+func (m *mockConfigHandler) IsContextConfigLoaded() bool                         { return true }
 func (m *mockConfigHandler) SetSecretsProvider(provider secrets.SecretsProvider) {}
 func (m *mockConfigHandler) GenerateContextID() error                            { return nil }
 func (m *mockConfigHandler) YamlMarshalWithDefinedPaths(v any) ([]byte, error)   { return nil, nil }

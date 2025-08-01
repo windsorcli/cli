@@ -188,7 +188,7 @@ func TestEnvPipeline_Initialize(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		if err.Error() != "failed to load config: error retrieving project root: project root error" {
+		if err.Error() != "failed to load base config: error retrieving project root: project root error" {
 			t.Errorf("Expected load config error, got: %v", err)
 		}
 	})

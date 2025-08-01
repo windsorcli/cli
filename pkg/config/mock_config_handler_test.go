@@ -642,6 +642,35 @@ func TestMockConfigHandler_IsLoaded(t *testing.T) {
 	})
 }
 
+func TestMockConfigHandler_IsContextConfigLoaded(t *testing.T) {
+	t.Run("WithFuncSet", func(t *testing.T) {
+		// Given a new mock config handler with IsContextConfigLoadedFunc set
+		handler := NewMockConfigHandler()
+		handler.IsContextConfigLoadedFunc = func() bool { return true }
+
+		// When IsContextConfigLoaded is called
+		loaded := handler.IsContextConfigLoaded()
+
+		// Then the returned value should be true
+		if !loaded {
+			t.Errorf("Expected IsContextConfigLoaded to return true, got %v", loaded)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a new mock config handler without IsContextConfigLoadedFunc set
+		handler := NewMockConfigHandler()
+
+		// When IsContextConfigLoaded is called
+		loaded := handler.IsContextConfigLoaded()
+
+		// Then the returned value should be false
+		if loaded {
+			t.Errorf("Expected IsContextConfigLoaded to return false, got %v", loaded)
+		}
+	})
+}
+
 func TestMockConfigHandler_LoadConfigString(t *testing.T) {
 	t.Run("WithFuncSet", func(t *testing.T) {
 		// Given a mock config handler with LoadConfigStringFunc set
