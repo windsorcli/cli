@@ -151,6 +151,27 @@ func (y *YamlConfigHandler) LoadContextConfig() error {
 	return nil
 }
 
+// IsContextConfigLoaded determines whether context-specific configuration has been loaded for the current context.
+// It returns true if the base configuration is loaded, the current context name is set, and a non-nil context
+// configuration exists for the current context in the configuration map. Returns false otherwise.
+func (y *YamlConfigHandler) IsContextConfigLoaded() bool {
+	if !y.BaseConfigHandler.loaded {
+		return false
+	}
+
+	contextName := y.GetContext()
+	if contextName == "" {
+		return false
+	}
+
+	if y.config.Contexts == nil {
+		return false
+	}
+
+	context, exists := y.config.Contexts[contextName]
+	return exists && context != nil
+}
+
 // SaveConfig writes configuration to root windsor.yaml and the current context's windsor.yaml.
 // Root windsor.yaml contains only the version field. The context file contains the context config
 // without the contexts wrapper. Files are created only if absent: root windsor.yaml is created if

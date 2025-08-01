@@ -84,8 +84,10 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 		return fmt.Errorf("Error setting context value: %w", err)
 	}
 
-	if err := p.setDefaultConfiguration(ctx, contextName); err != nil {
-		return err
+	if !p.configHandler.IsContextConfigLoaded() {
+		if err := p.setDefaultConfiguration(ctx, contextName); err != nil {
+			return err
+		}
 	}
 
 	if err := p.processPlatformConfiguration(ctx); err != nil {
@@ -477,8 +479,6 @@ func (p *InitPipeline) prepareTemplateData(ctx context.Context) (map[string][]by
 
 	return make(map[string][]byte), nil
 }
-
-
 
 // processTemplateData renders and processes template data for the InitPipeline.
 // Renders all templates using the template renderer, and loads blueprint data from the rendered output if present.
