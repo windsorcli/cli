@@ -7,6 +7,8 @@ package env
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -22,6 +24,7 @@ import (
 var WindsorPrefixedVars = []string{
 	"WINDSOR_CONTEXT",
 	"WINDSOR_CONTEXT_ID",
+	"BUILD_ID",
 	"WINDSOR_PROJECT_ROOT",
 	"WINDSOR_SESSION_TOKEN",
 	"WINDSOR_MANAGED_ENV",
@@ -93,6 +96,12 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 	contextID := e.configHandler.GetString("id", "")
 	envVars["WINDSOR_CONTEXT_ID"] = contextID
 
+	// Get build ID from the .windsor/.build-id file
+	buildID, err := e.getBuildIDFromFile()
+	if err == nil && buildID != "" {
+		envVars["BUILD_ID"] = buildID
+	}
+
 	projectRoot, err := e.shell.GetProjectRoot()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving project root: %w", err)
@@ -153,8 +162,19 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}
 	}
 
-	// Add Windsor prefixed vars to managed env
-	allManagedEnv = append(allManagedEnv, WindsorPrefixedVars...)
+	// Add Windsor prefixed vars to managed env (excluding BUILD_ID if not available)
+	windsorVars := make([]string, 0, len(WindsorPrefixedVars))
+	for _, varName := range WindsorPrefixedVars {
+		if varName == "BUILD_ID" {
+			// Only include BUILD_ID if it's actually set
+			if _, exists := envVars["BUILD_ID"]; exists {
+				windsorVars = append(windsorVars, varName)
+			}
+		} else {
+			windsorVars = append(windsorVars, varName)
+		}
+	}
+	allManagedEnv = append(allManagedEnv, windsorVars...)
 
 	// Set the combined managed env and alias
 	envVars["WINDSOR_MANAGED_ENV"] = strings.Join(allManagedEnv, ",")
@@ -211,6 +231,27 @@ func (e *WindsorEnvPrinter) parseAndCheckSecrets(strValue string) string {
 func (e *WindsorEnvPrinter) shouldUseCache() bool {
 	noCache, _ := e.shims.LookupEnv("NO_CACHE")
 	return noCache == "" || noCache == "0" || noCache == "false" || noCache == "False"
+}
+
+// getBuildIDFromFile retrieves the build ID from the .windsor/.build-id file
+func (e *WindsorEnvPrinter) getBuildIDFromFile() (string, error) {
+	projectRoot, err := e.shell.GetProjectRoot()
+	if err != nil {
+		return "", fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	buildIDPath := filepath.Join(projectRoot, ".windsor", ".build-id")
+
+	if _, err := os.Stat(buildIDPath); os.IsNotExist(err) {
+		return "", nil
+	}
+
+	data, err := os.ReadFile(buildIDPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read build ID file: %w", err)
+	}
+
+	return strings.TrimSpace(string(data)), nil
 }
 
 // Ensure WindsorEnvPrinter implements the EnvPrinter interface

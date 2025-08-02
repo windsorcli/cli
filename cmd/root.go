@@ -76,7 +76,7 @@ func setupGlobalContext(cmd *cobra.Command) error {
 // Returns an error if the directory is not trusted.
 func enforceTrustedDirectory(cmd *cobra.Command) error {
 	const notTrustedDirMsg = "not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve"
-	enforcedCommands := []string{"up", "down", "exec", "install", "env"}
+	enforcedCommands := []string{"up", "down", "exec", "install", "env", "build-id"}
 	cmdName := cmd.Name()
 	shouldEnforce := slices.Contains(enforcedCommands, cmdName)
 

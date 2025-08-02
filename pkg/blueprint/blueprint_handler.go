@@ -958,9 +958,11 @@ func (b *BaseBlueprintHandler) applyOCIRepository(source blueprintv1alpha1.Sourc
 	return b.kubernetesManager.ApplyOCIRepository(ociRepo)
 }
 
-// applyConfigMap creates or updates a ConfigMap in the cluster containing context-specific
-// configuration values used by the blueprint's resources, such as domain names, IP ranges,
-// and volume paths.
+// applyConfigMap creates or updates the "blueprint" ConfigMap in the default Flux system namespace.
+// The ConfigMap contains configuration values required by blueprint resources, including domain,
+// context, context ID, build ID, load balancer IP range, registry URL, and local volume path.
+// Values are sourced from the configuration handler and the build ID file. If the build ID cannot
+// be retrieved, an empty string is used. Returns any error encountered during ConfigMap application.
 func (b *BaseBlueprintHandler) applyConfigMap() error {
 	domain := b.configHandler.GetString("dns.domain")
 	context := b.configHandler.GetContext()
@@ -968,16 +970,14 @@ func (b *BaseBlueprintHandler) applyConfigMap() error {
 	lbEnd := b.configHandler.GetString("network.loadbalancer_ips.end")
 	registryURL := b.configHandler.GetString("docker.registry_url")
 	localVolumePaths := b.configHandler.GetStringSlice("cluster.workers.volumes")
-
 	loadBalancerIPRange := fmt.Sprintf("%s-%s", lbStart, lbEnd)
-
 	var localVolumePath string
 	if len(localVolumePaths) > 0 {
 		localVolumePath = strings.Split(localVolumePaths[0], ":")[1]
 	} else {
 		localVolumePath = ""
 	}
-
+	buildID, err := b.getBuildIDFromFile()
 	data := map[string]string{
 		"DOMAIN":                domain,
 		"CONTEXT":               context,
@@ -988,7 +988,9 @@ func (b *BaseBlueprintHandler) applyConfigMap() error {
 		"REGISTRY_URL":          registryURL,
 		"LOCAL_VOLUME_PATH":     localVolumePath,
 	}
-
+	if err == nil && buildID != "" {
+		data["BUILD_ID"] = buildID
+	}
 	return b.kubernetesManager.ApplyConfigMap("blueprint", constants.DEFAULT_FLUX_SYSTEM_NAMESPACE, data)
 }
 
@@ -1398,4 +1400,28 @@ func (b *BaseBlueprintHandler) createConfigMapFromValues(valuesPath, configMapNa
 	}
 
 	return nil
+}
+
+// getBuildIDFromFile returns the build ID string from the .windsor/.build-id file in the project root directory.
+// It locates the project root using the shell interface, constructs the build ID file path, and attempts to read the file.
+// If the file does not exist, it returns an empty string and no error. If the file exists, it reads and trims whitespace from the contents.
+// Returns the build ID string or an error if the file cannot be read.
+func (b *BaseBlueprintHandler) getBuildIDFromFile() (string, error) {
+	projectRoot, err := b.shell.GetProjectRoot()
+	if err != nil {
+		return "", fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	buildIDPath := filepath.Join(projectRoot, ".windsor", ".build-id")
+
+	if _, err := b.shims.Stat(buildIDPath); os.IsNotExist(err) {
+		return "", nil
+	}
+
+	data, err := b.shims.ReadFile(buildIDPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read build ID file: %w", err)
+	}
+
+	return strings.TrimSpace(string(data)), nil
 }
