@@ -149,7 +149,7 @@ func TestKustomizeGenerator_Generate(t *testing.T) {
 		}
 
 		data := map[string]any{
-			"kustomize/test-patch": map[string]any{
+			"kustomize/patches/test-patch": map[string]any{
 				"apiVersion": "v1",
 				"kind":       "ConfigMap",
 				"metadata": map[string]any{
@@ -183,12 +183,21 @@ func TestKustomizeGenerator_Generate(t *testing.T) {
 		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
 			return nil
 		}
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			return []byte("test yaml"), nil
+		}
+		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
+			// Mock unmarshaling to return an empty map
+			values := v.(*map[string]any)
+			*values = make(map[string]any)
+			return nil
+		}
 		mocks.Shims.MarshalYAML = func(v any) ([]byte, error) {
 			return []byte("test yaml"), nil
 		}
 
 		data := map[string]any{
-			"values/global": map[string]any{
+			"kustomize/values": map[string]any{
 				"domain":  "example.com",
 				"port":    80,
 				"enabled": true,
@@ -210,7 +219,7 @@ func TestKustomizeGenerator_Generate(t *testing.T) {
 			return "", fmt.Errorf("config root error")
 		}
 
-		data := map[string]any{"kustomize/test": "value"}
+		data := map[string]any{"kustomize/patches/test": "value"}
 		err := generator.Generate(data)
 		if err == nil {
 			t.Fatal("expected Generate to fail with config root error")
@@ -244,7 +253,7 @@ func TestKustomizeGenerator_generatePatchFile(t *testing.T) {
 			return []byte("test yaml"), nil
 		}
 
-		key := "kustomize/test-patch"
+		key := "kustomize/patches/test-patch"
 		values := map[string]any{
 			"apiVersion": "v1",
 			"kind":       "ConfigMap",
@@ -262,15 +271,15 @@ func TestKustomizeGenerator_generatePatchFile(t *testing.T) {
 	t.Run("InvalidKustomizationName", func(t *testing.T) {
 		generator, _ := setupKustomizeGeneratorMocks(t)
 
-		key := "kustomize/invalid@name"
+		key := "kustomize/patches/invalid@name"
 		values := map[string]any{"test": "value"}
 
 		err := generator.generatePatchFile(key, values, "/test/config", false)
 		if err == nil {
 			t.Fatal("expected generatePatchFile to fail with invalid name")
 		}
-		if !strings.Contains(err.Error(), "invalid kustomization name") {
-			t.Errorf("expected error about invalid name, got: %v", err)
+		if !strings.Contains(err.Error(), "invalid patch path") {
+			t.Errorf("expected error about invalid patch path, got: %v", err)
 		}
 	})
 
@@ -287,7 +296,7 @@ func TestKustomizeGenerator_generatePatchFile(t *testing.T) {
 			return nil, fmt.Errorf("path error")
 		}
 
-		key := "kustomize/test-patch"
+		key := "kustomize/patches/test-patch"
 		values := map[string]any{"test": "value"}
 
 		err := generator.generatePatchFile(key, values, "/test/config", false)
@@ -298,7 +307,7 @@ func TestKustomizeGenerator_generatePatchFile(t *testing.T) {
 }
 
 func TestKustomizeGenerator_generateValuesFile(t *testing.T) {
-	t.Run("SuccessGlobal", func(t *testing.T) {
+	t.Run("SuccessCommon", func(t *testing.T) {
 		generator, mocks := setupKustomizeGeneratorMocks(t)
 
 		// Mock config handler
@@ -316,11 +325,20 @@ func TestKustomizeGenerator_generateValuesFile(t *testing.T) {
 		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
 			return nil
 		}
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			return []byte("test yaml"), nil
+		}
+		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
+			// Mock unmarshaling to return an empty map
+			values := v.(*map[string]any)
+			*values = make(map[string]any)
+			return nil
+		}
 		mocks.Shims.MarshalYAML = func(v any) ([]byte, error) {
 			return []byte("test yaml"), nil
 		}
 
-		key := "values/global"
+		key := "kustomize/values"
 		values := map[string]any{
 			"domain":  "example.com",
 			"port":    80,
@@ -351,11 +369,20 @@ func TestKustomizeGenerator_generateValuesFile(t *testing.T) {
 		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
 			return nil
 		}
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			return []byte("test yaml"), nil
+		}
+		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
+			// Mock unmarshaling to return an empty map
+			values := v.(*map[string]any)
+			*values = make(map[string]any)
+			return nil
+		}
 		mocks.Shims.MarshalYAML = func(v any) ([]byte, error) {
 			return []byte("test yaml"), nil
 		}
 
-		key := "values/ingress"
+		key := "kustomize/values"
 		values := map[string]any{
 			"host": "example.com",
 			"tls":  true,
@@ -367,21 +394,6 @@ func TestKustomizeGenerator_generateValuesFile(t *testing.T) {
 		}
 	})
 
-	t.Run("InvalidValuesName", func(t *testing.T) {
-		generator, _ := setupKustomizeGeneratorMocks(t)
-
-		key := "values/invalid@name"
-		values := map[string]any{"test": "value"}
-
-		err := generator.generateValuesFile(key, values, "/test/config", false)
-		if err == nil {
-			t.Fatal("expected generateValuesFile to fail with invalid name")
-		}
-		if !strings.Contains(err.Error(), "invalid values name") {
-			t.Errorf("expected error about invalid name, got: %v", err)
-		}
-	})
-
 	t.Run("InvalidValuesType", func(t *testing.T) {
 		generator, mocks := setupKustomizeGeneratorMocks(t)
 
@@ -390,7 +402,7 @@ func TestKustomizeGenerator_generateValuesFile(t *testing.T) {
 			return "/test/config", nil
 		}
 
-		key := "values/global"
+		key := "kustomize/values"
 		values := "not a map"
 
 		err := generator.generateValuesFile(key, values, "/test/config", false)
@@ -410,163 +422,48 @@ func TestKustomizeGenerator_generateValuesFile(t *testing.T) {
 			return "/test/config", nil
 		}
 
-		key := "values/global"
+		// Mock config handler
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/test/config", nil
+		}
+
+		// Mock shims
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return &mockFileInfo{name: filepath.Base(name), isDir: false}, nil
+		}
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			return nil
+		}
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			return []byte("test yaml"), nil
+		}
+		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
+			// Mock unmarshaling to return an empty map
+			values := v.(*map[string]any)
+			*values = make(map[string]any)
+			return nil
+		}
+		mocks.Shims.MarshalYAML = func(v any) ([]byte, error) {
+			return []byte("test yaml"), nil
+		}
+
+		key := "kustomize/values"
 		values := map[string]any{
-			"valid":   "string",
-			"invalid": map[string]any{"nested": "value"},
+			"valid":        "string",
+			"valid_nested": map[string]any{"nested": "value"},
 		}
 
 		err := generator.generateValuesFile(key, values, "/test/config", false)
-		if err == nil {
-			t.Fatal("expected generateValuesFile to fail with invalid values")
-		}
-		if !strings.Contains(err.Error(), "complex types") {
-			t.Errorf("expected error about complex types, got: %v", err)
-		}
-	})
-}
-
-func TestKustomizeGenerator_generatePatchFiles(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		generator, mocks := setupKustomizeGeneratorMocks(t)
-
-		// Mock shims
-		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
-			return nil
-		}
-		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			return nil
-		}
-		mocks.Shims.MarshalYAML = func(v any) ([]byte, error) {
-			return []byte("test yaml"), nil
-		}
-
-		patchPath := "/test/patch.yaml"
-		values := map[string]any{
-			"apiVersion": "v1",
-			"kind":       "ConfigMap",
-			"metadata": map[string]any{
-				"name": "test-config",
-			},
-		}
-
-		err := generator.generatePatchFiles(patchPath, values, false)
 		if err != nil {
-			t.Fatalf("expected generatePatchFiles to succeed, got: %v", err)
-		}
-	})
-
-	t.Run("InvalidManifest", func(t *testing.T) {
-		generator, mocks := setupKustomizeGeneratorMocks(t)
-
-		// Mock shims to avoid file system issues
-		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
-			return nil
-		}
-
-		patchPath := "/test/patch.yaml"
-		values := map[string]any{
-			"invalid": "manifest",
-		}
-
-		err := generator.generatePatchFiles(patchPath, values, false)
-		if err == nil {
-			t.Fatal("expected generatePatchFiles to fail with invalid manifest")
-		}
-		if !strings.Contains(err.Error(), "invalid Kubernetes manifest") {
-			t.Errorf("expected error about invalid manifest, got: %v", err)
-		}
-	})
-
-	t.Run("MkdirAllError", func(t *testing.T) {
-		generator, mocks := setupKustomizeGeneratorMocks(t)
-
-		// Mock shims to fail
-		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
-			return fmt.Errorf("mkdir error")
-		}
-
-		patchPath := "/test/patch.yaml"
-		values := map[string]any{
-			"apiVersion": "v1",
-			"kind":       "ConfigMap",
-			"metadata": map[string]any{
-				"name": "test-config",
-			},
-		}
-
-		err := generator.generatePatchFiles(patchPath, values, false)
-		if err == nil {
-			t.Fatal("expected generatePatchFiles to fail with mkdir error")
-		}
-		if !strings.Contains(err.Error(), "failed to create directory") {
-			t.Errorf("expected error about directory creation, got: %v", err)
-		}
-	})
-
-	t.Run("MarshalYAMLError", func(t *testing.T) {
-		generator, mocks := setupKustomizeGeneratorMocks(t)
-
-		// Mock shims
-		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
-			return nil
-		}
-		mocks.Shims.MarshalYAML = func(v any) ([]byte, error) {
-			return nil, fmt.Errorf("marshal error")
-		}
-
-		patchPath := "/test/patch.yaml"
-		values := map[string]any{
-			"apiVersion": "v1",
-			"kind":       "ConfigMap",
-			"metadata": map[string]any{
-				"name": "test-config",
-			},
-		}
-
-		err := generator.generatePatchFiles(patchPath, values, false)
-		if err == nil {
-			t.Fatal("expected generatePatchFiles to fail with marshal error")
-		}
-		if !strings.Contains(err.Error(), "failed to marshal content to YAML") {
-			t.Errorf("expected error about YAML marshaling, got: %v", err)
-		}
-	})
-
-	t.Run("WriteFileError", func(t *testing.T) {
-		generator, mocks := setupKustomizeGeneratorMocks(t)
-
-		// Mock shims
-		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
-			return nil
-		}
-		mocks.Shims.MarshalYAML = func(v any) ([]byte, error) {
-			return []byte("test yaml"), nil
-		}
-		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			return fmt.Errorf("write error")
-		}
-
-		patchPath := "/test/patch.yaml"
-		values := map[string]any{
-			"apiVersion": "v1",
-			"kind":       "ConfigMap",
-			"metadata": map[string]any{
-				"name": "test-config",
-			},
-		}
-
-		err := generator.generatePatchFiles(patchPath, values, false)
-		if err == nil {
-			t.Fatal("expected generatePatchFiles to fail with write error")
-		}
-		if !strings.Contains(err.Error(), "failed to write patch file") {
-			t.Errorf("expected error about file writing, got: %v", err)
+			t.Fatalf("expected generateValuesFile to succeed with valid nested values, got: %v", err)
 		}
 	})
 }
 
-func TestKustomizeGenerator_generateValuesFiles(t *testing.T) {
+func TestKustomizeGenerator_writeYamlFile(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		generator, mocks := setupKustomizeGeneratorMocks(t)
 
@@ -588,9 +485,9 @@ func TestKustomizeGenerator_generateValuesFiles(t *testing.T) {
 			"enabled": true,
 		}
 
-		err := generator.generateValuesFiles(valuesPath, values, false)
+		err := generator.writeYamlFile(valuesPath, values, false)
 		if err != nil {
-			t.Fatalf("expected generateValuesFiles to succeed, got: %v", err)
+			t.Fatalf("expected writeYamlFile to succeed, got: %v", err)
 		}
 	})
 
@@ -605,9 +502,9 @@ func TestKustomizeGenerator_generateValuesFiles(t *testing.T) {
 		valuesPath := "/test/values.yaml"
 		values := map[string]any{"test": "value"}
 
-		err := generator.generateValuesFiles(valuesPath, values, false)
+		err := generator.writeYamlFile(valuesPath, values, false)
 		if err == nil {
-			t.Fatal("expected generateValuesFiles to fail with mkdir error")
+			t.Fatal("expected writeYamlFile to fail with mkdir error")
 		}
 		if !strings.Contains(err.Error(), "failed to create directory") {
 			t.Errorf("expected error about directory creation, got: %v", err)
@@ -628,9 +525,9 @@ func TestKustomizeGenerator_generateValuesFiles(t *testing.T) {
 		valuesPath := "/test/values.yaml"
 		values := map[string]any{"test": "value"}
 
-		err := generator.generateValuesFiles(valuesPath, values, false)
+		err := generator.writeYamlFile(valuesPath, values, false)
 		if err == nil {
-			t.Fatal("expected generateValuesFiles to fail with marshal error")
+			t.Fatal("expected writeYamlFile to fail with marshal error")
 		}
 		if !strings.Contains(err.Error(), "failed to marshal content to YAML") {
 			t.Errorf("expected error about YAML marshaling, got: %v", err)
@@ -654,11 +551,11 @@ func TestKustomizeGenerator_generateValuesFiles(t *testing.T) {
 		valuesPath := "/test/values.yaml"
 		values := map[string]any{"test": "value"}
 
-		err := generator.generateValuesFiles(valuesPath, values, false)
+		err := generator.writeYamlFile(valuesPath, values, false)
 		if err == nil {
-			t.Fatal("expected generateValuesFiles to fail with write error")
+			t.Fatal("expected writeYamlFile to fail with write error")
 		}
-		if !strings.Contains(err.Error(), "failed to write values file") {
+		if !strings.Contains(err.Error(), "failed to write file") {
 			t.Errorf("expected error about file writing, got: %v", err)
 		}
 	})
@@ -768,7 +665,7 @@ func TestKustomizeGenerator_validateKustomizationName(t *testing.T) {
 	}
 }
 
-func TestKustomizeGenerator_validateValuesForSubstitution(t *testing.T) {
+func TestKustomizeGenerator_validatePostBuildValues(t *testing.T) {
 	// Given a generator
 	generator, _ := setupKustomizeGeneratorMocks(t)
 
@@ -799,12 +696,11 @@ func TestKustomizeGenerator_validateValuesForSubstitution(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "InvalidMapType",
+			name: "ValidNestedMapType",
 			values: map[string]any{
 				"nested": map[string]any{"key": "value"},
 			},
-			expectError: true,
-			errorMsg:    "complex types",
+			expectError: false,
 		},
 		{
 			name: "InvalidSliceType",
@@ -812,16 +708,35 @@ func TestKustomizeGenerator_validateValuesForSubstitution(t *testing.T) {
 				"array": []any{1, 2, 3},
 			},
 			expectError: true,
-			errorMsg:    "complex types",
+			errorMsg:    "slices",
 		},
 		{
-			name: "MixedValidAndInvalid",
+			name: "MixedValidAndValidNested",
 			values: map[string]any{
-				"valid":   "string",
-				"invalid": map[string]any{"nested": "value"},
+				"valid":        "string",
+				"valid_nested": map[string]any{"nested": "value"},
+			},
+			expectError: false,
+		},
+		{
+			name: "InvalidDeeplyNestedMap",
+			values: map[string]any{
+				"nested": map[string]any{
+					"deeply_nested": map[string]any{"key": "value"},
+				},
 			},
 			expectError: true,
-			errorMsg:    "complex types",
+			errorMsg:    "nested complex types",
+		},
+		{
+			name: "InvalidNestedSlice",
+			values: map[string]any{
+				"nested": map[string]any{
+					"array": []any{1, 2, 3},
+				},
+			},
+			expectError: true,
+			errorMsg:    "slices",
 		},
 		{
 			name: "UnsupportedType",
@@ -836,7 +751,7 @@ func TestKustomizeGenerator_validateValuesForSubstitution(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// When validating values
-			err := generator.validateValuesForSubstitution(tc.values)
+			err := generator.validatePostBuildValues(tc.values, "", 0)
 
 			// Then check expected result
 			if tc.expectError {

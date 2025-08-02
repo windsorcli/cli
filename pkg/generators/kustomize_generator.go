@@ -89,11 +89,11 @@ func (g *KustomizeGenerator) Generate(data map[string]any, overwrite ...bool) er
 	}
 
 	for key, values := range data {
-		if strings.HasPrefix(key, "kustomize/") {
+		if strings.HasPrefix(key, "kustomize/patches/") {
 			if err := g.generatePatchFile(key, values, configRoot, shouldOverwrite); err != nil {
 				return err
 			}
-		} else if strings.HasPrefix(key, "values/") {
+		} else if key == "kustomize/values" {
 			if err := g.generateValuesFile(key, values, configRoot, shouldOverwrite); err != nil {
 				return err
 			}
@@ -108,23 +108,23 @@ func (g *KustomizeGenerator) Generate(data map[string]any, overwrite ...bool) er
 // =============================================================================
 
 // generatePatchFile generates patch files for kustomizations based on the provided key and values.
-// It validates the kustomization name and patch directory, ensures values are a map, constructs the full patch file path,
-// validates the path, and delegates file generation to generatePatchFiles. Returns an error if any step fails.
+// It validates the patch path, ensures values are a map, constructs the full patch file path,
+// validates the path, validates the Kubernetes manifest, and writes the patch file. Returns an error if any step fails.
 func (g *KustomizeGenerator) generatePatchFile(key string, values any, configRoot string, overwrite bool) error {
-	patchPath := strings.TrimPrefix(key, "kustomize/")
+	patchPath := strings.TrimPrefix(key, "kustomize/patches/")
 
 	if err := g.validateKustomizationName(patchPath); err != nil {
-		return fmt.Errorf("invalid kustomization name %s: %w", patchPath, err)
+		return fmt.Errorf("invalid patch path %s: %w", patchPath, err)
 	}
 
-	patchesDir := filepath.Join(configRoot, "kustomize")
+	patchesDir := filepath.Join(configRoot, "kustomize", "patches")
 	if err := g.validatePath(patchesDir, configRoot); err != nil {
 		return fmt.Errorf("invalid patches directory path %s: %w", patchesDir, err)
 	}
 
 	valuesMap, ok := values.(map[string]any)
 	if !ok {
-		return fmt.Errorf("values for kustomization %s must be a map, got %T", patchPath, values)
+		return fmt.Errorf("values for patch %s must be a map, got %T", patchPath, values)
 	}
 
 	fullPatchPath := filepath.Join(patchesDir, patchPath)
@@ -135,22 +135,20 @@ func (g *KustomizeGenerator) generatePatchFile(key string, values any, configRoo
 		return fmt.Errorf("invalid patch file path %s: %w", fullPatchPath, err)
 	}
 
-	if err := g.generatePatchFiles(fullPatchPath, valuesMap, overwrite); err != nil {
-		return fmt.Errorf("failed to generate patch files for %s: %w", patchPath, err)
+	if err := g.validateKubernetesManifest(valuesMap); err != nil {
+		return fmt.Errorf("invalid Kubernetes manifest for %s: %w", patchPath, err)
 	}
 
-	return nil
+	return g.writeYamlFile(fullPatchPath, valuesMap, overwrite)
 }
 
-// generateValuesFile creates values.yaml files for post-build variable substitution in kustomize workflows.
-// Accepts a key, values map, configuration root, and overwrite flag. Validates the values file name and directory,
-// ensures the values are a map with only scalar types, determines the correct file path for global or component-specific values,
-// validates the final path, and writes the values file. Returns an error if any validation or file operation fails.
+// generateValuesFile writes a centralized values.yaml for kustomize post-build substitution.
+// Accepts only "kustomize/values" as key. Validates that values is a map with only scalar types or one-level nested maps.
+// Merges with any existing values.yaml, overwriting keys with new values. Writes the result to values.yaml in the kustomize directory.
+// Returns error on invalid key, type, path, or file operation.
 func (g *KustomizeGenerator) generateValuesFile(key string, values any, configRoot string, overwrite bool) error {
-	valuesPath := strings.TrimPrefix(key, "values/")
-
-	if err := g.validateKustomizationName(valuesPath); err != nil {
-		return fmt.Errorf("invalid values name %s: %w", valuesPath, err)
+	if key != "kustomize/values" {
+		return fmt.Errorf("invalid values key %s, expected 'kustomize/values'", key)
 	}
 
 	valuesDir := filepath.Join(configRoot, "kustomize")
@@ -160,29 +158,32 @@ func (g *KustomizeGenerator) generateValuesFile(key string, values any, configRo
 
 	valuesMap, ok := values.(map[string]any)
 	if !ok {
-		return fmt.Errorf("values for kustomization %s must be a map, got %T", valuesPath, values)
+		return fmt.Errorf("values must be a map, got %T", values)
 	}
 
-	if err := g.validateValuesForSubstitution(valuesMap); err != nil {
-		return fmt.Errorf("invalid values for post-build substitution %s: %w", valuesPath, err)
+	if err := g.validatePostBuildValues(valuesMap, "", 0); err != nil {
+		return fmt.Errorf("invalid values for post-build substitution: %w", err)
 	}
 
-	var fullValuesPath string
-	if valuesPath == "global" {
-		fullValuesPath = filepath.Join(valuesDir, "values.yaml")
-	} else {
-		fullValuesPath = filepath.Join(valuesDir, valuesPath, "values.yaml")
-	}
-
+	fullValuesPath := filepath.Join(valuesDir, "values.yaml")
 	if err := g.validatePath(fullValuesPath, configRoot); err != nil {
 		return fmt.Errorf("invalid values file path %s: %w", fullValuesPath, err)
 	}
 
-	if err := g.generateValuesFiles(fullValuesPath, valuesMap, overwrite); err != nil {
-		return fmt.Errorf("failed to generate values files for %s: %w", valuesPath, err)
+	existingValues := make(map[string]any)
+	if _, err := g.shims.Stat(fullValuesPath); err == nil {
+		if data, err := g.shims.ReadFile(fullValuesPath); err == nil {
+			if err := g.shims.YamlUnmarshal(data, &existingValues); err != nil {
+				return fmt.Errorf("failed to unmarshal existing values file %s: %w", fullValuesPath, err)
+			}
+		}
 	}
 
-	return nil
+	for k, v := range valuesMap {
+		existingValues[k] = v
+	}
+
+	return g.writeYamlFile(fullValuesPath, existingValues, overwrite)
 }
 
 // validateKustomizationName validates that a kustomization name is safe and valid.
@@ -197,12 +198,10 @@ func (g *KustomizeGenerator) validateKustomizationName(name string) error {
 		return fmt.Errorf("kustomization name cannot contain path traversal characters")
 	}
 
-	components := strings.Split(name, "/")
-	for _, component := range components {
+	for _, component := range strings.Split(name, "/") {
 		if component == "" {
 			return fmt.Errorf("kustomization name cannot contain empty path components")
 		}
-
 		for _, char := range component {
 			if !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || char == '-' || char == '_') {
 				return fmt.Errorf("kustomization name component '%s' contains invalid character '%c'", component, char)
@@ -213,18 +212,31 @@ func (g *KustomizeGenerator) validateKustomizationName(name string) error {
 	return nil
 }
 
-// validateValuesForSubstitution checks that all values are valid for Flux post-build variable substitution.
-// Permitted types are string, numeric, and boolean. Complex types (maps, slices) are rejected.
-// Returns an error if any value is not a supported type.
-func (g *KustomizeGenerator) validateValuesForSubstitution(values map[string]any) error {
+// validatePostBuildValues checks if the values map is valid for Flux post-build substitution.
+// Permitted types: string, numeric, boolean. Allows one map nesting if all nested values are scalar.
+// Slices and nested complex types are not allowed. parentKey is for error reporting (e.g. "ingress.ip").
+// depth tracks nesting (0 = top, 1 = one level deep). Returns error if unsupported type or excess nesting.
+func (g *KustomizeGenerator) validatePostBuildValues(values map[string]any, parentKey string, depth int) error {
 	for key, value := range values {
+		currentKey := key
+		if parentKey != "" {
+			currentKey = parentKey + "." + key
+		}
+
 		switch v := value.(type) {
 		case string, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, bool:
 			continue
-		case map[string]any, []any:
-			return fmt.Errorf("values for post-build substitution cannot contain complex types (maps or slices), key '%s' has type %T", key, v)
+		case map[string]any:
+			if depth >= 1 {
+				return fmt.Errorf("values for post-build substitution cannot contain nested complex types, key '%s' has type %T", currentKey, v)
+			}
+			if err := g.validatePostBuildValues(v, currentKey, depth+1); err != nil {
+				return err
+			}
+		case []any:
+			return fmt.Errorf("values for post-build substitution cannot contain slices, key '%s' has type %T", currentKey, v)
 		default:
-			return fmt.Errorf("values for post-build substitution can only contain strings, numbers, and booleans, key '%s' has unsupported type %T", key, v)
+			return fmt.Errorf("values for post-build substitution can only contain strings, numbers, booleans, or maps of scalar types, key '%s' has unsupported type %T", currentKey, v)
 		}
 	}
 	return nil
@@ -282,71 +294,33 @@ func (g *KustomizeGenerator) validateKubernetesManifest(content any) error {
 	return nil
 }
 
-// generatePatchFiles writes a YAML patch file to patchPath using the provided values map.
-// patchPath must be a file path. If it doesn't have a .yaml or .yml extension, .yaml will be automatically appended.
-// For Jsonnet format, values is a direct object. If overwrite is false, existing files are not replaced.
-// The content must be a valid Kubernetes manifest map with non-empty "apiVersion", "kind", and "metadata.name" fields.
-// Returns an error on validation, marshalling, or file operation failure.
-func (g *KustomizeGenerator) generatePatchFiles(patchPath string, values map[string]any, overwrite bool) error {
-	if !strings.HasSuffix(patchPath, ".yaml") && !strings.HasSuffix(patchPath, ".yml") {
-		patchPath = patchPath + ".yaml"
+// writeYamlFile writes a YAML file to filePath using the provided values map.
+// filePath must be a file path. If it doesn't have a .yaml or .yml extension, .yaml will be automatically appended.
+// If overwrite is false, existing files are not replaced.
+// Returns an error on marshalling or file operation failure.
+func (g *KustomizeGenerator) writeYamlFile(filePath string, values map[string]any, overwrite bool) error {
+	if !strings.HasSuffix(filePath, ".yaml") && !strings.HasSuffix(filePath, ".yml") {
+		filePath = filePath + ".yaml"
 	}
 
-	dir := filepath.Dir(patchPath)
+	dir := filepath.Dir(filePath)
 	if err := g.shims.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
 
 	if !overwrite {
-		if _, err := g.shims.Stat(patchPath); err == nil {
-			return nil
-		}
-	}
-
-	if err := g.validateKubernetesManifest(values); err != nil {
-		return fmt.Errorf("invalid Kubernetes manifest for %s: %w", patchPath, err)
-	}
-
-	yamlData, err := g.shims.MarshalYAML(values)
-	if err != nil {
-		return fmt.Errorf("failed to marshal content to YAML for %s: %w", patchPath, err)
-	}
-
-	if err := g.shims.WriteFile(patchPath, yamlData, 0644); err != nil {
-		return fmt.Errorf("failed to write patch file %s: %w", patchPath, err)
-	}
-
-	return nil
-}
-
-// generateValuesFiles writes a YAML values file to valuesPath using the provided values map.
-// valuesPath must be a file path. If it doesn't have a .yaml or .yml extension, .yaml will be automatically appended.
-// For Jsonnet format, values is a direct object. If overwrite is false, existing files are not replaced.
-// The content must be a valid YAML map structure suitable for post-build variable substitution.
-// Returns an error on validation, marshalling, or file operation failure.
-func (g *KustomizeGenerator) generateValuesFiles(valuesPath string, values map[string]any, overwrite bool) error {
-	if !strings.HasSuffix(valuesPath, ".yaml") && !strings.HasSuffix(valuesPath, ".yml") {
-		valuesPath = valuesPath + ".yaml"
-	}
-
-	dir := filepath.Dir(valuesPath)
-	if err := g.shims.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create directory %s: %w", dir, err)
-	}
-
-	if !overwrite {
-		if _, err := g.shims.Stat(valuesPath); err == nil {
+		if _, err := g.shims.Stat(filePath); err == nil {
 			return nil
 		}
 	}
 
 	yamlData, err := g.shims.MarshalYAML(values)
 	if err != nil {
-		return fmt.Errorf("failed to marshal content to YAML for %s: %w", valuesPath, err)
+		return fmt.Errorf("failed to marshal content to YAML for %s: %w", filePath, err)
 	}
 
-	if err := g.shims.WriteFile(valuesPath, yamlData, 0644); err != nil {
-		return fmt.Errorf("failed to write values file %s: %w", valuesPath, err)
+	if err := g.shims.WriteFile(filePath, yamlData, 0644); err != nil {
+		return fmt.Errorf("failed to write file %s: %w", filePath, err)
 	}
 
 	return nil
