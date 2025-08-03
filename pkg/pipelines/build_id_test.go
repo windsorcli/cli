@@ -477,8 +477,12 @@ func TestBuildIDPipeline_generateBuildID(t *testing.T) {
 	})
 
 	t.Run("IncrementExistingBuildID", func(t *testing.T) {
+		// Get today's date for the test
+		now := time.Now()
+		today := fmt.Sprintf("%02d%02d%02d", now.Year()%100, int(now.Month()), now.Day())
+
 		// Mock existing build ID for today
-		existingBuildID := "250802.123.5"
+		existingBuildID := fmt.Sprintf("%s.123.5", today)
 		mocks := setupBuildIDMocks(t, existingBuildID, nil, nil)
 
 		// Given a BuildIDPipeline with existing build ID
@@ -496,15 +500,20 @@ func TestBuildIDPipeline_generateBuildID(t *testing.T) {
 		}
 
 		// Should increment counter from 5 to 6
-		expectedBuildID := "250802.123.6"
+		expectedBuildID := fmt.Sprintf("%s.123.6", today)
 		if buildID != expectedBuildID {
 			t.Errorf("Expected build ID to be %s, got %s", expectedBuildID, buildID)
 		}
 	})
 
 	t.Run("NewDayNewRandom", func(t *testing.T) {
+		// Get today's and yesterday's dates for the test
+		now := time.Now()
+		today := fmt.Sprintf("%02d%02d%02d", now.Year()%100, int(now.Month()), now.Day())
+		yesterday := fmt.Sprintf("%02d%02d%02d", now.Year()%100, int(now.Month()), now.Day()-1)
+
 		// Mock existing build ID from yesterday
-		existingBuildID := "250801.456.10"
+		existingBuildID := fmt.Sprintf("%s.456.10", yesterday)
 		mocks := setupBuildIDMocks(t, existingBuildID, nil, nil)
 
 		// Given a BuildIDPipeline with existing build ID from different day
@@ -527,9 +536,9 @@ func TestBuildIDPipeline_generateBuildID(t *testing.T) {
 			t.Errorf("Expected build ID to have 3 parts, got %d: %s", len(parts), buildID)
 		}
 
-		// Date should be today (250802)
-		if parts[0] != "250802" {
-			t.Errorf("Expected date to be today (250802), got %s", parts[0])
+		// Date should be today
+		if parts[0] != today {
+			t.Errorf("Expected date to be today (%s), got %s", today, parts[0])
 		}
 
 		// Random should be different from yesterday (456)
@@ -552,17 +561,20 @@ func TestBuildIDPipeline_incrementBuildID(t *testing.T) {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
 		}
 
+		// Get today's date for the test
+		now := time.Now()
+		today := fmt.Sprintf("%02d%02d%02d", now.Year()%100, int(now.Month()), now.Day())
+
 		// When incrementing existing build ID from same day
-		existingBuildID := "250802.123.5"
-		currentDate := "250802"
-		newBuildID, err := pipeline.incrementBuildID(existingBuildID, currentDate)
+		existingBuildID := fmt.Sprintf("%s.123.5", today)
+		newBuildID, err := pipeline.incrementBuildID(existingBuildID, today)
 
 		// Then it should increment counter
 		if err != nil {
 			t.Fatalf("Expected incrementBuildID to succeed, got error: %v", err)
 		}
 
-		expectedBuildID := "250802.123.6"
+		expectedBuildID := fmt.Sprintf("%s.123.6", today)
 		if newBuildID != expectedBuildID {
 			t.Errorf("Expected build ID to be %s, got %s", expectedBuildID, newBuildID)
 		}
@@ -575,10 +587,14 @@ func TestBuildIDPipeline_incrementBuildID(t *testing.T) {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
 		}
 
+		// Get today's and yesterday's dates for the test
+		now := time.Now()
+		today := fmt.Sprintf("%02d%02d%02d", now.Year()%100, int(now.Month()), now.Day())
+		yesterday := fmt.Sprintf("%02d%02d%02d", now.Year()%100, int(now.Month()), now.Day()-1)
+
 		// When incrementing existing build ID from different day
-		existingBuildID := "250801.456.10"
-		currentDate := "250802"
-		newBuildID, err := pipeline.incrementBuildID(existingBuildID, currentDate)
+		existingBuildID := fmt.Sprintf("%s.456.10", yesterday)
+		newBuildID, err := pipeline.incrementBuildID(existingBuildID, today)
 
 		// Then it should generate new random and reset counter
 		if err != nil {
@@ -591,8 +607,8 @@ func TestBuildIDPipeline_incrementBuildID(t *testing.T) {
 		}
 
 		// Date should be current date
-		if parts[0] != "250802" {
-			t.Errorf("Expected date to be 250802, got %s", parts[0])
+		if parts[0] != today {
+			t.Errorf("Expected date to be %s, got %s", today, parts[0])
 		}
 
 		// Random should be different
