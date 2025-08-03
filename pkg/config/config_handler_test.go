@@ -361,6 +361,9 @@ func TestConfigHandler_IsContextConfigLoaded(t *testing.T) {
 		}
 		handler.Initialize()
 
+		// Mark the context as loaded from existing files
+		handler.loadedContexts["test-context"] = true
+
 		// When IsContextConfigLoaded is called
 		isLoaded := handler.IsContextConfigLoaded()
 
@@ -394,12 +397,71 @@ func TestConfigHandler_IsContextConfigLoaded(t *testing.T) {
 		}
 		handler.Initialize()
 
+		// Mark the context as loaded from existing files
+		handler.loadedContexts["test-context"] = true
+
 		// When IsContextConfigLoaded is called
 		isLoaded := handler.IsContextConfigLoaded()
 
 		// Then it should return true (empty config is still valid)
 		if !isLoaded {
 			t.Errorf("expected IsContextConfigLoaded to return true when context exists with empty config, got false")
+		}
+	})
+
+	t.Run("IsContextConfigLoadedReturnsTrueWhenContextLoadedFromAnySource", func(t *testing.T) {
+		// Given a YamlConfigHandler with base config loaded and context set
+		handler, mocks := setup(t)
+		handler.BaseConfigHandler.loaded = true
+
+		// Mock GetContext to return a context name
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project/root", nil
+		}
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
+			return []byte("test-context"), nil
+		}
+		mocks.Shims.Getenv = func(key string) string {
+			return ""
+		}
+		handler.Initialize()
+
+		// When a context is loaded from root config
+		handler.loadedContexts["test-context"] = true
+
+		// Then IsContextConfigLoaded should return true
+		if !handler.IsContextConfigLoaded() {
+			t.Error("Expected IsContextConfigLoaded to return true when context is loaded from root config")
+		}
+
+		// When a context is loaded from context-specific file
+		handler.loadedContexts["another-context"] = true
+		handler.config.Contexts = map[string]*v1alpha1.Context{
+			"another-context": {
+				// Empty config but still valid
+			},
+		}
+
+		// Then IsContextConfigLoaded should return true for that context too
+		handler.SetContext("another-context")
+		if !handler.IsContextConfigLoaded() {
+			t.Error("Expected IsContextConfigLoaded to return true when context is loaded from context-specific file")
+		}
+
+		// When a context is not loaded from any source
+		// We need to mock the file system to return a different context
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
+			return []byte("unloaded-context"), nil
+		}
+		// Re-initialize to pick up the new context
+		handler.Initialize()
+
+		contextName := handler.GetContext()
+		if contextName != "unloaded-context" {
+			t.Errorf("Expected context to be 'unloaded-context', got '%s'", contextName)
+		}
+		if handler.IsContextConfigLoaded() {
+			t.Error("Expected IsContextConfigLoaded to return false when context is not loaded from any source")
 		}
 	})
 }

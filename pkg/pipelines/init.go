@@ -321,16 +321,22 @@ func (p *InitPipeline) determineContextName(ctx context.Context) string {
 	return "local"
 }
 
-// setDefaultConfiguration applies default configuration values based on provider and VM driver detection.
-// For local providers, applies DefaultConfig_Localhost if the VM driver is "docker-desktop", otherwise applies DefaultConfig_Full.
-// For non-local providers, applies DefaultConfig if no provider is set. On macOS and Windows, auto-detects and sets the "vm.driver" value.
-// If the provider is unset and the context is local, sets the provider to "local".
-// Returns an error if any configuration operation fails.
+// setDefaultConfiguration sets default config values based on provider and VM driver detection.
+// For local providers, uses config.DefaultConfig_Localhost if VM driver is "docker-desktop",
+// else uses config.DefaultConfig_Full. For non-local, uses config.DefaultConfig.
+// On darwin/windows, sets "vm.driver" to "docker-desktop"; otherwise to "docker".
+// If provider is unset and context is local, sets provider to "local".
+// Returns error if any config operation fails.
 func (p *InitPipeline) setDefaultConfiguration(_ context.Context, contextName string) error {
 	existingProvider := p.configHandler.GetString("provider")
-	isLocalContext := existingProvider == "local" || contextName == "local" || strings.HasPrefix(contextName, "local-")
 
-	// Always apply defaults first, then override with provider-specific settings
+	var isLocalContext bool
+	if existingProvider != "" {
+		isLocalContext = existingProvider == "local"
+	} else {
+		isLocalContext = contextName == "local" || strings.HasPrefix(contextName, "local-")
+	}
+
 	vmDriver := p.configHandler.GetString("vm.driver")
 
 	if isLocalContext && vmDriver == "" {
@@ -362,7 +368,6 @@ func (p *InitPipeline) setDefaultConfiguration(_ context.Context, contextName st
 		}
 	}
 
-	// Set provider from context name if not already set
 	if existingProvider == "" {
 		if contextName == "local" || strings.HasPrefix(contextName, "local-") {
 			if err := p.configHandler.SetContextValue("provider", "local"); err != nil {
