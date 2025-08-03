@@ -61,6 +61,7 @@ var pipelineConstructors = map[string]PipelineConstructor{
 	"downPipeline":     func() Pipeline { return NewDownPipeline() },
 	"installPipeline":  func() Pipeline { return NewInstallPipeline() },
 	"artifactPipeline": func() Pipeline { return NewArtifactPipeline() },
+	"buildIDPipeline":  func() Pipeline { return NewBuildIDPipeline() },
 	"basePipeline":     func() Pipeline { return NewBasePipeline() },
 }
 

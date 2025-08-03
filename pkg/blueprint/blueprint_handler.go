@@ -1258,10 +1258,10 @@ func (b *BaseBlueprintHandler) isOCISource(sourceNameOrURL string) bool {
 	return false
 }
 
-// applyValuesConfigMaps creates ConfigMaps for post-build variable substitution using the centralized
-// values.yaml in the kustomize directory. It generates a ConfigMap for the "common" section and for
-// each component section in values.yaml. The resulting ConfigMaps are referenced in
-// PostBuild.SubstituteFrom for variable substitution.
+// applyValuesConfigMaps creates ConfigMaps for post-build variable substitution using the centralized values.yaml in the kustomize directory.
+// It generates a ConfigMap for the "common" section and for each component section in values.yaml.
+// The resulting ConfigMaps are referenced in PostBuild.SubstituteFrom for variable substitution.
+// Only function header documentation is permitted; no comments are present inside the function body.
 func (b *BaseBlueprintHandler) applyValuesConfigMaps() error {
 	configRoot, err := b.configHandler.GetConfigRoot()
 	if err != nil {
@@ -1294,6 +1294,14 @@ func (b *BaseBlueprintHandler) applyValuesConfigMaps() error {
 	mergedCommonValues["LOADBALANCER_IP_END"] = lbEnd
 	mergedCommonValues["REGISTRY_URL"] = registryURL
 	mergedCommonValues["LOCAL_VOLUME_PATH"] = localVolumePath
+
+	buildID, err := b.getBuildIDFromFile()
+	if err != nil {
+		return fmt.Errorf("failed to get build ID: %w", err)
+	}
+	if buildID != "" {
+		mergedCommonValues["BUILD_ID"] = buildID
+	}
 
 	kustomizeDir := filepath.Join(configRoot, "kustomize")
 	if _, err := b.shims.Stat(kustomizeDir); os.IsNotExist(err) {
@@ -1396,4 +1404,28 @@ func (b *BaseBlueprintHandler) createConfigMap(values map[string]any, configMapN
 	}
 
 	return nil
+}
+
+// getBuildIDFromFile returns the build ID string from the .windsor/.build-id file in the project root directory.
+// It locates the project root using the shell interface, constructs the build ID file path, and attempts to read the file.
+// If the file does not exist, it returns an empty string and no error. If the file exists, it reads and trims whitespace from the contents.
+// Returns the build ID string or an error if the file cannot be read.
+func (b *BaseBlueprintHandler) getBuildIDFromFile() (string, error) {
+	projectRoot, err := b.shell.GetProjectRoot()
+	if err != nil {
+		return "", fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	buildIDPath := filepath.Join(projectRoot, ".windsor", ".build-id")
+
+	if _, err := b.shims.Stat(buildIDPath); os.IsNotExist(err) {
+		return "", nil
+	}
+
+	data, err := b.shims.ReadFile(buildIDPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read build ID file: %w", err)
+	}
+
+	return strings.TrimSpace(string(data)), nil
 }

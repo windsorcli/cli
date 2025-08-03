@@ -3538,6 +3538,7 @@ func TestBaseBlueprintHandler_applyValuesConfigMaps(t *testing.T) {
 		handler.shims = mocks.Shims
 		handler.configHandler = mocks.ConfigHandler
 		handler.kubernetesManager = mocks.KubernetesManager
+		handler.shell = mocks.Shell
 		return handler
 	}
 
@@ -4895,4 +4896,163 @@ data:
 			t.Errorf("expected Prune to be false, got %v", result.Spec.Prune)
 		}
 	})
+}
+
+func TestBaseBlueprintHandler_applyConfigMap_WithBuildID(t *testing.T) {
+	mocks := setupMocks(t, &SetupOptions{
+		ConfigStr: `
+contexts:
+  test:
+    id: "test-id"
+    dns:
+      domain: "test.com"
+    network:
+      loadbalancer_ips:
+        start: "10.0.0.1"
+        end: "10.0.0.10"
+    docker:
+      registry_url: "registry.test"
+    cluster:
+      workers:
+        volumes: ["/tmp:/data"]
+`,
+	})
+
+	handler := NewBlueprintHandler(mocks.Injector)
+	if err := handler.Initialize(); err != nil {
+		t.Fatalf("failed to initialize handler: %v", err)
+	}
+
+	// Set up build ID by mocking the file system
+	testBuildID := "build-1234567890"
+	projectRoot, err := mocks.Shell.GetProjectRoot()
+	if err != nil {
+		t.Fatalf("failed to get project root: %v", err)
+	}
+	buildIDPath := filepath.Join(projectRoot, ".windsor", ".build-id")
+
+	// Mock the file system to return our test build ID
+	handler.shims.Stat = func(path string) (os.FileInfo, error) {
+		if path == buildIDPath {
+			return mockFileInfo{name: ".build-id", isDir: false}, nil
+		}
+		return nil, os.ErrNotExist
+	}
+	handler.shims.ReadFile = func(path string) ([]byte, error) {
+		if path == buildIDPath {
+			return []byte(testBuildID), nil
+		}
+		return []byte{}, nil
+	}
+
+	// Mock the kubernetes manager to capture the ConfigMap data
+	var capturedData map[string]string
+	mocks.KubernetesManager.ApplyConfigMapFunc = func(name, namespace string, data map[string]string) error {
+		capturedData = data
+		return nil
+	}
+
+	// Call applyValuesConfigMaps
+	if err := handler.applyValuesConfigMaps(); err != nil {
+		t.Fatalf("failed to apply ConfigMap: %v", err)
+	}
+
+	// Verify BUILD_ID is included in the ConfigMap data
+	if capturedData == nil {
+		t.Fatal("ConfigMap data was not captured")
+	}
+
+	buildID, exists := capturedData["BUILD_ID"]
+	if !exists {
+		t.Fatal("BUILD_ID not found in ConfigMap data")
+	}
+
+	if buildID != testBuildID {
+		t.Errorf("expected BUILD_ID to be %s, got %s", testBuildID, buildID)
+	}
+
+	// Verify other expected fields are present
+	expectedFields := []string{"DOMAIN", "CONTEXT", "CONTEXT_ID", "LOADBALANCER_IP_RANGE", "REGISTRY_URL"}
+	for _, field := range expectedFields {
+		if _, exists := capturedData[field]; !exists {
+			t.Errorf("expected field %s not found in ConfigMap data", field)
+		}
+	}
+}
+
+func TestBaseBlueprintHandler_applyConfigMap_WithoutBuildID(t *testing.T) {
+	mocks := setupMocks(t, &SetupOptions{
+		ConfigStr: `
+contexts:
+  test:
+    id: "test-id"
+    dns:
+      domain: "test.com"
+    network:
+      loadbalancer_ips:
+        start: "10.0.0.1"
+        end: "10.0.0.10"
+    docker:
+      registry_url: "registry.test"
+    cluster:
+      workers:
+        volumes: ["/tmp:/data"]
+`,
+	})
+
+	handler := NewBlueprintHandler(mocks.Injector)
+	if err := handler.Initialize(); err != nil {
+		t.Fatalf("failed to initialize handler: %v", err)
+	}
+
+	// Mock the file system to simulate missing .build-id file
+	projectRoot, err := mocks.Shell.GetProjectRoot()
+	if err != nil {
+		t.Fatalf("failed to get project root: %v", err)
+	}
+	buildIDPath := filepath.Join(projectRoot, ".windsor", ".build-id")
+
+	// Mock the file system to return file not found for .build-id
+	handler.shims.Stat = func(path string) (os.FileInfo, error) {
+		if path == buildIDPath {
+			return nil, os.ErrNotExist
+		}
+		return nil, os.ErrNotExist
+	}
+	handler.shims.ReadFile = func(path string) ([]byte, error) {
+		if path == buildIDPath {
+			return nil, os.ErrNotExist
+		}
+		return []byte{}, nil
+	}
+
+	// Mock the kubernetes manager to capture the ConfigMap data
+	var capturedData map[string]string
+	mocks.KubernetesManager.ApplyConfigMapFunc = func(name, namespace string, data map[string]string) error {
+		capturedData = data
+		return nil
+	}
+
+	// Call applyValuesConfigMaps - this should not cause an error
+	if err := handler.applyValuesConfigMaps(); err != nil {
+		t.Fatalf("failed to apply ConfigMap: %v", err)
+	}
+
+	// Verify BUILD_ID is not included in the ConfigMap data when file doesn't exist
+	if capturedData == nil {
+		t.Fatal("ConfigMap data was not captured")
+	}
+
+	buildID, exists := capturedData["BUILD_ID"]
+	if exists {
+		t.Errorf("expected BUILD_ID to not be present in ConfigMap data when file doesn't exist, but it was found with value '%s'", buildID)
+	}
+
+	// Verify other expected fields are present
+	expectedFields := []string{"DOMAIN", "CONTEXT", "CONTEXT_ID", "LOADBALANCER_IP_RANGE", "REGISTRY_URL"}
+	for _, field := range expectedFields {
+		if _, exists := capturedData[field]; !exists {
+			t.Errorf("expected field %s not found in ConfigMap data", field)
+		}
+	}
 }

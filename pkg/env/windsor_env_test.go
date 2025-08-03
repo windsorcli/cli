@@ -427,7 +427,7 @@ contexts:
 		// And no additional variables should be added
 		t.Logf("Environment variables: %v", envVars)
 		if len(envVars) != 6 {
-			t.Errorf("Should have six base environment variables")
+			t.Errorf("Should have six base environment variables (BUILD_ID excluded when file doesn't exist)")
 		}
 	})
 
