@@ -109,13 +109,12 @@ func (t *JsonnetTemplate) Process(templateData map[string][]byte, renderedData m
 
 // processJsonnetTemplate evaluates a Jsonnet template string using the Windsor context and returns the resulting data as a map.
 // The Windsor configuration is marshaled to YAML, converted to a map, and augmented with context and project name metadata.
-// The context is then serialized to JSON and injected into the Jsonnet VM as an external variable, along with helper functions and the effective blueprint URL.
+// The context is serialized to JSON and injected into the Jsonnet VM as an external variable, along with helper functions and the effective blueprint URL.
 // The template is evaluated, and the output is unmarshaled from JSON into a map for downstream use.
 // Returns the resulting map or an error if any step fails.
 func (t *JsonnetTemplate) processJsonnetTemplate(templateContent string) (map[string]any, error) {
 	config := t.configHandler.GetConfig()
-
-	contextYAML, err := t.configHandler.YamlMarshalWithDefinedPaths(config)
+	contextYAML, err := t.shims.YamlMarshal(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal context to YAML: %w", err)
 	}
@@ -135,7 +134,8 @@ func (t *JsonnetTemplate) processJsonnetTemplate(templateContent string) (map[st
 		return nil, fmt.Errorf("failed to marshal context map to JSON: %w", err)
 	}
 	vm := t.shims.NewJsonnetVM()
-	vm.ExtCode("helpers", t.buildHelperLibrary())
+	helpersLibrary := t.buildHelperLibrary()
+	vm.ExtCode("helpers", helpersLibrary)
 	vm.ExtCode("context", string(contextJSON))
 	vm.ExtCode("ociUrl", fmt.Sprintf("%q", constants.GetEffectiveBlueprintURL()))
 	result, err := vm.EvaluateAnonymousSnippet("template.jsonnet", templateContent)
@@ -146,7 +146,57 @@ func (t *JsonnetTemplate) processJsonnetTemplate(templateContent string) (map[st
 	if err := t.shims.JsonUnmarshal([]byte(result), &values); err != nil {
 		return nil, fmt.Errorf("jsonnet template must output valid JSON: %w", err)
 	}
+	cleanedValues := t.removeEmptyKeysFromOutput(values)
+	if cleanedMap, ok := cleanedValues.(map[string]any); ok {
+		return cleanedMap, nil
+	}
 	return values, nil
+}
+
+// removeEmptyKeysFromOutput recursively removes empty keys from the output data.
+// This method implements the same logic as the Jsonnet removeEmptyKeys helper function
+// but operates on Go data structures after template processing.
+func (t *JsonnetTemplate) removeEmptyKeysFromOutput(data any) any {
+	switch v := data.(type) {
+	case map[string]any:
+		cleaned := make(map[string]any)
+		for key, value := range v {
+			cleanedValue := t.removeEmptyKeysFromOutput(value)
+			if !t.isEmptyValue(cleanedValue) {
+				cleaned[key] = cleanedValue
+			}
+		}
+		return cleaned
+	case []any:
+		cleaned := make([]any, 0, len(v))
+		for _, item := range v {
+			cleanedItem := t.removeEmptyKeysFromOutput(item)
+			if !t.isEmptyValue(cleanedItem) {
+				cleaned = append(cleaned, cleanedItem)
+			}
+		}
+		return cleaned
+	default:
+		return data
+	}
+}
+
+// isEmptyValue determines if a value should be considered empty and removed.
+// Returns true for null, empty maps, and empty slices.
+// Empty strings are preserved as they may be valid function results.
+func (t *JsonnetTemplate) isEmptyValue(value any) bool {
+	if value == nil {
+		return true
+	}
+
+	switch v := value.(type) {
+	case map[string]any:
+		return len(v) == 0
+	case []any:
+		return len(v) == 0
+	default:
+		return false
+	}
 }
 
 // processTemplate processes a single template file and stores the result in renderedData under a key determined by the template path.
@@ -191,6 +241,10 @@ func (t *JsonnetTemplate) processTemplate(templatePath string, templateData map[
 	values, err := t.processJsonnetTemplate(string(content))
 	if err != nil {
 		return fmt.Errorf("failed to process template %s: %w", templatePath, err)
+	}
+
+	if t.isEmptyValue(values) {
+		return nil
 	}
 
 	renderedData[outputKey] = values
@@ -255,13 +309,15 @@ func (t *JsonnetTemplate) extractValuesReferences(renderedData map[string]any) [
 	if !ok {
 		return templatePaths
 	}
-	_, ok = blueprintMap["kustomize"].([]any)
+	kustomizeArr, ok := blueprintMap["kustomize"].([]any)
 	if !ok {
 		return templatePaths
 	}
 
-	// Always include values template
-	templatePaths = append(templatePaths, "kustomize/values.jsonnet")
+	// Only include values template if there are kustomize components to process
+	if len(kustomizeArr) > 0 {
+		templatePaths = append(templatePaths, "kustomize/values.jsonnet")
+	}
 
 	return templatePaths
 }
@@ -291,9 +347,13 @@ func (t *JsonnetTemplate) cleanupBlueprint(renderedData map[string]any) {
 	renderedData["blueprint"] = blueprintMap
 }
 
-// buildHelperLibrary returns a Jsonnet library as a string containing helper functions for safe context access.
-// The library provides functions for retrieving values from objects by path or key, with type assertions and default values.
-// It also includes a baseUrl helper for extracting the base URL from an endpoint string.
+// buildHelperLibrary returns a Jsonnet library string containing helper functions for safe context access and data manipulation.
+// Helpers provided:
+//   - get: Retrieve value by path from object, with default fallback.
+//   - getString, getInt, getNumber, getBool, getObject, getArray: Typed retrieval with type assertion and default fallback.
+//   - has: Check if a value exists at a given path.
+//   - baseUrl: Extract base URL from an endpoint string, removing protocol and port.
+//   - removeEmptyKeys: Recursively remove empty keys from objects, preserving non-empty values.
 func (jt *JsonnetTemplate) buildHelperLibrary() string {
 	return `{
   get(obj, path, default=null):
@@ -363,6 +423,49 @@ func (jt *JsonnetTemplate) buildHelperLibrary() string {
         std.substr(withoutProtocol, 0, colonPos[0])
       else
         withoutProtocol,
+
+  removeEmptyKeys(obj):
+    local _removeEmptyKeys(obj) =
+      if std.type(obj) == "object" then
+        local filteredFields = std.filter(
+          function(key)
+            local value = obj[key];
+            if std.type(value) == "object" || std.type(value) == "array" then
+              local cleaned = _removeEmptyKeys(value);
+              if std.type(cleaned) == "object" then
+                std.length(std.objectFields(cleaned)) > 0
+              else
+                std.length(cleaned) > 0
+            else
+              value != null && (std.type(value) != "string" || value != "")
+          ,
+          std.objectFields(obj)
+        );
+        {
+          [key]: if std.type(obj[key]) == "object" || std.type(obj[key]) == "array" then _removeEmptyKeys(obj[key]) else obj[key]
+          for key in filteredFields
+        }
+      else if std.type(obj) == "array" then
+        local filteredElements = std.filter(
+          function(element)
+            if std.type(element) == "object" || std.type(element) == "array" then
+              local cleaned = _removeEmptyKeys(element);
+              if std.type(cleaned) == "object" then
+                std.length(std.objectFields(cleaned)) > 0
+              else
+                std.length(cleaned) > 0
+            else
+              element != null && (std.type(element) != "string" || element != "")
+          ,
+          obj
+        );
+        [
+          if std.type(element) == "object" || std.type(element) == "array" then _removeEmptyKeys(element) else element
+          for element in filteredElements
+        ]
+      else
+        obj;
+    _removeEmptyKeys(obj),
 }`
 }
 

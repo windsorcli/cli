@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/google/go-jsonnet"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
@@ -54,8 +53,6 @@ func NewTerraformGenerator(injector di.Injector) *TerraformGenerator {
 // =============================================================================
 // Public Methods
 // =============================================================================
-
-
 
 // Generate creates Terraform configuration files, including tfvars files, for all blueprint components.
 // It processes template data keyed by "terraform/<module_path>", generating tfvars files at
@@ -142,129 +139,6 @@ func (g *TerraformGenerator) Generate(data map[string]any, overwrite ...bool) er
 // =============================================================================
 // Private Methods
 // =============================================================================
-
-// processTemplates discovers and processes jsonnet template files from the contexts/_template/terraform directory.
-// It checks for template directory existence, retrieves the current context configuration, and recursively
-// walks through template files to generate corresponding .tfvars files. The function handles template
-// discovery, context resolution, and delegates actual processing to walkTemplateDirectory.
-func (g *TerraformGenerator) processTemplates(reset bool) (map[string]map[string]any, error) {
-	projectRoot, err := g.shell.GetProjectRoot()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get project root: %w", err)
-	}
-
-	templateDir := filepath.Join(projectRoot, "contexts", "_template", "terraform")
-
-	if _, err := g.shims.Stat(templateDir); os.IsNotExist(err) {
-		return nil, nil
-	} else if err != nil {
-		return nil, fmt.Errorf("failed to check template directory: %w", err)
-	}
-
-	contextPath, err := g.configHandler.GetConfigRoot()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get config root: %w", err)
-	}
-
-	contextName := g.configHandler.GetString("context")
-	if contextName == "" {
-		contextName = os.Getenv("WINDSOR_CONTEXT")
-	}
-
-	templateValues := make(map[string]map[string]any)
-
-	return templateValues, g.walkTemplateDirectory(templateDir, contextPath, contextName, reset, templateValues)
-}
-
-// walkTemplateDirectory recursively traverses the template directory structure and processes jsonnet files.
-// It handles both files and subdirectories, maintaining the directory structure in the output location.
-// For each .jsonnet file found, it delegates processing to processJsonnetTemplate to collect template
-// values that will be merged into terraform components.
-func (g *TerraformGenerator) walkTemplateDirectory(templateDir, contextPath, contextName string, reset bool, templateValues map[string]map[string]any) error {
-	entries, err := g.shims.ReadDir(templateDir)
-	if err != nil {
-		return fmt.Errorf("failed to read template directory: %w", err)
-	}
-
-	for _, entry := range entries {
-		entryPath := filepath.Join(templateDir, entry.Name())
-
-		if entry.IsDir() {
-			if err := g.walkTemplateDirectory(entryPath, contextPath, contextName, reset, templateValues); err != nil {
-				return err
-			}
-		} else if strings.HasSuffix(entry.Name(), ".jsonnet") {
-			if err := g.processJsonnetTemplate(entryPath, contextName, templateValues); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-// processJsonnetTemplate processes a jsonnet template file and collects generated values
-// for merging into blueprint terraform components. It evaluates the template with context data
-// made available via std.extVar("context"), then stores the result in templateValues using
-// the relative path from the template directory as the key.
-// Templates must include: local context = std.extVar("context"); to access context data.
-func (g *TerraformGenerator) processJsonnetTemplate(templateFile, contextName string, templateValues map[string]map[string]any) error {
-	templateContent, err := g.shims.ReadFile(templateFile)
-	if err != nil {
-		return fmt.Errorf("error reading template file %s: %w", templateFile, err)
-	}
-
-	config := g.configHandler.GetConfig()
-
-	contextYAML, err := g.configHandler.YamlMarshalWithDefinedPaths(config)
-	if err != nil {
-		return fmt.Errorf("error marshalling context to YAML: %w", err)
-	}
-
-	var contextMap map[string]any = make(map[string]any)
-	if err := g.shims.YamlUnmarshal(contextYAML, &contextMap); err != nil {
-		return fmt.Errorf("error unmarshalling context YAML: %w", err)
-	}
-
-	contextMap["name"] = contextName
-	contextJSON, err := g.shims.JsonMarshal(contextMap)
-	if err != nil {
-		return fmt.Errorf("error marshalling context map to JSON: %w", err)
-	}
-
-	vm := jsonnet.MakeVM()
-	vm.ExtCode("context", string(contextJSON))
-	result, err := vm.EvaluateAnonymousSnippet("template.jsonnet", string(templateContent))
-	if err != nil {
-		return fmt.Errorf("error evaluating jsonnet template %s: %w", templateFile, err)
-	}
-
-	var values map[string]any
-	if err := g.shims.JsonUnmarshal([]byte(result), &values); err != nil {
-		return fmt.Errorf("jsonnet template must output valid JSON: %w", err)
-	}
-
-	projectRoot, err := g.shell.GetProjectRoot()
-	if err != nil {
-		return fmt.Errorf("failed to get project root: %w", err)
-	}
-
-	templateDir := filepath.Join(projectRoot, "contexts", "_template", "terraform")
-	relPath, err := g.shims.FilepathRel(templateDir, templateFile)
-	if err != nil {
-		return fmt.Errorf("failed to calculate relative path: %w", err)
-	}
-
-	componentPath := strings.TrimSuffix(relPath, ".jsonnet")
-	componentPath = strings.ReplaceAll(componentPath, "\\", "/")
-	templateValues[componentPath] = values
-
-	return nil
-}
-
-// writeTfvarsFile creates or updates a .tfvars file with variable values for the Terraform module.
-// It uses variables.tf as the basis for variable definitions and allows component.Values to override specific values.
-// The function maintains a header indicating Windsor CLI management and handles module source comments.
 
 // checkExistingTfvarsFile checks if a tfvars file exists and is readable.
 // Returns os.ErrExist if the file exists and is readable, or an error if the file exists but is not readable.
