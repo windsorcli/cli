@@ -8,6 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"math/rand"
+	"strconv"
+
 	"github.com/windsorcli/cli/pkg/di"
 )
 
@@ -51,9 +54,22 @@ func (p *BuildIDPipeline) Execute(ctx context.Context) error {
 // If no build ID exists, a new one is generated, persisted, and output.
 // Returns an error if retrieval or persistence fails.
 func (p *BuildIDPipeline) getBuildID() error {
-	buildID, err := p.getBuildIDFromFile()
+	projectRoot, err := p.shell.GetProjectRoot()
 	if err != nil {
-		return fmt.Errorf("failed to get build ID: %w", err)
+		return fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	buildIDPath := filepath.Join(projectRoot, ".windsor", ".build-id")
+	var buildID string
+
+	if _, err := p.shims.Stat(buildIDPath); os.IsNotExist(err) {
+		buildID = ""
+	} else {
+		data, err := p.shims.ReadFile(buildIDPath)
+		if err != nil {
+			return fmt.Errorf("failed to read build ID file: %w", err)
+		}
+		buildID = strings.TrimSpace(string(data))
 	}
 
 	if buildID == "" {
@@ -61,7 +77,7 @@ func (p *BuildIDPipeline) getBuildID() error {
 		if err != nil {
 			return fmt.Errorf("failed to generate build ID: %w", err)
 		}
-		if err := p.setBuildIDToFile(newBuildID); err != nil {
+		if err := p.writeBuildIDToFile(newBuildID); err != nil {
 			return fmt.Errorf("failed to set build ID: %w", err)
 		}
 		fmt.Printf("%s\n", newBuildID)
@@ -80,7 +96,7 @@ func (p *BuildIDPipeline) generateNewBuildID() error {
 		return fmt.Errorf("failed to generate build ID: %w", err)
 	}
 
-	if err := p.setBuildIDToFile(newBuildID); err != nil {
+	if err := p.writeBuildIDToFile(newBuildID); err != nil {
 		return fmt.Errorf("failed to set build ID: %w", err)
 	}
 
@@ -88,35 +104,17 @@ func (p *BuildIDPipeline) generateNewBuildID() error {
 	return nil
 }
 
-// getBuildIDFromFile reads and returns the build ID string from the .windsor/.build-id file in the project root.
-// If the file does not exist, returns an empty string and no error. Returns an error if file access fails.
-func (p *BuildIDPipeline) getBuildIDFromFile() (string, error) {
-	buildIDPath, err := p.getBuildIDPath()
-	if err != nil {
-		return "", fmt.Errorf("failed to get build ID path: %w", err)
-	}
-
-	if _, err := p.shims.Stat(buildIDPath); os.IsNotExist(err) {
-		return "", nil
-	}
-
-	data, err := p.shims.ReadFile(buildIDPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read build ID file: %w", err)
-	}
-
-	return strings.TrimSpace(string(data)), nil
-}
-
-// setBuildIDToFile writes the provided build ID string to the .windsor/.build-id file in the project root.
+// writeBuildIDToFile writes the provided build ID string to the .windsor/.build-id file in the project root.
 // Ensures the .windsor directory exists before writing. Returns an error if directory creation or file write fails.
-func (p *BuildIDPipeline) setBuildIDToFile(buildID string) error {
-	buildIDPath, err := p.getBuildIDPath()
+func (p *BuildIDPipeline) writeBuildIDToFile(buildID string) error {
+	projectRoot, err := p.shell.GetProjectRoot()
 	if err != nil {
-		return fmt.Errorf("failed to get build ID path: %w", err)
+		return fmt.Errorf("failed to get project root: %w", err)
 	}
 
+	buildIDPath := filepath.Join(projectRoot, ".windsor", ".build-id")
 	buildIDDir := filepath.Dir(buildIDPath)
+
 	if err := os.MkdirAll(buildIDDir, 0755); err != nil {
 		return fmt.Errorf("failed to create build ID directory: %w", err)
 	}
@@ -124,20 +122,69 @@ func (p *BuildIDPipeline) setBuildIDToFile(buildID string) error {
 	return os.WriteFile(buildIDPath, []byte(buildID), 0644)
 }
 
-// generateBuildID returns a new build ID string based on the current Unix timestamp.
-// Returns the generated build ID and no error.
+// generateBuildID generates and returns a build ID string in the format YYMMDD.RANDOM.#.
+// YYMMDD is the current date (year, month, day), RANDOM is a random three-digit number for collision prevention,
+// and # is a sequential counter incremented for each build on the same day. If a build ID already exists for the current day,
+// the counter is incremented; otherwise, a new build ID is generated with counter set to 1. Ensures global ordering and uniqueness.
+// Returns the build ID string or an error if generation or retrieval fails.
 func (p *BuildIDPipeline) generateBuildID() (string, error) {
-	buildID := fmt.Sprintf("%d", time.Now().Unix())
-	return buildID, nil
-}
+	now := time.Now()
+	yy := now.Year() % 100
+	mm := int(now.Month())
+	dd := now.Day()
+	datePart := fmt.Sprintf("%02d%02d%02d", yy, mm, dd)
 
-// getBuildIDPath computes and returns the absolute path to the .windsor/.build-id file in the project root directory.
-// Returns an error if the project root cannot be determined.
-func (p *BuildIDPipeline) getBuildIDPath() (string, error) {
 	projectRoot, err := p.shell.GetProjectRoot()
 	if err != nil {
 		return "", fmt.Errorf("failed to get project root: %w", err)
 	}
 
-	return filepath.Join(projectRoot, ".windsor", ".build-id"), nil
+	buildIDPath := filepath.Join(projectRoot, ".windsor", ".build-id")
+	var existingBuildID string
+
+	if _, err := p.shims.Stat(buildIDPath); os.IsNotExist(err) {
+		existingBuildID = ""
+	} else {
+		data, err := p.shims.ReadFile(buildIDPath)
+		if err != nil {
+			return "", fmt.Errorf("failed to read build ID file: %w", err)
+		}
+		existingBuildID = strings.TrimSpace(string(data))
+	}
+
+	if existingBuildID != "" {
+		return p.incrementBuildID(existingBuildID, datePart)
+	}
+
+	random := rand.Intn(1000)
+	counter := 1
+	randomPart := fmt.Sprintf("%03d", random)
+	counterPart := fmt.Sprintf("%d", counter)
+
+	return fmt.Sprintf("%s.%s.%s", datePart, randomPart, counterPart), nil
+}
+
+// incrementBuildID parses an existing build ID and increments its counter component.
+// If the date component differs from the current date, generates a new random number and resets the counter to 1.
+// Returns the incremented or reset build ID string, or an error if the input format is invalid.
+func (p *BuildIDPipeline) incrementBuildID(existingBuildID, currentDate string) (string, error) {
+	parts := strings.Split(existingBuildID, ".")
+	if len(parts) != 3 {
+		return "", fmt.Errorf("invalid build ID format: %s", existingBuildID)
+	}
+
+	existingDate := parts[0]
+	existingRandom := parts[1]
+	existingCounter, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return "", fmt.Errorf("invalid counter component: %s", parts[2])
+	}
+
+	if existingDate != currentDate {
+		random := rand.Intn(1000)
+		return fmt.Sprintf("%s.%03d.1", currentDate, random), nil
+	}
+
+	existingCounter++
+	return fmt.Sprintf("%s.%s.%d", existingDate, existingRandom, existingCounter), nil
 }

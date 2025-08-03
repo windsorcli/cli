@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -149,7 +148,7 @@ func TestBuildIDPipeline_Initialize(t *testing.T) {
 
 func TestBuildIDPipeline_Execute(t *testing.T) {
 	t.Run("GetExistingBuildID", func(t *testing.T) {
-		mocks := setupBuildIDMocks(t, "1234567890", nil, nil)
+		mocks := setupBuildIDMocks(t, "250802.123.5", nil, nil)
 
 		// Given a BuildIDPipeline with existing build ID
 		pipeline := NewBuildIDPipeline()
@@ -158,8 +157,7 @@ func TestBuildIDPipeline_Execute(t *testing.T) {
 		}
 
 		// When executing without new flag
-		ctx := context.Background()
-		err := pipeline.Execute(ctx)
+		err := pipeline.Execute(context.Background())
 
 		// Then it should succeed and output the existing build ID
 		if err != nil {
@@ -177,8 +175,7 @@ func TestBuildIDPipeline_Execute(t *testing.T) {
 		}
 
 		// When executing without new flag
-		ctx := context.Background()
-		err := pipeline.Execute(ctx)
+		err := pipeline.Execute(context.Background())
 
 		// Then it should succeed and generate a new build ID (may fail on read-only filesystem)
 		if err != nil && !strings.Contains(err.Error(), "read-only file system") {
@@ -187,7 +184,7 @@ func TestBuildIDPipeline_Execute(t *testing.T) {
 	})
 
 	t.Run("ForceNewBuildID", func(t *testing.T) {
-		mocks := setupBuildIDMocks(t, "1234567890", nil, nil)
+		mocks := setupBuildIDMocks(t, "250802.123.5", nil, nil)
 
 		// Given a BuildIDPipeline with existing build ID
 		pipeline := NewBuildIDPipeline()
@@ -208,7 +205,7 @@ func TestBuildIDPipeline_Execute(t *testing.T) {
 
 func TestBuildIDPipeline_getBuildID(t *testing.T) {
 	t.Run("ExistingBuildID", func(t *testing.T) {
-		mocks := setupBuildIDMocks(t, "1234567890", nil, nil)
+		mocks := setupBuildIDMocks(t, "250802.123.5", nil, nil)
 
 		// Given a BuildIDPipeline with existing build ID
 		pipeline := NewBuildIDPipeline()
@@ -259,8 +256,8 @@ func TestBuildIDPipeline_getBuildID(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected getBuildID to fail with read error")
 		}
-		if !strings.Contains(err.Error(), "failed to get build ID") {
-			t.Errorf("Expected error to contain 'failed to get build ID', got: %v", err)
+		if !strings.Contains(err.Error(), "failed to read build ID file") {
+			t.Errorf("Expected error to contain 'failed to read build ID file', got: %v", err)
 		}
 	})
 
@@ -285,17 +282,17 @@ func TestBuildIDPipeline_getBuildID(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected getBuildID to fail with project root error")
 		}
-		if !strings.Contains(err.Error(), "failed to get build ID") {
-			t.Errorf("Expected error to contain 'failed to get build ID', got: %v", err)
+		if !strings.Contains(err.Error(), "failed to get project root") {
+			t.Errorf("Expected error to contain 'failed to get project root', got: %v", err)
 		}
 	})
 }
 
 func TestBuildIDPipeline_generateNewBuildID(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		mocks := setupBuildIDMocks(t, "", nil, nil)
+		mocks := setupBuildIDMocks(t, "", os.ErrNotExist, nil)
 
-		// Given a BuildIDPipeline
+		// Given a BuildIDPipeline with no existing build ID
 		pipeline := NewBuildIDPipeline()
 		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
@@ -304,132 +301,88 @@ func TestBuildIDPipeline_generateNewBuildID(t *testing.T) {
 		// When generating new build ID
 		err := pipeline.generateNewBuildID()
 
-		// Then it should succeed (may fail on read-only filesystem, which is expected)
+		// Then it should succeed and generate a new build ID (may fail on read-only filesystem)
 		if err != nil && !strings.Contains(err.Error(), "read-only file system") {
 			t.Fatalf("Expected generateNewBuildID to succeed or fail with read-only filesystem, got error: %v", err)
 		}
 	})
 
-	t.Run("GenerateBuildIDError", func(t *testing.T) {
-		mocks := setupBuildIDMocks(t, "", nil, nil)
+	t.Run("ExistingBuildID", func(t *testing.T) {
+		mocks := setupBuildIDMocks(t, "250802.123.5", nil, nil)
 
-		// Given a BuildIDPipeline
+		// Given a BuildIDPipeline with existing build ID
 		pipeline := NewBuildIDPipeline()
 		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
-
-		// And mock shell returns error for project root
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "", fmt.Errorf("mock project root error")
 		}
 
 		// When generating new build ID
 		err := pipeline.generateNewBuildID()
 
-		// Then it should return an error
-		if err == nil {
-			t.Fatal("Expected generateNewBuildID to fail with project root error")
-		}
-		if !strings.Contains(err.Error(), "failed to get build ID path") {
-			t.Errorf("Expected error to contain 'failed to get build ID path', got: %v", err)
+		// Then it should succeed and overwrite the existing build ID (may fail on read-only filesystem)
+		if err != nil && !strings.Contains(err.Error(), "read-only file system") {
+			t.Fatalf("Expected generateNewBuildID to succeed or fail with read-only filesystem, got error: %v", err)
 		}
 	})
 }
 
 func TestBuildIDPipeline_getBuildIDFromFile(t *testing.T) {
-	t.Run("ExistingFile", func(t *testing.T) {
-		mocks := setupBuildIDMocks(t, "1234567890", nil, nil)
+	t.Run("ExistingBuildID", func(t *testing.T) {
+		mocks := setupBuildIDMocks(t, "250802.123.5", nil, nil)
 
-		// Given a BuildIDPipeline
+		// Given a BuildIDPipeline with existing build ID
 		pipeline := NewBuildIDPipeline()
 		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
 		}
 
 		// When getting build ID from file
-		buildID, err := pipeline.getBuildIDFromFile()
+		err := pipeline.getBuildID()
 
-		// Then it should succeed and return the build ID
+		// Then it should succeed and return the existing build ID
 		if err != nil {
-			t.Fatalf("Expected getBuildIDFromFile to succeed, got error: %v", err)
+			t.Fatalf("Expected getBuildID to succeed, got error: %v", err)
 		}
-		if buildID != "1234567890" {
-			t.Errorf("Expected build ID '1234567890', got '%s'", buildID)
-		}
+		// Note: getBuildID prints the build ID, so we can't easily test the return value
+		// The test verifies it doesn't error
 	})
 
-	t.Run("FileNotExists", func(t *testing.T) {
+	t.Run("NoExistingBuildID", func(t *testing.T) {
 		mocks := setupBuildIDMocks(t, "", os.ErrNotExist, nil)
 
-		// Given a BuildIDPipeline
+		// Given a BuildIDPipeline with no existing build ID
 		pipeline := NewBuildIDPipeline()
 		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
 		}
 
 		// When getting build ID from file
-		buildID, err := pipeline.getBuildIDFromFile()
+		err := pipeline.getBuildID()
 
-		// Then it should succeed and return empty string
-		if err != nil {
-			t.Fatalf("Expected getBuildIDFromFile to succeed, got error: %v", err)
-		}
-		if buildID != "" {
-			t.Errorf("Expected empty build ID, got '%s'", buildID)
+		// Then it should succeed and generate a new build ID (may fail on read-only filesystem)
+		if err != nil && !strings.Contains(err.Error(), "read-only file system") {
+			t.Fatalf("Expected getBuildID to succeed or fail with read-only filesystem, got error: %v", err)
 		}
 	})
 
-	t.Run("GetBuildIDPathError", func(t *testing.T) {
-		mocks := setupBuildIDMocks(t, "", nil, nil)
-
-		// Given a BuildIDPipeline
-		pipeline := NewBuildIDPipeline()
-		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
-			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
-
-		// And mock shell returns error for project root
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "", fmt.Errorf("mock project root error")
-		}
-
-		// When getting build ID from file
-		buildID, err := pipeline.getBuildIDFromFile()
-
-		// Then it should return an error
-		if err == nil {
-			t.Fatal("Expected getBuildIDFromFile to fail with project root error")
-		}
-		if !strings.Contains(err.Error(), "failed to get build ID path") {
-			t.Errorf("Expected error to contain 'failed to get build ID path', got: %v", err)
-		}
-		if buildID != "" {
-			t.Errorf("Expected empty build ID on error, got '%s'", buildID)
-		}
-	})
-
-	t.Run("ReadFileError", func(t *testing.T) {
+	t.Run("ReadError", func(t *testing.T) {
 		mocks := setupBuildIDMocks(t, "", nil, fmt.Errorf("mock read error"))
 
-		// Given a BuildIDPipeline
+		// Given a BuildIDPipeline with read error
 		pipeline := NewBuildIDPipeline()
 		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
 		}
 
 		// When getting build ID from file
-		buildID, err := pipeline.getBuildIDFromFile()
+		err := pipeline.getBuildID()
 
 		// Then it should return an error
 		if err == nil {
-			t.Fatal("Expected getBuildIDFromFile to fail with read error")
+			t.Fatal("Expected getBuildID to fail with read error")
 		}
 		if !strings.Contains(err.Error(), "failed to read build ID file") {
 			t.Errorf("Expected error to contain 'failed to read build ID file', got: %v", err)
-		}
-		if buildID != "" {
-			t.Errorf("Expected empty build ID on error, got '%s'", buildID)
 		}
 	})
 }
@@ -445,89 +398,11 @@ func TestBuildIDPipeline_setBuildIDToFile(t *testing.T) {
 		}
 
 		// When setting build ID to file
-		err := pipeline.setBuildIDToFile("1234567890")
+		err := pipeline.writeBuildIDToFile("250802.123.5")
 
 		// Then it should succeed (may fail on read-only filesystem, which is expected)
 		if err != nil && !strings.Contains(err.Error(), "read-only file system") {
-			t.Fatalf("Expected setBuildIDToFile to succeed or fail with read-only filesystem, got error: %v", err)
-		}
-	})
-
-	t.Run("GetBuildIDPathError", func(t *testing.T) {
-		mocks := setupBuildIDMocks(t, "", nil, nil)
-
-		// Given a BuildIDPipeline
-		pipeline := NewBuildIDPipeline()
-		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
-			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
-
-		// And mock shell returns error for project root
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "", fmt.Errorf("mock project root error")
-		}
-
-		// When setting build ID to file
-		err := pipeline.setBuildIDToFile("1234567890")
-
-		// Then it should return an error
-		if err == nil {
-			t.Fatal("Expected setBuildIDToFile to fail with project root error")
-		}
-		if !strings.Contains(err.Error(), "failed to get build ID path") {
-			t.Errorf("Expected error to contain 'failed to get build ID path', got: %v", err)
-		}
-	})
-}
-
-func TestBuildIDPipeline_generateBuildID(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		mocks := setupBuildIDMocks(t, "", nil, nil)
-
-		// Given a BuildIDPipeline
-		pipeline := NewBuildIDPipeline()
-		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
-			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
-
-		// When generating build ID
-		buildID, err := pipeline.generateBuildID()
-
-		// Then it should succeed and return a timestamp
-		if err != nil {
-			t.Fatalf("Expected generateBuildID to succeed, got error: %v", err)
-		}
-		if buildID == "" {
-			t.Fatal("Expected non-empty build ID")
-		}
-
-		// And it should be a valid timestamp
-		if len(buildID) < 10 {
-			t.Errorf("Expected build ID to be at least 10 characters, got %d", len(buildID))
-		}
-	})
-}
-
-func TestBuildIDPipeline_getBuildIDPath(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		mocks := setupBuildIDMocks(t, "", nil, nil)
-
-		// Given a BuildIDPipeline
-		pipeline := NewBuildIDPipeline()
-		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
-			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
-
-		// When getting build ID path
-		path, err := pipeline.getBuildIDPath()
-
-		// Then it should succeed and return the correct path
-		if err != nil {
-			t.Fatalf("Expected getBuildIDPath to succeed, got error: %v", err)
-		}
-		expectedPath := filepath.Join("/test/project", ".windsor", ".build-id")
-		if path != expectedPath {
-			t.Errorf("Expected path '%s', got '%s'", expectedPath, path)
+			t.Fatalf("Expected writeBuildIDToFile to succeed or fail with read-only filesystem, got error: %v", err)
 		}
 	})
 
@@ -545,18 +420,231 @@ func TestBuildIDPipeline_getBuildIDPath(t *testing.T) {
 			return "", fmt.Errorf("mock project root error")
 		}
 
-		// When getting build ID path
-		path, err := pipeline.getBuildIDPath()
+		// When setting build ID to file
+		err := pipeline.writeBuildIDToFile("250802.123.5")
 
 		// Then it should return an error
 		if err == nil {
-			t.Fatal("Expected getBuildIDPath to fail with project root error")
+			t.Fatal("Expected writeBuildIDToFile to fail with project root error")
 		}
 		if !strings.Contains(err.Error(), "failed to get project root") {
 			t.Errorf("Expected error to contain 'failed to get project root', got: %v", err)
 		}
-		if path != "" {
-			t.Errorf("Expected empty path on error, got '%s'", path)
+	})
+}
+
+func TestBuildIDPipeline_generateBuildID(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mocks := setupBuildIDMocks(t, "", nil, nil)
+
+		// Given a BuildIDPipeline
+		pipeline := NewBuildIDPipeline()
+		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
+
+		// When generating build ID
+		buildID, err := pipeline.generateBuildID()
+
+		// Then it should succeed and return a build ID
+		if err != nil {
+			t.Fatalf("Expected generateBuildID to succeed, got error: %v", err)
+		}
+		if buildID == "" {
+			t.Fatal("Expected non-empty build ID")
+		}
+
+		// And it should be in the correct YYMMDD.RANDOM.# format
+		parts := strings.Split(buildID, ".")
+		if len(parts) != 3 {
+			t.Errorf("Expected build ID to have 3 parts separated by dots, got %d parts: %s", len(parts), buildID)
+		}
+
+		// Check date part (YYMMDD)
+		if len(parts[0]) != 6 {
+			t.Errorf("Expected date part to be 6 characters (YYMMDD), got %d: %s", len(parts[0]), parts[0])
+		}
+
+		// Check random part (3 digits)
+		if len(parts[1]) != 3 {
+			t.Errorf("Expected random part to be 3 digits, got %d: %s", len(parts[1]), parts[1])
+		}
+
+		// Check counter part (should be 1 for first build)
+		if parts[2] != "1" {
+			t.Errorf("Expected counter part to be 1 for first build, got %s", parts[2])
+		}
+	})
+
+	t.Run("IncrementExistingBuildID", func(t *testing.T) {
+		// Mock existing build ID for today
+		existingBuildID := "250802.123.5"
+		mocks := setupBuildIDMocks(t, existingBuildID, nil, nil)
+
+		// Given a BuildIDPipeline with existing build ID
+		pipeline := NewBuildIDPipeline()
+		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
+
+		// When generating build ID
+		buildID, err := pipeline.generateBuildID()
+
+		// Then it should succeed and increment the counter
+		if err != nil {
+			t.Fatalf("Expected generateBuildID to succeed, got error: %v", err)
+		}
+
+		// Should increment counter from 5 to 6
+		expectedBuildID := "250802.123.6"
+		if buildID != expectedBuildID {
+			t.Errorf("Expected build ID to be %s, got %s", expectedBuildID, buildID)
+		}
+	})
+
+	t.Run("NewDayNewRandom", func(t *testing.T) {
+		// Mock existing build ID from yesterday
+		existingBuildID := "250801.456.10"
+		mocks := setupBuildIDMocks(t, existingBuildID, nil, nil)
+
+		// Given a BuildIDPipeline with existing build ID from different day
+		pipeline := NewBuildIDPipeline()
+		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
+
+		// When generating build ID
+		buildID, err := pipeline.generateBuildID()
+
+		// Then it should succeed and generate new random with counter 1
+		if err != nil {
+			t.Fatalf("Expected generateBuildID to succeed, got error: %v", err)
+		}
+
+		// Should have today's date, new random, and counter 1
+		parts := strings.Split(buildID, ".")
+		if len(parts) != 3 {
+			t.Errorf("Expected build ID to have 3 parts, got %d: %s", len(parts), buildID)
+		}
+
+		// Date should be today (250802)
+		if parts[0] != "250802" {
+			t.Errorf("Expected date to be today (250802), got %s", parts[0])
+		}
+
+		// Random should be different from yesterday (456)
+		if parts[1] == "456" {
+			t.Errorf("Expected new random number, got same as yesterday: %s", parts[1])
+		}
+
+		// Counter should be 1 for new day
+		if parts[2] != "1" {
+			t.Errorf("Expected counter to be 1 for new day, got %s", parts[2])
+		}
+	})
+}
+
+func TestBuildIDPipeline_incrementBuildID(t *testing.T) {
+	t.Run("IncrementSameDay", func(t *testing.T) {
+		// Given a BuildIDPipeline
+		pipeline := NewBuildIDPipeline()
+		if err := pipeline.Initialize(setupBuildIDMocks(t, "", nil, nil).Injector, context.Background()); err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
+
+		// When incrementing existing build ID from same day
+		existingBuildID := "250802.123.5"
+		currentDate := "250802"
+		newBuildID, err := pipeline.incrementBuildID(existingBuildID, currentDate)
+
+		// Then it should increment counter
+		if err != nil {
+			t.Fatalf("Expected incrementBuildID to succeed, got error: %v", err)
+		}
+
+		expectedBuildID := "250802.123.6"
+		if newBuildID != expectedBuildID {
+			t.Errorf("Expected build ID to be %s, got %s", expectedBuildID, newBuildID)
+		}
+	})
+
+	t.Run("NewDayNewRandom", func(t *testing.T) {
+		// Given a BuildIDPipeline
+		pipeline := NewBuildIDPipeline()
+		if err := pipeline.Initialize(setupBuildIDMocks(t, "", nil, nil).Injector, context.Background()); err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
+
+		// When incrementing existing build ID from different day
+		existingBuildID := "250801.456.10"
+		currentDate := "250802"
+		newBuildID, err := pipeline.incrementBuildID(existingBuildID, currentDate)
+
+		// Then it should generate new random and reset counter
+		if err != nil {
+			t.Fatalf("Expected incrementBuildID to succeed, got error: %v", err)
+		}
+
+		parts := strings.Split(newBuildID, ".")
+		if len(parts) != 3 {
+			t.Errorf("Expected build ID to have 3 parts, got %d: %s", len(parts), newBuildID)
+		}
+
+		// Date should be current date
+		if parts[0] != "250802" {
+			t.Errorf("Expected date to be 250802, got %s", parts[0])
+		}
+
+		// Random should be different
+		if parts[1] == "456" {
+			t.Errorf("Expected new random number, got same: %s", parts[1])
+		}
+
+		// Counter should be 1
+		if parts[2] != "1" {
+			t.Errorf("Expected counter to be 1, got %s", parts[2])
+		}
+	})
+
+	t.Run("InvalidFormat", func(t *testing.T) {
+		// Given a BuildIDPipeline
+		pipeline := NewBuildIDPipeline()
+		if err := pipeline.Initialize(setupBuildIDMocks(t, "", nil, nil).Injector, context.Background()); err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
+
+		// When incrementing invalid build ID format
+		invalidBuildID := "invalid-format"
+		currentDate := "250802"
+		_, err := pipeline.incrementBuildID(invalidBuildID, currentDate)
+
+		// Then it should return an error
+		if err == nil {
+			t.Fatal("Expected incrementBuildID to fail with invalid format")
+		}
+		if !strings.Contains(err.Error(), "invalid build ID format") {
+			t.Errorf("Expected error to contain 'invalid build ID format', got: %v", err)
+		}
+	})
+
+	t.Run("InvalidCounter", func(t *testing.T) {
+		// Given a BuildIDPipeline
+		pipeline := NewBuildIDPipeline()
+		if err := pipeline.Initialize(setupBuildIDMocks(t, "", nil, nil).Injector, context.Background()); err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
+
+		// When incrementing build ID with invalid counter
+		invalidBuildID := "250802.123.invalid"
+		currentDate := "250802"
+		_, err := pipeline.incrementBuildID(invalidBuildID, currentDate)
+
+		// Then it should return an error
+		if err == nil {
+			t.Fatal("Expected incrementBuildID to fail with invalid counter")
+		}
+		if !strings.Contains(err.Error(), "invalid counter component") {
+			t.Errorf("Expected error to contain 'invalid counter component', got: %v", err)
 		}
 	})
 }

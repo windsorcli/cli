@@ -288,16 +288,16 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 		}
 
 		// Verify that the full path structure is preserved (not flattened)
-		if _, exists := renderedData["kustomize/ingress/patches/nginx"]; !exists {
-			t.Error("Expected kustomize/ingress/patches/nginx to be rendered with preserved path structure")
+		if _, exists := renderedData["kustomize/patches/ingress/patches/nginx"]; !exists {
+			t.Error("Expected kustomize/patches/ingress/patches/nginx to be rendered with preserved path structure")
 		}
 
-		if _, exists := renderedData["kustomize/dns/patches/coredns"]; !exists {
-			t.Error("Expected kustomize/dns/patches/coredns to be rendered with preserved path structure")
+		if _, exists := renderedData["kustomize/patches/dns/patches/coredns"]; !exists {
+			t.Error("Expected kustomize/patches/dns/patches/coredns to be rendered with preserved path structure")
 		}
 
 		// Verify the content is correctly processed
-		nginxPatch, ok := renderedData["kustomize/ingress/patches/nginx"].(map[string]any)
+		nginxPatch, ok := renderedData["kustomize/patches/ingress/patches/nginx"].(map[string]any)
 		if !ok {
 			t.Error("Expected nginx patch to be a map")
 		} else {
@@ -309,7 +309,7 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 			}
 		}
 
-		corednsPatch, ok := renderedData["kustomize/dns/patches/coredns"].(map[string]any)
+		corednsPatch, ok := renderedData["kustomize/patches/dns/patches/coredns"].(map[string]any)
 		if !ok {
 			t.Error("Expected coredns patch to be a map")
 		} else {
@@ -1666,11 +1666,9 @@ func TestJsonnetTemplate_extractValuesReferences(t *testing.T) {
 		// When extracting values references
 		result := template.extractValuesReferences(renderedData)
 
-		// Then should include global values and discovered component values
+		// Then should include only the centralized values template
 		expected := []string{
 			"kustomize/values.jsonnet",
-			"kustomize/ingress/values.jsonnet",
-			"kustomize/database/values.jsonnet",
 		}
 		if len(result) != len(expected) {
 			t.Errorf("expected %d items, got %d", len(expected), len(result))
@@ -1709,7 +1707,7 @@ func TestJsonnetTemplate_extractValuesReferences(t *testing.T) {
 		// When extracting values references
 		result := template.extractValuesReferences(renderedData)
 
-		// Then should only include global values (no discovery)
+		// Then should only include the centralized values template (no discovery)
 		expected := []string{"kustomize/values.jsonnet"}
 		if len(result) != len(expected) {
 			t.Errorf("expected %d items, got %d", len(expected), len(result))
@@ -1841,11 +1839,9 @@ func TestJsonnetTemplate_extractValuesReferences(t *testing.T) {
 		// When extracting values references
 		result := template.extractValuesReferences(renderedData)
 
-		// Then should include global values and only existing component values
+		// Then should include only the centralized values template
 		expected := []string{
 			"kustomize/values.jsonnet",
-			"kustomize/ingress/values.jsonnet",
-			"kustomize/database/values.jsonnet",
 		}
 		if len(result) != len(expected) {
 			t.Errorf("expected %d items, got %d", len(expected), len(result))
@@ -2012,7 +2008,7 @@ func TestJsonnetTemplate_processTemplate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected no error, got: %v", err)
 		}
-		if renderedData["kustomize/ingress/patch"] == nil {
+		if renderedData["kustomize/patches/ingress/patch"] == nil {
 			t.Error("expected kustomize patch data to be added")
 		}
 	})
@@ -2041,8 +2037,8 @@ func TestJsonnetTemplate_processTemplate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected no error, got: %v", err)
 		}
-		if renderedData["values/global"] == nil {
-			t.Error("expected values/global data to be added")
+		if renderedData["kustomize/values"] == nil {
+			t.Error("expected kustomize/values data to be added")
 		}
 	})
 
@@ -2070,8 +2066,8 @@ func TestJsonnetTemplate_processTemplate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected no error, got: %v", err)
 		}
-		if renderedData["values/ingress"] == nil {
-			t.Error("expected values/ingress data to be added")
+		if renderedData["kustomize/values"] == nil {
+			t.Error("expected kustomize/values data to be added")
 		}
 	})
 
@@ -2099,8 +2095,8 @@ func TestJsonnetTemplate_processTemplate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected no error, got: %v", err)
 		}
-		if renderedData["values/global"] == nil {
-			t.Error("expected values/global data to be added")
+		if renderedData["kustomize/values"] == nil {
+			t.Error("expected kustomize/values data to be added")
 		}
 	})
 
@@ -2224,8 +2220,8 @@ func TestJsonnetTemplate_processTemplate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected no error, got: %v", err)
 		}
-		if renderedData["kustomize/ingress/nginx/values"] == nil {
-			t.Error("expected complex path data to be added")
+		if renderedData["kustomize/values"] == nil {
+			t.Error("expected kustomize/values data to be added")
 		}
 	})
 }
