@@ -115,11 +115,11 @@ func (p *BuildIDPipeline) writeBuildIDToFile(buildID string) error {
 	buildIDPath := filepath.Join(projectRoot, ".windsor", ".build-id")
 	buildIDDir := filepath.Dir(buildIDPath)
 
-	if err := os.MkdirAll(buildIDDir, 0755); err != nil {
+	if err := p.shims.MkdirAll(buildIDDir, 0755); err != nil {
 		return fmt.Errorf("failed to create build ID directory: %w", err)
 	}
 
-	return os.WriteFile(buildIDPath, []byte(buildID), 0644)
+	return p.shims.WriteFile(buildIDPath, []byte(buildID), 0644)
 }
 
 // generateBuildID generates and returns a build ID string in the format YYMMDD.RANDOM.#.
