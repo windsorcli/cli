@@ -24,7 +24,7 @@ type YamlConfigHandler struct {
 	BaseConfigHandler
 	path                 string
 	defaultContextConfig v1alpha1.Context
-	rootContexts         map[string]bool // tracks which contexts were originally loaded from root config
+	loadedContexts       map[string]bool // tracks contexts loaded from existing files
 }
 
 // =============================================================================
@@ -35,7 +35,7 @@ type YamlConfigHandler struct {
 func NewYamlConfigHandler(injector di.Injector) *YamlConfigHandler {
 	handler := &YamlConfigHandler{
 		BaseConfigHandler: *NewBaseConfigHandler(injector),
-		rootContexts:      make(map[string]bool),
+		loadedContexts:    make(map[string]bool),
 	}
 
 	// Initialize the config version
@@ -64,7 +64,7 @@ func (y *YamlConfigHandler) LoadConfigString(content string) error {
 
 	if tempConfig.Contexts != nil {
 		for contextName := range tempConfig.Contexts {
-			y.rootContexts[contextName] = true
+			y.loadedContexts[contextName] = true
 		}
 	}
 
@@ -120,8 +120,10 @@ func (y *YamlConfigHandler) LoadContextConfig() error {
 	var contextConfigPath string
 	if _, err := y.shims.Stat(yamlPath); err == nil {
 		contextConfigPath = yamlPath
+		y.loadedContexts[contextName] = true
 	} else if _, err := y.shims.Stat(ymlPath); err == nil {
 		contextConfigPath = ymlPath
+		y.loadedContexts[contextName] = true
 	}
 
 	if contextConfigPath == "" {
@@ -151,9 +153,8 @@ func (y *YamlConfigHandler) LoadContextConfig() error {
 	return nil
 }
 
-// IsContextConfigLoaded determines whether context-specific configuration has been loaded for the current context.
-// It returns true if the base configuration is loaded, the current context name is set, and a non-nil context
-// configuration exists for the current context in the configuration map. Returns false otherwise.
+// IsContextConfigLoaded returns true if the base configuration is loaded, the current context name is set,
+// and a context-specific configuration has been loaded for the current context. Returns false otherwise.
 func (y *YamlConfigHandler) IsContextConfigLoaded() bool {
 	if !y.BaseConfigHandler.loaded {
 		return false
@@ -164,12 +165,7 @@ func (y *YamlConfigHandler) IsContextConfigLoaded() bool {
 		return false
 	}
 
-	if y.config.Contexts == nil {
-		return false
-	}
-
-	context, exists := y.config.Contexts[contextName]
-	return exists && context != nil
+	return y.loadedContexts[contextName]
 }
 
 // SaveConfig writes configuration to root windsor.yaml and the current context's windsor.yaml.
@@ -201,7 +197,7 @@ func (y *YamlConfigHandler) SaveConfig(overwrite ...bool) error {
 		contextExists = true
 	}
 
-	contextExistsInRoot := y.rootContexts[contextName]
+	contextExistsInRoot := y.loadedContexts[contextName]
 
 	shouldCreateRootConfig := !rootExists
 	shouldCreateContextConfig := !contextExists && !contextExistsInRoot

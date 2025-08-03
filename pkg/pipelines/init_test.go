@@ -564,6 +564,60 @@ func TestInitPipeline_setDefaultConfiguration(t *testing.T) {
 		}
 	})
 
+	t.Run("PrioritizesExplicitProviderOverContextName", func(t *testing.T) {
+		// Given a pipeline with explicit provider "aws" and "local" context name
+		pipeline, mockConfigHandler := setup(t, "", "aws")
+		var appliedDefaults v1alpha1.Context
+		mockConfigHandler.SetDefaultFunc = func(defaultConfig v1alpha1.Context) error {
+			appliedDefaults = defaultConfig
+			return nil
+		}
+
+		// When setDefaultConfiguration is called with "local" context
+		err := pipeline.setDefaultConfiguration(context.Background(), "local")
+
+		// Then should complete successfully and apply minimal defaults (not local defaults)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Should apply DefaultConfig (minimal) instead of DefaultConfig_Localhost (full local)
+		// We can't directly compare the structs, but we can check that it's not the localhost config
+		// by verifying that local-specific fields are not present
+		if appliedDefaults.Docker != nil {
+			t.Error("Expected no docker config when using explicit AWS provider")
+		}
+		if appliedDefaults.Git != nil {
+			t.Error("Expected no git config when using explicit AWS provider")
+		}
+	})
+
+	t.Run("UsesContextNameWhenNoProviderSpecified", func(t *testing.T) {
+		// Given a pipeline with no provider set and "local" context name
+		pipeline, mockConfigHandler := setup(t, "", "")
+		var appliedDefaults v1alpha1.Context
+		mockConfigHandler.SetDefaultFunc = func(defaultConfig v1alpha1.Context) error {
+			appliedDefaults = defaultConfig
+			return nil
+		}
+
+		// When setDefaultConfiguration is called with "local" context
+		err := pipeline.setDefaultConfiguration(context.Background(), "local")
+
+		// Then should complete successfully and apply local defaults
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Should apply local defaults (DefaultConfig_Localhost) which includes docker and git
+		if appliedDefaults.Docker == nil {
+			t.Error("Expected docker config when using local context name")
+		}
+		if appliedDefaults.Git == nil {
+			t.Error("Expected git config when using local context name")
+		}
+	})
+
 	t.Run("UsesContextNameAsProviderForLocal", func(t *testing.T) {
 		// Given a pipeline with no provider set and "local" context name
 		pipeline, mockConfigHandler := setup(t, "", "")
