@@ -2,13 +2,14 @@ package pipelines
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"math/rand"
 	"strconv"
 
 	"github.com/windsorcli/cli/pkg/di"
@@ -156,9 +157,12 @@ func (p *BuildIDPipeline) generateBuildID() (string, error) {
 		return p.incrementBuildID(existingBuildID, datePart)
 	}
 
-	random := rand.Intn(1000)
+	random, err := rand.Int(rand.Reader, big.NewInt(1000))
+	if err != nil {
+		return "", fmt.Errorf("failed to generate random number: %w", err)
+	}
 	counter := 1
-	randomPart := fmt.Sprintf("%03d", random)
+	randomPart := fmt.Sprintf("%03d", random.Int64())
 	counterPart := fmt.Sprintf("%d", counter)
 
 	return fmt.Sprintf("%s.%s.%s", datePart, randomPart, counterPart), nil
@@ -181,8 +185,11 @@ func (p *BuildIDPipeline) incrementBuildID(existingBuildID, currentDate string) 
 	}
 
 	if existingDate != currentDate {
-		random := rand.Intn(1000)
-		return fmt.Sprintf("%s.%03d.1", currentDate, random), nil
+		random, err := rand.Int(rand.Reader, big.NewInt(1000))
+		if err != nil {
+			return "", fmt.Errorf("failed to generate random number: %w", err)
+		}
+		return fmt.Sprintf("%s.%03d.1", currentDate, random.Int64()), nil
 	}
 
 	existingCounter++

@@ -242,11 +242,11 @@ func (e *WindsorEnvPrinter) getBuildIDFromFile() (string, error) {
 
 	buildIDPath := filepath.Join(projectRoot, ".windsor", ".build-id")
 
-	if _, err := os.Stat(buildIDPath); os.IsNotExist(err) {
+	if _, err := e.shims.Stat(buildIDPath); os.IsNotExist(err) {
 		return "", nil
 	}
 
-	data, err := os.ReadFile(buildIDPath)
+	data, err := e.shims.ReadFile(buildIDPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read build ID file: %w", err)
 	}
