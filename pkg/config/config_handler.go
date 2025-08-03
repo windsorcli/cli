@@ -41,7 +41,6 @@ type ConfigHandler interface {
 	IsContextConfigLoaded() bool
 	SetSecretsProvider(provider secrets.SecretsProvider)
 	GenerateContextID() error
-	YamlMarshalWithDefinedPaths(v any) ([]byte, error)
 }
 
 const (

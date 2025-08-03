@@ -40,7 +40,6 @@ func (m *mockConfigHandler) IsLoaded() bool                                     
 func (m *mockConfigHandler) IsContextConfigLoaded() bool                         { return true }
 func (m *mockConfigHandler) SetSecretsProvider(provider secrets.SecretsProvider) {}
 func (m *mockConfigHandler) GenerateContextID() error                            { return nil }
-func (m *mockConfigHandler) YamlMarshalWithDefinedPaths(v any) ([]byte, error)   { return nil, nil }
 
 // =============================================================================
 // Test Helper Functions

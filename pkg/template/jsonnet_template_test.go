@@ -143,7 +143,7 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 
 	t.Run("ProcessesBlueprintJsonnetTemplate", func(t *testing.T) {
 		// Given a jsonnet template
-		template, mocks := setup(t)
+		template, _ := setup(t)
 
 		// And template data containing a blueprint.jsonnet file
 		templateData := map[string][]byte{
@@ -162,7 +162,7 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 		}
 
 		// And mock config handler returns valid YAML
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
 		}
 
@@ -186,7 +186,7 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 
 	t.Run("ProcessesTerraformJsonnetTemplates", func(t *testing.T) {
 		// Given a jsonnet template
-		template, mocks := setup(t)
+		template, _ := setup(t)
 
 		// And template data containing terraform/ .jsonnet files
 		templateData := map[string][]byte{
@@ -209,7 +209,7 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 		}
 
 		// And mock config handler returns valid YAML
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
 		}
 
@@ -237,7 +237,7 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 
 	t.Run("ProcessesPatchesJsonnetTemplates", func(t *testing.T) {
 		// Given a jsonnet template
-		template, mocks := setup(t)
+		template, _ := setup(t)
 
 		// And template data containing blueprint and kustomize/ .jsonnet files with subdirectory structure
 		templateData := map[string][]byte{
@@ -265,7 +265,7 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 		}
 
 		// And mock config handler returns valid YAML
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
 		}
 
@@ -324,7 +324,7 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 
 	t.Run("ProcessesBothBlueprintAndTerraformTemplates", func(t *testing.T) {
 		// Given a jsonnet template
-		template, mocks := setup(t)
+		template, _ := setup(t)
 
 		// And template data containing both blueprint and terraform files
 		templateData := map[string][]byte{
@@ -348,7 +348,7 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 		}
 
 		// And mock config handler returns valid YAML
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
 		}
 
@@ -404,7 +404,7 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 
 	t.Run("HandlesJsonnetProcessingError", func(t *testing.T) {
 		// Given a jsonnet template
-		template, mocks := setup(t)
+		template, _ := setup(t)
 
 		// And template data containing a blueprint.jsonnet file
 		templateData := map[string][]byte{
@@ -423,7 +423,7 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 		}
 
 		// And mock config handler returns valid YAML
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
 		}
 
@@ -441,7 +441,7 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 
 	t.Run("ProcessesOnlyFirstMatchingRule", func(t *testing.T) {
 		// Given a jsonnet template
-		template, mocks := setup(t)
+		template, _ := setup(t)
 
 		// And template data containing a blueprint.jsonnet file (which matches the first rule)
 		templateData := map[string][]byte{
@@ -460,7 +460,7 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 		}
 
 		// And mock config handler returns valid YAML
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
 		}
 
@@ -495,7 +495,7 @@ func TestJsonnetTemplate_processJsonnetTemplate(t *testing.T) {
 
 	t.Run("ProcessesValidJsonnetTemplate", func(t *testing.T) {
 		// Given a jsonnet template
-		template, mocks := setup(t)
+		template, _ := setup(t)
 
 		// And a mock jsonnet VM that returns valid JSON
 		template.shims.NewJsonnetVM = func() JsonnetVM {
@@ -508,7 +508,7 @@ func TestJsonnetTemplate_processJsonnetTemplate(t *testing.T) {
 		}
 
 		// And mock config handler returns valid YAML
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
 		}
 
@@ -533,10 +533,10 @@ func TestJsonnetTemplate_processJsonnetTemplate(t *testing.T) {
 
 	t.Run("HandlesYamlMarshalError", func(t *testing.T) {
 		// Given a jsonnet template
-		template, mocks := setup(t)
+		template, _ := setup(t)
 
-		// And a config handler that returns an error when marshaling
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		// And a shims that returns an error when marshaling
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return nil, fmt.Errorf("yaml marshal error")
 		}
 
@@ -563,8 +563,8 @@ func TestJsonnetTemplate_processJsonnetTemplate(t *testing.T) {
 			return "", fmt.Errorf("project root error")
 		}
 
-		// And mock config handler returns valid YAML
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		// And mock shims returns valid YAML
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
 		}
 
@@ -584,10 +584,10 @@ func TestJsonnetTemplate_processJsonnetTemplate(t *testing.T) {
 
 	t.Run("HandlesYamlUnmarshalError", func(t *testing.T) {
 		// Given a jsonnet template
-		template, mocks := setup(t)
+		template, _ := setup(t)
 
-		// And mock config handler returns invalid YAML
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		// And mock shims returns invalid YAML
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("invalid yaml: ["), nil
 		}
 
@@ -612,10 +612,10 @@ func TestJsonnetTemplate_processJsonnetTemplate(t *testing.T) {
 
 	t.Run("HandlesJsonMarshalError", func(t *testing.T) {
 		// Given a jsonnet template
-		template, mocks := setup(t)
+		template, _ := setup(t)
 
 		// And mock config handler returns valid YAML
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
 		}
 
@@ -640,10 +640,10 @@ func TestJsonnetTemplate_processJsonnetTemplate(t *testing.T) {
 
 	t.Run("HandlesJsonnetEvaluationError", func(t *testing.T) {
 		// Given a jsonnet template
-		template, mocks := setup(t)
+		template, _ := setup(t)
 
 		// And mock config handler returns valid YAML
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
 		}
 
@@ -673,10 +673,10 @@ func TestJsonnetTemplate_processJsonnetTemplate(t *testing.T) {
 
 	t.Run("HandlesInvalidJsonResult", func(t *testing.T) {
 		// Given a jsonnet template
-		template, mocks := setup(t)
+		template, _ := setup(t)
 
 		// And mock config handler returns valid YAML
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
 		}
 
@@ -709,7 +709,7 @@ func TestJsonnetTemplate_processJsonnetTemplate(t *testing.T) {
 		template, mocks := setup(t)
 
 		// And mock config handler returns complex YAML with nested data
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte(`
 contexts:
   mock-context:
@@ -783,7 +783,7 @@ contexts:
 		template, mocks := setup(t)
 
 		// And mock config handler returns minimal YAML
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("{}"), nil
 		}
 
@@ -830,7 +830,7 @@ func TestJsonnetTemplate_RealShimsIntegration(t *testing.T) {
 		}
 
 		// And mock config handler returns valid YAML
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("contexts:\n  test-context:\n    value: test"), nil
 		}
 
@@ -975,7 +975,7 @@ func TestJsonnetTemplate_processJsonnetTemplateWithHelpers(t *testing.T) {
 
 	t.Run("InjectsHelpersAsLibrary", func(t *testing.T) {
 		// Given a jsonnet template
-		template, mocks := setup(t)
+		template, _ := setup(t)
 
 		// And a mock jsonnet VM that captures all ExtCode calls
 		var extCalls []struct{ Key, Val string }
@@ -992,7 +992,7 @@ func TestJsonnetTemplate_processJsonnetTemplateWithHelpers(t *testing.T) {
 		}
 
 		// And mock config handler returns valid YAML
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
 		}
 
@@ -1063,10 +1063,10 @@ local context = std.extVar("context");
 }`
 
 		// Given a jsonnet template using real shims
-		template, mocks := setup(t)
+		template, _ := setup(t)
 
 		// Set up mock config for the context
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte(`
 vm:
   driver: colima
@@ -1149,10 +1149,10 @@ tags:
 
 	t.Run("HelpersHandleNestedPathsCorrectly", func(t *testing.T) {
 		// Given a jsonnet template
-		template, mocks := setup(t)
+		template, _ := setup(t)
 
 		// And mock config handler returns nested test data
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte(`
 deeply:
   nested:
@@ -1250,8 +1250,8 @@ local helpers = std.extVar("helpers");
   baseUrl: helpers.baseUrl("https://api.example.com:6443")
 }`
 
-		template, mocks := setup(t)
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template, _ := setup(t)
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("contexts:\n  mock-context: {}"), nil
 		}
 
@@ -1273,8 +1273,8 @@ local helpers = std.extVar("helpers");
   baseUrl: helpers.baseUrl("http://localhost:8080")
 }`
 
-		template, mocks := setup(t)
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template, _ := setup(t)
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("contexts:\n  mock-context: {}"), nil
 		}
 
@@ -1296,8 +1296,8 @@ local helpers = std.extVar("helpers");
   baseUrl: helpers.baseUrl("example.com:9000")
 }`
 
-		template, mocks := setup(t)
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template, _ := setup(t)
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("contexts:\n  mock-context: {}"), nil
 		}
 
@@ -1319,8 +1319,8 @@ local helpers = std.extVar("helpers");
   baseUrl: helpers.baseUrl("example.com")
 }`
 
-		template, mocks := setup(t)
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template, _ := setup(t)
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("contexts:\n  mock-context: {}"), nil
 		}
 
@@ -1342,8 +1342,8 @@ local helpers = std.extVar("helpers");
   baseUrl: helpers.baseUrl("")
 }`
 
-		template, mocks := setup(t)
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template, _ := setup(t)
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("contexts:\n  mock-context: {}"), nil
 		}
 
@@ -1378,8 +1378,8 @@ local context = std.extVar("context");
   provider: helpers.getString(context, "provider", "default")
 }`
 
-		template, mocks := setup(t)
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template, _ := setup(t)
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("provider: aws"), nil
 		}
 
@@ -1402,8 +1402,8 @@ local context = std.extVar("context");
   provider: helpers.getString(context, "provider", "default")
 }`
 
-		template, mocks := setup(t)
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template, _ := setup(t)
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("{}"), nil
 		}
 
@@ -1426,8 +1426,8 @@ local context = std.extVar("context");
   provider: helpers.getString(context, "provider", "default")
 }`
 
-		template, mocks := setup(t)
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template, _ := setup(t)
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("provider: 123"), nil
 		}
 
@@ -1450,8 +1450,8 @@ local context = std.extVar("context");
   cores: helpers.getInt(context, "vm.cores", 2)
 }`
 
-		template, mocks := setup(t)
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template, _ := setup(t)
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("vm:\n  cores: \"not-a-number\""), nil
 		}
 
@@ -1474,8 +1474,8 @@ local context = std.extVar("context");
   enabled: helpers.getBool(context, "feature.enabled", false)
 }`
 
-		template, mocks := setup(t)
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template, _ := setup(t)
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("feature:\n  enabled: \"yes\""), nil
 		}
 
@@ -1498,8 +1498,8 @@ local context = std.extVar("context");
   cluster: helpers.getObject(context, "cluster", {})
 }`
 
-		template, mocks := setup(t)
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template, _ := setup(t)
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("cluster: \"not-an-object\""), nil
 		}
 
@@ -1522,8 +1522,8 @@ local context = std.extVar("context");
   tags: helpers.getArray(context, "tags", [])
 }`
 
-		template, mocks := setup(t)
-		mocks.ConfigHandler.YamlMarshalWithDefinedPathsFunc = func(v any) ([]byte, error) {
+		template, _ := setup(t)
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("tags: \"not-an-array\""), nil
 		}
 
