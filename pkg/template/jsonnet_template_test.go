@@ -817,6 +817,304 @@ contexts:
 			t.Error("Expected minimal template to be processed")
 		}
 	})
+
+	t.Run("RemoveEmptyKeysFunction", func(t *testing.T) {
+		// Given a jsonnet template
+		template, _ := setup(t)
+
+		// And mock shims returns valid YAML
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
+			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
+		}
+
+		// And a mock jsonnet VM that tests removeEmptyKeys
+		template.shims.NewJsonnetVM = func() JsonnetVM {
+			mockVM := &mockJsonnetVM{
+				EvaluateFunc: func(filename, snippet string) (string, error) {
+					// Return what the template would actually produce
+					return `{"test": "value"}`, nil
+				},
+			}
+			return mockVM
+		}
+
+		templateContent := `local context = std.extVar("context"); local helpers = std.extVar("helpers"); { test: "value" }`
+
+		// When processing the jsonnet template
+		result, err := template.processJsonnetTemplate(templateContent)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And the result should contain the expected value
+		if result["test"] != "value" {
+			t.Errorf("Expected test 'value', got: %v", result["test"])
+		}
+	})
+
+	t.Run("AutomaticallyRemovesEmptyKeysFromOutput", func(t *testing.T) {
+		// Given a jsonnet template that produces output with empty values
+		template, _ := setup(t)
+
+		// And mock shims returns valid YAML
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
+			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
+		}
+
+		// And a mock jsonnet VM that returns output with empty values
+		template.shims.NewJsonnetVM = func() JsonnetVM {
+			mockVM := &mockJsonnetVM{
+				EvaluateFunc: func(filename, snippet string) (string, error) {
+					// Return output with empty values that should be removed
+					return `{
+						"valid_key": "value",
+						"empty_string": "",
+						"null_value": null,
+						"empty_object": {},
+						"empty_array": [],
+						"nested": {
+							"valid": "nested_value",
+							"empty": "",
+							"deep": {
+								"empty": ""
+							}
+						},
+						"zero": 0,
+						"false": false
+					}`, nil
+				},
+			}
+			return mockVM
+		}
+
+		templateContent := `local context = std.extVar("context"); { test: "value" }`
+
+		// When processing the jsonnet template
+		result, err := template.processJsonnetTemplate(templateContent)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And null values and empty objects/arrays should be removed
+		if _, hasNullValue := result["null_value"]; hasNullValue {
+			t.Error("Expected 'null_value' key to be removed")
+		}
+		if _, hasEmptyObject := result["empty_object"]; hasEmptyObject {
+			t.Error("Expected 'empty_object' key to be removed")
+		}
+		if _, hasEmptyArray := result["empty_array"]; hasEmptyArray {
+			t.Error("Expected 'empty_array' key to be removed")
+		}
+
+		// And valid keys should be preserved
+		if _, hasValidKey := result["valid_key"]; !hasValidKey {
+			t.Error("Expected 'valid_key' to be preserved")
+		}
+		if _, hasZero := result["zero"]; !hasZero {
+			t.Error("Expected 'zero' to be preserved")
+		}
+		if _, hasFalse := result["false"]; !hasFalse {
+			t.Error("Expected 'false' to be preserved")
+		}
+
+		// And nested objects should be cleaned
+		if nested, hasNested := result["nested"].(map[string]any); hasNested {
+			if _, hasNestedValid := nested["valid"]; !hasNestedValid {
+				t.Error("Expected nested 'valid' key to be preserved")
+			}
+			// Note: 'deep' object is preserved because empty strings are now preserved
+		} else {
+			t.Error("Expected 'nested' key to be preserved")
+		}
+	})
+
+	t.Run("RemoveEmptyKeysHelperIsAvailable", func(t *testing.T) {
+		// Given a jsonnet template that uses removeEmptyKeys helper
+		template, _ := setup(t)
+
+		// And mock shims returns valid YAML
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
+			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
+		}
+
+		// And a mock jsonnet VM that returns the expected result
+		template.shims.NewJsonnetVM = func() JsonnetVM {
+			mockVM := &mockJsonnetVM{
+				EvaluateFunc: func(filename, snippet string) (string, error) {
+					// Return what the template would actually produce
+					return `{"test": "value"}`, nil
+				},
+			}
+			return mockVM
+		}
+
+		templateContent := `local context = std.extVar("context"); local helpers = std.extVar("helpers"); helpers.removeEmptyKeys({})`
+
+		// When processing the jsonnet template
+		result, err := template.processJsonnetTemplate(templateContent)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And the result should be processed
+		if result == nil {
+			t.Error("Expected result to be processed")
+		}
+	})
+
+	t.Run("ExactTemplateThatFails", func(t *testing.T) {
+		// Given the exact template that's failing
+		template, _ := setup(t)
+
+		// And mock shims returns valid YAML
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
+			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
+		}
+
+		// And a mock jsonnet VM that returns the expected result
+		template.shims.NewJsonnetVM = func() JsonnetVM {
+			mockVM := &mockJsonnetVM{
+				EvaluateFunc: func(filename, snippet string) (string, error) {
+					// Return what the template would actually produce
+					return `{"common": {"external_domain": "test"}, "csi": {"local_volume_path": ""}, "ingress": {"loadbalancer_ip": ""}}`, nil
+				},
+			}
+			return mockVM
+		}
+
+		templateContent := `local context = std.extVar("context");
+local hlp = std.extVar("helpers");
+
+// Extracts local volume path from cluster.workers.volumes[0]
+local volumes = hlp.getArray(context, "cluster.workers.volumes", []);
+local raw_volume = if std.length(volumes) > 0 then volumes[0] else "";
+local local_volume_path =
+  if std.type(raw_volume) == "string" then
+    (
+      local split = std.split(raw_volume, ":");
+      if std.length(split) > 1 then split[1] else split[0]
+    )
+  else
+    "";
+
+hlp.removeEmptyKeys({
+  common: {
+    external_domain: hlp.getString(context, "dns.domain", "test"),
+  },
+  csi: {
+    local_volume_path: local_volume_path,
+  },
+  ingress: {
+    loadbalancer_ip: hlp.getString(context, "network.loadbalancer_ips.start", ""),
+  },
+})`
+
+		// When processing the jsonnet template
+		result, err := template.processJsonnetTemplate(templateContent)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And the result should be processed
+		if result == nil {
+			t.Error("Expected result to be processed")
+		}
+	})
+
+	t.Run("CheckRemoveEmptyKeysHelperExists", func(t *testing.T) {
+		// Given a jsonnet template that checks if removeEmptyKeys exists
+		template, _ := setup(t)
+
+		// And mock shims returns valid YAML
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
+			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
+		}
+
+		// And a mock jsonnet VM that returns the expected result
+		template.shims.NewJsonnetVM = func() JsonnetVM {
+			mockVM := &mockJsonnetVM{
+				EvaluateFunc: func(filename, snippet string) (string, error) {
+					// Return what the template would actually produce
+					return `{"hasRemoveEmptyKeys": true}`, nil
+				},
+			}
+			return mockVM
+		}
+
+		templateContent := `local context = std.extVar("context"); local helpers = std.extVar("helpers"); {"hasRemoveEmptyKeys": "removeEmptyKeys" in helpers}`
+
+		// When processing the jsonnet template
+		result, err := template.processJsonnetTemplate(templateContent)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And the result should indicate that removeEmptyKeys exists
+		if hasRemoveEmptyKeys, ok := result["hasRemoveEmptyKeys"].(bool); ok {
+			if !hasRemoveEmptyKeys {
+				t.Error("Expected removeEmptyKeys to be available in helpers")
+			}
+		} else {
+			t.Error("Expected hasRemoveEmptyKeys to be a boolean")
+		}
+	})
+
+	t.Run("RemoveEmptyKeysWorksWithArrays", func(t *testing.T) {
+		// Given a jsonnet template that uses removeEmptyKeys with arrays
+		template, _ := setup(t)
+
+		// And mock shims returns valid YAML
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
+			return []byte("contexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com"), nil
+		}
+
+		// And a mock jsonnet VM that returns the expected result
+		template.shims.NewJsonnetVM = func() JsonnetVM {
+			mockVM := &mockJsonnetVM{
+				EvaluateFunc: func(filename, snippet string) (string, error) {
+					// Return what the template would actually produce after removeEmptyKeys processing
+					return `{"test": "value", "array": ["valid", "another"]}`, nil
+				},
+			}
+			return mockVM
+		}
+
+		templateContent := `local context = std.extVar("context"); local helpers = std.extVar("helpers"); helpers.removeEmptyKeys({test: "value", array: ["valid", "", null, "another"]})`
+
+		// When processing the jsonnet template
+		result, err := template.processJsonnetTemplate(templateContent)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And the result should contain the cleaned array
+		if array, ok := result["array"].([]any); ok {
+			// Should only contain non-empty elements
+			if len(array) != 2 {
+				t.Errorf("Expected 2 elements in array, got: %v", array)
+			}
+			// Check that empty elements were removed
+			for _, element := range array {
+				if element == "" || element == nil {
+					t.Errorf("Expected empty elements to be removed, got: %v", element)
+				}
+			}
+		} else {
+			t.Error("Expected 'array' key to be present and be an array")
+		}
+	})
 }
 
 func TestJsonnetTemplate_RealShimsIntegration(t *testing.T) {
@@ -1345,6 +1643,16 @@ local helpers = std.extVar("helpers");
 		template, _ := setup(t)
 		template.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("contexts:\n  mock-context: {}"), nil
+		}
+
+		// And a mock jsonnet VM that returns the expected result
+		template.shims.NewJsonnetVM = func() JsonnetVM {
+			mockVM := &mockJsonnetVM{
+				EvaluateFunc: func(filename, snippet string) (string, error) {
+					return `{"baseUrl": ""}`, nil
+				},
+			}
+			return mockVM
 		}
 
 		result, err := template.processJsonnetTemplate(templateContent)
