@@ -83,13 +83,21 @@ func (v *DockerVirt) Initialize() error {
 	return nil
 }
 
-// Up starts docker compose in detached mode with retry logic for reliability. It
-// verifies Docker is enabled, checks the daemon is running, sets the compose file
-// path, and attempts to start services with up to 3 retries if initial attempts fail.
+// Up starts Docker Compose in detached mode with retry logic. It checks if Docker is enabled,
+// verifies the Docker daemon is running, regenerates the Docker Compose configuration when running
+// in a Colima VM to ensure network and driver options are compatible with Colima's requirements,
+// sets the COMPOSE_FILE environment variable, and attempts to start services with up to 3 retries.
+// Returns an error if all attempts fail or if prerequisites are not met.
 func (v *DockerVirt) Up() error {
 	if v.configHandler.GetBool("docker.enabled") {
 		if err := v.checkDockerDaemon(); err != nil {
 			return fmt.Errorf("Docker daemon is not running: %w", err)
+		}
+
+		if v.configHandler.GetString("vm.driver") == "colima" {
+			if err := v.WriteConfig(); err != nil {
+				return fmt.Errorf("error regenerating docker compose config: %w", err)
+			}
 		}
 
 		projectRoot, err := v.shell.GetProjectRoot()
@@ -355,11 +363,9 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 		Driver: "bridge",
 	}
 
-	if v.supportsDockerEngineV28Plus() {
-		// For Colima VMs, use trusted_host_interfaces to allow the Colima interface
-		// to bypass Docker Engine v28+ security hardening
+	if v.configHandler.GetString("vm.driver") == "colima" && v.supportsDockerEngineV28Plus() {
 		networkConfig.DriverOpts = map[string]string{
-			"com.docker.network.bridge.trusted_host_interfaces": "col0",
+			"com.docker.network.bridge.gateway_mode_ipv4": "nat-unprotected",
 		}
 	}
 
@@ -426,9 +432,10 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 	return project, nil
 }
 
-// supportsDockerEngineV28Plus determines if the Docker Engine version is 28 or higher, indicating support for the nat-unprotected gateway mode option.
-// It executes 'docker version' to retrieve the server version, parses the major version, and returns true if the version is 28 or above.
-// Returns false if the version cannot be determined or is below 28.
+// supportsDockerEngineV28Plus returns true if the Docker Engine major version is 28 or higher.
+// It executes 'docker version' to retrieve the server version, parses the major version component,
+// and determines compatibility with features introduced in Docker Engine v28, such as nat-unprotected gateway mode.
+// Returns false if the version cannot be determined or is less than 28.
 func (v *DockerVirt) supportsDockerEngineV28Plus() bool {
 	output, err := v.shell.ExecSilent("docker", "version", "--format", "{{.Server.Version}}")
 	if err != nil {
@@ -443,8 +450,5 @@ func (v *DockerVirt) supportsDockerEngineV28Plus() bool {
 		return false
 	}
 	majorVersion := parts[0]
-	if majorVersion >= "28" {
-		return true
-	}
-	return false
+	return majorVersion >= "28"
 }
