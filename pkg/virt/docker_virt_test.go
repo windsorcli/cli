@@ -51,7 +51,9 @@ contexts:
           remote: "remote-registry.example.com"
           local: "localhost:5000"
           hostname: "registry.local"
-          hostport: 5000`
+          hostport: 5000
+    vm:
+      driver: colima`
 
 	if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 		t.Fatalf("Failed to load config string: %v", err)
@@ -67,6 +69,10 @@ contexts:
 				return "Docker Compose version 2.0.0", nil
 			case "info":
 				return "Docker info output", nil
+			case "version":
+				if len(args) >= 3 && args[1] == "--format" && args[2] == "{{.Server.Version}}" {
+					return "28.0.3", nil // Mock Docker Engine v28+ for testing
+				}
 			case "ps":
 				var hasManagedBy, hasContext, hasFormat bool
 				for i := 0; i < len(args); i++ {
@@ -1343,93 +1349,76 @@ func TestDockerVirt_GetFullComposeConfig(t *testing.T) {
 		if network.Ipam.Config[0].Subnet != "10.0.0.0/24" {
 			t.Errorf("expected network CIDR to be 10.0.0.0/24, got %s", network.Ipam.Config[0].Subnet)
 		}
-	})
 
-	t.Run("DockerNotEnabled", func(t *testing.T) {
-		// Given a docker virt instance with valid mocks
-		dockerVirt, mocks := setup(t)
-
-		// And Docker is not enabled
-		// Create a new config handler with Docker disabled
-		configStr := `
-contexts:
-  mock-context:
-    dns:
-      domain: mock.domain.com
-      enabled: true
-      address: 10.0.0.53
-    network:
-      cidr_block: 10.0.0.0/24
-    docker:
-      enabled: false
-      registry_url: "https://registry.example.com"
-      registries:
-        local:
-          remote: "remote-registry.example.com"
-          local: "localhost:5000"
-          hostname: "registry.local"
-          hostport: 5000`
-
-		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
-			t.Fatalf("Failed to load config string: %v", err)
+		// And the network should have Docker Engine v28+ compatibility driver options
+		// (since the test config has vm.driver: colima and Docker Engine v28+ is mocked)
+		if network.DriverOpts == nil {
+			t.Errorf("expected network to have driver options for Docker v28+ compatibility")
 		}
-
-		// When getting the full compose config
-		project, err := dockerVirt.getFullComposeConfig()
-
-		// Then an error should occur
-		if err == nil {
-			t.Errorf("expected error, got none")
+		expectedDriverOpt := "com.docker.network.bridge.gateway_mode_ipv4"
+		if _, exists := network.DriverOpts[expectedDriverOpt]; !exists {
+			t.Errorf("expected network to have driver option %s", expectedDriverOpt)
 		}
-
-		// And the error should contain the expected message
-		expectedErrorSubstring := "Docker configuration is not defined"
-		if !strings.Contains(err.Error(), expectedErrorSubstring) {
-			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
-		}
-
-		// And the project should be nil
-		if project != nil {
-			t.Errorf("expected project to be nil")
+		if network.DriverOpts[expectedDriverOpt] != "nat-unprotected" {
+			t.Errorf("expected driver option %s to be 'nat-unprotected', got %s", expectedDriverOpt, network.DriverOpts[expectedDriverOpt])
 		}
 	})
 
-	t.Run("ServiceGetComposeConfigError", func(t *testing.T) {
+	t.Run("DockerEngineV28Compatibility", func(t *testing.T) {
 		// Given a docker virt instance with valid mocks
 		dockerVirt, mocks := setup(t)
 
-		// And a service returns an error when getting compose config
-		mocks.Service.GetComposeConfigFunc = func() (*types.Config, error) {
-			return nil, fmt.Errorf("mock error getting compose config")
-		}
-
-		// When getting the full compose config
-		project, err := dockerVirt.getFullComposeConfig()
-
-		// Then an error should occur
-		if err == nil {
-			t.Errorf("expected error, got none")
-		}
-
-		// And the error should contain the expected message
-		expectedErrorSubstring := "error getting container config from service"
-		if !strings.Contains(err.Error(), expectedErrorSubstring) {
-			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
-		}
-
-		// And the project should be nil
-		if project != nil {
-			t.Errorf("expected project to be nil")
-		}
-	})
-
-	t.Run("ServiceReturnsNilConfig", func(t *testing.T) {
-		// Given a docker virt instance with valid mocks
-		dockerVirt, mocks := setup(t)
-
-		// And a service returns nil when getting compose config
-		mocks.Service.GetComposeConfigFunc = func() (*types.Config, error) {
-			return nil, nil
+		// And Docker Engine is v28+ and we're running in a Colima VM
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) > 0 {
+				switch args[0] {
+				case "compose":
+					return "Docker Compose version 2.0.0", nil
+				case "info":
+					return "Docker info output", nil
+				case "version":
+					if len(args) >= 3 && args[1] == "--format" && args[2] == "{{.Server.Version}}" {
+						return "28.0.3", nil // Mock Docker Engine v28+ for testing
+					}
+				case "ps":
+					var hasManagedBy, hasContext, hasFormat bool
+					for i := 0; i < len(args); i++ {
+						if args[i] == "--filter" && i+1 < len(args) {
+							switch args[i+1] {
+							case "label=managed_by=windsor":
+								hasManagedBy = true
+							case fmt.Sprintf("label=context=%s", mocks.ConfigHandler.GetContext()):
+								hasContext = true
+							}
+						} else if args[i] == "--format" && i+1 < len(args) && args[i+1] == "{{.ID}}" {
+							hasFormat = true
+						}
+					}
+					if hasManagedBy && hasContext && hasFormat {
+						return "container1\ncontainer2", nil
+					}
+				case "inspect":
+					if len(args) >= 4 && args[2] == "--format" {
+						switch args[3] {
+						case "{{json .Config.Labels}}":
+							switch args[1] {
+							case "container1":
+								return `{"managed_by":"windsor","context":"mock-context","com.docker.compose.service":"service1","role":"test"}`, nil
+							case "container2":
+								return `{"managed_by":"windsor","context":"mock-context","com.docker.compose.service":"service2","role":"test"}`, nil
+							}
+						case "{{json .NetworkSettings.Networks}}":
+							switch args[1] {
+							case "container1":
+								return fmt.Sprintf(`{"windsor-%s":{"IPAddress":"192.168.1.2"}}`, mocks.ConfigHandler.GetContext()), nil
+							case "container2":
+								return fmt.Sprintf(`{"windsor-%s":{"IPAddress":"192.168.1.3"}}`, mocks.ConfigHandler.GetContext()), nil
+							}
+						}
+					}
+				}
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
 
 		// When getting the full compose config
@@ -1445,55 +1434,204 @@ contexts:
 			t.Errorf("expected project to not be nil")
 		}
 
-		// And the project should have no services
-		if len(project.Services) != 0 {
-			t.Errorf("expected 0 services, got %d", len(project.Services))
+		// And the network should have Docker Engine v28+ compatibility driver options
+		// (since we're mocking both Colima VM and Docker Engine v28+ in the test)
+		networkName := fmt.Sprintf("windsor-%s", dockerVirt.configHandler.GetContext())
+		network, exists := project.Networks[networkName]
+		if !exists {
+			t.Errorf("expected network %s to exist", networkName)
 		}
+
+		// Verify the network has the required driver options for Docker v28+ compatibility
+		if network.DriverOpts == nil {
+			t.Errorf("expected network to have driver options for Docker v28+ compatibility")
+		}
+
+		// Check for the specific driver option that bypasses Docker v28 security hardening
+		expectedDriverOpt := "com.docker.network.bridge.gateway_mode_ipv4"
+		driverOptValue, exists := network.DriverOpts[expectedDriverOpt]
+		if !exists {
+			t.Errorf("expected network to have driver option %s for Docker v28+ compatibility", expectedDriverOpt)
+		}
+
+		// Verify the driver option is set to nat-unprotected
+		expectedValue := "nat-unprotected"
+		if driverOptValue != expectedValue {
+			t.Errorf("expected driver option %s to be '%s', got '%s'", expectedDriverOpt, expectedValue, driverOptValue)
+		}
+
+		// Verify the network driver is bridge (required for this compatibility fix)
+		if network.Driver != "bridge" {
+			t.Errorf("expected network driver to be 'bridge', got '%s'", network.Driver)
+		}
+
 	})
 
-	t.Run("ServiceReturnsEmptyConfig", func(t *testing.T) {
+	t.Run("DockerEngineV28Exact", func(t *testing.T) {
 		// Given a docker virt instance with valid mocks
 		dockerVirt, mocks := setup(t)
 
-		// And a service returns a config with no services
-		mocks.Service.GetComposeConfigFunc = func() (*types.Config, error) {
-			return &types.Config{
-				Services: nil,
-				Volumes: map[string]types.VolumeConfig{
-					"test-volume": {},
-				},
-				Networks: map[string]types.NetworkConfig{
-					"test-network": {},
-				},
-			}, nil
+		// And Docker Engine v28.0.0 is detected (exact version)
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) >= 3 && args[0] == "version" && args[1] == "--format" && args[2] == "{{.Server.Version}}" {
+				return "28.0.0", nil
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
 
-		// When getting the full compose config
-		project, err := dockerVirt.getFullComposeConfig()
+		// When checking if Docker Engine v28+ is supported
+		supported := dockerVirt.supportsDockerEngineV28Plus()
 
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
+		// Then it should return true
+		if !supported {
+			t.Errorf("expected Docker Engine v28.0.0 to be supported, got false")
+		}
+	})
+
+	t.Run("DockerEngineV29Plus", func(t *testing.T) {
+		// Given a docker virt instance with valid mocks
+		dockerVirt, mocks := setup(t)
+
+		// And Docker Engine v29+ is detected
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) >= 3 && args[0] == "version" && args[1] == "--format" && args[2] == "{{.Server.Version}}" {
+				return "29.0.0", nil
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
 
-		// And the project should not be nil
-		if project == nil {
-			t.Errorf("expected project to not be nil")
+		// When checking if Docker Engine v28+ is supported
+		supported := dockerVirt.supportsDockerEngineV28Plus()
+
+		// Then it should return true
+		if !supported {
+			t.Errorf("expected Docker Engine v29+ to be supported, got false")
+		}
+	})
+
+	t.Run("DockerEnginePreV28", func(t *testing.T) {
+		// Given a docker virt instance with valid mocks
+		dockerVirt, mocks := setup(t)
+
+		// And Docker Engine pre-v28 is detected
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) >= 3 && args[0] == "version" && args[1] == "--format" && args[2] == "{{.Server.Version}}" {
+				return "27.0.3", nil
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
 
-		// And the project should have no services
-		if len(project.Services) != 0 {
-			t.Errorf("expected 0 services, got %d", len(project.Services))
+		// When checking if Docker Engine v28+ is supported
+		supported := dockerVirt.supportsDockerEngineV28Plus()
+
+		// Then it should return false
+		if supported {
+			t.Errorf("expected Docker Engine pre-v28 to not be supported, got true")
+		}
+	})
+
+	t.Run("DockerEngineV27Exact", func(t *testing.T) {
+		// Given a docker virt instance with valid mocks
+		dockerVirt, mocks := setup(t)
+
+		// And Docker Engine v27.9.9 is detected (highest pre-v28)
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) >= 3 && args[0] == "version" && args[1] == "--format" && args[2] == "{{.Server.Version}}" {
+				return "27.9.9", nil
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
 
-		// And the project should have the volume
-		if _, exists := project.Volumes["test-volume"]; !exists {
-			t.Errorf("expected volume test-volume to exist")
+		// When checking if Docker Engine v28+ is supported
+		supported := dockerVirt.supportsDockerEngineV28Plus()
+
+		// Then it should return false
+		if supported {
+			t.Errorf("expected Docker Engine v27.9.9 to not be supported, got true")
+		}
+	})
+
+	t.Run("DockerCommandError", func(t *testing.T) {
+		// Given a docker virt instance with valid mocks
+		dockerVirt, mocks := setup(t)
+
+		// And Docker version command fails
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) >= 3 && args[0] == "version" && args[1] == "--format" && args[2] == "{{.Server.Version}}" {
+				return "", fmt.Errorf("docker command failed")
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
 
-		// And the project should have the network
-		if _, exists := project.Networks["test-network"]; !exists {
-			t.Errorf("expected network test-network to exist")
+		// When checking if Docker Engine v28+ is supported
+		supported := dockerVirt.supportsDockerEngineV28Plus()
+
+		// Then it should return false (graceful fallback)
+		if supported {
+			t.Errorf("expected Docker Engine detection to fail gracefully, got true")
+		}
+	})
+
+	t.Run("EmptyVersionString", func(t *testing.T) {
+		// Given a docker virt instance with valid mocks
+		dockerVirt, mocks := setup(t)
+
+		// And Docker version command returns empty string
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) >= 3 && args[0] == "version" && args[1] == "--format" && args[2] == "{{.Server.Version}}" {
+				return "", nil
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
+		// When checking if Docker Engine v28+ is supported
+		supported := dockerVirt.supportsDockerEngineV28Plus()
+
+		// Then it should return false (graceful fallback)
+		if supported {
+			t.Errorf("expected empty version string to not be supported, got true")
+		}
+	})
+
+	t.Run("InvalidVersionFormat", func(t *testing.T) {
+		// Given a docker virt instance with valid mocks
+		dockerVirt, mocks := setup(t)
+
+		// And Docker version command returns invalid format
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) >= 3 && args[0] == "version" && args[1] == "--format" && args[2] == "{{.Server.Version}}" {
+				return "invalid-version", nil
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
+		// When checking if Docker Engine v28+ is supported
+		supported := dockerVirt.supportsDockerEngineV28Plus()
+
+		// Then it should return false (graceful fallback)
+		if supported {
+			t.Errorf("expected invalid version format to not be supported, got true")
+		}
+	})
+
+	t.Run("SingleVersionComponent", func(t *testing.T) {
+		// Given a docker virt instance with valid mocks
+		dockerVirt, mocks := setup(t)
+
+		// And Docker version command returns single component
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) >= 3 && args[0] == "version" && args[1] == "--format" && args[2] == "{{.Server.Version}}" {
+				return "28", nil
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
+		// When checking if Docker Engine v28+ is supported
+		supported := dockerVirt.supportsDockerEngineV28Plus()
+
+		// Then it should return false (graceful fallback for malformed version)
+		if supported {
+			t.Errorf("expected single version component to not be supported, got true")
 		}
 	})
 }

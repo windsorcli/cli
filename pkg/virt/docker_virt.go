@@ -83,13 +83,21 @@ func (v *DockerVirt) Initialize() error {
 	return nil
 }
 
-// Up starts docker compose in detached mode with retry logic for reliability. It
-// verifies Docker is enabled, checks the daemon is running, sets the compose file
-// path, and attempts to start services with up to 3 retries if initial attempts fail.
+// Up starts Docker Compose in detached mode with retry logic. It checks if Docker is enabled,
+// verifies the Docker daemon is running, regenerates the Docker Compose configuration when running
+// in a Colima VM to ensure network and driver options are compatible with Colima's requirements,
+// sets the COMPOSE_FILE environment variable, and attempts to start services with up to 3 retries.
+// Returns an error if all attempts fail or if prerequisites are not met.
 func (v *DockerVirt) Up() error {
 	if v.configHandler.GetBool("docker.enabled") {
 		if err := v.checkDockerDaemon(); err != nil {
 			return fmt.Errorf("Docker daemon is not running: %w", err)
+		}
+
+		if v.configHandler.GetString("vm.driver") == "colima" {
+			if err := v.WriteConfig(); err != nil {
+				return fmt.Errorf("error regenerating docker compose config: %w", err)
+			}
 		}
 
 		projectRoot, err := v.shell.GetProjectRoot()
@@ -329,11 +337,11 @@ func (v *DockerVirt) checkDockerDaemon() error {
 	return err
 }
 
-// getFullComposeConfig builds a complete Docker Compose configuration by combining
-// settings from all services. It creates a network configuration with optional IPAM
-// settings based on the network CIDR, collects service configurations with their
-// network settings and IP addresses, and aggregates volumes and networks from all
-// services into a single project configuration.
+// getFullComposeConfig assembles a Docker Compose project configuration for the current Windsor context.
+// Aggregates service, volume, and network definitions from all registered services. Applies Windsor-specific
+// network settings, including optional IPAM configuration based on the context's network CIDR. Ensures
+// compatibility with Docker Engine v28+ by setting the bridge gateway mode to nat-unprotected when supported.
+// Returns the constructed types.Project or an error if service configuration retrieval fails.
 func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 	contextName := v.configHandler.GetContext()
 
@@ -353,6 +361,12 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 
 	networkConfig := types.NetworkConfig{
 		Driver: "bridge",
+	}
+
+	if v.configHandler.GetString("vm.driver") == "colima" && v.supportsDockerEngineV28Plus() {
+		networkConfig.DriverOpts = map[string]string{
+			"com.docker.network.bridge.gateway_mode_ipv4": "nat-unprotected",
+		}
 	}
 
 	networkCIDR := v.configHandler.GetString("network.cidr_block")
@@ -416,4 +430,25 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 	}
 
 	return project, nil
+}
+
+// supportsDockerEngineV28Plus returns true if the Docker Engine major version is 28 or higher.
+// It executes 'docker version' to retrieve the server version, parses the major version component,
+// and determines compatibility with features introduced in Docker Engine v28, such as nat-unprotected gateway mode.
+// Returns false if the version cannot be determined or is less than 28.
+func (v *DockerVirt) supportsDockerEngineV28Plus() bool {
+	output, err := v.shell.ExecSilent("docker", "version", "--format", "{{.Server.Version}}")
+	if err != nil {
+		return false
+	}
+	versionStr := strings.TrimSpace(output)
+	if versionStr == "" {
+		return false
+	}
+	parts := strings.Split(versionStr, ".")
+	if len(parts) < 2 {
+		return false
+	}
+	majorVersion := parts[0]
+	return majorVersion >= "28"
 }
