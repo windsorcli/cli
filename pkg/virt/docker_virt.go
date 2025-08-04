@@ -329,11 +329,11 @@ func (v *DockerVirt) checkDockerDaemon() error {
 	return err
 }
 
-// getFullComposeConfig builds a complete Docker Compose configuration by combining
-// settings from all services. It creates a network configuration with optional IPAM
-// settings based on the network CIDR, collects service configurations with their
-// network settings and IP addresses, and aggregates volumes and networks from all
-// services into a single project configuration.
+// getFullComposeConfig assembles a Docker Compose project configuration for the current Windsor context.
+// Aggregates service, volume, and network definitions from all registered services. Applies Windsor-specific
+// network settings, including optional IPAM configuration based on the context's network CIDR. Ensures
+// compatibility with Docker Engine v28+ by setting the bridge gateway mode to nat-unprotected when supported.
+// Returns the constructed types.Project or an error if service configuration retrieval fails.
 func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 	contextName := v.configHandler.GetContext()
 
@@ -353,6 +353,14 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 
 	networkConfig := types.NetworkConfig{
 		Driver: "bridge",
+	}
+
+	if v.supportsDockerEngineV28Plus() {
+		// For Colima VMs, use trusted_host_interfaces to allow the Colima interface
+		// to bypass Docker Engine v28+ security hardening
+		networkConfig.DriverOpts = map[string]string{
+			"com.docker.network.bridge.trusted_host_interfaces": "col0",
+		}
 	}
 
 	networkCIDR := v.configHandler.GetString("network.cidr_block")
@@ -416,4 +424,27 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 	}
 
 	return project, nil
+}
+
+// supportsDockerEngineV28Plus determines if the Docker Engine version is 28 or higher, indicating support for the nat-unprotected gateway mode option.
+// It executes 'docker version' to retrieve the server version, parses the major version, and returns true if the version is 28 or above.
+// Returns false if the version cannot be determined or is below 28.
+func (v *DockerVirt) supportsDockerEngineV28Plus() bool {
+	output, err := v.shell.ExecSilent("docker", "version", "--format", "{{.Server.Version}}")
+	if err != nil {
+		return false
+	}
+	versionStr := strings.TrimSpace(output)
+	if versionStr == "" {
+		return false
+	}
+	parts := strings.Split(versionStr, ".")
+	if len(parts) < 2 {
+		return false
+	}
+	majorVersion := parts[0]
+	if majorVersion >= "28" {
+		return true
+	}
+	return false
 }
