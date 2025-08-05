@@ -19,7 +19,7 @@ packages:
 - name: go-task/task@v3.44.1
 - name: golang/go@go1.24.5
 - name: getsops/sops@v3.9.0
-- name: abiosoft/colima@v0.8.2
+- name: abiosoft/colima@v0.8.3
 - name: lima-vm/lima@v1.2.1
 - name: docker/cli@v27.4.1
 - name: securego/gosec@v2.22.7
