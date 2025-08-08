@@ -815,8 +815,8 @@ func TestWriteDefaultValues(t *testing.T) {
 		},
 	}
 
-	// When writeDefaultValues is called
-	writeDefaultValues(body, variables, nil)
+	// When writeComponentValues is called with empty values
+	writeComponentValues(body, nil, map[string]bool{}, variables)
 
 	// Then the variables should be written in order with proper handling of sensitive values
 	expected := `
@@ -1567,10 +1567,10 @@ variable "instance_type" {
 			t.Errorf("expected no error with mixed provider templates, got: %v", err)
 		}
 
-		// And only AWS component tfvars files should be written
+		// And AWS component tfvars files should be written (only module files for sourced components)
 		expectedFiles := []string{
-			"/mock/context/terraform/cluster/aws-eks.tfvars",
-			"/mock/context/terraform/network/aws-vpc.tfvars",
+			"/mock/project/.windsor/.tf_modules/cluster/aws-eks/terraform.tfvars",
+			"/mock/project/.windsor/.tf_modules/network/aws-vpc/terraform.tfvars",
 		}
 
 		if len(writtenFiles) != len(expectedFiles) {

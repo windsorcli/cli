@@ -101,34 +101,21 @@ func (g *TerraformGenerator) Generate(data map[string]any, overwrite ...bool) er
 			continue
 		}
 
-		variablesTfPath, err := g.findVariablesTfFileForComponent(projectRoot, component)
-		if err != nil {
-			return fmt.Errorf("failed to find variables.tf for component %s: %w", componentPath, err)
-		}
-
-		tfvarsFilePath := filepath.Join(contextPath, componentPath+".tfvars")
-
-		if err := g.generateTfvarsFile(tfvarsFilePath, variablesTfPath, componentValues, component.Source); err != nil {
-			return fmt.Errorf("failed to generate tfvars file for component %s: %w", componentPath, err)
+		if err := g.generateComponentTfvars(projectRoot, contextPath, component, componentValues); err != nil {
+			return fmt.Errorf("failed to generate tfvars for component %s: %w", componentPath, err)
 		}
 	}
 
 	for _, component := range components {
 		terraformKey := "terraform/" + component.Path
 		if _, exists := data[terraformKey]; !exists {
-			variablesTfPath, err := g.findVariablesTfFileForComponent(projectRoot, component)
-			if err != nil {
-				return fmt.Errorf("failed to find variables.tf for component %s: %w", component.Path, err)
-			}
-
-			tfvarsFilePath := filepath.Join(contextPath, terraformKey+".tfvars")
 			componentValues := component.Values
 			if componentValues == nil {
 				componentValues = make(map[string]any)
 			}
 
-			if err := g.generateTfvarsFile(tfvarsFilePath, variablesTfPath, componentValues, component.Source); err != nil {
-				return fmt.Errorf("failed to generate tfvars file for component %s: %w", component.Path, err)
+			if err := g.generateComponentTfvars(projectRoot, contextPath, component, componentValues); err != nil {
+				return fmt.Errorf("failed to generate tfvars for component %s: %w", component.Path, err)
 			}
 		}
 	}
@@ -223,6 +210,35 @@ func (g *TerraformGenerator) parseVariablesFile(variablesTfPath string, protecte
 	return variables, nil
 }
 
+// generateComponentTfvars generates tfvars files for a single Terraform component.
+// For components with a non-empty Source, only the module tfvars file is generated at .windsor/.tf_modules/<component.Path>/terraform.tfvars.
+// For components with an empty Source, only the context tfvars file is generated at <contextPath>/terraform/<component.Path>.tfvars.
+// Returns an error if variables.tf cannot be found or if tfvars file generation fails.
+func (g *TerraformGenerator) generateComponentTfvars(projectRoot, contextPath string, component blueprintv1alpha1.TerraformComponent, componentValues map[string]any) error {
+	variablesTfPath, err := g.findVariablesTfFileForComponent(projectRoot, component)
+	if err != nil {
+		return fmt.Errorf("failed to find variables.tf for component %s: %w", component.Path, err)
+	}
+
+	if component.Source != "" {
+		moduleTfvarsPath := filepath.Join(projectRoot, ".windsor", ".tf_modules", component.Path, "terraform.tfvars")
+		if err := g.removeTfvarsFiles(filepath.Dir(moduleTfvarsPath)); err != nil {
+			return fmt.Errorf("failed cleaning existing .tfvars in module dir %s: %w", filepath.Dir(moduleTfvarsPath), err)
+		}
+		if err := g.generateTfvarsFile(moduleTfvarsPath, variablesTfPath, componentValues, component.Source); err != nil {
+			return fmt.Errorf("failed to generate module tfvars file: %w", err)
+		}
+	} else {
+		terraformKey := "terraform/" + component.Path
+		tfvarsFilePath := filepath.Join(contextPath, terraformKey+".tfvars")
+		if err := g.generateTfvarsFile(tfvarsFilePath, variablesTfPath, componentValues, component.Source); err != nil {
+			return fmt.Errorf("failed to generate context tfvars file: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // =============================================================================
 // Helper Functions
 // =============================================================================
@@ -299,12 +315,6 @@ func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedV
 		})
 		body.AppendNewline()
 	}
-}
-
-// writeDefaultValues writes only the default values from variables.tf to the tfvars file body.
-// This is an alias for writeComponentValues with no explicit values, ensuring all defaults are commented.
-func writeDefaultValues(body *hclwrite.Body, variables []VariableInfo, componentValues map[string]any) {
-	writeComponentValues(body, componentValues, map[string]bool{}, variables)
 }
 
 // writeHeredoc writes a multi-line string value as a heredoc assignment in the tfvars file body.
@@ -487,23 +497,19 @@ func convertFromCtyValue(val cty.Value) any {
 	}
 }
 
-// findVariablesTfFileForComponent locates the variables.tf file for a given terraform component.
-// It determines the location based on whether the component has a source:
-// - If component has a source: .windsor/.tf_modules/<path>/variables.tf (generated modules)
-// - If component has no source: terraform/<path>/variables.tf (local modules)
-// Returns the path to the variables.tf file if found, or an error if not found.
+// findVariablesTfFileForComponent returns the path to the variables.tf file for the specified Terraform component.
+// If the component has a non-empty Source, the path is .windsor/.tf_modules/<component.Path>/variables.tf under the project root.
+// If the component has an empty Source, the path is terraform/<component.Path>/variables.tf under the project root.
+// Returns the variables.tf file path if it exists, or an error if not found.
 func (g *TerraformGenerator) findVariablesTfFileForComponent(projectRoot string, component blueprintv1alpha1.TerraformComponent) (string, error) {
 	var variablesTfPath string
 
 	if component.Source != "" {
-		// Component has a source, so it's a generated module in .tf_modules
 		variablesTfPath = filepath.Join(projectRoot, ".windsor", ".tf_modules", component.Path, "variables.tf")
 	} else {
-		// Component has no source, so it's a local module
 		variablesTfPath = filepath.Join(projectRoot, "terraform", component.Path, "variables.tf")
 	}
 
-	// Check if the variables.tf file exists
 	if _, err := g.shims.Stat(variablesTfPath); err != nil {
 		return "", fmt.Errorf("variables.tf not found for component %s at %s", component.Path, variablesTfPath)
 	}
@@ -544,7 +550,7 @@ func (g *TerraformGenerator) generateTfvarsFile(tfvarsFilePath, variablesTfPath 
 	if len(componentValues) > 0 {
 		writeComponentValues(body, componentValues, protectedValues, variables)
 	} else {
-		writeDefaultValues(body, variables, componentValues)
+		writeComponentValues(body, componentValues, map[string]bool{}, variables)
 	}
 
 	parentDir := filepath.Dir(tfvarsFilePath)
@@ -554,6 +560,37 @@ func (g *TerraformGenerator) generateTfvarsFile(tfvarsFilePath, variablesTfPath 
 
 	if err := g.shims.WriteFile(tfvarsFilePath, mergedFile.Bytes(), 0644); err != nil {
 		return fmt.Errorf("failed to write tfvars file: %w", err)
+	}
+
+	return nil
+}
+
+// removeTfvarsFiles removes any .tfvars files directly under the specified directory.
+// This is used to ensure module directories do not retain stale tfvars prior to regeneration.
+func (g *TerraformGenerator) removeTfvarsFiles(dir string) error {
+	if _, err := g.shims.Stat(dir); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	entries, err := g.shims.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasSuffix(strings.ToLower(name), ".tfvars") {
+			fullPath := filepath.Join(dir, name)
+			if err := g.shims.RemoveAll(fullPath); err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil
