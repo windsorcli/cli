@@ -582,3 +582,94 @@ func TestMockBlueprintHandler_Write(t *testing.T) {
 		}
 	})
 }
+
+func TestMockBlueprintHandler_SetRenderedKustomizeData(t *testing.T) {
+	setup := func(t *testing.T) *MockBlueprintHandler {
+		t.Helper()
+		return &MockBlueprintHandler{}
+	}
+
+	t.Run("WithFuncSet", func(t *testing.T) {
+		// Given a mock handler with SetRenderedKustomizeData function
+		handler := setup(t)
+		expectedData := map[string]any{
+			"key1": "value1",
+			"key2": 42,
+			"key3": []string{"item1", "item2"},
+		}
+		var receivedData map[string]any
+		handler.SetRenderedKustomizeDataFunc = func(data map[string]any) {
+			receivedData = data
+		}
+		// When setting rendered kustomize data
+		handler.SetRenderedKustomizeData(expectedData)
+		// Then the function should be called with correct data
+		if !reflect.DeepEqual(receivedData, expectedData) {
+			t.Errorf("Expected data = %v, got = %v", expectedData, receivedData)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a mock handler without SetRenderedKustomizeData function
+		handler := setup(t)
+		testData := map[string]any{
+			"key1": "value1",
+			"key2": 42,
+		}
+		// When setting rendered kustomize data
+		// Then no panic should occur
+		handler.SetRenderedKustomizeData(testData)
+		// Test passes if no panic occurs
+	})
+
+	t.Run("WithEmptyData", func(t *testing.T) {
+		// Given a mock handler with SetRenderedKustomizeData function
+		handler := setup(t)
+		expectedData := map[string]any{}
+		var receivedData map[string]any
+		handler.SetRenderedKustomizeDataFunc = func(data map[string]any) {
+			receivedData = data
+		}
+		// When setting empty rendered kustomize data
+		handler.SetRenderedKustomizeData(expectedData)
+		// Then the function should be called with empty data
+		if !reflect.DeepEqual(receivedData, expectedData) {
+			t.Errorf("Expected data = %v, got = %v", expectedData, receivedData)
+		}
+	})
+
+	t.Run("WithComplexData", func(t *testing.T) {
+		// Given a mock handler with SetRenderedKustomizeData function
+		handler := setup(t)
+		expectedData := map[string]any{
+			"nested": map[string]any{
+				"level1": map[string]any{
+					"level2": []any{
+						"string1",
+						123,
+						map[string]any{"key": "value"},
+					},
+				},
+			},
+			"array": []any{
+				"item1",
+				456,
+				map[string]any{"nested": "data"},
+			},
+			"mixed": []map[string]any{
+				{"key1": "value1"},
+				{"key2": 789},
+			},
+		}
+		var receivedData map[string]any
+		handler.SetRenderedKustomizeDataFunc = func(data map[string]any) {
+			receivedData = data
+		}
+		// When setting complex rendered kustomize data
+		handler.SetRenderedKustomizeData(expectedData)
+		// Then the function should be called with correct complex data
+		if !reflect.DeepEqual(receivedData, expectedData) {
+			t.Errorf("Expected data = %v, got = %v", expectedData, receivedData)
+		}
+	})
+}

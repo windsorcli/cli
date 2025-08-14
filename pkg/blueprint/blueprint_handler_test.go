@@ -3850,15 +3850,17 @@ ingress:
 			return nil, os.ErrNotExist
 		}
 
+		// Mock YAML marshal
+		handler.shims.YamlMarshal = func(v any) ([]byte, error) {
+			return []byte("test"), nil
+		}
+
 		// When applying values ConfigMaps
 		err := handler.applyValuesConfigMaps()
 
-		// Then it should fail
-		if err == nil {
-			t.Fatal("expected applyValuesConfigMaps to fail with ReadFile error")
-		}
-		if !strings.Contains(err.Error(), "failed to read values file") {
-			t.Errorf("expected error about reading values file, got: %v", err)
+		// Then it should still succeed since ReadFile errors are now ignored and rendered values take precedence
+		if err != nil {
+			t.Fatalf("expected applyValuesConfigMaps to succeed despite ReadFile error, got: %v", err)
 		}
 	})
 
@@ -5055,4 +5057,862 @@ contexts:
 			t.Errorf("expected field %s not found in ConfigMap data", field)
 		}
 	}
+}
+
+// =============================================================================
+// New Functionality Tests
+// =============================================================================
+
+func TestBaseBlueprintHandler_resolvePatchFromPath(t *testing.T) {
+	setup := func(t *testing.T) *BaseBlueprintHandler {
+		t.Helper()
+		injector := di.NewInjector()
+		handler := NewBlueprintHandler(injector)
+		handler.shims = NewShims()
+		handler.configHandler = config.NewMockConfigHandler()
+		return handler
+	}
+
+	t.Run("WithRenderedDataOnly", func(t *testing.T) {
+		// Given a handler with rendered patch data only
+		handler := setup(t)
+		handler.kustomizeData = map[string]any{
+			"kustomize/patches/test": map[string]any{
+				"apiVersion": "v1",
+				"kind":       "ConfigMap",
+				"metadata": map[string]any{
+					"name":      "test-config",
+					"namespace": "test-namespace",
+				},
+				"data": map[string]any{
+					"key": "value",
+				},
+			},
+		}
+		handler.shims.YamlMarshal = func(v any) ([]byte, error) {
+			return []byte("test yaml"), nil
+		}
+		// When resolving patch from path
+		content, target := handler.resolvePatchFromPath("test", "default-namespace")
+		// Then content should be returned and target should be extracted
+		if content != "test yaml" {
+			t.Errorf("Expected content = 'test yaml', got = '%s'", content)
+		}
+		if target == nil {
+			t.Error("Expected target to be extracted")
+		}
+		if target.Kind != "ConfigMap" {
+			t.Errorf("Expected target kind = 'ConfigMap', got = '%s'", target.Kind)
+		}
+		if target.Name != "test-config" {
+			t.Errorf("Expected target name = 'test-config', got = '%s'", target.Name)
+		}
+		if target.Namespace != "test-namespace" {
+			t.Errorf("Expected target namespace = 'test-namespace', got = '%s'", target.Namespace)
+		}
+	})
+
+	t.Run("WithNoData", func(t *testing.T) {
+		// Given a handler with no data
+		handler := setup(t)
+		handler.configHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("config root error")
+		}
+		// When resolving patch from path
+		content, target := handler.resolvePatchFromPath("test", "default-namespace")
+		// Then empty content and nil target should be returned
+		if content != "" {
+			t.Errorf("Expected empty content, got = '%s'", content)
+		}
+		if target != nil {
+			t.Error("Expected target to be nil")
+		}
+	})
+
+	t.Run("WithYamlExtension", func(t *testing.T) {
+		// Given a handler with patch path containing .yaml extension
+		handler := setup(t)
+		handler.kustomizeData = map[string]any{
+			"kustomize/patches/test": map[string]any{
+				"apiVersion": "v1",
+				"kind":       "ConfigMap",
+				"metadata": map[string]any{
+					"name": "test-config",
+				},
+			},
+		}
+		handler.shims.YamlMarshal = func(v any) ([]byte, error) {
+			return []byte("test yaml"), nil
+		}
+		// When resolving patch from path with .yaml extension
+		content, target := handler.resolvePatchFromPath("test.yaml", "default-namespace")
+		// Then content should be returned and target should be extracted
+		if content != "test yaml" {
+			t.Errorf("Expected content = 'test yaml', got = '%s'", content)
+		}
+		if target == nil {
+			t.Error("Expected target to be extracted")
+		}
+	})
+
+	t.Run("WithYmlExtension", func(t *testing.T) {
+		// Given a handler with patch path containing .yml extension
+		handler := setup(t)
+		handler.kustomizeData = map[string]any{
+			"kustomize/patches/test": map[string]any{
+				"apiVersion": "v1",
+				"kind":       "ConfigMap",
+				"metadata": map[string]any{
+					"name": "test-config",
+				},
+			},
+		}
+		handler.shims.YamlMarshal = func(v any) ([]byte, error) {
+			return []byte("test yaml"), nil
+		}
+		// When resolving patch from path with .yml extension
+		content, target := handler.resolvePatchFromPath("test.yml", "default-namespace")
+		// Then content should be returned and target should be extracted
+		if content != "test yaml" {
+			t.Errorf("Expected content = 'test yaml', got = '%s'", content)
+		}
+		if target == nil {
+			t.Error("Expected target to be extracted")
+		}
+	})
+
+	t.Run("WithBothRenderedAndUserDataMerge", func(t *testing.T) {
+		// Given a handler with both rendered and user data that can be merged
+		handler := setup(t)
+		handler.kustomizeData = map[string]any{
+			"kustomize/patches/test": map[string]any{
+				"apiVersion": "v1",
+				"kind":       "ConfigMap",
+				"metadata": map[string]any{
+					"name":      "rendered-config",
+					"namespace": "rendered-namespace",
+				},
+				"data": map[string]any{
+					"rendered-key": "rendered-value",
+				},
+			},
+		}
+		handler.configHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/test/config", nil
+		}
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
+			return []byte(`apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: user-config
+  namespace: user-namespace
+data:
+  user-key: user-value`), nil
+		}
+		handler.shims.YamlUnmarshal = func(data []byte, v any) error {
+			values := v.(*map[string]any)
+			*values = map[string]any{
+				"apiVersion": "v1",
+				"kind":       "ConfigMap",
+				"metadata": map[string]any{
+					"name":      "user-config",
+					"namespace": "user-namespace",
+				},
+				"data": map[string]any{
+					"user-key": "user-value",
+				},
+			}
+			return nil
+		}
+		handler.shims.YamlMarshal = func(v any) ([]byte, error) {
+			return []byte("merged yaml"), nil
+		}
+		// When resolving patch from path
+		content, target := handler.resolvePatchFromPath("test", "default-namespace")
+		// Then merged content should be returned and target should be extracted from merged data
+		if content != "merged yaml" {
+			t.Errorf("Expected content = 'merged yaml', got = '%s'", content)
+		}
+		if target == nil {
+			t.Error("Expected target to be extracted")
+		}
+		if target.Name != "user-config" {
+			t.Errorf("Expected target name = 'user-config', got = '%s'", target.Name)
+		}
+		if target.Namespace != "user-namespace" {
+			t.Errorf("Expected target namespace = 'user-namespace', got = '%s'", target.Namespace)
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_extractTargetFromPatchData(t *testing.T) {
+	setup := func(t *testing.T) *BaseBlueprintHandler {
+		t.Helper()
+		injector := di.NewInjector()
+		handler := NewBlueprintHandler(injector)
+		return handler
+	}
+
+	t.Run("ValidPatchData", func(t *testing.T) {
+		// Given valid patch data with all required fields
+		handler := setup(t)
+		patchData := map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]any{
+				"name":      "test-config",
+				"namespace": "test-namespace",
+			},
+		}
+		// When extracting target from patch data
+		target := handler.extractTargetFromPatchData(patchData, "default-namespace")
+		// Then target should be extracted correctly
+		if target == nil {
+			t.Error("Expected target to be extracted")
+		}
+		if target.Kind != "ConfigMap" {
+			t.Errorf("Expected target kind = 'ConfigMap', got = '%s'", target.Kind)
+		}
+		if target.Name != "test-config" {
+			t.Errorf("Expected target name = 'test-config', got = '%s'", target.Name)
+		}
+		if target.Namespace != "test-namespace" {
+			t.Errorf("Expected target namespace = 'test-namespace', got = '%s'", target.Namespace)
+		}
+	})
+
+	t.Run("WithCustomNamespace", func(t *testing.T) {
+		// Given patch data with custom namespace
+		handler := setup(t)
+		patchData := map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]any{
+				"name":      "test-config",
+				"namespace": "custom-namespace",
+			},
+		}
+		// When extracting target from patch data
+		target := handler.extractTargetFromPatchData(patchData, "default-namespace")
+		// Then custom namespace should be used
+		if target.Namespace != "custom-namespace" {
+			t.Errorf("Expected target namespace = 'custom-namespace', got = '%s'", target.Namespace)
+		}
+	})
+
+	t.Run("MissingKind", func(t *testing.T) {
+		// Given patch data missing kind field
+		handler := setup(t)
+		patchData := map[string]any{
+			"apiVersion": "v1",
+			"metadata": map[string]any{
+				"name": "test-config",
+			},
+		}
+		// When extracting target from patch data
+		target := handler.extractTargetFromPatchData(patchData, "default-namespace")
+		// Then target should be nil
+		if target != nil {
+			t.Error("Expected target to be nil when kind is missing")
+		}
+	})
+
+	t.Run("MissingMetadata", func(t *testing.T) {
+		// Given patch data missing metadata field
+		handler := setup(t)
+		patchData := map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+		}
+		// When extracting target from patch data
+		target := handler.extractTargetFromPatchData(patchData, "default-namespace")
+		// Then target should be nil
+		if target != nil {
+			t.Error("Expected target to be nil when metadata is missing")
+		}
+	})
+
+	t.Run("MissingName", func(t *testing.T) {
+		// Given patch data missing name field
+		handler := setup(t)
+		patchData := map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata":   map[string]any{},
+		}
+		// When extracting target from patch data
+		target := handler.extractTargetFromPatchData(patchData, "default-namespace")
+		// Then target should be nil
+		if target != nil {
+			t.Error("Expected target to be nil when name is missing")
+		}
+	})
+
+	t.Run("InvalidKindType", func(t *testing.T) {
+		// Given patch data with invalid kind type
+		handler := setup(t)
+		patchData := map[string]any{
+			"apiVersion": "v1",
+			"kind":       42,
+			"metadata": map[string]any{
+				"name": "test-config",
+			},
+		}
+		// When extracting target from patch data
+		target := handler.extractTargetFromPatchData(patchData, "default-namespace")
+		// Then target should be nil
+		if target != nil {
+			t.Error("Expected target to be nil when kind type is invalid")
+		}
+	})
+
+	t.Run("InvalidMetadataType", func(t *testing.T) {
+		// Given patch data with invalid metadata type
+		handler := setup(t)
+		patchData := map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata":   "not a map",
+		}
+		// When extracting target from patch data
+		target := handler.extractTargetFromPatchData(patchData, "default-namespace")
+		// Then target should be nil
+		if target != nil {
+			t.Error("Expected target to be nil when metadata type is invalid")
+		}
+	})
+
+	t.Run("InvalidNameType", func(t *testing.T) {
+		// Given patch data with invalid name type
+		handler := setup(t)
+		patchData := map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]any{
+				"name": 42,
+			},
+		}
+		// When extracting target from patch data
+		target := handler.extractTargetFromPatchData(patchData, "default-namespace")
+		// Then target should be nil
+		if target != nil {
+			t.Error("Expected target to be nil when name type is invalid")
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_extractTargetFromPatchContent(t *testing.T) {
+	setup := func(t *testing.T) *BaseBlueprintHandler {
+		t.Helper()
+		injector := di.NewInjector()
+		handler := NewBlueprintHandler(injector)
+		return handler
+	}
+
+	t.Run("ValidYamlContent", func(t *testing.T) {
+		// Given valid YAML content
+		handler := setup(t)
+		content := `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-config
+  namespace: test-namespace`
+		// When extracting target from patch content
+		target := handler.extractTargetFromPatchContent(content, "default-namespace")
+		// Then target should be extracted correctly
+		if target == nil {
+			t.Error("Expected target to be extracted")
+		}
+		if target.Name != "test-config" {
+			t.Errorf("Expected target name = 'test-config', got = '%s'", target.Name)
+		}
+	})
+
+	t.Run("MultipleDocuments", func(t *testing.T) {
+		// Given YAML with multiple documents
+		handler := setup(t)
+		content := `---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: first-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: second-config`
+		// When extracting target from patch content
+		target := handler.extractTargetFromPatchContent(content, "default-namespace")
+		// Then first valid target should be extracted
+		if target == nil {
+			t.Error("Expected target to be extracted")
+		}
+		if target.Name != "first-config" {
+			t.Errorf("Expected target name = 'first-config', got = '%s'", target.Name)
+		}
+	})
+
+	t.Run("InvalidYamlContent", func(t *testing.T) {
+		// Given invalid YAML content
+		handler := setup(t)
+		content := `invalid: yaml: content: with: colons: everywhere`
+		// When extracting target from patch content
+		target := handler.extractTargetFromPatchContent(content, "default-namespace")
+		// Then target should be nil
+		if target != nil {
+			t.Error("Expected target to be nil for invalid YAML")
+		}
+	})
+
+	t.Run("EmptyContent", func(t *testing.T) {
+		// Given empty content
+		handler := setup(t)
+		content := ""
+		// When extracting target from patch content
+		target := handler.extractTargetFromPatchContent(content, "default-namespace")
+		// Then target should be nil
+		if target != nil {
+			t.Error("Expected target to be nil for empty content")
+		}
+	})
+
+	t.Run("NoValidTargets", func(t *testing.T) {
+		// Given YAML with no valid targets
+		handler := setup(t)
+		content := `apiVersion: v1
+kind: ConfigMap
+# Missing metadata.name`
+		// When extracting target from patch content
+		target := handler.extractTargetFromPatchContent(content, "default-namespace")
+		// Then target should be nil
+		if target != nil {
+			t.Error("Expected target to be nil when no valid targets")
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_hasComponentValues(t *testing.T) {
+	setup := func(t *testing.T) *BaseBlueprintHandler {
+		t.Helper()
+		injector := di.NewInjector()
+		handler := NewBlueprintHandler(injector)
+		handler.shims = NewShims()
+		handler.configHandler = config.NewMockConfigHandler()
+		return handler
+	}
+
+	t.Run("TemplateComponentExists", func(t *testing.T) {
+		// Given handler with component in template data
+		handler := setup(t)
+		handler.kustomizeData = map[string]any{
+			"kustomize/values": map[string]any{
+				"test-component": map[string]any{
+					"key": "value",
+				},
+			},
+		}
+		// When checking if component values exist
+		exists := handler.hasComponentValues("test-component")
+		// Then it should return true
+		if !exists {
+			t.Error("Expected component to exist in template data")
+		}
+	})
+
+	t.Run("UserComponentExists", func(t *testing.T) {
+		// Given handler with component in user file
+		handler := setup(t)
+		handler.configHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/test/config", nil
+		}
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
+			return &mockFileInfo{name: "values.yaml", isDir: false}, nil
+		}
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
+			return []byte(`test-component:
+  key: value`), nil
+		}
+		handler.shims.YamlUnmarshal = func(data []byte, v any) error {
+			values := v.(*map[string]any)
+			*values = map[string]any{
+				"test-component": map[string]any{
+					"key": "value",
+				},
+			}
+			return nil
+		}
+		// When checking if component values exist
+		exists := handler.hasComponentValues("test-component")
+		// Then it should return true
+		if !exists {
+			t.Error("Expected component to exist in user file")
+		}
+	})
+
+	t.Run("BothTemplateAndUserExist", func(t *testing.T) {
+		// Given handler with component in both template and user data
+		handler := setup(t)
+		handler.kustomizeData = map[string]any{
+			"kustomize/values": map[string]any{
+				"test-component": map[string]any{
+					"template-key": "template-value",
+				},
+			},
+		}
+		handler.configHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/test/config", nil
+		}
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
+			return &mockFileInfo{name: "values.yaml", isDir: false}, nil
+		}
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
+			return []byte(`test-component:
+  user-key: user-value`), nil
+		}
+		handler.shims.YamlUnmarshal = func(data []byte, v any) error {
+			values := v.(*map[string]any)
+			*values = map[string]any{
+				"test-component": map[string]any{
+					"user-key": "user-value",
+				},
+			}
+			return nil
+		}
+		// When checking if component values exist
+		exists := handler.hasComponentValues("test-component")
+		// Then it should return true
+		if !exists {
+			t.Error("Expected component to exist in both sources")
+		}
+	})
+
+	t.Run("NoComponentExists", func(t *testing.T) {
+		// Given handler with no component data
+		handler := setup(t)
+		handler.configHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/test/config", nil
+		}
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		// When checking if component values exist
+		exists := handler.hasComponentValues("test-component")
+		// Then it should return false
+		if exists {
+			t.Error("Expected component to not exist")
+		}
+	})
+
+	t.Run("ConfigRootError", func(t *testing.T) {
+		// Given handler with config root error
+		handler := setup(t)
+		handler.configHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("config root error")
+		}
+		// When checking if component values exist
+		exists := handler.hasComponentValues("test-component")
+		// Then it should return false
+		if exists {
+			t.Error("Expected component to not exist when config root fails")
+		}
+	})
+
+	t.Run("FileNotExists", func(t *testing.T) {
+		// Given handler with file not existing
+		handler := setup(t)
+		handler.configHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/test/config", nil
+		}
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		// When checking if component values exist
+		exists := handler.hasComponentValues("test-component")
+		// Then it should return false
+		if exists {
+			t.Error("Expected component to not exist when file doesn't exist")
+		}
+	})
+
+	t.Run("InvalidValuesFile", func(t *testing.T) {
+		// Given handler with invalid values file
+		handler := setup(t)
+		handler.configHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/test/config", nil
+		}
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
+			return &mockFileInfo{name: "values.yaml", isDir: false}, nil
+		}
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
+			return []byte("invalid yaml"), nil
+		}
+		handler.shims.YamlUnmarshal = func(data []byte, v any) error {
+			return fmt.Errorf("invalid yaml")
+		}
+		// When checking if component values exist
+		exists := handler.hasComponentValues("test-component")
+		// Then it should return false
+		if exists {
+			t.Error("Expected component to not exist when values file is invalid")
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_deepMergeMaps(t *testing.T) {
+	setup := func(t *testing.T) *BaseBlueprintHandler {
+		t.Helper()
+		injector := di.NewInjector()
+		handler := NewBlueprintHandler(injector)
+		return handler
+	}
+
+	t.Run("SimpleMerge", func(t *testing.T) {
+		// Given base and overlay maps with simple values
+		handler := setup(t)
+		base := map[string]any{
+			"key1": "base-value1",
+			"key2": "base-value2",
+		}
+		overlay := map[string]any{
+			"key2": "overlay-value2",
+			"key3": "overlay-value3",
+		}
+		// When merging maps
+		result := handler.deepMergeMaps(base, overlay)
+		// Then result should contain merged values
+		if result["key1"] != "base-value1" {
+			t.Errorf("Expected key1 = 'base-value1', got = '%v'", result["key1"])
+		}
+		if result["key2"] != "overlay-value2" {
+			t.Errorf("Expected key2 = 'overlay-value2', got = '%v'", result["key2"])
+		}
+		if result["key3"] != "overlay-value3" {
+			t.Errorf("Expected key3 = 'overlay-value3', got = '%v'", result["key3"])
+		}
+	})
+
+	t.Run("NestedMapMerge", func(t *testing.T) {
+		// Given base and overlay maps with nested maps
+		handler := setup(t)
+		base := map[string]any{
+			"nested": map[string]any{
+				"base-key": "base-value",
+			},
+		}
+		overlay := map[string]any{
+			"nested": map[string]any{
+				"overlay-key": "overlay-value",
+			},
+		}
+		// When merging maps
+		result := handler.deepMergeMaps(base, overlay)
+		// Then nested maps should be merged
+		nested := result["nested"].(map[string]any)
+		if nested["base-key"] != "base-value" {
+			t.Errorf("Expected nested.base-key = 'base-value', got = '%v'", nested["base-key"])
+		}
+		if nested["overlay-key"] != "overlay-value" {
+			t.Errorf("Expected nested.overlay-key = 'overlay-value', got = '%v'", nested["overlay-key"])
+		}
+	})
+
+	t.Run("OverlayPrecedence", func(t *testing.T) {
+		// Given base and overlay maps with conflicting keys
+		handler := setup(t)
+		base := map[string]any{
+			"key": "base-value",
+		}
+		overlay := map[string]any{
+			"key": "overlay-value",
+		}
+		// When merging maps
+		result := handler.deepMergeMaps(base, overlay)
+		// Then overlay value should take precedence
+		if result["key"] != "overlay-value" {
+			t.Errorf("Expected key = 'overlay-value', got = '%v'", result["key"])
+		}
+	})
+
+	t.Run("DeepNestedMerge", func(t *testing.T) {
+		// Given base and overlay maps with deeply nested maps
+		handler := setup(t)
+		base := map[string]any{
+			"level1": map[string]any{
+				"level2": map[string]any{
+					"base-key": "base-value",
+				},
+			},
+		}
+		overlay := map[string]any{
+			"level1": map[string]any{
+				"level2": map[string]any{
+					"overlay-key": "overlay-value",
+				},
+			},
+		}
+		// When merging maps
+		result := handler.deepMergeMaps(base, overlay)
+		// Then deeply nested maps should be merged
+		level1 := result["level1"].(map[string]any)
+		level2 := level1["level2"].(map[string]any)
+		if level2["base-key"] != "base-value" {
+			t.Errorf("Expected level2.base-key = 'base-value', got = '%v'", level2["base-key"])
+		}
+		if level2["overlay-key"] != "overlay-value" {
+			t.Errorf("Expected level2.overlay-key = 'overlay-value', got = '%v'", level2["overlay-key"])
+		}
+	})
+
+	t.Run("EmptyMaps", func(t *testing.T) {
+		// Given empty base and overlay maps
+		handler := setup(t)
+		base := map[string]any{}
+		overlay := map[string]any{}
+		// When merging maps
+		result := handler.deepMergeMaps(base, overlay)
+		// Then result should be empty
+		if len(result) != 0 {
+			t.Errorf("Expected empty result, got %d items", len(result))
+		}
+	})
+
+	t.Run("NonMapOverlay", func(t *testing.T) {
+		// Given base map and non-map overlay value
+		handler := setup(t)
+		base := map[string]any{
+			"key": map[string]any{
+				"nested": "value",
+			},
+		}
+		overlay := map[string]any{
+			"key": "string-value",
+		}
+		// When merging maps
+		result := handler.deepMergeMaps(base, overlay)
+		// Then overlay value should replace base value
+		if result["key"] != "string-value" {
+			t.Errorf("Expected key = 'string-value', got = '%v'", result["key"])
+		}
+	})
+
+	t.Run("MixedTypes", func(t *testing.T) {
+		// Given base and overlay maps with mixed types
+		handler := setup(t)
+		base := map[string]any{
+			"string": "base-string",
+			"number": 42,
+			"nested": map[string]any{
+				"key": "base-nested",
+			},
+		}
+		overlay := map[string]any{
+			"string": "overlay-string",
+			"bool":   true,
+			"nested": map[string]any{
+				"overlay-key": "overlay-nested",
+			},
+		}
+		// When merging maps
+		result := handler.deepMergeMaps(base, overlay)
+		// Then all values should be merged correctly
+		if result["string"] != "overlay-string" {
+			t.Errorf("Expected string = 'overlay-string', got = '%v'", result["string"])
+		}
+		if result["number"] != 42 {
+			t.Errorf("Expected number = 42, got = '%v'", result["number"])
+		}
+		if result["bool"] != true {
+			t.Errorf("Expected bool = true, got = '%v'", result["bool"])
+		}
+		nested := result["nested"].(map[string]any)
+		if nested["key"] != "base-nested" {
+			t.Errorf("Expected nested.key = 'base-nested', got = '%v'", nested["key"])
+		}
+		if nested["overlay-key"] != "overlay-nested" {
+			t.Errorf("Expected nested.overlay-key = 'overlay-nested', got = '%v'", nested["overlay-key"])
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_SetRenderedKustomizeData(t *testing.T) {
+	setup := func(t *testing.T) *BaseBlueprintHandler {
+		t.Helper()
+		injector := di.NewInjector()
+		handler := NewBlueprintHandler(injector)
+		return handler
+	}
+
+	t.Run("SetData", func(t *testing.T) {
+		// Given a handler with no existing data
+		handler := setup(t)
+		data := map[string]any{
+			"key1": "value1",
+			"key2": 42,
+		}
+		// When setting rendered kustomize data
+		handler.SetRenderedKustomizeData(data)
+		// Then data should be stored
+		if !reflect.DeepEqual(handler.kustomizeData, data) {
+			t.Errorf("Expected kustomizeData = %v, got = %v", data, handler.kustomizeData)
+		}
+	})
+
+	t.Run("OverwriteData", func(t *testing.T) {
+		// Given a handler with existing data
+		handler := setup(t)
+		handler.kustomizeData = map[string]any{
+			"existing": "data",
+		}
+		newData := map[string]any{
+			"new": "data",
+		}
+		// When setting new rendered kustomize data
+		handler.SetRenderedKustomizeData(newData)
+		// Then new data should overwrite existing data
+		if !reflect.DeepEqual(handler.kustomizeData, newData) {
+			t.Errorf("Expected kustomizeData = %v, got = %v", newData, handler.kustomizeData)
+		}
+	})
+
+	t.Run("EmptyData", func(t *testing.T) {
+		// Given a handler with existing data
+		handler := setup(t)
+		handler.kustomizeData = map[string]any{
+			"existing": "data",
+		}
+		emptyData := map[string]any{}
+		// When setting empty rendered kustomize data
+		handler.SetRenderedKustomizeData(emptyData)
+		// Then empty data should be stored
+		if !reflect.DeepEqual(handler.kustomizeData, emptyData) {
+			t.Errorf("Expected kustomizeData = %v, got = %v", emptyData, handler.kustomizeData)
+		}
+	})
+
+	t.Run("ComplexData", func(t *testing.T) {
+		// Given a handler with no existing data
+		handler := setup(t)
+		complexData := map[string]any{
+			"nested": map[string]any{
+				"level1": map[string]any{
+					"level2": []any{
+						"string1",
+						123,
+						map[string]any{"key": "value"},
+					},
+				},
+			},
+			"array": []any{
+				"item1",
+				456,
+				map[string]any{"nested": "data"},
+			},
+		}
+		// When setting complex rendered kustomize data
+		handler.SetRenderedKustomizeData(complexData)
+		// Then complex data should be stored
+		if !reflect.DeepEqual(handler.kustomizeData, complexData) {
+			t.Errorf("Expected kustomizeData = %v, got = %v", complexData, handler.kustomizeData)
+		}
+	})
 }

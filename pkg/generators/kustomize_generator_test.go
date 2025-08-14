@@ -1,260 +1,133 @@
 package generators
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
+	bundler "github.com/windsorcli/cli/pkg/artifact"
+	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/shell"
 )
 
-// =============================================================================
-// Mock Types
-// =============================================================================
-
-// setupKustomizeGeneratorMocks sets up a KustomizeGenerator and Mocks for testing
-func setupKustomizeGeneratorMocks(t *testing.T) (*KustomizeGenerator, *Mocks) {
-	mocks := setupMocks(t)
-	generator := NewKustomizeGenerator(mocks.Injector)
-	generator.shims = mocks.Shims
-	return generator, mocks
-}
-
-// =============================================================================
-// Constructor Tests
-// =============================================================================
-
-func TestNewKustomizeGenerator(t *testing.T) {
-	// Given an injector
-	injector := di.NewInjector()
-
-	// When creating a new KustomizeGenerator
-	generator := NewKustomizeGenerator(injector)
-
-	// Then it should be properly initialized
-	if generator == nil {
-		t.Fatal("expected generator to be created")
-	}
-	if generator.injector != injector {
-		t.Error("expected injector to be set")
-	}
-}
-
-// =============================================================================
-// Initialize Tests
-// =============================================================================
-
-func TestKustomizeGenerator_Initialize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		generator, _ := setupKustomizeGeneratorMocks(t)
-		// Should succeed with default blueprint handler
-		err := generator.Initialize()
-		if err != nil {
-			t.Fatalf("expected Initialize to succeed, got: %v", err)
-		}
-		if generator.blueprintHandler == nil {
-			t.Error("expected blueprint handler to be set")
-		}
-	})
-
-	t.Run("MissingBlueprintHandler", func(t *testing.T) {
-		// Create injector without blueprint handler but with config handler
+func TestKustomizeGenerator_Generate_InMemory(t *testing.T) {
+	t.Run("FiltersAndStoresKustomizeData", func(t *testing.T) {
 		injector := di.NewInjector()
-		configHandler := config.NewMockConfigHandler()
-		configHandler.GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
-		}
-		injector.Register("configHandler", configHandler)
 		generator := NewKustomizeGenerator(injector)
-		err := generator.Initialize()
-		if err == nil {
-			t.Fatal("expected Initialize to fail")
-		}
-		if !strings.Contains(err.Error(), "failed to resolve blueprint handler") {
-			t.Errorf("expected error about blueprint handler, got: %v", err)
-		}
-	})
 
-	t.Run("InvalidBlueprintHandlerType", func(t *testing.T) {
-		// Create injector with wrong type but with config handler
-		injector := di.NewInjector()
-		configHandler := config.NewMockConfigHandler()
-		configHandler.GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
-		}
-		injector.Register("configHandler", configHandler)
-		injector.Register("blueprintHandler", "not a handler")
-		generator := NewKustomizeGenerator(injector)
-		err := generator.Initialize()
-		if err == nil {
-			t.Fatal("expected Initialize to fail")
-		}
-		if !strings.Contains(err.Error(), "failed to resolve blueprint handler") {
-			t.Errorf("expected error about blueprint handler, got: %v", err)
-		}
-	})
-}
-
-// =============================================================================
-// Generate Tests
-// =============================================================================
-
-func TestKustomizeGenerator_Generate(t *testing.T) {
-	t.Run("NilData", func(t *testing.T) {
-		generator, _ := setupKustomizeGeneratorMocks(t)
-		_ = generator.Initialize()
-		err := generator.Generate(nil)
-		if err == nil {
-			t.Fatal("expected Generate to fail with nil data")
-		}
-		if !strings.Contains(err.Error(), "data cannot be nil") {
-			t.Errorf("expected error about nil data, got: %v", err)
-		}
-	})
-
-	t.Run("EmptyData", func(t *testing.T) {
-		generator, _ := setupKustomizeGeneratorMocks(t)
-		_ = generator.Initialize()
-		data := map[string]any{}
-		err := generator.Generate(data)
-		if err != nil {
-			t.Fatalf("expected Generate to succeed with empty data, got: %v", err)
-		}
-	})
-
-	t.Run("KustomizeData", func(t *testing.T) {
-		generator, mocks := setupKustomizeGeneratorMocks(t)
-		_ = generator.Initialize()
-
-		// Mock config handler
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
+		// Mock blueprint handler
+		mockBlueprintHandler := &blueprint.MockBlueprintHandler{}
+		var setData map[string]any
+		mockBlueprintHandler.SetRenderedKustomizeDataFunc = func(data map[string]any) {
+			setData = data
 		}
 
-		// Mock shims for file operations
-		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			return &mockFileInfo{name: filepath.Base(name), isDir: false}, nil
-		}
-		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
-			return nil
-		}
-		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			return nil
-		}
-		mocks.Shims.MarshalYAML = func(v any) ([]byte, error) {
-			return []byte("test yaml"), nil
-		}
+		// Initialize with mock
+		generator.blueprintHandler = mockBlueprintHandler
 
 		data := map[string]any{
-			"kustomize/patches/test-patch": map[string]any{
+			"kustomize/patches/test": map[string]any{
 				"apiVersion": "v1",
 				"kind":       "ConfigMap",
 				"metadata": map[string]any{
 					"name": "test-config",
 				},
 			},
+			"kustomize/values": map[string]any{
+				"environment": "test",
+			},
+			"other/file":        "should be ignored",
+			"terraform/main.tf": "terraform content",
 		}
 
-		err := generator.Generate(data)
+		err := generator.Generate(data, false)
 		if err != nil {
-			t.Fatalf("expected Generate to succeed with kustomize data, got: %v", err)
+			t.Fatalf("expected Generate to succeed, got: %v", err)
+		}
+
+		// Verify only kustomize data was stored
+		if len(setData) != 2 {
+			t.Errorf("expected 2 kustomize items, got %d", len(setData))
+		}
+		if _, exists := setData["kustomize/patches/test"]; !exists {
+			t.Error("expected kustomize/patches/test to be stored")
+		}
+		if _, exists := setData["kustomize/values"]; !exists {
+			t.Error("expected kustomize/values to be stored")
+		}
+		if _, exists := setData["other/file"]; exists {
+			t.Error("expected non-kustomize data to be filtered out")
 		}
 	})
 
-	t.Run("ValuesData", func(t *testing.T) {
-		generator, mocks := setupKustomizeGeneratorMocks(t)
-		_ = generator.Initialize()
+	t.Run("NoKustomizeData", func(t *testing.T) {
+		injector := di.NewInjector()
+		generator := NewKustomizeGenerator(injector)
 
-		// Mock config handler
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
+		mockBlueprintHandler := &blueprint.MockBlueprintHandler{}
+		called := false
+		mockBlueprintHandler.SetRenderedKustomizeDataFunc = func(data map[string]any) {
+			called = true
 		}
 
-		// Mock shims for file operations
-		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			return &mockFileInfo{name: filepath.Base(name), isDir: false}, nil
-		}
-		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
-			return nil
-		}
-		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			return nil
-		}
-		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			return []byte("test yaml"), nil
-		}
-		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
-			// Mock unmarshaling to return an empty map
-			values := v.(*map[string]any)
-			*values = make(map[string]any)
-			return nil
-		}
-		mocks.Shims.MarshalYAML = func(v any) ([]byte, error) {
-			return []byte("test yaml"), nil
-		}
+		generator.blueprintHandler = mockBlueprintHandler
 
 		data := map[string]any{
-			"kustomize/values": map[string]any{
-				"domain":  "example.com",
-				"port":    80,
-				"enabled": true,
-			},
+			"other/file":        "should be ignored",
+			"terraform/main.tf": "terraform content",
 		}
 
-		err := generator.Generate(data)
+		err := generator.Generate(data, false)
 		if err != nil {
-			t.Fatalf("expected Generate to succeed with values data, got: %v", err)
+			t.Fatalf("expected Generate to succeed with no kustomize data, got: %v", err)
+		}
+
+		if called {
+			t.Error("expected SetRenderedKustomizeData not to be called when no kustomize data present")
 		}
 	})
 
-	t.Run("ConfigRootError", func(t *testing.T) {
-		generator, mocks := setupKustomizeGeneratorMocks(t)
-		_ = generator.Initialize()
+	t.Run("ValidationError", func(t *testing.T) {
+		injector := di.NewInjector()
+		generator := NewKustomizeGenerator(injector)
 
-		// Mock config handler to fail
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
-			return "", fmt.Errorf("config root error")
+		mockBlueprintHandler := &blueprint.MockBlueprintHandler{}
+		generator.blueprintHandler = mockBlueprintHandler
+
+		data := map[string]any{
+			"kustomize/patches/test": "invalid data - should be map",
 		}
 
-		data := map[string]any{"kustomize/patches/test": "value"}
-		err := generator.Generate(data)
+		err := generator.Generate(data, false)
 		if err == nil {
-			t.Fatal("expected Generate to fail with config root error")
+			t.Fatal("expected Generate to fail with validation error")
 		}
-		if !strings.Contains(err.Error(), "failed to get config root") {
-			t.Errorf("expected error about config root, got: %v", err)
+		if !strings.Contains(err.Error(), "invalid kustomize data") {
+			t.Errorf("expected validation error, got: %v", err)
+		}
+	})
+
+	t.Run("NilData", func(t *testing.T) {
+		injector := di.NewInjector()
+		generator := NewKustomizeGenerator(injector)
+
+		err := generator.Generate(nil, false)
+		if err == nil {
+			t.Fatal("expected Generate to fail with nil data")
+		}
+		if !strings.Contains(err.Error(), "data cannot be nil") {
+			t.Errorf("expected nil data error, got: %v", err)
 		}
 	})
 }
 
-func TestKustomizeGenerator_generatePatchFile(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		generator, mocks := setupKustomizeGeneratorMocks(t)
+func TestKustomizeGenerator_validateKustomizeData(t *testing.T) {
+	injector := di.NewInjector()
+	generator := NewKustomizeGenerator(injector)
 
-		// Mock config handler
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
-		}
-
-		// Mock shims
-		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			return &mockFileInfo{name: filepath.Base(name), isDir: false}, nil
-		}
-		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
-			return nil
-		}
-		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			return nil
-		}
-		mocks.Shims.MarshalYAML = func(v any) ([]byte, error) {
-			return []byte("test yaml"), nil
-		}
-
-		key := "kustomize/patches/test-patch"
-		values := map[string]any{
+	t.Run("ValidPatch", func(t *testing.T) {
+		data := map[string]any{
 			"apiVersion": "v1",
 			"kind":       "ConfigMap",
 			"metadata": map[string]any{
@@ -262,699 +135,358 @@ func TestKustomizeGenerator_generatePatchFile(t *testing.T) {
 			},
 		}
 
-		err := generator.generatePatchFile(key, values, "/test/config", false)
+		err := generator.validateKustomizeData("kustomize/patches/test", data)
 		if err != nil {
-			t.Fatalf("expected generatePatchFile to succeed, got: %v", err)
+			t.Errorf("expected valid patch to pass validation, got: %v", err)
 		}
 	})
 
-	t.Run("InvalidKustomizationName", func(t *testing.T) {
-		generator, _ := setupKustomizeGeneratorMocks(t)
-
-		key := "kustomize/patches/invalid@name"
-		values := map[string]any{"test": "value"}
-
-		err := generator.generatePatchFile(key, values, "/test/config", false)
-		if err == nil {
-			t.Fatal("expected generatePatchFile to fail with invalid name")
+	t.Run("InvalidPatch", func(t *testing.T) {
+		data := map[string]any{
+			"kind": "ConfigMap",
+			// Missing apiVersion and metadata.name
 		}
-		if !strings.Contains(err.Error(), "invalid patch path") {
-			t.Errorf("expected error about invalid patch path, got: %v", err)
+
+		err := generator.validateKustomizeData("kustomize/patches/test", data)
+		if err == nil {
+			t.Error("expected invalid patch to fail validation")
 		}
 	})
 
-	t.Run("PathValidationError", func(t *testing.T) {
-		generator, mocks := setupKustomizeGeneratorMocks(t)
-
-		// Mock config handler
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
+	t.Run("ValidValues", func(t *testing.T) {
+		data := map[string]any{
+			"environment": "test",
+			"port":        80,
+			"enabled":     true,
 		}
 
-		// Mock shims to fail path validation
-		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			return nil, fmt.Errorf("path error")
+		err := generator.validateKustomizeData("kustomize/values", data)
+		if err != nil {
+			t.Errorf("expected valid values to pass validation, got: %v", err)
+		}
+	})
+
+	t.Run("InvalidValues", func(t *testing.T) {
+		data := map[string]any{
+			"invalid": []string{"slice", "not", "allowed"},
 		}
 
-		key := "kustomize/patches/test-patch"
-		values := map[string]any{"test": "value"}
-
-		err := generator.generatePatchFile(key, values, "/test/config", false)
+		err := generator.validateKustomizeData("kustomize/values", data)
 		if err == nil {
-			t.Fatal("expected generatePatchFile to fail with path error")
+			t.Error("expected invalid values to fail validation")
+		}
+	})
+
+	t.Run("NonMapData", func(t *testing.T) {
+		err := generator.validateKustomizeData("kustomize/patches/test", "not a map")
+		if err == nil {
+			t.Error("expected non-map data to fail validation")
+		}
+		if !strings.Contains(err.Error(), "patch values must be a map") {
+			t.Errorf("expected map type error, got: %v", err)
+		}
+	})
+
+	t.Run("UnknownKey", func(t *testing.T) {
+		data := map[string]any{"test": "value"}
+		err := generator.validateKustomizeData("kustomize/unknown", data)
+		if err != nil {
+			t.Errorf("expected unknown key to pass (no validation), got: %v", err)
 		}
 	})
 }
 
-func TestKustomizeGenerator_generateValuesFile(t *testing.T) {
-	t.Run("SuccessCommon", func(t *testing.T) {
-		generator, mocks := setupKustomizeGeneratorMocks(t)
+func TestKustomizeGenerator_Initialize(t *testing.T) {
+	setup := func(t *testing.T) *KustomizeGenerator {
+		t.Helper()
+		injector := di.NewInjector()
+		generator := NewKustomizeGenerator(injector)
+		return generator
+	}
 
-		// Mock config handler
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
-		}
+	setupWithBaseDependencies := func(t *testing.T) *KustomizeGenerator {
+		t.Helper()
+		injector := di.NewInjector()
+		generator := NewKustomizeGenerator(injector)
 
-		// Mock shims
-		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			return &mockFileInfo{name: filepath.Base(name), isDir: false}, nil
-		}
-		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
-			return nil
-		}
-		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			return nil
-		}
-		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			return []byte("test yaml"), nil
-		}
-		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
-			// Mock unmarshaling to return an empty map
-			values := v.(*map[string]any)
-			*values = make(map[string]any)
-			return nil
-		}
-		mocks.Shims.MarshalYAML = func(v any) ([]byte, error) {
-			return []byte("test yaml"), nil
-		}
+		// Register required base dependencies
+		mockConfigHandler := &config.MockConfigHandler{}
+		mockShell := &shell.MockShell{}
+		mockArtifactBuilder := &bundler.MockArtifact{}
 
-		key := "kustomize/values"
-		values := map[string]any{
-			"domain":  "example.com",
-			"port":    80,
-			"enabled": true,
-		}
+		generator.injector.Register("configHandler", mockConfigHandler)
+		generator.injector.Register("shell", mockShell)
+		generator.injector.Register("artifactBuilder", mockArtifactBuilder)
 
-		err := generator.generateValuesFile(key, values, "/test/config", false)
-		if err != nil {
-			t.Fatalf("expected generateValuesFile to succeed, got: %v", err)
-		}
-	})
+		return generator
+	}
 
-	t.Run("SuccessComponent", func(t *testing.T) {
-		generator, mocks := setupKustomizeGeneratorMocks(t)
-
-		// Mock config handler
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
-		}
-
-		// Mock shims
-		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			return &mockFileInfo{name: filepath.Base(name), isDir: false}, nil
-		}
-		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
-			return nil
-		}
-		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			return nil
-		}
-		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			return []byte("test yaml"), nil
-		}
-		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
-			// Mock unmarshaling to return an empty map
-			values := v.(*map[string]any)
-			*values = make(map[string]any)
-			return nil
-		}
-		mocks.Shims.MarshalYAML = func(v any) ([]byte, error) {
-			return []byte("test yaml"), nil
-		}
-
-		key := "kustomize/values"
-		values := map[string]any{
-			"host": "example.com",
-			"tls":  true,
-		}
-
-		err := generator.generateValuesFile(key, values, "/test/config", false)
-		if err != nil {
-			t.Fatalf("expected generateValuesFile to succeed, got: %v", err)
-		}
-	})
-
-	t.Run("InvalidValuesType", func(t *testing.T) {
-		generator, mocks := setupKustomizeGeneratorMocks(t)
-
-		// Mock config handler
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
-		}
-
-		key := "kustomize/values"
-		values := "not a map"
-
-		err := generator.generateValuesFile(key, values, "/test/config", false)
-		if err == nil {
-			t.Fatal("expected generateValuesFile to fail with invalid type")
-		}
-		if !strings.Contains(err.Error(), "must be a map") {
-			t.Errorf("expected error about invalid type, got: %v", err)
-		}
-	})
-
-	t.Run("InvalidValuesContent", func(t *testing.T) {
-		generator, mocks := setupKustomizeGeneratorMocks(t)
-
-		// Mock config handler
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
-		}
-
-		// Mock config handler
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
-		}
-
-		// Mock shims
-		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			return &mockFileInfo{name: filepath.Base(name), isDir: false}, nil
-		}
-		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
-			return nil
-		}
-		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			return nil
-		}
-		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			return []byte("test yaml"), nil
-		}
-		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
-			// Mock unmarshaling to return an empty map
-			values := v.(*map[string]any)
-			*values = make(map[string]any)
-			return nil
-		}
-		mocks.Shims.MarshalYAML = func(v any) ([]byte, error) {
-			return []byte("test yaml"), nil
-		}
-
-		key := "kustomize/values"
-		values := map[string]any{
-			"valid":        "string",
-			"valid_nested": map[string]any{"nested": "value"},
-		}
-
-		err := generator.generateValuesFile(key, values, "/test/config", false)
-		if err != nil {
-			t.Fatalf("expected generateValuesFile to succeed with valid nested values, got: %v", err)
-		}
-	})
-}
-
-func TestKustomizeGenerator_writeYamlFile(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		generator, mocks := setupKustomizeGeneratorMocks(t)
-
-		// Mock shims
-		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
-			return nil
-		}
-		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			return nil
-		}
-		mocks.Shims.MarshalYAML = func(v any) ([]byte, error) {
-			return []byte("test yaml"), nil
-		}
-
-		valuesPath := "/test/values.yaml"
-		values := map[string]any{
-			"domain":  "example.com",
-			"port":    80,
-			"enabled": true,
-		}
-
-		err := generator.writeYamlFile(valuesPath, values, false)
+		// Given a generator with all required dependencies
+		generator := setupWithBaseDependencies(t)
+		mockBlueprintHandler := &blueprint.MockBlueprintHandler{}
+		generator.injector.Register("blueprintHandler", mockBlueprintHandler)
+		// When initializing
+		err := generator.Initialize()
+		// Then no error should be returned
 		if err != nil {
-			t.Fatalf("expected writeYamlFile to succeed, got: %v", err)
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+		if generator.blueprintHandler != mockBlueprintHandler {
+			t.Error("Expected blueprint handler to be set")
 		}
 	})
 
-	t.Run("MkdirAllError", func(t *testing.T) {
-		generator, mocks := setupKustomizeGeneratorMocks(t)
-
-		// Mock shims to fail
-		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
-			return fmt.Errorf("mkdir error")
-		}
-
-		valuesPath := "/test/values.yaml"
-		values := map[string]any{"test": "value"}
-
-		err := generator.writeYamlFile(valuesPath, values, false)
+	t.Run("BaseGeneratorInitializationFailure", func(t *testing.T) {
+		// Given a generator with missing config handler
+		generator := setup(t)
+		// When initializing
+		err := generator.Initialize()
+		// Then error should be returned
 		if err == nil {
-			t.Fatal("expected writeYamlFile to fail with mkdir error")
+			t.Error("Expected error for base generator initialization failure")
 		}
-		if !strings.Contains(err.Error(), "failed to create directory") {
-			t.Errorf("expected error about directory creation, got: %v", err)
+		if !strings.Contains(err.Error(), "failed to initialize base generator") {
+			t.Errorf("Expected base generator error, got: %v", err)
 		}
 	})
 
-	t.Run("MarshalYAMLError", func(t *testing.T) {
-		generator, mocks := setupKustomizeGeneratorMocks(t)
-
-		// Mock shims
-		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
-			return nil
-		}
-		mocks.Shims.MarshalYAML = func(v any) ([]byte, error) {
-			return nil, fmt.Errorf("marshal error")
-		}
-
-		valuesPath := "/test/values.yaml"
-		values := map[string]any{"test": "value"}
-
-		err := generator.writeYamlFile(valuesPath, values, false)
+	t.Run("BlueprintHandlerNotFound", func(t *testing.T) {
+		// Given a generator with base dependencies but no blueprint handler
+		generator := setupWithBaseDependencies(t)
+		// When initializing
+		err := generator.Initialize()
+		// Then error should be returned from base generator
 		if err == nil {
-			t.Fatal("expected writeYamlFile to fail with marshal error")
+			t.Error("Expected error for missing blueprint handler")
 		}
-		if !strings.Contains(err.Error(), "failed to marshal content to YAML") {
-			t.Errorf("expected error about YAML marshaling, got: %v", err)
+		if !strings.Contains(err.Error(), "failed to initialize base generator") {
+			t.Errorf("Expected base generator error, got: %v", err)
 		}
 	})
 
-	t.Run("WriteFileError", func(t *testing.T) {
-		generator, mocks := setupKustomizeGeneratorMocks(t)
-
-		// Mock shims
-		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
-			return nil
-		}
-		mocks.Shims.MarshalYAML = func(v any) ([]byte, error) {
-			return []byte("test yaml"), nil
-		}
-		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			return fmt.Errorf("write error")
-		}
-
-		valuesPath := "/test/values.yaml"
-		values := map[string]any{"test": "value"}
-
-		err := generator.writeYamlFile(valuesPath, values, false)
+	t.Run("BlueprintHandlerWrongType", func(t *testing.T) {
+		// Given a generator with wrong type in injector
+		generator := setupWithBaseDependencies(t)
+		generator.injector.Register("blueprintHandler", "not a blueprint handler")
+		// When initializing
+		err := generator.Initialize()
+		// Then error should be returned from base generator
 		if err == nil {
-			t.Fatal("expected writeYamlFile to fail with write error")
+			t.Error("Expected error for wrong blueprint handler type")
 		}
-		if !strings.Contains(err.Error(), "failed to write file") {
-			t.Errorf("expected error about file writing, got: %v", err)
+		if !strings.Contains(err.Error(), "failed to initialize base generator") {
+			t.Errorf("Expected base generator error, got: %v", err)
 		}
 	})
-}
 
-// =============================================================================
-// Validation Tests
-// =============================================================================
-
-func TestKustomizeGenerator_validateKustomizationName(t *testing.T) {
-	// Given a generator
-	generator, _ := setupKustomizeGeneratorMocks(t)
-
-	testCases := []struct {
-		name        string
-		input       string
-		expectError bool
-		errorMsg    string
-	}{
-		{
-			name:        "ValidSimpleName",
-			input:       "test-kustomization",
-			expectError: false,
-		},
-		{
-			name:        "ValidWithHyphens",
-			input:       "test-kustomization-name",
-			expectError: false,
-		},
-		{
-			name:        "ValidWithUnderscores",
-			input:       "test_kustomization_name",
-			expectError: false,
-		},
-		{
-			name:        "ValidWithNumbers",
-			input:       "test-kustomization-123",
-			expectError: false,
-		},
-		{
-			name:        "ValidSubdirectory",
-			input:       "ingress/nginx",
-			expectError: false,
-		},
-		{
-			name:        "ValidNestedSubdirectory",
-			input:       "ingress/nginx/controller",
-			expectError: false,
-		},
-		{
-			name:        "EmptyName",
-			input:       "",
-			expectError: true,
-			errorMsg:    "cannot be empty",
-		},
-		{
-			name:        "PathTraversal",
-			input:       "test/../malicious",
-			expectError: true,
-			errorMsg:    "path traversal",
-		},
-		{
-			name:        "BackslashPathTraversal",
-			input:       "test\\..\\malicious",
-			expectError: true,
-			errorMsg:    "path traversal",
-		},
-		{
-			name:        "EmptyPathComponent",
-			input:       "test//component",
-			expectError: true,
-			errorMsg:    "empty path components",
-		},
-		{
-			name:        "InvalidCharacter",
-			input:       "test@kustomization",
-			expectError: true,
-			errorMsg:    "invalid character",
-		},
-		{
-			name:        "InvalidCharacterInSubdirectory",
-			input:       "ingress/nginx@controller",
-			expectError: true,
-			errorMsg:    "invalid character",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// When validating name
-			err := generator.validateKustomizationName(tc.input)
-
-			// Then check expected result
-			if tc.expectError {
-				if err == nil {
-					t.Fatal("expected validation to fail")
-				}
-				if !strings.Contains(err.Error(), tc.errorMsg) {
-					t.Errorf("expected error to contain '%s', got: %v", tc.errorMsg, err)
-				}
-			} else {
-				if err != nil {
-					t.Errorf("expected validation to pass, got: %v", err)
-				}
-			}
-		})
-	}
+	t.Run("BlueprintHandlerNil", func(t *testing.T) {
+		// Given a generator with nil blueprint handler
+		generator := setupWithBaseDependencies(t)
+		generator.injector.Register("blueprintHandler", nil)
+		// When initializing
+		err := generator.Initialize()
+		// Then error should be returned from base generator
+		if err == nil {
+			t.Error("Expected error for nil blueprint handler")
+		}
+		if !strings.Contains(err.Error(), "failed to initialize base generator") {
+			t.Errorf("Expected base generator error, got: %v", err)
+		}
+	})
 }
 
 func TestKustomizeGenerator_validatePostBuildValues(t *testing.T) {
-	// Given a generator
-	generator, _ := setupKustomizeGeneratorMocks(t)
-
-	testCases := []struct {
-		name        string
-		values      map[string]any
-		expectError bool
-		errorMsg    string
-	}{
-		{
-			name: "ValidScalarTypes",
-			values: map[string]any{
-				"string":  "value",
-				"int":     42,
-				"int8":    int8(8),
-				"int16":   int16(16),
-				"int32":   int32(32),
-				"int64":   int64(64),
-				"uint":    uint(42),
-				"uint8":   uint8(8),
-				"uint16":  uint16(16),
-				"uint32":  uint32(32),
-				"uint64":  uint64(64),
-				"float32": float32(3.14),
-				"float64": 3.14,
-				"bool":    true,
-			},
-			expectError: false,
-		},
-		{
-			name: "ValidNestedMapType",
-			values: map[string]any{
-				"nested": map[string]any{"key": "value"},
-			},
-			expectError: false,
-		},
-		{
-			name: "InvalidSliceType",
-			values: map[string]any{
-				"array": []any{1, 2, 3},
-			},
-			expectError: true,
-			errorMsg:    "slices",
-		},
-		{
-			name: "MixedValidAndValidNested",
-			values: map[string]any{
-				"valid":        "string",
-				"valid_nested": map[string]any{"nested": "value"},
-			},
-			expectError: false,
-		},
-		{
-			name: "InvalidDeeplyNestedMap",
-			values: map[string]any{
-				"nested": map[string]any{
-					"deeply_nested": map[string]any{"key": "value"},
-				},
-			},
-			expectError: true,
-			errorMsg:    "nested complex types",
-		},
-		{
-			name: "InvalidNestedSlice",
-			values: map[string]any{
-				"nested": map[string]any{
-					"array": []any{1, 2, 3},
-				},
-			},
-			expectError: true,
-			errorMsg:    "slices",
-		},
-		{
-			name: "UnsupportedType",
-			values: map[string]any{
-				"unsupported": make(chan int),
-			},
-			expectError: true,
-			errorMsg:    "unsupported type",
-		},
+	setup := func(t *testing.T) *KustomizeGenerator {
+		t.Helper()
+		injector := di.NewInjector()
+		generator := NewKustomizeGenerator(injector)
+		return generator
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// When validating values
-			err := generator.validatePostBuildValues(tc.values, "", 0)
+	t.Run("ValidScalarTypes", func(t *testing.T) {
+		// Given a generator and valid scalar values
+		generator := setup(t)
+		values := map[string]any{
+			"string":  "test",
+			"int":     42,
+			"int8":    int8(8),
+			"int16":   int16(16),
+			"int32":   int32(32),
+			"int64":   int64(64),
+			"uint":    uint(100),
+			"uint8":   uint8(8),
+			"uint16":  uint16(16),
+			"uint32":  uint32(32),
+			"uint64":  uint64(64),
+			"float32": float32(3.14),
+			"float64": float64(3.14159),
+			"bool":    true,
+		}
+		// When validating post-build values
+		err := generator.validatePostBuildValues(values, "", 0)
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+	})
 
-			// Then check expected result
-			if tc.expectError {
-				if err == nil {
-					t.Fatal("expected validation to fail")
-				}
-				if !strings.Contains(err.Error(), tc.errorMsg) {
-					t.Errorf("expected error to contain '%s', got: %v", tc.errorMsg, err)
-				}
-			} else {
-				if err != nil {
-					t.Errorf("expected validation to pass, got: %v", err)
-				}
-			}
-		})
-	}
-}
+	t.Run("ValidNestedMap", func(t *testing.T) {
+		// Given a generator and valid nested map
+		generator := setup(t)
+		values := map[string]any{
+			"nested": map[string]any{
+				"string": "test",
+				"int":    42,
+				"bool":   true,
+			},
+		}
+		// When validating post-build values
+		err := generator.validatePostBuildValues(values, "", 0)
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+	})
 
-func TestKustomizeGenerator_validatePath(t *testing.T) {
-	// Given a generator
-	generator, _ := setupKustomizeGeneratorMocks(t)
+	t.Run("InvalidSlice", func(t *testing.T) {
+		// Given a generator and values containing a slice
+		generator := setup(t)
+		values := map[string]any{
+			"invalid": []any{"slice", "not", "allowed"},
+		}
+		// When validating post-build values
+		err := generator.validatePostBuildValues(values, "", 0)
+		// Then error should be returned
+		if err == nil {
+			t.Error("Expected error for slice values")
+		}
+		if !strings.Contains(err.Error(), "cannot contain slices") {
+			t.Errorf("Expected slice error, got: %v", err)
+		}
+	})
 
-	testCases := []struct {
-		name        string
-		targetPath  string
-		basePath    string
-		expectError bool
-		errorMsg    string
-	}{
-		{
-			name:        "ValidPath",
-			targetPath:  "/base/valid/path",
-			basePath:    "/base",
-			expectError: false,
-		},
-		{
-			name:        "ValidSubPath",
-			targetPath:  "/base/sub/path/file.yaml",
-			basePath:    "/base",
-			expectError: false,
-		},
-		{
-			name:        "PathTraversal",
-			targetPath:  "/base/../malicious/path",
-			basePath:    "/base",
-			expectError: true,
-			errorMsg:    "outside base path",
-		},
-		{
-			name:        "DifferentBase",
-			targetPath:  "/other/path",
-			basePath:    "/base",
-			expectError: true,
-			errorMsg:    "outside base path",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// When validating path
-			err := generator.validatePath(tc.targetPath, tc.basePath)
-
-			// Then check expected result
-			if tc.expectError {
-				if err == nil {
-					t.Fatal("expected validation to fail")
-				}
-				if !strings.Contains(err.Error(), tc.errorMsg) {
-					t.Errorf("expected error to contain '%s', got: %v", tc.errorMsg, err)
-				}
-			} else {
-				if err != nil {
-					t.Errorf("expected validation to pass, got: %v", err)
-				}
-			}
-		})
-	}
-}
-
-func TestKustomizeGenerator_validateKubernetesManifest(t *testing.T) {
-	// Given a generator
-	generator, _ := setupKustomizeGeneratorMocks(t)
-
-	testCases := []struct {
-		name        string
-		content     any
-		expectError bool
-		errorMsg    string
-	}{
-		{
-			name: "ValidManifest",
-			content: map[string]any{
-				"apiVersion": "v1",
-				"kind":       "ConfigMap",
-				"metadata": map[string]any{
-					"name": "test-config",
+	t.Run("InvalidNestedComplexType", func(t *testing.T) {
+		// Given a generator and values with nested complex types
+		generator := setup(t)
+		values := map[string]any{
+			"level1": map[string]any{
+				"level2": map[string]any{
+					"level3": "too deep",
 				},
 			},
-			expectError: false,
-		},
-		{
-			name:        "NotMap",
-			content:     "not a map",
-			expectError: true,
-			errorMsg:    "must be a map",
-		},
-		{
-			name: "MissingApiVersion",
-			content: map[string]any{
-				"kind": "ConfigMap",
-				"metadata": map[string]any{
-					"name": "test-config",
-				},
-			},
-			expectError: true,
-			errorMsg:    "missing or invalid 'apiVersion'",
-		},
-		{
-			name: "EmptyApiVersion",
-			content: map[string]any{
-				"apiVersion": "",
-				"kind":       "ConfigMap",
-				"metadata": map[string]any{
-					"name": "test-config",
-				},
-			},
-			expectError: true,
-			errorMsg:    "missing or invalid 'apiVersion'",
-		},
-		{
-			name: "MissingKind",
-			content: map[string]any{
-				"apiVersion": "v1",
-				"metadata": map[string]any{
-					"name": "test-config",
-				},
-			},
-			expectError: true,
-			errorMsg:    "missing or invalid 'kind'",
-		},
-		{
-			name: "EmptyKind",
-			content: map[string]any{
-				"apiVersion": "v1",
-				"kind":       "",
-				"metadata": map[string]any{
-					"name": "test-config",
-				},
-			},
-			expectError: true,
-			errorMsg:    "missing or invalid 'kind'",
-		},
-		{
-			name: "MissingMetadata",
-			content: map[string]any{
-				"apiVersion": "v1",
-				"kind":       "ConfigMap",
-			},
-			expectError: true,
-			errorMsg:    "missing 'metadata'",
-		},
-		{
-			name: "MissingName",
-			content: map[string]any{
-				"apiVersion": "v1",
-				"kind":       "ConfigMap",
-				"metadata":   map[string]any{},
-			},
-			expectError: true,
-			errorMsg:    "missing or invalid 'metadata.name'",
-		},
-		{
-			name: "EmptyName",
-			content: map[string]any{
-				"apiVersion": "v1",
-				"kind":       "ConfigMap",
-				"metadata": map[string]any{
-					"name": "",
-				},
-			},
-			expectError: true,
-			errorMsg:    "missing or invalid 'metadata.name'",
-		},
-	}
+		}
+		// When validating post-build values
+		err := generator.validatePostBuildValues(values, "", 0)
+		// Then error should be returned
+		if err == nil {
+			t.Error("Expected error for nested complex types")
+		}
+		if !strings.Contains(err.Error(), "cannot contain nested complex types") {
+			t.Errorf("Expected nested complex type error, got: %v", err)
+		}
+	})
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// When validating manifest
-			err := generator.validateKubernetesManifest(tc.content)
+	t.Run("InvalidUnsupportedType", func(t *testing.T) {
+		// Given a generator and values with unsupported type
+		generator := setup(t)
+		values := map[string]any{
+			"unsupported": struct{}{},
+		}
+		// When validating post-build values
+		err := generator.validatePostBuildValues(values, "", 0)
+		// Then error should be returned
+		if err == nil {
+			t.Error("Expected error for unsupported type")
+		}
+		if !strings.Contains(err.Error(), "unsupported type") {
+			t.Errorf("Expected unsupported type error, got: %v", err)
+		}
+	})
 
-			// Then check expected result
-			if tc.expectError {
-				if err == nil {
-					t.Fatal("expected validation to fail")
-				}
-				if !strings.Contains(err.Error(), tc.errorMsg) {
-					t.Errorf("expected error to contain '%s', got: %v", tc.errorMsg, err)
-				}
-			} else {
-				if err != nil {
-					t.Errorf("expected validation to pass, got: %v", err)
-				}
-			}
-		})
-	}
+	t.Run("EmptyMap", func(t *testing.T) {
+		// Given a generator and empty values map
+		generator := setup(t)
+		values := map[string]any{}
+		// When validating post-build values
+		err := generator.validatePostBuildValues(values, "", 0)
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+	})
+
+	t.Run("ParentKeyReporting", func(t *testing.T) {
+		// Given a generator and values with parent key context
+		generator := setup(t)
+		values := map[string]any{
+			"invalid": []any{"slice", "not", "allowed"},
+		}
+		// When validating post-build values with parent key
+		err := generator.validatePostBuildValues(values, "parent", 0)
+		// Then error should include parent key in message
+		if err == nil {
+			t.Error("Expected error for slice values")
+		}
+		if !strings.Contains(err.Error(), "parent.invalid") {
+			t.Errorf("Expected parent key in error message, got: %v", err)
+		}
+	})
+
+	t.Run("NestedSliceInMap", func(t *testing.T) {
+		// Given a generator and nested map containing slice
+		generator := setup(t)
+		values := map[string]any{
+			"nested": map[string]any{
+				"invalid": []any{"slice", "in", "nested"},
+			},
+		}
+		// When validating post-build values
+		err := generator.validatePostBuildValues(values, "", 0)
+		// Then error should be returned
+		if err == nil {
+			t.Error("Expected error for slice in nested map")
+		}
+		if !strings.Contains(err.Error(), "cannot contain slices") {
+			t.Errorf("Expected slice error, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "nested.invalid") {
+			t.Errorf("Expected nested key in error message, got: %v", err)
+		}
+	})
+
+	t.Run("MixedValidAndInvalid", func(t *testing.T) {
+		// Given a generator and values with mix of valid and invalid types
+		generator := setup(t)
+		values := map[string]any{
+			"valid":   "string",
+			"invalid": []any{"slice", "not", "allowed"},
+		}
+		// When validating post-build values
+		err := generator.validatePostBuildValues(values, "", 0)
+		// Then error should be returned for the invalid type
+		if err == nil {
+			t.Error("Expected error for invalid type")
+		}
+		if !strings.Contains(err.Error(), "cannot contain slices") {
+			t.Errorf("Expected slice error, got: %v", err)
+		}
+	})
+
+	t.Run("NilValue", func(t *testing.T) {
+		// Given a generator and values with nil value
+		generator := setup(t)
+		values := map[string]any{
+			"nil": nil,
+		}
+		// When validating post-build values
+		err := generator.validatePostBuildValues(values, "", 0)
+		// Then error should be returned for unsupported type
+		if err == nil {
+			t.Error("Expected error for nil value")
+		}
+		if !strings.Contains(err.Error(), "unsupported type") {
+			t.Errorf("Expected unsupported type error, got: %v", err)
+		}
+	})
 }
