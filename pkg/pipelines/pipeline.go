@@ -267,8 +267,9 @@ func (p *BasePipeline) withStack() stack.Stack {
 	return stack
 }
 
-// withGenerators creates and registers generators including git, terraform, and patch generators.
-// Returns a slice of initialized generators or an error if creation fails.
+// withGenerators creates and registers generator instances for git, terraform, and kustomize based on configuration.
+// It always registers the git generator. The terraform generator is registered if "terraform.enabled" is true.
+// The kustomize generator is registered if "cluster.enabled" is true. Returns a slice of initialized generators or an error.
 func (p *BasePipeline) withGenerators() ([]generators.Generator, error) {
 	var generatorList []generators.Generator
 
@@ -276,14 +277,12 @@ func (p *BasePipeline) withGenerators() ([]generators.Generator, error) {
 	p.injector.Register("gitGenerator", gitGenerator)
 	generatorList = append(generatorList, gitGenerator)
 
-	// Only create Terraform generator if Terraform is enabled
 	if p.configHandler.GetBool("terraform.enabled", false) {
 		terraformGenerator := generators.NewTerraformGenerator(p.injector)
 		p.injector.Register("terraformGenerator", terraformGenerator)
 		generatorList = append(generatorList, terraformGenerator)
 	}
 
-	// Create patch generator for Kustomize patch templating only if cluster.enabled
 	if p.configHandler.GetBool("cluster.enabled", false) {
 		kustomizeGenerator := generators.NewKustomizeGenerator(p.injector)
 		p.injector.Register("kustomizeGenerator", kustomizeGenerator)

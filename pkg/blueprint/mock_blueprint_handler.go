@@ -23,7 +23,8 @@ type MockBlueprintHandler struct {
 	InstallFunc                func() error
 	GetRepositoryFunc          func() blueprintv1alpha1.Repository
 
-	DownFunc func() error
+	DownFunc                     func() error
+	SetRenderedKustomizeDataFunc func(data map[string]any)
 }
 
 // =============================================================================
@@ -129,6 +130,13 @@ func (m *MockBlueprintHandler) Down() error {
 		return m.DownFunc()
 	}
 	return nil
+}
+
+// SetRenderedKustomizeData implements BlueprintHandler interface
+func (m *MockBlueprintHandler) SetRenderedKustomizeData(data map[string]any) {
+	if m.SetRenderedKustomizeDataFunc != nil {
+		m.SetRenderedKustomizeDataFunc(data)
+	}
 }
 
 // WaitForKustomizations calls the mock WaitForKustomizationsFunc if set, otherwise returns nil

@@ -46,6 +46,7 @@ type BlueprintHandler interface {
 	LoadData(data map[string]any, ociInfo ...*artifact.OCIArtifactInfo) error
 	Write(overwrite ...bool) error
 	Install() error
+	SetRenderedKustomizeData(data map[string]any)
 	GetMetadata() blueprintv1alpha1.Metadata
 	GetSources() []blueprintv1alpha1.Source
 	GetRepository() blueprintv1alpha1.Repository
@@ -69,14 +70,16 @@ type BaseBlueprintHandler struct {
 	blueprint         blueprintv1alpha1.Blueprint
 	projectRoot       string
 	shims             *Shims
+	kustomizeData     map[string]any
 }
 
 // NewBlueprintHandler creates a new instance of BaseBlueprintHandler.
 // It initializes the handler with the provided dependency injector.
 func NewBlueprintHandler(injector di.Injector) *BaseBlueprintHandler {
 	return &BaseBlueprintHandler{
-		injector: injector,
-		shims:    NewShims(),
+		injector:      injector,
+		shims:         NewShims(),
+		kustomizeData: make(map[string]any),
 	}
 }
 
@@ -417,6 +420,12 @@ func (b *BaseBlueprintHandler) GetKustomizations() []blueprintv1alpha1.Kustomiza
 	}
 
 	return kustomizations
+}
+
+// SetRenderedKustomizeData stores rendered kustomize data for use during install.
+// This includes values and patches from template processing that should be composed with user-defined files.
+func (b *BaseBlueprintHandler) SetRenderedKustomizeData(data map[string]any) {
+	b.kustomizeData = data
 }
 
 // GetDefaultTemplateData generates default template data based on the provider configuration.
@@ -1075,44 +1084,7 @@ func (b *BaseBlueprintHandler) toFluxKustomization(k blueprintv1alpha1.Kustomiza
 		var patchContent string
 
 		if p.Path != "" {
-			configRoot, err := b.configHandler.GetConfigRoot()
-			if err != nil {
-				continue
-			}
-			patchFilePath := filepath.Join(configRoot, "kustomize", p.Path)
-			data, err := b.shims.ReadFile(patchFilePath)
-			if err != nil {
-				continue
-			}
-			patchContent = string(data)
-
-			decoder := yaml.NewDecoder(strings.NewReader(patchContent))
-			for {
-				var patchData map[string]any
-				if err := decoder.Decode(&patchData); err != nil {
-					if err == io.EOF {
-						break
-					}
-					continue
-				}
-
-				if kind, ok := patchData["kind"].(string); ok {
-					if metadata, ok := patchData["metadata"].(map[string]any); ok {
-						if name, ok := metadata["name"].(string); ok {
-							patchNamespace := namespace
-							if ns, ok := metadata["namespace"].(string); ok {
-								patchNamespace = ns
-							}
-							target = &kustomize.Selector{
-								Kind:      kind,
-								Name:      name,
-								Namespace: patchNamespace,
-							}
-							break
-						}
-					}
-				}
-			}
+			patchContent, target = b.resolvePatchFromPath(p.Path, namespace)
 		}
 
 		if p.Patch != "" {
@@ -1143,25 +1115,15 @@ func (b *BaseBlueprintHandler) toFluxKustomization(k blueprintv1alpha1.Kustomiza
 		Optional: false,
 	})
 
-	configRoot, err := b.configHandler.GetConfigRoot()
-	if err == nil {
-		valuesPath := filepath.Join(configRoot, "kustomize", "values.yaml")
-		if _, err := b.shims.Stat(valuesPath); err == nil {
-			data, err := b.shims.ReadFile(valuesPath)
-			if err == nil {
-				var values map[string]any
-				if err := b.shims.YamlUnmarshal(data, &values); err == nil {
-					configMapName := fmt.Sprintf("values-%s", k.Name)
-					if _, hasComponent := values[k.Name]; hasComponent {
-						substituteFrom = append(substituteFrom, kustomizev1.SubstituteReference{
-							Kind:     "ConfigMap",
-							Name:     configMapName,
-							Optional: false,
-						})
-					}
-				}
-			}
-		}
+	hasComponentValues := b.hasComponentValues(k.Name)
+
+	if hasComponentValues {
+		configMapName := fmt.Sprintf("values-%s", k.Name)
+		substituteFrom = append(substituteFrom, kustomizev1.SubstituteReference{
+			Kind:     "ConfigMap",
+			Name:     configMapName,
+			Optional: false,
+		})
 	}
 
 	if k.PostBuild != nil {
@@ -1240,6 +1202,143 @@ func (b *BaseBlueprintHandler) toFluxKustomization(k blueprintv1alpha1.Kustomiza
 	}
 }
 
+// resolvePatchFromPath yields patch content as YAML string and the target selector for a given patch path.
+// Combines template data with user-defined files; user files take precedence. If a user file exists and cannot be merged as YAML, it overrides template data entirely.
+// patchPath: relative path to the patch file within the kustomize directory
+// defaultNamespace: namespace to use if not specified in patch metadata
+// Output: patch content (YAML), extracted target selector or nil if not found
+func (b *BaseBlueprintHandler) resolvePatchFromPath(patchPath, defaultNamespace string) (string, *kustomize.Selector) {
+	patchKey := "kustomize/patches/" + strings.TrimPrefix(patchPath, "kustomize/patches/")
+	if strings.HasSuffix(patchKey, ".yaml") || strings.HasSuffix(patchKey, ".yml") {
+		patchKey = strings.TrimSuffix(patchKey, filepath.Ext(patchKey))
+	}
+
+	var basePatchData map[string]any
+	var target *kustomize.Selector
+
+	if renderedPatch, exists := b.kustomizeData[patchKey]; exists {
+		if patchMap, ok := renderedPatch.(map[string]any); ok {
+			basePatchData = make(map[string]any)
+			for k, v := range patchMap {
+				basePatchData[k] = v
+			}
+		}
+	}
+
+	configRoot, err := b.configHandler.GetConfigRoot()
+	if err == nil {
+		patchFilePath := filepath.Join(configRoot, "kustomize", patchPath)
+		if data, err := b.shims.ReadFile(patchFilePath); err == nil {
+			if basePatchData == nil {
+				target = b.extractTargetFromPatchContent(string(data), defaultNamespace)
+				return string(data), target
+			}
+
+			var userPatchData map[string]any
+			if err := b.shims.YamlUnmarshal(data, &userPatchData); err == nil {
+				maps.Copy(basePatchData, userPatchData)
+			} else {
+				target = b.extractTargetFromPatchContent(string(data), defaultNamespace)
+				return string(data), target
+			}
+		}
+	}
+
+	if basePatchData == nil {
+		return "", nil
+	}
+
+	patchYAML, err := b.shims.YamlMarshal(basePatchData)
+	if err != nil {
+		return "", nil
+	}
+
+	target = b.extractTargetFromPatchData(basePatchData, defaultNamespace)
+	return string(patchYAML), target
+}
+
+// extractTargetFromPatchData extracts target selector information from patch data map.
+// Returns nil if the required metadata fields are not found or invalid.
+func (b *BaseBlueprintHandler) extractTargetFromPatchData(patchData map[string]any, defaultNamespace string) *kustomize.Selector {
+	kind, ok := patchData["kind"].(string)
+	if !ok {
+		return nil
+	}
+
+	metadata, ok := patchData["metadata"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	name, ok := metadata["name"].(string)
+	if !ok {
+		return nil
+	}
+
+	namespace := defaultNamespace
+	if ns, ok := metadata["namespace"].(string); ok {
+		namespace = ns
+	}
+
+	return &kustomize.Selector{
+		Kind:      kind,
+		Name:      name,
+		Namespace: namespace,
+	}
+}
+
+// extractTargetFromPatchContent extracts target selector information from patch YAML content.
+// Parses the YAML and returns the first valid target found, or nil if none found.
+func (b *BaseBlueprintHandler) extractTargetFromPatchContent(patchContent, defaultNamespace string) *kustomize.Selector {
+	decoder := yaml.NewDecoder(strings.NewReader(patchContent))
+	for {
+		var patchData map[string]any
+		if err := decoder.Decode(&patchData); err != nil {
+			if err == io.EOF {
+				break
+			}
+			continue
+		}
+
+		if target := b.extractTargetFromPatchData(patchData, defaultNamespace); target != nil {
+			return target
+		}
+	}
+	return nil
+}
+
+// hasComponentValues determines if component-specific values exist for the specified component name.
+// It inspects both in-memory rendered template data and user-defined disk files, returning true if either contains the component section.
+// User-defined values take precedence in the presence of both sources.
+func (b *BaseBlueprintHandler) hasComponentValues(componentName string) bool {
+	hasTemplateComponent := false
+	if kustomizeValues, exists := b.kustomizeData["kustomize/values"]; exists {
+		if valuesMap, ok := kustomizeValues.(map[string]any); ok {
+			if _, hasComponent := valuesMap[componentName]; hasComponent {
+				hasTemplateComponent = true
+			}
+		}
+	}
+
+	hasUserComponent := false
+	configRoot, err := b.configHandler.GetConfigRoot()
+	if err == nil {
+		valuesPath := filepath.Join(configRoot, "kustomize", "values.yaml")
+		if _, err := b.shims.Stat(valuesPath); err == nil {
+			if data, err := b.shims.ReadFile(valuesPath); err == nil {
+				var values map[string]any
+				if err := b.shims.YamlUnmarshal(data, &values); err == nil {
+					if _, hasComponent := values[componentName]; hasComponent {
+						hasUserComponent = true
+					}
+				}
+			}
+		}
+	}
+
+	return hasTemplateComponent || hasUserComponent
+}
+
 // isOCISource returns true if the provided sourceNameOrURL is an OCI repository reference.
 // It checks if the input is a resolved OCI URL, matches the blueprint's main repository with an OCI URL,
 // or matches any additional source with an OCI URL.
@@ -1258,10 +1357,10 @@ func (b *BaseBlueprintHandler) isOCISource(sourceNameOrURL string) bool {
 	return false
 }
 
-// applyValuesConfigMaps creates ConfigMaps for post-build variable substitution using the centralized values.yaml in the kustomize directory.
-// It generates a ConfigMap for the "common" section and for each component section in values.yaml.
+// applyValuesConfigMaps creates ConfigMaps for post-build variable substitution using rendered values data and any existing values.yaml files.
+// It generates a ConfigMap for the "common" section and for each component section, merging rendered template values with user-defined values.
+// User-defined values take precedence over template values in case of conflicts.
 // The resulting ConfigMaps are referenced in PostBuild.SubstituteFrom for variable substitution.
-// Only function header documentation is permitted; no comments are present inside the function body.
 func (b *BaseBlueprintHandler) applyValuesConfigMaps() error {
 	configRoot, err := b.configHandler.GetConfigRoot()
 	if err != nil {
@@ -1303,37 +1402,39 @@ func (b *BaseBlueprintHandler) applyValuesConfigMaps() error {
 		mergedCommonValues["BUILD_ID"] = buildID
 	}
 
-	kustomizeDir := filepath.Join(configRoot, "kustomize")
-	if _, err := b.shims.Stat(kustomizeDir); os.IsNotExist(err) {
-		if len(mergedCommonValues) > 0 {
-			if err := b.createConfigMap(mergedCommonValues, "values-common"); err != nil {
-				return fmt.Errorf("failed to create merged common values ConfigMap: %w", err)
+	var userValues map[string]any
+	valuesPath := filepath.Join(configRoot, "kustomize", "values.yaml")
+	if _, err := b.shims.Stat(valuesPath); err == nil {
+		data, err := b.shims.ReadFile(valuesPath)
+		if err == nil {
+			if err := b.shims.YamlUnmarshal(data, &userValues); err != nil {
+				return fmt.Errorf("failed to unmarshal values file %s: %w", valuesPath, err)
 			}
 		}
-		return nil
 	}
 
-	valuesPath := filepath.Join(kustomizeDir, "values.yaml")
-	if _, err := b.shims.Stat(valuesPath); os.IsNotExist(err) {
-		if len(mergedCommonValues) > 0 {
-			if err := b.createConfigMap(mergedCommonValues, "values-common"); err != nil {
-				return fmt.Errorf("failed to create merged common values ConfigMap: %w", err)
-			}
+	if userValues == nil {
+		userValues = make(map[string]any)
+	}
+
+	var renderedValues map[string]any
+	if kustomizeValues, exists := b.kustomizeData["kustomize/values"]; exists {
+		if valuesMap, ok := kustomizeValues.(map[string]any); ok {
+			renderedValues = valuesMap
 		}
-		return nil
 	}
 
-	data, err := b.shims.ReadFile(valuesPath)
-	if err != nil {
-		return fmt.Errorf("failed to read values file %s: %w", valuesPath, err)
+	if renderedValues == nil {
+		renderedValues = make(map[string]any)
 	}
 
-	var values map[string]any
-	if err := b.shims.YamlUnmarshal(data, &values); err != nil {
-		return fmt.Errorf("failed to unmarshal values file %s: %w", valuesPath, err)
+	allValues := make(map[string]any)
+	for k, v := range renderedValues { // Template values are base
+		allValues[k] = v
 	}
+	allValues = b.deepMergeMaps(allValues, userValues) // Deep merge user values over template values
 
-	if commonValues, exists := values["common"]; exists {
+	if commonValues, exists := allValues["common"]; exists {
 		if commonMap, ok := commonValues.(map[string]any); ok {
 			maps.Copy(mergedCommonValues, commonMap)
 		}
@@ -1345,7 +1446,7 @@ func (b *BaseBlueprintHandler) applyValuesConfigMaps() error {
 		}
 	}
 
-	for componentName, componentValues := range values {
+	for componentName, componentValues := range allValues {
 		if componentName == "common" {
 			continue
 		}
@@ -1428,4 +1529,25 @@ func (b *BaseBlueprintHandler) getBuildIDFromFile() (string, error) {
 	}
 
 	return strings.TrimSpace(string(data)), nil
+}
+
+// deepMergeMaps returns a new map from a deep merge of base and overlay maps.
+// Overlay values take precedence; nested maps merge recursively. Non-map overlay values replace base values.
+func (b *BaseBlueprintHandler) deepMergeMaps(base, overlay map[string]any) map[string]any {
+	result := make(map[string]any)
+	for k, v := range base {
+		result[k] = v
+	}
+	for k, overlayValue := range overlay {
+		if baseValue, exists := result[k]; exists {
+			if baseMap, baseIsMap := baseValue.(map[string]any); baseIsMap {
+				if overlayMap, overlayIsMap := overlayValue.(map[string]any); overlayIsMap {
+					result[k] = b.deepMergeMaps(baseMap, overlayMap)
+					continue
+				}
+			}
+		}
+		result[k] = overlayValue
+	}
+	return result
 }
