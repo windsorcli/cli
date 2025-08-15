@@ -1323,7 +1323,7 @@ func (b *BaseBlueprintHandler) hasComponentValues(componentName string) bool {
 	hasUserComponent := false
 	configRoot, err := b.configHandler.GetConfigRoot()
 	if err == nil {
-		valuesPath := filepath.Join(configRoot, "kustomize", "values.yaml")
+		valuesPath := filepath.Join(configRoot, "kustomize", "config.yaml")
 		if _, err := b.shims.Stat(valuesPath); err == nil {
 			if data, err := b.shims.ReadFile(valuesPath); err == nil {
 				var values map[string]any
@@ -1357,7 +1357,7 @@ func (b *BaseBlueprintHandler) isOCISource(sourceNameOrURL string) bool {
 	return false
 }
 
-// applyValuesConfigMaps creates ConfigMaps for post-build variable substitution using rendered values data and any existing values.yaml files.
+// applyValuesConfigMaps creates ConfigMaps for post-build variable substitution using rendered values data and any existing config.yaml files.
 // It generates a ConfigMap for the "common" section and for each component section, merging rendered template values with user-defined values.
 // User-defined values take precedence over template values in case of conflicts.
 // The resulting ConfigMaps are referenced in PostBuild.SubstituteFrom for variable substitution.
@@ -1403,7 +1403,7 @@ func (b *BaseBlueprintHandler) applyValuesConfigMaps() error {
 	}
 
 	var userValues map[string]any
-	valuesPath := filepath.Join(configRoot, "kustomize", "values.yaml")
+	valuesPath := filepath.Join(configRoot, "kustomize", "config.yaml")
 	if _, err := b.shims.Stat(valuesPath); err == nil {
 		data, err := b.shims.ReadFile(valuesPath)
 		if err == nil {
