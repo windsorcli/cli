@@ -12,11 +12,12 @@ import (
 	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
-	bundler "github.com/windsorcli/cli/pkg/artifact"
+	"github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/cluster"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
@@ -169,6 +170,15 @@ contexts:
 	// Create and register mock blueprint handler for stack dependency
 	mockBlueprintHandler := blueprint.NewMockBlueprintHandler(injector)
 	injector.Register("blueprintHandler", mockBlueprintHandler)
+
+	// Create and register mock artifact builder for install pipeline dependency
+	mockArtifactBuilder := artifact.NewMockArtifact()
+	mockArtifactBuilder.InitializeFunc = func(injector di.Injector) error { return nil }
+	injector.Register("artifactBuilder", mockArtifactBuilder)
+
+	// Create and register terraformEnv for stack dependency
+	terraformEnv := env.NewTerraformEnvPrinter(injector)
+	injector.Register("terraformEnv", terraformEnv)
 
 	return &Mocks{
 		Injector:      injector,
@@ -732,7 +742,9 @@ func TestWithPipeline(t *testing.T) {
 					// Set up kubernetes manager
 					mockKubernetesManager := kubernetes.NewMockKubernetesManager(injector)
 					mockKubernetesManager.InitializeFunc = func() error { return nil }
-					mockKubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error { return nil }
+					mockKubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
+						return nil
+					}
 					injector.Register("kubernetesManager", mockKubernetesManager)
 				}
 
@@ -1902,7 +1914,7 @@ func TestBasePipeline_withArtifactBuilder(t *testing.T) {
 	t.Run("ReusesExistingArtifactBuilderWhenRegistered", func(t *testing.T) {
 		// Given a pipeline with existing artifact builder
 		pipeline, _ := setup(t)
-		existingBuilder := bundler.NewArtifactBuilder()
+		existingBuilder := artifact.NewArtifactBuilder()
 		pipeline.injector.Register("artifactBuilder", existingBuilder)
 
 		// When getting artifact builder

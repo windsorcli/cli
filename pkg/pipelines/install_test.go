@@ -5,9 +5,43 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/di"
 )
+
+// =============================================================================
+// Mock Types
+// =============================================================================
+
+type MockTemplate struct {
+	ProcessCalled bool
+	ProcessFunc   func(templateData map[string][]byte, renderedData map[string]any) error
+}
+
+func (m *MockTemplate) Initialize() error { return nil }
+func (m *MockTemplate) Process(templateData map[string][]byte, renderedData map[string]any) error {
+	m.ProcessCalled = true
+	if m.ProcessFunc != nil {
+		return m.ProcessFunc(templateData, renderedData)
+	}
+	return nil
+}
+
+type MockGenerator struct {
+	GenerateCalled bool
+	GenerateFunc   func(data map[string]any, overwrite ...bool) error
+}
+
+func (m *MockGenerator) Initialize() error { return nil }
+func (m *MockGenerator) Generate(data map[string]any, overwrite ...bool) error {
+	m.GenerateCalled = true
+	if m.GenerateFunc != nil {
+		return m.GenerateFunc(data, overwrite...)
+	}
+	return nil
+}
 
 // =============================================================================
 // Test Setup
@@ -35,6 +69,11 @@ func setupInstallMocks(t *testing.T, opts ...*SetupOptions) *InstallMocks {
 	mockBlueprintHandler.InstallFunc = func() error { return nil }
 	mockBlueprintHandler.WaitForKustomizationsFunc = func(message string, names ...string) error { return nil }
 	baseMocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
+
+	// Add artifact builder mock for generators
+	artifactBuilder := artifact.NewMockArtifact()
+	artifactBuilder.InitializeFunc = func(injector di.Injector) error { return nil }
+	baseMocks.Injector.Register("artifactBuilder", artifactBuilder)
 
 	return &InstallMocks{
 		Mocks:            baseMocks,
@@ -344,6 +383,476 @@ func TestInstallPipeline_Execute(t *testing.T) {
 		}
 		if err.Error() != "Error loading blueprint config: blueprint load config failed" {
 			t.Errorf("Expected blueprint load config error, got %q", err.Error())
+		}
+	})
+
+	t.Run("ProcessesTemplateDataSuccessfully", func(t *testing.T) {
+		// Given a pipeline with template data
+		pipeline, mocks := setup(t)
+
+		// Mock template renderer to return test data
+		mockTemplateRenderer := &MockTemplate{}
+		mockTemplateRenderer.ProcessFunc = func(templateData map[string][]byte, renderedData map[string]any) error {
+			renderedData["kustomize/values"] = map[string]any{
+				"common": map[string]any{
+					"domain": "test.com",
+				},
+			}
+			return nil
+		}
+		pipeline.templateRenderer = mockTemplateRenderer
+
+		// Mock blueprint handler to return template data
+		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
+			return map[string][]byte{
+				"kustomize/values.jsonnet": []byte(`{"common": {"domain": "test.com"}}`),
+			}, nil
+		}
+
+		// When Execute is called
+		err := pipeline.Execute(context.Background())
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And template processing should be called
+		if !mockTemplateRenderer.ProcessCalled {
+			t.Error("Expected template processing to be called")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenTemplateProcessingFails", func(t *testing.T) {
+		// Given a pipeline with failing template processing
+		pipeline, mocks := setup(t)
+
+		// Mock template renderer to return error
+		mockTemplateRenderer := &MockTemplate{}
+		mockTemplateRenderer.ProcessFunc = func(templateData map[string][]byte, renderedData map[string]any) error {
+			return fmt.Errorf("template processing failed")
+		}
+		pipeline.templateRenderer = mockTemplateRenderer
+
+		// Mock blueprint handler to return template data
+		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
+			return map[string][]byte{
+				"kustomize/values.jsonnet": []byte(`{"common": {"domain": "test.com"}}`),
+			}, nil
+		}
+
+		// When Execute is called
+		err := pipeline.Execute(context.Background())
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "failed to process template data: failed to process template data: template processing failed" {
+			t.Errorf("Expected template processing error, got %q", err.Error())
+		}
+	})
+
+	t.Run("GeneratesKustomizeDataSuccessfully", func(t *testing.T) {
+		// Given a pipeline with rendered data
+		pipeline, mocks := setup(t)
+
+		// Mock template renderer to return test data
+		mockTemplateRenderer := &MockTemplate{}
+		mockTemplateRenderer.ProcessFunc = func(templateData map[string][]byte, renderedData map[string]any) error {
+			renderedData["kustomize/values"] = map[string]any{
+				"common": map[string]any{
+					"domain": "test.com",
+				},
+			}
+			return nil
+		}
+		pipeline.templateRenderer = mockTemplateRenderer
+
+		// Mock blueprint handler to return template data
+		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
+			return map[string][]byte{
+				"kustomize/values.jsonnet": []byte(`{"common": {"domain": "test.com"}}`),
+			}, nil
+		}
+
+		// Track generator calls
+		generatorCalled := false
+		for i := range pipeline.generators {
+			mockGenerator := &MockGenerator{}
+			mockGenerator.GenerateFunc = func(data map[string]any, overwrite ...bool) error {
+				generatorCalled = true
+				return nil
+			}
+			pipeline.generators[i] = mockGenerator
+		}
+
+		// When Execute is called
+		err := pipeline.Execute(context.Background())
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And generators should be called
+		if !generatorCalled {
+			t.Error("Expected generators to be called")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenGeneratorFails", func(t *testing.T) {
+		// Given a pipeline with failing generator
+		pipeline, mocks := setup(t)
+
+		// Mock template renderer to return test data
+		mockTemplateRenderer := &MockTemplate{}
+		mockTemplateRenderer.ProcessFunc = func(templateData map[string][]byte, renderedData map[string]any) error {
+			renderedData["kustomize/values"] = map[string]any{
+				"common": map[string]any{
+					"domain": "test.com",
+				},
+			}
+			return nil
+		}
+		pipeline.templateRenderer = mockTemplateRenderer
+
+		// Mock blueprint handler to return template data
+		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
+			return map[string][]byte{
+				"kustomize/values.jsonnet": []byte(`{"common": {"domain": "test.com"}}`),
+			}, nil
+		}
+
+		// Mock generator to return error
+		for i := range pipeline.generators {
+			mockGenerator := &MockGenerator{}
+			mockGenerator.GenerateFunc = func(data map[string]any, overwrite ...bool) error {
+				return fmt.Errorf("generator failed")
+			}
+			pipeline.generators[i] = mockGenerator
+		}
+
+		// When Execute is called
+		err := pipeline.Execute(context.Background())
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "failed to generate from template data: generator failed" {
+			t.Errorf("Expected generator error, got %q", err.Error())
+		}
+	})
+
+	t.Run("SkipsGeneratorWhenNoRenderedData", func(t *testing.T) {
+		// Given a pipeline with no rendered data
+		pipeline, mocks := setup(t)
+
+		// Mock template renderer to return empty data
+		mockTemplateRenderer := &MockTemplate{}
+		mockTemplateRenderer.ProcessFunc = func(templateData map[string][]byte, renderedData map[string]any) error {
+			// Don't add any data to renderedData
+			return nil
+		}
+		pipeline.templateRenderer = mockTemplateRenderer
+
+		// Mock blueprint handler to return template data
+		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
+			return map[string][]byte{
+				"kustomize/values.jsonnet": []byte(`{"common": {"domain": "test.com"}}`),
+			}, nil
+		}
+
+		// Track generator calls
+		generatorCalled := false
+		for i := range pipeline.generators {
+			mockGenerator := &MockGenerator{}
+			mockGenerator.GenerateFunc = func(data map[string]any, overwrite ...bool) error {
+				generatorCalled = true
+				return nil
+			}
+			pipeline.generators[i] = mockGenerator
+		}
+
+		// When Execute is called
+		err := pipeline.Execute(context.Background())
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And generators should not be called
+		if generatorCalled {
+			t.Error("Expected generators to not be called when no rendered data")
+		}
+	})
+
+	t.Run("PassesCorrectDataToGenerators", func(t *testing.T) {
+		// Given a pipeline with specific rendered data
+		pipeline, mocks := setup(t)
+
+		expectedData := map[string]any{
+			"kustomize/values": map[string]any{
+				"common": map[string]any{
+					"domain": "test.com",
+				},
+			},
+		}
+
+		// Mock template renderer to return specific data
+		mockTemplateRenderer := &MockTemplate{}
+		mockTemplateRenderer.ProcessFunc = func(templateData map[string][]byte, renderedData map[string]any) error {
+			renderedData["kustomize/values"] = expectedData["kustomize/values"]
+			return nil
+		}
+		pipeline.templateRenderer = mockTemplateRenderer
+
+		// Mock blueprint handler to return template data
+		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
+			return map[string][]byte{
+				"kustomize/values.jsonnet": []byte(`{"common": {"domain": "test.com"}}`),
+			}, nil
+		}
+
+		// Track data passed to generators
+		var receivedData map[string]any
+		for i := range pipeline.generators {
+			mockGenerator := &MockGenerator{}
+			mockGenerator.GenerateFunc = func(data map[string]any, overwrite ...bool) error {
+				receivedData = data
+				return nil
+			}
+			pipeline.generators[i] = mockGenerator
+		}
+
+		// When Execute is called
+		err := pipeline.Execute(context.Background())
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And correct data should be passed to generators
+		if receivedData == nil {
+			t.Fatal("Expected data to be passed to generators")
+		}
+
+		// Check that the expected data structure is passed
+		if kustomizeValues, exists := receivedData["kustomize/values"]; !exists {
+			t.Error("Expected kustomize/values to be in passed data")
+		} else if commonValues, exists := kustomizeValues.(map[string]any)["common"]; !exists {
+			t.Error("Expected common values to be in kustomize/values")
+		} else if domain, exists := commonValues.(map[string]any)["domain"]; !exists || domain != "test.com" {
+			t.Errorf("Expected domain to be 'test.com', got %v", domain)
+		}
+	})
+
+	t.Run("PassesCorrectOverwriteFlagToGenerators", func(t *testing.T) {
+		// Given a pipeline with rendered data
+		pipeline, mocks := setup(t)
+
+		// Mock template renderer to return test data
+		mockTemplateRenderer := &MockTemplate{}
+		mockTemplateRenderer.ProcessFunc = func(templateData map[string][]byte, renderedData map[string]any) error {
+			renderedData["kustomize/values"] = map[string]any{
+				"common": map[string]any{
+					"domain": "test.com",
+				},
+			}
+			return nil
+		}
+		pipeline.templateRenderer = mockTemplateRenderer
+
+		// Mock blueprint handler to return template data
+		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
+			return map[string][]byte{
+				"kustomize/values.jsonnet": []byte(`{"common": {"domain": "test.com"}}`),
+			}, nil
+		}
+
+		// Track overwrite flag passed to generators
+		var receivedOverwrite []bool
+		for i := range pipeline.generators {
+			mockGenerator := &MockGenerator{}
+			mockGenerator.GenerateFunc = func(data map[string]any, overwrite ...bool) error {
+				receivedOverwrite = overwrite
+				return nil
+			}
+			pipeline.generators[i] = mockGenerator
+		}
+
+		// When Execute is called
+		err := pipeline.Execute(context.Background())
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And overwrite flag should be false
+		if len(receivedOverwrite) != 1 {
+			t.Errorf("Expected 1 overwrite flag, got %d", len(receivedOverwrite))
+		}
+		if receivedOverwrite[0] != false {
+			t.Errorf("Expected overwrite flag to be false, got %v", receivedOverwrite[0])
+		}
+	})
+}
+
+// =============================================================================
+// processTemplateData Tests
+// =============================================================================
+
+func TestInstallPipeline_processTemplateData(t *testing.T) {
+	setup := func(t *testing.T, opts ...*SetupOptions) (*InstallPipeline, *InstallMocks) {
+		t.Helper()
+		pipeline := NewInstallPipeline()
+		mocks := setupInstallMocks(t, opts...)
+		return pipeline, mocks
+	}
+
+	t.Run("ProcessesTemplateDataSuccessfully", func(t *testing.T) {
+		// Given a pipeline with template renderer and template data
+		pipeline, _ := setup(t)
+		mockTemplateRenderer := &MockTemplate{
+			ProcessFunc: func(templateData map[string][]byte, renderedData map[string]any) error {
+				renderedData["test"] = "processed"
+				return nil
+			},
+		}
+		pipeline.templateRenderer = mockTemplateRenderer
+
+		templateData := map[string][]byte{
+			"test.jsonnet": []byte(`{"key": "value"}`),
+		}
+
+		// When processTemplateData is called
+		result, err := pipeline.processTemplateData(templateData)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And template processing should be called
+		if !mockTemplateRenderer.ProcessCalled {
+			t.Error("Expected template processing to be called")
+		}
+
+		// And result should contain processed data
+		if result["test"] != "processed" {
+			t.Errorf("Expected processed data, got %v", result)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenTemplateProcessingFails", func(t *testing.T) {
+		// Given a pipeline with failing template renderer
+		pipeline, _ := setup(t)
+		mockTemplateRenderer := &MockTemplate{
+			ProcessFunc: func(templateData map[string][]byte, renderedData map[string]any) error {
+				return fmt.Errorf("template processing failed")
+			},
+		}
+		pipeline.templateRenderer = mockTemplateRenderer
+
+		templateData := map[string][]byte{
+			"test.jsonnet": []byte(`{"key": "value"}`),
+		}
+
+		// When processTemplateData is called
+		result, err := pipeline.processTemplateData(templateData)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if err.Error() != "failed to process template data: template processing failed" {
+			t.Errorf("Expected template processing error, got %q", err.Error())
+		}
+
+		// And result should be nil
+		if result != nil {
+			t.Errorf("Expected nil result, got %v", result)
+		}
+	})
+
+	t.Run("ReturnsNilWhenNoTemplateRenderer", func(t *testing.T) {
+		// Given a pipeline with no template renderer
+		pipeline, _ := setup(t)
+		pipeline.templateRenderer = nil
+
+		templateData := map[string][]byte{
+			"test.jsonnet": []byte(`{"key": "value"}`),
+		}
+
+		// When processTemplateData is called
+		result, err := pipeline.processTemplateData(templateData)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And result should be nil
+		if result != nil {
+			t.Errorf("Expected nil result, got %v", result)
+		}
+	})
+
+	t.Run("ReturnsNilWhenNoTemplateData", func(t *testing.T) {
+		// Given a pipeline with template renderer but no template data
+		pipeline, _ := setup(t)
+		mockTemplateRenderer := &MockTemplate{}
+		pipeline.templateRenderer = mockTemplateRenderer
+
+		templateData := make(map[string][]byte)
+
+		// When processTemplateData is called
+		result, err := pipeline.processTemplateData(templateData)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And result should be nil
+		if result != nil {
+			t.Errorf("Expected nil result, got %v", result)
+		}
+
+		// And template processing should not be called
+		if mockTemplateRenderer.ProcessCalled {
+			t.Error("Expected template processing to not be called")
+		}
+	})
+
+	t.Run("ReturnsNilWhenEmptyTemplateData", func(t *testing.T) {
+		// Given a pipeline with template renderer but empty template data
+		pipeline, _ := setup(t)
+		mockTemplateRenderer := &MockTemplate{}
+		pipeline.templateRenderer = mockTemplateRenderer
+
+		templateData := map[string][]byte{}
+
+		// When processTemplateData is called
+		result, err := pipeline.processTemplateData(templateData)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And result should be nil
+		if result != nil {
+			t.Errorf("Expected nil result, got %v", result)
+		}
+
+		// And template processing should not be called
+		if mockTemplateRenderer.ProcessCalled {
+			t.Error("Expected template processing to not be called")
 		}
 	})
 }
