@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 
+	bundler "github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/generators"
+	"github.com/windsorcli/cli/pkg/template"
 )
 
 // The InstallPipeline is a specialized component that manages blueprint installation functionality.
@@ -21,6 +24,9 @@ import (
 type InstallPipeline struct {
 	BasePipeline
 	blueprintHandler blueprint.BlueprintHandler
+	templateRenderer template.Template
+	generators       []generators.Generator
+	artifactBuilder  bundler.Artifact
 }
 
 // =============================================================================
@@ -38,32 +44,42 @@ func NewInstallPipeline() *InstallPipeline {
 // Public Methods
 // =============================================================================
 
-// Initialize sets up the install pipeline components including blueprint handler.
-// It only initializes the components needed for blueprint installation functionality
-// since environment setup is handled by the env pipeline.
+// Initialize configures the InstallPipeline by setting up the blueprint handler, template renderer,
+// and generators required for blueprint installation. Only components necessary for blueprint installation
+// are initialized, as environment setup is handled by the env pipeline. The method initializes the
+// Kubernetes manager and client, blueprint handler, template renderer, and generators, and ensures
+// all are properly initialized before use. Returns an error if any component fails to initialize.
 func (p *InstallPipeline) Initialize(injector di.Injector, ctx context.Context) error {
 	if err := p.BasePipeline.Initialize(injector, ctx); err != nil {
 		return err
 	}
 
-	// Set up kubernetes manager and client (required by blueprint handler)
 	kubernetesManager := p.withKubernetesManager()
 	_ = p.withKubernetesClient()
-
-	// Set up blueprint handler
 	p.blueprintHandler = p.withBlueprintHandler()
+	p.templateRenderer = p.withTemplateRenderer()
+	p.artifactBuilder = p.withArtifactBuilder()
+	generators, err := p.withGenerators()
+	if err != nil {
+		return fmt.Errorf("failed to set up generators: %w", err)
+	}
+	p.generators = generators
 
-	// Initialize kubernetes manager before blueprint handler
 	if kubernetesManager != nil {
 		if err := kubernetesManager.Initialize(); err != nil {
 			return fmt.Errorf("failed to initialize kubernetes manager: %w", err)
 		}
 	}
 
-	// Initialize blueprint handler
 	if p.blueprintHandler != nil {
 		if err := p.blueprintHandler.Initialize(); err != nil {
 			return fmt.Errorf("failed to initialize blueprint handler: %w", err)
+		}
+	}
+
+	for _, generator := range p.generators {
+		if err := generator.Initialize(); err != nil {
+			return fmt.Errorf("failed to initialize generator: %w", err)
 		}
 	}
 
@@ -71,10 +87,10 @@ func (p *InstallPipeline) Initialize(injector di.Injector, ctx context.Context) 
 }
 
 // Execute runs the blueprint installation process for the InstallPipeline.
-// It installs the blueprint using the configured blueprint handler and, if the "wait" flag
-// is set in the context, waits for kustomizations to become ready. Returns an error if
-// configuration is not loaded, the blueprint handler is missing, installation fails, or
-// waiting for kustomizations fails.
+// It processes templates for kustomize data, installs the blueprint using the configured blueprint handler,
+// and, if the "wait" flag is set in the context, waits for kustomizations to become ready.
+// Returns an error if configuration is not loaded, the blueprint handler is missing, installation fails,
+// or waiting for kustomizations fails.
 func (p *InstallPipeline) Execute(ctx context.Context) error {
 	if !p.configHandler.IsLoaded() {
 		return fmt.Errorf("Nothing to install. Have you run \033[1mwindsor init\033[0m?")
@@ -84,6 +100,26 @@ func (p *InstallPipeline) Execute(ctx context.Context) error {
 		return fmt.Errorf("No blueprint handler found")
 	}
 
+	// Phase 1: Process templates for kustomize data
+	templateData, err := p.prepareTemplateData(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to prepare template data: %w", err)
+	}
+	renderedData, err := p.processTemplateData(templateData)
+	if err != nil {
+		return fmt.Errorf("failed to process template data: %w", err)
+	}
+
+	// Phase 2: Generate kustomize data using generators
+	if len(renderedData) > 0 {
+		for _, generator := range p.generators {
+			if err := generator.Generate(renderedData, false); err != nil {
+				return fmt.Errorf("failed to generate from template data: %w", err)
+			}
+		}
+	}
+
+	// Phase 3: Install blueprint
 	if err := p.blueprintHandler.LoadConfig(); err != nil {
 		return fmt.Errorf("Error loading blueprint config: %w", err)
 	}
@@ -92,6 +128,7 @@ func (p *InstallPipeline) Execute(ctx context.Context) error {
 		return fmt.Errorf("Error installing blueprint: %w", err)
 	}
 
+	// Phase 4: Wait for kustomizations if requested
 	waitFlag := ctx.Value("wait")
 	if waitFlag != nil {
 		if wait, ok := waitFlag.(bool); ok && wait {
@@ -102,4 +139,39 @@ func (p *InstallPipeline) Execute(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// prepareTemplateData prepares template data for processing in the InstallPipeline.
+// It loads template data from the blueprint handler if available.
+func (p *InstallPipeline) prepareTemplateData(_ context.Context) (map[string][]byte, error) {
+	if p.blueprintHandler != nil {
+		// Load all template data
+		blueprintTemplateData, err := p.blueprintHandler.GetLocalTemplateData()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get local template data: %w", err)
+		}
+
+		if len(blueprintTemplateData) > 0 {
+			return blueprintTemplateData, nil
+		}
+	}
+
+	return make(map[string][]byte), nil
+}
+
+// processTemplateData renders and processes template data for the InstallPipeline.
+// Renders all templates using the template renderer and returns the rendered template data map.
+func (p *InstallPipeline) processTemplateData(templateData map[string][]byte) (map[string]any, error) {
+	var renderedData map[string]any
+	if p.templateRenderer != nil && len(templateData) > 0 {
+		renderedData = make(map[string]any)
+		if err := p.templateRenderer.Process(templateData, renderedData); err != nil {
+			return nil, fmt.Errorf("failed to process template data: %w", err)
+		}
+	}
+	return renderedData, nil
 }
