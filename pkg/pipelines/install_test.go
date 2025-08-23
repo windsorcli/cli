@@ -393,6 +393,7 @@ func TestInstallPipeline_Execute(t *testing.T) {
 		// Mock template renderer to return test data
 		mockTemplateRenderer := &MockTemplate{}
 		mockTemplateRenderer.ProcessFunc = func(templateData map[string][]byte, renderedData map[string]any) error {
+			t.Log("Template renderer Process called")
 			renderedData["kustomize/values"] = map[string]any{
 				"common": map[string]any{
 					"domain": "test.com",
@@ -400,10 +401,17 @@ func TestInstallPipeline_Execute(t *testing.T) {
 			}
 			return nil
 		}
-		pipeline.templateRenderer = mockTemplateRenderer
+		// Register the mock template renderer in the injector BEFORE initialization
+		mocks.Injector.Register("templateRenderer", mockTemplateRenderer)
+
+		// Initialize the pipeline to set up generators
+		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
 
 		// Mock blueprint handler to return template data
 		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
+			t.Log("GetLocalTemplateData called")
 			return map[string][]byte{
 				"kustomize/values.jsonnet": []byte(`{"common": {"domain": "test.com"}}`),
 			}, nil
@@ -419,7 +427,7 @@ func TestInstallPipeline_Execute(t *testing.T) {
 
 		// And template processing should be called
 		if !mockTemplateRenderer.ProcessCalled {
-			t.Error("Expected template processing to be called")
+			t.Errorf("Expected template processing to be called. Config loaded: %v, Blueprint handler: %v", pipeline.configHandler.IsLoaded(), pipeline.blueprintHandler != nil)
 		}
 	})
 
@@ -432,7 +440,13 @@ func TestInstallPipeline_Execute(t *testing.T) {
 		mockTemplateRenderer.ProcessFunc = func(templateData map[string][]byte, renderedData map[string]any) error {
 			return fmt.Errorf("template processing failed")
 		}
-		pipeline.templateRenderer = mockTemplateRenderer
+		// Register the mock template renderer in the injector BEFORE initialization
+		mocks.Injector.Register("templateRenderer", mockTemplateRenderer)
+
+		// Initialize the pipeline to set up generators
+		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
 
 		// Mock blueprint handler to return template data
 		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
@@ -467,7 +481,13 @@ func TestInstallPipeline_Execute(t *testing.T) {
 			}
 			return nil
 		}
-		pipeline.templateRenderer = mockTemplateRenderer
+		// Register the mock template renderer in the injector BEFORE initialization
+		mocks.Injector.Register("templateRenderer", mockTemplateRenderer)
+
+		// Initialize the pipeline to set up generators
+		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
 
 		// Mock blueprint handler to return template data
 		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
@@ -515,7 +535,13 @@ func TestInstallPipeline_Execute(t *testing.T) {
 			}
 			return nil
 		}
-		pipeline.templateRenderer = mockTemplateRenderer
+		// Register the mock template renderer in the injector BEFORE initialization
+		mocks.Injector.Register("templateRenderer", mockTemplateRenderer)
+
+		// Initialize the pipeline to set up generators
+		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
 
 		// Mock blueprint handler to return template data
 		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
@@ -555,7 +581,13 @@ func TestInstallPipeline_Execute(t *testing.T) {
 			// Don't add any data to renderedData
 			return nil
 		}
-		pipeline.templateRenderer = mockTemplateRenderer
+		// Register the mock template renderer in the injector BEFORE initialization
+		mocks.Injector.Register("templateRenderer", mockTemplateRenderer)
+
+		// Initialize the pipeline to set up generators
+		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
 
 		// Mock blueprint handler to return template data
 		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
@@ -607,7 +639,13 @@ func TestInstallPipeline_Execute(t *testing.T) {
 			renderedData["kustomize/values"] = expectedData["kustomize/values"]
 			return nil
 		}
-		pipeline.templateRenderer = mockTemplateRenderer
+		// Register the mock template renderer in the injector BEFORE initialization
+		mocks.Injector.Register("templateRenderer", mockTemplateRenderer)
+
+		// Initialize the pipeline to set up generators
+		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
 
 		// Mock blueprint handler to return template data
 		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
@@ -664,7 +702,13 @@ func TestInstallPipeline_Execute(t *testing.T) {
 			}
 			return nil
 		}
-		pipeline.templateRenderer = mockTemplateRenderer
+		// Register the mock template renderer in the injector BEFORE initialization
+		mocks.Injector.Register("templateRenderer", mockTemplateRenderer)
+
+		// Initialize the pipeline to set up generators
+		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
 
 		// Mock blueprint handler to return template data
 		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {

@@ -1323,7 +1323,7 @@ func (b *BaseBlueprintHandler) hasComponentValues(componentName string) bool {
 	hasUserComponent := false
 	configRoot, err := b.configHandler.GetConfigRoot()
 	if err == nil {
-		valuesPath := filepath.Join(configRoot, "kustomize", "config.yaml")
+		valuesPath := filepath.Join(configRoot, "kustomize", "values.yaml")
 		if _, err := b.shims.Stat(valuesPath); err == nil {
 			if data, err := b.shims.ReadFile(valuesPath); err == nil {
 				var values map[string]any
@@ -1357,7 +1357,7 @@ func (b *BaseBlueprintHandler) isOCISource(sourceNameOrURL string) bool {
 	return false
 }
 
-// applyValuesConfigMaps creates ConfigMaps for post-build variable substitution using rendered values data and any existing config.yaml files.
+// applyValuesConfigMaps creates ConfigMaps for post-build variable substitution using rendered values data and any existing values.yaml files.
 // It generates a ConfigMap for the "common" section and for each component section, merging rendered template values with user-defined values.
 // User-defined values take precedence over template values in case of conflicts.
 // The resulting ConfigMaps are referenced in PostBuild.SubstituteFrom for variable substitution.
@@ -1403,7 +1403,7 @@ func (b *BaseBlueprintHandler) applyValuesConfigMaps() error {
 	}
 
 	var userValues map[string]any
-	valuesPath := filepath.Join(configRoot, "kustomize", "config.yaml")
+	valuesPath := filepath.Join(configRoot, "kustomize", "values.yaml")
 	if _, err := b.shims.Stat(valuesPath); err == nil {
 		data, err := b.shims.ReadFile(valuesPath)
 		if err == nil {
@@ -1429,10 +1429,8 @@ func (b *BaseBlueprintHandler) applyValuesConfigMaps() error {
 	}
 
 	allValues := make(map[string]any)
-	for k, v := range renderedValues { // Template values are base
-		allValues[k] = v
-	}
-	allValues = b.deepMergeMaps(allValues, userValues) // Deep merge user values over template values
+	maps.Copy(allValues, renderedValues)
+	allValues = b.deepMergeMaps(allValues, userValues)
 
 	if commonValues, exists := allValues["common"]; exists {
 		if commonMap, ok := commonValues.(map[string]any); ok {
@@ -1463,47 +1461,83 @@ func (b *BaseBlueprintHandler) applyValuesConfigMaps() error {
 }
 
 // validateValuesForSubstitution checks that all values are valid for Flux post-build variable substitution.
-// Permitted types are string, numeric, and boolean. Complex types (maps, slices) are rejected.
-// Returns an error if any value is not a supported type.
+// Permitted types are string, numeric, and boolean. Allows one level of map nesting if all nested values are scalar.
+// Slices and nested complex types are not allowed. Returns an error if any value is not a supported type.
 func (b *BaseBlueprintHandler) validateValuesForSubstitution(values map[string]any) error {
-	for key, value := range values {
-		switch v := value.(type) {
-		case string, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, bool:
-			continue
-		case map[string]any, []any:
-			return fmt.Errorf("values for post-build substitution cannot contain complex types (maps or slices), key '%s' has type %T", key, v)
-		default:
-			return fmt.Errorf("values for post-build substitution can only contain strings, numbers, and booleans, key '%s' has unsupported type %T", key, v)
+	var validate func(map[string]any, string, int) error
+	validate = func(values map[string]any, parentKey string, depth int) error {
+		for key, value := range values {
+			currentKey := key
+			if parentKey != "" {
+				currentKey = parentKey + "." + key
+			}
+
+			switch v := value.(type) {
+			case string, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, bool:
+				continue
+			case map[string]any:
+				if depth >= 1 {
+					return fmt.Errorf("values for post-build substitution cannot contain nested complex types, key '%s' has type %T", currentKey, v)
+				}
+				err := validate(v, currentKey, depth+1)
+				if err != nil {
+					return err
+				}
+			case []any:
+				return fmt.Errorf("values for post-build substitution cannot contain slices, key '%s' has type %T", currentKey, v)
+			default:
+				return fmt.Errorf("values for post-build substitution can only contain strings, numbers, booleans, or maps of scalar types, key '%s' has unsupported type %T", currentKey, v)
+			}
 		}
+		return nil
 	}
-	return nil
+	return validate(values, "", 0)
 }
 
 // createConfigMap creates a ConfigMap named configMapName in the "flux-system" namespace for post-build variable substitution.
-// Only scalar values (string, int, float, bool) are supported. Complex types are rejected. The resulting ConfigMap data is a map of string keys to string values.
+// Supports scalar values and one level of map nesting. The resulting ConfigMap data is a map of string keys to string values.
 func (b *BaseBlueprintHandler) createConfigMap(values map[string]any, configMapName string) error {
 	if err := b.validateValuesForSubstitution(values); err != nil {
 		return fmt.Errorf("invalid values in %s: %w", configMapName, err)
 	}
 
 	stringValues := make(map[string]string)
-	for key, value := range values {
-		switch v := value.(type) {
-		case string:
-			stringValues[key] = v
-		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
-			stringValues[key] = fmt.Sprintf("%v", v)
-		case bool:
-			stringValues[key] = fmt.Sprintf("%t", v)
-		default:
-			return fmt.Errorf("unsupported value type for key %s: %T", key, v)
-		}
+	if err := b.flattenValuesToConfigMap(values, "", stringValues); err != nil {
+		return fmt.Errorf("failed to flatten values for %s: %w", configMapName, err)
 	}
 
 	if err := b.kubernetesManager.ApplyConfigMap(configMapName, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE, stringValues); err != nil {
 		return fmt.Errorf("failed to apply ConfigMap %s: %w", configMapName, err)
 	}
 
+	return nil
+}
+
+// flattenValuesToConfigMap recursively flattens nested values into a flat map suitable for ConfigMap data.
+// Nested maps are flattened using dot notation (e.g., "ingress.host").
+func (b *BaseBlueprintHandler) flattenValuesToConfigMap(values map[string]any, prefix string, result map[string]string) error {
+	for key, value := range values {
+		currentKey := key
+		if prefix != "" {
+			currentKey = prefix + "." + key
+		}
+
+		switch v := value.(type) {
+		case string:
+			result[currentKey] = v
+		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+			result[currentKey] = fmt.Sprintf("%v", v)
+		case bool:
+			result[currentKey] = fmt.Sprintf("%t", v)
+		case map[string]any:
+			err := b.flattenValuesToConfigMap(v, currentKey, result)
+			if err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("unsupported value type for key %s: %T", key, v)
+		}
+	}
 	return nil
 }
 

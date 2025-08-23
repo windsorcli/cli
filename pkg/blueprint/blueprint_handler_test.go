@@ -3672,20 +3672,20 @@ func TestBaseBlueprintHandler_applyValuesConfigMaps(t *testing.T) {
 			return []string{}
 		}
 
-		// And mock centralized config.yaml with component values
+		// And mock centralized values.yaml with component values
 		handler.shims.Stat = func(name string) (os.FileInfo, error) {
 			if name == filepath.Join("/test/config", "kustomize") {
 				return &mockFileInfo{name: "kustomize"}, nil
 			}
-			if name == filepath.Join("/test/config", "kustomize", "config.yaml") {
-				return &mockFileInfo{name: "config.yaml"}, nil
+			if name == filepath.Join("/test/config", "kustomize", "values.yaml") {
+				return &mockFileInfo{name: "values.yaml"}, nil
 			}
 			return nil, os.ErrNotExist
 		}
 
 		// And mock file read for centralized values
 		handler.shims.ReadFile = func(name string) ([]byte, error) {
-			if name == filepath.Join("/test/config", "kustomize", "config.yaml") {
+			if name == filepath.Join("/test/config", "kustomize", "values.yaml") {
 				return []byte(`common:
   domain: example.com
 ingress:
@@ -4058,17 +4058,17 @@ func TestBaseBlueprintHandler_toFluxKustomization_WithValuesConfigMaps(t *testin
 			return "/test/config", nil
 		}
 
-		// And mock that global config.yaml exists
+		// And mock that global values.yaml exists
 		handler.shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == filepath.Join("/test/config", "kustomize", "config.yaml") {
-				return &mockFileInfo{name: "config.yaml"}, nil
+			if name == filepath.Join("/test/config", "kustomize", "values.yaml") {
+				return &mockFileInfo{name: "values.yaml"}, nil
 			}
 			return nil, os.ErrNotExist
 		}
 
-		// And mock the config.yaml content with ingress component
+		// And mock the values.yaml content with ingress component
 		handler.shims.ReadFile = func(name string) ([]byte, error) {
-			if name == filepath.Join("/test/config", "kustomize", "config.yaml") {
+			if name == filepath.Join("/test/config", "kustomize", "values.yaml") {
 				return []byte(`ingress:
   key: value`), nil
 			}
@@ -4142,10 +4142,10 @@ func TestBaseBlueprintHandler_toFluxKustomization_WithValuesConfigMaps(t *testin
 			return "/test/config", nil
 		}
 
-		// And mock that global config.yaml exists
+		// And mock that global values.yaml exists
 		handler.shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == filepath.Join("/test/config", "kustomize", "config.yaml") {
-				return &mockFileInfo{name: "config.yaml"}, nil
+			if name == filepath.Join("/test/config", "kustomize", "values.yaml") {
+				return &mockFileInfo{name: "values.yaml"}, nil
 			}
 			return nil, os.ErrNotExist
 		}

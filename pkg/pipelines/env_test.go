@@ -24,14 +24,6 @@ type EnvMocks struct {
 	Shims         *Shims
 }
 
-func setupEnvShims(t *testing.T) *Shims {
-	t.Helper()
-	shims := setupShims(t)
-
-	// Add any env-specific shim overrides here if needed
-	return shims
-}
-
 func setupEnvMocks(t *testing.T, opts ...*SetupOptions) *EnvMocks {
 	t.Helper()
 

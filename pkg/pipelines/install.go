@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	bundler "github.com/windsorcli/cli/pkg/artifact"
+	"github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/generators"
@@ -26,7 +26,7 @@ type InstallPipeline struct {
 	blueprintHandler blueprint.BlueprintHandler
 	templateRenderer template.Template
 	generators       []generators.Generator
-	artifactBuilder  bundler.Artifact
+	artifactBuilder  artifact.Artifact
 }
 
 // =============================================================================
@@ -119,11 +119,10 @@ func (p *InstallPipeline) Execute(ctx context.Context) error {
 		}
 	}
 
-	// Phase 3: Install blueprint
+	// Phase 3: Load blueprint config and install
 	if err := p.blueprintHandler.LoadConfig(); err != nil {
 		return fmt.Errorf("Error loading blueprint config: %w", err)
 	}
-
 	if err := p.blueprintHandler.Install(); err != nil {
 		return fmt.Errorf("Error installing blueprint: %w", err)
 	}
@@ -141,37 +140,17 @@ func (p *InstallPipeline) Execute(ctx context.Context) error {
 	return nil
 }
 
-// =============================================================================
-// Private Methods
-// =============================================================================
-
-// prepareTemplateData prepares template data for processing in the InstallPipeline.
-// It loads template data from the blueprint handler if available.
-func (p *InstallPipeline) prepareTemplateData(_ context.Context) (map[string][]byte, error) {
-	if p.blueprintHandler != nil {
-		// Load all template data
-		blueprintTemplateData, err := p.blueprintHandler.GetLocalTemplateData()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get local template data: %w", err)
-		}
-
-		if len(blueprintTemplateData) > 0 {
-			return blueprintTemplateData, nil
-		}
+// processTemplateData renders and processes template data for the InstallPipeline.
+// Unlike the base pipeline, this method does not handle blueprint data extraction
+// as blueprint loading is handled separately in the Execute method.
+func (p *InstallPipeline) processTemplateData(templateData map[string][]byte) (map[string]any, error) {
+	if p.templateRenderer == nil || len(templateData) == 0 {
+		return nil, nil
 	}
 
-	return make(map[string][]byte), nil
-}
-
-// processTemplateData renders and processes template data for the InstallPipeline.
-// Renders all templates using the template renderer and returns the rendered template data map.
-func (p *InstallPipeline) processTemplateData(templateData map[string][]byte) (map[string]any, error) {
-	var renderedData map[string]any
-	if p.templateRenderer != nil && len(templateData) > 0 {
-		renderedData = make(map[string]any)
-		if err := p.templateRenderer.Process(templateData, renderedData); err != nil {
-			return nil, fmt.Errorf("failed to process template data: %w", err)
-		}
+	renderedData := make(map[string]any)
+	if err := p.templateRenderer.Process(templateData, renderedData); err != nil {
+		return nil, fmt.Errorf("failed to process template data: %w", err)
 	}
 	return renderedData, nil
 }

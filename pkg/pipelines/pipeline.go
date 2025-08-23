@@ -11,6 +11,7 @@ import (
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/cluster"
 	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 	envpkg "github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
@@ -92,13 +93,15 @@ func WithPipeline(injector di.Injector, ctx context.Context, pipelineName string
 	return pipeline, nil
 }
 
-// BasePipeline provides common pipeline functionality including config loading
+// BasePipeline provides common pipeline functionality including config loading and template processing
 // Specific pipelines should embed this and add their own dependencies
 type BasePipeline struct {
-	shell         shell.Shell
-	configHandler config.ConfigHandler
-	shims         *Shims
-	injector      di.Injector
+	shell            shell.Shell
+	configHandler    config.ConfigHandler
+	shims            *Shims
+	injector         di.Injector
+	templateRenderer template.Template
+	artifactBuilder  bundler.Artifact
 }
 
 // =============================================================================
@@ -123,6 +126,8 @@ func (p *BasePipeline) Initialize(injector di.Injector, ctx context.Context) err
 	p.shell = p.withShell()
 	p.configHandler = p.withConfigHandler()
 	p.shims = p.withShims()
+	p.templateRenderer = p.withTemplateRenderer()
+	p.artifactBuilder = p.withArtifactBuilder()
 
 	if err := p.shell.Initialize(); err != nil {
 		return fmt.Errorf("failed to initialize shell: %w", err)
@@ -769,8 +774,152 @@ func (p *BasePipeline) withTemplateRenderer() template.Template {
 	}
 
 	templateRenderer := template.NewJsonnetTemplate(p.injector)
+	if err := templateRenderer.Initialize(); err != nil {
+		return nil
+	}
 	p.injector.Register("templateRenderer", templateRenderer)
 	return templateRenderer
+}
+
+// prepareTemplateData loads template data using blueprint context, artifact builder, and blueprint handler state.
+// Priority: blueprint context, then local handler data, then default artifact, then default template for context.
+func (p *BasePipeline) prepareTemplateData(ctx context.Context) (map[string][]byte, error) {
+	var blueprintValue string
+	if blueprintCtx := ctx.Value("blueprint"); blueprintCtx != nil {
+		if blueprint, ok := blueprintCtx.(string); ok {
+			blueprintValue = blueprint
+		}
+	}
+
+	if blueprintValue != "" {
+		if p.artifactBuilder != nil {
+			ociInfo, err := bundler.ParseOCIReference(blueprintValue)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse blueprint reference: %w", err)
+			}
+			if ociInfo == nil {
+				return nil, fmt.Errorf("invalid blueprint reference: %s", blueprintValue)
+			}
+			templateData, err := p.artifactBuilder.GetTemplateData(ociInfo.URL)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get template data from blueprint: %w", err)
+			}
+			return templateData, nil
+		}
+	}
+
+	if blueprintHandler := p.withBlueprintHandler(); blueprintHandler != nil {
+		blueprintTemplateData, err := blueprintHandler.GetLocalTemplateData()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get local template data: %w", err)
+		}
+
+		if len(blueprintTemplateData) > 0 {
+			return blueprintTemplateData, nil
+		}
+	}
+
+	if p.artifactBuilder != nil {
+		effectiveBlueprintURL := constants.GetEffectiveBlueprintURL()
+		ociInfo, err := bundler.ParseOCIReference(effectiveBlueprintURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse default blueprint reference: %w", err)
+		}
+		templateData, err := p.artifactBuilder.GetTemplateData(ociInfo.URL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get template data from default blueprint: %w", err)
+		}
+		return templateData, nil
+	}
+
+	if blueprintHandler := p.withBlueprintHandler(); blueprintHandler != nil {
+		contextName := p.determineContextName(ctx)
+		defaultTemplateData, err := blueprintHandler.GetDefaultTemplateData(contextName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get default template data: %w", err)
+		}
+		return defaultTemplateData, nil
+	}
+
+	return make(map[string][]byte), nil
+}
+
+// processTemplateData renders and processes template data.
+// Renders all templates using the template renderer and returns the rendered template data map.
+// If blueprint data is present in the rendered data, it will be loaded using the blueprint handler.
+func (p *BasePipeline) processTemplateData(templateData map[string][]byte) (map[string]any, error) {
+	if p.templateRenderer == nil || len(templateData) == 0 {
+		return nil, nil
+	}
+
+	renderedData := make(map[string]any)
+	if err := p.templateRenderer.Process(templateData, renderedData); err != nil {
+		return nil, fmt.Errorf("failed to process template data: %w", err)
+	}
+
+	if blueprintData, exists := renderedData["blueprint"]; exists {
+		if err := p.loadBlueprintFromTemplate(context.Background(), map[string]any{"blueprint": blueprintData}); err != nil {
+			return nil, fmt.Errorf("failed to load blueprint from template: %w", err)
+		}
+	}
+
+	return renderedData, nil
+}
+
+// loadBlueprintFromTemplate loads blueprint data from rendered template data. If the "blueprint" key exists
+// in renderedData and is a map, attempts to parse OCI artifact info from the context's "blueprint" value.
+// Delegates loading to blueprintHandler.LoadData with the parsed blueprint map and optional OCI info.
+func (p *BasePipeline) loadBlueprintFromTemplate(ctx context.Context, renderedData map[string]any) error {
+	if blueprintData, exists := renderedData["blueprint"]; exists {
+		if blueprintMap, ok := blueprintData.(map[string]any); ok {
+			if kustomizeData, exists := blueprintMap["kustomize"]; exists {
+				if kustomizeList, ok := kustomizeData.([]any); ok {
+					for _, k := range kustomizeList {
+						if kustomizeMap, ok := k.(map[string]any); ok {
+							if _, exists := kustomizeMap["patches"]; exists {
+								// Patches exist in this kustomization
+							}
+						}
+					}
+				}
+			}
+
+			var ociInfo *bundler.OCIArtifactInfo
+			if blueprintCtx := ctx.Value("blueprint"); blueprintCtx != nil {
+				if blueprintValue, ok := blueprintCtx.(string); ok {
+					var err error
+					ociInfo, err = bundler.ParseOCIReference(blueprintValue)
+					if err != nil {
+						return err
+					}
+				}
+			}
+
+			blueprintHandler := p.withBlueprintHandler()
+			if blueprintHandler != nil {
+				if err := blueprintHandler.LoadData(blueprintMap, ociInfo); err != nil {
+					return fmt.Errorf("failed to load blueprint data: %w", err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// determineContextName selects the context name from ctx, config, or defaults to "local" if unset or "local".
+func (p *BasePipeline) determineContextName(ctx context.Context) string {
+	if contextName := ctx.Value("contextName"); contextName != nil {
+		if name, ok := contextName.(string); ok {
+			return name
+		}
+	}
+	if p.configHandler != nil {
+		currentContext := p.configHandler.GetContext()
+		if currentContext != "" && currentContext != "local" {
+			return currentContext
+		}
+	}
+	return "local"
 }
 
 // =============================================================================
