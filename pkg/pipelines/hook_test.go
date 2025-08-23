@@ -15,12 +15,6 @@ type HookMocks struct {
 	*Mocks
 }
 
-// setupHookShims creates shims for hook pipeline tests
-func setupHookShims(t *testing.T) *Shims {
-	t.Helper()
-	return setupShims(t)
-}
-
 // setupHookMocks creates mocks for hook pipeline tests
 func setupHookMocks(t *testing.T, opts ...*SetupOptions) *HookMocks {
 	t.Helper()

@@ -16,11 +16,6 @@ type ExecMocks struct {
 	*Mocks
 }
 
-func setupExecShims(t *testing.T) *Shims {
-	t.Helper()
-	return setupShims(t)
-}
-
 func setupExecMocks(t *testing.T, opts ...*SetupOptions) *ExecMocks {
 	t.Helper()
 

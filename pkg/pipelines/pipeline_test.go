@@ -21,6 +21,7 @@ import (
 	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
+	"github.com/windsorcli/cli/pkg/template"
 	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/virt"
 )
@@ -2840,6 +2841,587 @@ func TestBasePipeline_withClusterClient(t *testing.T) {
 		// Then the same cluster client should be returned
 		if clusterClient != existingClient {
 			t.Error("Expected to reuse existing cluster client")
+		}
+	})
+}
+
+// =============================================================================
+// Template Processing Tests
+// =============================================================================
+
+func TestBasePipeline_prepareTemplateData(t *testing.T) {
+	t.Run("Priority1_ExplicitBlueprintOverridesLocalTemplates", func(t *testing.T) {
+		// Given a pipeline with both explicit blueprint and local templates
+		pipeline := NewBasePipeline()
+		pipeline.injector = di.NewInjector()
+
+		// Mock artifact builder that succeeds
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		expectedOCIData := map[string][]byte{
+			"blueprint.jsonnet": []byte("{ explicit: 'oci-data' }"),
+		}
+		mockArtifactBuilder.GetTemplateDataFunc = func(ociRef string) (map[string][]byte, error) {
+			return expectedOCIData, nil
+		}
+		pipeline.artifactBuilder = mockArtifactBuilder
+
+		// Mock blueprint handler with local templates
+		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(nil)
+		mockBlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
+			return map[string][]byte{
+				"blueprint.jsonnet": []byte("{ local: 'template-data' }"),
+			}, nil
+		}
+		pipeline.injector.Register("blueprintHandler", mockBlueprintHandler)
+
+		// Create context with explicit blueprint value
+		ctx := context.WithValue(context.Background(), "blueprint", "oci://registry.example.com/blueprint:latest")
+
+		// When prepareTemplateData is called
+		templateData, err := pipeline.prepareTemplateData(ctx)
+
+		// Then should use explicit blueprint, not local templates
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(templateData) != 1 {
+			t.Errorf("Expected 1 template file, got %d", len(templateData))
+		}
+		if string(templateData["blueprint.jsonnet"]) != "{ explicit: 'oci-data' }" {
+			t.Error("Expected explicit blueprint data to override local templates")
+		}
+	})
+
+	t.Run("Priority1_ExplicitBlueprintFailsWithError", func(t *testing.T) {
+		// Given a pipeline with explicit blueprint that fails
+		pipeline := NewBasePipeline()
+		pipeline.injector = di.NewInjector()
+
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		mockArtifactBuilder.GetTemplateDataFunc = func(ociRef string) (map[string][]byte, error) {
+			return nil, fmt.Errorf("OCI pull failed")
+		}
+		pipeline.artifactBuilder = mockArtifactBuilder
+
+		ctx := context.WithValue(context.Background(), "blueprint", "oci://registry.example.com/blueprint:latest")
+
+		// When prepareTemplateData is called
+		templateData, err := pipeline.prepareTemplateData(ctx)
+
+		// Then should return error
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to get template data from blueprint") {
+			t.Errorf("Expected error to contain 'failed to get template data from blueprint', got %v", err)
+		}
+		if templateData != nil {
+			t.Error("Expected nil template data on error")
+		}
+	})
+
+	t.Run("Priority2_LocalTemplatesWhenNoExplicitBlueprint", func(t *testing.T) {
+		// Given a pipeline with local templates but no explicit blueprint
+		pipeline := NewBasePipeline()
+		pipeline.injector = di.NewInjector()
+
+		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(nil)
+		expectedLocalData := map[string][]byte{
+			"blueprint.jsonnet": []byte("{ local: 'template-data' }"),
+		}
+		mockBlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
+			return expectedLocalData, nil
+		}
+		pipeline.injector.Register("blueprintHandler", mockBlueprintHandler)
+
+		// When prepareTemplateData is called with no blueprint context
+		templateData, err := pipeline.prepareTemplateData(context.Background())
+
+		// Then should use local template data
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(templateData) != 1 {
+			t.Errorf("Expected 1 template file, got %d", len(templateData))
+		}
+		if string(templateData["blueprint.jsonnet"]) != "{ local: 'template-data' }" {
+			t.Error("Expected local template data")
+		}
+	})
+
+	t.Run("Priority3_DefaultOCIURLWhenNoLocalTemplates", func(t *testing.T) {
+		// Given a pipeline with no local templates and artifact builder
+		pipeline := NewBasePipeline()
+		pipeline.injector = di.NewInjector()
+
+		// Mock artifact builder for default OCI URL
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		expectedDefaultOCIData := map[string][]byte{
+			"blueprint.jsonnet": []byte("{ default: 'oci-data' }"),
+		}
+		var receivedOCIRef string
+		mockArtifactBuilder.GetTemplateDataFunc = func(ociRef string) (map[string][]byte, error) {
+			receivedOCIRef = ociRef
+			return expectedDefaultOCIData, nil
+		}
+		pipeline.artifactBuilder = mockArtifactBuilder
+
+		// Mock blueprint handler with no local templates
+		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(nil)
+		mockBlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
+			return make(map[string][]byte), nil // Empty local templates
+		}
+		pipeline.injector.Register("blueprintHandler", mockBlueprintHandler)
+
+		// When prepareTemplateData is called with no blueprint context
+		templateData, err := pipeline.prepareTemplateData(context.Background())
+
+		// Then should use default OCI URL
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(templateData) != 1 {
+			t.Errorf("Expected 1 template file, got %d", len(templateData))
+		}
+		if string(templateData["blueprint.jsonnet"]) != "{ default: 'oci-data' }" {
+			t.Error("Expected default OCI blueprint data")
+		}
+		// Verify the correct default OCI URL was used
+		if !strings.Contains(receivedOCIRef, "ghcr.io/windsorcli/core") {
+			t.Errorf("Expected default OCI URL to be used, got %s", receivedOCIRef)
+		}
+	})
+
+	t.Run("Priority4_EmbeddedDefaultWhenNoArtifactBuilder", func(t *testing.T) {
+		// Given a pipeline with no artifact builder
+		pipeline := NewBasePipeline()
+		pipeline.injector = di.NewInjector()
+
+		// Mock config handler (needed for determineContextName)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextFunc = func() string {
+			return "local"
+		}
+		pipeline.configHandler = mockConfigHandler
+
+		// Mock blueprint handler with no local templates but default template
+		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(nil)
+		mockBlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
+			return make(map[string][]byte), nil // Empty local templates
+		}
+		expectedDefaultData := map[string][]byte{
+			"blueprint.jsonnet": []byte("{ embedded: 'default-template' }"),
+		}
+		mockBlueprintHandler.GetDefaultTemplateDataFunc = func(contextName string) (map[string][]byte, error) {
+			return expectedDefaultData, nil
+		}
+		pipeline.injector.Register("blueprintHandler", mockBlueprintHandler)
+
+		// When prepareTemplateData is called
+		templateData, err := pipeline.prepareTemplateData(context.Background())
+
+		// Then should use embedded default template
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(templateData) != 1 {
+			t.Errorf("Expected 1 template file, got %d", len(templateData))
+		}
+		if string(templateData["blueprint.jsonnet"]) != "{ embedded: 'default-template' }" {
+			t.Error("Expected embedded default template data")
+		}
+	})
+
+	t.Run("ReturnsEmptyMapWhenNothingAvailable", func(t *testing.T) {
+		// Given a pipeline with no blueprint handler and no artifact builder
+		pipeline := NewBasePipeline()
+		pipeline.injector = di.NewInjector()
+
+		// Set up config handler
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextFunc = func() string {
+			return "local"
+		}
+		pipeline.configHandler = mockConfigHandler
+
+		// Register a mock blueprint handler that returns empty data
+		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(nil)
+		mockBlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
+			return make(map[string][]byte), nil
+		}
+		pipeline.injector.Register("blueprintHandler", mockBlueprintHandler)
+
+		// When prepareTemplateData is called
+		templateData, err := pipeline.prepareTemplateData(context.Background())
+
+		// Then should return empty map
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if templateData == nil {
+			t.Error("Expected non-nil template data")
+		}
+		if len(templateData) != 0 {
+			t.Error("Expected empty template data")
+		}
+	})
+
+	t.Run("HandlesInvalidOCIReference", func(t *testing.T) {
+		// Given a pipeline with invalid OCI reference
+		pipeline := NewBasePipeline()
+		pipeline.injector = di.NewInjector()
+
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		pipeline.artifactBuilder = mockArtifactBuilder
+
+		// Create context with invalid blueprint value
+		ctx := context.WithValue(context.Background(), "blueprint", "invalid-oci-reference")
+
+		// When prepareTemplateData is called
+		templateData, err := pipeline.prepareTemplateData(ctx)
+
+		// Then should return error for invalid reference
+		if err == nil {
+			t.Fatal("Expected error for invalid OCI reference, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to parse blueprint reference") {
+			t.Errorf("Expected error to contain 'failed to parse blueprint reference', got %v", err)
+		}
+		if templateData != nil {
+			t.Error("Expected nil template data on error")
+		}
+	})
+}
+
+func TestBasePipeline_processTemplateData(t *testing.T) {
+	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
+		pipeline := NewBasePipeline()
+		mocks := setupMocks(t)
+		return pipeline, mocks
+	}
+
+	t.Run("NoTemplateRenderer_ReturnsEmptyData", func(t *testing.T) {
+		// Given a pipeline with no template renderer
+		pipeline, _ := setup(t)
+		pipeline.templateRenderer = nil
+
+		// And template data
+		templateData := map[string][]byte{
+			"blueprint.jsonnet": []byte("blueprint content"),
+		}
+
+		// When processing template data
+		result, err := pipeline.processTemplateData(templateData)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And result should be empty
+		if len(result) != 0 {
+			t.Errorf("Expected empty result, got %d items", len(result))
+		}
+	})
+
+	t.Run("EmptyTemplateData_ReturnsEmptyData", func(t *testing.T) {
+		// Given a pipeline with template renderer
+		pipeline, mocks := setup(t)
+		mockTemplate := template.NewMockTemplate(mocks.Injector)
+		pipeline.templateRenderer = mockTemplate
+
+		// And empty template data
+		templateData := map[string][]byte{}
+
+		// When processing template data
+		result, err := pipeline.processTemplateData(templateData)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And result should be empty
+		if len(result) != 0 {
+			t.Errorf("Expected empty result, got %d items", len(result))
+		}
+	})
+
+	t.Run("SuccessfulTemplateProcessing_ReturnsRenderedData", func(t *testing.T) {
+		// Given a pipeline with template renderer
+		pipeline, mocks := setup(t)
+		mockTemplate := template.NewMockTemplate(mocks.Injector)
+		mockTemplate.ProcessFunc = func(templateData map[string][]byte, renderedData map[string]any) error {
+			// Simulate successful template processing
+			renderedData["terraform"] = map[string]any{"region": "us-west-2"}
+			renderedData["patches/namespace"] = map[string]any{"namespace": "test"}
+			return nil
+		}
+		pipeline.templateRenderer = mockTemplate
+
+		// And template data
+		templateData := map[string][]byte{
+			"terraform/region.jsonnet":  []byte("terraform content"),
+			"patches/namespace.jsonnet": []byte("patch content"),
+		}
+
+		// When processing template data
+		result, err := pipeline.processTemplateData(templateData)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And result should contain rendered data
+		if len(result) != 2 {
+			t.Errorf("Expected 2 rendered items, got %d", len(result))
+		}
+
+		if _, exists := result["terraform"]; !exists {
+			t.Error("Expected terraform data to be rendered")
+		}
+
+		if _, exists := result["patches/namespace"]; !exists {
+			t.Error("Expected patch data to be rendered")
+		}
+	})
+
+	t.Run("TemplateProcessingError_ReturnsError", func(t *testing.T) {
+		// Given a pipeline with template renderer that returns error
+		pipeline, mocks := setup(t)
+		mockTemplate := template.NewMockTemplate(mocks.Injector)
+		mockTemplate.ProcessFunc = func(templateData map[string][]byte, renderedData map[string]any) error {
+			return fmt.Errorf("template processing failed")
+		}
+		pipeline.templateRenderer = mockTemplate
+
+		// And template data
+		templateData := map[string][]byte{
+			"test.jsonnet": []byte("test content"),
+		}
+
+		// When processing template data
+		result, err := pipeline.processTemplateData(templateData)
+
+		// Then error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "failed to process template data") {
+			t.Errorf("Expected error message to contain 'failed to process template data', got %v", err)
+		}
+
+		// And result should be nil
+		if result != nil {
+			t.Errorf("Expected nil result, got %v", result)
+		}
+	})
+
+	t.Run("BlueprintDataExtraction_LoadsBlueprintSuccessfully", func(t *testing.T) {
+		// Given a pipeline with template renderer that returns blueprint data
+		pipeline, mocks := setup(t)
+
+		// Initialize the pipeline to set up injector
+		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
+
+		mockTemplate := template.NewMockTemplate(mocks.Injector)
+		mockTemplate.ProcessFunc = func(templateData map[string][]byte, renderedData map[string]any) error {
+			renderedData["blueprint"] = map[string]any{
+				"name": "test-blueprint",
+				"kustomize": []any{
+					map[string]any{
+						"patches": []any{"patch1.yaml"},
+					},
+				},
+			}
+			return nil
+		}
+		pipeline.templateRenderer = mockTemplate
+
+		// And mock blueprint handler
+		var loadedData map[string]any
+		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(nil)
+		mockBlueprintHandler.LoadDataFunc = func(data map[string]any, ociInfo ...*artifact.OCIArtifactInfo) error {
+			loadedData = data
+			return nil
+		}
+		pipeline.injector.Register("blueprintHandler", mockBlueprintHandler)
+
+		// And template data
+		templateData := map[string][]byte{
+			"blueprint.jsonnet": []byte("blueprint content"),
+		}
+
+		// When processing template data
+		result, err := pipeline.processTemplateData(templateData)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And blueprint should be loaded
+		if loadedData == nil {
+			t.Error("Expected blueprint to be loaded")
+		}
+
+		// And result should contain blueprint data
+		if _, exists := result["blueprint"]; !exists {
+			t.Error("Expected blueprint data in result")
+		}
+	})
+
+	t.Run("BlueprintDataExtractionError_ReturnsError", func(t *testing.T) {
+		// Given a pipeline with template renderer that returns blueprint data
+		pipeline, mocks := setup(t)
+
+		// Initialize the pipeline to set up injector
+		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
+
+		mockTemplate := template.NewMockTemplate(mocks.Injector)
+		mockTemplate.ProcessFunc = func(templateData map[string][]byte, renderedData map[string]any) error {
+			renderedData["blueprint"] = map[string]any{
+				"name": "test-blueprint",
+			}
+			return nil
+		}
+		pipeline.templateRenderer = mockTemplate
+
+		// And mock blueprint handler that returns error
+		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(nil)
+		mockBlueprintHandler.LoadDataFunc = func(data map[string]any, ociInfo ...*artifact.OCIArtifactInfo) error {
+			return fmt.Errorf("blueprint loading failed")
+		}
+		pipeline.injector.Register("blueprintHandler", mockBlueprintHandler)
+
+		// And template data
+		templateData := map[string][]byte{
+			"blueprint.jsonnet": []byte("blueprint content"),
+		}
+
+		// When processing template data
+		result, err := pipeline.processTemplateData(templateData)
+
+		// Then error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "failed to load blueprint from template") {
+			t.Errorf("Expected error message to contain 'failed to load blueprint from template', got %v", err)
+		}
+
+		// And result should be nil
+		if result != nil {
+			t.Errorf("Expected nil result, got %v", result)
+		}
+	})
+
+	t.Run("NonMapBlueprintData_ContinuesWithoutError", func(t *testing.T) {
+		// Given a pipeline with template renderer that returns non-map blueprint data
+		pipeline, mocks := setup(t)
+		mockTemplate := template.NewMockTemplate(mocks.Injector)
+		mockTemplate.ProcessFunc = func(templateData map[string][]byte, renderedData map[string]any) error {
+			renderedData["blueprint"] = "not-a-map"
+			renderedData["terraform"] = map[string]any{"region": "us-west-2"}
+			return nil
+		}
+		pipeline.templateRenderer = mockTemplate
+
+		// And template data
+		templateData := map[string][]byte{
+			"blueprint.jsonnet":        []byte("blueprint content"),
+			"terraform/region.jsonnet": []byte("terraform content"),
+		}
+
+		// When processing template data
+		result, err := pipeline.processTemplateData(templateData)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And result should contain rendered data
+		if len(result) != 2 {
+			t.Errorf("Expected 2 rendered items, got %d", len(result))
+		}
+
+		if _, exists := result["terraform"]; !exists {
+			t.Error("Expected terraform data to be rendered")
+		}
+	})
+}
+
+func TestBasePipeline_determineContextName(t *testing.T) {
+	t.Run("ReturnsContextNameFromContext", func(t *testing.T) {
+		// Given a pipeline
+		pipeline := NewBasePipeline()
+
+		// And context with contextName
+		ctx := context.WithValue(context.Background(), "contextName", "test-context")
+
+		// When determineContextName is called
+		result := pipeline.determineContextName(ctx)
+
+		// Then should return context name from context
+		if result != "test-context" {
+			t.Errorf("Expected 'test-context', got %s", result)
+		}
+	})
+
+	t.Run("ReturnsContextFromConfigHandler", func(t *testing.T) {
+		// Given a pipeline with config handler
+		pipeline := NewBasePipeline()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextFunc = func() string {
+			return "config-context"
+		}
+		pipeline.configHandler = mockConfigHandler
+
+		// When determineContextName is called
+		result := pipeline.determineContextName(context.Background())
+
+		// Then should return context from config handler
+		if result != "config-context" {
+			t.Errorf("Expected 'config-context', got %s", result)
+		}
+	})
+
+	t.Run("ReturnsLocalWhenNoContextSet", func(t *testing.T) {
+		// Given a pipeline with no context set
+		pipeline := NewBasePipeline()
+
+		// When determineContextName is called
+		result := pipeline.determineContextName(context.Background())
+
+		// Then should return "local"
+		if result != "local" {
+			t.Errorf("Expected 'local', got %s", result)
+		}
+	})
+
+	t.Run("ReturnsLocalWhenContextIsLocal", func(t *testing.T) {
+		// Given a pipeline with config handler returning "local"
+		pipeline := NewBasePipeline()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextFunc = func() string {
+			return "local"
+		}
+		pipeline.configHandler = mockConfigHandler
+
+		// When determineContextName is called
+		result := pipeline.determineContextName(context.Background())
+
+		// Then should return "local"
+		if result != "local" {
+			t.Errorf("Expected 'local', got %s", result)
 		}
 	})
 }
