@@ -404,63 +404,6 @@ func (p *InitPipeline) processPlatformConfiguration(_ context.Context) error {
 	return nil
 }
 
-// processTemplateData renders and processes template data for the InitPipeline.
-// Renders all templates using the template renderer, and loads blueprint data from the rendered output if present.
-// Returns the rendered template data map or an error if rendering or blueprint loading fails.
-func (p *InitPipeline) processTemplateData(templateData map[string][]byte) (map[string]any, error) {
-	var renderedData map[string]any
-	if p.templateRenderer != nil && len(templateData) > 0 {
-		renderedData = make(map[string]any)
-		if err := p.templateRenderer.Process(templateData, renderedData); err != nil {
-			return nil, fmt.Errorf("failed to process template data: %w", err)
-		}
-		if blueprintData, exists := renderedData["blueprint"]; exists {
-			ctx := context.Background()
-			if err := p.loadBlueprintFromTemplate(ctx, map[string]any{"blueprint": blueprintData}); err != nil {
-				return nil, fmt.Errorf("failed to load blueprint from template: %w", err)
-			}
-		}
-	}
-	return renderedData, nil
-}
-
-// loadBlueprintFromTemplate loads blueprint data from rendered template data. If the "blueprint" key exists
-// in renderedData and is a map, attempts to parse OCI artifact info from the context's "blueprint" value.
-// Delegates loading to blueprintHandler.LoadData with the parsed blueprint map and optional OCI info.
-func (p *InitPipeline) loadBlueprintFromTemplate(ctx context.Context, renderedData map[string]any) error {
-	if blueprintData, exists := renderedData["blueprint"]; exists {
-		if blueprintMap, ok := blueprintData.(map[string]any); ok {
-			if kustomizeData, exists := blueprintMap["kustomize"]; exists {
-				if kustomizeList, ok := kustomizeData.([]any); ok {
-					for _, k := range kustomizeList {
-						if kustomizeMap, ok := k.(map[string]any); ok {
-							if _, exists := kustomizeMap["patches"]; exists {
-								// Patches exist in this kustomization
-							}
-						}
-					}
-				}
-			}
-
-			var ociInfo *artifact.OCIArtifactInfo
-			if blueprintCtx := ctx.Value("blueprint"); blueprintCtx != nil {
-				if blueprintValue, ok := blueprintCtx.(string); ok {
-					var err error
-					ociInfo, err = artifact.ParseOCIReference(blueprintValue)
-					if err != nil {
-						return err
-					}
-				}
-			}
-
-			if err := p.blueprintHandler.LoadData(blueprintMap, ociInfo); err != nil {
-				return fmt.Errorf("failed to load blueprint data: %w", err)
-			}
-		}
-	}
-	return nil
-}
-
 // writeConfigurationFiles writes configuration files for all managed components in the InitPipeline.
 // It sequentially invokes WriteManifest or WriteConfig on the tools manager, each registered service,
 // the virtual machine, and the container runtime if present. Returns an error if any write operation fails.

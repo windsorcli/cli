@@ -139,18 +139,3 @@ func (p *InstallPipeline) Execute(ctx context.Context) error {
 
 	return nil
 }
-
-// processTemplateData renders and processes template data for the InstallPipeline.
-// Unlike the base pipeline, this method does not handle blueprint data extraction
-// as blueprint loading is handled separately in the Execute method.
-func (p *InstallPipeline) processTemplateData(templateData map[string][]byte) (map[string]any, error) {
-	if p.templateRenderer == nil || len(templateData) == 0 {
-		return nil, nil
-	}
-
-	renderedData := make(map[string]any)
-	if err := p.templateRenderer.Process(templateData, renderedData); err != nil {
-		return nil, fmt.Errorf("failed to process template data: %w", err)
-	}
-	return renderedData, nil
-}
