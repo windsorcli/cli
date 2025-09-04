@@ -18,7 +18,7 @@ require (
 	github.com/google/go-jsonnet v0.21.0
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/shirou/gopsutil v3.21.11+incompatible
-	github.com/siderolabs/talos/pkg/machinery v1.10.7
+	github.com/siderolabs/talos/pkg/machinery v1.11.0
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.10
 	github.com/zclconf/go-cty v1.16.4
@@ -86,7 +86,7 @@ require (
 	github.com/containerd/stargz-snapshotter/estargz v0.16.3 // indirect
 	github.com/containernetworking/cni v1.2.3 // indirect
 	github.com/coreos/go-semver v0.3.1 // indirect
-	github.com/cosi-project/runtime v0.10.2 // indirect
+	github.com/cosi-project/runtime v1.10.7 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/distribution/reference v0.6.0 // indirect
@@ -163,9 +163,9 @@ require (
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/sasha-s/go-deadlock v0.3.5 // indirect
-	github.com/siderolabs/crypto v0.6.0 // indirect
-	github.com/siderolabs/gen v0.8.0 // indirect
-	github.com/siderolabs/go-api-signature v0.3.6 // indirect
+	github.com/siderolabs/crypto v0.6.3 // indirect
+	github.com/siderolabs/gen v0.8.5 // indirect
+	github.com/siderolabs/go-api-signature v0.3.7 // indirect
 	github.com/siderolabs/go-pointer v1.0.1 // indirect
 	github.com/siderolabs/protoenc v0.2.2 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
@@ -203,9 +203,9 @@ require (
 	golang.org/x/tools v0.35.0 // indirect
 	google.golang.org/api v0.234.0 // indirect
 	google.golang.org/genproto v0.0.0-20250519155744-55703ea1f237 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20250519155744-55703ea1f237 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20250519155744-55703ea1f237 // indirect
-	google.golang.org/grpc v1.72.1 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20250715232539-7130f93afb79 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250715232539-7130f93afb79 // indirect
+	google.golang.org/grpc v1.73.0 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
