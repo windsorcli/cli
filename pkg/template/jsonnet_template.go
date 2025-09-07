@@ -2,6 +2,7 @@ package template
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/windsorcli/cli/pkg/config"
@@ -72,30 +73,16 @@ func (t *JsonnetTemplate) Process(templateData map[string][]byte, renderedData m
 		return err
 	}
 	patchRefs := t.extractPatchReferences(renderedData)
-	valuesRefs := t.extractValuesReferences(renderedData)
 	patchSet := make(map[string]bool)
-	valuesSet := make(map[string]bool)
 	for _, ref := range patchRefs {
 		patchSet[ref] = true
-	}
-	for _, ref := range valuesRefs {
-		valuesSet[ref] = true
 	}
 	for templatePath := range templateData {
 		if templatePath == "blueprint.jsonnet" {
 			continue
 		}
-		if strings.HasPrefix(templatePath, "kustomize/") {
-			if strings.HasSuffix(templatePath, "/values.jsonnet") || templatePath == "kustomize/values.jsonnet" {
-				if !valuesSet[templatePath] {
-					continue
-				}
-			} else if !patchSet[templatePath] {
-				continue
-			}
-		}
-		if strings.HasPrefix(templatePath, "values/") {
-			if !valuesSet[templatePath] {
+		if strings.HasPrefix(templatePath, "patches/") {
+			if !patchSet[templatePath] {
 				continue
 			}
 		}
@@ -107,12 +94,13 @@ func (t *JsonnetTemplate) Process(templateData map[string][]byte, renderedData m
 	return nil
 }
 
-// processJsonnetTemplate evaluates a Jsonnet template string using the Windsor context and returns the resulting data as a map.
+// processJsonnetTemplate evaluates a Jsonnet template string using the Windsor context and values data.
 // The Windsor configuration is marshaled to YAML, converted to a map, and augmented with context and project name metadata.
 // The context is serialized to JSON and injected into the Jsonnet VM as an external variable, along with helper functions and the effective blueprint URL.
-// The template is evaluated, and the output is unmarshaled from JSON into a map for downstream use.
+// If values data is provided, it is merged into the context map before serialization.
+// The template is evaluated, and the output is unmarshaled from JSON into a map.
 // Returns the resulting map or an error if any step fails.
-func (t *JsonnetTemplate) processJsonnetTemplate(templateContent string) (map[string]any, error) {
+func (t *JsonnetTemplate) processJsonnetTemplate(templateContent string, valuesData []byte) (map[string]any, error) {
 	config := t.configHandler.GetConfig()
 	contextYAML, err := t.shims.YamlMarshal(config)
 	if err != nil {
@@ -129,6 +117,15 @@ func (t *JsonnetTemplate) processJsonnetTemplate(templateContent string) (map[st
 	contextName := t.configHandler.GetContext()
 	contextMap["name"] = contextName
 	contextMap["projectName"] = t.shims.FilepathBase(projectRoot)
+
+	if valuesData != nil {
+		var valuesMap map[string]any
+		if err := t.shims.YamlUnmarshal(valuesData, &valuesMap); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal values YAML: %w", err)
+		}
+		maps.Copy(contextMap, valuesMap)
+	}
+
 	contextJSON, err := t.shims.JsonMarshal(contextMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal context map to JSON: %w", err)
@@ -203,10 +200,13 @@ func (t *JsonnetTemplate) isEmptyValue(value any) bool {
 // Recognized mappings:
 //   - "blueprint.jsonnet" → "blueprint"
 //   - "terraform/*.jsonnet" → "terraform/*" (without .jsonnet extension)
-//   - "kustomize/*.jsonnet" → "kustomize/patches/*" (without .jsonnet extension)
-//   - "kustomize/values.jsonnet" → "kustomize/values"
-//   - "kustomize/<component>/values.jsonnet" → "kustomize/values" (merged into single values file)
-//   - "values/*.jsonnet" → "values/*" (without .jsonnet extension)
+//   - "patches/<kustomization_name>/*.jsonnet" → "patches/<kustomization_name>/*" (without .jsonnet extension)
+//
+// Templates exclusively contain:
+//   - blueprint.jsonnet
+//   - terraform/<rel/path>.jsonnet
+//   - patches/<kustomization_name>/*.jsonnet
+//   - values.yaml (processed separately, not here)
 //
 // If the template does not exist in templateData, no action is performed. Returns an error if processing fails. Unrecognized template types are ignored.
 func (t *JsonnetTemplate) processTemplate(templatePath string, templateData map[string][]byte, renderedData map[string]any) error {
@@ -219,26 +219,22 @@ func (t *JsonnetTemplate) processTemplate(templatePath string, templateData map[
 	switch {
 	case templatePath == "blueprint.jsonnet":
 		outputKey = "blueprint"
+	case templatePath == "substitution.jsonnet":
+		outputKey = "substitution"
 	case strings.HasPrefix(templatePath, "terraform/") && strings.HasSuffix(templatePath, ".jsonnet"):
 		outputKey = strings.TrimSuffix(templatePath, ".jsonnet")
-	case strings.HasPrefix(templatePath, "kustomize/") && strings.HasSuffix(templatePath, ".jsonnet"):
-		if templatePath == "kustomize/values.jsonnet" || strings.HasSuffix(templatePath, "/values.jsonnet") {
-			outputKey = "kustomize/values"
-		} else {
-			pathWithoutExt := strings.TrimSuffix(templatePath, ".jsonnet")
-			if prefix, ok := strings.CutPrefix(pathWithoutExt, "kustomize/"); ok {
-				outputKey = "kustomize/patches/" + prefix
-			} else {
-				outputKey = strings.TrimSuffix(templatePath, ".jsonnet")
-			}
-		}
-	case strings.HasPrefix(templatePath, "values/") && strings.HasSuffix(templatePath, ".jsonnet"):
+	case strings.HasPrefix(templatePath, "patches/") && strings.HasSuffix(templatePath, ".jsonnet"):
 		outputKey = strings.TrimSuffix(templatePath, ".jsonnet")
 	default:
 		return nil
 	}
 
-	values, err := t.processJsonnetTemplate(string(content))
+	var valuesData []byte
+	if data, exists := templateData["values"]; exists {
+		valuesData = data
+	}
+
+	values, err := t.processJsonnetTemplate(string(content), valuesData)
 	if err != nil {
 		return fmt.Errorf("failed to process template %s: %w", templatePath, err)
 	}
@@ -253,7 +249,7 @@ func (t *JsonnetTemplate) processTemplate(templatePath string, templateData map[
 
 // extractPatchReferences returns a slice of template file paths for patch references found in the rendered blueprint within renderedData.
 // The function inspects the "blueprint" key in renderedData, extracts the "kustomize" array, and collects patch paths from each kustomization's "patches" field.
-// Patch paths are normalized to "kustomize/<path>.jsonnet" if not already fully qualified. Returns an empty slice if the blueprint or kustomize section is missing or malformed.
+// Patch paths are normalized to "patches/<kustomization_name>/<path>.jsonnet" format. Returns an empty slice if the blueprint or kustomize section is missing or malformed.
 func (t *JsonnetTemplate) extractPatchReferences(renderedData map[string]any) []string {
 	var templatePaths []string
 	blueprintData, ok := renderedData["blueprint"]
@@ -273,6 +269,10 @@ func (t *JsonnetTemplate) extractPatchReferences(renderedData map[string]any) []
 		if !ok {
 			continue
 		}
+		kustomizationName, ok := kMap["name"].(string)
+		if !ok {
+			continue
+		}
 		patches, ok := kMap["patches"].([]any)
 		if !ok {
 			continue
@@ -283,42 +283,11 @@ func (t *JsonnetTemplate) extractPatchReferences(renderedData map[string]any) []
 				continue
 			}
 			if path, ok := pMap["path"].(string); ok && path != "" {
-				var templatePath string
-				if strings.HasPrefix(path, "kustomize/") {
-					templatePath = path
-				} else {
-					templatePath = "kustomize/" + path + ".jsonnet"
-				}
+				templatePath := "patches/" + kustomizationName + "/" + path + ".jsonnet"
 				templatePaths = append(templatePaths, templatePath)
 			}
 		}
 	}
-	return templatePaths
-}
-
-// extractValuesReferences returns a slice of values template file paths found in the kustomize directory structure.
-// Always includes the centralized values template ("kustomize/values.jsonnet") which contains both common and component-specific values.
-// Returns an empty slice if the blueprint or kustomize section is missing or malformed.
-func (t *JsonnetTemplate) extractValuesReferences(renderedData map[string]any) []string {
-	var templatePaths []string
-	blueprintData, ok := renderedData["blueprint"]
-	if !ok {
-		return templatePaths
-	}
-	blueprintMap, ok := blueprintData.(map[string]any)
-	if !ok {
-		return templatePaths
-	}
-	kustomizeArr, ok := blueprintMap["kustomize"].([]any)
-	if !ok {
-		return templatePaths
-	}
-
-	// Only include values template if there are kustomize components to process
-	if len(kustomizeArr) > 0 {
-		templatePaths = append(templatePaths, "kustomize/values.jsonnet")
-	}
-
 	return templatePaths
 }
 

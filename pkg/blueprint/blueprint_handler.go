@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"syscall"
@@ -267,9 +268,11 @@ func (b *BaseBlueprintHandler) WaitForKustomizations(message string, names ...st
 	}
 }
 
-// Install applies all blueprint Kubernetes resources to the cluster, including the main repository, additional sources, Kustomizations, and the context ConfigMap.
-// The method ensures the target namespace exists, applies the main and additional source repositories, creates the ConfigMap, and applies all Kustomizations.
-// Uses the environment KUBECONFIG or in-cluster configuration for access. Returns an error if any resource application fails.
+// Install applies all blueprint Kubernetes resources to the cluster, including the main
+// repository, additional sources, Kustomizations, and the context ConfigMap. The method
+// ensures the target namespace exists, applies the main and additional source repositories,
+// creates the ConfigMap, and applies all Kustomizations. Uses the environment KUBECONFIG or
+// in-cluster configuration for access. Returns an error if any resource application fails.
 func (b *BaseBlueprintHandler) Install() error {
 	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
 	spin.Suffix = " 📐 Installing blueprint resources"
@@ -437,9 +440,11 @@ func (b *BaseBlueprintHandler) GetDefaultTemplateData(contextName string) (map[s
 	}, nil
 }
 
-// GetLocalTemplateData collects template data from the local contexts/_template directory.
-// It recursively walks through the template directory and collects only .jsonnet files,
-// maintaining the relative path structure from the template directory root.
+// GetLocalTemplateData returns template files from contexts/_template, merging values.yaml from
+// both _template and context dirs. All .jsonnet files are collected recursively with relative
+// paths preserved. If OCI artifact values exist, they are merged with local values, with local
+// values taking precedence. Returns nil if no templates exist. Keys are relative file paths,
+// values are file contents.
 func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error) {
 	projectRoot, err := b.shell.GetProjectRoot()
 	if err != nil {
@@ -454,6 +459,41 @@ func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 	templateData := make(map[string][]byte)
 	if err := b.walkAndCollectTemplates(templateDir, templateDir, templateData); err != nil {
 		return nil, fmt.Errorf("failed to collect templates: %w", err)
+	}
+
+	contextValues, err := b.loadAndMergeContextValues()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load and merge context values: %w", err)
+	}
+
+	if contextValues != nil {
+		if len(contextValues.TopLevel) > 0 {
+			if existingValues, exists := templateData["values"]; exists {
+				var ociValues map[string]any
+				if err := b.shims.YamlUnmarshal(existingValues, &ociValues); err == nil {
+					contextValues.TopLevel = b.deepMergeValues(ociValues, contextValues.TopLevel)
+				}
+			}
+			topLevelYAML, err := b.shims.YamlMarshal(contextValues.TopLevel)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal top-level values: %w", err)
+			}
+			templateData["values"] = topLevelYAML
+		}
+
+		if len(contextValues.Substitution) > 0 {
+			if existingValues, exists := templateData["substitution"]; exists {
+				var ociSubstitutionValues map[string]any
+				if err := b.shims.YamlUnmarshal(existingValues, &ociSubstitutionValues); err == nil {
+					contextValues.Substitution = b.deepMergeValues(ociSubstitutionValues, contextValues.Substitution)
+				}
+			}
+			substitutionYAML, err := b.shims.YamlMarshal(contextValues.Substitution)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal substitution values: %w", err)
+			}
+			templateData["substitution"] = substitutionYAML
+		}
 	}
 
 	return templateData, nil
@@ -672,6 +712,186 @@ func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir, templateRoot
 	}
 
 	return nil
+}
+
+// loadAndMergeValues loads and merges values.yaml files from the _template and context-specific directories.
+// It loads base values from contexts/_template/values.yaml, then overlays context-specific values from
+// contexts/<context>/values.yaml, where <context> is determined from the current configuration.
+// Returns merged YAML content as bytes, or nil if no values files exist.
+func (b *BaseBlueprintHandler) loadAndMergeValues() ([]byte, error) {
+	projectRoot, err := b.shell.GetProjectRoot()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	templateValuesPath := filepath.Join(projectRoot, "contexts", "_template", "values.yaml")
+	var baseValues map[string]any
+
+	if _, err := b.shims.Stat(templateValuesPath); err == nil {
+		baseValuesContent, err := b.shims.ReadFile(templateValuesPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read template values.yaml: %w", err)
+		}
+		if err := yaml.Unmarshal(baseValuesContent, &baseValues); err != nil {
+			return nil, fmt.Errorf("failed to parse template values.yaml: %w", err)
+		}
+	}
+
+	contextName := b.configHandler.GetContext()
+	if contextName == "" {
+		if baseValues == nil {
+			return nil, nil
+		}
+		return yaml.Marshal(baseValues)
+	}
+
+	configRoot, err := b.configHandler.GetConfigRoot()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get config root: %w", err)
+	}
+	contextValuesPath := filepath.Join(configRoot, "values.yaml")
+	var contextValues map[string]any
+
+	if _, err := b.shims.Stat(contextValuesPath); err == nil {
+		contextValuesContent, err := b.shims.ReadFile(contextValuesPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read context values.yaml: %w", err)
+		}
+		if err := yaml.Unmarshal(contextValuesContent, &contextValues); err != nil {
+			return nil, fmt.Errorf("failed to parse context values.yaml: %w", err)
+		}
+	}
+
+	mergedValues := make(map[string]any)
+	maps.Copy(mergedValues, baseValues)
+	for k, v := range contextValues {
+		if existingValue, exists := mergedValues[k]; exists {
+			if existingMap, ok := existingValue.(map[string]any); ok {
+				if newMap, ok := v.(map[string]any); ok {
+					mergedValues[k] = b.deepMergeValues(existingMap, newMap)
+					continue
+				}
+			}
+		}
+		mergedValues[k] = v
+	}
+
+	if len(mergedValues) == 0 {
+		return nil, nil
+	}
+
+	return b.shims.YamlMarshal(mergedValues)
+}
+
+// loadAndMergeContextValues loads and merges values.yaml files from the _template and context-specific directories.
+// Recursively merges base (_template) and context-specific values.yaml files, merging nested maps.
+// Separates merged values into top-level and substitution (kustomize) values.
+// Returns a ContextValues struct containing both top-level and substitution values, or an error if loading or parsing fails.
+func (b *BaseBlueprintHandler) loadAndMergeContextValues() (*ContextValues, error) {
+	projectRoot, err := b.shell.GetProjectRoot()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	templateValuesPath := filepath.Join(projectRoot, "contexts", "_template", "values.yaml")
+	var baseValues map[string]any
+
+	if _, err := b.shims.Stat(templateValuesPath); err == nil {
+		baseValuesContent, err := b.shims.ReadFile(templateValuesPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read template values.yaml: %w", err)
+		}
+		if err := yaml.Unmarshal(baseValuesContent, &baseValues); err != nil {
+			return nil, fmt.Errorf("failed to parse template values.yaml: %w", err)
+		}
+	}
+
+	contextName := b.configHandler.GetContext()
+	if contextName == "" {
+		if baseValues == nil {
+			return &ContextValues{}, nil
+		}
+		return b.separateValues(baseValues)
+	}
+
+	configRoot, err := b.configHandler.GetConfigRoot()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get config root: %w", err)
+	}
+	contextValuesPath := filepath.Join(configRoot, "values.yaml")
+	var contextValues map[string]any
+
+	if _, err := b.shims.Stat(contextValuesPath); err == nil {
+		contextValuesContent, err := b.shims.ReadFile(contextValuesPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read context values.yaml: %w", err)
+		}
+		if err := yaml.Unmarshal(contextValuesContent, &contextValues); err != nil {
+			return nil, fmt.Errorf("failed to parse context values.yaml: %w", err)
+		}
+	}
+
+	mergedValues := make(map[string]any)
+	maps.Copy(mergedValues, baseValues)
+	for k, v := range contextValues {
+		if existingValue, exists := mergedValues[k]; exists {
+			if existingMap, ok := existingValue.(map[string]any); ok {
+				if newMap, ok := v.(map[string]any); ok {
+					mergedValues[k] = b.deepMergeValues(existingMap, newMap)
+					continue
+				}
+			}
+		}
+		mergedValues[k] = v
+	}
+
+	return b.separateValues(mergedValues)
+}
+
+// ContextValues contains the separated top-level and substitution values from values.yaml files
+type ContextValues struct {
+	TopLevel     map[string]any `json:"topLevel"`
+	Substitution map[string]any `json:"substitution"`
+}
+
+// separateValues separates top-level values from substitution values in a merged values map
+func (b *BaseBlueprintHandler) separateValues(mergedValues map[string]any) (*ContextValues, error) {
+	topLevel := make(map[string]any)
+	substitution := make(map[string]any)
+
+	for k, v := range mergedValues {
+		if k == "substitution" {
+			if substitutionMap, ok := v.(map[string]any); ok {
+				substitution = substitutionMap
+			}
+		} else {
+			topLevel[k] = v
+		}
+	}
+
+	return &ContextValues{
+		TopLevel:     topLevel,
+		Substitution: substitution,
+	}, nil
+}
+
+// deepMergeValues recursively merges two maps, with the overlay values taking precedence.
+// Used for merging values.yaml files where nested structures should be merged rather than replaced.
+func (b *BaseBlueprintHandler) deepMergeValues(base, overlay map[string]any) map[string]any {
+	result := make(map[string]any)
+	maps.Copy(result, base)
+	for k, v := range overlay {
+		if existingValue, exists := result[k]; exists {
+			if existingMap, ok := existingValue.(map[string]any); ok {
+				if newMap, ok := v.(map[string]any); ok {
+					result[k] = b.deepMergeValues(existingMap, newMap)
+					continue
+				}
+			}
+		}
+		result[k] = v
+	}
+	return result
 }
 
 // resolveComponentSources transforms component source names into fully qualified URLs
@@ -1357,15 +1577,11 @@ func (b *BaseBlueprintHandler) isOCISource(sourceNameOrURL string) bool {
 	return false
 }
 
-// applyValuesConfigMaps creates ConfigMaps for post-build variable substitution using rendered values data and any existing values.yaml files.
-// It generates a ConfigMap for the "common" section and for each component section, merging rendered template values with user-defined values.
-// User-defined values take precedence over template values in case of conflicts.
+// applyValuesConfigMaps creates ConfigMaps for post-build variable substitution using rendered values data and context-specific values.yaml files.
+// It generates a ConfigMap for the "common" section and for each component section, merging rendered template values with context values.
+// Context-specific values from contexts/{context}/values.yaml take precedence over template values in case of conflicts.
 // The resulting ConfigMaps are referenced in PostBuild.SubstituteFrom for variable substitution.
 func (b *BaseBlueprintHandler) applyValuesConfigMaps() error {
-	configRoot, err := b.configHandler.GetConfigRoot()
-	if err != nil {
-		return fmt.Errorf("failed to get config root: %w", err)
-	}
 
 	mergedCommonValues := make(map[string]any)
 
@@ -1402,53 +1618,32 @@ func (b *BaseBlueprintHandler) applyValuesConfigMaps() error {
 		mergedCommonValues["BUILD_ID"] = buildID
 	}
 
-	var userValues map[string]any
-	valuesPath := filepath.Join(configRoot, "kustomize", "values.yaml")
-	if _, err := b.shims.Stat(valuesPath); err == nil {
-		data, err := b.shims.ReadFile(valuesPath)
-		if err == nil {
-			if err := b.shims.YamlUnmarshal(data, &userValues); err != nil {
-				return fmt.Errorf("failed to unmarshal values file %s: %w", valuesPath, err)
-			}
-		}
+	contextValues, err := b.loadAndMergeContextValues()
+	if err != nil {
+		return fmt.Errorf("failed to load context values: %w", err)
 	}
 
-	if userValues == nil {
-		userValues = make(map[string]any)
-	}
+	renderedValues := make(map[string]any)
 
-	var renderedValues map[string]any
-	if kustomizeValues, exists := b.kustomizeData["kustomize/values"]; exists {
-		if valuesMap, ok := kustomizeValues.(map[string]any); ok {
-			renderedValues = valuesMap
-		}
-	}
-
-	if renderedValues == nil {
-		renderedValues = make(map[string]any)
-	}
-
+	// Start with all values from rendered templates and context
 	allValues := make(map[string]any)
 	maps.Copy(allValues, renderedValues)
-	allValues = b.deepMergeMaps(allValues, userValues)
 
-	if commonValues, exists := allValues["common"]; exists {
-		if commonMap, ok := commonValues.(map[string]any); ok {
-			maps.Copy(mergedCommonValues, commonMap)
-		}
+	if contextValues.Substitution != nil {
+		allValues = b.deepMergeMaps(allValues, contextValues.Substitution)
 	}
 
-	if len(mergedCommonValues) > 0 {
-		if err := b.createConfigMap(mergedCommonValues, "values-common"); err != nil {
-			return fmt.Errorf("failed to create merged common values ConfigMap: %w", err)
-		}
+	// Ensure "common" section exists and merge system values into it
+	if allValues["common"] == nil {
+		allValues["common"] = make(map[string]any)
 	}
 
+	if commonMap, ok := allValues["common"].(map[string]any); ok {
+		maps.Copy(commonMap, mergedCommonValues)
+	}
+
+	// Create ConfigMaps for all sections generically
 	for componentName, componentValues := range allValues {
-		if componentName == "common" {
-			continue
-		}
-
 		if componentMap, ok := componentValues.(map[string]any); ok {
 			configMapName := fmt.Sprintf("values-%s", componentName)
 			if err := b.createConfigMap(componentMap, configMapName); err != nil {
@@ -1472,19 +1667,40 @@ func (b *BaseBlueprintHandler) validateValuesForSubstitution(values map[string]a
 				currentKey = parentKey + "." + key
 			}
 
+			// Handle nil values first to avoid panic in reflect.TypeOf
+			if value == nil {
+				return fmt.Errorf("values for post-build substitution cannot contain nil values, key '%s'", currentKey)
+			}
+
+			// Check if the value is a slice using reflection
+			if reflect.TypeOf(value).Kind() == reflect.Slice {
+				return fmt.Errorf("values for post-build substitution cannot contain slices, key '%s' has type %T", currentKey, value)
+			}
+
 			switch v := value.(type) {
 			case string, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, bool:
 				continue
 			case map[string]any:
+				// Post-build substitution should only allow flat key/value maps, no nesting at all
 				if depth >= 1 {
-					return fmt.Errorf("values for post-build substitution cannot contain nested complex types, key '%s' has type %T", currentKey, v)
+					return fmt.Errorf("values for post-build substitution cannot contain nested maps, key '%s' has type %T", currentKey, v)
 				}
-				err := validate(v, currentKey, depth+1)
-				if err != nil {
-					return err
+				// Validate that the nested map only contains scalar values (no further nesting)
+				for nestedKey, nestedValue := range v {
+					nestedCurrentKey := currentKey + "." + nestedKey
+					switch nestedValue.(type) {
+					case string, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, bool:
+						continue
+					case nil:
+						return fmt.Errorf("values for post-build substitution cannot contain nil values, key '%s'", nestedCurrentKey)
+					default:
+						// Check if it's a slice
+						if reflect.TypeOf(nestedValue).Kind() == reflect.Slice {
+							return fmt.Errorf("values for post-build substitution cannot contain slices, key '%s' has type %T", nestedCurrentKey, nestedValue)
+						}
+						return fmt.Errorf("values for post-build substitution can only contain scalar values in maps, key '%s' has unsupported type %T", nestedCurrentKey, nestedValue)
+					}
 				}
-			case []any:
-				return fmt.Errorf("values for post-build substitution cannot contain slices, key '%s' has type %T", currentKey, v)
 			default:
 				return fmt.Errorf("values for post-build substitution can only contain strings, numbers, booleans, or maps of scalar types, key '%s' has unsupported type %T", currentKey, v)
 			}

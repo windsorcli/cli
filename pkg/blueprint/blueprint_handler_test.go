@@ -2504,6 +2504,891 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 			t.Error("Expected result to be nil on error")
 		}
 	})
+
+	t.Run("MergesOCIArtifactValuesWithLocalContextValues", func(t *testing.T) {
+		// Given a blueprint handler with OCI artifact values already in template data
+		handler, mocks := setup(t)
+
+		// Mock local context values
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/tmp/test", nil
+		}
+		baseHandler := handler.(*BaseBlueprintHandler)
+		baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
+			if strings.Contains(path, "_template/values.yaml") || strings.Contains(path, "test-context/values.yaml") {
+				return &mockFileInfo{isDir: false}, nil
+			}
+			if strings.Contains(path, "_template") && !strings.Contains(path, "values.yaml") {
+				return &mockFileInfo{isDir: true}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+		baseHandler.shims.ReadFile = func(path string) ([]byte, error) {
+			if strings.Contains(path, "_template/values.yaml") {
+				return []byte(`external_domain: local.test
+registry_url: registry.local.test
+local_only:
+  enabled: true
+substitution:
+  common:
+    external_domain: local.test
+    registry_url: registry.local.test
+  local_only:
+    enabled: true`), nil
+			}
+			if strings.Contains(path, "test-context/values.yaml") {
+				return []byte(`external_domain: context.test
+context_only:
+  enabled: true
+substitution:
+  common:
+    external_domain: context.test
+  context_only:
+    enabled: true`), nil
+			}
+			return nil, os.ErrNotExist
+		}
+		// Cast to mock config handler to set the function
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetContextFunc = func() string {
+			return "test-context"
+		}
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return "/tmp/test/contexts/test-context", nil
+		}
+
+		// When GetLocalTemplateData is called
+		result, err := handler.GetLocalTemplateData()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And result should contain merged values
+		if result == nil {
+			t.Fatal("Expected result to not be nil")
+		}
+
+		// Check for values (top-level values merged into context)
+		valuesData, exists := result["values"]
+		if !exists {
+			t.Fatal("Expected 'values' key to exist in result")
+		}
+
+		var values map[string]any
+		if err := yaml.Unmarshal(valuesData, &values); err != nil {
+			t.Fatalf("Failed to unmarshal values: %v", err)
+		}
+
+		// Verify that top-level values are properly merged
+		if values["external_domain"] != "context.test" {
+			t.Errorf("Expected external_domain to be 'context.test', got %v", values["external_domain"])
+		}
+
+		if values["registry_url"] != "registry.local.test" {
+			t.Errorf("Expected registry_url to be 'registry.local.test', got %v", values["registry_url"])
+		}
+
+		// Check for substitution (substitution section for ConfigMaps)
+		substitutionValuesData, exists := result["substitution"]
+		if !exists {
+			t.Fatal("Expected 'substitution' key to exist in result")
+		}
+
+		var substitutionValues map[string]any
+		if err := yaml.Unmarshal(substitutionValuesData, &substitutionValues); err != nil {
+			t.Fatalf("Failed to unmarshal substitution values: %v", err)
+		}
+
+		// Verify that substitution values are properly merged
+		common, exists := substitutionValues["common"].(map[string]any)
+		if !exists {
+			t.Fatal("Expected 'common' section to exist in substitution values")
+		}
+
+		if common["external_domain"] != "context.test" {
+			t.Errorf("Expected substitution external_domain to be 'context.test', got %v", common["external_domain"])
+		}
+
+		if common["registry_url"] != "registry.local.test" {
+			t.Errorf("Expected substitution registry_url to be 'registry.local.test', got %v", common["registry_url"])
+		}
+
+		// Verify that both local-only and context-only sections are preserved in substitution values
+		if _, exists := substitutionValues["local_only"]; !exists {
+			t.Error("Expected 'local_only' section to be preserved in substitution values")
+		}
+
+		if _, exists := substitutionValues["context_only"]; !exists {
+			t.Error("Expected 'context_only' section to be preserved in substitution values")
+		}
+	})
+
+	t.Run("MergesContextValuesWithTemplateData", func(t *testing.T) {
+		// Given a blueprint handler with template directory and context values
+		handler, mocks := setup(t)
+
+		projectRoot := filepath.Join("/mock", "project")
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
+
+		// Mock shell to return project root
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
+		// Mock config handler to return context
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetContextFunc = func() string {
+				return "test-context"
+			}
+			mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+				return "/mock/project/contexts/test-context", nil
+			}
+		}
+
+		// Mock shims to simulate template directory and values files
+		if baseHandler, ok := handler.(*BaseBlueprintHandler); ok {
+			baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
+				if path == templateDir ||
+					path == filepath.Join(projectRoot, "contexts", "_template", "values.yaml") ||
+					path == "/mock/project/contexts/test-context/values.yaml" {
+					return mockFileInfo{name: "template"}, nil
+				}
+				return nil, os.ErrNotExist
+			}
+
+			baseHandler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+				if path == templateDir {
+					return []os.DirEntry{
+						&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
+					}, nil
+				}
+				return nil, fmt.Errorf("directory not found")
+			}
+
+			baseHandler.shims.ReadFile = func(path string) ([]byte, error) {
+				switch path {
+				case filepath.Join(templateDir, "blueprint.jsonnet"):
+					return []byte("{ kind: 'Blueprint' }"), nil
+				case filepath.Join(projectRoot, "contexts", "_template", "values.yaml"):
+					return []byte(`
+external_domain: template.test
+template_only: template_value
+substitution:
+  common:
+    registry_url: registry.template.test
+`), nil
+				case "/mock/project/contexts/test-context/values.yaml":
+					return []byte(`
+external_domain: context.test
+context_only: context_value
+substitution:
+  common:
+    registry_url: registry.context.test
+  csi:
+    volume_path: /context/volumes
+`), nil
+				default:
+					return nil, fmt.Errorf("file not found: %s", path)
+				}
+			}
+
+			baseHandler.shims.YamlMarshal = func(v any) ([]byte, error) {
+				return yaml.Marshal(v)
+			}
+
+			baseHandler.shims.YamlUnmarshal = func(data []byte, v any) error {
+				return yaml.Unmarshal(data, v)
+			}
+		}
+
+		// When getting local template data
+		result, err := handler.GetLocalTemplateData()
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And result should contain template files
+		if len(result) == 0 {
+			t.Fatal("Expected template data, got empty map")
+		}
+
+		// Check that blueprint.jsonnet is included
+		if _, exists := result["blueprint.jsonnet"]; !exists {
+			t.Error("Expected 'blueprint.jsonnet' to be in result")
+		}
+
+		// Check that values are merged and included
+		valuesData, exists := result["values"]
+		if !exists {
+			t.Fatal("Expected 'values' key to exist in result")
+		}
+
+		var values map[string]any
+		if err := yaml.Unmarshal(valuesData, &values); err != nil {
+			t.Fatalf("Failed to unmarshal values: %v", err)
+		}
+
+		// Context values should override template values
+		if values["external_domain"] != "context.test" {
+			t.Errorf("Expected external_domain to be 'context.test', got %v", values["external_domain"])
+		}
+
+		// Template-only values should be preserved
+		if values["template_only"] != "template_value" {
+			t.Errorf("Expected template_only to be 'template_value', got %v", values["template_only"])
+		}
+
+		// Context-only values should be added
+		if values["context_only"] != "context_value" {
+			t.Errorf("Expected context_only to be 'context_value', got %v", values["context_only"])
+		}
+
+		// Check that substitution values are merged and included
+		substitutionData, exists := result["substitution"]
+		if !exists {
+			t.Fatal("Expected 'substitution' key to exist in result")
+		}
+
+		var substitution map[string]any
+		if err := yaml.Unmarshal(substitutionData, &substitution); err != nil {
+			t.Fatalf("Failed to unmarshal substitution: %v", err)
+		}
+
+		// Check common section merging
+		common, exists := substitution["common"].(map[string]any)
+		if !exists {
+			t.Fatal("Expected 'common' section to exist in substitution")
+		}
+
+		if common["registry_url"] != "registry.context.test" {
+			t.Errorf("Expected registry_url to be 'registry.context.test', got %v", common["registry_url"])
+		}
+
+		// Check context-specific section
+		csi, exists := substitution["csi"].(map[string]any)
+		if !exists {
+			t.Fatal("Expected 'csi' section to exist in substitution")
+		}
+
+		if csi["volume_path"] != "/context/volumes" {
+			t.Errorf("Expected volume_path to be '/context/volumes', got %v", csi["volume_path"])
+		}
+	})
+
+	t.Run("HandlesContextValuesWithoutExistingValues", func(t *testing.T) {
+		// Given a blueprint handler with only context values (no existing OCI values)
+		handler, mocks := setup(t)
+
+		projectRoot := filepath.Join("/mock", "project")
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
+
+		// Mock shell to return project root
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
+		// Mock config handler to return context
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetContextFunc = func() string {
+				return "test-context"
+			}
+			mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+				return "/mock/project/contexts/test-context", nil
+			}
+		}
+
+		// Mock shims to simulate template directory and context values
+		if baseHandler, ok := handler.(*BaseBlueprintHandler); ok {
+			baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
+				if path == templateDir ||
+					path == "/mock/project/contexts/test-context/values.yaml" {
+					return mockFileInfo{name: "template"}, nil
+				}
+				return nil, os.ErrNotExist
+			}
+
+			baseHandler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+				if path == templateDir {
+					return []os.DirEntry{
+						&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
+					}, nil
+				}
+				return nil, fmt.Errorf("directory not found")
+			}
+
+			baseHandler.shims.ReadFile = func(path string) ([]byte, error) {
+				switch path {
+				case filepath.Join(templateDir, "blueprint.jsonnet"):
+					return []byte("{ kind: 'Blueprint' }"), nil
+				case "/mock/project/contexts/test-context/values.yaml":
+					return []byte(`
+external_domain: context.test
+context_only: context_value
+substitution:
+  common:
+    registry_url: registry.context.test
+    context_sub: context_sub_value
+`), nil
+				default:
+					return nil, fmt.Errorf("file not found: %s", path)
+				}
+			}
+
+			baseHandler.shims.YamlMarshal = func(v any) ([]byte, error) {
+				return yaml.Marshal(v)
+			}
+
+			baseHandler.shims.YamlUnmarshal = func(data []byte, v any) error {
+				return yaml.Unmarshal(data, v)
+			}
+		}
+
+		// When getting local template data
+		result, err := handler.GetLocalTemplateData()
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Check that context values are properly included
+		valuesData, exists := result["values"]
+		if !exists {
+			t.Fatal("Expected 'values' key to exist in result")
+		}
+
+		var values map[string]any
+		if err := yaml.Unmarshal(valuesData, &values); err != nil {
+			t.Fatalf("Failed to unmarshal values: %v", err)
+		}
+
+		// Context values should be present
+		if values["external_domain"] != "context.test" {
+			t.Errorf("Expected external_domain to be 'context.test', got %v", values["external_domain"])
+		}
+
+		if values["context_only"] != "context_value" {
+			t.Errorf("Expected context_only to be 'context_value', got %v", values["context_only"])
+		}
+
+		// Check substitution values
+		substitutionData, exists := result["substitution"]
+		if !exists {
+			t.Fatal("Expected 'substitution' key to exist in result")
+		}
+
+		var substitution map[string]any
+		if err := yaml.Unmarshal(substitutionData, &substitution); err != nil {
+			t.Fatalf("Failed to unmarshal substitution: %v", err)
+		}
+
+		common, exists := substitution["common"].(map[string]any)
+		if !exists {
+			t.Fatal("Expected 'common' section to exist in substitution")
+		}
+
+		if common["registry_url"] != "registry.context.test" {
+			t.Errorf("Expected registry_url to be 'registry.context.test', got %v", common["registry_url"])
+		}
+
+		if common["context_sub"] != "context_sub_value" {
+			t.Errorf("Expected context_sub to be 'context_sub_value', got %v", common["context_sub"])
+		}
+	})
+
+	t.Run("HandlesErrorInLoadAndMergeContextValues", func(t *testing.T) {
+		// Given a blueprint handler that fails to load context values
+		handler, mocks := setup(t)
+
+		projectRoot := filepath.Join("/mock", "project")
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
+
+		// Mock shell to return project root
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
+		// Mock shell to fail when getting project root (for loadAndMergeContextValues)
+		if baseHandler, ok := handler.(*BaseBlueprintHandler); ok {
+			// Override the shell in the base handler to return error
+			baseHandler.shell = &shell.MockShell{
+				GetProjectRootFunc: func() (string, error) {
+					return "", fmt.Errorf("project root error")
+				},
+			}
+
+			baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
+				if path == templateDir {
+					return mockFileInfo{name: "template"}, nil
+				}
+				return nil, os.ErrNotExist
+			}
+
+			baseHandler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+				if path == templateDir {
+					return []os.DirEntry{
+						&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
+					}, nil
+				}
+				return nil, fmt.Errorf("directory not found")
+			}
+
+			baseHandler.shims.ReadFile = func(path string) ([]byte, error) {
+				if path == filepath.Join(templateDir, "blueprint.jsonnet") {
+					return []byte("{ kind: 'Blueprint' }"), nil
+				}
+				return nil, fmt.Errorf("file not found: %s", path)
+			}
+		}
+
+		// When getting local template data
+		_, err := handler.GetLocalTemplateData()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error when loadAndMergeContextValues fails")
+		}
+
+		if !strings.Contains(err.Error(), "failed to get project root") {
+			t.Errorf("Expected error about project root, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesYamlMarshalError", func(t *testing.T) {
+		// Given a blueprint handler with context values but YAML marshal error
+		handler, mocks := setup(t)
+
+		projectRoot := filepath.Join("/mock", "project")
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
+
+		// Mock shell to return project root
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
+		// Mock config handler to return context
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetContextFunc = func() string {
+				return "test-context"
+			}
+			mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+				return "/mock/project/contexts/test-context", nil
+			}
+		}
+
+		// Mock shims to simulate template directory and values files
+		if baseHandler, ok := handler.(*BaseBlueprintHandler); ok {
+			baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
+				if path == templateDir ||
+					path == "/mock/project/contexts/test-context/values.yaml" {
+					return mockFileInfo{name: "template"}, nil
+				}
+				return nil, os.ErrNotExist
+			}
+
+			baseHandler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+				if path == templateDir {
+					return []os.DirEntry{
+						&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
+					}, nil
+				}
+				return nil, fmt.Errorf("directory not found")
+			}
+
+			baseHandler.shims.ReadFile = func(path string) ([]byte, error) {
+				switch path {
+				case filepath.Join(templateDir, "blueprint.jsonnet"):
+					return []byte("{ kind: 'Blueprint' }"), nil
+				case "/mock/project/contexts/test-context/values.yaml":
+					return []byte(`external_domain: context.test`), nil
+				default:
+					return nil, fmt.Errorf("file not found: %s", path)
+				}
+			}
+
+			// Mock YAML marshal to return error
+			baseHandler.shims.YamlMarshal = func(v any) ([]byte, error) {
+				return nil, fmt.Errorf("marshal error")
+			}
+
+			baseHandler.shims.YamlUnmarshal = func(data []byte, v any) error {
+				return yaml.Unmarshal(data, v)
+			}
+		}
+
+		// When getting local template data
+		_, err := handler.GetLocalTemplateData()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error when YAML marshal fails")
+		}
+
+		if !strings.Contains(err.Error(), "failed to marshal top-level values") {
+			t.Errorf("Expected error about marshaling top-level values, got: %v", err)
+		}
+	})
+
+}
+
+func TestBaseBlueprintHandler_loadAndMergeValues(t *testing.T) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		return handler, mocks
+	}
+
+	t.Run("ReturnsNilWhenNoValuesFilesExist", func(t *testing.T) {
+		// Given a blueprint handler with no values files
+		handler, _ := setup(t)
+
+		// Mock shims to return error for values files (don't exist)
+		handler.shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		// When loading and merging values
+		result, err := handler.loadAndMergeValues()
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And result should be nil
+		if result != nil {
+			t.Errorf("Expected nil result, got: %v", result)
+		}
+	})
+
+	t.Run("LoadsOnlyTemplateValuesWhenNoContext", func(t *testing.T) {
+		// Given a blueprint handler with only template values and no context
+		handler, mocks := setup(t)
+
+		templateValuesPath := filepath.Join("/mock", "project", "contexts", "_template", "values.yaml")
+
+		// Mock config handler to return empty context
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetContextFunc = func() string {
+				return ""
+			}
+		}
+
+		// Mock shims to return template values file
+		handler.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == templateValuesPath {
+				return mockFileInfo{name: "values.yaml"}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		handler.shims.ReadFile = func(path string) ([]byte, error) {
+			if path == templateValuesPath {
+				return []byte(`common:
+  external_domain: test
+  registry_url: registry.test`), nil
+			}
+			return nil, fmt.Errorf("file not found: %s", path)
+		}
+
+		// When loading and merging values
+		result, err := handler.loadAndMergeValues()
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And result should contain template values
+		if result == nil {
+			t.Fatal("Expected result to contain template values")
+		}
+
+		// Verify the content contains the expected values
+		content := string(result)
+		if !strings.Contains(content, "external_domain: test") {
+			t.Errorf("Expected content to contain 'external_domain: test', got: %s", content)
+		}
+		if !strings.Contains(content, "registry_url: registry.test") {
+			t.Errorf("Expected content to contain 'registry_url: registry.test', got: %s", content)
+		}
+	})
+
+	t.Run("MergesTemplateAndContextValues", func(t *testing.T) {
+		// Given a blueprint handler with both template and context values
+		handler, mocks := setup(t)
+
+		templateValuesPath := filepath.Join("/mock", "project", "contexts", "_template", "values.yaml")
+		contextValuesPath := filepath.Join("/mock", "project", "contexts", "local", "values.yaml")
+
+		// Mock config handler to return context
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetContextFunc = func() string {
+				return "local"
+			}
+			mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+				return filepath.Join("/mock", "project", "contexts", "local"), nil
+			}
+		}
+
+		// Mock shims to return both values files
+		handler.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == templateValuesPath || path == contextValuesPath {
+				return mockFileInfo{name: "values.yaml"}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		handler.shims.ReadFile = func(path string) ([]byte, error) {
+			switch path {
+			case templateValuesPath:
+				return []byte(`common:
+  external_domain: test
+  registry_url: registry.test
+monitoring:
+  enabled: true`), nil
+			case contextValuesPath:
+				return []byte(`common:
+  external_domain: local.test
+logging:
+  enabled: true`), nil
+			default:
+				return nil, fmt.Errorf("file not found: %s", path)
+			}
+		}
+
+		// When loading and merging values
+		result, err := handler.loadAndMergeValues()
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And result should contain merged values
+		if result == nil {
+			t.Fatal("Expected result to contain merged values")
+		}
+
+		// Verify the content contains merged values (context overrides template)
+		content := string(result)
+		if !strings.Contains(content, "external_domain: local.test") {
+			t.Errorf("Expected content to contain overridden 'external_domain: local.test', got: %s", content)
+		}
+		if !strings.Contains(content, "monitoring:") {
+			t.Errorf("Expected content to contain 'monitoring' section, got: %s", content)
+		}
+		if !strings.Contains(content, "logging:") {
+			t.Errorf("Expected content to contain 'logging' section, got: %s", content)
+		}
+
+		// Verify that context values override template values
+		if strings.Contains(content, "external_domain: test") {
+			t.Errorf("Expected template value 'external_domain: test' to be overridden by context value")
+		}
+
+		// For now, just verify that the basic merge functionality works
+		// The exact field preservation depends on YAML marshaling behavior
+		t.Logf("Merged content: %s", content)
+	})
+
+	t.Run("ReturnsErrorWhenTemplateValuesFileCannotBeRead", func(t *testing.T) {
+		// Given a blueprint handler with template values file that cannot be read
+		handler, _ := setup(t)
+
+		templateValuesPath := filepath.Join("/mock", "project", "contexts", "_template", "values.yaml")
+
+		// Mock shims to return template values file exists but read fails
+		handler.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == templateValuesPath {
+				return mockFileInfo{name: "values.yaml"}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		handler.shims.ReadFile = func(path string) ([]byte, error) {
+			if path == templateValuesPath {
+				return nil, fmt.Errorf("failed to read template values file")
+			}
+			return nil, fmt.Errorf("file not found: %s", path)
+		}
+
+		// When loading and merging values
+		result, err := handler.loadAndMergeValues()
+
+		// Then error should occur
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "failed to read template values.yaml") {
+			t.Errorf("Expected error to contain 'failed to read template values.yaml', got: %v", err)
+		}
+
+		// And result should be nil
+		if result != nil {
+			t.Error("Expected result to be nil on error")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenTemplateValuesFileCannotBeParsed", func(t *testing.T) {
+		// Given a blueprint handler with template values file that cannot be parsed
+		handler, _ := setup(t)
+
+		templateValuesPath := filepath.Join("/mock", "project", "contexts", "_template", "values.yaml")
+
+		// Mock shims to return template values file with invalid YAML
+		handler.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == templateValuesPath {
+				return mockFileInfo{name: "values.yaml"}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		handler.shims.ReadFile = func(path string) ([]byte, error) {
+			if path == templateValuesPath {
+				return []byte(`invalid: yaml: content: [with: invalid: syntax`), nil
+			}
+			return nil, fmt.Errorf("file not found: %s", path)
+		}
+
+		// When loading and merging values
+		result, err := handler.loadAndMergeValues()
+
+		// Then error should occur
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "failed to parse template values.yaml") {
+			t.Errorf("Expected error to contain 'failed to parse template values.yaml', got: %v", err)
+		}
+
+		// And result should be nil
+		if result != nil {
+			t.Error("Expected result to be nil on error")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenContextValuesFileCannotBeRead", func(t *testing.T) {
+		// Given a blueprint handler with context values file that cannot be read
+		handler, mocks := setup(t)
+
+		templateValuesPath := filepath.Join("/mock", "project", "contexts", "_template", "values.yaml")
+		contextValuesPath := filepath.Join("/mock", "project", "contexts", "local", "values.yaml")
+
+		// Mock config handler to return context
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetContextFunc = func() string {
+				return "local"
+			}
+			mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+				return filepath.Join("/mock", "project", "contexts", "local"), nil
+			}
+		}
+
+		// Mock shims to return template values file exists but context values file read fails
+		handler.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == templateValuesPath || path == contextValuesPath {
+				return mockFileInfo{name: "values.yaml"}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		handler.shims.ReadFile = func(path string) ([]byte, error) {
+			switch path {
+			case templateValuesPath:
+				return []byte(`common:
+  external_domain: test`), nil
+			case contextValuesPath:
+				return nil, fmt.Errorf("failed to read context values file")
+			default:
+				return nil, fmt.Errorf("file not found: %s", path)
+			}
+		}
+
+		// When loading and merging values
+		result, err := handler.loadAndMergeValues()
+
+		// Then error should occur
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "failed to read context values.yaml") {
+			t.Errorf("Expected error to contain 'failed to read context values.yaml', got: %v", err)
+		}
+
+		// And result should be nil
+		if result != nil {
+			t.Error("Expected result to be nil on error")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenContextValuesFileCannotBeParsed", func(t *testing.T) {
+		// Given a blueprint handler with context values file that cannot be parsed
+		handler, mocks := setup(t)
+
+		templateValuesPath := filepath.Join("/mock", "project", "contexts", "_template", "values.yaml")
+		contextValuesPath := filepath.Join("/mock", "project", "contexts", "local", "values.yaml")
+
+		// Mock config handler to return context
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetContextFunc = func() string {
+				return "local"
+			}
+			mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+				return filepath.Join("/mock", "project", "contexts", "local"), nil
+			}
+		}
+
+		// Mock shims to return template values file exists but context values file has invalid YAML
+		handler.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == templateValuesPath || path == contextValuesPath {
+				return mockFileInfo{name: "values.yaml"}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		handler.shims.ReadFile = func(path string) ([]byte, error) {
+			switch path {
+			case templateValuesPath:
+				return []byte(`common:
+  external_domain: test`), nil
+			case contextValuesPath:
+				return []byte(`invalid: yaml: content: [with: invalid: syntax`), nil
+			default:
+				return nil, fmt.Errorf("file not found: %s", path)
+			}
+		}
+
+		// When loading and merging values
+		result, err := handler.loadAndMergeValues()
+
+		// Then error should occur
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "failed to parse context values.yaml") {
+			t.Errorf("Expected error to contain 'failed to parse context values.yaml', got: %v", err)
+		}
+
+		// And result should be nil
+		if result != nil {
+			t.Error("Expected result to be nil on error")
+		}
+	})
 }
 
 func TestBlueprintHandler_LoadData(t *testing.T) {
@@ -3672,42 +4557,41 @@ func TestBaseBlueprintHandler_applyValuesConfigMaps(t *testing.T) {
 			return []string{}
 		}
 
-		// And mock centralized values.yaml with component values
+		// Mock shell for project root
+		mockShell := handler.shell.(*shell.MockShell)
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/test/project", nil
+		}
+
+		// And mock context values with component values
 		handler.shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == filepath.Join("/test/config", "kustomize") {
-				return &mockFileInfo{name: "kustomize"}, nil
+			if name == "/test/project/contexts/_template/values.yaml" {
+				return &mockFileInfo{name: "values.yaml"}, nil
 			}
-			if name == filepath.Join("/test/config", "kustomize", "values.yaml") {
+			if name == "/test/config/values.yaml" {
 				return &mockFileInfo{name: "values.yaml"}, nil
 			}
 			return nil, os.ErrNotExist
 		}
 
-		// And mock file read for centralized values
+		// And mock file read for context values
 		handler.shims.ReadFile = func(name string) ([]byte, error) {
-			if name == filepath.Join("/test/config", "kustomize", "values.yaml") {
-				return []byte(`common:
-  domain: example.com
-ingress:
-  host: ingress.example.com
-  ssl: true`), nil
+			if name == "/test/project/contexts/_template/values.yaml" {
+				return []byte(`substitution:
+  common:
+    domain: template.com
+  ingress:
+    host: template.example.com`), nil
+			}
+			if name == "/test/config/values.yaml" {
+				return []byte(`substitution:
+  common:
+    domain: example.com
+  ingress:
+    host: ingress.example.com
+    ssl: true`), nil
 			}
 			return nil, os.ErrNotExist
-		}
-
-		// And mock YAML unmarshal
-		handler.shims.YamlUnmarshal = func(data []byte, v any) error {
-			values := v.(*map[string]any)
-			*values = map[string]any{
-				"common": map[string]any{
-					"domain": "example.com",
-				},
-				"ingress": map[string]any{
-					"host": "ingress.example.com",
-					"ssl":  true,
-				},
-			}
-			return nil
 		}
 
 		// And mock Kubernetes manager
@@ -3948,7 +4832,7 @@ ingress:
 		if err == nil {
 			t.Fatal("expected applyValuesConfigMaps to fail with ConfigMap error")
 		}
-		if !strings.Contains(err.Error(), "failed to create merged common values ConfigMap") {
+		if !strings.Contains(err.Error(), "failed to create ConfigMap for component common") {
 			t.Errorf("expected error about common ConfigMap creation, got: %v", err)
 		}
 	})
@@ -5913,6 +6797,1078 @@ func TestBaseBlueprintHandler_SetRenderedKustomizeData(t *testing.T) {
 		// Then complex data should be stored
 		if !reflect.DeepEqual(handler.kustomizeData, complexData) {
 			t.Errorf("Expected kustomizeData = %v, got = %v", complexData, handler.kustomizeData)
+		}
+	})
+}
+
+// =============================================================================
+// Context Values Tests
+// =============================================================================
+
+func TestBaseBlueprintHandler_loadAndMergeContextValues(t *testing.T) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := &BaseBlueprintHandler{
+			shell:         mocks.Shell,
+			configHandler: mocks.ConfigHandler,
+			shims:         mocks.Shims,
+		}
+		return handler, mocks
+	}
+
+	t.Run("ReturnsNilWhenNoValuesFilesExist", func(t *testing.T) {
+		handler, mocks := setup(t)
+
+		// Mock shell to return project root
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/tmp/test", nil
+		}
+
+		// Mock config handler to return context
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetContextFunc = func() string {
+				return "test-context"
+			}
+			mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+				return "/tmp/test/contexts/test-context", nil
+			}
+		}
+
+		// Mock file system - no files exist
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		result, err := handler.loadAndMergeContextValues()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		if result == nil {
+			t.Error("Expected result to not be nil")
+		}
+
+		if len(result.TopLevel) != 0 || len(result.Substitution) != 0 {
+			t.Error("Expected empty context values when no files exist")
+		}
+	})
+
+	t.Run("LoadsOnlyTemplateValuesWhenNoContext", func(t *testing.T) {
+		handler, mocks := setup(t)
+
+		// Mock shell to return project root
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/tmp/test", nil
+		}
+
+		// Mock config handler to return empty context
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetContextFunc = func() string {
+				return ""
+			}
+		}
+
+		// Mock file system - only template values exist
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == "/tmp/test/contexts/_template/values.yaml" {
+				return &mockFileInfo{name: "values.yaml"}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			if name == "/tmp/test/contexts/_template/values.yaml" {
+				return []byte(`
+external_domain: template.test
+substitution:
+  common:
+    registry_url: registry.template.test
+`), nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		result, err := handler.loadAndMergeContextValues()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		if result == nil {
+			t.Fatal("Expected result to not be nil")
+		}
+
+		// Check top-level values
+		if result.TopLevel["external_domain"] != "template.test" {
+			t.Errorf("Expected external_domain to be 'template.test', got %v", result.TopLevel["external_domain"])
+		}
+
+		// Check substitution values
+		common, exists := result.Substitution["common"].(map[string]any)
+		if !exists {
+			t.Fatal("Expected 'common' section to exist in substitution")
+		}
+		if common["registry_url"] != "registry.template.test" {
+			t.Errorf("Expected registry_url to be 'registry.template.test', got %v", common["registry_url"])
+		}
+	})
+
+	t.Run("MergesTemplateAndContextValues", func(t *testing.T) {
+		handler, mocks := setup(t)
+
+		// Mock shell to return project root
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/tmp/test", nil
+		}
+
+		// Mock config handler to return context
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetContextFunc = func() string {
+				return "test-context"
+			}
+			mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+				return "/tmp/test/contexts/test-context", nil
+			}
+		}
+
+		// Mock file system - both template and context values exist
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == "/tmp/test/contexts/_template/values.yaml" ||
+				name == "/tmp/test/contexts/test-context/values.yaml" {
+				return &mockFileInfo{name: "values.yaml"}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			if name == "/tmp/test/contexts/_template/values.yaml" {
+				return []byte(`
+external_domain: template.test
+registry_url: registry.template.test
+template_only: template_value
+nested:
+  template_key: template_value
+  shared_key: template_value
+substitution:
+  common:
+    template_sub: template_sub_value
+    shared_sub: template_sub_value
+`), nil
+			}
+			if name == "/tmp/test/contexts/test-context/values.yaml" {
+				return []byte(`
+external_domain: context.test
+context_only: context_value
+nested:
+  context_key: context_value
+  shared_key: context_value
+substitution:
+  common:
+    context_sub: context_sub_value
+    shared_sub: context_sub_value
+  context_section:
+    context_specific: context_specific_value
+`), nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		result, err := handler.loadAndMergeContextValues()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		if result == nil {
+			t.Fatal("Expected result to not be nil")
+		}
+
+		// Check that context values override template values
+		if result.TopLevel["external_domain"] != "context.test" {
+			t.Errorf("Expected external_domain to be 'context.test', got %v", result.TopLevel["external_domain"])
+		}
+
+		// Check that template-only values are preserved
+		if result.TopLevel["template_only"] != "template_value" {
+			t.Errorf("Expected template_only to be 'template_value', got %v", result.TopLevel["template_only"])
+		}
+
+		// Check that context-only values are added
+		if result.TopLevel["context_only"] != "context_value" {
+			t.Errorf("Expected context_only to be 'context_value', got %v", result.TopLevel["context_only"])
+		}
+
+		// Check nested map merging
+		nested, ok := result.TopLevel["nested"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected nested to be a map")
+		}
+		if nested["template_key"] != "template_value" {
+			t.Errorf("Expected nested.template_key to be 'template_value', got %v", nested["template_key"])
+		}
+		if nested["context_key"] != "context_value" {
+			t.Errorf("Expected nested.context_key to be 'context_value', got %v", nested["context_key"])
+		}
+		if nested["shared_key"] != "context_value" {
+			t.Errorf("Expected nested.shared_key to be 'context_value' (context should override), got %v", nested["shared_key"])
+		}
+
+		// Check substitution merging
+		common, exists := result.Substitution["common"].(map[string]any)
+		if !exists {
+			t.Fatal("Expected 'common' section to exist in substitution")
+		}
+		if common["template_sub"] != "template_sub_value" {
+			t.Errorf("Expected template_sub to be 'template_sub_value', got %v", common["template_sub"])
+		}
+		if common["context_sub"] != "context_sub_value" {
+			t.Errorf("Expected context_sub to be 'context_sub_value', got %v", common["context_sub"])
+		}
+		if common["shared_sub"] != "context_sub_value" {
+			t.Errorf("Expected shared_sub to be 'context_sub_value' (context should override), got %v", common["shared_sub"])
+		}
+
+		// Check context-specific substitution section
+		contextSection, exists := result.Substitution["context_section"].(map[string]any)
+		if !exists {
+			t.Fatal("Expected 'context_section' to exist in substitution")
+		}
+		if contextSection["context_specific"] != "context_specific_value" {
+			t.Errorf("Expected context_specific to be 'context_specific_value', got %v", contextSection["context_specific"])
+		}
+	})
+
+	t.Run("ReturnsErrorWhenTemplateValuesFileCannotBeRead", func(t *testing.T) {
+		handler, mocks := setup(t)
+
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/tmp/test", nil
+		}
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetContextFunc = func() string {
+				return ""
+			}
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return &mockFileInfo{name: "values.yaml"}, nil
+		}
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			return nil, fmt.Errorf("read error")
+		}
+
+		_, err := handler.loadAndMergeContextValues()
+		if err == nil {
+			t.Error("Expected error when template values file cannot be read")
+		}
+		if !strings.Contains(err.Error(), "failed to read template values.yaml") {
+			t.Errorf("Expected error about reading template values, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenTemplateValuesFileCannotBeParsed", func(t *testing.T) {
+		handler, mocks := setup(t)
+
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/tmp/test", nil
+		}
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetContextFunc = func() string {
+				return ""
+			}
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return &mockFileInfo{name: "values.yaml"}, nil
+		}
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			return []byte("invalid: yaml: content: ["), nil
+		}
+
+		_, err := handler.loadAndMergeContextValues()
+		if err == nil {
+			t.Error("Expected error when template values file cannot be parsed")
+		}
+		if !strings.Contains(err.Error(), "failed to parse template values.yaml") {
+			t.Errorf("Expected error about parsing template values, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenContextValuesFileCannotBeRead", func(t *testing.T) {
+		handler, mocks := setup(t)
+
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/tmp/test", nil
+		}
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetContextFunc = func() string {
+				return "test-context"
+			}
+			mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+				return "/tmp/test/contexts/test-context", nil
+			}
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return &mockFileInfo{name: "values.yaml"}, nil
+		}
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			if strings.Contains(name, "_template") {
+				return []byte("external_domain: template.test"), nil
+			}
+			return nil, fmt.Errorf("read error")
+		}
+
+		_, err := handler.loadAndMergeContextValues()
+		if err == nil {
+			t.Error("Expected error when context values file cannot be read")
+		}
+		if !strings.Contains(err.Error(), "failed to read context values.yaml") {
+			t.Errorf("Expected error about reading context values, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenContextValuesFileCannotBeParsed", func(t *testing.T) {
+		handler, mocks := setup(t)
+
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/tmp/test", nil
+		}
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetContextFunc = func() string {
+				return "test-context"
+			}
+			mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+				return "/tmp/test/contexts/test-context", nil
+			}
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return &mockFileInfo{name: "values.yaml"}, nil
+		}
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			if strings.Contains(name, "_template") {
+				return []byte("external_domain: template.test"), nil
+			}
+			return []byte("invalid: yaml: content: ["), nil
+		}
+
+		_, err := handler.loadAndMergeContextValues()
+		if err == nil {
+			t.Error("Expected error when context values file cannot be parsed")
+		}
+		if !strings.Contains(err.Error(), "failed to parse context values.yaml") {
+			t.Errorf("Expected error about parsing context values, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenGetProjectRootFails", func(t *testing.T) {
+		handler, mocks := setup(t)
+
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("project root error")
+		}
+
+		_, err := handler.loadAndMergeContextValues()
+		if err == nil {
+			t.Error("Expected error when GetProjectRoot fails")
+		}
+		if !strings.Contains(err.Error(), "failed to get project root") {
+			t.Errorf("Expected error about project root, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenGetConfigRootFails", func(t *testing.T) {
+		handler, mocks := setup(t)
+
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/tmp/test", nil
+		}
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetContextFunc = func() string {
+				return "test-context"
+			}
+			mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+				return "", fmt.Errorf("config root error")
+			}
+		}
+
+		_, err := handler.loadAndMergeContextValues()
+		if err == nil {
+			t.Error("Expected error when GetConfigRoot fails")
+		}
+		if !strings.Contains(err.Error(), "failed to get config root") {
+			t.Errorf("Expected error about config root, got: %v", err)
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_separateValues(t *testing.T) {
+	setup := func(t *testing.T) *BaseBlueprintHandler {
+		t.Helper()
+		return &BaseBlueprintHandler{}
+	}
+
+	t.Run("SeparatesTopLevelAndSubstitutionValues", func(t *testing.T) {
+		handler := setup(t)
+
+		input := map[string]any{
+			"external_domain": "test.local",
+			"registry_url":    "registry.test.local",
+			"substitution": map[string]any{
+				"common": map[string]any{
+					"sub_domain": "sub.test.local",
+				},
+				"csi": map[string]any{
+					"volume_path": "/volumes",
+				},
+			},
+		}
+
+		result, err := handler.separateValues(input)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Check top-level values
+		if result.TopLevel["external_domain"] != "test.local" {
+			t.Errorf("Expected external_domain to be 'test.local', got %v", result.TopLevel["external_domain"])
+		}
+		if result.TopLevel["registry_url"] != "registry.test.local" {
+			t.Errorf("Expected registry_url to be 'registry.test.local', got %v", result.TopLevel["registry_url"])
+		}
+
+		// Substitution should not be in top-level
+		if _, exists := result.TopLevel["substitution"]; exists {
+			t.Error("Expected substitution to not be in top-level values")
+		}
+
+		// Check substitution values
+		common, exists := result.Substitution["common"].(map[string]any)
+		if !exists {
+			t.Fatal("Expected 'common' section to exist in substitution")
+		}
+		if common["sub_domain"] != "sub.test.local" {
+			t.Errorf("Expected sub_domain to be 'sub.test.local', got %v", common["sub_domain"])
+		}
+
+		csi, exists := result.Substitution["csi"].(map[string]any)
+		if !exists {
+			t.Fatal("Expected 'csi' section to exist in substitution")
+		}
+		if csi["volume_path"] != "/volumes" {
+			t.Errorf("Expected volume_path to be '/volumes', got %v", csi["volume_path"])
+		}
+	})
+
+	t.Run("HandlesEmptyInput", func(t *testing.T) {
+		handler := setup(t)
+
+		result, err := handler.separateValues(map[string]any{})
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		if len(result.TopLevel) != 0 {
+			t.Error("Expected empty top-level values")
+		}
+		if len(result.Substitution) != 0 {
+			t.Error("Expected empty substitution values")
+		}
+	})
+
+	t.Run("HandlesNoSubstitutionSection", func(t *testing.T) {
+		handler := setup(t)
+
+		input := map[string]any{
+			"external_domain": "test.local",
+			"registry_url":    "registry.test.local",
+		}
+
+		result, err := handler.separateValues(input)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Check top-level values
+		if result.TopLevel["external_domain"] != "test.local" {
+			t.Errorf("Expected external_domain to be 'test.local', got %v", result.TopLevel["external_domain"])
+		}
+
+		// Should have empty substitution
+		if len(result.Substitution) != 0 {
+			t.Error("Expected empty substitution values when no substitution section")
+		}
+	})
+
+	t.Run("HandlesInvalidSubstitutionType", func(t *testing.T) {
+		handler := setup(t)
+
+		input := map[string]any{
+			"external_domain": "test.local",
+			"substitution":    "invalid_type", // Should be map[string]any
+		}
+
+		result, err := handler.separateValues(input)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Should still process top-level values
+		if result.TopLevel["external_domain"] != "test.local" {
+			t.Errorf("Expected external_domain to be 'test.local', got %v", result.TopLevel["external_domain"])
+		}
+
+		// Should have empty substitution due to invalid type
+		if len(result.Substitution) != 0 {
+			t.Error("Expected empty substitution values when substitution has invalid type")
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_deepMergeValues(t *testing.T) {
+	setup := func(t *testing.T) *BaseBlueprintHandler {
+		t.Helper()
+		return &BaseBlueprintHandler{}
+	}
+
+	t.Run("MergesSimpleMaps", func(t *testing.T) {
+		handler := setup(t)
+
+		base := map[string]any{
+			"key1": "base_value1",
+			"key2": "base_value2",
+		}
+
+		overlay := map[string]any{
+			"key2": "overlay_value2",
+			"key3": "overlay_value3",
+		}
+
+		result := handler.deepMergeValues(base, overlay)
+
+		if result["key1"] != "base_value1" {
+			t.Errorf("Expected key1 to be 'base_value1', got %v", result["key1"])
+		}
+		if result["key2"] != "overlay_value2" {
+			t.Errorf("Expected key2 to be 'overlay_value2' (overlay should win), got %v", result["key2"])
+		}
+		if result["key3"] != "overlay_value3" {
+			t.Errorf("Expected key3 to be 'overlay_value3', got %v", result["key3"])
+		}
+	})
+
+	t.Run("MergesNestedMaps", func(t *testing.T) {
+		handler := setup(t)
+
+		base := map[string]any{
+			"nested": map[string]any{
+				"base_key":   "base_value",
+				"shared_key": "base_shared",
+			},
+			"top_level": "base_top",
+		}
+
+		overlay := map[string]any{
+			"nested": map[string]any{
+				"overlay_key": "overlay_value",
+				"shared_key":  "overlay_shared",
+			},
+			"overlay_top": "overlay_top_value",
+		}
+
+		result := handler.deepMergeValues(base, overlay)
+
+		// Check top-level merging
+		if result["top_level"] != "base_top" {
+			t.Errorf("Expected top_level to be 'base_top', got %v", result["top_level"])
+		}
+		if result["overlay_top"] != "overlay_top_value" {
+			t.Errorf("Expected overlay_top to be 'overlay_top_value', got %v", result["overlay_top"])
+		}
+
+		// Check nested map merging
+		nested, ok := result["nested"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected nested to be a map")
+		}
+
+		if nested["base_key"] != "base_value" {
+			t.Errorf("Expected base_key to be 'base_value', got %v", nested["base_key"])
+		}
+		if nested["overlay_key"] != "overlay_value" {
+			t.Errorf("Expected overlay_key to be 'overlay_value', got %v", nested["overlay_key"])
+		}
+		if nested["shared_key"] != "overlay_shared" {
+			t.Errorf("Expected shared_key to be 'overlay_shared' (overlay should win), got %v", nested["shared_key"])
+		}
+	})
+
+	t.Run("HandlesDeepNestedMaps", func(t *testing.T) {
+		handler := setup(t)
+
+		base := map[string]any{
+			"level1": map[string]any{
+				"level2": map[string]any{
+					"level3": map[string]any{
+						"base_deep": "base_value",
+						"shared":    "base_shared",
+					},
+				},
+			},
+		}
+
+		overlay := map[string]any{
+			"level1": map[string]any{
+				"level2": map[string]any{
+					"level3": map[string]any{
+						"overlay_deep": "overlay_value",
+						"shared":       "overlay_shared",
+					},
+				},
+			},
+		}
+
+		result := handler.deepMergeValues(base, overlay)
+
+		// Navigate to deep nested map
+		level1, ok := result["level1"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected level1 to be a map")
+		}
+		level2, ok := level1["level2"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected level2 to be a map")
+		}
+		level3, ok := level2["level3"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected level3 to be a map")
+		}
+
+		if level3["base_deep"] != "base_value" {
+			t.Errorf("Expected base_deep to be 'base_value', got %v", level3["base_deep"])
+		}
+		if level3["overlay_deep"] != "overlay_value" {
+			t.Errorf("Expected overlay_deep to be 'overlay_value', got %v", level3["overlay_deep"])
+		}
+		if level3["shared"] != "overlay_shared" {
+			t.Errorf("Expected shared to be 'overlay_shared', got %v", level3["shared"])
+		}
+	})
+
+	t.Run("HandlesNonMapOverlay", func(t *testing.T) {
+		handler := setup(t)
+
+		base := map[string]any{
+			"nested": map[string]any{
+				"key": "value",
+			},
+		}
+
+		overlay := map[string]any{
+			"nested": "string_value", // Not a map
+		}
+
+		result := handler.deepMergeValues(base, overlay)
+
+		// Non-map overlay should replace the entire nested map
+		if result["nested"] != "string_value" {
+			t.Errorf("Expected nested to be 'string_value', got %v", result["nested"])
+		}
+	})
+
+	t.Run("HandlesEmptyMaps", func(t *testing.T) {
+		handler := setup(t)
+
+		base := map[string]any{}
+		overlay := map[string]any{
+			"key": "value",
+		}
+
+		result := handler.deepMergeValues(base, overlay)
+
+		if result["key"] != "value" {
+			t.Errorf("Expected key to be 'value', got %v", result["key"])
+		}
+
+		// Test reverse
+		base2 := map[string]any{
+			"key": "value",
+		}
+		overlay2 := map[string]any{}
+
+		result2 := handler.deepMergeValues(base2, overlay2)
+
+		if result2["key"] != "value" {
+			t.Errorf("Expected key to be 'value', got %v", result2["key"])
+		}
+	})
+}
+
+// =============================================================================
+// Validation Tests
+// =============================================================================
+
+func TestBaseBlueprintHandler_validateValuesForSubstitution(t *testing.T) {
+	setup := func(t *testing.T) *BaseBlueprintHandler {
+		t.Helper()
+		return &BaseBlueprintHandler{}
+	}
+
+	t.Run("AcceptsValidScalarValues", func(t *testing.T) {
+		handler := setup(t)
+
+		values := map[string]any{
+			"string_value":  "test",
+			"int_value":     42,
+			"int8_value":    int8(8),
+			"int16_value":   int16(16),
+			"int32_value":   int32(32),
+			"int64_value":   int64(64),
+			"uint_value":    uint(42),
+			"uint8_value":   uint8(8),
+			"uint16_value":  uint16(16),
+			"uint32_value":  uint32(32),
+			"uint64_value":  uint64(64),
+			"float32_value": float32(3.14),
+			"float64_value": 3.14159,
+			"bool_value":    true,
+		}
+
+		err := handler.validateValuesForSubstitution(values)
+		if err != nil {
+			t.Errorf("Expected no error for valid scalar values, got: %v", err)
+		}
+	})
+
+	t.Run("AcceptsOneLevelOfMapWithScalarValues", func(t *testing.T) {
+		handler := setup(t)
+
+		values := map[string]any{
+			"top_level_string": "value",
+			"scalar_map": map[string]any{
+				"nested_string": "nested_value",
+				"nested_int":    123,
+				"nested_bool":   false,
+			},
+			"another_top_level": 456,
+		}
+
+		err := handler.validateValuesForSubstitution(values)
+		if err != nil {
+			t.Errorf("Expected no error for map with scalar values, got: %v", err)
+		}
+	})
+
+	t.Run("RejectsNestedMaps", func(t *testing.T) {
+		handler := setup(t)
+
+		values := map[string]any{
+			"top_level": map[string]any{
+				"second_level": map[string]any{
+					"third_level": "value",
+				},
+			},
+		}
+
+		err := handler.validateValuesForSubstitution(values)
+		if err == nil {
+			t.Error("Expected error for nested maps")
+		}
+
+		if !strings.Contains(err.Error(), "can only contain scalar values in maps") {
+			t.Errorf("Expected error about scalar values only in maps, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "top_level.second_level") {
+			t.Errorf("Expected error to mention the nested key path, got: %v", err)
+		}
+	})
+
+	t.Run("RejectsSlices", func(t *testing.T) {
+		handler := setup(t)
+
+		values := map[string]any{
+			"valid_string":  "test",
+			"invalid_slice": []any{"item1", "item2", "item3"},
+		}
+
+		err := handler.validateValuesForSubstitution(values)
+		if err == nil {
+			t.Error("Expected error for slice values")
+		}
+
+		if !strings.Contains(err.Error(), "cannot contain slices") {
+			t.Errorf("Expected error about slices, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "invalid_slice") {
+			t.Errorf("Expected error to mention the slice key, got: %v", err)
+		}
+	})
+
+	t.Run("RejectsSlicesInNestedMaps", func(t *testing.T) {
+		handler := setup(t)
+
+		values := map[string]any{
+			"nested_map": map[string]any{
+				"valid_value":   "test",
+				"invalid_slice": []any{"item1", "item2"}, // Use []any to match the type check
+			},
+		}
+
+		err := handler.validateValuesForSubstitution(values)
+		if err == nil {
+			t.Error("Expected error for slice in nested map")
+		}
+
+		if !strings.Contains(err.Error(), "cannot contain slices") {
+			t.Errorf("Expected error about slices, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "nested_map.invalid_slice") {
+			t.Errorf("Expected error to mention the nested slice key path, got: %v", err)
+		}
+	})
+
+	t.Run("RejectsTypedSlices", func(t *testing.T) {
+		handler := setup(t)
+
+		values := map[string]any{
+			"string_slice": []string{"item1", "item2"},
+			"int_slice":    []int{1, 2, 3},
+		}
+
+		err := handler.validateValuesForSubstitution(values)
+		if err == nil {
+			t.Error("Expected error for typed slices")
+		}
+
+		// After the fix, typed slices should now get the specific slice error message
+		if !strings.Contains(err.Error(), "cannot contain slices") {
+			t.Errorf("Expected error about slices for typed slices, got: %v", err)
+		}
+	})
+
+	t.Run("RejectsUnsupportedTypes", func(t *testing.T) {
+		handler := setup(t)
+
+		// Test with a struct (unsupported type)
+		type customStruct struct {
+			Field string
+		}
+
+		values := map[string]any{
+			"valid_string":     "test",
+			"invalid_struct":   customStruct{Field: "value"},
+			"invalid_function": func() {},
+		}
+
+		err := handler.validateValuesForSubstitution(values)
+		if err == nil {
+			t.Error("Expected error for unsupported types")
+		}
+
+		if !strings.Contains(err.Error(), "can only contain strings, numbers, booleans, or maps of scalar types") {
+			t.Errorf("Expected error about unsupported types, got: %v", err)
+		}
+	})
+
+	t.Run("RejectsUnsupportedTypesInNestedMaps", func(t *testing.T) {
+		handler := setup(t)
+
+		values := map[string]any{
+			"nested_map": map[string]any{
+				"valid_value":   "test",
+				"invalid_value": make(chan int), // Channel is unsupported
+			},
+		}
+
+		err := handler.validateValuesForSubstitution(values)
+		if err == nil {
+			t.Error("Expected error for unsupported type in nested map")
+		}
+
+		if !strings.Contains(err.Error(), "can only contain scalar values in maps") {
+			t.Errorf("Expected error about scalar values only in maps, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "nested_map.invalid_value") {
+			t.Errorf("Expected error to mention the nested key path, got: %v", err)
+		}
+	})
+
+	t.Run("RejectsSlicesInMaps", func(t *testing.T) {
+		handler := setup(t)
+
+		values := map[string]any{
+			"config": map[string]any{
+				"valid_key": "test",
+				"slice_key": []string{"item1", "item2"},
+			},
+		}
+
+		err := handler.validateValuesForSubstitution(values)
+		if err == nil {
+			t.Error("Expected error for slices in maps")
+		}
+
+		if !strings.Contains(err.Error(), "cannot contain slices") {
+			t.Errorf("Expected error about slices, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "config.slice_key") {
+			t.Errorf("Expected error to mention the nested slice key path, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesEmptyValues", func(t *testing.T) {
+		handler := setup(t)
+
+		values := map[string]any{}
+
+		err := handler.validateValuesForSubstitution(values)
+		if err != nil {
+			t.Errorf("Expected no error for empty values, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesEmptyNestedMaps", func(t *testing.T) {
+		handler := setup(t)
+
+		values := map[string]any{
+			"empty_nested": map[string]any{},
+			"valid_value":  "test",
+		}
+
+		err := handler.validateValuesForSubstitution(values)
+		if err != nil {
+			t.Errorf("Expected no error for empty nested maps, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesNilValues", func(t *testing.T) {
+		handler := setup(t)
+
+		values := map[string]any{
+			"nil_value":   nil,
+			"valid_value": "test",
+		}
+
+		err := handler.validateValuesForSubstitution(values)
+		if err == nil {
+			t.Error("Expected error for nil values")
+		}
+
+		if !strings.Contains(err.Error(), "cannot contain nil values") {
+			t.Errorf("Expected error about nil values, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesNilValuesInMaps", func(t *testing.T) {
+		handler := setup(t)
+
+		values := map[string]any{
+			"config": map[string]any{
+				"valid_key": "test",
+				"nil_key":   nil,
+			},
+		}
+
+		err := handler.validateValuesForSubstitution(values)
+		if err == nil {
+			t.Error("Expected error for nil values in maps")
+		}
+
+		if !strings.Contains(err.Error(), "cannot contain nil values") {
+			t.Errorf("Expected error about nil values, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "config.nil_key") {
+			t.Errorf("Expected error to mention the nested nil key path, got: %v", err)
+		}
+	})
+
+	t.Run("ValidatesComplexScenario", func(t *testing.T) {
+		handler := setup(t)
+
+		values := map[string]any{
+			"app_name":    "my-app",
+			"app_version": "1.2.3",
+			"replicas":    3,
+			"enabled":     true,
+			"config": map[string]any{
+				"database_url":    "postgres://localhost:5432/mydb",
+				"cache_enabled":   true,
+				"max_connections": 100,
+				"timeout_seconds": 30.5,
+				"debug_mode":      false,
+			},
+			"resources": map[string]any{
+				"cpu_limit":      "500m",
+				"memory_limit":   "512Mi",
+				"cpu_request":    "100m",
+				"memory_request": "128Mi",
+			},
+		}
+
+		err := handler.validateValuesForSubstitution(values)
+		if err != nil {
+			t.Errorf("Expected no error for complex valid scenario, got: %v", err)
+		}
+	})
+
+	t.Run("RejectsComplexScenarioWithInvalidNesting", func(t *testing.T) {
+		handler := setup(t)
+
+		values := map[string]any{
+			"app_name": "my-app",
+			"config": map[string]any{
+				"database": map[string]any{ // Maps cannot contain other maps
+					"host": "localhost",
+					"port": 5432,
+				},
+			},
+		}
+
+		err := handler.validateValuesForSubstitution(values)
+		if err == nil {
+			t.Error("Expected error for invalid nesting in complex scenario")
+		}
+
+		if !strings.Contains(err.Error(), "can only contain scalar values in maps") {
+			t.Errorf("Expected error about scalar values only in maps, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "config.database") {
+			t.Errorf("Expected error to mention the nested path, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesSpecialNumericTypes", func(t *testing.T) {
+		handler := setup(t)
+
+		values := map[string]any{
+			"zero_int":       0,
+			"negative_int":   -42,
+			"zero_float":     0.0,
+			"negative_float": -3.14,
+			"large_uint64":   uint64(18446744073709551615), // Max uint64
+			"small_int8":     int8(-128),                   // Min int8
+		}
+
+		err := handler.validateValuesForSubstitution(values)
+		if err != nil {
+			t.Errorf("Expected no error for special numeric types, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesSpecialStringValues", func(t *testing.T) {
+		handler := setup(t)
+
+		values := map[string]any{
+			"empty_string":  "",
+			"whitespace":    "   ",
+			"newlines":      "line1\nline2",
+			"unicode":       "Hello 世界 🌍",
+			"special_chars": "!@#$%^&*()_+-={}[]|\\:;\"'<>?,./",
+		}
+
+		err := handler.validateValuesForSubstitution(values)
+		if err != nil {
+			t.Errorf("Expected no error for special string values, got: %v", err)
 		}
 	})
 }

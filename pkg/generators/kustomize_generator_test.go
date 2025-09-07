@@ -27,14 +27,14 @@ func TestKustomizeGenerator_Generate_InMemory(t *testing.T) {
 		generator.blueprintHandler = mockBlueprintHandler
 
 		data := map[string]any{
-			"kustomize/patches/test": map[string]any{
+			"patches/test/configmap": map[string]any{
 				"apiVersion": "v1",
 				"kind":       "ConfigMap",
 				"metadata": map[string]any{
 					"name": "test-config",
 				},
 			},
-			"kustomize/values": map[string]any{
+			"substitution": map[string]any{
 				"environment": "test",
 			},
 			"other/file":        "should be ignored",
@@ -50,11 +50,11 @@ func TestKustomizeGenerator_Generate_InMemory(t *testing.T) {
 		if len(setData) != 2 {
 			t.Errorf("expected 2 kustomize items, got %d", len(setData))
 		}
-		if _, exists := setData["kustomize/patches/test"]; !exists {
-			t.Error("expected kustomize/patches/test to be stored")
+		if _, exists := setData["patches/test/configmap"]; !exists {
+			t.Error("expected patches/test/configmap to be stored")
 		}
-		if _, exists := setData["kustomize/values"]; !exists {
-			t.Error("expected kustomize/values to be stored")
+		if _, exists := setData["substitution"]; !exists {
+			t.Error("expected substitution to be stored")
 		}
 		if _, exists := setData["other/file"]; exists {
 			t.Error("expected non-kustomize data to be filtered out")
@@ -96,7 +96,7 @@ func TestKustomizeGenerator_Generate_InMemory(t *testing.T) {
 		generator.blueprintHandler = mockBlueprintHandler
 
 		data := map[string]any{
-			"kustomize/patches/test": "invalid data - should be map",
+			"patches/test/configmap": "invalid data - should be map",
 		}
 
 		err := generator.Generate(data, false)
@@ -135,7 +135,7 @@ func TestKustomizeGenerator_validateKustomizeData(t *testing.T) {
 			},
 		}
 
-		err := generator.validateKustomizeData("kustomize/patches/test", data)
+		err := generator.validateKustomizeData("patches/test/configmap", data)
 		if err != nil {
 			t.Errorf("expected valid patch to pass validation, got: %v", err)
 		}
@@ -147,7 +147,7 @@ func TestKustomizeGenerator_validateKustomizeData(t *testing.T) {
 			// Missing apiVersion and metadata.name
 		}
 
-		err := generator.validateKustomizeData("kustomize/patches/test", data)
+		err := generator.validateKustomizeData("patches/test/configmap", data)
 		if err == nil {
 			t.Error("expected invalid patch to fail validation")
 		}
@@ -160,7 +160,7 @@ func TestKustomizeGenerator_validateKustomizeData(t *testing.T) {
 			"enabled":     true,
 		}
 
-		err := generator.validateKustomizeData("kustomize/values", data)
+		err := generator.validateKustomizeData("substitution", data)
 		if err != nil {
 			t.Errorf("expected valid values to pass validation, got: %v", err)
 		}
@@ -171,14 +171,14 @@ func TestKustomizeGenerator_validateKustomizeData(t *testing.T) {
 			"invalid": []string{"slice", "not", "allowed"},
 		}
 
-		err := generator.validateKustomizeData("kustomize/values", data)
+		err := generator.validateKustomizeData("substitution", data)
 		if err == nil {
 			t.Error("expected invalid values to fail validation")
 		}
 	})
 
 	t.Run("NonMapData", func(t *testing.T) {
-		err := generator.validateKustomizeData("kustomize/patches/test", "not a map")
+		err := generator.validateKustomizeData("patches/test/configmap", "not a map")
 		if err == nil {
 			t.Error("expected non-map data to fail validation")
 		}
@@ -189,7 +189,7 @@ func TestKustomizeGenerator_validateKustomizeData(t *testing.T) {
 
 	t.Run("UnknownKey", func(t *testing.T) {
 		data := map[string]any{"test": "value"}
-		err := generator.validateKustomizeData("kustomize/unknown", data)
+		err := generator.validateKustomizeData("unknown/key", data)
 		if err != nil {
 			t.Errorf("expected unknown key to pass (no validation), got: %v", err)
 		}
@@ -487,6 +487,103 @@ func TestKustomizeGenerator_validatePostBuildValues(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "unsupported type") {
 			t.Errorf("Expected unsupported type error, got: %v", err)
+		}
+	})
+}
+
+func TestKustomizeGenerator_Generate_ValuesHandling(t *testing.T) {
+	t.Run("HandlesKustomizeValuesAsYAMLBytes", func(t *testing.T) {
+		// Given a kustomize generator with YAML values data
+		injector := di.NewInjector()
+		generator := NewKustomizeGenerator(injector)
+
+		// Mock blueprint handler
+		mockBlueprintHandler := &blueprint.MockBlueprintHandler{}
+		var setData map[string]any
+		mockBlueprintHandler.SetRenderedKustomizeDataFunc = func(data map[string]any) {
+			setData = data
+		}
+
+		// Initialize with mock
+		generator.blueprintHandler = mockBlueprintHandler
+
+		// Create YAML values data
+		yamlData := []byte(`common:
+  external_domain: test.example.com
+  registry_url: registry.test.com
+logging:
+  enabled: true
+monitoring:
+  enabled: false`)
+
+		data := map[string]any{
+			"substitution": yamlData,
+		}
+
+		// When Generate is called
+		err := generator.Generate(data, false)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify the data was stored
+		if len(setData) != 1 {
+			t.Errorf("Expected 1 substitution item, got %d", len(setData))
+		}
+		if _, exists := setData["substitution"]; !exists {
+			t.Error("Expected substitution to be stored")
+		}
+	})
+
+	t.Run("HandlesKustomizeValuesAsMap", func(t *testing.T) {
+		// Given a kustomize generator with map values data
+		injector := di.NewInjector()
+		generator := NewKustomizeGenerator(injector)
+
+		// Mock blueprint handler
+		mockBlueprintHandler := &blueprint.MockBlueprintHandler{}
+		var setData map[string]any
+		mockBlueprintHandler.SetRenderedKustomizeDataFunc = func(data map[string]any) {
+			setData = data
+		}
+
+		// Initialize with mock
+		generator.blueprintHandler = mockBlueprintHandler
+
+		// Create map values data
+		mapData := map[string]any{
+			"common": map[string]any{
+				"external_domain": "test.example.com",
+				"registry_url":    "registry.test.com",
+			},
+			"logging": map[string]any{
+				"enabled": true,
+			},
+			"monitoring": map[string]any{
+				"enabled": false,
+			},
+		}
+
+		data := map[string]any{
+			"substitution": mapData,
+		}
+
+		// When Generate is called
+		err := generator.Generate(data, false)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify the data was stored
+		if len(setData) != 1 {
+			t.Errorf("Expected 1 substitution item, got %d", len(setData))
+		}
+		if _, exists := setData["substitution"]; !exists {
+			t.Error("Expected substitution to be stored")
 		}
 	})
 }

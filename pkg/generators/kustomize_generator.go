@@ -68,7 +68,7 @@ func (g *KustomizeGenerator) Generate(data map[string]any, overwrite ...bool) er
 
 	kustomizeData := make(map[string]any)
 	for key, values := range data {
-		if strings.HasPrefix(key, "kustomize/") {
+		if strings.HasPrefix(key, "patches/") || key == "substitution" {
 			if err := g.validateKustomizeData(key, values); err != nil {
 				return fmt.Errorf("invalid kustomize data for key %s: %w", key, err)
 			}
@@ -87,10 +87,12 @@ func (g *KustomizeGenerator) Generate(data map[string]any, overwrite ...bool) er
 // Private Methods
 // =============================================================================
 
-// validateKustomizeData validates kustomize template data based on the key type.
-// Validates patches as Kubernetes manifests and values for post-build substitution compatibility.
+// validateKustomizeData validates kustomize template data for supported kustomize keys.
+// For patch keys, validates the value as a Kubernetes manifest. For values keys, accepts map[string]any or
+// YAML bytes and validates for post-build substitution compatibility. Returns an error if the data is invalid
+// or of unsupported type.
 func (g *KustomizeGenerator) validateKustomizeData(key string, values any) error {
-	if strings.HasPrefix(key, "kustomize/patches/") {
+	if strings.HasPrefix(key, "patches/") {
 		valuesMap, ok := values.(map[string]any)
 		if !ok {
 			return fmt.Errorf("patch values must be a map, got %T", values)
@@ -98,10 +100,17 @@ func (g *KustomizeGenerator) validateKustomizeData(key string, values any) error
 		return g.validateKubernetesManifest(valuesMap)
 	}
 
-	if key == "kustomize/values" {
-		valuesMap, ok := values.(map[string]any)
-		if !ok {
-			return fmt.Errorf("values must be a map, got %T", values)
+	if key == "substitution" {
+		var valuesMap map[string]any
+		switch v := values.(type) {
+		case map[string]any:
+			valuesMap = v
+		case []byte:
+			if err := g.shims.YamlUnmarshal(v, &valuesMap); err != nil {
+				return fmt.Errorf("failed to unmarshal values YAML: %w", err)
+			}
+		default:
+			return fmt.Errorf("values must be a map or YAML bytes, got %T", values)
 		}
 		return g.validatePostBuildValues(valuesMap, "", 0)
 	}
