@@ -2,7 +2,6 @@ package pipelines
 
 import (
 	"os"
-	"os/exec"
 )
 
 // osStat retrieves the file info for a given path
@@ -42,8 +41,6 @@ type Shims struct {
 	RemoveAll func(path string) error
 	MkdirAll  func(path string, perm os.FileMode) error
 	WriteFile func(name string, data []byte, perm os.FileMode) error
-	Command   func(name string, arg ...string) *exec.Cmd
-	CmdOutput func(cmd *exec.Cmd) ([]byte, error)
 }
 
 // NewShims creates a new Shims instance with default system call implementations.
@@ -59,9 +56,5 @@ func NewShims() *Shims {
 		RemoveAll: os.RemoveAll,
 		MkdirAll:  os.MkdirAll,
 		WriteFile: os.WriteFile,
-		Command:   exec.Command,
-		CmdOutput: func(cmd *exec.Cmd) ([]byte, error) {
-			return cmd.Output()
-		},
 	}
 }
