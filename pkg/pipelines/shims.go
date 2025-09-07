@@ -1,8 +1,6 @@
 package pipelines
 
-import (
-	"os"
-)
+import "os"
 
 // osStat retrieves the file info for a given path
 var osStat = os.Stat
