@@ -11,6 +11,7 @@ import (
 	"github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
@@ -300,6 +301,30 @@ func (p *InitPipeline) Execute(ctx context.Context) error {
 	fmt.Fprintln(os.Stderr, "Initialization successful")
 
 	return nil
+}
+
+// prepareTemplateData sets the fallbackBlueprintURL if the default blueprint URL is used.
+// It calls the base pipeline's prepareTemplateData, checks for explicit blueprint context and local templates,
+// and assigns the fallback URL for blueprint processing if necessary.
+// Returns the prepared template data or an error.
+func (p *InitPipeline) prepareTemplateData(ctx context.Context) (map[string][]byte, error) {
+	templateData, err := p.BasePipeline.prepareTemplateData(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if ctx.Value("blueprint") == nil && p.artifactBuilder != nil {
+		blueprintHandler := p.withBlueprintHandler()
+		hasLocalTemplates := false
+		if blueprintHandler != nil {
+			if localTemplateData, err := blueprintHandler.GetLocalTemplateData(); err == nil && len(localTemplateData) > 0 {
+				hasLocalTemplates = true
+			}
+		}
+		if !hasLocalTemplates {
+			p.fallbackBlueprintURL = constants.GetEffectiveBlueprintURL()
+		}
+	}
+	return templateData, nil
 }
 
 // =============================================================================
