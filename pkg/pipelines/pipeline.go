@@ -866,8 +866,9 @@ func (p *BasePipeline) processTemplateData(templateData map[string][]byte) (map[
 	return renderedData, nil
 }
 
-// loadBlueprintFromTemplate loads blueprint data from rendered template data. If the "blueprint" key exists
-// in renderedData and is a map, attempts to parse OCI artifact info from the context's "blueprint" value.
+// loadBlueprintFromTemplate loads blueprint data from rendered template data.
+// If the "blueprint" key exists in renderedData and is a map, attempts to parse OCI artifact info
+// from the context's "blueprint" value or falls back to the default blueprint URL if artifactBuilder is set.
 // Delegates loading to blueprintHandler.LoadData with the parsed blueprint map and optional OCI info.
 func (p *BasePipeline) loadBlueprintFromTemplate(ctx context.Context, renderedData map[string]any) error {
 	if blueprintData, exists := renderedData["blueprint"]; exists {
@@ -892,6 +893,13 @@ func (p *BasePipeline) loadBlueprintFromTemplate(ctx context.Context, renderedDa
 					if err != nil {
 						return err
 					}
+				}
+			} else if p.artifactBuilder != nil {
+				effectiveBlueprintURL := constants.GetEffectiveBlueprintURL()
+				var err error
+				ociInfo, err = bundler.ParseOCIReference(effectiveBlueprintURL)
+				if err != nil {
+					return fmt.Errorf("failed to parse default blueprint reference: %w", err)
 				}
 			}
 
