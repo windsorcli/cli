@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -79,6 +80,19 @@ func setupShims(t *testing.T) *Shims {
 
 	shims.Getenv = func(key string) string {
 		return "" // Default to empty string
+	}
+
+	// Mock Command and CmdOutput to prevent real command execution
+	shims.Command = func(name string, arg ...string) *exec.Cmd {
+		// Return a mock command that won't execute
+		cmd := exec.Command("echo", "mocked")
+		cmd.Path = "/bin/echo" // Use a safe command
+		return cmd
+	}
+
+	shims.CmdOutput = func(cmd *exec.Cmd) ([]byte, error) {
+		// Return mock output for any command
+		return []byte("mocked output"), nil
 	}
 
 	return shims
