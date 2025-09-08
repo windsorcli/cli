@@ -6,7 +6,7 @@ require (
 	github.com/1password/onepassword-sdk-go v0.3.1
 	github.com/abiosoft/colima v0.8.4
 	github.com/briandowns/spinner v1.23.2
-	github.com/compose-spec/compose-go/v2 v2.8.1
+	github.com/compose-spec/compose-go/v2 v2.8.2
 	github.com/fluxcd/helm-controller/api v1.3.0
 	github.com/fluxcd/kustomize-controller/api v1.6.1
 	github.com/fluxcd/pkg/apis/kustomize v1.11.0
@@ -113,7 +113,7 @@ require (
 	github.com/go-openapi/jsonpointer v0.21.1 // indirect
 	github.com/go-openapi/jsonreference v0.21.0 // indirect
 	github.com/go-openapi/swag v0.23.1 // indirect
-	github.com/go-viper/mapstructure/v2 v2.3.0 // indirect
+	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
