@@ -2339,7 +2339,7 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 		// Given a blueprint handler with template directory containing jsonnet files
 		handler, mocks := setup(t)
 
-		projectRoot := filepath.Join("/mock", "project")
+		projectRoot := filepath.Join("mock", "project")
 		templateDir := filepath.Join(projectRoot, "contexts", "_template")
 
 		// Mock shell to return project root
@@ -2465,7 +2465,7 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 		// Given a blueprint handler with template directory that fails to read
 		handler, mocks := setup(t)
 
-		projectRoot := filepath.Join("/mock", "project")
+		projectRoot := filepath.Join("mock", "project")
 		templateDir := filepath.Join(projectRoot, "contexts", "_template")
 
 		// Mock shell to return project root
@@ -2509,22 +2509,31 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 		// Given a blueprint handler with OCI artifact values already in template data
 		handler, mocks := setup(t)
 
-		// Mock local context values
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "/tmp/test", nil
-		}
+		// Ensure the handler uses the mock shell and config handler
 		baseHandler := handler.(*BaseBlueprintHandler)
+		baseHandler.shell = mocks.Shell
+		baseHandler.configHandler = mocks.ConfigHandler
+
+		// Mock local context values
+		projectRoot := filepath.Join("tmp", "test")
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
 		baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if strings.Contains(path, "_template/values.yaml") || strings.Contains(path, "test-context/values.yaml") {
+			// Normalize path separators for cross-platform compatibility
+			normalizedPath := filepath.ToSlash(path)
+			if strings.Contains(normalizedPath, "_template/values.yaml") || strings.Contains(normalizedPath, "test-context/values.yaml") {
 				return &mockFileInfo{isDir: false}, nil
 			}
-			if strings.Contains(path, "_template") && !strings.Contains(path, "values.yaml") {
+			if strings.Contains(normalizedPath, "_template") && !strings.Contains(normalizedPath, "values.yaml") {
 				return &mockFileInfo{isDir: true}, nil
 			}
 			return nil, os.ErrNotExist
 		}
 		baseHandler.shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.Contains(path, "_template/values.yaml") {
+			// Normalize path separators for cross-platform compatibility
+			normalizedPath := filepath.ToSlash(path)
+			if strings.Contains(normalizedPath, "_template/values.yaml") {
 				return []byte(`external_domain: local.test
 registry_url: registry.local.test
 local_only:
@@ -2536,7 +2545,7 @@ substitution:
   local_only:
     enabled: true`), nil
 			}
-			if strings.Contains(path, "test-context/values.yaml") {
+			if strings.Contains(normalizedPath, "test-context/values.yaml") {
 				return []byte(`external_domain: context.test
 context_only:
   enabled: true
@@ -2554,7 +2563,7 @@ substitution:
 			return "test-context"
 		}
 		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "/tmp/test/contexts/test-context", nil
+			return filepath.Join(projectRoot, "contexts", "test-context"), nil
 		}
 
 		// When GetLocalTemplateData is called
@@ -2629,7 +2638,12 @@ substitution:
 		// Given a blueprint handler with template directory and context values
 		handler, mocks := setup(t)
 
-		projectRoot := filepath.Join("/mock", "project")
+		// Ensure the handler uses the mock shell and config handler
+		baseHandler := handler.(*BaseBlueprintHandler)
+		baseHandler.shell = mocks.Shell
+		baseHandler.configHandler = mocks.ConfigHandler
+
+		projectRoot := filepath.Join("mock", "project")
 		templateDir := filepath.Join(projectRoot, "contexts", "_template")
 
 		// Mock shell to return project root
@@ -2643,7 +2657,7 @@ substitution:
 				return "test-context"
 			}
 			mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-				return "/mock/project/contexts/test-context", nil
+				return filepath.Join(projectRoot, "contexts", "test-context"), nil
 			}
 		}
 
@@ -2652,7 +2666,7 @@ substitution:
 			baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
 				if path == templateDir ||
 					path == filepath.Join(projectRoot, "contexts", "_template", "values.yaml") ||
-					path == "/mock/project/contexts/test-context/values.yaml" {
+					path == filepath.Join(projectRoot, "contexts", "test-context", "values.yaml") {
 					return mockFileInfo{name: "template"}, nil
 				}
 				return nil, os.ErrNotExist
@@ -2679,7 +2693,7 @@ substitution:
   common:
     registry_url: registry.template.test
 `), nil
-				case "/mock/project/contexts/test-context/values.yaml":
+				case filepath.Join(projectRoot, "contexts", "test-context", "values.yaml"):
 					return []byte(`
 external_domain: context.test
 context_only: context_value
@@ -2783,7 +2797,12 @@ substitution:
 		// Given a blueprint handler with only context values (no existing OCI values)
 		handler, mocks := setup(t)
 
-		projectRoot := filepath.Join("/mock", "project")
+		// Ensure the handler uses the mock shell and config handler
+		baseHandler := handler.(*BaseBlueprintHandler)
+		baseHandler.shell = mocks.Shell
+		baseHandler.configHandler = mocks.ConfigHandler
+
+		projectRoot := filepath.Join("mock", "project")
 		templateDir := filepath.Join(projectRoot, "contexts", "_template")
 
 		// Mock shell to return project root
@@ -2797,7 +2816,7 @@ substitution:
 				return "test-context"
 			}
 			mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-				return "/mock/project/contexts/test-context", nil
+				return filepath.Join(projectRoot, "contexts", "test-context"), nil
 			}
 		}
 
@@ -2805,7 +2824,7 @@ substitution:
 		if baseHandler, ok := handler.(*BaseBlueprintHandler); ok {
 			baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
 				if path == templateDir ||
-					path == "/mock/project/contexts/test-context/values.yaml" {
+					path == filepath.Join(projectRoot, "contexts", "test-context", "values.yaml") {
 					return mockFileInfo{name: "template"}, nil
 				}
 				return nil, os.ErrNotExist
@@ -2824,7 +2843,7 @@ substitution:
 				switch path {
 				case filepath.Join(templateDir, "blueprint.jsonnet"):
 					return []byte("{ kind: 'Blueprint' }"), nil
-				case "/mock/project/contexts/test-context/values.yaml":
+				case filepath.Join(projectRoot, "contexts", "test-context", "values.yaml"):
 					return []byte(`
 external_domain: context.test
 context_only: context_value
@@ -2904,7 +2923,7 @@ substitution:
 		// Given a blueprint handler that fails to load context values
 		handler, mocks := setup(t)
 
-		projectRoot := filepath.Join("/mock", "project")
+		projectRoot := filepath.Join("mock", "project")
 		templateDir := filepath.Join(projectRoot, "contexts", "_template")
 
 		// Mock shell to return project root
@@ -2962,7 +2981,12 @@ substitution:
 		// Given a blueprint handler with context values but YAML marshal error
 		handler, mocks := setup(t)
 
-		projectRoot := filepath.Join("/mock", "project")
+		// Ensure the handler uses the mock shell and config handler
+		baseHandler := handler.(*BaseBlueprintHandler)
+		baseHandler.shell = mocks.Shell
+		baseHandler.configHandler = mocks.ConfigHandler
+
+		projectRoot := filepath.Join("mock", "project")
 		templateDir := filepath.Join(projectRoot, "contexts", "_template")
 
 		// Mock shell to return project root
@@ -2976,7 +3000,7 @@ substitution:
 				return "test-context"
 			}
 			mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-				return "/mock/project/contexts/test-context", nil
+				return filepath.Join(projectRoot, "contexts", "test-context"), nil
 			}
 		}
 
@@ -2984,7 +3008,8 @@ substitution:
 		if baseHandler, ok := handler.(*BaseBlueprintHandler); ok {
 			baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
 				if path == templateDir ||
-					path == "/mock/project/contexts/test-context/values.yaml" {
+					path == filepath.Join(projectRoot, "contexts", "_template", "values.yaml") ||
+					path == filepath.Join(projectRoot, "contexts", "test-context", "values.yaml") {
 					return mockFileInfo{name: "template"}, nil
 				}
 				return nil, os.ErrNotExist
@@ -3003,7 +3028,9 @@ substitution:
 				switch path {
 				case filepath.Join(templateDir, "blueprint.jsonnet"):
 					return []byte("{ kind: 'Blueprint' }"), nil
-				case "/mock/project/contexts/test-context/values.yaml":
+				case filepath.Join(projectRoot, "contexts", "_template", "values.yaml"):
+					return []byte(`external_domain: template.test`), nil
+				case filepath.Join(projectRoot, "contexts", "test-context", "values.yaml"):
 					return []byte(`external_domain: context.test`), nil
 				default:
 					return nil, fmt.Errorf("file not found: %s", path)
@@ -4527,9 +4554,11 @@ func TestBaseBlueprintHandler_applyValuesConfigMaps(t *testing.T) {
 		handler := setup(t)
 
 		// And mock config root and other config methods
+		projectRoot := filepath.Join("test", "project")
+		configRoot := filepath.Join("test", "config")
 		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
+			return configRoot, nil
 		}
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			switch key {
@@ -4560,15 +4589,15 @@ func TestBaseBlueprintHandler_applyValuesConfigMaps(t *testing.T) {
 		// Mock shell for project root
 		mockShell := handler.shell.(*shell.MockShell)
 		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/test/project", nil
+			return projectRoot, nil
 		}
 
 		// And mock context values with component values
 		handler.shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "/test/project/contexts/_template/values.yaml" {
+			if name == filepath.Join(projectRoot, "contexts", "_template", "values.yaml") {
 				return &mockFileInfo{name: "values.yaml"}, nil
 			}
-			if name == "/test/config/values.yaml" {
+			if name == filepath.Join(configRoot, "values.yaml") {
 				return &mockFileInfo{name: "values.yaml"}, nil
 			}
 			return nil, os.ErrNotExist
@@ -4576,14 +4605,14 @@ func TestBaseBlueprintHandler_applyValuesConfigMaps(t *testing.T) {
 
 		// And mock file read for context values
 		handler.shims.ReadFile = func(name string) ([]byte, error) {
-			if name == "/test/project/contexts/_template/values.yaml" {
+			if name == filepath.Join(projectRoot, "contexts", "_template", "values.yaml") {
 				return []byte(`substitution:
   common:
     domain: template.com
   ingress:
     host: template.example.com`), nil
 			}
-			if name == "/test/config/values.yaml" {
+			if name == filepath.Join(configRoot, "values.yaml") {
 				return []byte(`substitution:
   common:
     domain: example.com
@@ -6858,8 +6887,9 @@ func TestBaseBlueprintHandler_loadAndMergeContextValues(t *testing.T) {
 		handler, mocks := setup(t)
 
 		// Mock shell to return project root
+		projectRoot := filepath.Join("tmp", "test")
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "/tmp/test", nil
+			return projectRoot, nil
 		}
 
 		// Mock config handler to return empty context
@@ -6871,14 +6901,14 @@ func TestBaseBlueprintHandler_loadAndMergeContextValues(t *testing.T) {
 
 		// Mock file system - only template values exist
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "/tmp/test/contexts/_template/values.yaml" {
+			if name == filepath.Join(projectRoot, "contexts", "_template", "values.yaml") {
 				return &mockFileInfo{name: "values.yaml"}, nil
 			}
 			return nil, os.ErrNotExist
 		}
 
 		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			if name == "/tmp/test/contexts/_template/values.yaml" {
+			if name == filepath.Join(projectRoot, "contexts", "_template", "values.yaml") {
 				return []byte(`
 external_domain: template.test
 substitution:
@@ -6917,8 +6947,9 @@ substitution:
 		handler, mocks := setup(t)
 
 		// Mock shell to return project root
+		projectRoot := filepath.Join("tmp", "test")
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "/tmp/test", nil
+			return projectRoot, nil
 		}
 
 		// Mock config handler to return context
@@ -6927,21 +6958,21 @@ substitution:
 				return "test-context"
 			}
 			mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-				return "/tmp/test/contexts/test-context", nil
+				return filepath.Join(projectRoot, "contexts", "test-context"), nil
 			}
 		}
 
 		// Mock file system - both template and context values exist
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "/tmp/test/contexts/_template/values.yaml" ||
-				name == "/tmp/test/contexts/test-context/values.yaml" {
+			if name == filepath.Join(projectRoot, "contexts", "_template", "values.yaml") ||
+				name == filepath.Join(projectRoot, "contexts", "test-context", "values.yaml") {
 				return &mockFileInfo{name: "values.yaml"}, nil
 			}
 			return nil, os.ErrNotExist
 		}
 
 		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			if name == "/tmp/test/contexts/_template/values.yaml" {
+			if name == filepath.Join(projectRoot, "contexts", "_template", "values.yaml") {
 				return []byte(`
 external_domain: template.test
 registry_url: registry.template.test
@@ -6955,7 +6986,7 @@ substitution:
     shared_sub: template_sub_value
 `), nil
 			}
-			if name == "/tmp/test/contexts/test-context/values.yaml" {
+			if name == filepath.Join(projectRoot, "contexts", "test-context", "values.yaml") {
 				return []byte(`
 external_domain: context.test
 context_only: context_value
