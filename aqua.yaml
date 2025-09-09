@@ -13,7 +13,7 @@ registries:
 packages:
 - name: hashicorp/terraform@v1.13.1
 - name: siderolabs/talos@v1.11.1
-- name: siderolabs/omni/omnictl@v1.1.3
+- name: siderolabs/omni/omnictl@v1.1.4
 - name: siderolabs/omni/omni@v1.1.4
 - name: kubernetes/kubectl@v1.34.0
 - name: go-task/task@v3.44.1
