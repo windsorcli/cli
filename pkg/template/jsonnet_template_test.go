@@ -3,7 +3,6 @@ package template
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -239,11 +238,11 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 		// Given a jsonnet template
 		template, _ := setup(t)
 
-		// And template data containing blueprint and kustomize/ .jsonnet files with subdirectory structure
+		// And template data containing blueprint and patches/ .jsonnet files with subdirectory structure
 		templateData := map[string][]byte{
-			"blueprint.jsonnet":                       []byte(`{ kustomize: [{ name: "ingress", patches: [{ path: "ingress/patches/nginx" }] }, { name: "dns", patches: [{ path: "dns/patches/coredns" }] }] }`),
-			"kustomize/ingress/patches/nginx.jsonnet": []byte(`local context = std.extVar("context"); { apiVersion: "v1", kind: "ConfigMap", metadata: { name: "nginx-config" } }`),
-			"kustomize/dns/patches/coredns.jsonnet":   []byte(`local context = std.extVar("context"); { apiVersion: "v1", kind: "ConfigMap", metadata: { name: "coredns-config" } }`),
+			"blueprint.jsonnet":             []byte(`{ kustomize: [{ name: "ingress", patches: [{ path: "nginx" }] }, { name: "dns", patches: [{ path: "coredns" }] }] }`),
+			"patches/ingress/nginx.jsonnet": []byte(`local context = std.extVar("context"); { apiVersion: "v1", kind: "ConfigMap", metadata: { name: "nginx-config" } }`),
+			"patches/dns/coredns.jsonnet":   []byte(`local context = std.extVar("context"); { apiVersion: "v1", kind: "ConfigMap", metadata: { name: "coredns-config" } }`),
 		}
 		renderedData := make(map[string]any)
 
@@ -253,7 +252,7 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 				EvaluateFunc: func(filename, snippet string) (string, error) {
 					if strings.Contains(snippet, `kustomize:`) && strings.Contains(snippet, `patches:`) {
 						// This is the blueprint template
-						return `{"kustomize": [{"name": "ingress", "patches": [{"path": "ingress/patches/nginx"}]}, {"name": "dns", "patches": [{"path": "dns/patches/coredns"}]}]}`, nil
+						return `{"kustomize": [{"name": "ingress", "patches": [{"path": "nginx"}]}, {"name": "dns", "patches": [{"path": "coredns"}]}]}`, nil
 					}
 					if strings.Contains(snippet, `nginx-config`) {
 						return `{"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "nginx-config"}}`, nil
@@ -277,7 +276,7 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		// And the rendered data should contain the blueprint and patch manifests with preserved path structure
+		// And the rendered data should contain the blueprint and patch manifests
 		if len(renderedData) != 3 {
 			t.Errorf("Expected 3 rendered items (blueprint + 2 patches), got %d", len(renderedData))
 		}
@@ -287,17 +286,17 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 			t.Error("Expected blueprint to be rendered")
 		}
 
-		// Verify that the full path structure is preserved (not flattened)
-		if _, exists := renderedData["kustomize/patches/ingress/patches/nginx"]; !exists {
-			t.Error("Expected kustomize/patches/ingress/patches/nginx to be rendered with preserved path structure")
+		// Verify that patches are rendered with correct paths
+		if _, exists := renderedData["patches/ingress/nginx"]; !exists {
+			t.Error("Expected patches/ingress/nginx to be rendered")
 		}
 
-		if _, exists := renderedData["kustomize/patches/dns/patches/coredns"]; !exists {
-			t.Error("Expected kustomize/patches/dns/patches/coredns to be rendered with preserved path structure")
+		if _, exists := renderedData["patches/dns/coredns"]; !exists {
+			t.Error("Expected patches/dns/coredns to be rendered")
 		}
 
 		// Verify the content is correctly processed
-		nginxPatch, ok := renderedData["kustomize/patches/ingress/patches/nginx"].(map[string]any)
+		nginxPatch, ok := renderedData["patches/ingress/nginx"].(map[string]any)
 		if !ok {
 			t.Error("Expected nginx patch to be a map")
 		} else {
@@ -309,7 +308,7 @@ func TestJsonnetTemplate_Process(t *testing.T) {
 			}
 		}
 
-		corednsPatch, ok := renderedData["kustomize/patches/dns/patches/coredns"].(map[string]any)
+		corednsPatch, ok := renderedData["patches/dns/coredns"].(map[string]any)
 		if !ok {
 			t.Error("Expected coredns patch to be a map")
 		} else {
@@ -515,7 +514,7 @@ func TestJsonnetTemplate_processJsonnetTemplate(t *testing.T) {
 		templateContent := `local context = std.extVar("context"); { key: "value", number: 42 }`
 
 		// When processing the jsonnet template
-		result, err := template.processJsonnetTemplate(templateContent)
+		result, err := template.processJsonnetTemplate(templateContent, nil)
 
 		// Then no error should be returned
 		if err != nil {
@@ -543,7 +542,7 @@ func TestJsonnetTemplate_processJsonnetTemplate(t *testing.T) {
 		templateContent := `local context = std.extVar("context"); { key: "value" }`
 
 		// When processing the jsonnet template
-		_, err := template.processJsonnetTemplate(templateContent)
+		_, err := template.processJsonnetTemplate(templateContent, nil)
 
 		// Then an error should be returned
 		if err == nil {
@@ -571,7 +570,7 @@ func TestJsonnetTemplate_processJsonnetTemplate(t *testing.T) {
 		templateContent := `local context = std.extVar("context"); { key: "value" }`
 
 		// When processing the jsonnet template
-		_, err := template.processJsonnetTemplate(templateContent)
+		_, err := template.processJsonnetTemplate(templateContent, nil)
 
 		// Then an error should be returned
 		if err == nil {
@@ -599,7 +598,7 @@ func TestJsonnetTemplate_processJsonnetTemplate(t *testing.T) {
 		templateContent := `local context = std.extVar("context"); { key: "value" }`
 
 		// When processing the jsonnet template
-		_, err := template.processJsonnetTemplate(templateContent)
+		_, err := template.processJsonnetTemplate(templateContent, nil)
 
 		// Then an error should be returned
 		if err == nil {
@@ -627,7 +626,7 @@ func TestJsonnetTemplate_processJsonnetTemplate(t *testing.T) {
 		templateContent := `local context = std.extVar("context"); { key: "value" }`
 
 		// When processing the jsonnet template
-		_, err := template.processJsonnetTemplate(templateContent)
+		_, err := template.processJsonnetTemplate(templateContent, nil)
 
 		// Then an error should be returned
 		if err == nil {
@@ -660,7 +659,7 @@ func TestJsonnetTemplate_processJsonnetTemplate(t *testing.T) {
 		templateContent := `invalid jsonnet syntax`
 
 		// When processing the jsonnet template
-		_, err := template.processJsonnetTemplate(templateContent)
+		_, err := template.processJsonnetTemplate(templateContent, nil)
 
 		// Then an error should be returned
 		if err == nil {
@@ -693,7 +692,7 @@ func TestJsonnetTemplate_processJsonnetTemplate(t *testing.T) {
 		templateContent := `local context = std.extVar("context"); "not an object"`
 
 		// When processing the jsonnet template
-		_, err := template.processJsonnetTemplate(templateContent)
+		_, err := template.processJsonnetTemplate(templateContent, nil)
 
 		// Then an error should be returned
 		if err == nil {
@@ -752,7 +751,7 @@ contexts:
 		templateContent := `local context = std.extVar("context"); { processed: true, name: context.name, projectName: context.projectName }`
 
 		// When processing the jsonnet template
-		result, err := template.processJsonnetTemplate(templateContent)
+		result, err := template.processJsonnetTemplate(templateContent, nil)
 
 		// Then no error should be returned
 		if err != nil {
@@ -805,7 +804,7 @@ contexts:
 		templateContent := `local context = std.extVar("context"); { minimal: true }`
 
 		// When processing the jsonnet template
-		result, err := template.processJsonnetTemplate(templateContent)
+		result, err := template.processJsonnetTemplate(templateContent, nil)
 
 		// Then no error should be returned
 		if err != nil {
@@ -841,7 +840,7 @@ contexts:
 		templateContent := `local context = std.extVar("context"); local helpers = std.extVar("helpers"); { test: "value" }`
 
 		// When processing the jsonnet template
-		result, err := template.processJsonnetTemplate(templateContent)
+		result, err := template.processJsonnetTemplate(templateContent, nil)
 
 		// Then no error should be returned
 		if err != nil {
@@ -892,7 +891,7 @@ contexts:
 		templateContent := `local context = std.extVar("context"); { test: "value" }`
 
 		// When processing the jsonnet template
-		result, err := template.processJsonnetTemplate(templateContent)
+		result, err := template.processJsonnetTemplate(templateContent, nil)
 
 		// Then no error should be returned
 		if err != nil {
@@ -955,7 +954,7 @@ contexts:
 		templateContent := `local context = std.extVar("context"); local helpers = std.extVar("helpers"); helpers.removeEmptyKeys({})`
 
 		// When processing the jsonnet template
-		result, err := template.processJsonnetTemplate(templateContent)
+		result, err := template.processJsonnetTemplate(templateContent, nil)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1016,7 +1015,7 @@ hlp.removeEmptyKeys({
 })`
 
 		// When processing the jsonnet template
-		result, err := template.processJsonnetTemplate(templateContent)
+		result, err := template.processJsonnetTemplate(templateContent, nil)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1052,7 +1051,7 @@ hlp.removeEmptyKeys({
 		templateContent := `local context = std.extVar("context"); local helpers = std.extVar("helpers"); {"hasRemoveEmptyKeys": "removeEmptyKeys" in helpers}`
 
 		// When processing the jsonnet template
-		result, err := template.processJsonnetTemplate(templateContent)
+		result, err := template.processJsonnetTemplate(templateContent, nil)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1092,7 +1091,7 @@ hlp.removeEmptyKeys({
 		templateContent := `local context = std.extVar("context"); local helpers = std.extVar("helpers"); helpers.removeEmptyKeys({test: "value", array: ["valid", "", null, "another"]})`
 
 		// When processing the jsonnet template
-		result, err := template.processJsonnetTemplate(templateContent)
+		result, err := template.processJsonnetTemplate(templateContent, nil)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1134,7 +1133,7 @@ func TestJsonnetTemplate_RealShimsIntegration(t *testing.T) {
 
 		// When processing a simple jsonnet template using real shims
 		templateContent := `local context = std.extVar("context"); { result: "success", hasContext: std.objectHas(context, "name") }`
-		result, err := template.processJsonnetTemplate(templateContent)
+		result, err := template.processJsonnetTemplate(templateContent, nil)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1297,7 +1296,7 @@ func TestJsonnetTemplate_processJsonnetTemplateWithHelpers(t *testing.T) {
 		templateContent := `local helpers = std.extVar("helpers"); local context = std.extVar("context"); { result: helpers.getString(context, "dns.domain", "default") }`
 
 		// When processing the jsonnet template
-		_, err := template.processJsonnetTemplate(templateContent)
+		_, err := template.processJsonnetTemplate(templateContent, nil)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1382,7 +1381,7 @@ tags:
 		}
 
 		// When processing a template that uses helper functions
-		result, err := template.processJsonnetTemplate(templateContent)
+		result, err := template.processJsonnetTemplate(templateContent, nil)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1476,7 +1475,7 @@ local context = std.extVar("context");
   totallyMissing: helpers.getString(context, "not.there.at.all", "default"),
 }`
 
-		result, err := template.processJsonnetTemplate(templateContent)
+		result, err := template.processJsonnetTemplate(templateContent, nil)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1553,7 +1552,7 @@ local helpers = std.extVar("helpers");
 			return []byte("contexts:\n  mock-context: {}"), nil
 		}
 
-		result, err := template.processJsonnetTemplate(templateContent)
+		result, err := template.processJsonnetTemplate(templateContent, nil)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1576,7 +1575,7 @@ local helpers = std.extVar("helpers");
 			return []byte("contexts:\n  mock-context: {}"), nil
 		}
 
-		result, err := template.processJsonnetTemplate(templateContent)
+		result, err := template.processJsonnetTemplate(templateContent, nil)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1599,7 +1598,7 @@ local helpers = std.extVar("helpers");
 			return []byte("contexts:\n  mock-context: {}"), nil
 		}
 
-		result, err := template.processJsonnetTemplate(templateContent)
+		result, err := template.processJsonnetTemplate(templateContent, nil)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1622,7 +1621,7 @@ local helpers = std.extVar("helpers");
 			return []byte("contexts:\n  mock-context: {}"), nil
 		}
 
-		result, err := template.processJsonnetTemplate(templateContent)
+		result, err := template.processJsonnetTemplate(templateContent, nil)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1655,7 +1654,7 @@ local helpers = std.extVar("helpers");
 			return mockVM
 		}
 
-		result, err := template.processJsonnetTemplate(templateContent)
+		result, err := template.processJsonnetTemplate(templateContent, nil)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1691,7 +1690,7 @@ local context = std.extVar("context");
 			return []byte("provider: aws"), nil
 		}
 
-		result, err := template.processJsonnetTemplate(templateContent)
+		result, err := template.processJsonnetTemplate(templateContent, nil)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1715,7 +1714,7 @@ local context = std.extVar("context");
 			return []byte("{}"), nil
 		}
 
-		result, err := template.processJsonnetTemplate(templateContent)
+		result, err := template.processJsonnetTemplate(templateContent, nil)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1739,7 +1738,7 @@ local context = std.extVar("context");
 			return []byte("provider: 123"), nil
 		}
 
-		_, err := template.processJsonnetTemplate(templateContent)
+		_, err := template.processJsonnetTemplate(templateContent, nil)
 
 		if err == nil {
 			t.Error("Expected error for wrong type, got none")
@@ -1763,7 +1762,7 @@ local context = std.extVar("context");
 			return []byte("vm:\n  cores: \"not-a-number\""), nil
 		}
 
-		_, err := template.processJsonnetTemplate(templateContent)
+		_, err := template.processJsonnetTemplate(templateContent, nil)
 
 		if err == nil {
 			t.Error("Expected error for wrong type, got none")
@@ -1787,7 +1786,7 @@ local context = std.extVar("context");
 			return []byte("feature:\n  enabled: \"yes\""), nil
 		}
 
-		_, err := template.processJsonnetTemplate(templateContent)
+		_, err := template.processJsonnetTemplate(templateContent, nil)
 
 		if err == nil {
 			t.Error("Expected error for wrong type, got none")
@@ -1811,7 +1810,7 @@ local context = std.extVar("context");
 			return []byte("cluster: \"not-an-object\""), nil
 		}
 
-		_, err := template.processJsonnetTemplate(templateContent)
+		_, err := template.processJsonnetTemplate(templateContent, nil)
 
 		if err == nil {
 			t.Error("Expected error for wrong type, got none")
@@ -1835,7 +1834,7 @@ local context = std.extVar("context");
 			return []byte("tags: \"not-an-array\""), nil
 		}
 
-		_, err := template.processJsonnetTemplate(templateContent)
+		_, err := template.processJsonnetTemplate(templateContent, nil)
 
 		if err == nil {
 			t.Error("Expected error for wrong type, got none")
@@ -1843,325 +1842,6 @@ local context = std.extVar("context");
 
 		if !strings.Contains(err.Error(), "Expected array for 'tags' but got string") {
 			t.Errorf("Expected type error message, got: %v", err)
-		}
-	})
-}
-
-func TestJsonnetTemplate_extractValuesReferences(t *testing.T) {
-	setup := func(t *testing.T) (*JsonnetTemplate, *Mocks) {
-		t.Helper()
-		mocks, template := setupJsonnetTemplateMocks(t)
-		return template, mocks
-	}
-
-	t.Run("EmptyRenderedData", func(t *testing.T) {
-		// Given a template and empty rendered data
-		template, _ := setup(t)
-
-		// When extracting values references
-		result := template.extractValuesReferences(map[string]any{})
-
-		// Then should return empty slice
-		if len(result) != 0 {
-			t.Errorf("expected empty slice, got %d items", len(result))
-		}
-	})
-
-	t.Run("MissingBlueprint", func(t *testing.T) {
-		// Given rendered data without blueprint
-		template, _ := setup(t)
-		renderedData := map[string]any{
-			"other": "data",
-		}
-
-		// When extracting values references
-		result := template.extractValuesReferences(renderedData)
-
-		// Then should return empty slice
-		if len(result) != 0 {
-			t.Errorf("expected empty slice, got %d items", len(result))
-		}
-	})
-
-	t.Run("BlueprintNotMap", func(t *testing.T) {
-		// Given rendered data with blueprint as string
-		template, _ := setup(t)
-		renderedData := map[string]any{
-			"blueprint": "not a map",
-		}
-
-		// When extracting values references
-		result := template.extractValuesReferences(renderedData)
-
-		// Then should return empty slice
-		if len(result) != 0 {
-			t.Errorf("expected empty slice, got %d items", len(result))
-		}
-	})
-
-	t.Run("MissingKustomize", func(t *testing.T) {
-		// Given rendered data with blueprint but no kustomize
-		template, _ := setup(t)
-		renderedData := map[string]any{
-			"blueprint": map[string]any{
-				"other": "data",
-			},
-		}
-
-		// When extracting values references
-		result := template.extractValuesReferences(renderedData)
-
-		// Then should return empty slice
-		if len(result) != 0 {
-			t.Errorf("expected empty slice, got %d items", len(result))
-		}
-	})
-
-	t.Run("KustomizeNotArray", func(t *testing.T) {
-		// Given rendered data with kustomize as string
-		template, _ := setup(t)
-		renderedData := map[string]any{
-			"blueprint": map[string]any{
-				"kustomize": "not an array",
-			},
-		}
-
-		// When extracting values references
-		result := template.extractValuesReferences(renderedData)
-
-		// Then should return empty slice
-		if len(result) != 0 {
-			t.Errorf("expected empty slice, got %d items", len(result))
-		}
-	})
-
-	t.Run("ValidBlueprintWithKustomize", func(t *testing.T) {
-		// Given valid rendered data with kustomize array
-		template, mocks := setup(t)
-
-		// Initialize the template first
-		_ = template.Initialize()
-
-		renderedData := map[string]any{
-			"blueprint": map[string]any{
-				"kustomize": []any{
-					map[string]any{"name": "test"},
-				},
-			},
-		}
-
-		// Mock shell to return project root
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "/test/project", nil
-		}
-
-		// Mock template shims for directory operations
-		template.shims.ReadDir = func(name string) ([]os.DirEntry, error) {
-			return []os.DirEntry{
-				&mockDirEntry{name: "ingress", isDir: true},
-				&mockDirEntry{name: "database", isDir: true},
-				&mockDirEntry{name: "file.txt", isDir: false},
-			}, nil
-		}
-		template.shims.Stat = func(name string) (os.FileInfo, error) {
-			// Return success for values.jsonnet files
-			if strings.HasSuffix(name, "values.jsonnet") {
-				return &mockFileInfo{name: "values.jsonnet", isDir: false}, nil
-			}
-			return nil, fmt.Errorf("file not found")
-		}
-
-		// When extracting values references
-		result := template.extractValuesReferences(renderedData)
-
-		// Then should include only the centralized values template
-		expected := []string{
-			"kustomize/values.jsonnet",
-		}
-		if len(result) != len(expected) {
-			t.Errorf("expected %d items, got %d", len(expected), len(result))
-		}
-		for i, expectedPath := range expected {
-			if i >= len(result) {
-				t.Errorf("missing expected path: %s", expectedPath)
-				continue
-			}
-			if result[i] != expectedPath {
-				t.Errorf("expected path %s at index %d, got %s", expectedPath, i, result[i])
-			}
-		}
-	})
-
-	t.Run("GetProjectRootError", func(t *testing.T) {
-		// Given valid rendered data but shell error
-		template, mocks := setup(t)
-
-		// Initialize the template first
-		_ = template.Initialize()
-
-		renderedData := map[string]any{
-			"blueprint": map[string]any{
-				"kustomize": []any{
-					map[string]any{"name": "test"},
-				},
-			},
-		}
-
-		// Mock shell to return error
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "", fmt.Errorf("project root error")
-		}
-
-		// When extracting values references
-		result := template.extractValuesReferences(renderedData)
-
-		// Then should only include the centralized values template (no discovery)
-		expected := []string{"kustomize/values.jsonnet"}
-		if len(result) != len(expected) {
-			t.Errorf("expected %d items, got %d", len(expected), len(result))
-		}
-		if len(result) > 0 && result[0] != expected[0] {
-			t.Errorf("expected path %s, got %s", expected[0], result[0])
-		}
-	})
-
-	t.Run("ReadDirError", func(t *testing.T) {
-		// Given valid rendered data but directory read error
-		template, mocks := setup(t)
-
-		// Initialize the template first
-		_ = template.Initialize()
-
-		renderedData := map[string]any{
-			"blueprint": map[string]any{
-				"kustomize": []any{
-					map[string]any{"name": "test"},
-				},
-			},
-		}
-
-		// Mock shell to return project root
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "/test/project", nil
-		}
-
-		// Mock template shims to return error for ReadDir
-		template.shims.ReadDir = func(name string) ([]os.DirEntry, error) {
-			return nil, fmt.Errorf("read dir error")
-		}
-
-		// When extracting values references
-		result := template.extractValuesReferences(renderedData)
-
-		// Then should only include global values (no discovery)
-		expected := []string{"kustomize/values.jsonnet"}
-		if len(result) != len(expected) {
-			t.Errorf("expected %d items, got %d", len(expected), len(result))
-		}
-		if len(result) > 0 && result[0] != expected[0] {
-			t.Errorf("expected path %s, got %s", expected[0], result[0])
-		}
-	})
-
-	t.Run("ComponentValuesFileNotExists", func(t *testing.T) {
-		// Given valid rendered data but component values file doesn't exist
-		template, mocks := setup(t)
-
-		// Initialize the template first
-		_ = template.Initialize()
-
-		renderedData := map[string]any{
-			"blueprint": map[string]any{
-				"kustomize": []any{
-					map[string]any{"name": "test"},
-				},
-			},
-		}
-
-		// Mock shell to return project root
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "/test/project", nil
-		}
-
-		// Mock template shims for directory operations
-		template.shims.ReadDir = func(name string) ([]os.DirEntry, error) {
-			return []os.DirEntry{
-				&mockDirEntry{name: "ingress", isDir: true},
-			}, nil
-		}
-		template.shims.Stat = func(name string) (os.FileInfo, error) {
-			// Return error for all values.jsonnet files (they don't exist)
-			return nil, fmt.Errorf("file not found")
-		}
-
-		// When extracting values references
-		result := template.extractValuesReferences(renderedData)
-
-		// Then should only include global values (no component values found)
-		expected := []string{"kustomize/values.jsonnet"}
-		if len(result) != len(expected) {
-			t.Errorf("expected %d items, got %d", len(expected), len(result))
-		}
-		if len(result) > 0 && result[0] != expected[0] {
-			t.Errorf("expected path %s, got %s", expected[0], result[0])
-		}
-	})
-
-	t.Run("MixedComponents", func(t *testing.T) {
-		// Given valid rendered data with mixed components (some with values, some without)
-		template, mocks := setup(t)
-
-		// Initialize the template first
-		_ = template.Initialize()
-
-		renderedData := map[string]any{
-			"blueprint": map[string]any{
-				"kustomize": []any{
-					map[string]any{"name": "test"},
-				},
-			},
-		}
-
-		// Mock shell to return project root
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "/test/project", nil
-		}
-
-		// Mock template shims for directory operations
-		template.shims.ReadDir = func(name string) ([]os.DirEntry, error) {
-			return []os.DirEntry{
-				&mockDirEntry{name: "ingress", isDir: true},
-				&mockDirEntry{name: "database", isDir: true},
-				&mockDirEntry{name: "api", isDir: true},
-			}, nil
-		}
-		template.shims.Stat = func(name string) (os.FileInfo, error) {
-			// Only ingress and database have values.jsonnet files
-			// Use filepath operations to handle cross-platform path separators
-			if strings.Contains(name, filepath.Join("ingress", "values.jsonnet")) || strings.Contains(name, filepath.Join("database", "values.jsonnet")) {
-				return &mockFileInfo{name: "values.jsonnet", isDir: false}, nil
-			}
-			return nil, fmt.Errorf("file not found")
-		}
-
-		// When extracting values references
-		result := template.extractValuesReferences(renderedData)
-
-		// Then should include only the centralized values template
-		expected := []string{
-			"kustomize/values.jsonnet",
-		}
-		if len(result) != len(expected) {
-			t.Errorf("expected %d items, got %d", len(expected), len(result))
-		}
-		for i, expectedPath := range expected {
-			if i >= len(result) {
-				t.Errorf("missing expected path: %s", expectedPath)
-				continue
-			}
-			if result[i] != expectedPath {
-				t.Errorf("expected path %s at index %d, got %s", expectedPath, i, result[i])
-			}
 		}
 	})
 }
@@ -2292,11 +1972,11 @@ func TestJsonnetTemplate_processTemplate(t *testing.T) {
 		}
 	})
 
-	t.Run("KustomizePatchJsonnet", func(t *testing.T) {
-		// Given a template and kustomize patch content
+	t.Run("PatchJsonnet", func(t *testing.T) {
+		// Given a template and patch content
 		template, _ := setup(t)
 		templateData := map[string][]byte{
-			"kustomize/ingress/patch.jsonnet": []byte(`{ apiVersion: "v1", kind: "ConfigMap" }`),
+			"patches/ingress/patch.jsonnet": []byte(`{ apiVersion: "v1", kind: "ConfigMap" }`),
 		}
 		renderedData := map[string]any{}
 
@@ -2309,15 +1989,15 @@ func TestJsonnetTemplate_processTemplate(t *testing.T) {
 			}
 		}
 
-		// When processing kustomize patch
-		err := template.processTemplate("kustomize/ingress/patch.jsonnet", templateData, renderedData)
+		// When processing patch
+		err := template.processTemplate("patches/ingress/patch.jsonnet", templateData, renderedData)
 
-		// Then should succeed and add kustomize data
+		// Then should succeed and add patch data
 		if err != nil {
 			t.Fatalf("expected no error, got: %v", err)
 		}
-		if renderedData["kustomize/patches/ingress/patch"] == nil {
-			t.Error("expected kustomize patch data to be added")
+		if renderedData["patches/ingress/patch"] == nil {
+			t.Error("expected patch data to be added")
 		}
 	})
 
@@ -2329,24 +2009,15 @@ func TestJsonnetTemplate_processTemplate(t *testing.T) {
 		}
 		renderedData := map[string]any{}
 
-		// Mock jsonnet processing
-		template.shims.NewJsonnetVM = func() JsonnetVM {
-			return &mockJsonnetVM{
-				EvaluateFunc: func(filename, snippet string) (string, error) {
-					return `{"domain":"example.com"}`, nil
-				},
-			}
-		}
-
-		// When processing global values
+		// When processing global values (should be skipped)
 		err := template.processTemplate("kustomize/values.jsonnet", templateData, renderedData)
 
-		// Then should succeed and add values/global data
+		// Then should succeed but not add any data (skipped)
 		if err != nil {
 			t.Fatalf("expected no error, got: %v", err)
 		}
-		if renderedData["kustomize/values"] == nil {
-			t.Error("expected kustomize/values data to be added")
+		if renderedData["kustomize/values"] != nil {
+			t.Error("expected kustomize/values to be skipped, but data was added")
 		}
 	})
 
@@ -2358,24 +2029,15 @@ func TestJsonnetTemplate_processTemplate(t *testing.T) {
 		}
 		renderedData := map[string]any{}
 
-		// Mock jsonnet processing
-		template.shims.NewJsonnetVM = func() JsonnetVM {
-			return &mockJsonnetVM{
-				EvaluateFunc: func(filename, snippet string) (string, error) {
-					return `{"host":"example.com"}`, nil
-				},
-			}
-		}
-
-		// When processing component values
+		// When processing component values (should be skipped)
 		err := template.processTemplate("kustomize/ingress/values.jsonnet", templateData, renderedData)
 
-		// Then should succeed and add values/ingress data
+		// Then should succeed but not add any data (skipped)
 		if err != nil {
 			t.Fatalf("expected no error, got: %v", err)
 		}
-		if renderedData["kustomize/values"] == nil {
-			t.Error("expected kustomize/values data to be added")
+		if renderedData["kustomize/values"] != nil {
+			t.Error("expected kustomize/values to be skipped, but data was added")
 		}
 	})
 
@@ -2387,53 +2049,15 @@ func TestJsonnetTemplate_processTemplate(t *testing.T) {
 		}
 		renderedData := map[string]any{}
 
-		// Mock jsonnet processing
-		template.shims.NewJsonnetVM = func() JsonnetVM {
-			return &mockJsonnetVM{
-				EvaluateFunc: func(filename, snippet string) (string, error) {
-					return `{"global":"config"}`, nil
-				},
-			}
-		}
-
-		// When processing values subdirectory
+		// When processing values subdirectory (should be skipped)
 		err := template.processTemplate("kustomize/values/values.jsonnet", templateData, renderedData)
 
-		// Then should succeed and add values/global data (special case)
+		// Then should succeed but not add any data (skipped)
 		if err != nil {
 			t.Fatalf("expected no error, got: %v", err)
 		}
-		if renderedData["kustomize/values"] == nil {
-			t.Error("expected kustomize/values data to be added")
-		}
-	})
-
-	t.Run("ValuesJsonnet", func(t *testing.T) {
-		// Given a template and values.jsonnet content
-		template, _ := setup(t)
-		templateData := map[string][]byte{
-			"values/global.jsonnet": []byte(`{ config: "value" }`),
-		}
-		renderedData := map[string]any{}
-
-		// Mock jsonnet processing
-		template.shims.NewJsonnetVM = func() JsonnetVM {
-			return &mockJsonnetVM{
-				EvaluateFunc: func(filename, snippet string) (string, error) {
-					return `{"config":"value"}`, nil
-				},
-			}
-		}
-
-		// When processing values.jsonnet
-		err := template.processTemplate("values/global.jsonnet", templateData, renderedData)
-
-		// Then should succeed and add values data
-		if err != nil {
-			t.Fatalf("expected no error, got: %v", err)
-		}
-		if renderedData["values/global"] == nil {
-			t.Error("expected values data to be added")
+		if renderedData["kustomize/values"] != nil {
+			t.Error("expected kustomize/values to be skipped, but data was added")
 		}
 	})
 
@@ -2512,24 +2136,171 @@ func TestJsonnetTemplate_processTemplate(t *testing.T) {
 		}
 		renderedData := map[string]any{}
 
-		// Mock jsonnet processing
+		// When processing complex kustomize values path (should be skipped)
+		err := template.processTemplate("kustomize/ingress/nginx/values.jsonnet", templateData, renderedData)
+
+		// Then should succeed but not add any data (skipped)
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		if renderedData["kustomize/values"] != nil {
+			t.Error("expected kustomize/values to be skipped, but data was added")
+		}
+	})
+
+	t.Run("InjectsValuesDataIntoTemplates", func(t *testing.T) {
+		// Given a jsonnet template with values data
+		template, mocks := setup(t)
+
+		// Mock config handler returns basic config
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
+			return []byte(`contexts:
+  test:
+    name: test-context`), nil
+		}
+
+		// Mock shell returns project root
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/test/project", nil
+		}
+
+		// Mock jsonnet VM to capture context injection (which now includes values)
+		var capturedContext string
+		template.shims.NewJsonnetVM = func() JsonnetVM {
+			mockVM := &mockJsonnetVM{
+				EvaluateFunc: func(filename, snippet string) (string, error) {
+					return `{"processed": true, "hasValues": true}`, nil
+				},
+			}
+			mockVM.ExtCodeFunc = func(key, val string) {
+				if key == "context" {
+					capturedContext = val
+				}
+				mockVM.ExtCalls = append(mockVM.ExtCalls, struct{ Key, Val string }{key, val})
+			}
+			return mockVM
+		}
+
+		// Set up template data with values
+		templateData := map[string][]byte{
+			"blueprint.jsonnet": []byte(`local context = std.extVar("context"); { processed: true, domain: context.common.external_domain }`),
+			"values": []byte(`common:
+  external_domain: test.example.com
+  registry_url: registry.test.example.com`),
+		}
+
+		renderedData := make(map[string]any)
+
+		// When processing templates
+		err := template.Process(templateData, renderedData)
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And context should have been captured (which now includes values)
+		if capturedContext == "" {
+			t.Error("Expected context to be injected into template")
+		}
+
+		// And context should contain expected values data
+		if !strings.Contains(capturedContext, "external_domain") {
+			t.Errorf("Expected context to contain 'external_domain', got: %s", capturedContext)
+		}
+		if !strings.Contains(capturedContext, "test.example.com") {
+			t.Errorf("Expected context to contain 'test.example.com', got: %s", capturedContext)
+		}
+
+		// And blueprint should be processed
+		if blueprint, exists := renderedData["blueprint"]; exists {
+			if blueprintMap, ok := blueprint.(map[string]any); ok {
+				if processed, ok := blueprintMap["processed"].(bool); !ok || !processed {
+					t.Error("Expected blueprint to be processed")
+				}
+			}
+		} else {
+			t.Error("Expected blueprint to be in rendered data")
+		}
+	})
+
+	t.Run("ProcessesSubstitutionJsonnetTemplate", func(t *testing.T) {
+		// Given a template with substitution.jsonnet
+		template, mocks := setup(t)
+
+		// Mock config handler returns basic config
+		template.shims.YamlMarshal = func(v any) ([]byte, error) {
+			return []byte(`contexts:
+  test:
+    name: test-context`), nil
+		}
+
+		// Mock shell returns project root
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/test/project", nil
+		}
+
+		// Mock jsonnet VM to return substitution values
 		template.shims.NewJsonnetVM = func() JsonnetVM {
 			return &mockJsonnetVM{
 				EvaluateFunc: func(filename, snippet string) (string, error) {
-					return `{"port":80}`, nil
+					return `{"common": {"external_domain": "test.example.com", "registry_url": "registry.test.com"}, "app_config": {"replicas": 3}}`, nil
 				},
 			}
 		}
 
-		// When processing complex kustomize values path
-		err := template.processTemplate("kustomize/ingress/nginx/values.jsonnet", templateData, renderedData)
-
-		// Then should succeed and add the full path as key
-		if err != nil {
-			t.Fatalf("expected no error, got: %v", err)
+		// Set up template data with substitution.jsonnet
+		templateData := map[string][]byte{
+			"substitution.jsonnet": []byte(`local context = std.extVar("context"); 
+{
+  common: {
+    external_domain: context.external_domain,
+    registry_url: context.registry_url
+  },
+  app_config: {
+    replicas: context.replicas || 3
+  }
+}`),
 		}
-		if renderedData["kustomize/values"] == nil {
-			t.Error("expected kustomize/values data to be added")
+
+		renderedData := make(map[string]any)
+
+		// When processing templates
+		err := template.Process(templateData, renderedData)
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And substitution values should be captured in substitution
+		if substitutionValues, exists := renderedData["substitution"]; exists {
+			if substitutionMap, ok := substitutionValues.(map[string]any); ok {
+				// Verify common section
+				if common, exists := substitutionMap["common"].(map[string]any); exists {
+					if common["external_domain"] != "test.example.com" {
+						t.Errorf("Expected external_domain to be 'test.example.com', got %v", common["external_domain"])
+					}
+					if common["registry_url"] != "registry.test.com" {
+						t.Errorf("Expected registry_url to be 'registry.test.com', got %v", common["registry_url"])
+					}
+				} else {
+					t.Error("Expected 'common' section to exist in substitution values")
+				}
+
+				// Verify app_config section
+				if appConfig, exists := substitutionMap["app_config"].(map[string]any); exists {
+					if appConfig["replicas"] != float64(3) {
+						t.Errorf("Expected replicas to be 3, got %v", appConfig["replicas"])
+					}
+				} else {
+					t.Error("Expected 'app_config' section to exist in substitution values")
+				}
+			} else {
+				t.Error("Expected substitution values to be a map")
+			}
+		} else {
+			t.Error("Expected 'substitution' to exist in rendered data")
 		}
 	})
 }

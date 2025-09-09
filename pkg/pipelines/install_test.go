@@ -413,7 +413,7 @@ func TestInstallPipeline_Execute(t *testing.T) {
 		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
 			t.Log("GetLocalTemplateData called")
 			return map[string][]byte{
-				"kustomize/values.jsonnet": []byte(`{"common": {"domain": "test.com"}}`),
+				"blueprint.jsonnet": []byte(`{"kustomize": [{"name": "test"}]}`),
 			}, nil
 		}
 
@@ -451,7 +451,7 @@ func TestInstallPipeline_Execute(t *testing.T) {
 		// Mock blueprint handler to return template data
 		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
 			return map[string][]byte{
-				"kustomize/values.jsonnet": []byte(`{"common": {"domain": "test.com"}}`),
+				"blueprint.jsonnet": []byte(`{"kustomize": [{"name": "test"}]}`),
 			}, nil
 		}
 
@@ -492,7 +492,7 @@ func TestInstallPipeline_Execute(t *testing.T) {
 		// Mock blueprint handler to return template data
 		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
 			return map[string][]byte{
-				"kustomize/values.jsonnet": []byte(`{"common": {"domain": "test.com"}}`),
+				"blueprint.jsonnet": []byte(`{"kustomize": [{"name": "test"}]}`),
 			}, nil
 		}
 
@@ -546,7 +546,7 @@ func TestInstallPipeline_Execute(t *testing.T) {
 		// Mock blueprint handler to return template data
 		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
 			return map[string][]byte{
-				"kustomize/values.jsonnet": []byte(`{"common": {"domain": "test.com"}}`),
+				"blueprint.jsonnet": []byte(`{"kustomize": [{"name": "test"}]}`),
 			}, nil
 		}
 
@@ -592,7 +592,7 @@ func TestInstallPipeline_Execute(t *testing.T) {
 		// Mock blueprint handler to return template data
 		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
 			return map[string][]byte{
-				"kustomize/values.jsonnet": []byte(`{"common": {"domain": "test.com"}}`),
+				"blueprint.jsonnet": []byte(`{"kustomize": [{"name": "test"}]}`),
 			}, nil
 		}
 
@@ -650,7 +650,7 @@ func TestInstallPipeline_Execute(t *testing.T) {
 		// Mock blueprint handler to return template data
 		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
 			return map[string][]byte{
-				"kustomize/values.jsonnet": []byte(`{"common": {"domain": "test.com"}}`),
+				"blueprint.jsonnet": []byte(`{"kustomize": [{"name": "test"}]}`),
 			}, nil
 		}
 
@@ -713,7 +713,7 @@ func TestInstallPipeline_Execute(t *testing.T) {
 		// Mock blueprint handler to return template data
 		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
 			return map[string][]byte{
-				"kustomize/values.jsonnet": []byte(`{"common": {"domain": "test.com"}}`),
+				"blueprint.jsonnet": []byte(`{"kustomize": [{"name": "test"}]}`),
 			}, nil
 		}
 

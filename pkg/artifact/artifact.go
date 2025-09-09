@@ -342,8 +342,8 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
 // GetTemplateData extracts and returns template data from an OCI artifact reference.
 // Downloads and caches the OCI artifact, decompresses the tar.gz payload, and returns a map
 // with forward-slash file paths as keys and file contents as values. The returned map always includes
-// "ociUrl" (the original OCI reference) and "name" (from metadata.yaml if present). Only .jsonnet files
-// are included as template data. Returns an error on invalid reference, download failure, or extraction error.
+// "ociUrl" (the original OCI reference), "name" (from metadata.yaml if present), and "values" (from values.yaml if present).
+// Only .jsonnet files are included as template data. Returns an error on invalid reference, download failure, or extraction error.
 func (a *ArtifactBuilder) GetTemplateData(ociRef string) (map[string][]byte, error) {
 	if !strings.HasPrefix(ociRef, "oci://") {
 		return nil, fmt.Errorf("invalid OCI reference: %s", ociRef)
@@ -374,6 +374,7 @@ func (a *ArtifactBuilder) GetTemplateData(ociRef string) (map[string][]byte, err
 	var metadataName string
 	jsonnetFiles := make(map[string][]byte)
 	var hasMetadata, hasBlueprintJsonnet bool
+	var valuesContent []byte
 
 	for {
 		header, err := tarReader.Next()
@@ -399,6 +400,11 @@ func (a *ArtifactBuilder) GetTemplateData(ociRef string) (map[string][]byte, err
 				return nil, fmt.Errorf("failed to parse metadata.yaml: %w", err)
 			}
 			metadataName = metadata.Name
+		case name == "_template/values.yaml":
+			valuesContent, err = io.ReadAll(tarReader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read _template/values.yaml: %w", err)
+			}
 		case strings.HasSuffix(name, ".jsonnet"):
 			normalized := strings.TrimPrefix(name, "_template/")
 			if normalized == "blueprint.jsonnet" {
@@ -420,6 +426,9 @@ func (a *ArtifactBuilder) GetTemplateData(ociRef string) (map[string][]byte, err
 	}
 
 	templateData["name"] = []byte(metadataName)
+	if valuesContent != nil {
+		templateData["values"] = valuesContent
+	}
 	maps.Copy(templateData, jsonnetFiles)
 
 	return templateData, nil
