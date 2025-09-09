@@ -102,6 +102,7 @@ type BasePipeline struct {
 	injector         di.Injector
 	templateRenderer template.Template
 	artifactBuilder  bundler.Artifact
+	blueprintHandler blueprint.BlueprintHandler
 }
 
 // =============================================================================
@@ -128,6 +129,7 @@ func (p *BasePipeline) Initialize(injector di.Injector, ctx context.Context) err
 	p.shims = p.withShims()
 	p.templateRenderer = p.withTemplateRenderer()
 	p.artifactBuilder = p.withArtifactBuilder()
+	p.blueprintHandler = p.withBlueprintHandler()
 
 	if err := p.shell.Initialize(); err != nil {
 		return fmt.Errorf("failed to initialize shell: %w", err)
@@ -781,8 +783,10 @@ func (p *BasePipeline) withTemplateRenderer() template.Template {
 	return templateRenderer
 }
 
-// prepareTemplateData loads template data using blueprint context, artifact builder, and blueprint handler state.
-// Priority: blueprint context, then local handler data, then default artifact, then default template for context.
+// prepareTemplateData loads template data for pipeline execution.
+// Source priority: blueprint context, local handler data, default artifact,
+// then default template for current context. Returns a map of template file
+// names to byte content, or error if loading fails.
 func (p *BasePipeline) prepareTemplateData(ctx context.Context) (map[string][]byte, error) {
 	var blueprintValue string
 	if blueprintCtx := ctx.Value("blueprint"); blueprintCtx != nil {
@@ -808,8 +812,8 @@ func (p *BasePipeline) prepareTemplateData(ctx context.Context) (map[string][]by
 		}
 	}
 
-	if blueprintHandler := p.withBlueprintHandler(); blueprintHandler != nil {
-		blueprintTemplateData, err := blueprintHandler.GetLocalTemplateData()
+	if p.blueprintHandler != nil {
+		blueprintTemplateData, err := p.blueprintHandler.GetLocalTemplateData()
 		if err != nil {
 			return nil, fmt.Errorf("failed to get local template data: %w", err)
 		}
@@ -832,9 +836,9 @@ func (p *BasePipeline) prepareTemplateData(ctx context.Context) (map[string][]by
 		return templateData, nil
 	}
 
-	if blueprintHandler := p.withBlueprintHandler(); blueprintHandler != nil {
+	if p.blueprintHandler != nil {
 		contextName := p.determineContextName(ctx)
-		defaultTemplateData, err := blueprintHandler.GetDefaultTemplateData(contextName)
+		defaultTemplateData, err := p.blueprintHandler.GetDefaultTemplateData(contextName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get default template data: %w", err)
 		}
@@ -844,9 +848,8 @@ func (p *BasePipeline) prepareTemplateData(ctx context.Context) (map[string][]by
 	return make(map[string][]byte), nil
 }
 
-// processTemplateData renders and processes template data.
-// Renders all templates using the template renderer and returns the rendered template data map.
-// If blueprint data is present in the rendered data, it will be loaded using the blueprint handler.
+// processTemplateData renders template data using the pipeline's template renderer.
+// Returns a map of rendered template data or an error if processing fails.
 func (p *BasePipeline) processTemplateData(templateData map[string][]byte) (map[string]any, error) {
 	if p.templateRenderer == nil || len(templateData) == 0 {
 		return nil, nil
@@ -855,12 +858,6 @@ func (p *BasePipeline) processTemplateData(templateData map[string][]byte) (map[
 	renderedData := make(map[string]any)
 	if err := p.templateRenderer.Process(templateData, renderedData); err != nil {
 		return nil, fmt.Errorf("failed to process template data: %w", err)
-	}
-
-	if blueprintData, exists := renderedData["blueprint"]; exists {
-		if err := p.loadBlueprintFromTemplate(context.Background(), map[string]any{"blueprint": blueprintData}); err != nil {
-			return nil, fmt.Errorf("failed to load blueprint from template: %w", err)
-		}
 	}
 
 	return renderedData, nil
@@ -893,13 +890,6 @@ func (p *BasePipeline) loadBlueprintFromTemplate(ctx context.Context, renderedDa
 					if err != nil {
 						return err
 					}
-				}
-			} else if p.artifactBuilder != nil {
-				effectiveBlueprintURL := constants.GetEffectiveBlueprintURL()
-				var err error
-				ociInfo, err = bundler.ParseOCIReference(effectiveBlueprintURL)
-				if err != nil {
-					return fmt.Errorf("failed to parse default blueprint reference: %w", err)
 				}
 			}
 

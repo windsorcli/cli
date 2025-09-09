@@ -2992,6 +2992,61 @@ func TestBasePipeline_prepareTemplateData(t *testing.T) {
 		}
 	})
 
+	t.Run("Priority3_LocalTemplateDirectoryExistsUsesLocalEvenIfEmpty", func(t *testing.T) {
+		// Given a pipeline with contexts/_template directory that exists but has no .jsonnet files
+		pipeline := NewBasePipeline()
+		pipeline.injector = di.NewInjector()
+
+		// Mock shell to return project root
+		mockShell := shell.NewMockShell(nil)
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/test/project", nil
+		}
+		pipeline.shell = mockShell
+
+		// Mock shims to simulate contexts/_template directory exists
+		pipeline.shims = &Shims{
+			Stat: func(path string) (os.FileInfo, error) {
+				if path == "/test/project/contexts/_template" {
+					return &mockInitFileInfo{name: "_template", isDir: true}, nil
+				}
+				return nil, os.ErrNotExist
+			},
+		}
+
+		// Mock blueprint handler with empty local templates (no .jsonnet files)
+		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(nil)
+		mockBlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
+			// Return empty map but with values.yaml data merged in
+			return map[string][]byte{
+				"values": []byte("external_domain: local.test"),
+			}, nil
+		}
+		pipeline.injector.Register("blueprintHandler", mockBlueprintHandler)
+
+		// Mock artifact builder (should NOT be called)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		mockArtifactBuilder.GetTemplateDataFunc = func(ociRef string) (map[string][]byte, error) {
+			t.Error("Artifact builder should not be called when local template directory exists")
+			return nil, fmt.Errorf("should not be called")
+		}
+		pipeline.artifactBuilder = mockArtifactBuilder
+
+		// When prepareTemplateData is called with no blueprint context
+		templateData, err := pipeline.prepareTemplateData(context.Background())
+
+		// Then should use local template data even if it only contains values.yaml
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(templateData) != 1 {
+			t.Errorf("Expected 1 template file (values), got %d", len(templateData))
+		}
+		if string(templateData["values"]) != "external_domain: local.test" {
+			t.Error("Expected local values data")
+		}
+	})
+
 	t.Run("Priority4_EmbeddedDefaultWhenNoArtifactBuilder", func(t *testing.T) {
 		// Given a pipeline with no artifact builder
 		pipeline := NewBasePipeline()

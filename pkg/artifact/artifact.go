@@ -354,16 +354,15 @@ func (a *ArtifactBuilder) GetTemplateData(ociRef string) (map[string][]byte, err
 		return nil, fmt.Errorf("failed to parse OCI reference %s: %w", ociRef, err)
 	}
 
+	artifacts, err := a.Pull([]string{ociRef})
+	if err != nil {
+		return nil, fmt.Errorf("failed to pull OCI artifact %s: %w", ociRef, err)
+	}
+
 	cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
-	var artifactData []byte
-	if cached, ok := a.ociCache[cacheKey]; ok {
-		artifactData = cached
-	} else {
-		artifactData, err = a.downloadOCIArtifact(registry, repository, tag)
-		if err != nil {
-			return nil, fmt.Errorf("failed to download OCI artifact %s: %w", ociRef, err)
-		}
-		a.ociCache[cacheKey] = artifactData
+	artifactData, exists := artifacts[cacheKey]
+	if !exists {
+		return nil, fmt.Errorf("failed to retrieve artifact data for %s", ociRef)
 	}
 
 	templateData := make(map[string][]byte)
