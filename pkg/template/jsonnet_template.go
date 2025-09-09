@@ -96,7 +96,8 @@ func (t *JsonnetTemplate) Process(templateData map[string][]byte, renderedData m
 
 // processJsonnetTemplate evaluates a Jsonnet template string using the Windsor context and values data.
 // The Windsor configuration is marshaled to YAML, converted to a map, and augmented with context and project name metadata.
-// The context is serialized to JSON and injected into the Jsonnet VM as an external variable, along with helper functions and the effective blueprint URL.
+// The context is serialized to JSON and injected into the Jsonnet VM as an external variable, along with helper functions
+// and the effective blueprint URL for templates to reference if needed.
 // If values data is provided, it is merged into the context map before serialization.
 // The template is evaluated, and the output is unmarshaled from JSON into a map.
 // Returns the resulting map or an error if any step fails.

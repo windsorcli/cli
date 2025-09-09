@@ -460,11 +460,12 @@ func (p *InitPipeline) writeConfigurationFiles() error {
 	return nil
 }
 
-// handleBlueprintLoading loads blueprint data based on the reset flag and blueprint file presence.
+// handleBlueprintLoading loads blueprint data for the InitPipeline based on the reset flag and blueprint file presence.
 // If reset is true, loads blueprint from template data if available. If reset is false, prefers an existing blueprint.yaml file over template data.
 // If no template blueprint data exists, loads from existing config. Returns an error if loading fails.
 func (p *InitPipeline) handleBlueprintLoading(ctx context.Context, renderedData map[string]any, reset bool) error {
 	shouldLoadFromTemplate := false
+	usingLocalTemplates := p.hasLocalTemplates()
 
 	if reset {
 		shouldLoadFromTemplate = true
@@ -486,9 +487,76 @@ func (p *InitPipeline) handleBlueprintLoading(ctx context.Context, renderedData 
 		if err := p.loadBlueprintFromTemplate(ctx, renderedData); err != nil {
 			return err
 		}
-	} else {
+		if usingLocalTemplates {
+			if blueprintData, exists := renderedData["blueprint"]; exists {
+				if blueprintMap, ok := blueprintData.(map[string]any); ok {
+					if sources, ok := blueprintMap["sources"].([]any); ok && len(sources) > 0 {
+						if err := p.loadExplicitSources(sources); err != nil {
+							return fmt.Errorf("failed to load explicit sources: %w", err)
+						}
+					}
+				}
+			}
+		}
+	} else if !usingLocalTemplates {
 		if err := p.blueprintHandler.LoadConfig(); err != nil {
-			return fmt.Errorf("Error loading blueprint config: %w", err)
+			return fmt.Errorf("error loading blueprint config: %w", err)
+		}
+		sources := p.blueprintHandler.GetSources()
+		if len(sources) > 0 && p.artifactBuilder != nil {
+			var ociURLs []string
+			for _, source := range sources {
+				if strings.HasPrefix(source.Url, "oci://") {
+					ociURLs = append(ociURLs, source.Url)
+				}
+			}
+			if len(ociURLs) > 0 {
+				_, err := p.artifactBuilder.Pull(ociURLs)
+				if err != nil {
+					return fmt.Errorf("failed to load OCI sources: %w", err)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// hasLocalTemplates checks if the contexts/_template directory exists in the project.
+func (p *InitPipeline) hasLocalTemplates() bool {
+	if p.shell == nil || p.shims == nil {
+		return false
+	}
+
+	projectRoot, err := p.shell.GetProjectRoot()
+	if err != nil {
+		return false
+	}
+
+	templateDir := filepath.Join(projectRoot, "contexts", "_template")
+	_, err = p.shims.Stat(templateDir)
+	return err == nil
+}
+
+// loadExplicitSources loads OCI sources that are explicitly defined in blueprint templates.
+func (p *InitPipeline) loadExplicitSources(sources []any) error {
+	if p.artifactBuilder == nil {
+		return nil
+	}
+
+	var ociURLs []string
+	for _, source := range sources {
+		if sourceMap, ok := source.(map[string]any); ok {
+			if url, ok := sourceMap["url"].(string); ok && strings.HasPrefix(url, "oci://") {
+				ociURLs = append(ociURLs, url)
+			}
+		}
+	}
+
+	if len(ociURLs) > 0 {
+		_, err := p.artifactBuilder.Pull(ociURLs)
+		if err != nil {
+			return fmt.Errorf("failed to load explicit OCI sources: %w", err)
 		}
 	}
 
