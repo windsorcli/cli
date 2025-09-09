@@ -917,7 +917,7 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 
 		// Set up BasePipeline properly
 		pipeline.BasePipeline = *NewBasePipeline()
-		pipeline.BasePipeline.injector = di.NewInjector()
+		injector := di.NewInjector()
 
 		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(nil)
 		expectedLocalData := map[string][]byte{
@@ -926,7 +926,12 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		mockBlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
 			return expectedLocalData, nil
 		}
-		pipeline.BasePipeline.injector.Register("blueprintHandler", mockBlueprintHandler)
+		injector.Register("blueprintHandler", mockBlueprintHandler)
+
+		// Initialize the pipeline to set up all components
+		if err := pipeline.BasePipeline.Initialize(injector, context.Background()); err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
 
 		// When prepareTemplateData is called with no blueprint context
 		templateData, err := pipeline.BasePipeline.prepareTemplateData(context.Background())
@@ -995,15 +1000,14 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 
 		// Set up BasePipeline properly
 		pipeline.BasePipeline = *NewBasePipeline()
-		pipeline.BasePipeline.injector = di.NewInjector()
-		pipeline.BasePipeline.artifactBuilder = nil
+		injector := di.NewInjector()
 
 		// Mock config handler (needed for determineContextName)
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetContextFunc = func() string {
 			return "local"
 		}
-		pipeline.BasePipeline.configHandler = mockConfigHandler
+		injector.Register("configHandler", mockConfigHandler)
 
 		// Mock blueprint handler with no local templates but default template
 		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(nil)
@@ -1016,7 +1020,15 @@ func TestInitPipeline_prepareTemplateData(t *testing.T) {
 		mockBlueprintHandler.GetDefaultTemplateDataFunc = func(contextName string) (map[string][]byte, error) {
 			return expectedDefaultData, nil
 		}
-		pipeline.BasePipeline.injector.Register("blueprintHandler", mockBlueprintHandler)
+		injector.Register("blueprintHandler", mockBlueprintHandler)
+
+		// Initialize the pipeline to set up all components
+		if err := pipeline.BasePipeline.Initialize(injector, context.Background()); err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
+
+		// Set artifact builder to nil to test the "no artifact builder" scenario
+		pipeline.BasePipeline.artifactBuilder = nil
 
 		// When prepareTemplateData is called
 		templateData, err := pipeline.BasePipeline.prepareTemplateData(context.Background())

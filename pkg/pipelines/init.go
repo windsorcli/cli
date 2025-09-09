@@ -491,7 +491,9 @@ func (p *InitPipeline) handleBlueprintLoading(ctx context.Context, renderedData 
 			if blueprintData, exists := renderedData["blueprint"]; exists {
 				if blueprintMap, ok := blueprintData.(map[string]any); ok {
 					if sources, ok := blueprintMap["sources"].([]any); ok && len(sources) > 0 {
-						p.loadExplicitSources(sources)
+						if err := p.loadExplicitSources(sources); err != nil {
+							return fmt.Errorf("failed to load explicit sources: %w", err)
+						}
 					}
 				}
 			}

@@ -2923,7 +2923,7 @@ func TestBasePipeline_prepareTemplateData(t *testing.T) {
 	t.Run("Priority2_LocalTemplatesWhenNoExplicitBlueprint", func(t *testing.T) {
 		// Given a pipeline with local templates but no explicit blueprint
 		pipeline := NewBasePipeline()
-		pipeline.injector = di.NewInjector()
+		injector := di.NewInjector()
 
 		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(nil)
 		expectedLocalData := map[string][]byte{
@@ -2932,7 +2932,12 @@ func TestBasePipeline_prepareTemplateData(t *testing.T) {
 		mockBlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
 			return expectedLocalData, nil
 		}
-		pipeline.injector.Register("blueprintHandler", mockBlueprintHandler)
+		injector.Register("blueprintHandler", mockBlueprintHandler)
+
+		// Initialize the pipeline to set up all components
+		if err := pipeline.Initialize(injector, context.Background()); err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
 
 		// When prepareTemplateData is called with no blueprint context
 		templateData, err := pipeline.prepareTemplateData(context.Background())
@@ -2995,17 +3000,17 @@ func TestBasePipeline_prepareTemplateData(t *testing.T) {
 	t.Run("Priority3_LocalTemplateDirectoryExistsUsesLocalEvenIfEmpty", func(t *testing.T) {
 		// Given a pipeline with contexts/_template directory that exists but has no .jsonnet files
 		pipeline := NewBasePipeline()
-		pipeline.injector = di.NewInjector()
+		injector := di.NewInjector()
 
 		// Mock shell to return project root
 		mockShell := shell.NewMockShell(nil)
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "/test/project", nil
 		}
-		pipeline.shell = mockShell
+		injector.Register("shell", mockShell)
 
 		// Mock shims to simulate contexts/_template directory exists
-		pipeline.shims = &Shims{
+		shims := &Shims{
 			Stat: func(path string) (os.FileInfo, error) {
 				if path == "/test/project/contexts/_template" {
 					return &mockInitFileInfo{name: "_template", isDir: true}, nil
@@ -3013,6 +3018,7 @@ func TestBasePipeline_prepareTemplateData(t *testing.T) {
 				return nil, os.ErrNotExist
 			},
 		}
+		injector.Register("shims", shims)
 
 		// Mock blueprint handler with empty local templates (no .jsonnet files)
 		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(nil)
@@ -3022,7 +3028,7 @@ func TestBasePipeline_prepareTemplateData(t *testing.T) {
 				"values": []byte("external_domain: local.test"),
 			}, nil
 		}
-		pipeline.injector.Register("blueprintHandler", mockBlueprintHandler)
+		injector.Register("blueprintHandler", mockBlueprintHandler)
 
 		// Mock artifact builder (should NOT be called)
 		mockArtifactBuilder := artifact.NewMockArtifact()
@@ -3030,7 +3036,12 @@ func TestBasePipeline_prepareTemplateData(t *testing.T) {
 			t.Error("Artifact builder should not be called when local template directory exists")
 			return nil, fmt.Errorf("should not be called")
 		}
-		pipeline.artifactBuilder = mockArtifactBuilder
+		injector.Register("artifactBuilder", mockArtifactBuilder)
+
+		// Initialize the pipeline to set up all components
+		if err := pipeline.Initialize(injector, context.Background()); err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
 
 		// When prepareTemplateData is called with no blueprint context
 		templateData, err := pipeline.prepareTemplateData(context.Background())
@@ -3050,14 +3061,14 @@ func TestBasePipeline_prepareTemplateData(t *testing.T) {
 	t.Run("Priority4_EmbeddedDefaultWhenNoArtifactBuilder", func(t *testing.T) {
 		// Given a pipeline with no artifact builder
 		pipeline := NewBasePipeline()
-		pipeline.injector = di.NewInjector()
+		injector := di.NewInjector()
 
 		// Mock config handler (needed for determineContextName)
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetContextFunc = func() string {
 			return "local"
 		}
-		pipeline.configHandler = mockConfigHandler
+		injector.Register("configHandler", mockConfigHandler)
 
 		// Mock blueprint handler with no local templates but default template
 		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(nil)
@@ -3070,7 +3081,15 @@ func TestBasePipeline_prepareTemplateData(t *testing.T) {
 		mockBlueprintHandler.GetDefaultTemplateDataFunc = func(contextName string) (map[string][]byte, error) {
 			return expectedDefaultData, nil
 		}
-		pipeline.injector.Register("blueprintHandler", mockBlueprintHandler)
+		injector.Register("blueprintHandler", mockBlueprintHandler)
+
+		// Initialize the pipeline to set up all components
+		if err := pipeline.Initialize(injector, context.Background()); err != nil {
+			t.Fatalf("Failed to initialize pipeline: %v", err)
+		}
+
+		// Set artifact builder to nil to test the "no artifact builder" scenario
+		pipeline.artifactBuilder = nil
 
 		// When prepareTemplateData is called
 		templateData, err := pipeline.prepareTemplateData(context.Background())

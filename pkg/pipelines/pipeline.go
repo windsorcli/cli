@@ -860,6 +860,10 @@ func (p *BasePipeline) processTemplateData(templateData map[string][]byte) (map[
 		return nil, fmt.Errorf("failed to process template data: %w", err)
 	}
 
+	if err := p.loadBlueprintFromTemplate(context.Background(), renderedData); err != nil {
+		return nil, fmt.Errorf("failed to load blueprint from template: %w", err)
+	}
+
 	return renderedData, nil
 }
 
