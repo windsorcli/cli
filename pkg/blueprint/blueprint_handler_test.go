@@ -4865,6 +4865,146 @@ ingress:
 			t.Errorf("expected error about common ConfigMap creation, got: %v", err)
 		}
 	})
+
+	t.Run("SuccessWithRenderedSubstitutionValues", func(t *testing.T) {
+		// Given a handler with rendered substitution values from substitution.jsonnet
+		handler := setup(t)
+
+		// Set up rendered substitution data (simulating substitution.jsonnet output)
+		handler.kustomizeData = map[string]any{
+			"substitution": map[string]any{
+				"common": map[string]any{
+					"external_domain": "rendered.test",
+					"registry_url":    "registry.rendered.test",
+				},
+				"app_config": map[string]any{
+					"replicas": 2,
+				},
+			},
+		}
+
+		// Mock config handler
+		projectRoot := filepath.Join("test", "project")
+		configRoot := filepath.Join("test", "config")
+		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return configRoot, nil
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "dns.domain":
+				return "example.com"
+			case "network.loadbalancer_ips.start":
+				return "192.168.1.100"
+			case "network.loadbalancer_ips.end":
+				return "192.168.1.200"
+			case "docker.registry_url":
+				return "registry.example.com"
+			case "id":
+				return "test-id"
+			default:
+				return ""
+			}
+		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "test-context"
+		}
+		mockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+			return []string{}
+		}
+
+		// Mock shell for project root
+		mockShell := handler.shell.(*shell.MockShell)
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
+		// Mock context values that override some rendered values
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == filepath.Join(projectRoot, "contexts", "_template", "values.yaml") {
+				return &mockFileInfo{name: "values.yaml"}, nil
+			}
+			if name == filepath.Join(configRoot, "values.yaml") {
+				return &mockFileInfo{name: "values.yaml"}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
+			if name == filepath.Join(projectRoot, "contexts", "_template", "values.yaml") {
+				return []byte(`substitution:
+  common:
+    template_key: template_value`), nil
+			}
+			if name == filepath.Join(configRoot, "values.yaml") {
+				return []byte(`substitution:
+  common:
+    external_domain: context.test
+    context_key: context_value
+  app_config:
+    replicas: 5`), nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock Kubernetes manager to capture applied ConfigMaps
+		var appliedConfigMaps []string
+		var configMapData map[string]map[string]string = make(map[string]map[string]string)
+		mockKubernetesManager := handler.kubernetesManager.(*kubernetes.MockKubernetesManager)
+		mockKubernetesManager.ApplyConfigMapFunc = func(name, namespace string, data map[string]string) error {
+			appliedConfigMaps = append(appliedConfigMaps, name)
+			configMapData[name] = data
+			return nil
+		}
+
+		// When applying values ConfigMaps
+		err := handler.applyValuesConfigMaps()
+
+		// Then it should succeed
+		if err != nil {
+			t.Fatalf("expected applyValuesConfigMaps to succeed, got: %v", err)
+		}
+
+		// And it should apply ConfigMaps for common and app_config
+		if len(appliedConfigMaps) != 2 {
+			t.Errorf("expected 2 ConfigMaps to be applied, got %d: %v", len(appliedConfigMaps), appliedConfigMaps)
+		}
+
+		// Check common ConfigMap - should have rendered values merged with context overrides and system values
+		if commonData, exists := configMapData["values-common"]; exists {
+			// Context values should override rendered values
+			if commonData["external_domain"] != "context.test" {
+				t.Errorf("expected external_domain to be 'context.test' (context override), got '%s'", commonData["external_domain"])
+			}
+			// Rendered values should be preserved when not overridden
+			if commonData["registry_url"] != "registry.rendered.test" {
+				t.Errorf("expected registry_url to be 'registry.rendered.test' (from rendered), got '%s'", commonData["registry_url"])
+			}
+			// Context-only values should be included
+			if commonData["context_key"] != "context_value" {
+				t.Errorf("expected context_key to be 'context_value', got '%s'", commonData["context_key"])
+			}
+			// Template-only values should be included
+			if commonData["template_key"] != "template_value" {
+				t.Errorf("expected template_key to be 'template_value', got '%s'", commonData["template_key"])
+			}
+			// System values should be included
+			if commonData["DOMAIN"] != "example.com" {
+				t.Errorf("expected DOMAIN to be 'example.com', got '%s'", commonData["DOMAIN"])
+			}
+		} else {
+			t.Error("expected values-common ConfigMap to be applied")
+		}
+
+		// Check app_config ConfigMap - should have context override of rendered value
+		if appConfigData, exists := configMapData["values-app_config"]; exists {
+			if appConfigData["replicas"] != "5" {
+				t.Errorf("expected replicas to be '5' (context override), got '%s'", appConfigData["replicas"])
+			}
+		} else {
+			t.Error("expected values-app_config ConfigMap to be applied")
+		}
+	})
 }
 
 // =============================================================================
