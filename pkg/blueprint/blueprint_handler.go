@@ -1577,12 +1577,11 @@ func (b *BaseBlueprintHandler) isOCISource(sourceNameOrURL string) bool {
 	return false
 }
 
-// applyValuesConfigMaps creates ConfigMaps for post-build variable substitution using rendered values data and context-specific values.yaml files.
-// It generates a ConfigMap for the "common" section and for each component section, merging rendered template values with context values.
-// Context-specific values from contexts/{context}/values.yaml take precedence over template values in case of conflicts.
+// applyValuesConfigMaps generates ConfigMaps for Flux post-build variable substitution using rendered template values and context-specific values.yaml files.
+// Merges rendered template values with context values, giving precedence to context values in case of conflict.
+// Produces a ConfigMap for the "common" section and for each component section, with system values merged into "common".
 // The resulting ConfigMaps are referenced in PostBuild.SubstituteFrom for variable substitution.
 func (b *BaseBlueprintHandler) applyValuesConfigMaps() error {
-
 	mergedCommonValues := make(map[string]any)
 
 	domain := b.configHandler.GetString("dns.domain")
@@ -1624,8 +1623,12 @@ func (b *BaseBlueprintHandler) applyValuesConfigMaps() error {
 	}
 
 	renderedValues := make(map[string]any)
+	if substitutionData, exists := b.kustomizeData["substitution"]; exists {
+		if substitutionMap, ok := substitutionData.(map[string]any); ok {
+			renderedValues = substitutionMap
+		}
+	}
 
-	// Start with all values from rendered templates and context
 	allValues := make(map[string]any)
 	maps.Copy(allValues, renderedValues)
 
@@ -1633,7 +1636,6 @@ func (b *BaseBlueprintHandler) applyValuesConfigMaps() error {
 		allValues = b.deepMergeMaps(allValues, contextValues.Substitution)
 	}
 
-	// Ensure "common" section exists and merge system values into it
 	if allValues["common"] == nil {
 		allValues["common"] = make(map[string]any)
 	}
@@ -1642,7 +1644,6 @@ func (b *BaseBlueprintHandler) applyValuesConfigMaps() error {
 		maps.Copy(commonMap, mergedCommonValues)
 	}
 
-	// Create ConfigMaps for all sections generically
 	for componentName, componentValues := range allValues {
 		if componentMap, ok := componentValues.(map[string]any); ok {
 			configMapName := fmt.Sprintf("values-%s", componentName)
