@@ -701,6 +701,77 @@ output "endpoint" {
 			t.Errorf("Expected error about parsing outputs.tf, got: %v", err)
 		}
 	})
+
+	t.Run("PreservesSensitiveOutputs", func(t *testing.T) {
+		// Given a resolver
+		resolver, _ := setup(t)
+
+		// And a temporary directory structure
+		tmpDir := t.TempDir()
+		moduleDir := filepath.Join(tmpDir, "shim")
+		modulePath := filepath.Join(tmpDir, "source")
+
+		if err := resolver.shims.MkdirAll(moduleDir, 0755); err != nil {
+			t.Fatalf("Failed to create shim directory: %v", err)
+		}
+		if err := resolver.shims.MkdirAll(modulePath, 0755); err != nil {
+			t.Fatalf("Failed to create source directory: %v", err)
+		}
+
+		// And a source outputs.tf file with sensitive outputs
+		outputsContent := `
+output "cluster_id" {
+  description = "ID of the created cluster"
+  value       = module.cluster.id
+}
+
+output "secret_key" {
+  description = "Secret access key"
+  value       = module.cluster.secret_key
+  sensitive   = true
+}
+`
+		outputsPath := filepath.Join(modulePath, "outputs.tf")
+		if err := resolver.shims.WriteFile(outputsPath, []byte(outputsContent), 0644); err != nil {
+			t.Fatalf("Failed to write outputs.tf: %v", err)
+		}
+
+		// When writing the shim outputs.tf
+		err := resolver.writeShimOutputsTf(moduleDir, modulePath)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And the outputs.tf file should be created
+		shimOutputsPath := filepath.Join(moduleDir, "outputs.tf")
+		if _, err := resolver.shims.Stat(shimOutputsPath); err != nil {
+			t.Errorf("Expected outputs.tf to be created, got error: %v", err)
+		}
+
+		// And the outputs.tf should contain the output definitions with sensitive flag preserved
+		content, err := resolver.shims.ReadFile(shimOutputsPath)
+		if err != nil {
+			t.Fatalf("Failed to read shim outputs.tf: %v", err)
+		}
+
+		if !strings.Contains(string(content), "output \"cluster_id\"") {
+			t.Error("Expected outputs.tf to contain cluster_id output")
+		}
+		if !strings.Contains(string(content), "output \"secret_key\"") {
+			t.Error("Expected outputs.tf to contain secret_key output")
+		}
+		if !strings.Contains(string(content), "Secret access key") {
+			t.Error("Expected outputs.tf to preserve description")
+		}
+		if !regexp.MustCompile(`sensitive\s*=\s*true`).Match(content) {
+			t.Errorf("Expected outputs.tf to preserve sensitive flag, got content: %s", string(content))
+		}
+		if !strings.Contains(string(content), "module.main.secret_key") {
+			t.Error("Expected outputs.tf to reference module.main outputs")
+		}
+	})
 }
 
 // =============================================================================
