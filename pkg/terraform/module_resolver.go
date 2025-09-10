@@ -198,6 +198,10 @@ func (h *BaseModuleResolver) writeShimOutputsTf(moduleDir, modulePath string) er
 						shimBlockBody.SetAttributeRaw("description", attr.Expr().BuildTokens(nil))
 					}
 
+					if attr := block.Body().GetAttribute("sensitive"); attr != nil {
+						shimBlockBody.SetAttributeRaw("sensitive", attr.Expr().BuildTokens(nil))
+					}
+
 					shimBlockBody.SetAttributeTraversal("value", hcl.Traversal{
 						hcl.TraverseRoot{Name: "module"},
 						hcl.TraverseAttr{Name: "main"},
