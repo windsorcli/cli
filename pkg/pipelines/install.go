@@ -100,7 +100,12 @@ func (p *InstallPipeline) Execute(ctx context.Context) error {
 		return fmt.Errorf("No blueprint handler found")
 	}
 
-	// Phase 1: Process templates for kustomize data
+	// Phase 1: Load blueprint config (cached if already loaded)
+	if err := p.blueprintHandler.LoadConfig(); err != nil {
+		return fmt.Errorf("Error loading blueprint config: %w", err)
+	}
+
+	// Phase 2: Process templates for kustomize data
 	templateData, err := p.prepareTemplateData(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to prepare template data: %w", err)
@@ -110,7 +115,7 @@ func (p *InstallPipeline) Execute(ctx context.Context) error {
 		return fmt.Errorf("failed to process template data: %w", err)
 	}
 
-	// Phase 2: Generate kustomize data using generators
+	// Phase 3: Generate kustomize data using generators
 	if len(renderedData) > 0 {
 		for _, generator := range p.generators {
 			if err := generator.Generate(renderedData, false); err != nil {
@@ -119,15 +124,12 @@ func (p *InstallPipeline) Execute(ctx context.Context) error {
 		}
 	}
 
-	// Phase 3: Load blueprint config and install
-	if err := p.blueprintHandler.LoadConfig(); err != nil {
-		return fmt.Errorf("Error loading blueprint config: %w", err)
-	}
+	// Phase 4: Install blueprint
 	if err := p.blueprintHandler.Install(); err != nil {
 		return fmt.Errorf("Error installing blueprint: %w", err)
 	}
 
-	// Phase 4: Wait for kustomizations if requested
+	// Phase 5: Wait for kustomizations if requested
 	waitFlag := ctx.Value("wait")
 	if waitFlag != nil {
 		if wait, ok := waitFlag.(bool); ok && wait {
