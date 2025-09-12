@@ -72,6 +72,7 @@ type BaseBlueprintHandler struct {
 	projectRoot       string
 	shims             *Shims
 	kustomizeData     map[string]any
+	configLoaded      bool
 }
 
 // NewBlueprintHandler creates a new instance of BaseBlueprintHandler.
@@ -138,13 +139,25 @@ func (b *BaseBlueprintHandler) LoadConfig() error {
 	if err != nil {
 		return err
 	}
-	return b.processBlueprintData(yamlData, &b.blueprint)
+
+	if err := b.processBlueprintData(yamlData, &b.blueprint); err != nil {
+		return err
+	}
+
+	b.configLoaded = true
+	return nil
 }
 
 // LoadData loads blueprint configuration from a map containing blueprint data.
 // It marshals the input map to YAML, processes it as a Blueprint object, and updates the handler's blueprint state.
 // The ociInfo parameter optionally provides OCI artifact source information for source resolution and tracking.
+// If config is already loaded from YAML, this is a no-op to preserve resolved state.
 func (b *BaseBlueprintHandler) LoadData(data map[string]any, ociInfo ...*artifact.OCIArtifactInfo) error {
+	// If config is already loaded from YAML, don't overwrite with template data
+	if b.configLoaded {
+		return nil
+	}
+
 	yamlData, err := b.shims.YamlMarshal(data)
 	if err != nil {
 		return fmt.Errorf("error marshalling blueprint data to yaml: %w", err)

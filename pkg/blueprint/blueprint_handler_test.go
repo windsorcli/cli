@@ -3589,6 +3589,47 @@ func TestBlueprintHandler_LoadData(t *testing.T) {
 			t.Errorf("Expected description to be 'A blueprint from OCI artifact', got %s", metadata.Description)
 		}
 	})
+
+	t.Run("LoadDataIgnoredWhenConfigAlreadyLoaded", func(t *testing.T) {
+		// Given a blueprint handler that has already loaded config
+		handler, _ := setup(t)
+
+		// Load config first (simulates loading from YAML)
+		err := handler.LoadConfig()
+		if err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+
+		// Get the original metadata
+		originalMetadata := handler.GetMetadata()
+
+		// And different blueprint data that would overwrite the config
+		differentData := map[string]any{
+			"kind":       "Blueprint",
+			"apiVersion": "v1alpha1",
+			"metadata": map[string]any{
+				"name":        "different-blueprint",
+				"description": "This should not overwrite the loaded config",
+			},
+		}
+
+		// When loading the different data
+		err = handler.LoadData(differentData)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// But the metadata should remain unchanged (LoadData should be ignored)
+		currentMetadata := handler.GetMetadata()
+		if currentMetadata.Name != originalMetadata.Name {
+			t.Errorf("Expected metadata to remain unchanged, but name changed from %s to %s", originalMetadata.Name, currentMetadata.Name)
+		}
+		if currentMetadata.Description != originalMetadata.Description {
+			t.Errorf("Expected metadata to remain unchanged, but description changed from %s to %s", originalMetadata.Description, currentMetadata.Description)
+		}
+	})
 }
 
 func TestBlueprintHandler_Write(t *testing.T) {
