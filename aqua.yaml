@@ -27,7 +27,7 @@ packages:
 - name: google/go-jsonnet@v0.21.0
 - name: mikefarah/yq@v4.47.2
 - name: goreleaser/goreleaser@v2.12.0
-- name: helm/helm@v3.18.6
+- name: helm/helm@v3.19.0
 - name: 1password/cli@v2.30.3
 - name: fluxcd/flux2@v2.6.4
 - name: aws/aws-cli@2.30.1
