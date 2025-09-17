@@ -373,7 +373,7 @@ func (a *ArtifactBuilder) GetTemplateData(ociRef string) (map[string][]byte, err
 	var metadataName string
 	jsonnetFiles := make(map[string][]byte)
 	var hasMetadata, hasBlueprintJsonnet bool
-	var valuesContent []byte
+	var schemaContent []byte
 
 	for {
 		header, err := tarReader.Next()
@@ -399,10 +399,10 @@ func (a *ArtifactBuilder) GetTemplateData(ociRef string) (map[string][]byte, err
 				return nil, fmt.Errorf("failed to parse metadata.yaml: %w", err)
 			}
 			metadataName = metadata.Name
-		case name == "_template/values.yaml":
-			valuesContent, err = io.ReadAll(tarReader)
+		case name == "_template/schema.yaml":
+			schemaContent, err = io.ReadAll(tarReader)
 			if err != nil {
-				return nil, fmt.Errorf("failed to read _template/values.yaml: %w", err)
+				return nil, fmt.Errorf("failed to read _template/schema.yaml: %w", err)
 			}
 		case strings.HasSuffix(name, ".jsonnet"):
 			normalized := strings.TrimPrefix(name, "_template/")
@@ -425,9 +425,13 @@ func (a *ArtifactBuilder) GetTemplateData(ociRef string) (map[string][]byte, err
 	}
 
 	templateData["name"] = []byte(metadataName)
-	if valuesContent != nil {
-		templateData["values"] = valuesContent
+
+	if schemaContent != nil {
+		templateData["schema"] = schemaContent
+	} else {
+		return nil, fmt.Errorf("OCI artifact missing required _template/schema.yaml file")
 	}
+
 	maps.Copy(templateData, jsonnetFiles)
 
 	return templateData, nil

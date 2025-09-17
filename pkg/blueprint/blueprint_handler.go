@@ -73,6 +73,7 @@ type BaseBlueprintHandler struct {
 	shims             *Shims
 	kustomizeData     map[string]any
 	configLoaded      bool
+	schemaValidator   *SchemaValidator
 }
 
 // NewBlueprintHandler creates a new instance of BaseBlueprintHandler.
@@ -89,10 +90,9 @@ func NewBlueprintHandler(injector di.Injector) *BaseBlueprintHandler {
 // Public Methods
 // =============================================================================
 
-// Initialize sets up the BaseBlueprintHandler by resolving and assigning its dependencies,
-// including the configHandler, contextHandler, and shell, from the provided dependency injector.
-// It also determines the project root directory using the shell and sets the project name
-// in the configuration. If any of these steps fail, it returns an error.
+// Initialize resolves and assigns dependencies for BaseBlueprintHandler using the provided dependency injector.
+// It sets configHandler, shell, and kubernetesManager, determines the project root directory, and initializes the schema validator.
+// Returns an error if any dependency resolution or initialization step fails.
 func (b *BaseBlueprintHandler) Initialize() error {
 	configHandler, ok := b.injector.Resolve("configHandler").(config.ConfigHandler)
 	if !ok {
@@ -117,6 +117,9 @@ func (b *BaseBlueprintHandler) Initialize() error {
 		return fmt.Errorf("error getting project root: %w", err)
 	}
 	b.projectRoot = projectRoot
+
+	b.schemaValidator = NewSchemaValidator(b.shell)
+	b.schemaValidator.shims = b.shims
 
 	return nil
 }
@@ -474,39 +477,23 @@ func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 		return nil, fmt.Errorf("failed to collect templates: %w", err)
 	}
 
-	contextValues, err := b.loadAndMergeContextValues()
+	contextValues, err := b.loadAndMergeContextValues(templateData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load and merge context values: %w", err)
 	}
 
-	if contextValues != nil {
-		if len(contextValues.TopLevel) > 0 {
-			if existingValues, exists := templateData["values"]; exists {
-				var ociValues map[string]any
-				if err := b.shims.YamlUnmarshal(existingValues, &ociValues); err == nil {
-					contextValues.TopLevel = b.deepMergeValues(ociValues, contextValues.TopLevel)
-				}
+	if contextValues != nil && len(contextValues.Substitution) > 0 {
+		if existingValues, exists := templateData["substitution"]; exists {
+			var ociSubstitutionValues map[string]any
+			if err := b.shims.YamlUnmarshal(existingValues, &ociSubstitutionValues); err == nil {
+				contextValues.Substitution = b.deepMergeValues(ociSubstitutionValues, contextValues.Substitution)
 			}
-			topLevelYAML, err := b.shims.YamlMarshal(contextValues.TopLevel)
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal top-level values: %w", err)
-			}
-			templateData["values"] = topLevelYAML
 		}
-
-		if len(contextValues.Substitution) > 0 {
-			if existingValues, exists := templateData["substitution"]; exists {
-				var ociSubstitutionValues map[string]any
-				if err := b.shims.YamlUnmarshal(existingValues, &ociSubstitutionValues); err == nil {
-					contextValues.Substitution = b.deepMergeValues(ociSubstitutionValues, contextValues.Substitution)
-				}
-			}
-			substitutionYAML, err := b.shims.YamlMarshal(contextValues.Substitution)
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal substitution values: %w", err)
-			}
-			templateData["substitution"] = substitutionYAML
+		substitutionYAML, err := b.shims.YamlMarshal(contextValues.Substitution)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal substitution values: %w", err)
 		}
+		templateData["substitution"] = substitutionYAML
 	}
 
 	return templateData, nil
@@ -553,6 +540,26 @@ func (b *BaseBlueprintHandler) Down() error {
 	}
 
 	return nil
+}
+
+// loadTemplateSchema loads the template schema from contexts/_template/schema.yaml
+// Returns an error if the schema file doesn't exist or can't be loaded
+func (b *BaseBlueprintHandler) loadTemplateSchema() error {
+	if b.schemaValidator == nil {
+		return fmt.Errorf("schema validator not initialized")
+	}
+
+	projectRoot, err := b.shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	templateSchemaPath := filepath.Join(projectRoot, "contexts", "_template", "schema.yaml")
+	if _, err := b.shims.Stat(templateSchemaPath); err != nil {
+		return fmt.Errorf("template schema not found: %w", err)
+	}
+
+	return b.schemaValidator.LoadSchema(templateSchemaPath)
 }
 
 // =============================================================================
@@ -708,114 +715,71 @@ func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir, templateRoot
 			if err := b.walkAndCollectTemplates(entryPath, templateRoot, templateData); err != nil {
 				return err
 			}
-		} else if strings.HasSuffix(entry.Name(), ".jsonnet") {
+		} else if strings.HasSuffix(entry.Name(), ".jsonnet") || entry.Name() == "schema.yaml" {
 			content, err := b.shims.ReadFile(filepath.Clean(entryPath))
 			if err != nil {
 				return fmt.Errorf("failed to read template file %s: %w", entryPath, err)
 			}
 
-			relPath, err := filepath.Rel(templateRoot, entryPath)
-			if err != nil {
-				return fmt.Errorf("failed to calculate relative path for %s: %w", entryPath, err)
-			}
+			if entry.Name() == "schema.yaml" {
+				templateData["schema"] = content
+			} else {
+				relPath, err := filepath.Rel(templateRoot, entryPath)
+				if err != nil {
+					return fmt.Errorf("failed to calculate relative path for %s: %w", entryPath, err)
+				}
 
-			relPath = strings.ReplaceAll(relPath, "\\", "/")
-			templateData[relPath] = content
+				relPath = strings.ReplaceAll(relPath, "\\", "/")
+				templateData[relPath] = content
+			}
 		}
 	}
 
 	return nil
 }
 
-// loadAndMergeValues loads and merges values.yaml files from the _template and context-specific directories.
-// It loads base values from contexts/_template/values.yaml, then overlays context-specific values from
-// contexts/<context>/values.yaml, where <context> is determined from the current configuration.
-// Returns merged YAML content as bytes, or nil if no values files exist.
-func (b *BaseBlueprintHandler) loadAndMergeValues() ([]byte, error) {
-	projectRoot, err := b.shell.GetProjectRoot()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get project root: %w", err)
-	}
-
-	templateValuesPath := filepath.Join(projectRoot, "contexts", "_template", "values.yaml")
+// loadAndMergeContextValues loads and merges values from schema.yaml (from templateData which handles OCI/local precedence)
+// and context-specific values.yaml files. It extracts defaults from the schema and validates context values.
+// Recursively merges base (schema defaults) and context-specific values.yaml files, merging nested maps.
+// Separates merged values into top-level and substitution (kustomize) values.
+// Returns a ContextValues struct containing both top-level and substitution values, or an error if loading or parsing fails.
+func (b *BaseBlueprintHandler) loadAndMergeContextValues(templateData ...map[string][]byte) (*ContextValues, error) {
 	var baseValues map[string]any
 
-	if _, err := b.shims.Stat(templateValuesPath); err == nil {
-		baseValuesContent, err := b.shims.ReadFile(templateValuesPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read template values.yaml: %w", err)
-		}
-		if err := yaml.Unmarshal(baseValuesContent, &baseValues); err != nil {
-			return nil, fmt.Errorf("failed to parse template values.yaml: %w", err)
+	if len(templateData) > 0 && templateData[0] != nil {
+		if schemaContent, exists := templateData[0]["schema"]; exists {
+			if b.schemaValidator != nil {
+				if err := b.schemaValidator.LoadSchemaFromBytes(schemaContent); err != nil {
+					return nil, fmt.Errorf("failed to load template schema: %w", err)
+				}
+
+				defaults, err := b.schemaValidator.GetSchemaDefaults()
+				if err != nil {
+					return nil, fmt.Errorf("failed to extract defaults from schema: %w", err)
+				}
+				baseValues = defaults
+			}
 		}
 	}
 
-	contextName := b.configHandler.GetContext()
-	if contextName == "" {
-		if baseValues == nil {
-			return nil, nil
-		}
-		return yaml.Marshal(baseValues)
-	}
-
-	configRoot, err := b.configHandler.GetConfigRoot()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get config root: %w", err)
-	}
-	contextValuesPath := filepath.Join(configRoot, "values.yaml")
-	var contextValues map[string]any
-
-	if _, err := b.shims.Stat(contextValuesPath); err == nil {
-		contextValuesContent, err := b.shims.ReadFile(contextValuesPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read context values.yaml: %w", err)
-		}
-		if err := yaml.Unmarshal(contextValuesContent, &contextValues); err != nil {
-			return nil, fmt.Errorf("failed to parse context values.yaml: %w", err)
-		}
-	}
-
-	mergedValues := make(map[string]any)
-	maps.Copy(mergedValues, baseValues)
-	for k, v := range contextValues {
-		if existingValue, exists := mergedValues[k]; exists {
-			if existingMap, ok := existingValue.(map[string]any); ok {
-				if newMap, ok := v.(map[string]any); ok {
-					mergedValues[k] = b.deepMergeValues(existingMap, newMap)
-					continue
+	if baseValues == nil {
+		if b.schemaValidator != nil {
+			if err := b.loadTemplateSchema(); err == nil {
+				defaults, err := b.schemaValidator.GetSchemaDefaults()
+				if err != nil {
+					return nil, fmt.Errorf("failed to extract defaults from schema: %w", err)
+				}
+				baseValues = defaults
+			} else {
+				// Only ignore "file not found" errors, propagate other errors
+				if !strings.Contains(err.Error(), "template schema not found") {
+					return nil, fmt.Errorf("failed to load template schema.yaml: %w", err)
 				}
 			}
 		}
-		mergedValues[k] = v
-	}
 
-	if len(mergedValues) == 0 {
-		return nil, nil
-	}
-
-	return b.shims.YamlMarshal(mergedValues)
-}
-
-// loadAndMergeContextValues loads and merges values.yaml files from the _template and context-specific directories.
-// Recursively merges base (_template) and context-specific values.yaml files, merging nested maps.
-// Separates merged values into top-level and substitution (kustomize) values.
-// Returns a ContextValues struct containing both top-level and substitution values, or an error if loading or parsing fails.
-func (b *BaseBlueprintHandler) loadAndMergeContextValues() (*ContextValues, error) {
-	projectRoot, err := b.shell.GetProjectRoot()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get project root: %w", err)
-	}
-
-	templateValuesPath := filepath.Join(projectRoot, "contexts", "_template", "values.yaml")
-	var baseValues map[string]any
-
-	if _, err := b.shims.Stat(templateValuesPath); err == nil {
-		baseValuesContent, err := b.shims.ReadFile(templateValuesPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read template values.yaml: %w", err)
-		}
-		if err := yaml.Unmarshal(baseValuesContent, &baseValues); err != nil {
-			return nil, fmt.Errorf("failed to parse template values.yaml: %w", err)
+		if baseValues == nil {
+			baseValues = make(map[string]any)
 		}
 	}
 
@@ -841,6 +805,12 @@ func (b *BaseBlueprintHandler) loadAndMergeContextValues() (*ContextValues, erro
 		}
 		if err := yaml.Unmarshal(contextValuesContent, &contextValues); err != nil {
 			return nil, fmt.Errorf("failed to parse context values.yaml: %w", err)
+		}
+
+		if b.schemaValidator != nil {
+			if result, err := b.schemaValidator.Validate(contextValues); err == nil && !result.Valid {
+				return nil, fmt.Errorf("context values validation failed: %v", result.Errors)
+			}
 		}
 	}
 
