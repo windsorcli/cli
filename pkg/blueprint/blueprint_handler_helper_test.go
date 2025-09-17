@@ -1,10 +1,8 @@
 package blueprint
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -44,21 +42,6 @@ func (m *mockConfigHandler) GenerateContextID() error                           
 // =============================================================================
 // Test Helper Functions
 // =============================================================================
-
-func TestTLACode(t *testing.T) {
-	// Given a mock Jsonnet VM that returns an error about missing authors
-	vm := NewMockJsonnetVM(func(filename, snippet string) (string, error) {
-		return "", fmt.Errorf("blueprint has no authors")
-	})
-
-	// When evaluating an empty snippet
-	_, err := vm.EvaluateAnonymousSnippet("test.jsonnet", "")
-
-	// Then an error about missing authors should be returned
-	if err == nil || !strings.Contains(err.Error(), "blueprint has no authors") {
-		t.Errorf("expected error containing 'blueprint has no authors', got %v", err)
-	}
-}
 
 func TestBaseBlueprintHandler_calculateMaxWaitTime(t *testing.T) {
 	t.Run("EmptyKustomizations", func(t *testing.T) {

@@ -3047,6 +3047,7 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		testData := createTestTarGz(t, map[string][]byte{
 			"metadata.yaml":               []byte("name: test\nversion: v1.0.0\n"),
 			"_template/blueprint.jsonnet": []byte("{ blueprint: 'content' }"),
+			"_template/schema.yaml":       []byte("$schema: https://json-schema.org/draft/2020-12/schema\ntype: object\nproperties: {}\nrequired: []\nadditionalProperties: false"),
 			"template.jsonnet":            []byte("{ template: 'content' }"),
 			"ignored.yaml":                []byte("ignored: content"),
 		})
@@ -3085,8 +3086,8 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		if templateData == nil {
 			t.Fatal("Expected template data, got nil")
 		}
-		if len(templateData) != 4 {
-			t.Errorf("Expected 4 files (2 .jsonnet + 2 metadata), got %d", len(templateData))
+		if len(templateData) != 5 {
+			t.Errorf("Expected 5 files (2 .jsonnet + name + ociUrl + schema), got %d", len(templateData))
 		}
 		if string(templateData["template.jsonnet"]) != "{ template: 'content' }" {
 			t.Errorf("Expected template.jsonnet content to be '{ template: 'content' }', got %s", string(templateData["template.jsonnet"]))
@@ -3110,6 +3111,7 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		testData := createTestTarGz(t, map[string][]byte{
 			"metadata.yaml":               []byte("name: test\nversion: v1.0.0\n"),
 			"_template/blueprint.jsonnet": []byte("{ blueprint: 'content' }"),
+			"_template/schema.yaml":       []byte("$schema: https://json-schema.org/draft/2020-12/schema\ntype: object\nproperties: {}\nrequired: []\nadditionalProperties: false"),
 			"template.jsonnet":            []byte("{ template: 'content' }"),
 			"config.yaml":                 []byte("config: value"),
 			"script.sh":                   []byte("#!/bin/bash"),
@@ -3145,8 +3147,8 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		if templateData == nil {
 			t.Fatal("Expected template data, got nil")
 		}
-		if len(templateData) != 6 {
-			t.Errorf("Expected 6 files (4 .jsonnet + 2 metadata), got %d", len(templateData))
+		if len(templateData) != 7 {
+			t.Errorf("Expected 7 files (4 .jsonnet + name + ociUrl + schema), got %d", len(templateData))
 		}
 
 		// And should contain OCI metadata
@@ -3258,6 +3260,7 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		testData := createTestTarGz(t, map[string][]byte{
 			"metadata.yaml":               []byte("name: test\nversion: v1.0.0\n"),
 			"_template/blueprint.jsonnet": []byte("{ blueprint: 'content' }"),
+			"_template/schema.yaml":       []byte("$schema: https://json-schema.org/draft/2020-12/schema\ntype: object\nproperties: {}\nrequired: []\nadditionalProperties: false"),
 			"_template/other.jsonnet":     []byte("{ other: 'content' }"),
 			"config.yaml":                 []byte("config: value"),
 		})
@@ -3301,6 +3304,9 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		}
 		if string(templateData["ociUrl"]) != "oci://registry.example.com/test:v1.0.0" {
 			t.Errorf("Expected ociUrl to be 'oci://registry.example.com/test:v1.0.0', got %s", string(templateData["ociUrl"]))
+		}
+		if _, exists := templateData["schema"]; !exists {
+			t.Error("Expected schema key to be included")
 		}
 	})
 }

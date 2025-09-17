@@ -2,137 +2,78 @@ package blueprint
 
 import (
 	"encoding/json"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"time"
 
 	"github.com/goccy/go-yaml"
-	"github.com/google/go-jsonnet"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	k8syaml "sigs.k8s.io/yaml"
 )
 
-// =============================================================================
-// Shims
-// =============================================================================
-
-// Shims provides mockable wrappers around system and runtime functions
+// Shims provides testable wrappers around external dependencies for the blueprint package.
+// This enables dependency injection and mocking in unit tests while maintaining
+// clean separation between business logic and external system interactions.
 type Shims struct {
-	// YAML and JSON shims
-	YamlMarshalNonNull func(v any) ([]byte, error)
+	Stat               func(string) (os.FileInfo, error)
+	ReadFile           func(string) ([]byte, error)
+	ReadDir            func(string) ([]os.DirEntry, error)
+	Walk               func(string, filepath.WalkFunc) error
+	WriteFile          func(string, []byte, os.FileMode) error
+	Remove             func(string) error
+	MkdirAll           func(string, os.FileMode) error
 	YamlMarshal        func(any) ([]byte, error)
 	YamlUnmarshal      func([]byte, any) error
+	YamlMarshalNonNull func(any) ([]byte, error)
+	K8sYamlUnmarshal   func([]byte, any) error
+	NewFakeClient      func(...client.Object) client.WithWatch
+	RegexpMatchString  func(pattern, s string) (bool, error)
+	TimeAfter          func(d time.Duration) <-chan time.Time
+	NewTicker          func(d time.Duration) *time.Ticker
+	TickerStop         func(*time.Ticker)
 	JsonMarshal        func(any) ([]byte, error)
 	JsonUnmarshal      func([]byte, any) error
-	K8sYamlUnmarshal   func([]byte, any) error
-
-	// File system shims
-	WriteFile func(string, []byte, os.FileMode) error
-	MkdirAll  func(string, os.FileMode) error
-	Stat      func(string) (os.FileInfo, error)
-	ReadFile  func(string) ([]byte, error)
-	ReadDir   func(string) ([]os.DirEntry, error)
-	WalkDir   func(string, fs.WalkDirFunc) error
-
-	// Utility shims
-	RegexpMatchString func(pattern string, s string) (bool, error)
-
-	// Timing shims
-	TimeAfter  func(time.Duration) <-chan time.Time
-	NewTicker  func(time.Duration) *time.Ticker
-	TickerStop func(*time.Ticker)
-
-	// Kubernetes shims
-	ClientcmdBuildConfigFromFlags func(masterUrl, kubeconfigPath string) (*rest.Config, error)
-	RestInClusterConfig           func() (*rest.Config, error)
-	KubernetesNewForConfig        func(*rest.Config) (*kubernetes.Clientset, error)
-
-	// Jsonnet shims
-	NewJsonnetVM func() JsonnetVM
+	FilepathBase       func(string) string
 }
 
 // NewShims creates a new Shims instance with default implementations
+// that delegate to the actual system functions and libraries.
 func NewShims() *Shims {
 	return &Shims{
-		// YAML and JSON shims
-		YamlMarshalNonNull: func(v any) ([]byte, error) {
-			return yaml.Marshal(v)
-		},
-		YamlMarshal:      yaml.Marshal,
-		YamlUnmarshal:    yaml.Unmarshal,
-		JsonMarshal:      json.Marshal,
-		JsonUnmarshal:    json.Unmarshal,
-		K8sYamlUnmarshal: yaml.Unmarshal,
-
-		// File system shims
-		WriteFile: os.WriteFile,
-		MkdirAll:  os.MkdirAll,
 		Stat:      os.Stat,
 		ReadFile:  os.ReadFile,
 		ReadDir:   os.ReadDir,
-		WalkDir:   filepath.WalkDir,
-
-		// Utility shims
+		Walk:      filepath.Walk,
+		WriteFile: os.WriteFile,
+		Remove:    os.Remove,
+		MkdirAll:  os.MkdirAll,
+		YamlMarshal: func(v any) ([]byte, error) {
+			return yaml.Marshal(v)
+		},
+		YamlUnmarshal: func(data []byte, v any) error {
+			return yaml.Unmarshal(data, v)
+		},
+		YamlMarshalNonNull: func(v any) ([]byte, error) {
+			return yaml.MarshalWithOptions(v, yaml.WithComment(yaml.CommentMap{}))
+		},
+		K8sYamlUnmarshal: func(data []byte, v any) error {
+			return k8syaml.Unmarshal(data, v)
+		},
+		NewFakeClient: func(objs ...client.Object) client.WithWatch {
+			scheme := runtime.NewScheme()
+			return fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+		},
 		RegexpMatchString: regexp.MatchString,
-
-		// Timing shims
-		TimeAfter:  time.After,
-		NewTicker:  time.NewTicker,
-		TickerStop: func(t *time.Ticker) { t.Stop() },
-
-		// Kubernetes shims
-		ClientcmdBuildConfigFromFlags: clientcmd.BuildConfigFromFlags,
-		RestInClusterConfig:           rest.InClusterConfig,
-		KubernetesNewForConfig:        kubernetes.NewForConfig,
-
-		// Jsonnet shims
-		NewJsonnetVM: NewJsonnetVM,
+		TimeAfter:         time.After,
+		NewTicker:         time.NewTicker,
+		TickerStop: func(ticker *time.Ticker) {
+			ticker.Stop()
+		},
+		JsonMarshal:   json.Marshal,
+		JsonUnmarshal: json.Unmarshal,
+		FilepathBase:  filepath.Base,
 	}
 }
-
-// =============================================================================
-// Jsonnet VM Implementation
-// =============================================================================
-
-// JsonnetVM defines the interface for Jsonnet virtual machines
-type JsonnetVM interface {
-	// TLACode sets a top-level argument using code
-	TLACode(key, val string)
-	// ExtCode sets an external variable using code
-	ExtCode(key, val string)
-	// EvaluateAnonymousSnippet evaluates a jsonnet snippet
-	EvaluateAnonymousSnippet(filename, snippet string) (string, error)
-}
-
-// realJsonnetVM implements JsonnetVM using the actual jsonnet implementation
-type realJsonnetVM struct {
-	vm *jsonnet.VM
-}
-
-// NewJsonnetVM creates a new JsonnetVM using the real jsonnet implementation
-func NewJsonnetVM() JsonnetVM {
-	return &realJsonnetVM{vm: jsonnet.MakeVM()}
-}
-
-func (j *realJsonnetVM) TLACode(key, val string) {
-	j.vm.TLACode(key, val)
-}
-
-func (j *realJsonnetVM) ExtCode(key, val string) {
-	j.vm.ExtCode(key, val)
-}
-
-func (j *realJsonnetVM) EvaluateAnonymousSnippet(filename, snippet string) (string, error) {
-	return j.vm.EvaluateAnonymousSnippet(filename, snippet)
-}
-
-// =============================================================================
-// Helper Functions
-// =============================================================================
-
-// metav1Duration is a shim for metav1.Duration
-type metav1Duration = metav1.Duration
