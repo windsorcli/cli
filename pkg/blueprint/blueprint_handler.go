@@ -482,28 +482,18 @@ func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 		return nil, fmt.Errorf("failed to load and merge context values: %w", err)
 	}
 
-	if contextValues != nil {
-		if len(contextValues.TopLevel) > 0 {
-			topLevelYAML, err := b.shims.YamlMarshal(contextValues.TopLevel)
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal top-level values: %w", err)
+	if contextValues != nil && len(contextValues.Substitution) > 0 {
+		if existingValues, exists := templateData["substitution"]; exists {
+			var ociSubstitutionValues map[string]any
+			if err := b.shims.YamlUnmarshal(existingValues, &ociSubstitutionValues); err == nil {
+				contextValues.Substitution = b.deepMergeValues(ociSubstitutionValues, contextValues.Substitution)
 			}
-			templateData["values"] = topLevelYAML
 		}
-
-		if len(contextValues.Substitution) > 0 {
-			if existingValues, exists := templateData["substitution"]; exists {
-				var ociSubstitutionValues map[string]any
-				if err := b.shims.YamlUnmarshal(existingValues, &ociSubstitutionValues); err == nil {
-					contextValues.Substitution = b.deepMergeValues(ociSubstitutionValues, contextValues.Substitution)
-				}
-			}
-			substitutionYAML, err := b.shims.YamlMarshal(contextValues.Substitution)
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal substitution values: %w", err)
-			}
-			templateData["substitution"] = substitutionYAML
+		substitutionYAML, err := b.shims.YamlMarshal(contextValues.Substitution)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal substitution values: %w", err)
 		}
+		templateData["substitution"] = substitutionYAML
 	}
 
 	return templateData, nil
@@ -731,13 +721,17 @@ func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir, templateRoot
 				return fmt.Errorf("failed to read template file %s: %w", entryPath, err)
 			}
 
-			relPath, err := filepath.Rel(templateRoot, entryPath)
-			if err != nil {
-				return fmt.Errorf("failed to calculate relative path for %s: %w", entryPath, err)
-			}
+			if entry.Name() == "schema.yaml" {
+				templateData["schema"] = content
+			} else {
+				relPath, err := filepath.Rel(templateRoot, entryPath)
+				if err != nil {
+					return fmt.Errorf("failed to calculate relative path for %s: %w", entryPath, err)
+				}
 
-			relPath = strings.ReplaceAll(relPath, "\\", "/")
-			templateData[relPath] = content
+				relPath = strings.ReplaceAll(relPath, "\\", "/")
+				templateData[relPath] = content
+			}
 		}
 	}
 
@@ -753,10 +747,10 @@ func (b *BaseBlueprintHandler) loadAndMergeContextValues(templateData ...map[str
 	var baseValues map[string]any
 
 	if len(templateData) > 0 && templateData[0] != nil {
-		if schemaContent, exists := templateData[0]["schema.yaml"]; exists {
+		if schemaContent, exists := templateData[0]["schema"]; exists {
 			if b.schemaValidator != nil {
 				if err := b.schemaValidator.LoadSchemaFromBytes(schemaContent); err != nil {
-					return nil, fmt.Errorf("failed to load template schema.yaml: %w", err)
+					return nil, fmt.Errorf("failed to load template schema: %w", err)
 				}
 
 				defaults, err := b.schemaValidator.GetSchemaDefaults()

@@ -514,7 +514,7 @@ func TestJsonnetTemplate_processJsonnetTemplate(t *testing.T) {
 		templateContent := `local context = std.extVar("context"); { key: "value", number: 42 }`
 
 		// When processing the jsonnet template
-		result, err := template.processJsonnetTemplate(templateContent, nil)
+		result, err := template.processJsonnetTemplate(templateContent)
 
 		// Then no error should be returned
 		if err != nil {
@@ -542,7 +542,7 @@ func TestJsonnetTemplate_processJsonnetTemplate(t *testing.T) {
 		templateContent := `local context = std.extVar("context"); { key: "value" }`
 
 		// When processing the jsonnet template
-		_, err := template.processJsonnetTemplate(templateContent, nil)
+		_, err := template.processJsonnetTemplate(templateContent)
 
 		// Then an error should be returned
 		if err == nil {
@@ -570,7 +570,7 @@ func TestJsonnetTemplate_processJsonnetTemplate(t *testing.T) {
 		templateContent := `local context = std.extVar("context"); { key: "value" }`
 
 		// When processing the jsonnet template
-		_, err := template.processJsonnetTemplate(templateContent, nil)
+		_, err := template.processJsonnetTemplate(templateContent)
 
 		// Then an error should be returned
 		if err == nil {
@@ -598,7 +598,7 @@ func TestJsonnetTemplate_processJsonnetTemplate(t *testing.T) {
 		templateContent := `local context = std.extVar("context"); { key: "value" }`
 
 		// When processing the jsonnet template
-		_, err := template.processJsonnetTemplate(templateContent, nil)
+		_, err := template.processJsonnetTemplate(templateContent)
 
 		// Then an error should be returned
 		if err == nil {
@@ -626,7 +626,7 @@ func TestJsonnetTemplate_processJsonnetTemplate(t *testing.T) {
 		templateContent := `local context = std.extVar("context"); { key: "value" }`
 
 		// When processing the jsonnet template
-		_, err := template.processJsonnetTemplate(templateContent, nil)
+		_, err := template.processJsonnetTemplate(templateContent)
 
 		// Then an error should be returned
 		if err == nil {
@@ -659,7 +659,7 @@ func TestJsonnetTemplate_processJsonnetTemplate(t *testing.T) {
 		templateContent := `invalid jsonnet syntax`
 
 		// When processing the jsonnet template
-		_, err := template.processJsonnetTemplate(templateContent, nil)
+		_, err := template.processJsonnetTemplate(templateContent)
 
 		// Then an error should be returned
 		if err == nil {
@@ -692,7 +692,7 @@ func TestJsonnetTemplate_processJsonnetTemplate(t *testing.T) {
 		templateContent := `local context = std.extVar("context"); "not an object"`
 
 		// When processing the jsonnet template
-		_, err := template.processJsonnetTemplate(templateContent, nil)
+		_, err := template.processJsonnetTemplate(templateContent)
 
 		// Then an error should be returned
 		if err == nil {
@@ -751,7 +751,7 @@ contexts:
 		templateContent := `local context = std.extVar("context"); { processed: true, name: context.name, projectName: context.projectName }`
 
 		// When processing the jsonnet template
-		result, err := template.processJsonnetTemplate(templateContent, nil)
+		result, err := template.processJsonnetTemplate(templateContent)
 
 		// Then no error should be returned
 		if err != nil {
@@ -804,7 +804,7 @@ contexts:
 		templateContent := `local context = std.extVar("context"); { minimal: true }`
 
 		// When processing the jsonnet template
-		result, err := template.processJsonnetTemplate(templateContent, nil)
+		result, err := template.processJsonnetTemplate(templateContent)
 
 		// Then no error should be returned
 		if err != nil {
@@ -840,7 +840,7 @@ contexts:
 		templateContent := `local context = std.extVar("context"); local helpers = std.extVar("helpers"); { test: "value" }`
 
 		// When processing the jsonnet template
-		result, err := template.processJsonnetTemplate(templateContent, nil)
+		result, err := template.processJsonnetTemplate(templateContent)
 
 		// Then no error should be returned
 		if err != nil {
@@ -891,7 +891,7 @@ contexts:
 		templateContent := `local context = std.extVar("context"); { test: "value" }`
 
 		// When processing the jsonnet template
-		result, err := template.processJsonnetTemplate(templateContent, nil)
+		result, err := template.processJsonnetTemplate(templateContent)
 
 		// Then no error should be returned
 		if err != nil {
@@ -954,7 +954,7 @@ contexts:
 		templateContent := `local context = std.extVar("context"); local helpers = std.extVar("helpers"); helpers.removeEmptyKeys({})`
 
 		// When processing the jsonnet template
-		result, err := template.processJsonnetTemplate(templateContent, nil)
+		result, err := template.processJsonnetTemplate(templateContent)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1015,7 +1015,7 @@ hlp.removeEmptyKeys({
 })`
 
 		// When processing the jsonnet template
-		result, err := template.processJsonnetTemplate(templateContent, nil)
+		result, err := template.processJsonnetTemplate(templateContent)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1051,7 +1051,7 @@ hlp.removeEmptyKeys({
 		templateContent := `local context = std.extVar("context"); local helpers = std.extVar("helpers"); {"hasRemoveEmptyKeys": "removeEmptyKeys" in helpers}`
 
 		// When processing the jsonnet template
-		result, err := template.processJsonnetTemplate(templateContent, nil)
+		result, err := template.processJsonnetTemplate(templateContent)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1091,7 +1091,7 @@ hlp.removeEmptyKeys({
 		templateContent := `local context = std.extVar("context"); local helpers = std.extVar("helpers"); helpers.removeEmptyKeys({test: "value", array: ["valid", "", null, "another"]})`
 
 		// When processing the jsonnet template
-		result, err := template.processJsonnetTemplate(templateContent, nil)
+		result, err := template.processJsonnetTemplate(templateContent)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1133,7 +1133,7 @@ func TestJsonnetTemplate_RealShimsIntegration(t *testing.T) {
 
 		// When processing a simple jsonnet template using real shims
 		templateContent := `local context = std.extVar("context"); { result: "success", hasContext: std.objectHas(context, "name") }`
-		result, err := template.processJsonnetTemplate(templateContent, nil)
+		result, err := template.processJsonnetTemplate(templateContent)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1296,7 +1296,7 @@ func TestJsonnetTemplate_processJsonnetTemplateWithHelpers(t *testing.T) {
 		templateContent := `local helpers = std.extVar("helpers"); local context = std.extVar("context"); { result: helpers.getString(context, "dns.domain", "default") }`
 
 		// When processing the jsonnet template
-		_, err := template.processJsonnetTemplate(templateContent, nil)
+		_, err := template.processJsonnetTemplate(templateContent)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1381,7 +1381,7 @@ tags:
 		}
 
 		// When processing a template that uses helper functions
-		result, err := template.processJsonnetTemplate(templateContent, nil)
+		result, err := template.processJsonnetTemplate(templateContent)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1475,7 +1475,7 @@ local context = std.extVar("context");
   totallyMissing: helpers.getString(context, "not.there.at.all", "default"),
 }`
 
-		result, err := template.processJsonnetTemplate(templateContent, nil)
+		result, err := template.processJsonnetTemplate(templateContent)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1552,7 +1552,7 @@ local helpers = std.extVar("helpers");
 			return []byte("contexts:\n  mock-context: {}"), nil
 		}
 
-		result, err := template.processJsonnetTemplate(templateContent, nil)
+		result, err := template.processJsonnetTemplate(templateContent)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1575,7 +1575,7 @@ local helpers = std.extVar("helpers");
 			return []byte("contexts:\n  mock-context: {}"), nil
 		}
 
-		result, err := template.processJsonnetTemplate(templateContent, nil)
+		result, err := template.processJsonnetTemplate(templateContent)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1598,7 +1598,7 @@ local helpers = std.extVar("helpers");
 			return []byte("contexts:\n  mock-context: {}"), nil
 		}
 
-		result, err := template.processJsonnetTemplate(templateContent, nil)
+		result, err := template.processJsonnetTemplate(templateContent)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1621,7 +1621,7 @@ local helpers = std.extVar("helpers");
 			return []byte("contexts:\n  mock-context: {}"), nil
 		}
 
-		result, err := template.processJsonnetTemplate(templateContent, nil)
+		result, err := template.processJsonnetTemplate(templateContent)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1654,7 +1654,7 @@ local helpers = std.extVar("helpers");
 			return mockVM
 		}
 
-		result, err := template.processJsonnetTemplate(templateContent, nil)
+		result, err := template.processJsonnetTemplate(templateContent)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1690,7 +1690,7 @@ local context = std.extVar("context");
 			return []byte("provider: aws"), nil
 		}
 
-		result, err := template.processJsonnetTemplate(templateContent, nil)
+		result, err := template.processJsonnetTemplate(templateContent)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1714,7 +1714,7 @@ local context = std.extVar("context");
 			return []byte("{}"), nil
 		}
 
-		result, err := template.processJsonnetTemplate(templateContent, nil)
+		result, err := template.processJsonnetTemplate(templateContent)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1738,7 +1738,7 @@ local context = std.extVar("context");
 			return []byte("provider: 123"), nil
 		}
 
-		_, err := template.processJsonnetTemplate(templateContent, nil)
+		_, err := template.processJsonnetTemplate(templateContent)
 
 		if err == nil {
 			t.Error("Expected error for wrong type, got none")
@@ -1762,7 +1762,7 @@ local context = std.extVar("context");
 			return []byte("vm:\n  cores: \"not-a-number\""), nil
 		}
 
-		_, err := template.processJsonnetTemplate(templateContent, nil)
+		_, err := template.processJsonnetTemplate(templateContent)
 
 		if err == nil {
 			t.Error("Expected error for wrong type, got none")
@@ -1786,7 +1786,7 @@ local context = std.extVar("context");
 			return []byte("feature:\n  enabled: \"yes\""), nil
 		}
 
-		_, err := template.processJsonnetTemplate(templateContent, nil)
+		_, err := template.processJsonnetTemplate(templateContent)
 
 		if err == nil {
 			t.Error("Expected error for wrong type, got none")
@@ -1810,7 +1810,7 @@ local context = std.extVar("context");
 			return []byte("cluster: \"not-an-object\""), nil
 		}
 
-		_, err := template.processJsonnetTemplate(templateContent, nil)
+		_, err := template.processJsonnetTemplate(templateContent)
 
 		if err == nil {
 			t.Error("Expected error for wrong type, got none")
@@ -1834,7 +1834,7 @@ local context = std.extVar("context");
 			return []byte("tags: \"not-an-array\""), nil
 		}
 
-		_, err := template.processJsonnetTemplate(templateContent, nil)
+		_, err := template.processJsonnetTemplate(templateContent)
 
 		if err == nil {
 			t.Error("Expected error for wrong type, got none")
@@ -2145,82 +2145,6 @@ func TestJsonnetTemplate_processTemplate(t *testing.T) {
 		}
 		if renderedData["kustomize/values"] != nil {
 			t.Error("expected kustomize/values to be skipped, but data was added")
-		}
-	})
-
-	t.Run("InjectsValuesDataIntoTemplates", func(t *testing.T) {
-		// Given a jsonnet template with values data
-		template, mocks := setup(t)
-
-		// Mock config handler returns basic config
-		template.shims.YamlMarshal = func(v any) ([]byte, error) {
-			return []byte(`contexts:
-  test:
-    name: test-context`), nil
-		}
-
-		// Mock shell returns project root
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "/test/project", nil
-		}
-
-		// Mock jsonnet VM to capture context injection (which now includes values)
-		var capturedContext string
-		template.shims.NewJsonnetVM = func() JsonnetVM {
-			mockVM := &mockJsonnetVM{
-				EvaluateFunc: func(filename, snippet string) (string, error) {
-					return `{"processed": true, "hasValues": true}`, nil
-				},
-			}
-			mockVM.ExtCodeFunc = func(key, val string) {
-				if key == "context" {
-					capturedContext = val
-				}
-				mockVM.ExtCalls = append(mockVM.ExtCalls, struct{ Key, Val string }{key, val})
-			}
-			return mockVM
-		}
-
-		// Set up template data with values
-		templateData := map[string][]byte{
-			"blueprint.jsonnet": []byte(`local context = std.extVar("context"); { processed: true, domain: context.common.external_domain }`),
-			"values": []byte(`common:
-  external_domain: test.example.com
-  registry_url: registry.test.example.com`),
-		}
-
-		renderedData := make(map[string]any)
-
-		// When processing templates
-		err := template.Process(templateData, renderedData)
-
-		// Then no error should occur
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		// And context should have been captured (which now includes values)
-		if capturedContext == "" {
-			t.Error("Expected context to be injected into template")
-		}
-
-		// And context should contain expected values data
-		if !strings.Contains(capturedContext, "external_domain") {
-			t.Errorf("Expected context to contain 'external_domain', got: %s", capturedContext)
-		}
-		if !strings.Contains(capturedContext, "test.example.com") {
-			t.Errorf("Expected context to contain 'test.example.com', got: %s", capturedContext)
-		}
-
-		// And blueprint should be processed
-		if blueprint, exists := renderedData["blueprint"]; exists {
-			if blueprintMap, ok := blueprint.(map[string]any); ok {
-				if processed, ok := blueprintMap["processed"].(bool); !ok || !processed {
-					t.Error("Expected blueprint to be processed")
-				}
-			}
-		} else {
-			t.Error("Expected blueprint to be in rendered data")
 		}
 	})
 

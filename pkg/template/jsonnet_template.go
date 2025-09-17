@@ -2,7 +2,6 @@ package template
 
 import (
 	"fmt"
-	"maps"
 	"strings"
 
 	"github.com/windsorcli/cli/pkg/config"
@@ -94,14 +93,13 @@ func (t *JsonnetTemplate) Process(templateData map[string][]byte, renderedData m
 	return nil
 }
 
-// processJsonnetTemplate evaluates a Jsonnet template string using the Windsor context and values data.
+// processJsonnetTemplate evaluates a Jsonnet template string using the Windsor context.
 // The Windsor configuration is marshaled to YAML, converted to a map, and augmented with context and project name metadata.
 // The context is serialized to JSON and injected into the Jsonnet VM as an external variable, along with helper functions
 // and the effective blueprint URL for templates to reference if needed.
-// If values data is provided, it is merged into the context map before serialization.
 // The template is evaluated, and the output is unmarshaled from JSON into a map.
 // Returns the resulting map or an error if any step fails.
-func (t *JsonnetTemplate) processJsonnetTemplate(templateContent string, valuesData []byte) (map[string]any, error) {
+func (t *JsonnetTemplate) processJsonnetTemplate(templateContent string) (map[string]any, error) {
 	config := t.configHandler.GetConfig()
 	contextYAML, err := t.shims.YamlMarshal(config)
 	if err != nil {
@@ -118,14 +116,6 @@ func (t *JsonnetTemplate) processJsonnetTemplate(templateContent string, valuesD
 	contextName := t.configHandler.GetContext()
 	contextMap["name"] = contextName
 	contextMap["projectName"] = t.shims.FilepathBase(projectRoot)
-
-	if valuesData != nil {
-		var valuesMap map[string]any
-		if err := t.shims.YamlUnmarshal(valuesData, &valuesMap); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal values YAML: %w", err)
-		}
-		maps.Copy(contextMap, valuesMap)
-	}
 
 	contextJSON, err := t.shims.JsonMarshal(contextMap)
 	if err != nil {
@@ -230,12 +220,7 @@ func (t *JsonnetTemplate) processTemplate(templatePath string, templateData map[
 		return nil
 	}
 
-	var valuesData []byte
-	if data, exists := templateData["values"]; exists {
-		valuesData = data
-	}
-
-	values, err := t.processJsonnetTemplate(string(content), valuesData)
+	values, err := t.processJsonnetTemplate(string(content))
 	if err != nil {
 		return fmt.Errorf("failed to process template %s: %w", templatePath, err)
 	}

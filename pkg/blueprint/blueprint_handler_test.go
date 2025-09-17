@@ -2391,6 +2391,7 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 				if path == templateDir {
 					return []os.DirEntry{
 						&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
+						&mockDirEntry{name: "schema.yaml", isDir: false},
 						&mockDirEntry{name: "config.yaml", isDir: false}, // Should be ignored
 						&mockDirEntry{name: "terraform", isDir: true},
 					}, nil
@@ -2436,11 +2437,11 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 			"terraform/network.jsonnet",
 		}
 
-		// Schema processing adds "values" and "substitution" keys
-		expectedTotalFiles := len(expectedJsonnetFiles) + 2 // +values +substitution
+		// Schema processing adds "schema" and "substitution" keys
+		expectedTotalFiles := len(expectedJsonnetFiles) + 2 // +schema +substitution
 
 		if len(result) != expectedTotalFiles {
-			t.Errorf("Expected %d files (3 jsonnet + 2 schema-generated), got: %d", expectedTotalFiles, len(result))
+			t.Errorf("Expected %d files (3 jsonnet + 2 schema-processed), got: %d", expectedTotalFiles, len(result))
 		}
 
 		for _, expectedFile := range expectedJsonnetFiles {
@@ -2449,9 +2450,9 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 			}
 		}
 
-		// Verify schema-generated entries exist
-		if _, exists := result["values"]; !exists {
-			t.Error("Expected 'values' key to exist from schema processing")
+		// Verify schema is processed (schema.yaml should be stored as "schema")
+		if _, exists := result["schema"]; !exists {
+			t.Error("Expected 'schema' key to exist from schema processing")
 		}
 		if _, exists := result["substitution"]; !exists {
 			t.Error("Expected 'substitution' key to exist from schema processing")
@@ -2654,25 +2655,10 @@ substitution:
 			t.Fatal("Expected result to not be nil")
 		}
 
-		// Check for values (top-level values merged into context)
-		valuesData, exists := result["values"]
-		if !exists {
-			t.Fatal("Expected 'values' key to exist in result")
-		}
+		// This test doesn't include schema.yaml in the mock, so no schema key expected
+		// Values processing is handled through the config context now
 
-		var values map[string]any
-		if err := yaml.Unmarshal(valuesData, &values); err != nil {
-			t.Fatalf("Failed to unmarshal values: %v", err)
-		}
-
-		// Verify that top-level values are properly merged
-		if values["external_domain"] != "context.test" {
-			t.Errorf("Expected external_domain to be 'context.test', got %v", values["external_domain"])
-		}
-
-		if values["registry_url"] != "registry.local.test" {
-			t.Errorf("Expected registry_url to be 'registry.local.test', got %v", values["registry_url"])
-		}
+		// Values validation is now done at the schema level, not in templateData
 
 		// Check for substitution (substitution section for ConfigMaps)
 		substitutionValuesData, exists := result["substitution"]
@@ -2825,31 +2811,10 @@ substitution:
 			t.Error("Expected 'blueprint.jsonnet' to be in result")
 		}
 
-		// Check that values are merged and included
-		valuesData, exists := result["values"]
-		if !exists {
-			t.Fatal("Expected 'values' key to exist in result")
-		}
+		// This test doesn't include schema.yaml in the mock, so no schema key expected
+		// Values processing is handled through the config context now
 
-		var values map[string]any
-		if err := yaml.Unmarshal(valuesData, &values); err != nil {
-			t.Fatalf("Failed to unmarshal values: %v", err)
-		}
-
-		// Context values should override template values
-		if values["external_domain"] != "context.test" {
-			t.Errorf("Expected external_domain to be 'context.test', got %v", values["external_domain"])
-		}
-
-		// Template-only values should be preserved
-		if values["template_only"] != "template_value" {
-			t.Errorf("Expected template_only to be 'template_value', got %v", values["template_only"])
-		}
-
-		// Context-only values should be added
-		if values["context_only"] != "context_value" {
-			t.Errorf("Expected context_only to be 'context_value', got %v", values["context_only"])
-		}
+		// Values validation is now handled through schema processing
 
 		// Check that substitution values are merged and included
 		substitutionData, exists := result["substitution"]
@@ -2964,25 +2929,8 @@ substitution:
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		// Check that context values are properly included
-		valuesData, exists := result["values"]
-		if !exists {
-			t.Fatal("Expected 'values' key to exist in result")
-		}
-
-		var values map[string]any
-		if err := yaml.Unmarshal(valuesData, &values); err != nil {
-			t.Fatalf("Failed to unmarshal values: %v", err)
-		}
-
-		// Context values should be present
-		if values["external_domain"] != "context.test" {
-			t.Errorf("Expected external_domain to be 'context.test', got %v", values["external_domain"])
-		}
-
-		if values["context_only"] != "context_value" {
-			t.Errorf("Expected context_only to be 'context_value', got %v", values["context_only"])
-		}
+		// This test doesn't include schema.yaml in the mock, so no schema key expected
+		// Values processing is handled through the config context now
 
 		// Check substitution values
 		substitutionData, exists := result["substitution"]
@@ -3067,88 +3015,90 @@ substitution:
 		}
 	})
 
-	t.Run("HandlesYamlMarshalError", func(t *testing.T) {
-		// Given a blueprint handler with context values but YAML marshal error
-		handler, mocks := setup(t)
+	/*
+		// DEPRECATED: This test is no longer relevant since values marshaling was removed
+		t.Run("HandlesYamlMarshalError", func(t *testing.T) {
+			// Given a blueprint handler with context values but YAML marshal error
+			handler, mocks := setup(t)
 
-		// Ensure the handler uses the mock shell and config handler
-		baseHandler := handler.(*BaseBlueprintHandler)
-		baseHandler.shell = mocks.Shell
-		baseHandler.configHandler = mocks.ConfigHandler
+			// Ensure the handler uses the mock shell and config handler
+			baseHandler := handler.(*BaseBlueprintHandler)
+			baseHandler.shell = mocks.Shell
+			baseHandler.configHandler = mocks.ConfigHandler
 
-		projectRoot := filepath.Join("mock", "project")
-		templateDir := filepath.Join(projectRoot, "contexts", "_template")
+			projectRoot := filepath.Join("mock", "project")
+			templateDir := filepath.Join(projectRoot, "contexts", "_template")
 
-		// Mock shell to return project root
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
-		}
-
-		// Mock config handler to return context
-		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
-			mockConfigHandler.GetContextFunc = func() string {
-				return "test-context"
+			// Mock shell to return project root
+			mocks.Shell.GetProjectRootFunc = func() (string, error) {
+				return projectRoot, nil
 			}
-			mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-				return filepath.Join(projectRoot, "contexts", "test-context"), nil
-			}
-		}
 
-		// Mock shims to simulate template directory and values files
-		if baseHandler, ok := handler.(*BaseBlueprintHandler); ok {
-			baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
-				if path == templateDir ||
-					path == filepath.Join(projectRoot, "contexts", "_template", "values.yaml") ||
-					path == filepath.Join(projectRoot, "contexts", "test-context", "values.yaml") {
-					return mockFileInfo{name: "template"}, nil
+			// Mock config handler to return context
+			if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+				mockConfigHandler.GetContextFunc = func() string {
+					return "test-context"
 				}
-				return nil, os.ErrNotExist
-			}
-
-			baseHandler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-				if path == templateDir {
-					return []os.DirEntry{
-						&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
-					}, nil
-				}
-				return nil, fmt.Errorf("directory not found")
-			}
-
-			baseHandler.shims.ReadFile = func(path string) ([]byte, error) {
-				switch path {
-				case filepath.Join(templateDir, "blueprint.jsonnet"):
-					return []byte("{ kind: 'Blueprint' }"), nil
-				case filepath.Join(projectRoot, "contexts", "_template", "values.yaml"):
-					return []byte(`external_domain: template.test`), nil
-				case filepath.Join(projectRoot, "contexts", "test-context", "values.yaml"):
-					return []byte(`external_domain: context.test`), nil
-				default:
-					return nil, fmt.Errorf("file not found: %s", path)
+				mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+					return filepath.Join(projectRoot, "contexts", "test-context"), nil
 				}
 			}
 
-			// Mock YAML marshal to return error
-			baseHandler.shims.YamlMarshal = func(v any) ([]byte, error) {
-				return nil, fmt.Errorf("marshal error")
+			// Mock shims to simulate template directory and values files
+			if baseHandler, ok := handler.(*BaseBlueprintHandler); ok {
+				baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
+					if path == templateDir ||
+						path == filepath.Join(projectRoot, "contexts", "_template", "values.yaml") ||
+						path == filepath.Join(projectRoot, "contexts", "test-context", "values.yaml") {
+						return mockFileInfo{name: "template"}, nil
+					}
+					return nil, os.ErrNotExist
+				}
+
+				baseHandler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+					if path == templateDir {
+						return []os.DirEntry{
+							&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
+						}, nil
+					}
+					return nil, fmt.Errorf("directory not found")
+				}
+
+				baseHandler.shims.ReadFile = func(path string) ([]byte, error) {
+					switch path {
+					case filepath.Join(templateDir, "blueprint.jsonnet"):
+						return []byte("{ kind: 'Blueprint' }"), nil
+					case filepath.Join(projectRoot, "contexts", "_template", "values.yaml"):
+						return []byte(`external_domain: template.test`), nil
+					case filepath.Join(projectRoot, "contexts", "test-context", "values.yaml"):
+						return []byte(`external_domain: context.test`), nil
+					default:
+						return nil, fmt.Errorf("file not found: %s", path)
+					}
+				}
+
+				// Mock YAML marshal to return error
+				baseHandler.shims.YamlMarshal = func(v any) ([]byte, error) {
+					return nil, fmt.Errorf("marshal error")
+				}
+
+				baseHandler.shims.YamlUnmarshal = func(data []byte, v any) error {
+					return yaml.Unmarshal(data, v)
+				}
 			}
 
-			baseHandler.shims.YamlUnmarshal = func(data []byte, v any) error {
-				return yaml.Unmarshal(data, v)
+			// When getting local template data
+			_, err := handler.GetLocalTemplateData()
+
+			// Then an error should occur
+			if err == nil {
+				t.Error("Expected error when YAML marshal fails")
 			}
-		}
 
-		// When getting local template data
-		_, err := handler.GetLocalTemplateData()
-
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error when YAML marshal fails")
-		}
-
-		if !strings.Contains(err.Error(), "failed to marshal top-level values") {
-			t.Errorf("Expected error about marshaling top-level values, got: %v", err)
-		}
-	})
+			if !strings.Contains(err.Error(), "marshal error") {
+				t.Errorf("Expected error about marshaling, got: %v", err)
+			}
+		}) */
 
 }
 
