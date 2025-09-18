@@ -10,15 +10,9 @@ import (
 
 func TestNewFeatureEvaluator(t *testing.T) {
 	t.Run("CreatesNewFeatureEvaluatorSuccessfully", func(t *testing.T) {
-		evaluator, err := NewFeatureEvaluator()
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
+		evaluator := NewFeatureEvaluator()
 		if evaluator == nil {
 			t.Fatal("Expected evaluator, got nil")
-		}
-		if evaluator.env == nil {
-			t.Fatal("Expected CEL env to be initialized")
 		}
 	})
 }
@@ -27,160 +21,48 @@ func TestNewFeatureEvaluator(t *testing.T) {
 // Test Public Methods
 // =============================================================================
 
-func TestCompileExpression(t *testing.T) {
-	evaluator, err := NewFeatureEvaluator()
-	if err != nil {
-		t.Fatalf("Failed to create evaluator: %v", err)
-	}
+func TestEvaluateExpression(t *testing.T) {
+	evaluator := NewFeatureEvaluator()
 
 	tests := []struct {
 		name        string
 		expression  string
+		config      map[string]any
+		expected    bool
 		shouldError bool
 	}{
 		{
 			name:        "EmptyExpressionFails",
 			expression:  "",
+			config:      map[string]any{},
 			shouldError: true,
 		},
 		{
-			name:        "SimpleEqualityExpression",
-			expression:  "provider == 'aws'",
-			shouldError: false,
-		},
-		{
-			name:        "SimpleInequalityExpression",
-			expression:  "provider != 'local'",
-			shouldError: false,
-		},
-		{
-			name:        "LogicalAndExpression",
-			expression:  "provider == 'local' && observability.enabled == true",
-			shouldError: false,
-		},
-		{
-			name:        "LogicalOrExpression",
-			expression:  "provider == 'aws' || provider == 'azure'",
-			shouldError: false,
-		},
-		{
-			name:        "ParenthesesGrouping",
-			expression:  "provider == 'local' && (vm.driver != 'docker-desktop' || loadbalancer.enabled == true)",
-			shouldError: false,
-		},
-		{
-			name:        "NestedObjectAccess",
-			expression:  "observability.enabled == true && observability.backend == 'quickwit'",
-			shouldError: false,
-		},
-		{
-			name:        "BooleanComparison",
-			expression:  "dns.enabled == true",
-			shouldError: false,
-		},
-		{
-			name:        "InvalidSyntaxFails",
-			expression:  "provider ===",
-			shouldError: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config := map[string]any{
-				"provider": "aws",
-				"observability": map[string]any{
-					"enabled": true,
-					"backend": "quickwit",
-				},
-				"vm": map[string]any{
-					"driver": "virtualbox",
-				},
-				"loadbalancer": map[string]any{
-					"enabled": true,
-				},
-				"dns": map[string]any{
-					"enabled": true,
-				},
-			}
-
-			program, err := evaluator.CompileExpression(tt.expression, config)
-
-			if tt.shouldError {
-				if err == nil {
-					t.Errorf("Expected error for expression '%s', got none", tt.expression)
-				}
-			} else {
-				if err != nil {
-					t.Errorf("Expected no error for expression '%s', got %v", tt.expression, err)
-				}
-				if program == nil {
-					t.Errorf("Expected program for expression '%s', got nil", tt.expression)
-				}
-			}
-		})
-	}
-}
-
-func TestEvaluateProgram(t *testing.T) {
-	evaluator, err := NewFeatureEvaluator()
-	if err != nil {
-		t.Fatalf("Failed to create evaluator: %v", err)
-	}
-
-	tests := []struct {
-		name       string
-		expression string
-		config     map[string]any
-		expected   bool
-		shouldErr  bool
-	}{
-		{
-			name:       "SimpleStringEqualityTrue",
+			name:       "SimpleEqualityExpressionTrue",
 			expression: "provider == 'aws'",
 			config:     map[string]any{"provider": "aws"},
 			expected:   true,
 		},
 		{
-			name:       "SimpleStringEqualityFalse",
+			name:       "SimpleEqualityExpressionFalse",
 			expression: "provider == 'aws'",
 			config:     map[string]any{"provider": "local"},
 			expected:   false,
 		},
 		{
-			name:       "StringInequalityTrue",
+			name:       "SimpleInequalityExpressionTrue",
 			expression: "provider != 'local'",
 			config:     map[string]any{"provider": "aws"},
 			expected:   true,
 		},
 		{
-			name:       "StringInequalityFalse",
+			name:       "SimpleInequalityExpressionFalse",
 			expression: "provider != 'local'",
 			config:     map[string]any{"provider": "local"},
 			expected:   false,
 		},
 		{
-			name:       "BooleanEqualityTrue",
-			expression: "observability.enabled == true",
-			config: map[string]any{
-				"observability": map[string]any{
-					"enabled": true,
-				},
-			},
-			expected: true,
-		},
-		{
-			name:       "BooleanEqualityFalse",
-			expression: "observability.enabled == true",
-			config: map[string]any{
-				"observability": map[string]any{
-					"enabled": false,
-				},
-			},
-			expected: false,
-		},
-		{
-			name:       "LogicalAndBothTrue",
+			name:       "LogicalAndExpressionTrue",
 			expression: "provider == 'local' && observability.enabled == true",
 			config: map[string]any{
 				"provider": "local",
@@ -191,7 +73,7 @@ func TestEvaluateProgram(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:       "LogicalAndFirstFalse",
+			name:       "LogicalAndExpressionFalse",
 			expression: "provider == 'local' && observability.enabled == true",
 			config: map[string]any{
 				"provider": "aws",
@@ -202,25 +84,19 @@ func TestEvaluateProgram(t *testing.T) {
 			expected: false,
 		},
 		{
-			name:       "LogicalOrFirstTrue",
+			name:       "LogicalOrExpressionTrue",
 			expression: "provider == 'aws' || provider == 'azure'",
 			config:     map[string]any{"provider": "aws"},
 			expected:   true,
 		},
 		{
-			name:       "LogicalOrSecondTrue",
-			expression: "provider == 'aws' || provider == 'azure'",
-			config:     map[string]any{"provider": "azure"},
-			expected:   true,
-		},
-		{
-			name:       "LogicalOrBothFalse",
+			name:       "LogicalOrExpressionFalse",
 			expression: "provider == 'aws' || provider == 'azure'",
 			config:     map[string]any{"provider": "local"},
 			expected:   false,
 		},
 		{
-			name:       "ParenthesesGroupingComplexExpressionTrue",
+			name:       "ParenthesesGrouping",
 			expression: "provider == 'local' && (vm.driver != 'docker-desktop' || loadbalancer.enabled == true)",
 			config: map[string]any{
 				"provider": "local",
@@ -234,7 +110,7 @@ func TestEvaluateProgram(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:       "NestedObjectAccessMultipleLevels",
+			name:       "NestedObjectAccess",
 			expression: "observability.enabled == true && observability.backend == 'quickwit'",
 			config: map[string]any{
 				"observability": map[string]any{
@@ -245,34 +121,28 @@ func TestEvaluateProgram(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:       "MissingFieldEvaluatesToNullFalseComparison",
-			expression: "missing.field == 'value'",
+			name:       "BooleanComparison",
+			expression: "dns.enabled == true",
 			config: map[string]any{
-				"missing": map[string]any{
-					"field": nil,
+				"dns": map[string]any{
+					"enabled": true,
 				},
 			},
-			expected: false,
+			expected: true,
 		},
 		{
-			name:       "NilConfigHandledGracefully",
-			expression: "provider == 'aws'",
-			config: map[string]any{
-				"provider": nil,
-			},
-			expected: false,
+			name:        "InvalidSyntaxFails",
+			expression:  "provider ===",
+			config:      map[string]any{"provider": "aws"},
+			shouldError: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			program, err := evaluator.CompileExpression(tt.expression, tt.config)
-			if err != nil {
-				t.Fatalf("Failed to compile expression '%s': %v", tt.expression, err)
-			}
+			result, err := evaluator.EvaluateExpression(tt.expression, tt.config)
 
-			result, err := evaluator.EvaluateProgram(program, tt.config)
-			if tt.shouldErr {
+			if tt.shouldError {
 				if err == nil {
 					t.Errorf("Expected error for expression '%s', got none", tt.expression)
 				}
@@ -292,86 +162,124 @@ func TestEvaluateProgram(t *testing.T) {
 	}
 }
 
-func TestEvaluateExpression(t *testing.T) {
-	evaluator, err := NewFeatureEvaluator()
-	if err != nil {
-		t.Fatalf("Failed to create evaluator: %v", err)
-	}
-
-	t.Run("ConvenienceMethodWorksCorrectly", func(t *testing.T) {
-		config := map[string]any{
-			"provider": "aws",
-			"observability": map[string]any{
-				"enabled": true,
-				"backend": "quickwit",
-			},
-		}
-
-		result, err := evaluator.EvaluateExpression("provider == 'aws' && observability.enabled == true", config)
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if !result {
-			t.Errorf("Expected true, got false")
-		}
-	})
-
-	t.Run("InvalidExpressionReturnsError", func(t *testing.T) {
-		_, err := evaluator.EvaluateExpression("invalid === syntax", map[string]any{})
-		if err == nil {
-			t.Error("Expected error for invalid expression, got none")
-		}
-	})
-}
-
-func TestConvertToBool(t *testing.T) {
-	evaluator, err := NewFeatureEvaluator()
-	if err != nil {
-		t.Fatalf("Failed to create evaluator: %v", err)
-	}
+func TestMatchConditions(t *testing.T) {
+	evaluator := NewFeatureEvaluator()
 
 	tests := []struct {
 		name       string
-		expression string
+		conditions map[string]any
 		config     map[string]any
-		shouldErr  bool
+		expected   bool
 	}{
 		{
-			name:       "BooleanResultConvertsSuccessfully",
-			expression: "provider == 'aws'",
+			name:       "EmptyConditionsAlwaysMatch",
+			conditions: map[string]any{},
 			config:     map[string]any{"provider": "aws"},
-			shouldErr:  false,
+			expected:   true,
 		},
 		{
-			name:       "StringResultShouldError",
-			expression: "provider",
+			name:       "SimpleStringEqualityTrue",
+			conditions: map[string]any{"provider": "aws"},
 			config:     map[string]any{"provider": "aws"},
-			shouldErr:  true,
+			expected:   true,
 		},
 		{
-			name:       "NumberResultShouldError",
-			expression: "count",
-			config:     map[string]any{"count": 5},
-			shouldErr:  true,
+			name:       "SimpleStringEqualityFalse",
+			conditions: map[string]any{"provider": "aws"},
+			config:     map[string]any{"provider": "local"},
+			expected:   false,
+		},
+		{
+			name:       "BooleanEqualityTrue",
+			conditions: map[string]any{"observability.enabled": true},
+			config: map[string]any{
+				"observability": map[string]any{
+					"enabled": true,
+				},
+			},
+			expected: true,
+		},
+		{
+			name:       "BooleanEqualityFalse",
+			conditions: map[string]any{"observability.enabled": true},
+			config: map[string]any{
+				"observability": map[string]any{
+					"enabled": false,
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "MultipleConditionsAllMatch",
+			conditions: map[string]any{
+				"provider":              "local",
+				"observability.enabled": true,
+				"observability.backend": "quickwit",
+			},
+			config: map[string]any{
+				"provider": "local",
+				"observability": map[string]any{
+					"enabled": true,
+					"backend": "quickwit",
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "MultipleConditionsOneDoesNotMatch",
+			conditions: map[string]any{
+				"provider":              "local",
+				"observability.enabled": true,
+				"observability.backend": "elk",
+			},
+			config: map[string]any{
+				"provider": "local",
+				"observability": map[string]any{
+					"enabled": true,
+					"backend": "quickwit",
+				},
+			},
+			expected: false,
+		},
+		{
+			name:       "ArrayConditionMatchesFirst",
+			conditions: map[string]any{"storage.provider": []any{"auto", "openebs"}},
+			config:     map[string]any{"storage": map[string]any{"provider": "auto"}},
+			expected:   true,
+		},
+		{
+			name:       "ArrayConditionMatchesSecond",
+			conditions: map[string]any{"storage.provider": []any{"auto", "openebs"}},
+			config:     map[string]any{"storage": map[string]any{"provider": "openebs"}},
+			expected:   true,
+		},
+		{
+			name:       "ArrayConditionNoMatch",
+			conditions: map[string]any{"storage.provider": []any{"auto", "openebs"}},
+			config:     map[string]any{"storage": map[string]any{"provider": "ebs"}},
+			expected:   false,
+		},
+		{
+			name:       "MissingFieldDoesNotMatch",
+			conditions: map[string]any{"missing.field": "value"},
+			config:     map[string]any{"other": "data"},
+			expected:   false,
+		},
+		{
+			name:       "NilValueDoesNotMatch",
+			conditions: map[string]any{"provider": "aws"},
+			config:     map[string]any{"provider": nil},
+			expected:   false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			program, err := evaluator.CompileExpression(tt.expression, tt.config)
-			if err != nil {
-				t.Fatalf("Failed to compile expression '%s': %v", tt.expression, err)
-			}
+			result := evaluator.MatchConditions(tt.conditions, tt.config)
 
-			_, err = evaluator.EvaluateProgram(program, tt.config)
-			if tt.shouldErr {
-				if err == nil {
-					t.Errorf("Expected error for non-boolean result, got none")
-				}
-			} else {
-				if err != nil {
-					t.Errorf("Expected no error for boolean result, got %v", err)
-				}
+			if result != tt.expected {
+				t.Errorf("Expected %v for conditions %v with config %v, got %v",
+					tt.expected, tt.conditions, tt.config, result)
 			}
 		})
 	}

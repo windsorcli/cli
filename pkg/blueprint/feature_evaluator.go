@@ -2,155 +2,168 @@ package blueprint
 
 import (
 	"fmt"
-	"reflect"
 
-	"github.com/google/cel-go/cel"
-	"github.com/google/cel-go/common/types"
-	"github.com/google/cel-go/common/types/ref"
+	"github.com/expr-lang/expr"
 )
 
-// The FeatureEvaluator is a CEL-based expression evaluator for blueprint feature conditions.
-// It provides GitHub Actions-style conditional expression evaluation capabilities with support
-// for nested object access, logical operators, and type-safe variable declarations.
-// The FeatureEvaluator enables dynamic feature activation based on user configuration values.
+// FeatureEvaluator provides lightweight expression evaluation for blueprint feature conditions.
+// It uses the expr library for fast compilation and evaluation of simple comparison expressions
+// without the overhead of a full expression language like CEL for basic equality checks.
+// The FeatureEvaluator enables efficient feature activation based on user configuration values.
 
 // =============================================================================
 // Types
 // =============================================================================
 
-// FeatureEvaluator provides CEL expression evaluation capabilities for feature conditions.
-type FeatureEvaluator struct {
-	env *cel.Env
-}
+// FeatureEvaluator provides lightweight expression evaluation for feature conditions.
+type FeatureEvaluator struct{}
 
 // =============================================================================
 // Constructor
 // =============================================================================
 
-// NewFeatureEvaluator creates a new CEL-based feature evaluator configured for evaluating feature conditions.
-// The evaluator is pre-configured with standard libraries and custom functions needed
-// for blueprint feature evaluation.
-func NewFeatureEvaluator() (*FeatureEvaluator, error) {
-	env, err := cel.NewEnv(
-		cel.HomogeneousAggregateLiterals(),
-		cel.EagerlyValidateDeclarations(true),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create CEL environment: %w", err)
-	}
-
-	return &FeatureEvaluator{
-		env: env,
-	}, nil
+// NewFeatureEvaluator creates a new lightweight feature evaluator for expression evaluation.
+func NewFeatureEvaluator() *FeatureEvaluator {
+	return &FeatureEvaluator{}
 }
 
 // =============================================================================
 // Public Methods
 // =============================================================================
 
-// CompileExpression compiles a CEL expression string with variable declarations derived from the config structure.
-// The expression should follow GitHub Actions-style syntax with support for:
+// EvaluateExpression evaluates an expression string against the provided configuration data.
+// The expression should use simple comparison syntax supported by expr:
 // - Equality/inequality: ==, !=
 // - Logical operators: &&, ||
 // - Parentheses for grouping: (expression)
 // - Nested object access: provider, observability.enabled, vm.driver
-// Returns a compiled program that can be evaluated against configuration data.
-func (e *FeatureEvaluator) CompileExpression(expression string, config map[string]any) (cel.Program, error) {
-	if expression == "" {
-		return nil, fmt.Errorf("expression cannot be empty")
-	}
-
-	var envOptions []cel.EnvOption
-	envOptions = append(envOptions, cel.HomogeneousAggregateLiterals())
-	envOptions = append(envOptions, cel.EagerlyValidateDeclarations(true))
-
-	for key, value := range config {
-		envOptions = append(envOptions, cel.Variable(key, e.getCELType(value)))
-	}
-
-	env, err := cel.NewEnv(envOptions...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create CEL environment with config: %w", err)
-	}
-
-	ast, issues := env.Compile(expression)
-	if issues.Err() != nil {
-		return nil, fmt.Errorf("failed to compile expression '%s': %w", expression, issues.Err())
-	}
-
-	program, err := env.Program(ast)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create program for expression '%s': %w", expression, err)
-	}
-
-	return program, nil
-}
-
-// EvaluateProgram executes a compiled CEL program against the provided configuration data.
-// The configuration data should be a map containing the user's configuration values
-// that the expression will be evaluated against.
 // Returns true if the expression evaluates to true, false otherwise.
-func (e *FeatureEvaluator) EvaluateProgram(program cel.Program, config map[string]any) (bool, error) {
-	if config == nil {
-		config = make(map[string]any)
+func (e *FeatureEvaluator) EvaluateExpression(expression string, config map[string]any) (bool, error) {
+	if expression == "" {
+		return false, fmt.Errorf("expression cannot be empty")
 	}
 
-	result, _, err := program.Eval(config)
+	program, err := expr.Compile(expression)
 	if err != nil {
-		return false, fmt.Errorf("failed to evaluate expression: %w", err)
+		return false, fmt.Errorf("failed to compile expression '%s': %w", expression, err)
 	}
 
-	return e.convertToBool(result)
+	result, err := expr.Run(program, config)
+	if err != nil {
+		return false, fmt.Errorf("failed to evaluate expression '%s': %w", expression, err)
+	}
+
+	boolResult, ok := result.(bool)
+	if !ok {
+		return false, fmt.Errorf("expression '%s' must evaluate to boolean, got %T", expression, result)
+	}
+
+	return boolResult, nil
 }
 
-// EvaluateExpression is a convenience method that compiles and evaluates an expression in one call.
-// This is useful for one-time evaluations where the compiled program won't be reused.
-func (e *FeatureEvaluator) EvaluateExpression(expression string, config map[string]any) (bool, error) {
-	program, err := e.CompileExpression(expression, config)
-	if err != nil {
-		return false, err
+// MatchConditions evaluates whether all conditions in a map match the provided configuration.
+// This provides a simple key-value matching interface for basic feature conditions.
+// Each condition key-value pair must match for the overall result to be true.
+func (e *FeatureEvaluator) MatchConditions(conditions map[string]any, config map[string]any) bool {
+	if len(conditions) == 0 {
+		return true
 	}
 
-	return e.EvaluateProgram(program, config)
+	for key, expectedValue := range conditions {
+		if !e.matchCondition(key, expectedValue, config) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // =============================================================================
 // Private Methods
 // =============================================================================
 
-// convertToBool converts a CEL result value to a boolean.
-// CEL expressions should evaluate to boolean values for feature conditions.
-func (e *FeatureEvaluator) convertToBool(result ref.Val) (bool, error) {
-	if result.Type() == types.BoolType {
-		return result.Value().(bool), nil
+// matchCondition checks if a single condition matches the configuration.
+// Supports dot notation for nested field access and array matching for OR logic.
+func (e *FeatureEvaluator) matchCondition(key string, expectedValue any, config map[string]any) bool {
+	actualValue := e.getNestedValue(key, config)
+
+	if expectedArray, ok := expectedValue.([]any); ok {
+		for _, expected := range expectedArray {
+			if e.valuesEqual(actualValue, expected) {
+				return true
+			}
+		}
+		return false
 	}
 
-	return false, fmt.Errorf("expression must evaluate to boolean, got %s", result.Type())
+	return e.valuesEqual(actualValue, expectedValue)
 }
 
-// getCELType determines the appropriate CEL type for a Go value.
-// This is used to create variable declarations for the CEL environment.
-func (e *FeatureEvaluator) getCELType(value any) *cel.Type {
-	if value == nil {
-		return cel.DynType
+// getNestedValue retrieves a value from a nested map using dot notation.
+// For example, "observability.enabled" retrieves config["observability"]["enabled"].
+func (e *FeatureEvaluator) getNestedValue(key string, config map[string]any) any {
+	keys := e.splitKey(key)
+	current := config
+
+	for i, k := range keys {
+		if current == nil {
+			return nil
+		}
+
+		value, exists := current[k]
+		if !exists {
+			return nil
+		}
+
+		if i == len(keys)-1 {
+			return value
+		}
+
+		if nextMap, ok := value.(map[string]any); ok {
+			current = nextMap
+		} else {
+			return nil
+		}
 	}
 
-	switch reflect.TypeOf(value).Kind() {
-	case reflect.String:
-		return cel.StringType
-	case reflect.Bool:
-		return cel.BoolType
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return cel.IntType
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return cel.UintType
-	case reflect.Float32, reflect.Float64:
-		return cel.DoubleType
-	case reflect.Map:
-		return cel.MapType(cel.StringType, cel.DynType)
-	case reflect.Slice, reflect.Array:
-		return cel.ListType(cel.DynType)
-	default:
-		return cel.DynType
+	return nil
+}
+
+// splitKey splits a dot-notation key into its component parts.
+func (e *FeatureEvaluator) splitKey(key string) []string {
+	if key == "" {
+		return []string{}
 	}
+
+	var parts []string
+	current := ""
+
+	for _, char := range key {
+		if char == '.' {
+			if current != "" {
+				parts = append(parts, current)
+				current = ""
+			}
+		} else {
+			current += string(char)
+		}
+	}
+
+	if current != "" {
+		parts = append(parts, current)
+	}
+
+	return parts
+}
+
+// valuesEqual compares two values for equality, handling type conversion.
+func (e *FeatureEvaluator) valuesEqual(actual, expected any) bool {
+	if actual == nil && expected == nil {
+		return true
+	}
+	if actual == nil || expected == nil {
+		return false
+	}
+
+	return fmt.Sprintf("%v", actual) == fmt.Sprintf("%v", expected)
 }

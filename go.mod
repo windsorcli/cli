@@ -7,6 +7,7 @@ require (
 	github.com/abiosoft/colima v0.8.4
 	github.com/briandowns/spinner v1.23.2
 	github.com/compose-spec/compose-go/v2 v2.8.2
+	github.com/expr-lang/expr v1.17.6
 	github.com/fluxcd/helm-controller/api v1.3.0
 	github.com/fluxcd/kustomize-controller/api v1.6.1
 	github.com/fluxcd/pkg/apis/kustomize v1.11.0
@@ -14,7 +15,6 @@ require (
 	github.com/fluxcd/source-controller/api v1.6.2
 	github.com/getsops/sops/v3 v3.10.2
 	github.com/goccy/go-yaml v1.18.0
-	github.com/google/cel-go v0.26.0
 	github.com/google/go-containerregistry v0.20.6
 	github.com/google/go-jsonnet v0.21.0
 	github.com/hashicorp/hcl/v2 v2.24.0
@@ -58,7 +58,6 @@ require (
 	github.com/ProtonMail/gopenpgp/v2 v2.8.3 // indirect
 	github.com/adrg/xdg v0.5.3 // indirect
 	github.com/agext/levenshtein v1.2.3 // indirect
-	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.36.3 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.10 // indirect
@@ -174,7 +173,6 @@ require (
 	github.com/siderolabs/protoenc v0.2.2 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.5.0 // indirect
-	github.com/stoewer/go-strcase v1.3.0 // indirect
 	github.com/tetratelabs/wabin v0.0.0-20230304001439-f6f874872834 // indirect
 	github.com/tetratelabs/wazero v1.9.0 // indirect
 	github.com/urfave/cli v1.22.16 // indirect
@@ -197,7 +195,6 @@ require (
 	go.uber.org/zap v1.27.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/exp v0.0.0-20250128182459-e0ece0dbea4c // indirect
 	golang.org/x/mod v0.27.0 // indirect
 	golang.org/x/net v0.43.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
