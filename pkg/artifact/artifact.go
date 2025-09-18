@@ -428,8 +428,6 @@ func (a *ArtifactBuilder) GetTemplateData(ociRef string) (map[string][]byte, err
 
 	if schemaContent != nil {
 		templateData["schema"] = schemaContent
-	} else {
-		return nil, fmt.Errorf("OCI artifact missing required _template/schema.yaml file")
 	}
 
 	maps.Copy(templateData, jsonnetFiles)
