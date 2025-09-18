@@ -14,7 +14,6 @@ func TestBlueprint_Merge(t *testing.T) {
 			Metadata: Metadata{
 				Name:        "original",
 				Description: "original description",
-				Authors:     []string{"author1"},
 			},
 			Repository: Repository{
 				Url: "http://example.com/repo1",
@@ -61,7 +60,6 @@ func TestBlueprint_Merge(t *testing.T) {
 			Metadata: Metadata{
 				Name:        "updated",
 				Description: "updated description",
-				Authors:     []string{"author2"},
 			},
 			Repository: Repository{
 				Url: "http://example.com/repo2",
@@ -119,9 +117,6 @@ func TestBlueprint_Merge(t *testing.T) {
 		}
 		if dst.Metadata.Description != "updated description" {
 			t.Errorf("Expected Metadata.Description to be 'updated description', but got '%s'", dst.Metadata.Description)
-		}
-		if !reflect.DeepEqual(dst.Metadata.Authors, []string{"author2"}) {
-			t.Errorf("Expected Metadata.Authors to be ['author2'], but got %v", dst.Metadata.Authors)
 		}
 
 		expectedSources := map[string]Source{
@@ -714,7 +709,6 @@ func TestBlueprint_Merge(t *testing.T) {
 			Metadata: Metadata{
 				Name:        "original",
 				Description: "original description",
-				Authors:     []string{"author1"},
 			},
 			Repository: Repository{
 				Url: "http://example.com/repo1",
@@ -790,7 +784,6 @@ func TestBlueprint_Merge(t *testing.T) {
 			Metadata: Metadata{
 				Name:        "original",
 				Description: "original description",
-				Authors:     []string{"author1"},
 			},
 			Repository: Repository{
 				Url: "http://example.com/repo1",

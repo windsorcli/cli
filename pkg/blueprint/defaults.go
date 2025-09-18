@@ -8,7 +8,6 @@ var DefaultBlueprint = blueprintv1alpha1.Blueprint{
 	Metadata: blueprintv1alpha1.Metadata{
 		Name:        "default",
 		Description: "A default blueprint",
-		Authors:     []string{},
 	},
 	Sources:             []blueprintv1alpha1.Source{},
 	TerraformComponents: []blueprintv1alpha1.TerraformComponent{},

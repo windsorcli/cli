@@ -44,16 +44,13 @@ type PartialBlueprint struct {
 	Kustomizations      []map[string]any     `yaml:"kustomize"`
 }
 
-// Metadata describes a blueprint, including name and authors.
+// Metadata describes a blueprint.
 type Metadata struct {
 	// Name is the blueprint's unique identifier.
 	Name string `yaml:"name"`
 
 	// Description is a brief overview of the blueprint.
 	Description string `yaml:"description,omitempty"`
-
-	// Authors are the creators or maintainers of the blueprint.
-	Authors []string `yaml:"authors,omitempty"`
 }
 
 // Repository contains source code repository info.
@@ -223,7 +220,6 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 	metadataCopy := Metadata{
 		Name:        b.Metadata.Name,
 		Description: b.Metadata.Description,
-		Authors:     append([]string{}, b.Metadata.Authors...),
 	}
 
 	repositoryCopy := Repository{
@@ -307,9 +303,6 @@ func (b *Blueprint) Merge(overlay *Blueprint) {
 	}
 	if overlay.Metadata.Description != "" {
 		b.Metadata.Description = overlay.Metadata.Description
-	}
-	if len(overlay.Metadata.Authors) > 0 {
-		b.Metadata.Authors = overlay.Metadata.Authors
 	}
 
 	if overlay.Repository.Url != "" {

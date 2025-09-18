@@ -3484,10 +3484,6 @@ func TestBlueprintHandler_LoadData(t *testing.T) {
 		if metadata.Description != "A test blueprint from data" {
 			t.Errorf("Expected description to be 'A test blueprint from data', got %s", metadata.Description)
 		}
-		if len(metadata.Authors) != 1 || metadata.Authors[0] != "John Doe" {
-			t.Errorf("Expected authors to be ['John Doe'], got %v", metadata.Authors)
-		}
-
 		// And the sources should be loaded
 		sources := handler.GetSources()
 		if len(sources) != 1 {
@@ -3669,7 +3665,6 @@ func TestBlueprintHandler_Write(t *testing.T) {
 			Metadata: blueprintv1alpha1.Metadata{
 				Name:        "test-blueprint",
 				Description: "A test blueprint",
-				Authors:     []string{"test-author"},
 			},
 			Repository: blueprintv1alpha1.Repository{
 				Url: "https://github.com/example/repo",
