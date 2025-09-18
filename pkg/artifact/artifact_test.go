@@ -3252,6 +3252,68 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		}
 	})
 
+	t.Run("SuccessWithOptionalSchema", func(t *testing.T) {
+		// Given an artifact builder with cached data missing optional schema.yaml
+		builder := NewArtifactBuilder()
+
+		// Create test tar.gz data without schema.yaml
+		testData := createTestTarGz(t, map[string][]byte{
+			"metadata.yaml":               []byte("name: test\nversion: v1.0.0\n"),
+			"_template/blueprint.jsonnet": []byte("{ blueprint: 'content' }"),
+			"_template/other.jsonnet":     []byte("{ other: 'content' }"),
+			"config.yaml":                 []byte("config: value"),
+		})
+
+		// Pre-populate cache
+		builder.ociCache["registry.example.com/test:v1.0.0"] = testData
+
+		builder.shims = &Shims{
+			ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
+				return &mockReference{}, nil
+			},
+			YamlUnmarshal: func(data []byte, v any) error {
+				if metadata, ok := v.(*BlueprintMetadata); ok {
+					metadata.Name = "test"
+					metadata.Version = "v1.0.0"
+				}
+				return nil
+			},
+		}
+
+		// When calling GetTemplateData
+		templateData, err := builder.GetTemplateData("oci://registry.example.com/test:v1.0.0")
+
+		// Then should succeed without schema.yaml
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if templateData == nil {
+			t.Fatal("Expected template data, got nil")
+		}
+
+		// And should contain required files but not schema
+		if _, exists := templateData["blueprint.jsonnet"]; !exists {
+			t.Error("Expected blueprint.jsonnet to be included")
+		}
+		if _, exists := templateData["other.jsonnet"]; !exists {
+			t.Error("Expected other.jsonnet to be included")
+		}
+		if _, exists := templateData["name"]; !exists {
+			t.Error("Expected name to be included")
+		}
+		if _, exists := templateData["ociUrl"]; !exists {
+			t.Error("Expected ociUrl to be included")
+		}
+		if _, exists := templateData["schema"]; exists {
+			t.Error("Expected schema to not be included when schema.yaml is missing")
+		}
+
+		// And should have correct count (2 .jsonnet + name + ociUrl, no schema)
+		if len(templateData) != 4 {
+			t.Errorf("Expected 4 files (2 .jsonnet + name + ociUrl), got %d", len(templateData))
+		}
+	})
+
 	t.Run("SuccessWithRequiredFiles", func(t *testing.T) {
 		// Given an artifact builder with cached data containing required files
 		builder := NewArtifactBuilder()
