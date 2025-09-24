@@ -69,8 +69,8 @@ github.com/ProtonMail/go-mime v0.0.0-20230322103455-7d82a3887f2f h1:tCbYj7/299ek
 github.com/ProtonMail/go-mime v0.0.0-20230322103455-7d82a3887f2f/go.mod h1:gcr0kNtGBqin9zDW9GOHcVntrwnjrK+qdJ06mWYBybw=
 github.com/ProtonMail/gopenpgp/v2 v2.8.3 h1:1jHlELwCR00qovx2B50DkL/FjYwt/P91RnlsqeOp2Hs=
 github.com/ProtonMail/gopenpgp/v2 v2.8.3/go.mod h1:LiuOTbnJit8w9ZzOoLscj0kmdALY7hfoCVh5Qlb0bcg=
-github.com/abiosoft/colima v0.8.4 h1:/9++LfjLB2U9ymPvjtbZtrnx3B8lVDOsYPAncyH2R0s=
-github.com/abiosoft/colima v0.8.4/go.mod h1:zwbUOjJrhSlbqEw2hfeHMXSdBMzVqHvdg1j32Zm6qyU=
+github.com/abiosoft/colima v0.9.0 h1:wLVplZ7o4BE7h9id7msHomSVYU9O/M9BMLxK17IhZis=
+github.com/abiosoft/colima v0.9.0/go.mod h1:zwbUOjJrhSlbqEw2hfeHMXSdBMzVqHvdg1j32Zm6qyU=
 github.com/adrg/xdg v0.5.3 h1:xRnxJXne7+oWDatRhR1JLnvuccuIeCoBu2rtuLqQB78=
 github.com/adrg/xdg v0.5.3/go.mod h1:nlTsY+NNiCBGCK2tpm09vRqfVzrc2fLmXGpBLF0zlTQ=
 github.com/agext/levenshtein v1.2.3 h1:YB2fHEn0UJagG8T1rrWknE3ZQzWM06O8AMAatNn7lmo=
