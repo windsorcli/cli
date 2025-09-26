@@ -1155,3 +1155,582 @@ func TestPostBuildOmitEmpty(t *testing.T) {
 		}
 	})
 }
+
+func TestBlueprint_StrategicMerge(t *testing.T) {
+	t.Run("MergesTerraformComponentsStrategically", func(t *testing.T) {
+		// Given a base blueprint with terraform components
+		base := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{
+					Path:      "network/vpc",
+					Source:    "core",
+					Values:    map[string]any{"cidr": "10.0.0.0/16"},
+					DependsOn: []string{"backend"},
+				},
+			},
+		}
+
+		// And an overlay with same component (should merge) and new component (should append)
+		overlay := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{
+					Path:      "network/vpc", // Same path+source - should merge
+					Source:    "core",
+					Values:    map[string]any{"enable_dns": true},
+					DependsOn: []string{"security"},
+				},
+				{
+					Path:   "cluster/eks", // New component - should append
+					Source: "core",
+					Values: map[string]any{"version": "1.28"},
+				},
+			},
+		}
+
+		// When strategic merging
+		base.StrategicMerge(overlay)
+
+		// Then should have 2 components
+		if len(base.TerraformComponents) != 2 {
+			t.Errorf("Expected 2 terraform components, got %d", len(base.TerraformComponents))
+		}
+
+		// And first component should have merged values and dependencies
+		vpc := base.TerraformComponents[0]
+		if vpc.Path != "network/vpc" {
+			t.Errorf("Expected path 'network/vpc', got '%s'", vpc.Path)
+		}
+		if len(vpc.Values) != 2 {
+			t.Errorf("Expected 2 values, got %d", len(vpc.Values))
+		}
+		if vpc.Values["cidr"] != "10.0.0.0/16" {
+			t.Errorf("Expected original cidr value preserved")
+		}
+		if vpc.Values["enable_dns"] != true {
+			t.Errorf("Expected new enable_dns value added")
+		}
+		if len(vpc.DependsOn) != 2 {
+			t.Errorf("Expected 2 dependencies, got %d", len(vpc.DependsOn))
+		}
+		if !contains(vpc.DependsOn, "backend") || !contains(vpc.DependsOn, "security") {
+			t.Errorf("Expected both backend and security dependencies, got %v", vpc.DependsOn)
+		}
+
+		// And second component should be the new one
+		eks := base.TerraformComponents[1]
+		if eks.Path != "cluster/eks" {
+			t.Errorf("Expected path 'cluster/eks', got '%s'", eks.Path)
+		}
+	})
+
+	t.Run("MergesKustomizationsStrategically", func(t *testing.T) {
+		// Given a base blueprint with kustomizations
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name:       "ingress",
+					Components: []string{"nginx"},
+					DependsOn:  []string{"pki"},
+				},
+			},
+		}
+
+		// And an overlay with same kustomization (should merge) and new kustomization (should append)
+		overlay := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name:       "ingress", // Same name - should merge
+					Components: []string{"nginx/tls"},
+					DependsOn:  []string{"cert-manager"},
+				},
+				{
+					Name:       "monitoring", // New kustomization - should append
+					Components: []string{"prometheus"},
+				},
+			},
+		}
+
+		// When strategic merging
+		base.StrategicMerge(overlay)
+
+		// Then should have 2 kustomizations
+		if len(base.Kustomizations) != 2 {
+			t.Errorf("Expected 2 kustomizations, got %d", len(base.Kustomizations))
+		}
+
+		// Components should be ordered by their original order since both have unresolved dependencies
+		ingress := base.Kustomizations[0]
+		if ingress.Name != "ingress" {
+			t.Errorf("Expected name 'ingress' at index 0, got '%s'", ingress.Name)
+		}
+
+		// And second kustomization should be monitoring
+		monitoring := base.Kustomizations[1]
+		if monitoring.Name != "monitoring" {
+			t.Errorf("Expected name 'monitoring' at index 1, got '%s'", monitoring.Name)
+		}
+		if len(ingress.Components) != 2 {
+			t.Errorf("Expected 2 components, got %d", len(ingress.Components))
+		}
+		if !contains(ingress.Components, "nginx") || !contains(ingress.Components, "nginx/tls") {
+			t.Errorf("Expected both nginx and nginx/tls components, got %v", ingress.Components)
+		}
+		if len(ingress.DependsOn) != 2 {
+			t.Errorf("Expected 2 dependencies, got %d", len(ingress.DependsOn))
+		}
+		if !contains(ingress.DependsOn, "pki") || !contains(ingress.DependsOn, "cert-manager") {
+			t.Errorf("Expected both pki and cert-manager dependencies, got %v", ingress.DependsOn)
+		}
+
+		// Check monitoring component (should have no dependencies)
+		if len(monitoring.Components) != 1 {
+			t.Errorf("Expected 1 component, got %d", len(monitoring.Components))
+		}
+		if !contains(monitoring.Components, "prometheus") {
+			t.Errorf("Expected prometheus component, got %v", monitoring.Components)
+		}
+		if len(monitoring.DependsOn) != 0 {
+			t.Errorf("Expected no dependencies for monitoring, got %v", monitoring.DependsOn)
+		}
+	})
+
+	t.Run("HandlesDependencyAwareInsertion", func(t *testing.T) {
+		// Given a base blueprint with ordered components
+		base := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{Path: "backend", Source: "core"},
+				{Path: "network", Source: "core"},
+			},
+		}
+
+		// When adding a component that depends on existing component
+		overlay := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{
+					Path:      "cluster",
+					Source:    "core",
+					DependsOn: []string{"network"}, // Should be inserted after network
+				},
+			},
+		}
+
+		base.StrategicMerge(overlay)
+
+		// Then component should be inserted in correct order
+		if len(base.TerraformComponents) != 3 {
+			t.Errorf("Expected 3 components, got %d", len(base.TerraformComponents))
+		}
+
+		// Should be: backend, network, cluster (cluster after its dependency)
+		if base.TerraformComponents[2].Path != "cluster" {
+			t.Errorf("Expected cluster component at index 2, got '%s'", base.TerraformComponents[2].Path)
+		}
+	})
+
+	t.Run("HandlesNilOverlay", func(t *testing.T) {
+		// Given a base blueprint
+		base := &Blueprint{
+			Metadata: Metadata{Name: "test"},
+		}
+
+		// When strategic merging with nil overlay
+		base.StrategicMerge(nil)
+
+		// Then base should be unchanged
+		if base.Metadata.Name != "test" {
+			t.Errorf("Expected metadata name preserved")
+		}
+	})
+
+	t.Run("MergesMetadataAndRepository", func(t *testing.T) {
+		// Given a base blueprint
+		base := &Blueprint{
+			Metadata: Metadata{
+				Name:        "base",
+				Description: "base description",
+			},
+			Repository: Repository{
+				Url: "base-url",
+				Ref: Reference{Branch: "main"},
+			},
+		}
+
+		// And an overlay with updated metadata
+		overlay := &Blueprint{
+			Metadata: Metadata{
+				Name:        "updated",
+				Description: "updated description",
+			},
+			Repository: Repository{
+				Url: "updated-url",
+				Ref: Reference{Tag: "v1.0.0"},
+			},
+		}
+
+		// When strategic merging
+		base.StrategicMerge(overlay)
+
+		// Then metadata should be updated
+		if base.Metadata.Name != "updated" {
+			t.Errorf("Expected name 'updated', got '%s'", base.Metadata.Name)
+		}
+		if base.Metadata.Description != "updated description" {
+			t.Errorf("Expected description 'updated description', got '%s'", base.Metadata.Description)
+		}
+
+		// And repository should be updated
+		if base.Repository.Url != "updated-url" {
+			t.Errorf("Expected url 'updated-url', got '%s'", base.Repository.Url)
+		}
+		if base.Repository.Ref.Tag != "v1.0.0" {
+			t.Errorf("Expected tag 'v1.0.0', got '%s'", base.Repository.Ref.Tag)
+		}
+	})
+
+	t.Run("MergesSourcesUniquely", func(t *testing.T) {
+		// Given a base blueprint with sources
+		base := &Blueprint{
+			Sources: []Source{
+				{Name: "source1", Url: "url1"},
+			},
+		}
+
+		// And an overlay with overlapping and new sources
+		overlay := &Blueprint{
+			Sources: []Source{
+				{Name: "source1", Url: "updated-url1"}, // Should update
+				{Name: "source2", Url: "url2"},         // Should add
+			},
+		}
+
+		// When strategic merging
+		base.StrategicMerge(overlay)
+
+		// Then should have both sources with updated values
+		if len(base.Sources) != 2 {
+			t.Errorf("Expected 2 sources, got %d", len(base.Sources))
+		}
+
+		// Check that source1 was updated and source2 was added
+		sourceMap := make(map[string]string)
+		for _, source := range base.Sources {
+			sourceMap[source.Name] = source.Url
+		}
+
+		if sourceMap["source1"] != "updated-url1" {
+			t.Errorf("Expected source1 url to be updated")
+		}
+		if sourceMap["source2"] != "url2" {
+			t.Errorf("Expected source2 to be added")
+		}
+	})
+
+	t.Run("EmptyOverlayDoesNothing", func(t *testing.T) {
+		// Given a base blueprint with content
+		base := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{Path: "test", Source: "core"},
+			},
+			Kustomizations: []Kustomization{
+				{Name: "test"},
+			},
+		}
+
+		// When strategic merging with empty overlay
+		overlay := &Blueprint{}
+		base.StrategicMerge(overlay)
+
+		// Then base should be unchanged
+		if len(base.TerraformComponents) != 1 {
+			t.Errorf("Expected terraform components unchanged")
+		}
+		if len(base.Kustomizations) != 1 {
+			t.Errorf("Expected kustomizations unchanged")
+		}
+	})
+
+	t.Run("KustomizationDependencyAwareInsertion", func(t *testing.T) {
+		// Given a base blueprint with ordered kustomizations
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{Name: "policy", Path: "policy"},
+				{Name: "pki", Path: "pki"},
+			},
+		}
+
+		// When adding a kustomization that depends on existing one
+		overlay := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name:      "ingress",
+					Path:      "ingress",
+					DependsOn: []string{"pki"}, // Should be inserted after pki
+				},
+			},
+		}
+
+		base.StrategicMerge(overlay)
+
+		// Then kustomization should be inserted in correct order
+		if len(base.Kustomizations) != 3 {
+			t.Errorf("Expected 3 kustomizations, got %d", len(base.Kustomizations))
+		}
+
+		// Should have ingress after pki (its dependency)
+		pkiIndex := -1
+		ingressIndex := -1
+		for i, k := range base.Kustomizations {
+			if k.Name == "pki" {
+				pkiIndex = i
+			}
+			if k.Name == "ingress" {
+				ingressIndex = i
+			}
+		}
+
+		if pkiIndex == -1 {
+			t.Errorf("Expected pki kustomization to be present")
+		}
+		if ingressIndex == -1 {
+			t.Errorf("Expected ingress kustomization to be present")
+		}
+		if pkiIndex >= ingressIndex {
+			t.Errorf("Expected ingress (index %d) to come after pki (index %d)", ingressIndex, pkiIndex)
+		}
+	})
+
+	t.Run("KustomizationUpdatesFieldsSelectively", func(t *testing.T) {
+		// Given a base blueprint with a kustomization
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name:    "test",
+					Path:    "original-path",
+					Source:  "original-source",
+					Destroy: ptrBool(false),
+				},
+			},
+		}
+
+		// When merging with partial updates
+		overlay := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name:    "test", // Same name - should merge
+					Path:    "updated-path",
+					Source:  "updated-source",
+					Destroy: ptrBool(true),
+					// Note: not setting Components or DependsOn - should preserve existing
+				},
+			},
+		}
+
+		base.StrategicMerge(overlay)
+
+		// Then should have updated fields
+		kustomization := base.Kustomizations[0]
+		if kustomization.Path != "updated-path" {
+			t.Errorf("Expected path to be updated to 'updated-path', got '%s'", kustomization.Path)
+		}
+		if kustomization.Source != "updated-source" {
+			t.Errorf("Expected source to be updated to 'updated-source', got '%s'", kustomization.Source)
+		}
+		if kustomization.Destroy == nil || *kustomization.Destroy != true {
+			t.Errorf("Expected destroy to be updated to true, got %v", kustomization.Destroy)
+		}
+	})
+
+	t.Run("KustomizationPreservesExistingComponents", func(t *testing.T) {
+		// Given a base blueprint with kustomization that has components
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name:       "test",
+					Components: []string{"existing1", "existing2"},
+					DependsOn:  []string{"dep1"},
+				},
+			},
+		}
+
+		// When merging with additional components and dependencies
+		overlay := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name:       "test",
+					Components: []string{"existing2", "new1"}, // existing2 is duplicate, new1 is new
+					DependsOn:  []string{"dep1", "dep2"},      // dep1 is duplicate, dep2 is new
+				},
+			},
+		}
+
+		base.StrategicMerge(overlay)
+
+		// Then should have all unique components and dependencies
+		kustomization := base.Kustomizations[0]
+		if len(kustomization.Components) != 3 {
+			t.Errorf("Expected 3 unique components, got %d: %v", len(kustomization.Components), kustomization.Components)
+		}
+
+		expectedComponents := []string{"existing1", "existing2", "new1"}
+		for _, expected := range expectedComponents {
+			if !contains(kustomization.Components, expected) {
+				t.Errorf("Expected component '%s' to be present, got %v", expected, kustomization.Components)
+			}
+		}
+
+		if len(kustomization.DependsOn) != 2 {
+			t.Errorf("Expected 2 unique dependencies, got %d: %v", len(kustomization.DependsOn), kustomization.DependsOn)
+		}
+
+		expectedDeps := []string{"dep1", "dep2"}
+		for _, expected := range expectedDeps {
+			if !contains(kustomization.DependsOn, expected) {
+				t.Errorf("Expected dependency '%s' to be present, got %v", expected, kustomization.DependsOn)
+			}
+		}
+	})
+
+	t.Run("KustomizationMultipleDependencyInsertion", func(t *testing.T) {
+		// Given a base blueprint with multiple kustomizations
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{Name: "base", Path: "base"},
+				{Name: "pki", Path: "pki"},
+				{Name: "storage", Path: "storage"},
+			},
+		}
+
+		// When adding a kustomization that depends on multiple existing ones
+		overlay := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name:      "app",
+					Path:      "app",
+					DependsOn: []string{"pki", "storage"}, // Depends on multiple
+				},
+			},
+		}
+
+		base.StrategicMerge(overlay)
+
+		// Then should be inserted after the latest dependency
+		if len(base.Kustomizations) != 4 {
+			t.Errorf("Expected 4 kustomizations, got %d", len(base.Kustomizations))
+		}
+
+		// App should come after its dependencies (pki and storage)
+		appIndex := -1
+		for i, k := range base.Kustomizations {
+			if k.Name == "app" {
+				appIndex = i
+				break
+			}
+		}
+		if appIndex == -1 {
+			t.Errorf("Expected app kustomization to be present")
+		}
+
+		// Find indices of dependencies
+		pkiIndex := -1
+		storageIndex := -1
+		for i, k := range base.Kustomizations {
+			if k.Name == "pki" {
+				pkiIndex = i
+			}
+			if k.Name == "storage" {
+				storageIndex = i
+			}
+		}
+
+		// App should come after both dependencies
+		if appIndex <= pkiIndex || appIndex <= storageIndex {
+			t.Errorf("Expected app (index %d) to come after pki (index %d) and storage (index %d)", appIndex, pkiIndex, storageIndex)
+		}
+	})
+
+	t.Run("ComplexDependencyOrdering", func(t *testing.T) {
+		// Test the complex dependency scenario described by the user
+		// where pki-* components are separated by dns, but dns depends on both pki-base and ingress
+
+		// Start with a base blueprint that has some kustomizations
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{Name: "policy-base", Path: "policy/base"},
+				{Name: "policy-resources", Path: "policy/resources", DependsOn: []string{"policy-base"}},
+			},
+		}
+
+		// Add kustomizations one by one to trigger strategic merge and sorting
+		overlay1 := &Blueprint{
+			Kustomizations: []Kustomization{
+				{Name: "pki-base", Path: "pki/base", DependsOn: []string{"policy-resources"}},
+			},
+		}
+		base.StrategicMerge(overlay1)
+
+		overlay2 := &Blueprint{
+			Kustomizations: []Kustomization{
+				{Name: "pki-resources", Path: "pki/resources", DependsOn: []string{"pki-base"}},
+			},
+		}
+		base.StrategicMerge(overlay2)
+
+		overlay3 := &Blueprint{
+			Kustomizations: []Kustomization{
+				{Name: "ingress", Path: "ingress", DependsOn: []string{"pki-resources"}},
+			},
+		}
+		base.StrategicMerge(overlay3)
+
+		overlay4 := &Blueprint{
+			Kustomizations: []Kustomization{
+				{Name: "dns", Path: "dns", DependsOn: []string{"pki-base", "ingress"}},
+			},
+		}
+		base.StrategicMerge(overlay4)
+
+		// Expected order: policy-base, policy-resources, pki-base, pki-resources, ingress, dns
+		expectedOrder := []string{"policy-base", "policy-resources", "pki-base", "pki-resources", "ingress", "dns"}
+
+		if len(base.Kustomizations) != len(expectedOrder) {
+			t.Errorf("Expected %d kustomizations, got %d", len(expectedOrder), len(base.Kustomizations))
+		}
+
+		for i, expected := range expectedOrder {
+			if i >= len(base.Kustomizations) || base.Kustomizations[i].Name != expected {
+				actual := "none"
+				if i < len(base.Kustomizations) {
+					actual = base.Kustomizations[i].Name
+				}
+				t.Errorf("Expected '%s' at position %d, got '%s'", expected, i, actual)
+			}
+		}
+
+		// Verify that dependencies are satisfied
+		nameToIndex := make(map[string]int)
+		for i, k := range base.Kustomizations {
+			nameToIndex[k.Name] = i
+		}
+
+		for _, k := range base.Kustomizations {
+			for _, dep := range k.DependsOn {
+				if depIndex, exists := nameToIndex[dep]; exists {
+					if depIndex >= nameToIndex[k.Name] {
+						t.Errorf("Dependency violation: '%s' (index %d) depends on '%s' (index %d), but dependency should come first",
+							k.Name, nameToIndex[k.Name], dep, depIndex)
+					}
+				}
+			}
+		}
+	})
+}
+
+// Helper function to check if slice contains a value
+func contains(slice []string, value string) bool {
+	for _, item := range slice {
+		if item == value {
+			return true
+		}
+	}
+	return false
+}
