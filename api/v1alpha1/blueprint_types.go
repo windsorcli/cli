@@ -3,8 +3,10 @@
 package v1alpha1
 
 import (
+	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/fluxcd/pkg/apis/kustomize"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -389,6 +391,296 @@ func (b *Blueprint) Merge(overlay *Blueprint) {
 	if len(overlay.Kustomizations) > 0 {
 		b.Kustomizations = overlay.Kustomizations
 	}
+}
+
+// StrategicMerge performs a strategic merge of the provided overlay Blueprint into the receiver Blueprint.
+// This method appends to array fields, deep merges map fields, and updates scalar fields if present in the overlay.
+// It is designed for feature composition, enabling the combination of multiple features into a single blueprint.
+func (b *Blueprint) StrategicMerge(overlay *Blueprint) error {
+	if overlay == nil {
+		return nil
+	}
+
+	if overlay.Kind != "" {
+		b.Kind = overlay.Kind
+	}
+	if overlay.ApiVersion != "" {
+		b.ApiVersion = overlay.ApiVersion
+	}
+
+	if overlay.Metadata.Name != "" {
+		b.Metadata.Name = overlay.Metadata.Name
+	}
+	if overlay.Metadata.Description != "" {
+		b.Metadata.Description = overlay.Metadata.Description
+	}
+
+	if overlay.Repository.Url != "" {
+		b.Repository.Url = overlay.Repository.Url
+	}
+
+	if overlay.Repository.Ref.Commit != "" {
+		b.Repository.Ref.Commit = overlay.Repository.Ref.Commit
+	} else if overlay.Repository.Ref.Name != "" {
+		b.Repository.Ref.Name = overlay.Repository.Ref.Name
+	} else if overlay.Repository.Ref.SemVer != "" {
+		b.Repository.Ref.SemVer = overlay.Repository.Ref.SemVer
+	} else if overlay.Repository.Ref.Tag != "" {
+		b.Repository.Ref.Tag = overlay.Repository.Ref.Tag
+	} else if overlay.Repository.Ref.Branch != "" {
+		b.Repository.Ref.Branch = overlay.Repository.Ref.Branch
+	}
+
+	if overlay.Repository.SecretName != "" {
+		b.Repository.SecretName = overlay.Repository.SecretName
+	}
+
+	sourceMap := make(map[string]Source)
+	for _, source := range b.Sources {
+		sourceMap[source.Name] = source
+	}
+	for _, overlaySource := range overlay.Sources {
+		if overlaySource.Name != "" {
+			sourceMap[overlaySource.Name] = overlaySource
+		}
+	}
+	b.Sources = make([]Source, 0, len(sourceMap))
+	for _, source := range sourceMap {
+		b.Sources = append(b.Sources, source)
+	}
+
+	for _, overlayComponent := range overlay.TerraformComponents {
+		b.strategicMergeTerraformComponent(overlayComponent)
+	}
+
+	for _, overlayK := range overlay.Kustomizations {
+		if err := b.strategicMergeKustomization(overlayK); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// strategicMergeTerraformComponent performs a strategic merge of the provided TerraformComponent into the Blueprint.
+// It merges values, appends unique dependencies, updates fields if provided, and inserts the component
+// in dependency order if not already present.
+func (b *Blueprint) strategicMergeTerraformComponent(component TerraformComponent) {
+	for i, existing := range b.TerraformComponents {
+		if existing.Path == component.Path && existing.Source == component.Source {
+			if len(component.Values) > 0 {
+				if existing.Values == nil {
+					existing.Values = make(map[string]any)
+				}
+				maps.Copy(existing.Values, component.Values)
+			}
+			for _, dep := range component.DependsOn {
+				if !slices.Contains(existing.DependsOn, dep) {
+					existing.DependsOn = append(existing.DependsOn, dep)
+				}
+			}
+			if component.Destroy != nil {
+				existing.Destroy = component.Destroy
+			}
+			if component.Parallelism != nil {
+				existing.Parallelism = component.Parallelism
+			}
+			b.TerraformComponents[i] = existing
+			return
+		}
+	}
+	insertIndex := len(b.TerraformComponents)
+	if len(component.DependsOn) > 0 {
+		latestDepIndex := -1
+		for _, dep := range component.DependsOn {
+			for i, existing := range b.TerraformComponents {
+				if existing.Path == dep {
+					if i > latestDepIndex {
+						latestDepIndex = i
+					}
+				}
+			}
+		}
+		if latestDepIndex >= 0 {
+			insertIndex = latestDepIndex + 1
+		}
+	}
+	if insertIndex >= len(b.TerraformComponents) {
+		b.TerraformComponents = append(b.TerraformComponents, component)
+	} else {
+		b.TerraformComponents = slices.Insert(b.TerraformComponents, insertIndex, component)
+	}
+}
+
+// strategicMergeKustomization performs a strategic merge of the provided Kustomization into the Blueprint.
+// It merges unique components and dependencies, updates fields if provided, and maintains dependency order.
+// Returns an error if a dependency cycle is detected during sorting.
+func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) error {
+	for i, existing := range b.Kustomizations {
+		if existing.Name == kustomization.Name {
+			for _, component := range kustomization.Components {
+				if !slices.Contains(existing.Components, component) {
+					existing.Components = append(existing.Components, component)
+				}
+			}
+			slices.Sort(existing.Components)
+			for _, dep := range kustomization.DependsOn {
+				if !slices.Contains(existing.DependsOn, dep) {
+					existing.DependsOn = append(existing.DependsOn, dep)
+				}
+			}
+			if kustomization.Path != "" {
+				existing.Path = kustomization.Path
+			}
+			if kustomization.Source != "" {
+				existing.Source = kustomization.Source
+			}
+			if kustomization.Destroy != nil {
+				existing.Destroy = kustomization.Destroy
+			}
+			b.Kustomizations[i] = existing
+			return b.sortKustomizationsByDependencies()
+		}
+	}
+	b.Kustomizations = append(b.Kustomizations, kustomization)
+	return b.sortKustomizationsByDependencies()
+}
+
+// sortKustomizationsByDependencies reorders the Blueprint's Kustomizations so that dependencies precede dependents.
+// It first applies a topological sort to ensure dependency order, then groups kustomizations with similar name prefixes adjacently.
+// Returns an error if a dependency cycle is detected.
+func (b *Blueprint) sortKustomizationsByDependencies() error {
+	if len(b.Kustomizations) <= 1 {
+		return nil
+	}
+	nameToIndex := make(map[string]int)
+	for i, k := range b.Kustomizations {
+		nameToIndex[k.Name] = i
+	}
+	sorted := b.basicTopologicalSort(nameToIndex)
+	if sorted == nil {
+		return fmt.Errorf("dependency cycle detected in kustomizations")
+	}
+	sorted = b.groupSimilarPrefixes(sorted, nameToIndex)
+	newKustomizations := make([]Kustomization, len(b.Kustomizations))
+	for i, sortedIndex := range sorted {
+		newKustomizations[i] = b.Kustomizations[sortedIndex]
+	}
+	b.Kustomizations = newKustomizations
+	return nil
+}
+
+// basicTopologicalSort computes a topological ordering of kustomizations based on dependencies.
+// Returns a slice of indices into the Kustomizations slice, ordered so dependencies precede dependents.
+// Returns nil if a cycle is detected in the dependency graph.
+func (b *Blueprint) basicTopologicalSort(nameToIndex map[string]int) []int {
+	var sorted []int
+	visited := make(map[int]bool)
+	visiting := make(map[int]bool)
+
+	var visit func(int) error
+	visit = func(componentIndex int) error {
+		if visiting[componentIndex] {
+			return fmt.Errorf("cycle detected in dependency graph involving kustomization '%s'", b.Kustomizations[componentIndex].Name)
+		}
+		if visited[componentIndex] {
+			return nil
+		}
+
+		visiting[componentIndex] = true
+		for _, depName := range b.Kustomizations[componentIndex].DependsOn {
+			if depIndex, exists := nameToIndex[depName]; exists {
+				if err := visit(depIndex); err != nil {
+					visiting[componentIndex] = false
+					return err
+				}
+			}
+		}
+		visiting[componentIndex] = false
+		visited[componentIndex] = true
+		sorted = append(sorted, componentIndex)
+		return nil
+	}
+
+	for i := range b.Kustomizations {
+		if !visited[i] {
+			if err := visit(i); err != nil {
+				fmt.Printf("Error: %v\n", err)
+				return nil
+			}
+		}
+	}
+	return sorted
+}
+
+// groupSimilarPrefixes returns a new ordering of kustomization indices so components with similar
+// name prefixes are grouped. It groups kustomizations by the prefix before the first hyphen in
+// their name, then processes each group in the order they appear in the input slice. For groups
+// with multiple components, it sorts by dependency depth (shallowest first), then by name if
+// depths are equal. The resulting slice preserves dependency order and groups related
+// kustomizations adjacently.
+func (b *Blueprint) groupSimilarPrefixes(sorted []int, nameToIndex map[string]int) []int {
+	prefixGroups := make(map[string][]int)
+	for _, idx := range sorted {
+		prefix := strings.Split(b.Kustomizations[idx].Name, "-")[0]
+		prefixGroups[prefix] = append(prefixGroups[prefix], idx)
+	}
+
+	var newSorted []int
+	processed := make(map[int]bool)
+
+	for _, originalIdx := range sorted {
+		if processed[originalIdx] {
+			continue
+		}
+
+		prefix := strings.Split(b.Kustomizations[originalIdx].Name, "-")[0]
+		group := prefixGroups[prefix]
+
+		if len(group) == 1 {
+			newSorted = append(newSorted, group[0])
+			processed[group[0]] = true
+		} else {
+			slices.SortFunc(group, func(i, j int) int {
+				depthI := b.calculateDependencyDepth(i, nameToIndex)
+				depthJ := b.calculateDependencyDepth(j, nameToIndex)
+				if depthI != depthJ {
+					return depthI - depthJ
+				}
+				return strings.Compare(b.Kustomizations[i].Name, b.Kustomizations[j].Name)
+			})
+
+			for _, idx := range group {
+				if !processed[idx] {
+					newSorted = append(newSorted, idx)
+					processed[idx] = true
+				}
+			}
+		}
+	}
+
+	return newSorted
+}
+
+// calculateDependencyDepth returns the maximum dependency depth for the specified kustomization index.
+// It recursively traverses the dependency graph using the provided name-to-index mapping, computing
+// the longest path from the given component to any leaf dependency. A component with no dependencies
+// has depth 0. Cycles are not detected and may cause stack overflow.
+func (b *Blueprint) calculateDependencyDepth(componentIndex int, nameToIndex map[string]int) int {
+	k := b.Kustomizations[componentIndex]
+	if len(k.DependsOn) == 0 {
+		return 0
+	}
+
+	maxDepth := 0
+	for _, depName := range k.DependsOn {
+		if depIndex, exists := nameToIndex[depName]; exists {
+			depth := b.calculateDependencyDepth(depIndex, nameToIndex)
+			if depth+1 > maxDepth {
+				maxDepth = depth + 1
+			}
+		}
+	}
+	return maxDepth
 }
 
 // DeepCopy creates a deep copy of the Kustomization object.
