@@ -21,16 +21,10 @@ import (
 
 // DefaultConfig returns the default configuration
 var DefaultConfig = v1alpha1.Context{
-	Provider: ptrString("local"),
-	Cluster: &cluster.ClusterConfig{
-		Enabled: ptrBool(true),
-	},
-	Terraform: &terraform.TerraformConfig{
-		Enabled: ptrBool(true),
-		Backend: &terraform.BackendConfig{
-			Type: "local",
-		},
-	},
+	Provider:  ptrString("generic"),
+	Cluster:   commonClusterConfig.Copy(),
+	Terraform: commonTerraformConfig.Copy(),
+	DNS:       commonDNSConfig.Copy(),
 }
 
 var commonDockerConfig = docker.DockerConfig{
@@ -79,9 +73,8 @@ var commonTerraformConfig = terraform.TerraformConfig{
 // commonClusterConfig_NoHostPorts is the base cluster configuration without hostports,
 // used for VM drivers that use native networking (colima, docker)
 var commonClusterConfig_NoHostPorts = cluster.ClusterConfig{
-	Enabled:  ptrBool(true),
-	Platform: ptrString("local"),
-	Driver:   ptrString("talos"),
+	Enabled: ptrBool(true),
+	Driver:  ptrString("talos"),
 	ControlPlanes: cluster.NodeGroupConfig{
 		Count:     ptrInt(1),
 		CPU:       ptrInt(constants.DEFAULT_TALOS_CONTROL_PLANE_CPU),
@@ -102,9 +95,8 @@ var commonClusterConfig_NoHostPorts = cluster.ClusterConfig{
 // commonClusterConfig_WithHostPorts is the base cluster configuration with hostports,
 // used for VM drivers that need port forwarding (docker-desktop)
 var commonClusterConfig_WithHostPorts = cluster.ClusterConfig{
-	Enabled:  ptrBool(true),
-	Platform: ptrString("local"),
-	Driver:   ptrString("talos"),
+	Enabled: ptrBool(true),
+	Driver:  ptrString("talos"),
 	ControlPlanes: cluster.NodeGroupConfig{
 		Count:     ptrInt(1),
 		CPU:       ptrInt(constants.DEFAULT_TALOS_CONTROL_PLANE_CPU),
@@ -124,9 +116,8 @@ var commonClusterConfig_WithHostPorts = cluster.ClusterConfig{
 
 // Preserve the original commonClusterConfig for backwards compatibility with DefaultConfig
 var commonClusterConfig = cluster.ClusterConfig{
-	Enabled:  ptrBool(true),
-	Platform: ptrString("local"),
-	Driver:   ptrString("talos"),
+	Enabled: ptrBool(true),
+	Driver:  ptrString("talos"),
 	ControlPlanes: cluster.NodeGroupConfig{
 		Count:  ptrInt(1),
 		CPU:    ptrInt(constants.DEFAULT_TALOS_CONTROL_PLANE_CPU),
@@ -149,7 +140,7 @@ var commonDNSConfig = dns.DNSConfig{
 }
 
 var DefaultConfig_Localhost = v1alpha1.Context{
-	Provider:    ptrString("local"),
+	Provider:    ptrString("generic"),
 	Environment: map[string]string{},
 	Docker:      commonDockerConfig.Copy(),
 	Git:         commonGitConfig.Copy(),
@@ -168,7 +159,7 @@ var DefaultConfig_Localhost = v1alpha1.Context{
 }
 
 var DefaultConfig_Full = v1alpha1.Context{
-	Provider:    ptrString("local"),
+	Provider:    ptrString("generic"),
 	Environment: map[string]string{},
 	Docker:      commonDockerConfig.Copy(),
 	Git:         commonGitConfig.Copy(),
