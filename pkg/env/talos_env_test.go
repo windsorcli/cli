@@ -51,9 +51,9 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 		return printer, mocks
 	}
 
-	t.Run("TalosProvider", func(t *testing.T) {
-		// Given a new TalosOmniEnvPrinter with talos provider
-		printer, mocks := setup(t, "talos")
+	t.Run("GenericProvider", func(t *testing.T) {
+		// Given a new TalosOmniEnvPrinter with generic provider
+		printer, mocks := setup(t, "generic")
 
 		// Get the project root path
 		projectRoot, err := mocks.Shell.GetProjectRoot()
@@ -82,9 +82,9 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 			t.Errorf("TALOSCONFIG = %v, want %v", envVars["TALOSCONFIG"], expectedTalosPath)
 		}
 
-		// And OMNICONFIG should not be set for talos provider
+		// And OMNICONFIG should not be set for generic provider
 		if _, exists := envVars["OMNICONFIG"]; exists {
-			t.Error("OMNICONFIG should not be set for talos provider")
+			t.Error("OMNICONFIG should not be set for generic provider")
 		}
 	})
 
@@ -128,7 +128,7 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 
 	t.Run("NoConfigFiles", func(t *testing.T) {
 		// Given a new TalosOmniEnvPrinter without existing config files
-		printer, mocks := setup(t, "talos")
+		printer, mocks := setup(t, "generic")
 
 		// Get the project root path
 		projectRoot, err := mocks.Shell.GetProjectRoot()
@@ -157,7 +157,7 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 
 	t.Run("GetProjectRootError", func(t *testing.T) {
 		// Given a new TalosOmniEnvPrinter with failing config root lookup
-		printer, _ := setup(t, "talos")
+		printer, _ := setup(t, "generic")
 
 		// Override the GetConfigRoot to return an error
 		printer.configHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
@@ -211,9 +211,9 @@ func TestTalosEnv_Print(t *testing.T) {
 		return printer, mocks
 	}
 
-	t.Run("TalosProviderSuccess", func(t *testing.T) {
-		// Given a new TalosOmniEnvPrinter with talos provider and existing Talos config
-		printer, mocks := setup(t, "talos")
+	t.Run("GenericProviderSuccess", func(t *testing.T) {
+		// Given a new TalosOmniEnvPrinter with generic provider and existing Talos config
+		printer, mocks := setup(t, "generic")
 
 		// Get the project root path
 		projectRoot, err := mocks.Shell.GetProjectRoot()
@@ -299,7 +299,7 @@ func TestTalosEnv_Print(t *testing.T) {
 
 	t.Run("GetProjectRootError", func(t *testing.T) {
 		// Given a new TalosOmniEnvPrinter with failing project root lookup
-		printer, mocks := setup(t, "talos")
+		printer, mocks := setup(t, "generic")
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "", errors.New("mock project root error")
 		}

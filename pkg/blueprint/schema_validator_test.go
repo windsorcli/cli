@@ -144,7 +144,7 @@ func TestSchemaValidator_ExtractDefaults(t *testing.T) {
 			"properties": map[string]any{
 				"provider": map[string]any{
 					"type":    "string",
-					"default": "local",
+					"default": "generic",
 				},
 				"port": map[string]any{
 					"type":    "integer",
@@ -162,8 +162,8 @@ func TestSchemaValidator_ExtractDefaults(t *testing.T) {
 		}
 
 		// And defaults should be extracted
-		if defaults["provider"] != "local" {
-			t.Errorf("Expected provider default to be 'local', got: %v", defaults["provider"])
+		if defaults["provider"] != "generic" {
+			t.Errorf("Expected provider default to be 'generic', got: %v", defaults["provider"])
 		}
 
 		if defaults["port"] != float64(8080) {
@@ -232,7 +232,7 @@ func TestSchemaValidator_Validate(t *testing.T) {
 			"properties": map[string]any{
 				"provider": map[string]any{
 					"type": "string",
-					"enum": []any{"local", "aws", "azure"},
+					"enum": []any{"generic", "aws", "azure"},
 				},
 				"port": map[string]any{
 					"type":    "integer",
@@ -246,7 +246,7 @@ func TestSchemaValidator_Validate(t *testing.T) {
 
 		// And valid values
 		values := map[string]any{
-			"provider": "local",
+			"provider": "generic",
 			"port":     8080,
 		}
 
@@ -376,7 +376,7 @@ func TestSchemaValidator_Validate(t *testing.T) {
 			"properties": map[string]any{
 				"provider": map[string]any{
 					"type": "string",
-					"enum": []any{"local", "aws", "azure"},
+					"enum": []any{"generic", "aws", "azure"},
 				},
 			},
 			"additionalProperties": false,
@@ -418,7 +418,7 @@ func TestSchemaValidator_Validate(t *testing.T) {
 		validator := NewSchemaValidator(mockShell)
 
 		values := map[string]any{
-			"provider": "local",
+			"provider": "generic",
 		}
 
 		// When validating values
@@ -791,7 +791,7 @@ func TestSchemaValidator_ValidateObject_AdditionalProperties(t *testing.T) {
 
 		// And values with additional property
 		values := map[string]any{
-			"provider":   "local",
+			"provider":   "generic",
 			"extraField": "not-allowed",
 		}
 
@@ -838,7 +838,7 @@ func TestSchemaValidator_ValidateObject_AdditionalProperties(t *testing.T) {
 
 		// And values with additional property
 		values := map[string]any{
-			"provider":   "local",
+			"provider":   "generic",
 			"extraField": "allowed",
 		}
 
@@ -872,7 +872,7 @@ func TestSchemaValidator_ValidateObject_AdditionalProperties(t *testing.T) {
 
 		// And values with additional property
 		values := map[string]any{
-			"provider":   "local",
+			"provider":   "generic",
 			"extraField": "should-be-allowed",
 		}
 
@@ -1078,7 +1078,7 @@ func TestSchemaValidator_NestedValidation(t *testing.T) {
 
 		// And valid values
 		values := map[string]any{
-			"provider": "local",
+			"provider": "generic",
 		}
 
 		// When validating values
@@ -1112,7 +1112,7 @@ func TestSchemaValidator_NestedValidation(t *testing.T) {
 
 		// And valid values
 		values := map[string]any{
-			"provider": "local",
+			"provider": "generic",
 		}
 
 		// When validating values
@@ -1143,8 +1143,8 @@ type: object
 properties:
   provider:
     type: string
-    enum: [local, aws, azure, talos]
-    default: local
+    enum: [generic, aws, azure, metal]
+    default: generic
   name:
     type: string
     default: template
@@ -1227,7 +1227,7 @@ additionalProperties: false
 
 		// And should extract nested defaults properly
 		expectedDefaults := map[string]any{
-			"provider": "local",
+			"provider": "generic",
 			"name":     "template",
 			"network": map[string]any{
 				"cidr_block": "10.0.0.0/16",
@@ -1298,8 +1298,8 @@ type: object
 properties:
   provider:
     type: string
-    enum: [local, aws, azure]
-    default: local
+    enum: [generic, aws, azure]
+    default: generic
   network:
     type: object
     properties:
@@ -1347,7 +1347,7 @@ type: object
 properties:
   provider:
     type: string
-    enum: [local, aws, azure]
+    enum: [generic, aws, azure]
   network:
     type: object
     properties:

@@ -531,7 +531,7 @@ func TestInitPipeline_setDefaultConfiguration(t *testing.T) {
 		// When setDefaultConfiguration is called with "local" context
 		err := pipeline.setDefaultConfiguration(context.Background(), "local")
 
-		// Then should set provider to "local" and complete successfully
+		// Then should set provider to "generic" and complete successfully
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -631,12 +631,12 @@ func TestInitPipeline_setDefaultConfiguration(t *testing.T) {
 		// When setDefaultConfiguration is called with "local" context
 		err := pipeline.setDefaultConfiguration(context.Background(), "local")
 
-		// Then should set provider to "local" and complete successfully
+		// Then should set provider to "generic" and complete successfully
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		if setProvider != "local" {
-			t.Errorf("Expected provider to be set to 'local', got %q", setProvider)
+		if setProvider != "generic" {
+			t.Errorf("Expected provider to be set to 'generic', got %q", setProvider)
 		}
 	})
 
@@ -794,8 +794,7 @@ func TestInitPipeline_processPlatformConfiguration(t *testing.T) {
 	}{
 		{name: "HandlesAWSProvider", provider: "aws"},
 		{name: "HandlesAzureProvider", provider: "azure"},
-		{name: "HandlesMetalProvider", provider: "metal"},
-		{name: "HandlesLocalProvider", provider: "local"},
+		{name: "HandlesGenericProvider", provider: "generic"},
 		{name: "HandlesEmptyProvider", provider: ""},
 	}
 

@@ -3,7 +3,6 @@ package workstation
 // ClusterConfig represents the cluster configuration
 type ClusterConfig struct {
 	Enabled       *bool           `yaml:"enabled,omitempty"`
-	Platform      *string         `yaml:"platform,omitempty"`
 	Driver        *string         `yaml:"driver,omitempty"`
 	Endpoint      *string         `yaml:"endpoint,omitempty"`
 	Image         *string         `yaml:"image,omitempty"`
@@ -38,9 +37,6 @@ func (base *ClusterConfig) Merge(overlay *ClusterConfig) {
 	}
 	if overlay.Enabled != nil {
 		base.Enabled = overlay.Enabled
-	}
-	if overlay.Platform != nil {
-		base.Platform = overlay.Platform
 	}
 	if overlay.Driver != nil {
 		base.Driver = overlay.Driver
@@ -204,11 +200,6 @@ func (c *ClusterConfig) DeepCopy() *ClusterConfig {
 		enabledCopy = new(bool)
 		*enabledCopy = *c.Enabled
 	}
-	var platformCopy *string
-	if c.Platform != nil {
-		platformCopy = new(string)
-		*platformCopy = *c.Platform
-	}
 	var driverCopy *string
 	if c.Driver != nil {
 		driverCopy = new(string)
@@ -227,7 +218,6 @@ func (c *ClusterConfig) DeepCopy() *ClusterConfig {
 
 	return &ClusterConfig{
 		Enabled:  enabledCopy,
-		Platform: platformCopy,
 		Driver:   driverCopy,
 		Endpoint: endpointCopy,
 		Image:    imageCopy,

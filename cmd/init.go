@@ -64,7 +64,7 @@ var initCmd = &cobra.Command{
 
 		// Set provider if context is "local" and no provider is specified
 		if len(args) > 0 && strings.HasPrefix(args[0], "local") && initProvider == "" {
-			initProvider = "local"
+			initProvider = "generic"
 		}
 
 		// Pass blueprint and provider to pipeline for decision logic

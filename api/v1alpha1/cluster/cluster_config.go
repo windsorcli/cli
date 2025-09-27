@@ -3,7 +3,6 @@ package cluster
 // ClusterConfig represents the cluster configuration
 type ClusterConfig struct {
 	Enabled       *bool           `yaml:"enabled,omitempty"`
-	Platform      *string         `yaml:"platform,omitempty"`
 	Driver        *string         `yaml:"driver,omitempty"`
 	Endpoint      *string         `yaml:"endpoint,omitempty"`
 	Image         *string         `yaml:"image,omitempty"`
@@ -35,9 +34,6 @@ type NodeGroupConfig struct {
 func (base *ClusterConfig) Merge(overlay *ClusterConfig) {
 	if overlay.Enabled != nil {
 		base.Enabled = overlay.Enabled
-	}
-	if overlay.Platform != nil {
-		base.Platform = overlay.Platform
 	}
 	if overlay.Driver != nil {
 		base.Driver = overlay.Driver
@@ -140,7 +136,6 @@ func (c *ClusterConfig) Copy() *ClusterConfig {
 
 	return &ClusterConfig{
 		Enabled:  c.Enabled,
-		Platform: c.Platform,
 		Driver:   c.Driver,
 		Endpoint: c.Endpoint,
 		Image:    c.Image,

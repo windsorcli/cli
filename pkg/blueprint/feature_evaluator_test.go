@@ -51,21 +51,21 @@ func TestEvaluateExpression(t *testing.T) {
 		},
 		{
 			name:       "SimpleInequalityExpressionTrue",
-			expression: "provider != 'local'",
+			expression: "provider != 'generic'",
 			config:     map[string]any{"provider": "aws"},
 			expected:   true,
 		},
 		{
 			name:       "SimpleInequalityExpressionFalse",
-			expression: "provider != 'local'",
-			config:     map[string]any{"provider": "local"},
+			expression: "provider != 'generic'",
+			config:     map[string]any{"provider": "generic"},
 			expected:   false,
 		},
 		{
 			name:       "LogicalAndExpressionTrue",
-			expression: "provider == 'local' && observability.enabled == true",
+			expression: "provider == 'generic' && observability.enabled == true",
 			config: map[string]any{
-				"provider": "local",
+				"provider": "generic",
 				"observability": map[string]any{
 					"enabled": true,
 				},
@@ -74,7 +74,7 @@ func TestEvaluateExpression(t *testing.T) {
 		},
 		{
 			name:       "LogicalAndExpressionFalse",
-			expression: "provider == 'local' && observability.enabled == true",
+			expression: "provider == 'generic' && observability.enabled == true",
 			config: map[string]any{
 				"provider": "aws",
 				"observability": map[string]any{
@@ -92,14 +92,14 @@ func TestEvaluateExpression(t *testing.T) {
 		{
 			name:       "LogicalOrExpressionFalse",
 			expression: "provider == 'aws' || provider == 'azure'",
-			config:     map[string]any{"provider": "local"},
+			config:     map[string]any{"provider": "generic"},
 			expected:   false,
 		},
 		{
 			name:       "ParenthesesGrouping",
-			expression: "provider == 'local' && (vm.driver != 'docker-desktop' || loadbalancer.enabled == true)",
+			expression: "provider == 'generic' && (vm.driver != 'docker-desktop' || loadbalancer.enabled == true)",
 			config: map[string]any{
-				"provider": "local",
+				"provider": "generic",
 				"vm": map[string]any{
 					"driver": "virtualbox",
 				},
@@ -186,7 +186,7 @@ func TestMatchConditions(t *testing.T) {
 		{
 			name:       "SimpleStringEqualityFalse",
 			conditions: map[string]any{"provider": "aws"},
-			config:     map[string]any{"provider": "local"},
+			config:     map[string]any{"provider": "generic"},
 			expected:   false,
 		},
 		{
@@ -212,12 +212,12 @@ func TestMatchConditions(t *testing.T) {
 		{
 			name: "MultipleConditionsAllMatch",
 			conditions: map[string]any{
-				"provider":              "local",
+				"provider":              "generic",
 				"observability.enabled": true,
 				"observability.backend": "quickwit",
 			},
 			config: map[string]any{
-				"provider": "local",
+				"provider": "generic",
 				"observability": map[string]any{
 					"enabled": true,
 					"backend": "quickwit",
@@ -228,12 +228,12 @@ func TestMatchConditions(t *testing.T) {
 		{
 			name: "MultipleConditionsOneDoesNotMatch",
 			conditions: map[string]any{
-				"provider":              "local",
+				"provider":              "generic",
 				"observability.enabled": true,
 				"observability.backend": "elk",
 			},
 			config: map[string]any{
-				"provider": "local",
+				"provider": "generic",
 				"observability": map[string]any{
 					"enabled": true,
 					"backend": "quickwit",

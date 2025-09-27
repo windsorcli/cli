@@ -28,9 +28,8 @@ func TestClusterConfig_Merge(t *testing.T) {
 		}
 
 		overlay := &ClusterConfig{
-			Enabled:  ptrBool(true),
-			Driver:   ptrString("talos"),
-			Platform: ptrString("local"),
+			Enabled: ptrBool(true),
+			Driver:  ptrString("talos"),
 		}
 
 		base.Merge(overlay)
@@ -40,9 +39,6 @@ func TestClusterConfig_Merge(t *testing.T) {
 		}
 		if *base.Driver != "talos" {
 			t.Errorf("Expected Driver to be 'talos', got %s", *base.Driver)
-		}
-		if *base.Platform != "local" {
-			t.Errorf("Expected Platform to be 'local', got %s", *base.Platform)
 		}
 	})
 
@@ -282,7 +278,6 @@ func TestClusterConfig_Merge(t *testing.T) {
 	t.Run("MergeWithAllFields", func(t *testing.T) {
 		base := &ClusterConfig{
 			Enabled:  ptrBool(false),
-			Platform: ptrString("cloud"),
 			Driver:   ptrString("kind"),
 			Endpoint: ptrString("https://old.local:6443"),
 			Image:    ptrString("kind:v1.0.0"),
@@ -290,7 +285,6 @@ func TestClusterConfig_Merge(t *testing.T) {
 
 		overlay := &ClusterConfig{
 			Enabled:  ptrBool(true),
-			Platform: ptrString("local"),
 			Driver:   ptrString("talos"),
 			Endpoint: ptrString("https://new.local:6443"),
 			Image:    ptrString("talos:v1.0.0"),
@@ -300,9 +294,6 @@ func TestClusterConfig_Merge(t *testing.T) {
 
 		if !*base.Enabled {
 			t.Errorf("Expected Enabled to be true")
-		}
-		if *base.Platform != "local" {
-			t.Errorf("Expected Platform to be 'local'")
 		}
 		if *base.Driver != "talos" {
 			t.Errorf("Expected Driver to be 'talos'")
@@ -342,7 +333,6 @@ func TestClusterConfig_Copy(t *testing.T) {
 	t.Run("CopyPopulatedConfig", func(t *testing.T) {
 		config := &ClusterConfig{
 			Enabled:  ptrBool(true),
-			Platform: ptrString("local"),
 			Driver:   ptrString("talos"),
 			Endpoint: ptrString("https://cluster.local:6443"),
 			Image:    ptrString("talos:v1.0.0"),

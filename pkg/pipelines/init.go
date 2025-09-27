@@ -342,7 +342,8 @@ func (p *InitPipeline) setDefaultConfiguration(_ context.Context, contextName st
 
 	var isLocalContext bool
 	if existingProvider != "" {
-		isLocalContext = existingProvider == "local"
+		// Treat "generic" provider with "local" context name as local context
+		isLocalContext = existingProvider == "generic" && (contextName == "local" || strings.HasPrefix(contextName, "local-"))
 	} else {
 		isLocalContext = contextName == "local" || strings.HasPrefix(contextName, "local-")
 	}
@@ -380,7 +381,7 @@ func (p *InitPipeline) setDefaultConfiguration(_ context.Context, contextName st
 
 	if existingProvider == "" {
 		if contextName == "local" || strings.HasPrefix(contextName, "local-") {
-			if err := p.configHandler.SetContextValue("provider", "local"); err != nil {
+			if err := p.configHandler.SetContextValue("provider", "generic"); err != nil {
 				return fmt.Errorf("Error setting provider from context name: %w", err)
 			}
 		}
@@ -393,7 +394,7 @@ func (p *InitPipeline) setDefaultConfiguration(_ context.Context, contextName st
 // Since defaults are already applied in setDefaultConfiguration, this function only sets provider-specific overrides.
 // For "aws", it enables AWS and sets the cluster driver to "eks".
 // For "azure", it enables Azure and sets the cluster driver to "aks".
-// For "metal" and "local", it sets the cluster driver to "talos".
+// For "generic", it sets the cluster driver to "talos".
 // Returns an error if any configuration operation fails.
 func (p *InitPipeline) processPlatformConfiguration(_ context.Context) error {
 	provider := p.configHandler.GetString("provider")
@@ -416,11 +417,7 @@ func (p *InitPipeline) processPlatformConfiguration(_ context.Context) error {
 		if err := p.configHandler.SetContextValue("cluster.driver", "aks"); err != nil {
 			return fmt.Errorf("Error setting cluster.driver: %w", err)
 		}
-	case "metal":
-		if err := p.configHandler.SetContextValue("cluster.driver", "talos"); err != nil {
-			return fmt.Errorf("Error setting cluster.driver: %w", err)
-		}
-	case "local":
+	case "generic":
 		if err := p.configHandler.SetContextValue("cluster.driver", "talos"); err != nil {
 			return fmt.Errorf("Error setting cluster.driver: %w", err)
 		}

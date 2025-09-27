@@ -326,8 +326,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			switch key {
-			case "cluster.platform":
-				return "default"
 			case "context":
 				return currentContext
 			default:
