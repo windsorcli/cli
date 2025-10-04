@@ -41,6 +41,11 @@ type ConfigHandler interface {
 	IsContextConfigLoaded() bool
 	SetSecretsProvider(provider secrets.SecretsProvider)
 	GenerateContextID() error
+	LoadSchema(schemaPath string) error
+	LoadSchemaFromBytes(schemaContent []byte) error
+	GetSchemaDefaults() (map[string]any, error)
+	// Temporary bridge method for blueprint handler during migration
+	GetSchemaValidator() *SchemaValidator
 }
 
 const (
@@ -59,6 +64,7 @@ type BaseConfigHandler struct {
 	secretsProviders []secrets.SecretsProvider
 	loaded           bool
 	shims            *Shims
+	schemaValidator  *SchemaValidator
 }
 
 // =============================================================================
@@ -84,6 +90,10 @@ func (c *BaseConfigHandler) Initialize() error {
 		return fmt.Errorf("error resolving shell")
 	}
 	c.shell = shell
+
+	c.schemaValidator = NewSchemaValidator(c.shell)
+	c.schemaValidator.Shims = c.shims
+
 	return nil
 }
 
@@ -185,4 +195,37 @@ func (c *BaseConfigHandler) LoadContextConfig() error {
 // SetSecretsProvider sets the secrets provider for the config handler
 func (c *BaseConfigHandler) SetSecretsProvider(provider secrets.SecretsProvider) {
 	c.secretsProviders = append(c.secretsProviders, provider)
+}
+
+// LoadSchema loads the schema.yaml file from the specified directory
+// Returns error if schema file doesn't exist or is invalid
+func (c *BaseConfigHandler) LoadSchema(schemaPath string) error {
+	if c.schemaValidator == nil {
+		return fmt.Errorf("schema validator not initialized")
+	}
+	return c.schemaValidator.LoadSchema(schemaPath)
+}
+
+// LoadSchemaFromBytes loads schema directly from byte content
+// Returns error if schema content is invalid
+func (c *BaseConfigHandler) LoadSchemaFromBytes(schemaContent []byte) error {
+	if c.schemaValidator == nil {
+		return fmt.Errorf("schema validator not initialized")
+	}
+	return c.schemaValidator.LoadSchemaFromBytes(schemaContent)
+}
+
+// GetSchemaDefaults extracts default values from the loaded schema
+// Returns defaults as a map suitable for merging with user values
+func (c *BaseConfigHandler) GetSchemaDefaults() (map[string]any, error) {
+	if c.schemaValidator == nil {
+		return nil, fmt.Errorf("schema validator not initialized")
+	}
+	return c.schemaValidator.GetSchemaDefaults()
+}
+
+// GetSchemaValidator returns the internal schema validator instance
+// This is a temporary bridge method for blueprint handler during migration
+func (c *BaseConfigHandler) GetSchemaValidator() *SchemaValidator {
+	return c.schemaValidator
 }

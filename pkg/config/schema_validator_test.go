@@ -1,4 +1,4 @@
-package blueprint
+package config
 
 import (
 	"os"
@@ -41,7 +41,7 @@ required: []
 additionalProperties: true
 `
 
-		validator.shims.ReadFile = func(path string) ([]byte, error) {
+		validator.Shims.ReadFile = func(path string) ([]byte, error) {
 			return []byte(schemaContent), nil
 		}
 
@@ -68,7 +68,7 @@ title: Test Schema
 type: object
 `
 
-		validator.shims.ReadFile = func(path string) ([]byte, error) {
+		validator.Shims.ReadFile = func(path string) ([]byte, error) {
 			return []byte(schemaContent), nil
 		}
 
@@ -96,7 +96,7 @@ title: Test Schema
 type: object
 `
 
-		validator.shims.ReadFile = func(path string) ([]byte, error) {
+		validator.Shims.ReadFile = func(path string) ([]byte, error) {
 			return []byte(schemaContent), nil
 		}
 
@@ -118,7 +118,7 @@ type: object
 		mockShell := shell.NewMockShell()
 		validator := NewSchemaValidator(mockShell)
 
-		validator.shims.ReadFile = func(path string) ([]byte, error) {
+		validator.Shims.ReadFile = func(path string) ([]byte, error) {
 			return nil, os.ErrNotExist
 		}
 

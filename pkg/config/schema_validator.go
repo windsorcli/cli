@@ -1,4 +1,4 @@
-package blueprint
+package config
 
 import (
 	"fmt"
@@ -19,7 +19,7 @@ import (
 // SchemaValidator handles Windsor blueprint schema validation
 type SchemaValidator struct {
 	shell  shell.Shell
-	shims  *Shims
+	Shims  *Shims
 	Schema map[string]any
 }
 
@@ -38,7 +38,7 @@ type SchemaValidationResult struct {
 func NewSchemaValidator(shell shell.Shell) *SchemaValidator {
 	return &SchemaValidator{
 		shell: shell,
-		shims: NewShims(),
+		Shims: NewShims(),
 	}
 }
 
@@ -49,7 +49,7 @@ func NewSchemaValidator(shell shell.Shell) *SchemaValidator {
 // LoadSchema loads the schema.yaml file from the specified directory
 // Returns error if schema file doesn't exist or is invalid
 func (sv *SchemaValidator) LoadSchema(schemaPath string) error {
-	schemaContent, err := sv.shims.ReadFile(schemaPath)
+	schemaContent, err := sv.Shims.ReadFile(schemaPath)
 	if err != nil {
 		return fmt.Errorf("failed to read schema file %s: %w", schemaPath, err)
 	}
@@ -286,7 +286,7 @@ func (sv *SchemaValidator) validateString(value any, schema map[string]any, path
 
 	if pattern, ok := schema["pattern"]; ok {
 		if patternStr, ok := pattern.(string); ok {
-			matched, err := sv.shims.RegexpMatchString(patternStr, str)
+			matched, err := sv.Shims.RegexpMatchString(patternStr, str)
 			if err != nil {
 				errors = append(errors, fmt.Sprintf("invalid regex pattern for %s: %v", path, err))
 			} else if !matched {

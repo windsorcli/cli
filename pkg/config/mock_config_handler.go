@@ -1,6 +1,8 @@
 package config
 
 import (
+	"fmt"
+
 	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/secrets"
 )
@@ -30,6 +32,10 @@ type MockConfigHandler struct {
 	CleanFunc                 func() error
 	SetSecretsProviderFunc    func(provider secrets.SecretsProvider)
 	GenerateContextIDFunc     func() error
+	LoadSchemaFunc            func(schemaPath string) error
+	LoadSchemaFromBytesFunc   func(schemaContent []byte) error
+	GetSchemaDefaultsFunc     func() (map[string]any, error)
+	GetSchemaValidatorFunc    func() *SchemaValidator
 }
 
 // =============================================================================
@@ -239,6 +245,38 @@ func (m *MockConfigHandler) SetSecretsProvider(provider secrets.SecretsProvider)
 func (m *MockConfigHandler) GenerateContextID() error {
 	if m.GenerateContextIDFunc != nil {
 		return m.GenerateContextIDFunc()
+	}
+	return nil
+}
+
+// LoadSchema calls the mock LoadSchemaFunc if set, otherwise returns an error
+func (m *MockConfigHandler) LoadSchema(schemaPath string) error {
+	if m.LoadSchemaFunc != nil {
+		return m.LoadSchemaFunc(schemaPath)
+	}
+	return fmt.Errorf("LoadSchemaFunc not set")
+}
+
+// LoadSchemaFromBytes calls the mock LoadSchemaFromBytesFunc if set, otherwise returns an error
+func (m *MockConfigHandler) LoadSchemaFromBytes(schemaContent []byte) error {
+	if m.LoadSchemaFromBytesFunc != nil {
+		return m.LoadSchemaFromBytesFunc(schemaContent)
+	}
+	return fmt.Errorf("LoadSchemaFromBytesFunc not set")
+}
+
+// GetSchemaDefaults calls the mock GetSchemaDefaultsFunc if set, otherwise returns an error
+func (m *MockConfigHandler) GetSchemaDefaults() (map[string]any, error) {
+	if m.GetSchemaDefaultsFunc != nil {
+		return m.GetSchemaDefaultsFunc()
+	}
+	return nil, fmt.Errorf("GetSchemaDefaultsFunc not set")
+}
+
+// GetSchemaValidator calls the mock GetSchemaValidatorFunc if set, otherwise returns nil
+func (m *MockConfigHandler) GetSchemaValidator() *SchemaValidator {
+	if m.GetSchemaValidatorFunc != nil {
+		return m.GetSchemaValidatorFunc()
 	}
 	return nil
 }

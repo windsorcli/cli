@@ -7,37 +7,9 @@ import (
 	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/secrets"
+	"github.com/windsorcli/cli/pkg/config"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
-
-type mockConfigHandler struct{}
-
-func (m *mockConfigHandler) Initialize() error                                            { return nil }
-func (m *mockConfigHandler) LoadConfig(path string) error                                 { return nil }
-func (m *mockConfigHandler) LoadConfigString(content string) error                        { return nil }
-func (m *mockConfigHandler) LoadContextConfig() error                                     { return nil }
-func (m *mockConfigHandler) GetString(key string, defaultValue ...string) string          { return "" }
-func (m *mockConfigHandler) GetInt(key string, defaultValue ...int) int                   { return 0 }
-func (m *mockConfigHandler) GetBool(key string, defaultValue ...bool) bool                { return false }
-func (m *mockConfigHandler) GetStringSlice(key string, defaultValue ...[]string) []string { return nil }
-func (m *mockConfigHandler) GetStringMap(key string, defaultValue ...map[string]string) map[string]string {
-	return nil
-}
-func (m *mockConfigHandler) Set(key string, value any) error                     { return nil }
-func (m *mockConfigHandler) SetContextValue(key string, value any) error         { return nil }
-func (m *mockConfigHandler) Get(key string) any                                  { return nil }
-func (m *mockConfigHandler) SaveConfig(overwrite ...bool) error                  { return nil }
-func (m *mockConfigHandler) SetDefault(context blueprintv1alpha1.Context) error  { return nil }
-func (m *mockConfigHandler) GetConfig() *blueprintv1alpha1.Context               { return nil }
-func (m *mockConfigHandler) GetContext() string                                  { return "test-context" }
-func (m *mockConfigHandler) SetContext(context string) error                     { return nil }
-func (m *mockConfigHandler) GetConfigRoot() (string, error)                      { return "/tmp", nil }
-func (m *mockConfigHandler) Clean() error                                        { return nil }
-func (m *mockConfigHandler) IsLoaded() bool                                      { return true }
-func (m *mockConfigHandler) IsContextConfigLoaded() bool                         { return true }
-func (m *mockConfigHandler) SetSecretsProvider(provider secrets.SecretsProvider) {}
-func (m *mockConfigHandler) GenerateContextID() error                            { return nil }
 
 // =============================================================================
 // Test Helper Functions
@@ -76,7 +48,7 @@ func TestBaseBlueprintHandler_calculateMaxWaitTime(t *testing.T) {
 				},
 			},
 			shims:         NewShims(),
-			configHandler: &mockConfigHandler{},
+			configHandler: config.NewMockConfigHandler(),
 			projectRoot:   "/tmp",
 		}
 
@@ -120,7 +92,7 @@ func TestBaseBlueprintHandler_calculateMaxWaitTime(t *testing.T) {
 				},
 			},
 			shims:         NewShims(),
-			configHandler: &mockConfigHandler{},
+			configHandler: config.NewMockConfigHandler(),
 			projectRoot:   "/tmp",
 		}
 
@@ -173,7 +145,7 @@ func TestBaseBlueprintHandler_calculateMaxWaitTime(t *testing.T) {
 				},
 			},
 			shims:         NewShims(),
-			configHandler: &mockConfigHandler{},
+			configHandler: config.NewMockConfigHandler(),
 			projectRoot:   "/tmp",
 		}
 
@@ -219,7 +191,7 @@ func TestBaseBlueprintHandler_calculateMaxWaitTime(t *testing.T) {
 				},
 			},
 			shims:         NewShims(),
-			configHandler: &mockConfigHandler{},
+			configHandler: config.NewMockConfigHandler(),
 			projectRoot:   "/tmp",
 		}
 
@@ -239,7 +211,7 @@ func TestBaseBlueprintHandler_GetKustomizations(t *testing.T) {
 		// Given a blueprint handler with no kustomizations
 		handler := &BaseBlueprintHandler{
 			shims:         NewShims(),
-			configHandler: &mockConfigHandler{},
+			configHandler: config.NewMockConfigHandler(),
 			projectRoot:   "/tmp",
 			blueprint: blueprintv1alpha1.Blueprint{
 				Kustomizations: nil,
@@ -259,7 +231,7 @@ func TestBaseBlueprintHandler_GetKustomizations(t *testing.T) {
 		// Given a blueprint handler with a kustomization that has no patches
 		handler := &BaseBlueprintHandler{
 			shims:         NewShims(),
-			configHandler: &mockConfigHandler{},
+			configHandler: config.NewMockConfigHandler(),
 			projectRoot:   "/tmp",
 			blueprint: blueprintv1alpha1.Blueprint{
 				Metadata: blueprintv1alpha1.Metadata{
@@ -303,7 +275,7 @@ func TestBaseBlueprintHandler_GetKustomizations(t *testing.T) {
 		}
 		handler := &BaseBlueprintHandler{
 			shims:         NewShims(),
-			configHandler: &mockConfigHandler{},
+			configHandler: config.NewMockConfigHandler(),
 			projectRoot:   "/tmp",
 			blueprint: blueprintv1alpha1.Blueprint{
 				Metadata: blueprintv1alpha1.Metadata{
@@ -337,7 +309,7 @@ func TestBaseBlueprintHandler_GetKustomizations(t *testing.T) {
 		// Given a blueprint handler with a kustomization that will have discovered patches
 		handler := &BaseBlueprintHandler{
 			shims:         NewShims(),
-			configHandler: &mockConfigHandler{},
+			configHandler: config.NewMockConfigHandler(),
 			projectRoot:   "/tmp",
 			blueprint: blueprintv1alpha1.Blueprint{
 				Metadata: blueprintv1alpha1.Metadata{
@@ -408,7 +380,7 @@ data:
 		}
 		handler := &BaseBlueprintHandler{
 			shims:         NewShims(),
-			configHandler: &mockConfigHandler{},
+			configHandler: config.NewMockConfigHandler(),
 			projectRoot:   "/tmp",
 			blueprint: blueprintv1alpha1.Blueprint{
 				Metadata: blueprintv1alpha1.Metadata{
@@ -468,7 +440,7 @@ data:
 		// Given a blueprint handler with a kustomization that will have patch discovery errors
 		handler := &BaseBlueprintHandler{
 			shims:         NewShims(),
-			configHandler: &mockConfigHandler{},
+			configHandler: config.NewMockConfigHandler(),
 			projectRoot:   "/tmp",
 			blueprint: blueprintv1alpha1.Blueprint{
 				Metadata: blueprintv1alpha1.Metadata{
@@ -518,7 +490,7 @@ data:
 		// Given a blueprint handler with multiple kustomizations
 		handler := &BaseBlueprintHandler{
 			shims:         NewShims(),
-			configHandler: &mockConfigHandler{},
+			configHandler: config.NewMockConfigHandler(),
 			projectRoot:   "/tmp",
 			blueprint: blueprintv1alpha1.Blueprint{
 				Metadata: blueprintv1alpha1.Metadata{
