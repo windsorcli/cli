@@ -2730,7 +2730,6 @@ substitution:
 		baseHandler.configHandler = mocks.ConfigHandler
 
 		projectRoot := filepath.Join("mock", "project")
-		templateDir := filepath.Join(projectRoot, "contexts", "_template")
 
 		// Mock shell to return project root
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
@@ -2750,16 +2749,22 @@ substitution:
 		// Mock shims to simulate template directory and schema files
 		if baseHandler, ok := handler.(*BaseBlueprintHandler); ok {
 			baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
-				if path == templateDir ||
-					path == filepath.Join(projectRoot, "contexts", "_template", "schema.yaml") ||
-					path == filepath.Join(projectRoot, "contexts", "test-context", "values.yaml") {
+				// Normalize path separators for cross-platform compatibility
+				normalizedPath := filepath.ToSlash(path)
+				if strings.Contains(normalizedPath, "_template/schema.yaml") ||
+					strings.Contains(normalizedPath, "test-context/values.yaml") {
 					return mockFileInfo{name: "template"}, nil
+				}
+				if strings.Contains(normalizedPath, "_template") && !strings.Contains(normalizedPath, "schema.yaml") {
+					return mockFileInfo{name: "_template", isDir: true}, nil
 				}
 				return nil, os.ErrNotExist
 			}
 
 			baseHandler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-				if path == templateDir {
+				// Normalize path separators for cross-platform compatibility
+				normalizedPath := filepath.ToSlash(path)
+				if strings.Contains(normalizedPath, "_template") {
 					return []os.DirEntry{
 						&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
 					}, nil
@@ -2768,10 +2773,12 @@ substitution:
 			}
 
 			baseHandler.shims.ReadFile = func(path string) ([]byte, error) {
-				switch path {
-				case filepath.Join(templateDir, "blueprint.jsonnet"):
+				// Normalize path separators for cross-platform compatibility
+				normalizedPath := filepath.ToSlash(path)
+				if strings.Contains(normalizedPath, "blueprint.jsonnet") {
 					return []byte("{ kind: 'Blueprint' }"), nil
-				case filepath.Join(projectRoot, "contexts", "_template", "schema.yaml"):
+				}
+				if strings.Contains(normalizedPath, "_template/schema.yaml") {
 					return []byte(`$schema: https://json-schema.org/draft/2020-12/schema
 type: object
 properties:
@@ -2794,7 +2801,8 @@ properties:
     additionalProperties: true
 required: []
 additionalProperties: true`), nil
-				case filepath.Join(projectRoot, "contexts", "test-context", "values.yaml"):
+				}
+				if strings.Contains(normalizedPath, "test-context/values.yaml") {
 					return []byte(`
 external_domain: context.test
 context_only: context_value
@@ -2804,9 +2812,8 @@ substitution:
   csi:
     volume_path: /context/volumes
 `), nil
-				default:
-					return nil, fmt.Errorf("file not found: %s", path)
 				}
+				return nil, fmt.Errorf("file not found: %s", path)
 			}
 
 			baseHandler.shims.YamlMarshal = func(v any) ([]byte, error) {
@@ -6720,14 +6727,18 @@ func TestBaseBlueprintHandler_loadAndMergeContextValues(t *testing.T) {
 
 		// Mock file system - only template schema exists
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == filepath.Join(projectRoot, "contexts", "_template", "schema.yaml") {
+			// Normalize path separators for cross-platform compatibility
+			normalizedPath := filepath.ToSlash(name)
+			if strings.Contains(normalizedPath, "_template/schema.yaml") {
 				return &mockFileInfo{name: "schema.yaml"}, nil
 			}
 			return nil, os.ErrNotExist
 		}
 
 		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			if name == filepath.Join(projectRoot, "contexts", "_template", "schema.yaml") {
+			// Normalize path separators for cross-platform compatibility
+			normalizedPath := filepath.ToSlash(name)
+			if strings.Contains(normalizedPath, "_template/schema.yaml") {
 				return []byte(`$schema: https://json-schema.org/draft/2020-12/schema
 type: object
 properties:
@@ -6796,15 +6807,19 @@ additionalProperties: true`), nil
 
 		// Mock file system - both template schema and context values exist
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == filepath.Join(projectRoot, "contexts", "_template", "schema.yaml") ||
-				name == filepath.Join(projectRoot, "contexts", "test-context", "values.yaml") {
+			// Normalize path separators for cross-platform compatibility
+			normalizedPath := filepath.ToSlash(name)
+			if strings.Contains(normalizedPath, "_template/schema.yaml") ||
+				strings.Contains(normalizedPath, "test-context/values.yaml") {
 				return &mockFileInfo{name: "file"}, nil
 			}
 			return nil, os.ErrNotExist
 		}
 
 		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			if name == filepath.Join(projectRoot, "contexts", "_template", "schema.yaml") {
+			// Normalize path separators for cross-platform compatibility
+			normalizedPath := filepath.ToSlash(name)
+			if strings.Contains(normalizedPath, "_template/schema.yaml") {
 				return []byte(`$schema: https://json-schema.org/draft/2020-12/schema
 type: object
 properties:
@@ -6844,7 +6859,7 @@ properties:
 required: []
 additionalProperties: true`), nil
 			}
-			if name == filepath.Join(projectRoot, "contexts", "test-context", "values.yaml") {
+			if strings.Contains(normalizedPath, "test-context/values.yaml") {
 				return []byte(`
 external_domain: context.test
 context_only: context_value
@@ -6980,8 +6995,10 @@ substitution:
 		}
 
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			// Normalize path separators for cross-platform compatibility
+			normalizedPath := filepath.ToSlash(name)
 			// Return success for schema.yaml but provide invalid content
-			if strings.Contains(name, "schema.yaml") {
+			if strings.Contains(normalizedPath, "schema.yaml") {
 				return &mockFileInfo{name: "schema.yaml"}, nil
 			}
 			return nil, os.ErrNotExist
