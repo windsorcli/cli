@@ -439,8 +439,13 @@ contexts:
 		mockConfigHandler.GetSchemaValidatorFunc = func() *config.SchemaValidator {
 			validator := config.NewSchemaValidator(mockShell)
 			// Always reference the current blueprint shims (they may be overridden by individual tests)
-			validator.Shims.ReadFile = shims.ReadFile
-			validator.Shims.Stat = shims.Stat
+			// Use a closure to capture the current shims reference
+			validator.Shims.ReadFile = func(path string) ([]byte, error) {
+				return shims.ReadFile(path)
+			}
+			validator.Shims.Stat = func(path string) (os.FileInfo, error) {
+				return shims.Stat(path)
+			}
 			return validator
 		}
 	}
@@ -2641,21 +2646,6 @@ substitution:
     enabled: true`), nil
 			}
 			return nil, os.ErrNotExist
-		}
-
-		// Force schema validator to be recreated with new shims
-		baseHandler.schemaValidator = nil
-
-		// Update config shims to reference the current blueprint shims
-		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
-			mockConfigHandler.GetSchemaValidatorFunc = func() *config.SchemaValidator {
-				validator := config.NewSchemaValidator(mocks.Shell)
-				validator.Shims.ReadFile = baseHandler.shims.ReadFile
-				validator.Shims.Stat = baseHandler.shims.Stat
-				return validator
-			}
-			// Recreate schema validator with new shims
-			baseHandler.schemaValidator = mockConfigHandler.GetSchemaValidator()
 		}
 
 		// Cast to mock config handler to set the function
@@ -6922,9 +6912,9 @@ substitution:
 			t.Fatal("Expected 'common' section to exist in substitution")
 		}
 
-		// Check that template_sub is at the top level of substitution (schema validator behavior)
-		if result.Substitution["template_sub"] != "template_sub_value" {
-			t.Errorf("Expected template_sub to be 'template_sub_value' at substitution level, got %v", result.Substitution["template_sub"])
+		// Check that template_sub is in the common section (schema validator behavior)
+		if common["template_sub"] != "template_sub_value" {
+			t.Errorf("Expected template_sub to be 'template_sub_value' in common section, got %v", common["template_sub"])
 		}
 		if common["context_sub"] != "context_sub_value" {
 			t.Errorf("Expected context_sub to be 'context_sub_value', got %v", common["context_sub"])
@@ -7007,19 +6997,12 @@ substitution:
 			return []byte("invalid: yaml: content: ["), nil
 		}
 
-		// Update the config shims to match the blueprint shims
-		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
-			mockConfigHandler.GetSchemaValidatorFunc = func() *config.SchemaValidator {
-				validator := config.NewSchemaValidator(mocks.Shell)
-				validator.Shims.ReadFile = mocks.Shims.ReadFile
-				validator.Shims.Stat = mocks.Shims.Stat
-				return validator
-			}
-		}
-
 		_, err := handler.loadAndMergeContextValues()
-		if err != nil {
-			t.Errorf("Expected no error when template schema file cannot be parsed (schema validation should continue without defaults), got: %v", err)
+		if err == nil {
+			t.Error("Expected error when template schema file cannot be parsed, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to parse schema YAML") {
+			t.Errorf("Expected error to contain 'failed to parse schema YAML', got: %v", err)
 		}
 	})
 
