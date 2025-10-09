@@ -73,7 +73,7 @@ type BaseBlueprintHandler struct {
 	shims             *Shims
 	kustomizeData     map[string]any
 	configLoaded      bool
-	schemaValidator   *SchemaValidator
+	schemaValidator   *config.SchemaValidator
 }
 
 // NewBlueprintHandler creates a new instance of BaseBlueprintHandler.
@@ -118,8 +118,7 @@ func (b *BaseBlueprintHandler) Initialize() error {
 	}
 	b.projectRoot = projectRoot
 
-	b.schemaValidator = NewSchemaValidator(b.shell)
-	b.schemaValidator.shims = b.shims
+	b.schemaValidator = b.configHandler.GetSchemaValidator()
 
 	return nil
 }
@@ -762,7 +761,7 @@ func (b *BaseBlueprintHandler) loadAndMergeContextValues(templateData ...map[str
 		}
 	}
 
-	if baseValues == nil {
+	if len(baseValues) == 0 {
 		if b.schemaValidator != nil {
 			if err := b.loadTemplateSchema(); err == nil {
 				defaults, err := b.schemaValidator.GetSchemaDefaults()
@@ -771,14 +770,12 @@ func (b *BaseBlueprintHandler) loadAndMergeContextValues(templateData ...map[str
 				}
 				baseValues = defaults
 			} else {
-				// Only ignore "file not found" errors, propagate other errors
 				if !strings.Contains(err.Error(), "template schema not found") {
 					return nil, fmt.Errorf("failed to load template schema.yaml: %w", err)
 				}
 			}
 		}
-
-		if baseValues == nil {
+		if len(baseValues) == 0 {
 			baseValues = make(map[string]any)
 		}
 	}
