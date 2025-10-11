@@ -35,7 +35,7 @@ type MockConfigHandler struct {
 	LoadSchemaFunc            func(schemaPath string) error
 	LoadSchemaFromBytesFunc   func(schemaContent []byte) error
 	GetSchemaDefaultsFunc     func() (map[string]any, error)
-	GetSchemaValidatorFunc    func() *SchemaValidator
+	GetContextValuesFunc      func() (map[string]any, error)
 }
 
 // =============================================================================
@@ -273,12 +273,12 @@ func (m *MockConfigHandler) GetSchemaDefaults() (map[string]any, error) {
 	return nil, fmt.Errorf("GetSchemaDefaultsFunc not set")
 }
 
-// GetSchemaValidator calls the mock GetSchemaValidatorFunc if set, otherwise returns nil
-func (m *MockConfigHandler) GetSchemaValidator() *SchemaValidator {
-	if m.GetSchemaValidatorFunc != nil {
-		return m.GetSchemaValidatorFunc()
+// GetContextValues calls the mock GetContextValuesFunc if set, otherwise returns an error
+func (m *MockConfigHandler) GetContextValues() (map[string]any, error) {
+	if m.GetContextValuesFunc != nil {
+		return m.GetContextValuesFunc()
 	}
-	return nil
+	return nil, fmt.Errorf("GetContextValuesFunc not set")
 }
 
 // Ensure MockConfigHandler implements ConfigHandler

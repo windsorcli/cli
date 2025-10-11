@@ -502,6 +502,27 @@ func (y *YamlConfigHandler) GetConfig() *v1alpha1.Context {
 	return defaultConfigCopy
 }
 
+// GetContextValues returns merged context values from windsor.yaml (via GetConfig) and values.yaml
+// The context config is converted to a map and deep merged with values.yaml, with values.yaml taking precedence
+func (y *YamlConfigHandler) GetContextValues() (map[string]any, error) {
+	if err := y.ensureValuesYamlLoaded(); err != nil {
+		return nil, err
+	}
+
+	contextConfig := y.GetConfig()
+	contextData, err := y.shims.YamlMarshal(contextConfig)
+	if err != nil {
+		return nil, fmt.Errorf("error marshalling context config: %w", err)
+	}
+
+	var contextMap map[string]any
+	if err := y.shims.YamlUnmarshal(contextData, &contextMap); err != nil {
+		return nil, fmt.Errorf("error unmarshalling context config to map: %w", err)
+	}
+
+	return y.deepMerge(contextMap, y.contextValues), nil
+}
+
 // Ensure YamlConfigHandler implements ConfigHandler
 var _ ConfigHandler = (*YamlConfigHandler)(nil)
 
@@ -1097,4 +1118,25 @@ func (y *YamlConfigHandler) convertStringByPattern(str string) any {
 	}
 
 	return str
+}
+
+// deepMerge recursively merges two maps with overlay values taking precedence.
+// Nested maps are merged rather than replaced. Non-map values in overlay replace base values.
+func (y *YamlConfigHandler) deepMerge(base, overlay map[string]any) map[string]any {
+	result := make(map[string]any)
+	for k, v := range base {
+		result[k] = v
+	}
+	for k, overlayValue := range overlay {
+		if baseValue, exists := result[k]; exists {
+			if baseMap, baseIsMap := baseValue.(map[string]any); baseIsMap {
+				if overlayMap, overlayIsMap := overlayValue.(map[string]any); overlayIsMap {
+					result[k] = y.deepMerge(baseMap, overlayMap)
+					continue
+				}
+			}
+		}
+		result[k] = overlayValue
+	}
+	return result
 }

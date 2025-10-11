@@ -44,8 +44,7 @@ type ConfigHandler interface {
 	LoadSchema(schemaPath string) error
 	LoadSchemaFromBytes(schemaContent []byte) error
 	GetSchemaDefaults() (map[string]any, error)
-	// Temporary bridge method for blueprint handler during migration
-	GetSchemaValidator() *SchemaValidator
+	GetContextValues() (map[string]any, error)
 }
 
 const (
@@ -226,8 +225,8 @@ func (c *BaseConfigHandler) GetSchemaDefaults() (map[string]any, error) {
 	return c.schemaValidator.GetSchemaDefaults()
 }
 
-// GetSchemaValidator returns the internal schema validator instance
-// This is a temporary bridge method for blueprint handler during migration
-func (c *BaseConfigHandler) GetSchemaValidator() *SchemaValidator {
-	return c.schemaValidator
+// GetContextValues returns the loaded context values from values.yaml
+// This should be overridden by concrete implementations like YamlConfigHandler
+func (c *BaseConfigHandler) GetContextValues() (map[string]any, error) {
+	return nil, fmt.Errorf("GetContextValues not implemented in base config handler")
 }
