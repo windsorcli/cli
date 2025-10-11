@@ -293,8 +293,12 @@ func (p *InitPipeline) Execute(ctx context.Context) error {
 		return err
 	}
 
-	// Save the configuration to windsor.yaml files
-	if err := p.configHandler.SaveConfig(); err != nil {
+	hasSetFlags := false
+	if setFlagsValue := ctx.Value("hasSetFlags"); setFlagsValue != nil {
+		hasSetFlags = setFlagsValue.(bool)
+	}
+
+	if err := p.configHandler.SaveConfig(hasSetFlags); err != nil {
 		return fmt.Errorf("failed to save configuration: %w", err)
 	}
 

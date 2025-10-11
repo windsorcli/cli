@@ -38,7 +38,6 @@ func NewYamlConfigHandler(injector di.Injector) *YamlConfigHandler {
 		loadedContexts:    make(map[string]bool),
 	}
 
-	// Initialize the config version
 	handler.config.Version = "v1alpha1"
 
 	return handler
@@ -78,7 +77,6 @@ func (y *YamlConfigHandler) LoadConfigString(content string) error {
 		return fmt.Errorf("unsupported config version: %s", y.BaseConfigHandler.config.Version)
 	}
 
-	y.BaseConfigHandler.loaded = true
 	return nil
 }
 
@@ -97,11 +95,14 @@ func (y *YamlConfigHandler) LoadConfig(path string) error {
 	return y.LoadConfigString(string(data))
 }
 
-// LoadContextConfig loads context-specific windsor.yaml configuration and merges it with the existing configuration.
-// It looks for windsor.yaml files in the current context's directory (contexts/<context>/windsor.yaml).
-// The context-specific configuration is expected to contain only the context configuration values without
-// the top-level "contexts" key. These values are merged into the current context configuration.
+// LoadContextConfig loads the context-specific windsor.yaml file for the current context.
+// It is intended for pipelines that only require static context configuration, not dynamic values.
+// The values.yaml file is loaded lazily upon first access via Get() or SetContextValue().
+// Returns nil if already loaded, or if loading succeeds; otherwise returns an error for shell or file-related issues.
 func (y *YamlConfigHandler) LoadContextConfig() error {
+	if y.loaded {
+		return nil
+	}
 	if y.shell == nil {
 		return fmt.Errorf("shell not initialized")
 	}
@@ -120,35 +121,37 @@ func (y *YamlConfigHandler) LoadContextConfig() error {
 	var contextConfigPath string
 	if _, err := y.shims.Stat(yamlPath); err == nil {
 		contextConfigPath = yamlPath
-		y.loadedContexts[contextName] = true
 	} else if _, err := y.shims.Stat(ymlPath); err == nil {
 		contextConfigPath = ymlPath
+	}
+
+	if contextConfigPath != "" {
+		data, err := y.shims.ReadFile(contextConfigPath)
+		if err != nil {
+			return fmt.Errorf("error reading context config file: %w", err)
+		}
+
+		var contextConfig v1alpha1.Context
+		if err := y.shims.YamlUnmarshal(data, &contextConfig); err != nil {
+			return fmt.Errorf("error unmarshalling context yaml: %w", err)
+		}
+
+		if y.config.Contexts == nil {
+			y.config.Contexts = make(map[string]*v1alpha1.Context)
+		}
+
+		if y.config.Contexts[contextName] == nil {
+			y.config.Contexts[contextName] = &v1alpha1.Context{}
+		}
+
+		y.config.Contexts[contextName].Merge(&contextConfig)
+
 		y.loadedContexts[contextName] = true
 	}
 
-	if contextConfigPath == "" {
-		return nil
+	if len(y.config.Contexts) > 0 {
+		y.loaded = true
 	}
-
-	data, err := y.shims.ReadFile(contextConfigPath)
-	if err != nil {
-		return fmt.Errorf("error reading context config file: %w", err)
-	}
-
-	var contextConfig v1alpha1.Context
-	if err := y.shims.YamlUnmarshal(data, &contextConfig); err != nil {
-		return fmt.Errorf("error unmarshalling context yaml: %w", err)
-	}
-
-	if y.config.Contexts == nil {
-		y.config.Contexts = make(map[string]*v1alpha1.Context)
-	}
-
-	if y.config.Contexts[contextName] == nil {
-		y.config.Contexts[contextName] = &v1alpha1.Context{}
-	}
-
-	y.config.Contexts[contextName].Merge(&contextConfig)
 
 	return nil
 }
@@ -168,14 +171,19 @@ func (y *YamlConfigHandler) IsContextConfigLoaded() bool {
 	return y.loadedContexts[contextName]
 }
 
-// SaveConfig writes configuration to root windsor.yaml and the current context's windsor.yaml.
-// Root windsor.yaml contains only the version field. The context file contains the context config
-// without the contexts wrapper. Files are created only if absent: root windsor.yaml is created if
-// missing; context windsor.yaml is created if missing and context is not in root config. Existing
-// files are never overwritten.
+// SaveConfig writes the current configuration state to disk. It writes the root windsor.yaml file with only the version field,
+// and creates or updates the current context's windsor.yaml file and values.yaml containing dynamic schema-based values.
+// The root windsor.yaml is created if missing; the context windsor.yaml is created if missing and not tracked in the root config;
+// values.yaml is created if context values are present. If the overwrite parameter is true, existing files are updated with the
+// current in-memory state. All operations are performed for the current context.
 func (y *YamlConfigHandler) SaveConfig(overwrite ...bool) error {
 	if y.shell == nil {
 		return fmt.Errorf("shell not initialized")
+	}
+
+	shouldOverwrite := false
+	if len(overwrite) > 0 {
+		shouldOverwrite = overwrite[0]
 	}
 
 	projectRoot, err := y.shell.GetProjectRoot()
@@ -201,8 +209,10 @@ func (y *YamlConfigHandler) SaveConfig(overwrite ...bool) error {
 
 	shouldCreateRootConfig := !rootExists
 	shouldCreateContextConfig := !contextExists && !contextExistsInRoot
+	shouldUpdateRootConfig := shouldOverwrite && rootExists
+	shouldUpdateContextConfig := shouldOverwrite && contextExists
 
-	if shouldCreateRootConfig {
+	if shouldCreateRootConfig || shouldUpdateRootConfig {
 		rootConfig := struct {
 			Version string `yaml:"version"`
 		}{
@@ -219,7 +229,7 @@ func (y *YamlConfigHandler) SaveConfig(overwrite ...bool) error {
 		}
 	}
 
-	if shouldCreateContextConfig {
+	if shouldCreateContextConfig || shouldUpdateContextConfig {
 		var contextConfig v1alpha1.Context
 
 		if y.config.Contexts != nil && y.config.Contexts[contextName] != nil {
@@ -243,6 +253,12 @@ func (y *YamlConfigHandler) SaveConfig(overwrite ...bool) error {
 		}
 	}
 
+	if y.loaded && y.contextValues != nil && len(y.contextValues) > 0 {
+		if err := y.saveContextValues(); err != nil {
+			return fmt.Errorf("error saving values.yaml: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -253,42 +269,68 @@ func (y *YamlConfigHandler) SaveConfig(overwrite ...bool) error {
 func (y *YamlConfigHandler) SetDefault(context v1alpha1.Context) error {
 	y.defaultContextConfig = context
 	currentContext := y.GetContext()
-
 	contextKey := fmt.Sprintf("contexts.%s", currentContext)
 
 	if y.Get(contextKey) == nil {
 		return y.Set(contextKey, &context)
-	} else {
-		if y.config.Contexts == nil {
-			y.config.Contexts = make(map[string]*v1alpha1.Context)
-		}
-
-		if y.config.Contexts[currentContext] == nil {
-			y.config.Contexts[currentContext] = &v1alpha1.Context{}
-		}
-
-		// Merge existing values INTO defaults (not the other way around)
-		// This ensures that existing explicit settings take precedence over defaults
-		defaultCopy := context.DeepCopy()
-		existingCopy := y.config.Contexts[currentContext].DeepCopy()
-		defaultCopy.Merge(existingCopy) // Merge existing INTO defaults
-		y.config.Contexts[currentContext] = defaultCopy
 	}
+
+	if y.config.Contexts == nil {
+		y.config.Contexts = make(map[string]*v1alpha1.Context)
+	}
+	if y.config.Contexts[currentContext] == nil {
+		y.config.Contexts[currentContext] = &v1alpha1.Context{}
+	}
+	defaultCopy := context.DeepCopy()
+	existingCopy := y.config.Contexts[currentContext].DeepCopy()
+	defaultCopy.Merge(existingCopy)
+	y.config.Contexts[currentContext] = defaultCopy
 
 	return nil
 }
 
-// Get returns the value at the given configuration path, checking current and default context if needed.
+// Get returns the value at the specified configuration path using the configured lookup precedence.
+// Lookup order is: context configuration from windsor.yaml, then values.yaml, then schema defaults.
+// Returns nil if the path is empty or if no value is found in any source.
 func (y *YamlConfigHandler) Get(path string) any {
 	if path == "" {
 		return nil
 	}
 	pathKeys := parsePath(path)
+
 	value := getValueByPath(y.config, pathKeys)
-	if value == nil && len(pathKeys) >= 2 && pathKeys[0] == "contexts" {
-		value = getValueByPath(y.defaultContextConfig, pathKeys[2:])
+	if value != nil {
+		return value
 	}
-	return value
+
+	if len(pathKeys) >= 2 && pathKeys[0] == "contexts" {
+		if len(pathKeys) >= 3 && y.loaded {
+			if err := y.ensureValuesYamlLoaded(); err != nil {
+			}
+			if y.contextValues != nil {
+				key := pathKeys[2]
+				if value, exists := y.contextValues[key]; exists {
+					return value
+				}
+			}
+		}
+
+		value = getValueByPath(y.defaultContextConfig, pathKeys[2:])
+		if value != nil {
+			return value
+		}
+	}
+
+	if len(pathKeys) == 1 && y.schemaValidator != nil && y.schemaValidator.Schema != nil {
+		defaults, err := y.schemaValidator.GetSchemaDefaults()
+		if err == nil {
+			if value, exists := defaults[pathKeys[0]]; exists {
+				return value
+			}
+		}
+	}
+
+	return nil
 }
 
 // GetString retrieves a string value for the specified key from the configuration, with an optional default value.
@@ -378,6 +420,8 @@ func (y *YamlConfigHandler) GetStringMap(key string, defaultValue ...map[string]
 }
 
 // Set updates the value at the specified path in the configuration using reflection.
+// It parses the path, performs type conversion if necessary, and sets the value in the config structure.
+// An error is returned if the path is invalid, conversion fails, or the update cannot be performed.
 func (y *YamlConfigHandler) Set(path string, value any) error {
 	if path == "" {
 		return nil
@@ -388,7 +432,6 @@ func (y *YamlConfigHandler) Set(path string, value any) error {
 		return fmt.Errorf("invalid path: %s", path)
 	}
 
-	// If the value is a string, try to convert it based on the target type
 	if strValue, ok := value.(string); ok {
 		currentValue := y.Get(path)
 		if currentValue != nil {
@@ -405,26 +448,40 @@ func (y *YamlConfigHandler) Set(path string, value any) error {
 	return setValueByPath(configValue, pathKeys, value, path)
 }
 
-// SetContextValue sets a configuration value within the current context.
+// SetContextValue sets a value at the given path for the current context, updating config or values.yaml in memory.
+// The key must not be empty or have invalid dot notation. Values are schema-validated if available.
+// Changes require SaveConfig to persist. Returns error if path or value is invalid, or conversion fails.
 func (y *YamlConfigHandler) SetContextValue(path string, value any) error {
 	if path == "" {
 		return fmt.Errorf("path cannot be empty")
 	}
-
-	// Initialize contexts map if it doesn't exist
-	if y.config.Contexts == nil {
-		y.config.Contexts = make(map[string]*v1alpha1.Context)
+	if strings.Contains(path, "..") || strings.HasPrefix(path, ".") || strings.HasSuffix(path, ".") {
+		return fmt.Errorf("invalid path format: %s", path)
 	}
-
-	// Get or create the current context
-	contextName := y.GetContext()
-	if y.config.Contexts[contextName] == nil {
-		y.config.Contexts[contextName] = &v1alpha1.Context{}
+	if y.isKeyInStaticSchema(path) {
+		if y.config.Contexts == nil {
+			y.config.Contexts = make(map[string]*v1alpha1.Context)
+		}
+		contextName := y.GetContext()
+		if y.config.Contexts[contextName] == nil {
+			y.config.Contexts[contextName] = &v1alpha1.Context{}
+		}
+		fullPath := fmt.Sprintf("contexts.%s.%s", contextName, path)
+		return y.Set(fullPath, value)
 	}
-
-	// Use the generic Set method with the full context path
-	fullPath := fmt.Sprintf("contexts.%s.%s", contextName, path)
-	return y.Set(fullPath, value)
+	if err := y.ensureValuesYamlLoaded(); err != nil {
+		return fmt.Errorf("error loading values.yaml: %w", err)
+	}
+	convertedValue := y.convertStringValue(value)
+	y.contextValues[path] = convertedValue
+	if y.schemaValidator != nil && y.schemaValidator.Schema != nil {
+		if result, err := y.schemaValidator.Validate(y.contextValues); err != nil {
+			return fmt.Errorf("error validating context value: %w", err)
+		} else if !result.Valid {
+			return fmt.Errorf("context value validation failed: %v", result.Errors)
+		}
+	}
+	return nil
 }
 
 // GetConfig returns the context config object for the current context, or the default if none is set.
@@ -451,6 +508,56 @@ var _ ConfigHandler = (*YamlConfigHandler)(nil)
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// ensureValuesYamlLoaded loads and validates the values.yaml file for the current context, and loads the schema if required.
+// It initializes y.contextValues by reading values.yaml from the context directory, unless already loaded or not required.
+// If values.yaml or the schema is missing, it initializes an empty map and performs schema validation if possible.
+// Returns an error if any schema loading, reading, or unmarshaling fails.
+func (y *YamlConfigHandler) ensureValuesYamlLoaded() error {
+	if y.contextValues != nil {
+		return nil
+	}
+	if y.shell == nil || !y.loaded {
+		y.contextValues = make(map[string]any)
+		return nil
+	}
+	projectRoot, err := y.shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("error retrieving project root: %w", err)
+	}
+	contextName := y.GetContext()
+	contextConfigDir := filepath.Join(projectRoot, "contexts", contextName)
+	valuesPath := filepath.Join(contextConfigDir, "values.yaml")
+	if y.schemaValidator != nil && y.schemaValidator.Schema == nil {
+		schemaPath := filepath.Join(projectRoot, "contexts", "_template", "schema.yaml")
+		if _, err := y.shims.Stat(schemaPath); err == nil {
+			if err := y.schemaValidator.LoadSchema(schemaPath); err != nil {
+				return fmt.Errorf("error loading schema: %w", err)
+			}
+		}
+	}
+	if _, err := y.shims.Stat(valuesPath); err == nil {
+		data, err := y.shims.ReadFile(valuesPath)
+		if err != nil {
+			return fmt.Errorf("error reading values.yaml: %w", err)
+		}
+		var values map[string]any
+		if err := y.shims.YamlUnmarshal(data, &values); err != nil {
+			return fmt.Errorf("error unmarshalling values.yaml: %w", err)
+		}
+		if y.schemaValidator != nil && y.schemaValidator.Schema != nil {
+			if result, err := y.schemaValidator.Validate(values); err != nil {
+				return fmt.Errorf("error validating values.yaml: %w", err)
+			} else if !result.Valid {
+				return fmt.Errorf("values.yaml validation failed: %v", result.Errors)
+			}
+		}
+		y.contextValues = values
+	} else {
+		y.contextValues = make(map[string]any)
+	}
+	return nil
+}
 
 // getValueByPath retrieves a value by navigating through a struct or map using YAML tags.
 func getValueByPath(current any, pathKeys []string) any {
@@ -827,4 +934,167 @@ func (y *YamlConfigHandler) GenerateContextID() error {
 
 	id := "w" + string(b)
 	return y.SetContextValue("id", id)
+}
+
+// saveContextValues writes the current contextValues map to a values.yaml file in the context directory for the current context.
+// This function ensures that the target context directory exists. If a schema validator is configured, it validates the contextValues
+// against the schema before saving. The function marshals the values to YAML, writes them to values.yaml, and returns an error if
+// validation, marshalling, or file writing fails.
+func (y *YamlConfigHandler) saveContextValues() error {
+	if y.schemaValidator != nil && y.schemaValidator.Schema != nil {
+		if result, err := y.schemaValidator.Validate(y.contextValues); err != nil {
+			return fmt.Errorf("error validating values.yaml: %w", err)
+		} else if !result.Valid {
+			return fmt.Errorf("values.yaml validation failed: %v", result.Errors)
+		}
+	}
+
+	configRoot, err := y.GetConfigRoot()
+	if err != nil {
+		return fmt.Errorf("error getting config root: %w", err)
+	}
+
+	if err := y.shims.MkdirAll(configRoot, 0755); err != nil {
+		return fmt.Errorf("error creating context directory: %w", err)
+	}
+
+	valuesPath := filepath.Join(configRoot, "values.yaml")
+	data, err := y.shims.YamlMarshal(y.contextValues)
+	if err != nil {
+		return fmt.Errorf("error marshalling values.yaml: %w", err)
+	}
+
+	if err := y.shims.WriteFile(valuesPath, data, 0644); err != nil {
+		return fmt.Errorf("error writing values.yaml: %w", err)
+	}
+
+	return nil
+}
+
+// isKeyInStaticSchema determines whether the provided key exists as a top-level field
+// in the static windsor.yaml schema, represented by v1alpha1.Context. It checks both
+// direct keys and those nested with dot notation (e.g., "environment.TEST_VAR" -> "environment").
+// Returns true if the top-level key matches a YAML field tag in v1alpha1.Context, false otherwise.
+func (y *YamlConfigHandler) isKeyInStaticSchema(key string) bool {
+	topLevelKey := key
+	if dotIndex := strings.Index(key, "."); dotIndex != -1 {
+		topLevelKey = key[:dotIndex]
+	}
+	contextType := reflect.TypeOf(v1alpha1.Context{})
+	for i := 0; i < contextType.NumField(); i++ {
+		field := contextType.Field(i)
+		yamlTag := strings.Split(field.Tag.Get("yaml"), ",")[0]
+		if yamlTag == topLevelKey {
+			return true
+		}
+	}
+	return false
+}
+
+// convertStringValue infers and converts a string value to the appropriate type based on schema type information.
+// It is used to correctly coerce command-line --set flags (which arrive as strings) to their target types.
+// The function uses the configured schema validator, if present, to determine the expected type for the value.
+// If type information cannot be found in the schema, it applies pattern-based type conversion heuristics.
+// The returned value is properly typed if conversion is possible; otherwise, the original value is returned.
+func (y *YamlConfigHandler) convertStringValue(value any) any {
+	str, ok := value.(string)
+	if !ok {
+		return value
+	}
+	if y.schemaValidator != nil && y.schemaValidator.Schema != nil {
+		if expectedType := y.getExpectedTypeFromSchema(str); expectedType != "" {
+			if convertedValue := y.convertStringToType(str, expectedType); convertedValue != nil {
+				return convertedValue
+			}
+		}
+	}
+	return y.convertStringByPattern(str)
+}
+
+// getExpectedTypeFromSchema attempts to find the expected type for a key in the schema
+func (y *YamlConfigHandler) getExpectedTypeFromSchema(key string) string {
+	if y.schemaValidator == nil || y.schemaValidator.Schema == nil {
+		return ""
+	}
+
+	properties, ok := y.schemaValidator.Schema["properties"]
+	if !ok {
+		return ""
+	}
+
+	propertiesMap, ok := properties.(map[string]any)
+	if !ok {
+		return ""
+	}
+
+	propSchema, exists := propertiesMap[key]
+	if !exists {
+		return ""
+	}
+
+	propSchemaMap, ok := propSchema.(map[string]any)
+	if !ok {
+		return ""
+	}
+
+	expectedType, ok := propSchemaMap["type"]
+	if !ok {
+		return ""
+	}
+
+	expectedTypeStr, ok := expectedType.(string)
+	if !ok {
+		return ""
+	}
+
+	return expectedTypeStr
+}
+
+// convertStringToType converts a string value to the corresponding Go type based on the provided JSON schema type.
+// It supports boolean, integer, number, and string schema types. Returns the converted value, or nil if conversion fails.
+// The conversion follows JSON schema type expectations: booleans are case-insensitive, integers use strconv.Atoi,
+// numbers use strconv.ParseFloat (64-bit), and unrecognized types or conversion failures return nil.
+func (y *YamlConfigHandler) convertStringToType(str, expectedType string) any {
+	switch expectedType {
+	case "boolean":
+		switch strings.ToLower(str) {
+		case "true":
+			return true
+		case "false":
+			return false
+		}
+	case "integer":
+		if intVal, err := strconv.Atoi(str); err == nil {
+			return intVal
+		}
+	case "number":
+		if floatVal, err := strconv.ParseFloat(str, 64); err == nil {
+			return floatVal
+		}
+	case "string":
+		return str
+	}
+	return nil
+}
+
+// convertStringByPattern attempts to infer and convert a string value to its most likely Go type.
+// It recognizes "true"/"false" as booleans, parses numeric strings as integer or float as appropriate,
+// and returns the original string if no conversion pattern matches.
+func (y *YamlConfigHandler) convertStringByPattern(str string) any {
+	switch strings.ToLower(str) {
+	case "true":
+		return true
+	case "false":
+		return false
+	}
+
+	if intVal, err := strconv.Atoi(str); err == nil {
+		return intVal
+	}
+
+	if floatVal, err := strconv.ParseFloat(str, 64); err == nil {
+		return floatVal
+	}
+
+	return str
 }

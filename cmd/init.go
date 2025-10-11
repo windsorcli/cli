@@ -76,6 +76,16 @@ var initCmd = &cobra.Command{
 		}
 
 		configHandler := injector.Resolve("configHandler").(config.ConfigHandler)
+		
+		// Initialize the config handler to ensure schema validator is available
+		if err := configHandler.Initialize(); err != nil {
+			return fmt.Errorf("failed to initialize config handler: %w", err)
+		}
+		
+		// Load the schema to enable validation of --set flags
+		if err := configHandler.LoadContextConfig(); err != nil {
+			return fmt.Errorf("failed to load context config: %w", err)
+		}
 
 		// Set provider in context if it's been set (either via --provider or --platform)
 		if initProvider != "" {
@@ -136,6 +146,7 @@ var initCmd = &cobra.Command{
 			}
 		}
 
+		hasSetFlags := len(initSetFlags) > 0
 		for _, setFlag := range initSetFlags {
 			parts := strings.SplitN(setFlag, "=", 2)
 			if len(parts) == 2 {
@@ -145,6 +156,7 @@ var initCmd = &cobra.Command{
 			}
 		}
 
+		ctx = context.WithValue(ctx, "hasSetFlags", hasSetFlags)
 		ctx = context.WithValue(ctx, "quiet", false)
 		ctx = context.WithValue(ctx, "decrypt", false)
 		initPipeline, err := pipelines.WithPipeline(injector, ctx, "initPipeline")

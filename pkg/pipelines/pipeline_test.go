@@ -160,6 +160,26 @@ contexts:
 		}
 	}
 
+	// Create context directory and config file to ensure loaded flag is set
+	contextDir := filepath.Join(tmpDir, "contexts", "mock-context")
+	if err := os.MkdirAll(contextDir, 0755); err != nil {
+		t.Fatalf("Failed to create context directory: %v", err)
+	}
+	contextConfigPath := filepath.Join(contextDir, "windsor.yaml")
+	contextConfigYAML := `
+dns:
+  domain: mock.domain.com
+network:
+  cidr_block: 10.0.0.0/24`
+	if err := os.WriteFile(contextConfigPath, []byte(contextConfigYAML), 0644); err != nil {
+		t.Fatalf("Failed to write context config: %v", err)
+	}
+
+	// Load context config to set loaded flag
+	if err := configHandler.LoadContextConfig(); err != nil {
+		t.Fatalf("Failed to load context config: %v", err)
+	}
+
 	// Register shims
 	shims := setupShims(t)
 	injector.Register("shims", shims)
