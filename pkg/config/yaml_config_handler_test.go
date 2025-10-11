@@ -12,6 +12,8 @@ import (
 	"github.com/windsorcli/cli/api/v1alpha1/aws"
 	"github.com/windsorcli/cli/api/v1alpha1/cluster"
 	"github.com/windsorcli/cli/api/v1alpha1/vm"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/shell"
 )
 
 // =============================================================================
@@ -236,6 +238,54 @@ func TestYamlConfigHandler_Get(t *testing.T) {
 		// Then nil should be returned
 		if value != nil {
 			t.Errorf("Expected nil for empty path, got %v", value)
+		}
+	})
+
+	t.Run("PrecedenceAndSchemaDefaults", func(t *testing.T) {
+		// Given a handler with schema validator and various data sources
+		handler, _ := setup(t)
+		handler.context = "test"
+		handler.loaded = true
+
+		// Set up schema validator with defaults
+		handler.schemaValidator = &SchemaValidator{
+			Schema: map[string]any{
+				"properties": map[string]any{
+					"SCHEMA_KEY": map[string]any{
+						"default": "schema_default_value",
+					},
+				},
+			},
+		}
+
+		// Test schema defaults for single-key path
+		value := handler.Get("SCHEMA_KEY")
+		expected := "schema_default_value"
+		if value != expected {
+			t.Errorf("Expected schema default value '%s', got '%v'", expected, value)
+		}
+
+		// Test that multi-key paths don't use schema defaults
+		value = handler.Get("contexts.test.SCHEMA_KEY")
+		if value != nil {
+			t.Errorf("Expected nil for multi-key path, got '%v'", value)
+		}
+
+		// Test contextValues precedence
+		handler.contextValues = map[string]any{
+			"TEST_VAR": "values_value",
+		}
+		value = handler.Get("contexts.test.TEST_VAR")
+		expected = "values_value"
+		if value != expected {
+			t.Errorf("Expected contextValues value '%s', got '%v'", expected, value)
+		}
+
+		// Test that contextValues are not checked when not loaded
+		handler.loaded = false
+		value = handler.Get("contexts.test.TEST_VAR")
+		if value != nil {
+			t.Errorf("Expected nil when not loaded, got '%v'", value)
 		}
 	})
 }
@@ -1025,6 +1075,186 @@ contexts:
 		rootContent, _ := os.ReadFile(rootConfigPath)
 		if !strings.Contains(string(rootContent), "version: v1alpha1") {
 			t.Errorf("Root config appears to have been overwritten: %s", string(rootContent))
+		}
+	})
+
+	t.Run("SavesContextValuesWhenLoaded", func(t *testing.T) {
+		// Given a YamlConfigHandler with loaded contextValues
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		// Use real filesystem operations for this test
+		handler.shims = NewShims()
+		handler.shims.Getenv = func(key string) string {
+			if key == "WINDSOR_CONTEXT" {
+				return "test-context"
+			}
+			return ""
+		}
+
+		handler.context = "test-context"
+		handler.loaded = true
+		handler.contextValues = map[string]any{
+			"test_key": "test_value",
+			"number":   42,
+		}
+
+		// When SaveConfig is called
+		err := handler.SaveConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And values.yaml should be created with the context values
+		valuesPath := filepath.Join(tempDir, "contexts", "test-context", "values.yaml")
+		if _, err := os.Stat(valuesPath); os.IsNotExist(err) {
+			t.Fatalf("values.yaml was not created at %s", valuesPath)
+		}
+
+		// And the content should match contextValues
+		content, err := os.ReadFile(valuesPath)
+		if err != nil {
+			t.Fatalf("Failed to read values.yaml: %v", err)
+		}
+		if !strings.Contains(string(content), "test_key") {
+			t.Errorf("values.yaml should contain 'test_key', got: %s", string(content))
+		}
+		if !strings.Contains(string(content), "test_value") {
+			t.Errorf("values.yaml should contain 'test_value', got: %s", string(content))
+		}
+	})
+
+	t.Run("SkipsSavingContextValuesWhenNotLoaded", func(t *testing.T) {
+		// Given a YamlConfigHandler with contextValues but not loaded
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		handler.context = "test-context"
+		handler.loaded = false
+		handler.contextValues = map[string]any{
+			"test_key": "test_value",
+		}
+
+		// When SaveConfig is called
+		err := handler.SaveConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And values.yaml should NOT be created
+		valuesPath := filepath.Join(tempDir, "contexts", "test-context", "values.yaml")
+		if _, err := os.Stat(valuesPath); !os.IsNotExist(err) {
+			t.Errorf("values.yaml should not have been created when not loaded")
+		}
+	})
+
+	t.Run("SkipsSavingContextValuesWhenNil", func(t *testing.T) {
+		// Given a YamlConfigHandler with nil contextValues
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		handler.context = "test-context"
+		handler.loaded = true
+		handler.contextValues = nil
+
+		// When SaveConfig is called
+		err := handler.SaveConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And values.yaml should NOT be created
+		valuesPath := filepath.Join(tempDir, "contexts", "test-context", "values.yaml")
+		if _, err := os.Stat(valuesPath); !os.IsNotExist(err) {
+			t.Errorf("values.yaml should not have been created when contextValues is nil")
+		}
+	})
+
+	t.Run("SkipsSavingContextValuesWhenEmpty", func(t *testing.T) {
+		// Given a YamlConfigHandler with empty contextValues
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		handler.context = "test-context"
+		handler.loaded = true
+		handler.contextValues = map[string]any{}
+
+		// When SaveConfig is called
+		err := handler.SaveConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And values.yaml should NOT be created
+		valuesPath := filepath.Join(tempDir, "contexts", "test-context", "values.yaml")
+		if _, err := os.Stat(valuesPath); !os.IsNotExist(err) {
+			t.Errorf("values.yaml should not have been created when contextValues is empty")
+		}
+	})
+
+	t.Run("SaveContextValuesError", func(t *testing.T) {
+		// Given a YamlConfigHandler with contextValues and a write error
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		// Use real filesystem operations but mock WriteFile to fail for values.yaml
+		handler.shims = NewShims()
+		handler.shims.Getenv = func(key string) string {
+			if key == "WINDSOR_CONTEXT" {
+				return "test-context"
+			}
+			return ""
+		}
+		handler.shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
+			if strings.Contains(filename, "values.yaml") {
+				return fmt.Errorf("write error")
+			}
+			return os.WriteFile(filename, data, perm)
+		}
+
+		handler.context = "test-context"
+		handler.loaded = true
+		handler.contextValues = map[string]any{
+			"test_key": "test_value",
+		}
+
+		// When SaveConfig is called
+		err := handler.SaveConfig()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error saving values.yaml") {
+			t.Errorf("Expected 'error saving values.yaml' in error, got %v", err)
 		}
 	})
 }
@@ -2523,6 +2753,403 @@ func TestYamlConfigHandler_SetContextValue(t *testing.T) {
 			t.Errorf("Expected dns.enabled to be true, got %v", config.DNS.Enabled)
 		}
 	})
+
+	t.Run("SchemaRoutingAndInitialization", func(t *testing.T) {
+		handler, _ := setup(t)
+		handler.context = "test"
+
+		// Test invalid path formats
+		err := handler.SetContextValue("..invalid", "value")
+		if err == nil {
+			t.Error("Expected error for invalid path")
+		}
+
+		// Test static schema routing (goes to context config)
+		err = handler.SetContextValue("environment.STATIC_VAR", "static_value")
+		if err != nil {
+			t.Fatalf("Failed to set static schema value: %v", err)
+		}
+		if handler.config.Contexts["test"].Environment["STATIC_VAR"] != "static_value" {
+			t.Error("Static value should be in context config")
+		}
+
+		// Test dynamic schema routing (goes to contextValues)
+		err = handler.SetContextValue("dynamic_key", "dynamic_value")
+		if err != nil {
+			t.Fatalf("Failed to set dynamic schema value: %v", err)
+		}
+		if handler.contextValues["dynamic_key"] != "dynamic_value" {
+			t.Error("Dynamic value should be in contextValues")
+		}
+
+		// Test initialization when not loaded
+		handler.loaded = false
+		handler.contextValues = nil
+		err = handler.SetContextValue("not_loaded_key", "not_loaded_value")
+		if err != nil {
+			t.Fatalf("Failed to set value when not loaded: %v", err)
+		}
+		if handler.contextValues["not_loaded_key"] != "not_loaded_value" {
+			t.Error("contextValues should be initialized even when not loaded")
+		}
+	})
+
+	t.Run("SchemaAwareTypeConversion", func(t *testing.T) {
+		handler, _ := setup(t)
+		handler.context = "test"
+		handler.loaded = true
+
+		// Set up schema validator with type definitions
+		handler.schemaValidator = &SchemaValidator{
+			Schema: map[string]any{
+				"properties": map[string]any{
+					"dev": map[string]any{
+						"type": "boolean",
+					},
+					"port": map[string]any{
+						"type": "integer",
+					},
+					"ratio": map[string]any{
+						"type": "number",
+					},
+					"name": map[string]any{
+						"type": "string",
+					},
+				},
+			},
+		}
+
+		// Test boolean conversion
+		err := handler.SetContextValue("dev", "true")
+		if err != nil {
+			t.Fatalf("Failed to set boolean value: %v", err)
+		}
+		if handler.contextValues["dev"] != true {
+			t.Errorf("Expected boolean true, got %v (%T)", handler.contextValues["dev"], handler.contextValues["dev"])
+		}
+
+		// Test integer conversion
+		err = handler.SetContextValue("port", "8080")
+		if err != nil {
+			t.Fatalf("Failed to set integer value: %v", err)
+		}
+		if handler.contextValues["port"] != 8080 {
+			t.Errorf("Expected integer 8080, got %v (%T)", handler.contextValues["port"], handler.contextValues["port"])
+		}
+
+		// Test number conversion
+		err = handler.SetContextValue("ratio", "3.14")
+		if err != nil {
+			t.Fatalf("Failed to set number value: %v", err)
+		}
+		if handler.contextValues["ratio"] != 3.14 {
+			t.Errorf("Expected number 3.14, got %v (%T)", handler.contextValues["ratio"], handler.contextValues["ratio"])
+		}
+
+		// Test string conversion (should remain string)
+		err = handler.SetContextValue("name", "test")
+		if err != nil {
+			t.Fatalf("Failed to set string value: %v", err)
+		}
+		if handler.contextValues["name"] != "test" {
+			t.Errorf("Expected string 'test', got %v (%T)", handler.contextValues["name"], handler.contextValues["name"])
+		}
+	})
+
+	t.Run("FallbackPatternConversion", func(t *testing.T) {
+		handler, _ := setup(t)
+		handler.context = "test"
+		handler.loaded = true
+
+		// No schema validator - should use pattern matching
+
+		// Test boolean pattern matching
+		err := handler.SetContextValue("enabled", "true")
+		if err != nil {
+			t.Fatalf("Failed to set boolean value: %v", err)
+		}
+		if handler.contextValues["enabled"] != true {
+			t.Errorf("Expected boolean true, got %v (%T)", handler.contextValues["enabled"], handler.contextValues["enabled"])
+		}
+
+		// Test integer pattern matching
+		err = handler.SetContextValue("count", "42")
+		if err != nil {
+			t.Fatalf("Failed to set integer value: %v", err)
+		}
+		if handler.contextValues["count"] != 42 {
+			t.Errorf("Expected integer 42, got %v (%T)", handler.contextValues["count"], handler.contextValues["count"])
+		}
+
+		// Test float pattern matching
+		err = handler.SetContextValue("rate", "2.5")
+		if err != nil {
+			t.Fatalf("Failed to set float value: %v", err)
+		}
+		if handler.contextValues["rate"] != 2.5 {
+			t.Errorf("Expected float 2.5, got %v (%T)", handler.contextValues["rate"], handler.contextValues["rate"])
+		}
+	})
+
+	t.Run("SchemaConversionFailure", func(t *testing.T) {
+		handler, _ := setup(t)
+		handler.context = "test"
+		handler.loaded = true
+
+		// Set up schema validator with boolean type and validation support
+		mockShell := handler.shell
+		mockValidator := NewSchemaValidator(mockShell)
+		mockValidator.Schema = map[string]any{
+			"properties": map[string]any{
+				"dev": map[string]any{
+					"type": "boolean",
+				},
+			},
+		}
+		handler.schemaValidator = mockValidator
+
+		// Test invalid boolean value - should now fail validation
+		err := handler.SetContextValue("dev", "invalid")
+		if err == nil {
+			t.Fatal("Expected validation error for invalid boolean value, got nil")
+		}
+		if !strings.Contains(err.Error(), "validation failed") && !strings.Contains(err.Error(), "type mismatch") {
+			t.Errorf("Expected validation error, got: %v", err)
+		}
+	})
+}
+
+func TestYamlConfigHandler_convertStringValue(t *testing.T) {
+	setup := func(t *testing.T) *YamlConfigHandler {
+		mocks := setupMocks(t)
+		handler := NewYamlConfigHandler(mocks.Injector)
+		if err := handler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		handler.shims = mocks.Shims
+		return handler
+	}
+
+	t.Run("NonStringValue", func(t *testing.T) {
+		handler := setup(t)
+
+		// Non-string values should be returned as-is
+		result := handler.convertStringValue(42)
+		if result != 42 {
+			t.Errorf("Expected 42, got %v", result)
+		}
+
+		result = handler.convertStringValue(true)
+		if result != true {
+			t.Errorf("Expected true, got %v", result)
+		}
+	})
+
+	t.Run("SchemaAwareConversion", func(t *testing.T) {
+		handler := setup(t)
+
+		// Set up schema validator
+		handler.schemaValidator = &SchemaValidator{
+			Schema: map[string]any{
+				"properties": map[string]any{
+					"enabled": map[string]any{
+						"type": "boolean",
+					},
+					"count": map[string]any{
+						"type": "integer",
+					},
+					"rate": map[string]any{
+						"type": "number",
+					},
+				},
+			},
+		}
+
+		// Test boolean conversion
+		result := handler.convertStringValue("true")
+		if result != true {
+			t.Errorf("Expected boolean true, got %v (%T)", result, result)
+		}
+
+		// Test integer conversion
+		result = handler.convertStringValue("42")
+		if result != 42 {
+			t.Errorf("Expected integer 42, got %v (%T)", result, result)
+		}
+
+		// Test number conversion
+		result = handler.convertStringValue("3.14")
+		if result != 3.14 {
+			t.Errorf("Expected number 3.14, got %v (%T)", result, result)
+		}
+	})
+
+	t.Run("PatternMatchingFallback", func(t *testing.T) {
+		handler := setup(t)
+		// No schema validator - should use pattern matching
+
+		// Test boolean pattern
+		result := handler.convertStringValue("true")
+		if result != true {
+			t.Errorf("Expected boolean true, got %v (%T)", result, result)
+		}
+
+		result = handler.convertStringValue("false")
+		if result != false {
+			t.Errorf("Expected boolean false, got %v (%T)", result, result)
+		}
+
+		// Test integer pattern
+		result = handler.convertStringValue("123")
+		if result != 123 {
+			t.Errorf("Expected integer 123, got %v (%T)", result, result)
+		}
+
+		// Test float pattern
+		result = handler.convertStringValue("45.67")
+		if result != 45.67 {
+			t.Errorf("Expected float 45.67, got %v (%T)", result, result)
+		}
+
+		// Test string (no conversion)
+		result = handler.convertStringValue("hello")
+		if result != "hello" {
+			t.Errorf("Expected string 'hello', got %v (%T)", result, result)
+		}
+	})
+}
+
+func TestYamlConfigHandler_getExpectedTypeFromSchema(t *testing.T) {
+	setup := func(t *testing.T) *YamlConfigHandler {
+		mocks := setupMocks(t)
+		handler := NewYamlConfigHandler(mocks.Injector)
+		if err := handler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		handler.shims = mocks.Shims
+		return handler
+	}
+
+	t.Run("ValidSchema", func(t *testing.T) {
+		handler := setup(t)
+
+		handler.schemaValidator = &SchemaValidator{
+			Schema: map[string]any{
+				"properties": map[string]any{
+					"enabled": map[string]any{
+						"type": "boolean",
+					},
+					"count": map[string]any{
+						"type": "integer",
+					},
+				},
+			},
+		}
+
+		// Test existing property
+		result := handler.getExpectedTypeFromSchema("enabled")
+		if result != "boolean" {
+			t.Errorf("Expected 'boolean', got '%s'", result)
+		}
+
+		result = handler.getExpectedTypeFromSchema("count")
+		if result != "integer" {
+			t.Errorf("Expected 'integer', got '%s'", result)
+		}
+
+		// Test non-existing property
+		result = handler.getExpectedTypeFromSchema("nonexistent")
+		if result != "" {
+			t.Errorf("Expected empty string, got '%s'", result)
+		}
+	})
+
+	t.Run("NoSchemaValidator", func(t *testing.T) {
+		handler := setup(t)
+		// No schema validator
+
+		result := handler.getExpectedTypeFromSchema("anykey")
+		if result != "" {
+			t.Errorf("Expected empty string, got '%s'", result)
+		}
+	})
+
+	t.Run("InvalidSchema", func(t *testing.T) {
+		handler := setup(t)
+
+		handler.schemaValidator = &SchemaValidator{
+			Schema: map[string]any{
+				"properties": "invalid", // Should be map[string]any
+			},
+		}
+
+		result := handler.getExpectedTypeFromSchema("anykey")
+		if result != "" {
+			t.Errorf("Expected empty string, got '%s'", result)
+		}
+	})
+}
+
+func TestYamlConfigHandler_convertStringToType(t *testing.T) {
+	setup := func(t *testing.T) *YamlConfigHandler {
+		mocks := setupMocks(t)
+		handler := NewYamlConfigHandler(mocks.Injector)
+		if err := handler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		handler.shims = mocks.Shims
+		return handler
+	}
+
+	handler := setup(t)
+
+	t.Run("BooleanConversion", func(t *testing.T) {
+		result := handler.convertStringToType("true", "boolean")
+		if result != true {
+			t.Errorf("Expected true, got %v", result)
+		}
+
+		result = handler.convertStringToType("false", "boolean")
+		if result != false {
+			t.Errorf("Expected false, got %v", result)
+		}
+
+		result = handler.convertStringToType("invalid", "boolean")
+		if result != nil {
+			t.Errorf("Expected nil, got %v", result)
+		}
+	})
+
+	t.Run("IntegerConversion", func(t *testing.T) {
+		result := handler.convertStringToType("42", "integer")
+		if result != 42 {
+			t.Errorf("Expected 42, got %v", result)
+		}
+
+		result = handler.convertStringToType("invalid", "integer")
+		if result != nil {
+			t.Errorf("Expected nil, got %v", result)
+		}
+	})
+
+	t.Run("NumberConversion", func(t *testing.T) {
+		result := handler.convertStringToType("3.14", "number")
+		if result != 3.14 {
+			t.Errorf("Expected 3.14, got %v", result)
+		}
+
+		result = handler.convertStringToType("invalid", "number")
+		if result != nil {
+			t.Errorf("Expected nil, got %v", result)
+		}
+	})
+
+	t.Run("StringConversion", func(t *testing.T) {
+		result := handler.convertStringToType("hello", "string")
+		if result != "hello" {
+			t.Errorf("Expected 'hello', got %v", result)
+		}
+	})
 }
 
 func TestYamlConfigHandler_LoadConfigString(t *testing.T) {
@@ -3494,10 +4121,10 @@ environment:
 			t.Fatal("LoadContextConfig() expected error, got nil")
 		}
 
-		// And the error message should contain the expected text
-		expectedError := "error reading context config file: mocked read error"
-		if err.Error() != expectedError {
-			t.Errorf("LoadContextConfig() error = %v, expected '%s'", err, expectedError)
+		// The error should be from reading the context config file
+		expectedError := "error reading context config file"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("LoadContextConfig() error = %v, expected to contain '%s'", err, expectedError)
 		}
 	})
 
@@ -3757,6 +4384,665 @@ invalid yaml: [
 		rootContent, _ := os.ReadFile(rootConfigPath)
 		if !strings.Contains(string(rootContent), "version: v1alpha1") {
 			t.Errorf("Root config appears to have been overwritten: %s", string(rootContent))
+		}
+	})
+}
+func TestYamlConfigHandler_saveContextValues(t *testing.T) {
+	setup := func(t *testing.T) (*YamlConfigHandler, *Mocks) {
+		mocks := setupMocks(t)
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		if err := handler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		return handler, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a YamlConfigHandler with context values
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		handler.context = "test"
+		handler.contextValues = map[string]any{
+			"database_url": "postgres://localhost:5432/test",
+			"api_key":      "secret123",
+		}
+
+		// When saveContextValues is called
+		err := handler.saveContextValues()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And the values.yaml file should be created
+		valuesPath := filepath.Join(tempDir, "contexts", "test", "values.yaml")
+		if _, err := handler.shims.Stat(valuesPath); os.IsNotExist(err) {
+			t.Fatalf("values.yaml file was not created at %s", valuesPath)
+		}
+	})
+
+	t.Run("GetConfigRootError", func(t *testing.T) {
+		// Given a YamlConfigHandler with a shell that returns an error
+		handler, mocks := setup(t)
+
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("failed to get project root")
+		}
+
+		handler.context = "test"
+		handler.contextValues = map[string]any{"key": "value"}
+
+		// When saveContextValues is called
+		err := handler.saveContextValues()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+
+		expectedError := "error getting config root: failed to get project root"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error: %s, got: %s", expectedError, err.Error())
+		}
+	})
+
+	t.Run("MkdirAllError", func(t *testing.T) {
+		// Given a YamlConfigHandler with a shims that fails on MkdirAll
+		handler, mocks := setup(t)
+
+		tempDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tempDir, nil
+		}
+
+		// Mock MkdirAll to return an error
+		originalMkdirAll := mocks.Shims.MkdirAll
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return fmt.Errorf("mkdir failed")
+		}
+
+		handler.context = "test"
+		handler.contextValues = map[string]any{"key": "value"}
+
+		// When saveContextValues is called
+		err := handler.saveContextValues()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+
+		expectedError := "error creating context directory: mkdir failed"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error: %s, got: %s", expectedError, err.Error())
+		}
+
+		// Restore original function
+		mocks.Shims.MkdirAll = originalMkdirAll
+	})
+}
+
+func TestYamlConfigHandler_ensureValuesYamlLoaded(t *testing.T) {
+	setup := func(t *testing.T) (*YamlConfigHandler, *Mocks) {
+		mocks := setupMocks(t)
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		if err := handler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		return handler, mocks
+	}
+
+	t.Run("AlreadyLoaded", func(t *testing.T) {
+		// Given a handler with contextValues already loaded
+		handler, _ := setup(t)
+		handler.contextValues = map[string]any{"existing": "value"}
+
+		// When ensureValuesYamlLoaded is called
+		err := handler.ensureValuesYamlLoaded()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And contextValues should remain unchanged
+		if handler.contextValues["existing"] != "value" {
+			t.Error("contextValues should remain unchanged")
+		}
+	})
+
+	t.Run("ShellNotInitialized", func(t *testing.T) {
+		// Given a handler with no shell initialized
+		handler := &YamlConfigHandler{}
+
+		// When ensureValuesYamlLoaded is called
+		err := handler.ensureValuesYamlLoaded()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And contextValues should be initialized as empty
+		if handler.contextValues == nil {
+			t.Error("contextValues should be initialized")
+		}
+		if len(handler.contextValues) != 0 {
+			t.Errorf("Expected empty contextValues, got: %v", handler.contextValues)
+		}
+	})
+
+	t.Run("ConfigNotLoaded", func(t *testing.T) {
+		// Given a handler with shell but not loaded
+		handler, _ := setup(t)
+		handler.loaded = false
+
+		// When ensureValuesYamlLoaded is called
+		err := handler.ensureValuesYamlLoaded()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And contextValues should be initialized as empty
+		if handler.contextValues == nil {
+			t.Error("contextValues should be initialized")
+		}
+		if len(handler.contextValues) != 0 {
+			t.Errorf("Expected empty contextValues, got: %v", handler.contextValues)
+		}
+	})
+
+	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
+		// Given a handler with shell returning error on GetProjectRoot
+		handler, mocks := setup(t)
+		handler.loaded = true
+		handler.contextValues = nil // Ensure it's not already loaded
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("project root error")
+		}
+
+		// When ensureValuesYamlLoaded is called
+		err := handler.ensureValuesYamlLoaded()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error retrieving project root") {
+			t.Errorf("Expected 'error retrieving project root', got: %v", err)
+		}
+	})
+
+	t.Run("LoadsSchemaIfNotLoaded", func(t *testing.T) {
+		// Given a handler with schema validator but no schema loaded
+		handler, mocks := setup(t)
+		handler.loaded = true
+		handler.context = "test"
+		handler.contextValues = nil
+		handler.schemaValidator = NewSchemaValidator(mocks.Shell)
+		handler.schemaValidator.Shims = NewShims() // Use real filesystem for schema validator
+
+		// Use real filesystem operations for this test
+		handler.shims = NewShims()
+
+		// Create temp directory structure
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+
+		// Create schema file
+		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
+		if err := os.MkdirAll(schemaDir, 0755); err != nil {
+			t.Fatalf("Failed to create schema directory: %v", err)
+		}
+		schemaPath := filepath.Join(schemaDir, "schema.yaml")
+		schemaContent := `
+$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  test_key:
+    type: string
+`
+		if err := os.WriteFile(schemaPath, []byte(schemaContent), 0644); err != nil {
+			t.Fatalf("Failed to write schema file: %v", err)
+		}
+
+		// Create context directory but no values.yaml
+		contextDir := filepath.Join(tmpDir, "contexts", "test")
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Failed to create context directory: %v", err)
+		}
+
+		// When ensureValuesYamlLoaded is called
+		err := handler.ensureValuesYamlLoaded()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And schema should be loaded
+		if handler.schemaValidator.Schema == nil {
+			t.Error("Schema should be loaded")
+		}
+
+		// And contextValues should be initialized as empty
+		if len(handler.contextValues) != 0 {
+			t.Errorf("Expected empty contextValues, got: %v", handler.contextValues)
+		}
+	})
+
+	t.Run("ErrorLoadingSchema", func(t *testing.T) {
+		// Given a handler with schema validator and malformed schema file
+		handler, mocks := setup(t)
+		handler.loaded = true
+		handler.context = "test"
+		handler.contextValues = nil
+		handler.schemaValidator = NewSchemaValidator(mocks.Shell)
+		handler.schemaValidator.Shims = NewShims() // Use real filesystem for schema validator
+
+		// Use real filesystem operations for this test
+		handler.shims = NewShims()
+
+		// Create temp directory structure
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+
+		// Create malformed schema file
+		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
+		if err := os.MkdirAll(schemaDir, 0755); err != nil {
+			t.Fatalf("Failed to create schema directory: %v", err)
+		}
+		schemaPath := filepath.Join(schemaDir, "schema.yaml")
+		if err := os.WriteFile(schemaPath, []byte("invalid: yaml: content:"), 0644); err != nil {
+			t.Fatalf("Failed to write schema file: %v", err)
+		}
+
+		// When ensureValuesYamlLoaded is called
+		err := handler.ensureValuesYamlLoaded()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error for malformed schema, got nil")
+		}
+		if !strings.Contains(err.Error(), "error loading schema") {
+			t.Errorf("Expected 'error loading schema', got: %v", err)
+		}
+	})
+
+	t.Run("LoadsValuesYamlSuccessfully", func(t *testing.T) {
+		// Given a standalone handler with valid values.yaml
+		tmpDir := t.TempDir()
+		injector := di.NewInjector()
+
+		mockShell := shell.NewMockShell(injector)
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		injector.Register("shell", mockShell)
+
+		handler := NewYamlConfigHandler(injector)
+		handler.shims = NewShims()
+		handler.shims.Getenv = func(key string) string {
+			if key == "WINDSOR_CONTEXT" {
+				return "test"
+			}
+			return ""
+		}
+		if err := handler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize: %v", err)
+		}
+		handler.loaded = true
+		handler.context = "test"
+		handler.contextValues = nil // Ensure values aren't already loaded
+
+		// Create context directory and values.yaml
+		contextDir := filepath.Join(tmpDir, "contexts", "test")
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Failed to create context directory: %v", err)
+		}
+		valuesPath := filepath.Join(contextDir, "values.yaml")
+		valuesContent := `test_key: test_value
+another_key: 123
+`
+		if err := os.WriteFile(valuesPath, []byte(valuesContent), 0644); err != nil {
+			t.Fatalf("Failed to write values.yaml: %v", err)
+		}
+
+		// When ensureValuesYamlLoaded is called
+		err := handler.ensureValuesYamlLoaded()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And contextValues should contain the loaded values
+		if handler.contextValues == nil {
+			t.Fatal("contextValues is nil")
+		}
+		if len(handler.contextValues) == 0 {
+			t.Fatal("contextValues is empty")
+		}
+		if handler.contextValues["test_key"] != "test_value" {
+			t.Errorf("Expected test_key='test_value', got: %v", handler.contextValues["test_key"])
+		}
+		anotherKey, ok := handler.contextValues["another_key"]
+		if !ok {
+			t.Error("Expected another_key to be present")
+		} else {
+			// YAML unmarshals numbers as different types depending on their value
+			// Check if it's 123 regardless of the specific integer type
+			switch v := anotherKey.(type) {
+			case int:
+				if v != 123 {
+					t.Errorf("Expected another_key=123, got: %v", v)
+				}
+			case int64:
+				if v != 123 {
+					t.Errorf("Expected another_key=123, got: %v", v)
+				}
+			case uint64:
+				if v != 123 {
+					t.Errorf("Expected another_key=123, got: %v", v)
+				}
+			default:
+				t.Errorf("Expected another_key to be numeric, got: %v (type: %T)", v, v)
+			}
+		}
+	})
+
+	t.Run("ErrorReadingValuesYaml", func(t *testing.T) {
+		// Given a standalone handler with values.yaml that cannot be read
+		tmpDir := t.TempDir()
+		injector := di.NewInjector()
+
+		mockShell := shell.NewMockShell(injector)
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		injector.Register("shell", mockShell)
+
+		handler := NewYamlConfigHandler(injector)
+		handler.shims = NewShims()
+		handler.shims.Getenv = func(key string) string {
+			if key == "WINDSOR_CONTEXT" {
+				return "test"
+			}
+			return ""
+		}
+		if err := handler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize: %v", err)
+		}
+		handler.loaded = true
+		handler.context = "test"
+		handler.contextValues = nil // Ensure values aren't already loaded
+
+		// Create context directory and values.yaml
+		contextDir := filepath.Join(tmpDir, "contexts", "test")
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Failed to create context directory: %v", err)
+		}
+		valuesPath := filepath.Join(contextDir, "values.yaml")
+		if err := os.WriteFile(valuesPath, []byte("test"), 0644); err != nil {
+			t.Fatalf("Failed to write values.yaml: %v", err)
+		}
+
+		// Mock ReadFile to return error for values.yaml
+		handler.shims.ReadFile = func(filename string) ([]byte, error) {
+			if strings.Contains(filename, "values.yaml") {
+				return nil, fmt.Errorf("read error")
+			}
+			return os.ReadFile(filename)
+		}
+
+		// When ensureValuesYamlLoaded is called
+		err := handler.ensureValuesYamlLoaded()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error reading values.yaml") {
+			t.Errorf("Expected 'error reading values.yaml', got: %v", err)
+		}
+	})
+
+	t.Run("ErrorUnmarshallingValuesYaml", func(t *testing.T) {
+		// Given a standalone handler with malformed values.yaml
+		tmpDir := t.TempDir()
+		injector := di.NewInjector()
+
+		mockShell := shell.NewMockShell(injector)
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		injector.Register("shell", mockShell)
+
+		handler := NewYamlConfigHandler(injector)
+		handler.shims = NewShims()
+		handler.shims.Getenv = func(key string) string {
+			if key == "WINDSOR_CONTEXT" {
+				return "test"
+			}
+			return ""
+		}
+		if err := handler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize: %v", err)
+		}
+		handler.loaded = true
+		handler.context = "test"
+		handler.contextValues = nil // Ensure values aren't already loaded
+
+		// Create context directory and malformed values.yaml
+		contextDir := filepath.Join(tmpDir, "contexts", "test")
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Failed to create context directory: %v", err)
+		}
+		valuesPath := filepath.Join(contextDir, "values.yaml")
+		if err := os.WriteFile(valuesPath, []byte("invalid: yaml: content:"), 0644); err != nil {
+			t.Fatalf("Failed to write values.yaml: %v", err)
+		}
+
+		// When ensureValuesYamlLoaded is called
+		err := handler.ensureValuesYamlLoaded()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error unmarshalling values.yaml") {
+			t.Errorf("Expected 'error unmarshalling values.yaml', got: %v", err)
+		}
+	})
+
+	t.Run("ValidatesValuesYamlWithSchema", func(t *testing.T) {
+		// Given a standalone handler with schema and values.yaml
+		tmpDir := t.TempDir()
+		injector := di.NewInjector()
+
+		mockShell := shell.NewMockShell(injector)
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		injector.Register("shell", mockShell)
+
+		handler := NewYamlConfigHandler(injector)
+		handler.shims = NewShims()
+		handler.shims.Getenv = func(key string) string {
+			if key == "WINDSOR_CONTEXT" {
+				return "test"
+			}
+			return ""
+		}
+		if err := handler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize: %v", err)
+		}
+		handler.loaded = true
+		handler.context = "test"
+		handler.contextValues = nil // Ensure values aren't already loaded
+		handler.schemaValidator.Shims = NewShims()
+
+		// Create schema file
+		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
+		if err := os.MkdirAll(schemaDir, 0755); err != nil {
+			t.Fatalf("Failed to create schema directory: %v", err)
+		}
+		schemaPath := filepath.Join(schemaDir, "schema.yaml")
+		schemaContent := `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  test_key:
+    type: string
+additionalProperties: false
+`
+		if err := os.WriteFile(schemaPath, []byte(schemaContent), 0644); err != nil {
+			t.Fatalf("Failed to write schema file: %v", err)
+		}
+
+		// Create context directory and values.yaml with valid content
+		contextDir := filepath.Join(tmpDir, "contexts", "test")
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Failed to create context directory: %v", err)
+		}
+		valuesPath := filepath.Join(contextDir, "values.yaml")
+		valuesContent := `test_key: test_value
+`
+		if err := os.WriteFile(valuesPath, []byte(valuesContent), 0644); err != nil {
+			t.Fatalf("Failed to write values.yaml: %v", err)
+		}
+
+		// When ensureValuesYamlLoaded is called
+		err := handler.ensureValuesYamlLoaded()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And contextValues should contain validated values
+		if handler.contextValues["test_key"] != "test_value" {
+			t.Errorf("Expected test_key='test_value', got: %v", handler.contextValues["test_key"])
+		}
+	})
+
+	t.Run("ValidationFailsForInvalidValuesYaml", func(t *testing.T) {
+		// Given a standalone handler with schema and invalid values.yaml
+		tmpDir := t.TempDir()
+		injector := di.NewInjector()
+
+		mockShell := shell.NewMockShell(injector)
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		injector.Register("shell", mockShell)
+
+		handler := NewYamlConfigHandler(injector)
+		handler.shims = NewShims()
+		handler.shims.Getenv = func(key string) string {
+			if key == "WINDSOR_CONTEXT" {
+				return "test"
+			}
+			return ""
+		}
+		if err := handler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize: %v", err)
+		}
+		handler.loaded = true
+		handler.context = "test"
+		handler.contextValues = nil // Ensure values aren't already loaded
+		handler.schemaValidator.Shims = NewShims()
+
+		// Create schema file
+		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
+		if err := os.MkdirAll(schemaDir, 0755); err != nil {
+			t.Fatalf("Failed to create schema directory: %v", err)
+		}
+		schemaPath := filepath.Join(schemaDir, "schema.yaml")
+		schemaContent := `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  test_key:
+    type: string
+additionalProperties: false
+`
+		if err := os.WriteFile(schemaPath, []byte(schemaContent), 0644); err != nil {
+			t.Fatalf("Failed to write schema file: %v", err)
+		}
+
+		// Create context directory and values.yaml with invalid content
+		contextDir := filepath.Join(tmpDir, "contexts", "test")
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Failed to create context directory: %v", err)
+		}
+		valuesPath := filepath.Join(contextDir, "values.yaml")
+		valuesContent := `invalid_key: should_not_be_allowed
+`
+		if err := os.WriteFile(valuesPath, []byte(valuesContent), 0644); err != nil {
+			t.Fatalf("Failed to write values.yaml: %v", err)
+		}
+
+		// When ensureValuesYamlLoaded is called
+		err := handler.ensureValuesYamlLoaded()
+
+		// Then a validation error should be returned
+		if err == nil {
+			t.Fatal("Expected validation error, got nil")
+		}
+		if !strings.Contains(err.Error(), "validation failed") {
+			t.Errorf("Expected 'validation failed', got: %v", err)
+		}
+	})
+
+	t.Run("NoValuesYamlFileInitializesEmpty", func(t *testing.T) {
+		// Given a handler with no values.yaml file
+		handler, mocks := setup(t)
+		handler.loaded = true
+		handler.context = "test"
+		handler.contextValues = nil
+
+		// Use real filesystem operations for this test
+		handler.shims = NewShims()
+
+		// Create temp directory structure
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+
+		// Create context directory but NO values.yaml
+		contextDir := filepath.Join(tmpDir, "contexts", "test")
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Failed to create context directory: %v", err)
+		}
+
+		// When ensureValuesYamlLoaded is called
+		err := handler.ensureValuesYamlLoaded()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And contextValues should be initialized as empty
+		if handler.contextValues == nil {
+			t.Error("contextValues should be initialized")
+		}
+		if len(handler.contextValues) != 0 {
+			t.Errorf("Expected empty contextValues, got: %v", handler.contextValues)
 		}
 	})
 }

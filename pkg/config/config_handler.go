@@ -65,6 +65,7 @@ type BaseConfigHandler struct {
 	loaded           bool
 	shims            *Shims
 	schemaValidator  *SchemaValidator
+	contextValues    map[string]any
 }
 
 // =============================================================================
@@ -74,8 +75,9 @@ type BaseConfigHandler struct {
 // NewBaseConfigHandler creates a new BaseConfigHandler instance
 func NewBaseConfigHandler(injector di.Injector) *BaseConfigHandler {
 	return &BaseConfigHandler{
-		injector: injector,
-		shims:    NewShims(),
+		injector:      injector,
+		shims:         NewShims(),
+		contextValues: make(map[string]any),
 	}
 }
 
