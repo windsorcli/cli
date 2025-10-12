@@ -3633,3 +3633,310 @@ terraform:
 		}
 	})
 }
+
+func TestBaseBlueprintHandler_setRepositoryDefaults(t *testing.T) {
+	setup := func(t *testing.T) *BaseBlueprintHandler {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		handler.configHandler = mocks.ConfigHandler
+		handler.shell = mocks.Shell
+		return handler
+	}
+
+	t.Run("PreservesExistingRepositoryURL", func(t *testing.T) {
+		handler := setup(t)
+		handler.blueprint.Repository.Url = "https://github.com/existing/repo"
+
+		err := handler.setRepositoryDefaults()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if handler.blueprint.Repository.Url != "https://github.com/existing/repo" {
+			t.Errorf("Expected URL to remain unchanged, got %s", handler.blueprint.Repository.Url)
+		}
+	})
+
+	t.Run("UsesDevelopmentURLWhenDevFlagEnabled", func(t *testing.T) {
+		handler := setup(t)
+
+		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "dev" {
+				return true
+			}
+			return false
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.domain" {
+				return "example.com"
+			}
+			return ""
+		}
+
+		mockShell := handler.shell.(*shell.MockShell)
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/path/to/my-project", nil
+		}
+
+		handler.shims.FilepathBase = func(path string) string {
+			return "my-project"
+		}
+
+		err := handler.setRepositoryDefaults()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		expectedURL := "http://git.example.com/git/my-project"
+		if handler.blueprint.Repository.Url != expectedURL {
+			t.Errorf("Expected URL to be %s, got %s", expectedURL, handler.blueprint.Repository.Url)
+		}
+	})
+
+	t.Run("FallsBackToGitRemoteOrigin", func(t *testing.T) {
+		handler := setup(t)
+
+		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+
+		mockShell := handler.shell.(*shell.MockShell)
+		mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "git" && len(args) == 3 && args[0] == "config" && args[2] == "remote.origin.url" {
+				return "https://github.com/user/repo.git\n", nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+
+		err := handler.setRepositoryDefaults()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		expectedURL := "https://github.com/user/repo.git"
+		if handler.blueprint.Repository.Url != expectedURL {
+			t.Errorf("Expected URL to be %s, got %s", expectedURL, handler.blueprint.Repository.Url)
+		}
+	})
+
+	t.Run("HandlesGitRemoteOriginError", func(t *testing.T) {
+		handler := setup(t)
+
+		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+
+		mockShell := handler.shell.(*shell.MockShell)
+		mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			return "", fmt.Errorf("not a git repository")
+		}
+
+		err := handler.setRepositoryDefaults()
+
+		if err != nil {
+			t.Fatalf("Expected no error even when git fails, got %v", err)
+		}
+		if handler.blueprint.Repository.Url != "" {
+			t.Errorf("Expected URL to remain empty when git fails, got %s", handler.blueprint.Repository.Url)
+		}
+	})
+
+	t.Run("HandlesEmptyGitRemoteOriginOutput", func(t *testing.T) {
+		handler := setup(t)
+
+		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+
+		mockShell := handler.shell.(*shell.MockShell)
+		mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			return "", nil
+		}
+
+		err := handler.setRepositoryDefaults()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if handler.blueprint.Repository.Url != "" {
+			t.Errorf("Expected URL to remain empty, got %s", handler.blueprint.Repository.Url)
+		}
+	})
+
+	t.Run("DevModeFallsBackToGitWhenDevelopmentURLFails", func(t *testing.T) {
+		handler := setup(t)
+
+		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "dev" {
+				return true
+			}
+			return false
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+
+		mockShell := handler.shell.(*shell.MockShell)
+		mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "git" {
+				return "https://github.com/fallback/repo.git", nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+
+		err := handler.setRepositoryDefaults()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		expectedURL := "https://github.com/fallback/repo.git"
+		if handler.blueprint.Repository.Url != expectedURL {
+			t.Errorf("Expected URL to be %s, got %s", expectedURL, handler.blueprint.Repository.Url)
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_getDevelopmentRepositoryURL(t *testing.T) {
+	setup := func(t *testing.T) *BaseBlueprintHandler {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		handler.configHandler = mocks.ConfigHandler
+		handler.shell = mocks.Shell
+		return handler
+	}
+
+	t.Run("GeneratesCorrectDevelopmentURL", func(t *testing.T) {
+		handler := setup(t)
+
+		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.domain" {
+				return "dev.example.com"
+			}
+			return ""
+		}
+
+		mockShell := handler.shell.(*shell.MockShell)
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/home/user/projects/my-awesome-project", nil
+		}
+
+		handler.shims.FilepathBase = func(path string) string {
+			return "my-awesome-project"
+		}
+
+		url := handler.getDevelopmentRepositoryURL()
+
+		expectedURL := "http://git.dev.example.com/git/my-awesome-project"
+		if url != expectedURL {
+			t.Errorf("Expected URL to be %s, got %s", expectedURL, url)
+		}
+	})
+
+	t.Run("ReturnsEmptyWhenDomainNotSet", func(t *testing.T) {
+		handler := setup(t)
+
+		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+
+		mockShell := handler.shell.(*shell.MockShell)
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/home/user/projects/my-project", nil
+		}
+
+		url := handler.getDevelopmentRepositoryURL()
+
+		if url != "" {
+			t.Errorf("Expected empty URL when domain not set, got %s", url)
+		}
+	})
+
+	t.Run("ReturnsEmptyWhenProjectRootFails", func(t *testing.T) {
+		handler := setup(t)
+
+		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.domain" {
+				return "example.com"
+			}
+			return ""
+		}
+
+		mockShell := handler.shell.(*shell.MockShell)
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("project root not found")
+		}
+
+		url := handler.getDevelopmentRepositoryURL()
+
+		if url != "" {
+			t.Errorf("Expected empty URL when project root fails, got %s", url)
+		}
+	})
+
+	t.Run("ReturnsEmptyWhenFolderNameEmpty", func(t *testing.T) {
+		handler := setup(t)
+
+		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.domain" {
+				return "example.com"
+			}
+			return ""
+		}
+
+		mockShell := handler.shell.(*shell.MockShell)
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/home/user/projects/", nil
+		}
+
+		handler.shims.FilepathBase = func(path string) string {
+			return ""
+		}
+
+		url := handler.getDevelopmentRepositoryURL()
+
+		if url != "" {
+			t.Errorf("Expected empty URL when folder name is empty, got %s", url)
+		}
+	})
+
+	t.Run("HandlesComplexProjectPaths", func(t *testing.T) {
+		handler := setup(t)
+
+		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.domain" {
+				return "staging.example.io"
+			}
+			return ""
+		}
+
+		mockShell := handler.shell.(*shell.MockShell)
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/var/www/projects/nested/deep/project-with-dashes", nil
+		}
+
+		handler.shims.FilepathBase = func(path string) string {
+			return "project-with-dashes"
+		}
+
+		url := handler.getDevelopmentRepositoryURL()
+
+		expectedURL := "http://git.staging.example.io/git/project-with-dashes"
+		if url != expectedURL {
+			t.Errorf("Expected URL to be %s, got %s", expectedURL, url)
+		}
+	})
+}
