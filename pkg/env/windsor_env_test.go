@@ -120,7 +120,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 			t.Errorf("Expected WINDSOR_SESSION_TOKEN to be %q, got %q", expectedSessionToken, envVars["WINDSOR_SESSION_TOKEN"])
 		}
 
-		// And context ID should be set but empty (YamlConfigHandler returns empty for non-existent keys)
+		// And context ID should be set but empty (ConfigHandler returns empty for non-existent keys)
 		expectedContextID := ""
 		if envVars["WINDSOR_CONTEXT_ID"] != expectedContextID {
 			t.Errorf("Expected WINDSOR_CONTEXT_ID to be %q, got %q", expectedContextID, envVars["WINDSOR_CONTEXT_ID"])

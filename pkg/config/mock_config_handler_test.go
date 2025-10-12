@@ -796,3 +796,276 @@ func TestMockConfigHandler_LoadContextConfig(t *testing.T) {
 		}
 	})
 }
+
+func TestMockConfigHandler_LoadSchema(t *testing.T) {
+	mockErr := fmt.Errorf("mock load schema error")
+
+	t.Run("WithFuncSet", func(t *testing.T) {
+		// Given a mock config handler with LoadSchemaFunc set to return an error
+		handler := NewMockConfigHandler()
+		handler.LoadSchemaFunc = func(path string) error {
+			return mockErr
+		}
+
+		// When LoadSchema is called
+		err := handler.LoadSchema("/path/to/schema.yaml")
+
+		// Then the error should match the expected mock error
+		if err != mockErr {
+			t.Errorf("Expected error = %v, got = %v", mockErr, err)
+		}
+	})
+
+	t.Run("WithFuncSetSuccess", func(t *testing.T) {
+		// Given a mock config handler with LoadSchemaFunc set to return nil
+		handler := NewMockConfigHandler()
+		var capturedPath string
+		handler.LoadSchemaFunc = func(path string) error {
+			capturedPath = path
+			return nil
+		}
+
+		// When LoadSchema is called with a specific path
+		testPath := "/test/schema.yaml"
+		err := handler.LoadSchema(testPath)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got = %v", err)
+		}
+
+		// And the path should be captured correctly
+		if capturedPath != testPath {
+			t.Errorf("Expected path = %s, got = %s", testPath, capturedPath)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a mock config handler without LoadSchemaFunc set
+		handler := NewMockConfigHandler()
+
+		// When LoadSchema is called
+		err := handler.LoadSchema("/path/to/schema.yaml")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error when LoadSchemaFunc not set, got nil")
+		}
+		expectedErr := "LoadSchemaFunc not set"
+		if err.Error() != expectedErr {
+			t.Errorf("Expected error message = %s, got = %s", expectedErr, err.Error())
+		}
+	})
+}
+
+func TestMockConfigHandler_LoadSchemaFromBytes(t *testing.T) {
+	mockErr := fmt.Errorf("mock load schema from bytes error")
+
+	t.Run("WithFuncSet", func(t *testing.T) {
+		// Given a mock config handler with LoadSchemaFromBytesFunc set to return an error
+		handler := NewMockConfigHandler()
+		handler.LoadSchemaFromBytesFunc = func(content []byte) error {
+			return mockErr
+		}
+
+		// When LoadSchemaFromBytes is called
+		err := handler.LoadSchemaFromBytes([]byte("schema content"))
+
+		// Then the error should match the expected mock error
+		if err != mockErr {
+			t.Errorf("Expected error = %v, got = %v", mockErr, err)
+		}
+	})
+
+	t.Run("WithFuncSetSuccess", func(t *testing.T) {
+		// Given a mock config handler with LoadSchemaFromBytesFunc set to return nil
+		handler := NewMockConfigHandler()
+		var capturedContent []byte
+		handler.LoadSchemaFromBytesFunc = func(content []byte) error {
+			capturedContent = content
+			return nil
+		}
+
+		// When LoadSchemaFromBytes is called with specific content
+		testContent := []byte("test schema content")
+		err := handler.LoadSchemaFromBytes(testContent)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got = %v", err)
+		}
+
+		// And the content should be captured correctly
+		if string(capturedContent) != string(testContent) {
+			t.Errorf("Expected content = %s, got = %s", string(testContent), string(capturedContent))
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a mock config handler without LoadSchemaFromBytesFunc set
+		handler := NewMockConfigHandler()
+
+		// When LoadSchemaFromBytes is called
+		err := handler.LoadSchemaFromBytes([]byte("schema content"))
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error when LoadSchemaFromBytesFunc not set, got nil")
+		}
+		expectedErr := "LoadSchemaFromBytesFunc not set"
+		if err.Error() != expectedErr {
+			t.Errorf("Expected error message = %s, got = %s", expectedErr, err.Error())
+		}
+	})
+}
+
+func TestMockConfigHandler_GetSchemaDefaults(t *testing.T) {
+	mockErr := fmt.Errorf("mock get schema defaults error")
+
+	t.Run("WithFuncSet", func(t *testing.T) {
+		// Given a mock config handler with GetSchemaDefaultsFunc set to return an error
+		handler := NewMockConfigHandler()
+		handler.GetSchemaDefaultsFunc = func() (map[string]any, error) {
+			return nil, mockErr
+		}
+
+		// When GetSchemaDefaults is called
+		defaults, err := handler.GetSchemaDefaults()
+
+		// Then the error should match the expected mock error
+		if err != mockErr {
+			t.Errorf("Expected error = %v, got = %v", mockErr, err)
+		}
+
+		// And defaults should be nil
+		if defaults != nil {
+			t.Errorf("Expected defaults = nil, got = %v", defaults)
+		}
+	})
+
+	t.Run("WithFuncSetSuccess", func(t *testing.T) {
+		// Given a mock config handler with GetSchemaDefaultsFunc set to return defaults
+		handler := NewMockConfigHandler()
+		expectedDefaults := map[string]any{
+			"key1": "value1",
+			"key2": 42,
+			"key3": true,
+		}
+		handler.GetSchemaDefaultsFunc = func() (map[string]any, error) {
+			return expectedDefaults, nil
+		}
+
+		// When GetSchemaDefaults is called
+		defaults, err := handler.GetSchemaDefaults()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got = %v", err)
+		}
+
+		// And the defaults should match the expected values
+		if !reflect.DeepEqual(defaults, expectedDefaults) {
+			t.Errorf("Expected defaults = %v, got = %v", expectedDefaults, defaults)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a mock config handler without GetSchemaDefaultsFunc set
+		handler := NewMockConfigHandler()
+
+		// When GetSchemaDefaults is called
+		defaults, err := handler.GetSchemaDefaults()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error when GetSchemaDefaultsFunc not set, got nil")
+		}
+		expectedErr := "GetSchemaDefaultsFunc not set"
+		if err.Error() != expectedErr {
+			t.Errorf("Expected error message = %s, got = %s", expectedErr, err.Error())
+		}
+
+		// And defaults should be nil
+		if defaults != nil {
+			t.Errorf("Expected defaults = nil, got = %v", defaults)
+		}
+	})
+}
+
+func TestMockConfigHandler_GetContextValues(t *testing.T) {
+	mockErr := fmt.Errorf("mock get context values error")
+
+	t.Run("WithFuncSet", func(t *testing.T) {
+		// Given a mock config handler with GetContextValuesFunc set to return an error
+		handler := NewMockConfigHandler()
+		handler.GetContextValuesFunc = func() (map[string]any, error) {
+			return nil, mockErr
+		}
+
+		// When GetContextValues is called
+		values, err := handler.GetContextValues()
+
+		// Then the error should match the expected mock error
+		if err != mockErr {
+			t.Errorf("Expected error = %v, got = %v", mockErr, err)
+		}
+
+		// And values should be nil
+		if values != nil {
+			t.Errorf("Expected values = nil, got = %v", values)
+		}
+	})
+
+	t.Run("WithFuncSetSuccess", func(t *testing.T) {
+		// Given a mock config handler with GetContextValuesFunc set to return values
+		handler := NewMockConfigHandler()
+		expectedValues := map[string]any{
+			"environment": map[string]any{
+				"VAR1": "value1",
+				"VAR2": "value2",
+			},
+			"cluster": map[string]any{
+				"enabled": true,
+				"nodes":   3,
+			},
+		}
+		handler.GetContextValuesFunc = func() (map[string]any, error) {
+			return expectedValues, nil
+		}
+
+		// When GetContextValues is called
+		values, err := handler.GetContextValues()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got = %v", err)
+		}
+
+		// And the values should match the expected values
+		if !reflect.DeepEqual(values, expectedValues) {
+			t.Errorf("Expected values = %v, got = %v", expectedValues, values)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a mock config handler without GetContextValuesFunc set
+		handler := NewMockConfigHandler()
+
+		// When GetContextValues is called
+		values, err := handler.GetContextValues()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error when GetContextValuesFunc not set, got nil")
+		}
+		expectedErr := "GetContextValuesFunc not set"
+		if err.Error() != expectedErr {
+			t.Errorf("Expected error message = %s, got = %s", expectedErr, err.Error())
+		}
+
+		// And values should be nil
+		if values != nil {
+			t.Errorf("Expected values = nil, got = %v", values)
+		}
+	})
+}

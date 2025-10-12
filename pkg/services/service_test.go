@@ -134,7 +134,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	if len(opts) > 0 && opts[0].ConfigHandler != nil {
 		configHandler = opts[0].ConfigHandler
 	} else {
-		configHandler = config.NewYamlConfigHandler(injector)
+		configHandler = config.NewConfigHandler(injector)
 	}
 	injector.Register("configHandler", configHandler)
 
