@@ -203,7 +203,7 @@ func (p *BasePipeline) withConfigHandler() config.ConfigHandler {
 		}
 	}
 
-	p.configHandler = config.NewYamlConfigHandler(p.injector)
+	p.configHandler = config.NewConfigHandler(p.injector)
 	p.injector.Register("configHandler", p.configHandler)
 	return p.configHandler
 }
