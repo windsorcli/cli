@@ -3696,3 +3696,696 @@ func TestBaseBlueprintHandler_SetRenderedKustomizeData(t *testing.T) {
 		}
 	})
 }
+
+func TestBaseBlueprintHandler_GetLocalTemplateData(t *testing.T) {
+	t.Run("CollectsBlueprintAndFeatureFiles", func(t *testing.T) {
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+
+		contextName := "test-context"
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetContextFunc = func() string {
+			return contextName
+		}
+
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
+		featuresDir := filepath.Join(templateDir, "features")
+		contextDir := filepath.Join(projectRoot, "contexts", contextName)
+
+		if err := os.MkdirAll(featuresDir, 0755); err != nil {
+			t.Fatalf("Failed to create features directory: %v", err)
+		}
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Failed to create context directory: %v", err)
+		}
+
+		blueprintContent := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base-blueprint
+`)
+		if err := os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), blueprintContent, 0644); err != nil {
+			t.Fatalf("Failed to write blueprint.yaml: %v", err)
+		}
+
+		awsFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: aws-feature
+when: provider == "aws"
+`)
+		if err := os.WriteFile(filepath.Join(featuresDir, "aws.yaml"), awsFeature, 0644); err != nil {
+			t.Fatalf("Failed to write aws feature: %v", err)
+		}
+
+		observabilityFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: observability-feature
+`)
+		if err := os.WriteFile(filepath.Join(featuresDir, "observability.yaml"), observabilityFeature, 0644); err != nil {
+			t.Fatalf("Failed to write observability feature: %v", err)
+		}
+
+		jsonnetTemplate := []byte(`{
+  terraform: {
+    cluster: {
+      node_count: 3
+    }
+  }
+}`)
+		if err := os.WriteFile(filepath.Join(templateDir, "terraform.jsonnet"), jsonnetTemplate, 0644); err != nil {
+			t.Fatalf("Failed to write jsonnet template: %v", err)
+		}
+
+		templateData, err := handler.GetLocalTemplateData()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if _, exists := templateData["blueprint"]; !exists {
+			t.Error("Expected blueprint to be collected")
+		}
+
+		if _, exists := templateData["features/aws.yaml"]; !exists {
+			t.Error("Expected features/aws.yaml to be collected")
+		}
+
+		if _, exists := templateData["features/observability.yaml"]; !exists {
+			t.Error("Expected features/observability.yaml to be collected")
+		}
+
+		if _, exists := templateData["terraform.jsonnet"]; !exists {
+			t.Error("Expected terraform.jsonnet to be collected")
+		}
+
+		if content, exists := templateData["blueprint"]; exists {
+			if !strings.Contains(string(content), "base-blueprint") {
+				t.Errorf("Expected blueprint content to contain 'base-blueprint', got: %s", string(content))
+			}
+		}
+
+		if content, exists := templateData["features/aws.yaml"]; exists {
+			if !strings.Contains(string(content), "aws-feature") {
+				t.Errorf("Expected aws feature content to contain 'aws-feature', got: %s", string(content))
+			}
+		}
+	})
+
+	t.Run("CollectsNestedFeatures", func(t *testing.T) {
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+
+		contextName := "test-context"
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetContextFunc = func() string {
+			return contextName
+		}
+
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
+		nestedFeaturesDir := filepath.Join(templateDir, "features", "aws")
+		contextDir := filepath.Join(projectRoot, "contexts", contextName)
+
+		if err := os.MkdirAll(nestedFeaturesDir, 0755); err != nil {
+			t.Fatalf("Failed to create nested features directory: %v", err)
+		}
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Failed to create context directory: %v", err)
+		}
+
+		nestedFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: aws-eks-feature
+`)
+		if err := os.WriteFile(filepath.Join(nestedFeaturesDir, "eks.yaml"), nestedFeature, 0644); err != nil {
+			t.Fatalf("Failed to write nested feature: %v", err)
+		}
+
+		templateData, err := handler.GetLocalTemplateData()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if _, exists := templateData["features/aws/eks.yaml"]; !exists {
+			t.Error("Expected features/aws/eks.yaml to be collected")
+		}
+	})
+
+	t.Run("IgnoresNonYAMLFilesInFeatures", func(t *testing.T) {
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+
+		contextName := "test-context"
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetContextFunc = func() string {
+			return contextName
+		}
+
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
+		featuresDir := filepath.Join(templateDir, "features")
+		contextDir := filepath.Join(projectRoot, "contexts", contextName)
+
+		if err := os.MkdirAll(featuresDir, 0755); err != nil {
+			t.Fatalf("Failed to create features directory: %v", err)
+		}
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Failed to create context directory: %v", err)
+		}
+
+		validFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: valid-feature
+`)
+		if err := os.WriteFile(filepath.Join(featuresDir, "valid.yaml"), validFeature, 0644); err != nil {
+			t.Fatalf("Failed to write valid feature: %v", err)
+		}
+
+		if err := os.WriteFile(filepath.Join(featuresDir, "README.md"), []byte("# Features"), 0644); err != nil {
+			t.Fatalf("Failed to write README: %v", err)
+		}
+
+		if err := os.WriteFile(filepath.Join(featuresDir, "config.json"), []byte("{}"), 0644); err != nil {
+			t.Fatalf("Failed to write JSON: %v", err)
+		}
+
+		templateData, err := handler.GetLocalTemplateData()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if _, exists := templateData["features/valid.yaml"]; !exists {
+			t.Error("Expected features/valid.yaml to be collected")
+		}
+
+		if _, exists := templateData["features/README.md"]; exists {
+			t.Error("Did not expect features/README.md to be collected")
+		}
+
+		if _, exists := templateData["features/config.json"]; exists {
+			t.Error("Did not expect features/config.json to be collected")
+		}
+	})
+
+	t.Run("ComposesFeaturesByEvaluatingConditions", func(t *testing.T) {
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+
+		contextName := "test-context"
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetContextFunc = func() string {
+			return contextName
+		}
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"provider": "aws",
+				"observability": map[string]any{
+					"enabled": true,
+				},
+			}, nil
+		}
+
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
+		featuresDir := filepath.Join(templateDir, "features")
+		contextDir := filepath.Join(projectRoot, "contexts", contextName)
+
+		if err := os.MkdirAll(featuresDir, 0755); err != nil {
+			t.Fatalf("Failed to create features directory: %v", err)
+		}
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Failed to create context directory: %v", err)
+		}
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+`)
+		if err := os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), baseBlueprint, 0644); err != nil {
+			t.Fatalf("Failed to write blueprint.yaml: %v", err)
+		}
+
+		awsFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: aws-feature
+when: provider == "aws"
+terraform:
+  - path: network/vpc
+    values:
+      cidr: 10.0.0.0/16
+`)
+		if err := os.WriteFile(filepath.Join(featuresDir, "aws.yaml"), awsFeature, 0644); err != nil {
+			t.Fatalf("Failed to write aws feature: %v", err)
+		}
+
+		observabilityFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: observability
+when: observability.enabled == true
+terraform:
+  - path: observability/stack
+`)
+		if err := os.WriteFile(filepath.Join(featuresDir, "observability.yaml"), observabilityFeature, 0644); err != nil {
+			t.Fatalf("Failed to write observability feature: %v", err)
+		}
+
+		gcpFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: gcp-feature
+when: provider == "gcp"
+terraform:
+  - path: gcp/network
+`)
+		if err := os.WriteFile(filepath.Join(featuresDir, "gcp.yaml"), gcpFeature, 0644); err != nil {
+			t.Fatalf("Failed to write gcp feature: %v", err)
+		}
+
+		templateData, err := handler.GetLocalTemplateData()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		composedBlueprint, exists := templateData["blueprint"]
+		if !exists {
+			t.Fatal("Expected composed blueprint in templateData")
+		}
+
+		if !strings.Contains(string(composedBlueprint), "network/vpc") {
+			t.Error("Expected AWS VPC component to be merged")
+		}
+		if !strings.Contains(string(composedBlueprint), "observability/stack") {
+			t.Error("Expected observability component to be merged")
+		}
+		if strings.Contains(string(composedBlueprint), "gcp/network") {
+			t.Error("Did not expect GCP component to be merged (condition not met)")
+		}
+		if !strings.Contains(string(composedBlueprint), contextName) {
+			t.Errorf("Expected blueprint metadata to include context name '%s'", contextName)
+		}
+	})
+
+	t.Run("SetsMetadataFromContextName", func(t *testing.T) {
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+
+		contextName := "production"
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetContextFunc = func() string {
+			return contextName
+		}
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
+		contextDir := filepath.Join(projectRoot, "contexts", contextName)
+
+		if err := os.MkdirAll(templateDir, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Failed to create context directory: %v", err)
+		}
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+terraform:
+  - path: base/module
+`)
+		if err := os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), baseBlueprint, 0644); err != nil {
+			t.Fatalf("Failed to write blueprint.yaml: %v", err)
+		}
+
+		templateData, err := handler.GetLocalTemplateData()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		composedBlueprint, exists := templateData["blueprint"]
+		if !exists {
+			t.Fatal("Expected composed blueprint in templateData")
+		}
+
+		var blueprint blueprintv1alpha1.Blueprint
+		if err := yaml.Unmarshal(composedBlueprint, &blueprint); err != nil {
+			t.Fatalf("Failed to unmarshal blueprint: %v", err)
+		}
+
+		if blueprint.Metadata.Name != contextName {
+			t.Errorf("Expected metadata.name = '%s', got '%s'", contextName, blueprint.Metadata.Name)
+		}
+		expectedDesc := fmt.Sprintf("Blueprint for %s context", contextName)
+		if blueprint.Metadata.Description != expectedDesc {
+			t.Errorf("Expected metadata.description = '%s', got '%s'", expectedDesc, blueprint.Metadata.Description)
+		}
+	})
+
+	t.Run("HandlesSubstitutionValues", func(t *testing.T) {
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+
+		contextName := "test-context"
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetContextFunc = func() string {
+			return contextName
+		}
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"substitution": map[string]any{
+					"domain": "example.com",
+					"port":   8080,
+				},
+			}, nil
+		}
+
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
+		contextDir := filepath.Join(projectRoot, "contexts", contextName)
+
+		if err := os.MkdirAll(templateDir, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Failed to create context directory: %v", err)
+		}
+
+		templateData, err := handler.GetLocalTemplateData()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		substitution, exists := templateData["substitution"]
+		if !exists {
+			t.Fatal("Expected substitution in templateData")
+		}
+
+		var subValues map[string]any
+		if err := yaml.Unmarshal(substitution, &subValues); err != nil {
+			t.Fatalf("Failed to unmarshal substitution: %v", err)
+		}
+
+		if subValues["domain"] != "example.com" {
+			t.Errorf("Expected domain = 'example.com', got '%v'", subValues["domain"])
+		}
+		portVal, ok := subValues["port"]
+		if !ok {
+			t.Error("Expected port in substitution values")
+		}
+		switch v := portVal.(type) {
+		case int:
+			if v != 8080 {
+				t.Errorf("Expected port = 8080, got %d", v)
+			}
+		case uint64:
+			if v != 8080 {
+				t.Errorf("Expected port = 8080, got %d", v)
+			}
+		default:
+			t.Errorf("Expected port to be int or uint64, got %T", portVal)
+		}
+	})
+
+	t.Run("ReturnsNilWhenNoTemplateDirectory", func(t *testing.T) {
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
+		templateData, err := handler.GetLocalTemplateData()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if templateData != nil {
+			t.Errorf("Expected nil templateData, got %v", templateData)
+		}
+	})
+
+	t.Run("HandlesEmptyBlueprintWithOnlyFeatures", func(t *testing.T) {
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+
+		contextName := "test-context"
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetContextFunc = func() string {
+			return contextName
+		}
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"feature": "enabled",
+			}, nil
+		}
+
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
+		featuresDir := filepath.Join(templateDir, "features")
+		contextDir := filepath.Join(projectRoot, "contexts", contextName)
+
+		if err := os.MkdirAll(featuresDir, 0755); err != nil {
+			t.Fatalf("Failed to create features directory: %v", err)
+		}
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Failed to create context directory: %v", err)
+		}
+
+		feature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: test-feature
+when: feature == "enabled"
+terraform:
+  - path: test/module
+`)
+		if err := os.WriteFile(filepath.Join(featuresDir, "test.yaml"), feature, 0644); err != nil {
+			t.Fatalf("Failed to write feature: %v", err)
+		}
+
+		templateData, err := handler.GetLocalTemplateData()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		composedBlueprint, exists := templateData["blueprint"]
+		if !exists {
+			t.Fatal("Expected composed blueprint in templateData")
+		}
+
+		if !strings.Contains(string(composedBlueprint), "test/module") {
+			t.Error("Expected feature component to be in blueprint")
+		}
+	})
+
+	t.Run("HandlesKustomizationsInFeatures", func(t *testing.T) {
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+
+		contextName := "test-context"
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetContextFunc = func() string {
+			return contextName
+		}
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"gitops": map[string]any{
+					"enabled": true,
+				},
+			}, nil
+		}
+
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
+		featuresDir := filepath.Join(templateDir, "features")
+		contextDir := filepath.Join(projectRoot, "contexts", contextName)
+
+		if err := os.MkdirAll(featuresDir, 0755); err != nil {
+			t.Fatalf("Failed to create features directory: %v", err)
+		}
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Failed to create context directory: %v", err)
+		}
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+`)
+		if err := os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), baseBlueprint, 0644); err != nil {
+			t.Fatalf("Failed to write blueprint.yaml: %v", err)
+		}
+
+		fluxFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: flux
+when: gitops.enabled == true
+kustomize:
+  - name: flux-system
+    path: gitops/flux
+`)
+		if err := os.WriteFile(filepath.Join(featuresDir, "flux.yaml"), fluxFeature, 0644); err != nil {
+			t.Fatalf("Failed to write flux feature: %v", err)
+		}
+
+		templateData, err := handler.GetLocalTemplateData()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		composedBlueprint, exists := templateData["blueprint"]
+		if !exists {
+			t.Fatal("Expected composed blueprint in templateData")
+		}
+
+		if !strings.Contains(string(composedBlueprint), "flux-system") {
+			t.Error("Expected kustomization to be in blueprint")
+		}
+		if !strings.Contains(string(composedBlueprint), "gitops/flux") {
+			t.Error("Expected kustomization path to be in blueprint")
+		}
+	})
+
+	t.Run("SkipsComposedBlueprintWhenEmpty", func(t *testing.T) {
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+
+		contextName := "test-context"
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetContextFunc = func() string {
+			return contextName
+		}
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
+		contextDir := filepath.Join(projectRoot, "contexts", contextName)
+
+		if err := os.MkdirAll(templateDir, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Failed to create context directory: %v", err)
+		}
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: empty-base
+`)
+		if err := os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), baseBlueprint, 0644); err != nil {
+			t.Fatalf("Failed to write blueprint.yaml: %v", err)
+		}
+
+		templateData, err := handler.GetLocalTemplateData()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if composedBlueprint, exists := templateData["blueprint"]; exists {
+			if strings.Contains(string(composedBlueprint), "test-context") {
+				t.Error("Should not set metadata when blueprint has no components")
+			}
+		}
+	})
+}
