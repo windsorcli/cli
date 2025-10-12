@@ -110,6 +110,9 @@ func (e *FeatureEvaluator) evaluateDefaultValue(value any, config map[string]any
 		if expr := e.extractExpression(v); expr != "" {
 			return e.EvaluateValue(expr, config)
 		}
+		if strings.Contains(v, "${") {
+			return e.interpolateString(v, config)
+		}
 		return v, nil
 
 	case map[string]any:
@@ -139,7 +142,7 @@ func (e *FeatureEvaluator) evaluateDefaultValue(value any, config map[string]any
 	}
 }
 
-// extractExpression checks if a string contains an expression in ${} syntax.
+// extractExpression checks if a string contains a single expression spanning the entire string.
 // If found, returns the expression content. Otherwise returns empty string.
 func (e *FeatureEvaluator) extractExpression(s string) string {
 	if !strings.Contains(s, "${") {
@@ -160,4 +163,37 @@ func (e *FeatureEvaluator) extractExpression(s string) string {
 	}
 
 	return ""
+}
+
+// interpolateString replaces all ${expression} occurrences in a string with their evaluated values.
+func (e *FeatureEvaluator) interpolateString(s string, config map[string]any) (string, error) {
+	result := s
+
+	for strings.Contains(result, "${") {
+		start := strings.Index(result, "${")
+		end := strings.Index(result[start:], "}")
+
+		if end == -1 {
+			return "", fmt.Errorf("unclosed expression in string: %s", s)
+		}
+
+		end += start
+		expr := result[start+2 : end]
+
+		value, err := e.EvaluateValue(expr, config)
+		if err != nil {
+			return "", fmt.Errorf("failed to evaluate expression '${%s}': %w", expr, err)
+		}
+
+		var replacement string
+		if value == nil {
+			replacement = ""
+		} else {
+			replacement = fmt.Sprintf("%v", value)
+		}
+
+		result = result[:start] + replacement + result[end+1:]
+	}
+
+	return result, nil
 }

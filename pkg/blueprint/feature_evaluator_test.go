@@ -517,6 +517,103 @@ func TestFeatureEvaluator_EvaluateDefaults(t *testing.T) {
 			t.Errorf("Expected literal_number to be 42, got %v", result["literal_number"])
 		}
 	})
+
+	t.Run("InterpolatesStringsWithSingleExpression", func(t *testing.T) {
+		defaults := map[string]any{
+			"domain": "grafana.${dns.domain}",
+		}
+
+		config := map[string]any{
+			"dns": map[string]any{
+				"domain": "example.com",
+			},
+		}
+
+		result, err := evaluator.EvaluateDefaults(defaults, config)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if result["domain"] != "grafana.example.com" {
+			t.Errorf("Expected domain to be 'grafana.example.com', got %v", result["domain"])
+		}
+	})
+
+	t.Run("InterpolatesStringsWithMultipleExpressions", func(t *testing.T) {
+		defaults := map[string]any{
+			"url": "${protocol}://${dns.domain}:${port}",
+		}
+
+		config := map[string]any{
+			"protocol": "https",
+			"dns": map[string]any{
+				"domain": "example.com",
+			},
+			"port": 8080,
+		}
+
+		result, err := evaluator.EvaluateDefaults(defaults, config)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if result["url"] != "https://example.com:8080" {
+			t.Errorf("Expected url to be 'https://example.com:8080', got %v", result["url"])
+		}
+	})
+
+	t.Run("InterpolatesStringsWithNumbers", func(t *testing.T) {
+		defaults := map[string]any{
+			"label": "worker-${cluster.workers.count}",
+		}
+
+		config := map[string]any{
+			"cluster": map[string]any{
+				"workers": map[string]any{
+					"count": 3,
+				},
+			},
+		}
+
+		result, err := evaluator.EvaluateDefaults(defaults, config)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if result["label"] != "worker-3" {
+			t.Errorf("Expected label to be 'worker-3', got %v", result["label"])
+		}
+	})
+
+	t.Run("FailsOnUnclosedInterpolationExpression", func(t *testing.T) {
+		defaults := map[string]any{
+			"bad": "prefix-${dns.domain",
+		}
+
+		config := map[string]any{
+			"dns": map[string]any{
+				"domain": "example.com",
+			},
+		}
+
+		_, err := evaluator.EvaluateDefaults(defaults, config)
+		if err == nil {
+			t.Fatal("Expected error for unclosed expression, got nil")
+		}
+	})
+
+	t.Run("FailsOnInvalidInterpolationExpression", func(t *testing.T) {
+		defaults := map[string]any{
+			"bad": "prefix-${invalid + }",
+		}
+
+		config := map[string]any{}
+
+		_, err := evaluator.EvaluateDefaults(defaults, config)
+		if err == nil {
+			t.Fatal("Expected error for invalid interpolation expression, got nil")
+		}
+	})
 }
 
 // =============================================================================
