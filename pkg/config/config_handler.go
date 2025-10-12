@@ -688,11 +688,18 @@ func (c *configHandler) GetSchemaDefaults() (map[string]any, error) {
 	return c.schemaValidator.GetSchemaDefaults()
 }
 
-// GetContextValues returns merged context values from windsor.yaml (via GetConfig) and values.yaml
-// The context config is converted to a map and deep merged with values.yaml, with values.yaml taking precedence
+// GetContextValues returns merged context values from schema defaults, windsor.yaml (via GetConfig), and values.yaml
+// Merge order: schema defaults (base) -> context config -> values.yaml (highest priority)
 func (c *configHandler) GetContextValues() (map[string]any, error) {
 	if err := c.ensureValuesYamlLoaded(); err != nil {
 		return nil, err
+	}
+
+	result := make(map[string]any)
+
+	schemaDefaults, err := c.GetSchemaDefaults()
+	if err == nil && schemaDefaults != nil {
+		result = c.deepMerge(result, schemaDefaults)
 	}
 
 	contextConfig := c.GetConfig()
@@ -706,7 +713,10 @@ func (c *configHandler) GetContextValues() (map[string]any, error) {
 		return nil, fmt.Errorf("error unmarshalling context config to map: %w", err)
 	}
 
-	return c.deepMerge(contextMap, c.contextValues), nil
+	result = c.deepMerge(result, contextMap)
+	result = c.deepMerge(result, c.contextValues)
+
+	return result, nil
 }
 
 // GenerateContextID generates a random context ID if one doesn't exist

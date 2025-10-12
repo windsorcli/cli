@@ -2810,3 +2810,685 @@ func TestBaseBlueprintHandler_applyOCIRepository(t *testing.T) {
 		}
 	})
 }
+
+func TestBaseBlueprintHandler_parseFeature(t *testing.T) {
+	setup := func(t *testing.T) *BaseBlueprintHandler {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		return handler
+	}
+
+	t.Run("ParseValidFeature", func(t *testing.T) {
+		handler := setup(t)
+
+		featureYAML := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: aws-observability
+  description: Observability stack for AWS
+when: provider == "aws"
+terraform:
+  - path: observability/quickwit
+    when: observability.backend == "quickwit"
+    values:
+      storage_bucket: my-bucket
+kustomize:
+  - name: grafana
+    path: observability/grafana
+    when: observability.enabled == true
+`)
+
+		feature, err := handler.parseFeature(featureYAML)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if feature.Kind != "Feature" {
+			t.Errorf("Expected kind 'Feature', got '%s'", feature.Kind)
+		}
+		if feature.ApiVersion != "blueprints.windsorcli.dev/v1alpha1" {
+			t.Errorf("Expected apiVersion 'blueprints.windsorcli.dev/v1alpha1', got '%s'", feature.ApiVersion)
+		}
+		if feature.Metadata.Name != "aws-observability" {
+			t.Errorf("Expected name 'aws-observability', got '%s'", feature.Metadata.Name)
+		}
+		if feature.When != `provider == "aws"` {
+			t.Errorf("Expected when condition, got '%s'", feature.When)
+		}
+		if len(feature.TerraformComponents) != 1 {
+			t.Errorf("Expected 1 terraform component, got %d", len(feature.TerraformComponents))
+		}
+		if len(feature.Kustomizations) != 1 {
+			t.Errorf("Expected 1 kustomization, got %d", len(feature.Kustomizations))
+		}
+	})
+
+	t.Run("FailsOnInvalidYAML", func(t *testing.T) {
+		handler := setup(t)
+
+		invalidYAML := []byte(`this is not valid yaml: [`)
+
+		_, err := handler.parseFeature(invalidYAML)
+
+		if err == nil {
+			t.Error("Expected error for invalid YAML, got nil")
+		}
+		if !strings.Contains(err.Error(), "invalid YAML") {
+			t.Errorf("Expected 'invalid YAML' error, got %v", err)
+		}
+	})
+
+	t.Run("FailsOnWrongKind", func(t *testing.T) {
+		handler := setup(t)
+
+		wrongKind := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: test
+`)
+
+		_, err := handler.parseFeature(wrongKind)
+
+		if err == nil {
+			t.Error("Expected error for wrong kind, got nil")
+		}
+		if !strings.Contains(err.Error(), "expected kind 'Feature'") {
+			t.Errorf("Expected kind error, got %v", err)
+		}
+	})
+
+	t.Run("FailsOnMissingApiVersion", func(t *testing.T) {
+		handler := setup(t)
+
+		missingVersion := []byte(`kind: Feature
+metadata:
+  name: test
+`)
+
+		_, err := handler.parseFeature(missingVersion)
+
+		if err == nil {
+			t.Error("Expected error for missing apiVersion, got nil")
+		}
+		if !strings.Contains(err.Error(), "apiVersion is required") {
+			t.Errorf("Expected apiVersion error, got %v", err)
+		}
+	})
+
+	t.Run("FailsOnMissingName", func(t *testing.T) {
+		handler := setup(t)
+
+		missingName := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  description: test
+`)
+
+		_, err := handler.parseFeature(missingName)
+
+		if err == nil {
+			t.Error("Expected error for missing name, got nil")
+		}
+		if !strings.Contains(err.Error(), "metadata.name is required") {
+			t.Errorf("Expected name error, got %v", err)
+		}
+	})
+
+	t.Run("ParseFeatureWithoutWhenCondition", func(t *testing.T) {
+		handler := setup(t)
+
+		featureYAML := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base-feature
+terraform:
+  - path: base/component
+`)
+
+		feature, err := handler.parseFeature(featureYAML)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if feature.When != "" {
+			t.Errorf("Expected empty when condition, got '%s'", feature.When)
+		}
+		if len(feature.TerraformComponents) != 1 {
+			t.Errorf("Expected 1 terraform component, got %d", len(feature.TerraformComponents))
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_loadFeatures(t *testing.T) {
+	setup := func(t *testing.T) *BaseBlueprintHandler {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		return handler
+	}
+
+	t.Run("LoadMultipleFeatures", func(t *testing.T) {
+		handler := setup(t)
+
+		templateData := map[string][]byte{
+			"features/aws.yaml": []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: aws-feature
+`),
+			"features/observability.yaml": []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: observability-feature
+`),
+			"blueprint.jsonnet": []byte(`{}`),
+			"schema.yaml":       []byte(`{}`),
+		}
+
+		features, err := handler.loadFeatures(templateData)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(features) != 2 {
+			t.Errorf("Expected 2 features, got %d", len(features))
+		}
+		names := make(map[string]bool)
+		for _, feature := range features {
+			names[feature.Metadata.Name] = true
+		}
+		if !names["aws-feature"] || !names["observability-feature"] {
+			t.Errorf("Expected both features to be loaded, got %v", names)
+		}
+	})
+
+	t.Run("LoadNoFeatures", func(t *testing.T) {
+		handler := setup(t)
+
+		templateData := map[string][]byte{
+			"blueprint.jsonnet": []byte(`{}`),
+			"schema.yaml":       []byte(`{}`),
+		}
+
+		features, err := handler.loadFeatures(templateData)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(features) != 0 {
+			t.Errorf("Expected 0 features, got %d", len(features))
+		}
+	})
+
+	t.Run("IgnoresNonFeatureYAMLFiles", func(t *testing.T) {
+		handler := setup(t)
+
+		templateData := map[string][]byte{
+			"features/aws.yaml": []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: aws-feature
+`),
+			"schema.yaml":           []byte(`{}`),
+			"values.yaml":           []byte(`key: value`),
+			"terraform/module.yaml": []byte(`key: value`),
+		}
+
+		features, err := handler.loadFeatures(templateData)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(features) != 1 {
+			t.Errorf("Expected 1 feature, got %d", len(features))
+		}
+		if features[0].Metadata.Name != "aws-feature" {
+			t.Errorf("Expected 'aws-feature', got '%s'", features[0].Metadata.Name)
+		}
+	})
+
+	t.Run("FailsOnInvalidFeature", func(t *testing.T) {
+		handler := setup(t)
+
+		templateData := map[string][]byte{
+			"features/valid.yaml": []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: valid-feature
+`),
+			"features/invalid.yaml": []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  description: missing name
+`),
+		}
+
+		_, err := handler.loadFeatures(templateData)
+
+		if err == nil {
+			t.Error("Expected error for invalid feature, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to parse feature features/invalid.yaml") {
+			t.Errorf("Expected parse error with path, got %v", err)
+		}
+		if !strings.Contains(err.Error(), "metadata.name is required") {
+			t.Errorf("Expected name requirement error, got %v", err)
+		}
+	})
+
+	t.Run("LoadFeaturesWithComplexStructures", func(t *testing.T) {
+		handler := setup(t)
+
+		templateData := map[string][]byte{
+			"features/complex.yaml": []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: complex-feature
+  description: Complex feature with multiple components
+when: provider == "aws" && observability.enabled == true
+terraform:
+  - path: observability/quickwit
+    when: observability.backend == "quickwit"
+    values:
+      storage_bucket: my-bucket
+      replicas: 3
+  - path: observability/grafana
+    values:
+      domain: grafana.example.com
+kustomize:
+  - name: monitoring
+    path: monitoring/stack
+    when: monitoring.enabled == true
+  - name: logging
+    path: logging/stack
+`),
+		}
+
+		features, err := handler.loadFeatures(templateData)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(features) != 1 {
+			t.Fatalf("Expected 1 feature, got %d", len(features))
+		}
+		feature := features[0]
+		if feature.Metadata.Name != "complex-feature" {
+			t.Errorf("Expected 'complex-feature', got '%s'", feature.Metadata.Name)
+		}
+		if len(feature.TerraformComponents) != 2 {
+			t.Errorf("Expected 2 terraform components, got %d", len(feature.TerraformComponents))
+		}
+		if len(feature.Kustomizations) != 2 {
+			t.Errorf("Expected 2 kustomizations, got %d", len(feature.Kustomizations))
+		}
+		if feature.TerraformComponents[0].When != `observability.backend == "quickwit"` {
+			t.Errorf("Expected when condition on terraform component, got '%s'", feature.TerraformComponents[0].When)
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_processFeatures(t *testing.T) {
+	setup := func(t *testing.T) *BaseBlueprintHandler {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		return handler
+	}
+
+	t.Run("ProcessFeaturesWithMatchingConditions", func(t *testing.T) {
+		handler := setup(t)
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+`)
+
+		awsFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: aws-feature
+when: provider == "aws"
+terraform:
+  - path: observability/quickwit
+    values:
+      bucket: my-bucket
+`)
+
+		templateData := map[string][]byte{
+			"blueprint":         baseBlueprint,
+			"features/aws.yaml": awsFeature,
+		}
+
+		config := map[string]any{
+			"provider": "aws",
+		}
+
+		err := handler.processFeatures(templateData, config)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(handler.blueprint.TerraformComponents) != 1 {
+			t.Errorf("Expected 1 terraform component, got %d", len(handler.blueprint.TerraformComponents))
+		}
+		if handler.blueprint.TerraformComponents[0].Path != "observability/quickwit" {
+			t.Errorf("Expected path 'observability/quickwit', got '%s'", handler.blueprint.TerraformComponents[0].Path)
+		}
+	})
+
+	t.Run("SkipsFeaturesWithNonMatchingConditions", func(t *testing.T) {
+		handler := setup(t)
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+`)
+
+		awsFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: aws-feature
+when: provider == "aws"
+terraform:
+  - path: observability/quickwit
+`)
+
+		templateData := map[string][]byte{
+			"blueprint":         baseBlueprint,
+			"features/aws.yaml": awsFeature,
+		}
+
+		config := map[string]any{
+			"provider": "gcp",
+		}
+
+		err := handler.processFeatures(templateData, config)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(handler.blueprint.TerraformComponents) != 0 {
+			t.Errorf("Expected 0 terraform components, got %d", len(handler.blueprint.TerraformComponents))
+		}
+	})
+
+	t.Run("ProcessComponentLevelConditions", func(t *testing.T) {
+		handler := setup(t)
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+`)
+
+		observabilityFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: observability
+terraform:
+  - path: observability/quickwit
+    when: observability.backend == "quickwit"
+  - path: observability/grafana
+    when: observability.backend == "grafana"
+`)
+
+		templateData := map[string][]byte{
+			"blueprint":                   baseBlueprint,
+			"features/observability.yaml": observabilityFeature,
+		}
+
+		config := map[string]any{
+			"observability": map[string]any{
+				"backend": "quickwit",
+			},
+		}
+
+		err := handler.processFeatures(templateData, config)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(handler.blueprint.TerraformComponents) != 1 {
+			t.Errorf("Expected 1 terraform component, got %d", len(handler.blueprint.TerraformComponents))
+		}
+		if handler.blueprint.TerraformComponents[0].Path != "observability/quickwit" {
+			t.Errorf("Expected 'observability/quickwit', got '%s'", handler.blueprint.TerraformComponents[0].Path)
+		}
+	})
+
+	t.Run("MergesMultipleMatchingFeatures", func(t *testing.T) {
+		handler := setup(t)
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+`)
+
+		awsFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: aws-feature
+when: provider == "aws"
+terraform:
+  - path: network/vpc
+`)
+
+		observabilityFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: observability
+when: observability.enabled == true
+terraform:
+  - path: observability/quickwit
+`)
+
+		templateData := map[string][]byte{
+			"blueprint":                   baseBlueprint,
+			"features/aws.yaml":           awsFeature,
+			"features/observability.yaml": observabilityFeature,
+		}
+
+		config := map[string]any{
+			"provider": "aws",
+			"observability": map[string]any{
+				"enabled": true,
+			},
+		}
+
+		err := handler.processFeatures(templateData, config)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(handler.blueprint.TerraformComponents) != 2 {
+			t.Errorf("Expected 2 terraform components, got %d", len(handler.blueprint.TerraformComponents))
+		}
+	})
+
+	t.Run("SortsFeaturesDeterministically", func(t *testing.T) {
+		handler := setup(t)
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+`)
+
+		featureZ := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: z-feature
+terraform:
+  - path: z/module
+`)
+
+		featureA := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: a-feature
+terraform:
+  - path: a/module
+`)
+
+		templateData := map[string][]byte{
+			"blueprint":       baseBlueprint,
+			"features/z.yaml": featureZ,
+			"features/a.yaml": featureA,
+		}
+
+		config := map[string]any{}
+
+		err := handler.processFeatures(templateData, config)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(handler.blueprint.TerraformComponents) != 2 {
+			t.Fatalf("Expected 2 terraform components, got %d", len(handler.blueprint.TerraformComponents))
+		}
+		if handler.blueprint.TerraformComponents[0].Path != "a/module" {
+			t.Errorf("Expected first component 'a/module', got '%s'", handler.blueprint.TerraformComponents[0].Path)
+		}
+		if handler.blueprint.TerraformComponents[1].Path != "z/module" {
+			t.Errorf("Expected second component 'z/module', got '%s'", handler.blueprint.TerraformComponents[1].Path)
+		}
+	})
+
+	t.Run("ProcessesKustomizations", func(t *testing.T) {
+		handler := setup(t)
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+`)
+
+		fluxFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: flux
+when: gitops.enabled == true
+kustomize:
+  - name: flux-system
+    path: gitops/flux
+`)
+
+		templateData := map[string][]byte{
+			"blueprint":          baseBlueprint,
+			"features/flux.yaml": fluxFeature,
+		}
+
+		config := map[string]any{
+			"gitops": map[string]any{
+				"enabled": true,
+			},
+		}
+
+		err := handler.processFeatures(templateData, config)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(handler.blueprint.Kustomizations) != 1 {
+			t.Errorf("Expected 1 kustomization, got %d", len(handler.blueprint.Kustomizations))
+		}
+		if handler.blueprint.Kustomizations[0].Name != "flux-system" {
+			t.Errorf("Expected 'flux-system', got '%s'", handler.blueprint.Kustomizations[0].Name)
+		}
+	})
+
+	t.Run("HandlesNoFeatures", func(t *testing.T) {
+		handler := setup(t)
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+`)
+
+		templateData := map[string][]byte{
+			"blueprint": baseBlueprint,
+		}
+
+		config := map[string]any{}
+
+		err := handler.processFeatures(templateData, config)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(handler.blueprint.TerraformComponents) != 0 {
+			t.Errorf("Expected 0 terraform components, got %d", len(handler.blueprint.TerraformComponents))
+		}
+	})
+
+	t.Run("HandlesNoBlueprint", func(t *testing.T) {
+		handler := setup(t)
+
+		awsFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: aws-feature
+terraform:
+  - path: network/vpc
+`)
+
+		templateData := map[string][]byte{
+			"features/aws.yaml": awsFeature,
+		}
+
+		config := map[string]any{}
+
+		err := handler.processFeatures(templateData, config)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(handler.blueprint.TerraformComponents) != 1 {
+			t.Errorf("Expected 1 terraform component, got %d", len(handler.blueprint.TerraformComponents))
+		}
+	})
+
+	t.Run("FailsOnInvalidFeatureCondition", func(t *testing.T) {
+		handler := setup(t)
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+`)
+
+		badFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: bad-feature
+when: invalid syntax ===
+terraform:
+  - path: test/module
+`)
+
+		templateData := map[string][]byte{
+			"blueprint":         baseBlueprint,
+			"features/bad.yaml": badFeature,
+		}
+
+		config := map[string]any{}
+
+		err := handler.processFeatures(templateData, config)
+
+		if err == nil {
+			t.Error("Expected error for invalid condition, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to evaluate feature condition") {
+			t.Errorf("Expected condition evaluation error, got %v", err)
+		}
+	})
+}

@@ -3797,6 +3797,72 @@ func TestConfigHandler_GetContextValues(t *testing.T) {
 			t.Error("expected custom_value to be in merged values")
 		}
 	})
+
+	t.Run("IncludesSchemaDefaults", func(t *testing.T) {
+		handler := setup(t)
+
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("failed to initialize handler: %v", err)
+		}
+
+		h := handler.(*configHandler)
+		h.context = "test"
+		h.loaded = true
+		h.contextValues = map[string]any{
+			"override_key": "override_value",
+		}
+
+		schemaContent := []byte(`{
+			"$schema": "https://schemas.windsorcli.dev/blueprint-config/v1alpha1",
+			"type": "object",
+			"properties": {
+				"default_key": {
+					"type": "string",
+					"default": "default_value"
+				},
+				"override_key": {
+					"type": "string",
+					"default": "default_override"
+				},
+				"nested": {
+					"type": "object",
+					"properties": {
+						"nested_default": {
+							"type": "string",
+							"default": "nested_value"
+						}
+					}
+				}
+			}
+		}`)
+
+		err = handler.LoadSchemaFromBytes(schemaContent)
+		if err != nil {
+			t.Fatalf("failed to load schema: %v", err)
+		}
+
+		values, err := handler.GetContextValues()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		if values["default_key"] != "default_value" {
+			t.Errorf("expected default_key from schema defaults, got %v", values["default_key"])
+		}
+
+		if values["override_key"] != "override_value" {
+			t.Errorf("expected override_key from values.yaml, got %v", values["override_key"])
+		}
+
+		if nested, ok := values["nested"].(map[string]any); ok {
+			if nested["nested_default"] != "nested_value" {
+				t.Errorf("expected nested.nested_default from schema, got %v", nested["nested_default"])
+			}
+		} else {
+			t.Error("expected nested to be a map")
+		}
+	})
 }
 
 func TestConfigHandler_deepMerge(t *testing.T) {

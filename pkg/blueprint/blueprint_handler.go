@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -473,9 +474,40 @@ func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 		return nil, fmt.Errorf("failed to collect templates: %w", err)
 	}
 
+	if schemaData, exists := templateData["schema"]; exists {
+		if err := b.configHandler.LoadSchemaFromBytes(schemaData); err != nil {
+			return nil, fmt.Errorf("failed to load schema: %w", err)
+		}
+	}
+
 	contextValues, err := b.configHandler.GetContextValues()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load context values: %w", err)
+	}
+
+	config := make(map[string]any)
+	for k, v := range contextValues {
+		if k != "substitution" {
+			config[k] = v
+		}
+	}
+
+	if err := b.processFeatures(templateData, config); err != nil {
+		return nil, fmt.Errorf("failed to process features: %w", err)
+	}
+
+	if len(b.blueprint.TerraformComponents) > 0 || len(b.blueprint.Kustomizations) > 0 {
+		contextName := b.configHandler.GetContext()
+		if contextName != "" {
+			b.blueprint.Metadata.Name = contextName
+			b.blueprint.Metadata.Description = fmt.Sprintf("Blueprint for %s context", contextName)
+		}
+
+		composedBlueprintYAML, err := b.shims.YamlMarshal(b.blueprint)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal composed blueprint: %w", err)
+		}
+		templateData["blueprint"] = composedBlueprintYAML
 	}
 
 	if contextValues != nil {
@@ -693,7 +725,7 @@ func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir, templateRoot
 			if err := b.walkAndCollectTemplates(entryPath, templateRoot, templateData); err != nil {
 				return err
 			}
-		} else if strings.HasSuffix(entry.Name(), ".jsonnet") || entry.Name() == "schema.yaml" {
+		} else if strings.HasSuffix(entry.Name(), ".jsonnet") || entry.Name() == "schema.yaml" || entry.Name() == "blueprint.yaml" || (strings.HasPrefix(filepath.Dir(entryPath), filepath.Join(templateRoot, "features")) && strings.HasSuffix(entry.Name(), ".yaml")) {
 			content, err := b.shims.ReadFile(filepath.Clean(entryPath))
 			if err != nil {
 				return fmt.Errorf("failed to read template file %s: %w", entryPath, err)
@@ -701,6 +733,8 @@ func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir, templateRoot
 
 			if entry.Name() == "schema.yaml" {
 				templateData["schema"] = content
+			} else if entry.Name() == "blueprint.yaml" {
+				templateData["blueprint"] = content
 			} else {
 				relPath, err := filepath.Rel(templateRoot, entryPath)
 				if err != nil {
@@ -714,6 +748,129 @@ func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir, templateRoot
 	}
 
 	return nil
+}
+
+// processFeatures loads the base blueprint and merges features that match evaluated conditions.
+// It loads the base blueprint.yaml from templateData, loads features, evaluates their When expressions
+// against the provided config, and merges matching features into the base blueprint. Features and their
+// components are merged in deterministic order by feature name.
+func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, config map[string]any) error {
+	if blueprintData, exists := templateData["blueprint"]; exists {
+		if err := b.processBlueprintData(blueprintData, &b.blueprint); err != nil {
+			return fmt.Errorf("failed to load base blueprint.yaml: %w", err)
+		}
+	}
+
+	features, err := b.loadFeatures(templateData)
+	if err != nil {
+		return fmt.Errorf("failed to load features: %w", err)
+	}
+
+	if len(features) == 0 {
+		return nil
+	}
+
+	evaluator := NewFeatureEvaluator()
+
+	sort.Slice(features, func(i, j int) bool {
+		return features[i].Metadata.Name < features[j].Metadata.Name
+	})
+
+	for _, feature := range features {
+		if feature.When != "" {
+			matches, err := evaluator.EvaluateExpression(feature.When, config)
+			if err != nil {
+				return fmt.Errorf("failed to evaluate feature condition '%s': %w", feature.When, err)
+			}
+			if !matches {
+				continue
+			}
+		}
+
+		for _, terraformComponent := range feature.TerraformComponents {
+			if terraformComponent.When != "" {
+				matches, err := evaluator.EvaluateExpression(terraformComponent.When, config)
+				if err != nil {
+					return fmt.Errorf("failed to evaluate terraform component condition '%s': %w", terraformComponent.When, err)
+				}
+				if !matches {
+					continue
+				}
+			}
+			tempBlueprint := &blueprintv1alpha1.Blueprint{
+				TerraformComponents: []blueprintv1alpha1.TerraformComponent{terraformComponent.TerraformComponent},
+			}
+			if err := b.blueprint.StrategicMerge(tempBlueprint); err != nil {
+				return fmt.Errorf("failed to merge terraform component: %w", err)
+			}
+		}
+
+		for _, kustomization := range feature.Kustomizations {
+			if kustomization.When != "" {
+				matches, err := evaluator.EvaluateExpression(kustomization.When, config)
+				if err != nil {
+					return fmt.Errorf("failed to evaluate kustomization condition '%s': %w", kustomization.When, err)
+				}
+				if !matches {
+					continue
+				}
+			}
+			kustomizationCopy := kustomization.Kustomization
+			tempBlueprint := &blueprintv1alpha1.Blueprint{
+				Kustomizations: []blueprintv1alpha1.Kustomization{kustomizationCopy},
+			}
+			if err := b.blueprint.StrategicMerge(tempBlueprint); err != nil {
+				return fmt.Errorf("failed to merge kustomization: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// loadFeatures extracts and parses feature files from template data.
+// It looks for files with paths starting with "features/" and ending with ".yaml",
+// parses them as Feature objects, and returns a slice of all valid features.
+// Returns an error if any feature file cannot be parsed.
+func (b *BaseBlueprintHandler) loadFeatures(templateData map[string][]byte) ([]blueprintv1alpha1.Feature, error) {
+	var features []blueprintv1alpha1.Feature
+
+	for path, content := range templateData {
+		if strings.HasPrefix(path, "features/") && strings.HasSuffix(path, ".yaml") {
+			feature, err := b.parseFeature(content)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse feature %s: %w", path, err)
+			}
+			features = append(features, *feature)
+		}
+	}
+
+	return features, nil
+}
+
+// parseFeature parses YAML content into a Feature object.
+// It validates that the feature has the correct kind and apiVersion,
+// and ensures required fields are present.
+func (b *BaseBlueprintHandler) parseFeature(content []byte) (*blueprintv1alpha1.Feature, error) {
+	var feature blueprintv1alpha1.Feature
+
+	if err := b.shims.YamlUnmarshal(content, &feature); err != nil {
+		return nil, fmt.Errorf("invalid YAML: %w", err)
+	}
+
+	if feature.Kind != "Feature" {
+		return nil, fmt.Errorf("expected kind 'Feature', got '%s'", feature.Kind)
+	}
+
+	if feature.ApiVersion == "" {
+		return nil, fmt.Errorf("apiVersion is required")
+	}
+
+	if feature.Metadata.Name == "" {
+		return nil, fmt.Errorf("metadata.name is required")
+	}
+
+	return &feature, nil
 }
 
 // resolveComponentSources transforms component source names into fully qualified URLs
