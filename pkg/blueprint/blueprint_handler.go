@@ -65,24 +65,26 @@ var defaultJsonnetTemplate string
 
 type BaseBlueprintHandler struct {
 	BlueprintHandler
-	injector          di.Injector
-	configHandler     config.ConfigHandler
-	shell             shell.Shell
-	kubernetesManager kubernetes.KubernetesManager
-	blueprint         blueprintv1alpha1.Blueprint
-	projectRoot       string
-	shims             *Shims
-	kustomizeData     map[string]any
-	configLoaded      bool
+	injector             di.Injector
+	configHandler        config.ConfigHandler
+	shell                shell.Shell
+	kubernetesManager    kubernetes.KubernetesManager
+	blueprint            blueprintv1alpha1.Blueprint
+	projectRoot          string
+	shims                *Shims
+	kustomizeData        map[string]any
+	featureSubstitutions map[string]map[string]string
+	configLoaded         bool
 }
 
 // NewBlueprintHandler creates a new instance of BaseBlueprintHandler.
 // It initializes the handler with the provided dependency injector.
 func NewBlueprintHandler(injector di.Injector) *BaseBlueprintHandler {
 	return &BaseBlueprintHandler{
-		injector:      injector,
-		shims:         NewShims(),
-		kustomizeData: make(map[string]any),
+		injector:             injector,
+		shims:                NewShims(),
+		kustomizeData:        make(map[string]any),
+		featureSubstitutions: make(map[string]map[string]string),
 	}
 }
 
@@ -491,7 +493,7 @@ func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 
 	config := make(map[string]any)
 	for k, v := range contextValues {
-		if k != "substitution" {
+		if k != "substitutions" {
 			config[k] = v
 		}
 	}
@@ -515,8 +517,8 @@ func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 	}
 
 	if contextValues != nil {
-		if substitutionValues, ok := contextValues["substitution"].(map[string]any); ok && len(substitutionValues) > 0 {
-			if existingValues, exists := templateData["substitution"]; exists {
+		if substitutionValues, ok := contextValues["substitutions"].(map[string]any); ok && len(substitutionValues) > 0 {
+			if existingValues, exists := templateData["substitutions"]; exists {
 				var ociSubstitutionValues map[string]any
 				if err := b.shims.YamlUnmarshal(existingValues, &ociSubstitutionValues); err == nil {
 					substitutionValues = b.deepMergeMaps(ociSubstitutionValues, substitutionValues)
@@ -526,7 +528,7 @@ func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 			if err != nil {
 				return nil, fmt.Errorf("failed to marshal substitution values: %w", err)
 			}
-			templateData["substitution"] = substitutionYAML
+			templateData["substitutions"] = substitutionYAML
 		}
 	}
 
@@ -844,7 +846,22 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 					continue
 				}
 			}
+
 			kustomizationCopy := kustomization.Kustomization
+
+			if len(kustomization.Substitutions) > 0 {
+				if b.featureSubstitutions[kustomizationCopy.Name] == nil {
+					b.featureSubstitutions[kustomizationCopy.Name] = make(map[string]string)
+				}
+
+				evaluatedSubstitutions, err := b.evaluateSubstitutions(kustomization.Substitutions, config)
+				if err != nil {
+					return fmt.Errorf("failed to evaluate substitutions for kustomization '%s': %w", kustomizationCopy.Name, err)
+				}
+
+				maps.Copy(b.featureSubstitutions[kustomizationCopy.Name], evaluatedSubstitutions)
+			}
+
 			tempBlueprint := &blueprintv1alpha1.Blueprint{
 				Kustomizations: []blueprintv1alpha1.Kustomization{kustomizationCopy},
 			}
@@ -1337,15 +1354,7 @@ func (b *BaseBlueprintHandler) toFluxKustomization(k blueprintv1alpha1.Kustomiza
 	var postBuild *kustomizev1.PostBuild
 	substituteFrom := make([]kustomizev1.SubstituteReference, 0)
 
-	substituteFrom = append(substituteFrom, kustomizev1.SubstituteReference{
-		Kind:     "ConfigMap",
-		Name:     "values-common",
-		Optional: false,
-	})
-
-	hasComponentValues := b.hasComponentValues(k.Name)
-
-	if hasComponentValues {
+	if substitutions, hasSubstitutions := b.featureSubstitutions[k.Name]; hasSubstitutions && len(substitutions) > 0 {
 		configMapName := fmt.Sprintf("values-%s", k.Name)
 		substituteFrom = append(substituteFrom, kustomizev1.SubstituteReference{
 			Kind:     "ConfigMap",
@@ -1535,38 +1544,6 @@ func (b *BaseBlueprintHandler) extractTargetFromPatchContent(patchContent, defau
 	return nil
 }
 
-// hasComponentValues determines if component-specific values exist for the specified component name.
-// It inspects both in-memory rendered template data and user-defined disk files, returning true if either contains the component section.
-// User-defined values take precedence in the presence of both sources.
-func (b *BaseBlueprintHandler) hasComponentValues(componentName string) bool {
-	hasTemplateComponent := false
-	if kustomizeValues, exists := b.kustomizeData["kustomize/values"]; exists {
-		if valuesMap, ok := kustomizeValues.(map[string]any); ok {
-			if _, hasComponent := valuesMap[componentName]; hasComponent {
-				hasTemplateComponent = true
-			}
-		}
-	}
-
-	hasUserComponent := false
-	configRoot, err := b.configHandler.GetConfigRoot()
-	if err == nil {
-		valuesPath := filepath.Join(configRoot, "kustomize", "values.yaml")
-		if _, err := b.shims.Stat(valuesPath); err == nil {
-			if data, err := b.shims.ReadFile(valuesPath); err == nil {
-				var values map[string]any
-				if err := b.shims.YamlUnmarshal(data, &values); err == nil {
-					if _, hasComponent := values[componentName]; hasComponent {
-						hasUserComponent = true
-					}
-				}
-			}
-		}
-	}
-
-	return hasTemplateComponent || hasUserComponent
-}
-
 // isOCISource returns true if the provided sourceNameOrURL is an OCI repository reference.
 // It checks if the input is a resolved OCI URL, matches the blueprint's main repository with an OCI URL,
 // or matches any additional source with an OCI URL.
@@ -1625,23 +1602,28 @@ func (b *BaseBlueprintHandler) applyValuesConfigMaps() error {
 		mergedCommonValues["BUILD_ID"] = buildID
 	}
 
+	allValues := make(map[string]any)
+
+	for kustomizationName, substitutions := range b.featureSubstitutions {
+		if len(substitutions) > 0 {
+			if allValues[kustomizationName] == nil {
+				allValues[kustomizationName] = make(map[string]any)
+			}
+			if componentMap, ok := allValues[kustomizationName].(map[string]any); ok {
+				for k, v := range substitutions {
+					componentMap[k] = v
+				}
+			}
+		}
+	}
+
 	contextValues, err := b.configHandler.GetContextValues()
 	if err != nil {
 		return fmt.Errorf("failed to load context values: %w", err)
 	}
 
-	renderedValues := make(map[string]any)
-	if substitutionData, exists := b.kustomizeData["substitution"]; exists {
-		if substitutionMap, ok := substitutionData.(map[string]any); ok {
-			renderedValues = substitutionMap
-		}
-	}
-
-	allValues := make(map[string]any)
-	maps.Copy(allValues, renderedValues)
-
 	if contextValues != nil {
-		if substitutionValues, ok := contextValues["substitution"].(map[string]any); ok {
+		if substitutionValues, ok := contextValues["substitutions"].(map[string]any); ok {
 			allValues = b.deepMergeMaps(allValues, substitutionValues)
 		}
 	}
@@ -1738,6 +1720,35 @@ func (b *BaseBlueprintHandler) createConfigMap(values map[string]any, configMapN
 	}
 
 	return nil
+}
+
+// evaluateSubstitutions evaluates expressions in substitution values and converts all results to strings.
+// Values can use ${} syntax for expressions (e.g., "${dns.domain}") or be literals.
+// All evaluated values are converted to strings as required by Flux postBuild substitution.
+func (b *BaseBlueprintHandler) evaluateSubstitutions(substitutions map[string]string, config map[string]any) (map[string]string, error) {
+	result := make(map[string]string)
+	evaluator := NewFeatureEvaluator()
+
+	for key, value := range substitutions {
+		if strings.Contains(value, "${") {
+			anyMap := map[string]any{key: value}
+			evaluated, err := evaluator.EvaluateDefaults(anyMap, config)
+			if err != nil {
+				return nil, fmt.Errorf("failed to evaluate substitution for key '%s': %w", key, err)
+			}
+
+			evaluatedValue := evaluated[key]
+			if evaluatedValue == nil {
+				result[key] = ""
+			} else {
+				result[key] = fmt.Sprintf("%v", evaluatedValue)
+			}
+		} else {
+			result[key] = value
+		}
+	}
+
+	return result, nil
 }
 
 // flattenValuesToConfigMap recursively flattens nested values into a flat map suitable for ConfigMap data.
