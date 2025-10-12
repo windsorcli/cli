@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/ssh"
+	"github.com/windsorcli/cli/pkg/workstation/ssh"
 )
 
 // The SecureShell is a secure implementation of the Shell interface using SSH.

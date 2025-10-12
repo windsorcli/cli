@@ -10,10 +10,10 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/kubernetes"
-	"github.com/windsorcli/cli/pkg/network"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
-	"github.com/windsorcli/cli/pkg/virt"
+	"github.com/windsorcli/cli/pkg/workstation/network"
+	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
 
 // The DownPipeline is a specialized component that manages the infrastructure teardown phase

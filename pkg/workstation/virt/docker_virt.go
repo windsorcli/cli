@@ -17,7 +17,7 @@ import (
 
 	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/services"
+	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
 // =============================================================================

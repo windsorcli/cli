@@ -7,11 +7,11 @@ import (
 
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
-	"github.com/windsorcli/cli/pkg/network"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
 	"github.com/windsorcli/cli/pkg/tools"
-	"github.com/windsorcli/cli/pkg/virt"
+	"github.com/windsorcli/cli/pkg/workstation/network"
+	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
 
 // The UpPipeline is a specialized component that manages the infrastructure deployment phase

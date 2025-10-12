@@ -15,14 +15,14 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
-	"github.com/windsorcli/cli/pkg/network"
-	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
 	"github.com/windsorcli/cli/pkg/template"
 	"github.com/windsorcli/cli/pkg/terraform"
 	"github.com/windsorcli/cli/pkg/tools"
-	"github.com/windsorcli/cli/pkg/virt"
+	"github.com/windsorcli/cli/pkg/workstation/network"
+	"github.com/windsorcli/cli/pkg/workstation/services"
+	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
 
 // The InitPipeline is a specialized component that manages application initialization functionality.
