@@ -2,6 +2,7 @@ package blueprint
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/expr-lang/expr"
 )
@@ -61,109 +62,102 @@ func (e *FeatureEvaluator) EvaluateExpression(expression string, config map[stri
 	return boolResult, nil
 }
 
-// MatchConditions evaluates whether all conditions in a map match the provided configuration.
-// This provides a simple key-value matching interface for basic feature conditions.
-// Each condition key-value pair must match for the overall result to be true.
-func (e *FeatureEvaluator) MatchConditions(conditions map[string]any, config map[string]any) bool {
-	if len(conditions) == 0 {
-		return true
+// EvaluateValue evaluates an expression and returns the result as any type.
+// Supports arithmetic, string operations, array construction, and nested object access.
+// Returns the evaluated value or an error if evaluation fails.
+func (e *FeatureEvaluator) EvaluateValue(expression string, config map[string]any) (any, error) {
+	if expression == "" {
+		return nil, fmt.Errorf("expression cannot be empty")
 	}
 
-	for key, expectedValue := range conditions {
-		if !e.matchCondition(key, expectedValue, config) {
-			return false
+	program, err := expr.Compile(expression)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compile expression '%s': %w", expression, err)
+	}
+
+	result, err := expr.Run(program, config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to evaluate expression '%s': %w", expression, err)
+	}
+
+	return result, nil
+}
+
+// EvaluateDefaults recursively evaluates default values, treating quoted strings as literals
+// and unquoted values as expressions. Supports nested maps and arrays.
+func (e *FeatureEvaluator) EvaluateDefaults(defaults map[string]any, config map[string]any) (map[string]any, error) {
+	result := make(map[string]any)
+
+	for key, value := range defaults {
+		evaluated, err := e.evaluateDefaultValue(value, config)
+		if err != nil {
+			return nil, fmt.Errorf("failed to evaluate default for key '%s': %w", key, err)
 		}
+		result[key] = evaluated
 	}
 
-	return true
+	return result, nil
 }
 
 // =============================================================================
 // Private Methods
 // =============================================================================
 
-// matchCondition checks if a single condition matches the configuration.
-// Supports dot notation for nested field access and array matching for OR logic.
-func (e *FeatureEvaluator) matchCondition(key string, expectedValue any, config map[string]any) bool {
-	actualValue := e.getNestedValue(key, config)
+// evaluateDefaultValue recursively evaluates a single default value.
+func (e *FeatureEvaluator) evaluateDefaultValue(value any, config map[string]any) (any, error) {
+	switch v := value.(type) {
+	case string:
+		if expr := e.extractExpression(v); expr != "" {
+			return e.EvaluateValue(expr, config)
+		}
+		return v, nil
 
-	if expectedArray, ok := expectedValue.([]any); ok {
-		for _, expected := range expectedArray {
-			if e.valuesEqual(actualValue, expected) {
-				return true
+	case map[string]any:
+		result := make(map[string]any)
+		for k, val := range v {
+			evaluated, err := e.evaluateDefaultValue(val, config)
+			if err != nil {
+				return nil, err
 			}
+			result[k] = evaluated
 		}
-		return false
-	}
+		return result, nil
 
-	return e.valuesEqual(actualValue, expectedValue)
-}
-
-// getNestedValue retrieves a value from a nested map using dot notation.
-// For example, "observability.enabled" retrieves config["observability"]["enabled"].
-func (e *FeatureEvaluator) getNestedValue(key string, config map[string]any) any {
-	keys := e.splitKey(key)
-	current := config
-
-	for i, k := range keys {
-		if current == nil {
-			return nil
-		}
-
-		value, exists := current[k]
-		if !exists {
-			return nil
-		}
-
-		if i == len(keys)-1 {
-			return value
-		}
-
-		if nextMap, ok := value.(map[string]any); ok {
-			current = nextMap
-		} else {
-			return nil
-		}
-	}
-
-	return nil
-}
-
-// splitKey splits a dot-notation key into its component parts.
-func (e *FeatureEvaluator) splitKey(key string) []string {
-	if key == "" {
-		return []string{}
-	}
-
-	var parts []string
-	current := ""
-
-	for _, char := range key {
-		if char == '.' {
-			if current != "" {
-				parts = append(parts, current)
-				current = ""
+	case []any:
+		result := make([]any, len(v))
+		for i, val := range v {
+			evaluated, err := e.evaluateDefaultValue(val, config)
+			if err != nil {
+				return nil, err
 			}
-		} else {
-			current += string(char)
+			result[i] = evaluated
 		}
-	}
+		return result, nil
 
-	if current != "" {
-		parts = append(parts, current)
+	default:
+		return value, nil
 	}
-
-	return parts
 }
 
-// valuesEqual compares two values for equality, handling type conversion.
-func (e *FeatureEvaluator) valuesEqual(actual, expected any) bool {
-	if actual == nil && expected == nil {
-		return true
-	}
-	if actual == nil || expected == nil {
-		return false
+// extractExpression checks if a string contains an expression in ${} syntax.
+// If found, returns the expression content. Otherwise returns empty string.
+func (e *FeatureEvaluator) extractExpression(s string) string {
+	if !strings.Contains(s, "${") {
+		return ""
 	}
 
-	return fmt.Sprintf("%v", actual) == fmt.Sprintf("%v", expected)
+	start := strings.Index(s, "${")
+	end := strings.Index(s[start:], "}")
+
+	if end == -1 {
+		return ""
+	}
+
+	end += start
+
+	if start == 0 && end == len(s)-1 {
+		return s[start+2 : end]
+	}
+
+	return ""
 }

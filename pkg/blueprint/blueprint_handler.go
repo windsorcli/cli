@@ -797,8 +797,33 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 					continue
 				}
 			}
+
+			component := terraformComponent.TerraformComponent
+
+			if len(terraformComponent.Inputs) > 0 {
+				evaluatedInputs, err := evaluator.EvaluateDefaults(terraformComponent.Inputs, config)
+				if err != nil {
+					return fmt.Errorf("failed to evaluate inputs for component '%s': %w", component.Path, err)
+				}
+
+				filteredInputs := make(map[string]any)
+				for k, v := range evaluatedInputs {
+					if v != nil {
+						filteredInputs[k] = v
+					}
+				}
+
+				if len(filteredInputs) > 0 {
+					if component.Values == nil {
+						component.Values = make(map[string]any)
+					}
+
+					component.Values = b.deepMergeMaps(component.Values, filteredInputs)
+				}
+			}
+
 			tempBlueprint := &blueprintv1alpha1.Blueprint{
-				TerraformComponents: []blueprintv1alpha1.TerraformComponent{terraformComponent.TerraformComponent},
+				TerraformComponents: []blueprintv1alpha1.TerraformComponent{component},
 			}
 			if err := b.blueprint.StrategicMerge(tempBlueprint); err != nil {
 				return fmt.Errorf("failed to merge terraform component: %w", err)

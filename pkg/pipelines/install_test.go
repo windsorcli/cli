@@ -571,7 +571,7 @@ func TestInstallPipeline_Execute(t *testing.T) {
 		}
 	})
 
-	t.Run("SkipsGeneratorWhenNoRenderedData", func(t *testing.T) {
+	t.Run("CallsGeneratorsEvenWithNoRenderedData", func(t *testing.T) {
 		// Given a pipeline with no rendered data
 		pipeline, mocks := setup(t)
 
@@ -615,9 +615,9 @@ func TestInstallPipeline_Execute(t *testing.T) {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// And generators should not be called
-		if generatorCalled {
-			t.Error("Expected generators to not be called when no rendered data")
+		// And generators should be called even with empty rendered data
+		if !generatorCalled {
+			t.Error("Expected generators to be called even when no rendered data")
 		}
 	})
 
