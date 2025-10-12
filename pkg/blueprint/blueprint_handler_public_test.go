@@ -65,7 +65,7 @@ properties:
         type: string
         default: "auto"
     additionalProperties: true
-  substitution:
+  substitutions:
     type: object
     properties:
       common:
@@ -241,7 +241,7 @@ func setupShims(t *testing.T) *Shims {
 			return []byte(mockSchemaContent()), nil
 		case strings.Contains(name, "contexts") && strings.Contains(name, "values.yaml"):
 			// Default context values for tests
-			return []byte(`substitution:
+			return []byte(`substitutions:
   common:
     external_domain: test.local`), nil
 		default:
@@ -2584,7 +2584,7 @@ properties:
       enabled:
         type: boolean
         default: true
-  substitution:
+  substitutions:
     type: object
     properties:
       common:
@@ -2612,7 +2612,7 @@ additionalProperties: true`), nil
 				return []byte(`external_domain: context.test
 context_only:
   enabled: true
-substitution:
+substitutions:
   common:
     external_domain: context.test
   context_only:
@@ -2635,7 +2635,7 @@ substitution:
 				"context_only": map[string]any{
 					"enabled": true,
 				},
-				"substitution": map[string]any{
+				"substitutions": map[string]any{
 					"common": map[string]any{
 						"external_domain": "context.test",
 						"registry_url":    "registry.local.test",
@@ -2668,10 +2668,10 @@ substitution:
 
 		// Values validation is now done at the schema level, not in templateData
 
-		// Check for substitution (substitution section for ConfigMaps)
-		substitutionValuesData, exists := result["substitution"]
+		// Check for substitutions (substitutions section for ConfigMaps)
+		substitutionValuesData, exists := result["substitutions"]
 		if !exists {
-			t.Fatal("Expected 'substitution' key to exist in result")
+			t.Fatal("Expected 'substitutions' key to exist in result")
 		}
 
 		var substitutionValues map[string]any
@@ -2731,7 +2731,7 @@ substitution:
 				return map[string]any{
 					"external_domain": "context.test",
 					"context_only":    "context_value",
-					"substitution": map[string]any{
+					"substitutions": map[string]any{
 						"common": map[string]any{
 							"registry_url": "registry.context.test",
 						},
@@ -2785,7 +2785,7 @@ properties:
   template_only:
     type: string
     default: "template_value"
-  substitution:
+  substitutions:
     type: object
     properties:
       common:
@@ -2803,7 +2803,7 @@ additionalProperties: true`), nil
 					return []byte(`
 external_domain: context.test
 context_only: context_value
-substitution:
+substitutions:
   common:
     registry_url: registry.context.test
   csi:
@@ -2845,15 +2845,15 @@ substitution:
 
 		// Values validation is now handled through schema processing
 
-		// Check that substitution values are merged and included
-		substitutionData, exists := result["substitution"]
+		// Check that substitutions values are merged and included
+		substitutionData, exists := result["substitutions"]
 		if !exists {
-			t.Fatal("Expected 'substitution' key to exist in result")
+			t.Fatal("Expected 'substitutions' key to exist in result")
 		}
 
 		var substitution map[string]any
 		if err := yaml.Unmarshal(substitutionData, &substitution); err != nil {
-			t.Fatalf("Failed to unmarshal substitution: %v", err)
+			t.Fatalf("Failed to unmarshal substitutions: %v", err)
 		}
 
 		// Check common section merging
@@ -2906,7 +2906,7 @@ substitution:
 				return map[string]any{
 					"external_domain": "context.test",
 					"context_only":    "context_value",
-					"substitution": map[string]any{
+					"substitutions": map[string]any{
 						"common": map[string]any{
 							"registry_url": "registry.context.test",
 							"context_sub":  "context_sub_value",
@@ -2943,7 +2943,7 @@ substitution:
 					return []byte(`
 external_domain: context.test
 context_only: context_value
-substitution:
+substitutions:
   common:
     registry_url: registry.context.test
     context_sub: context_sub_value
@@ -2973,15 +2973,15 @@ substitution:
 		// This test doesn't include schema.yaml in the mock, so no schema key expected
 		// Values processing is handled through the config context now
 
-		// Check substitution values
-		substitutionData, exists := result["substitution"]
+		// Check substitutions values
+		substitutionData, exists := result["substitutions"]
 		if !exists {
-			t.Fatal("Expected 'substitution' key to exist in result")
+			t.Fatal("Expected 'substitutions' key to exist in result")
 		}
 
 		var substitution map[string]any
 		if err := yaml.Unmarshal(substitutionData, &substitution); err != nil {
-			t.Fatalf("Failed to unmarshal substitution: %v", err)
+			t.Fatalf("Failed to unmarshal substitutions: %v", err)
 		}
 
 		common, exists := substitution["common"].(map[string]any)
@@ -4111,7 +4111,7 @@ terraform:
 		}
 		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
-				"substitution": map[string]any{
+				"substitutions": map[string]any{
 					"domain": "example.com",
 					"port":   8080,
 				},
@@ -4139,14 +4139,14 @@ terraform:
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		substitution, exists := templateData["substitution"]
+		substitutions, exists := templateData["substitutions"]
 		if !exists {
-			t.Fatal("Expected substitution in templateData")
+			t.Fatal("Expected substitutions in templateData")
 		}
 
 		var subValues map[string]any
-		if err := yaml.Unmarshal(substitution, &subValues); err != nil {
-			t.Fatalf("Failed to unmarshal substitution: %v", err)
+		if err := yaml.Unmarshal(substitutions, &subValues); err != nil {
+			t.Fatalf("Failed to unmarshal substitutions: %v", err)
 		}
 
 		if subValues["domain"] != "example.com" {

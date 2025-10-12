@@ -52,6 +52,13 @@ type ConditionalKustomization struct {
 	// When is a CEL expression that determines if this kustomization should be applied.
 	// If empty, the kustomization is always applied when the parent feature matches.
 	When string `yaml:"when,omitempty"`
+
+	// Substitutions contains substitution values for post-build variable replacement.
+	// These values are collected and stored in ConfigMaps for use by Flux postBuild substitution.
+	// Values can be expressions using ${} syntax (e.g., "${dns.domain}") or literals (e.g., "example.com").
+	// Values with ${} are evaluated as expressions, plain values are passed through as literals.
+	// All values are converted to strings as required by Flux variable substitution.
+	Substitutions map[string]string `yaml:"substitutions,omitempty"`
 }
 
 // DeepCopy creates a deep copy of the Feature object.
@@ -92,9 +99,13 @@ func (f *Feature) DeepCopy() *Feature {
 
 	kustomizationsCopy := make([]ConditionalKustomization, len(f.Kustomizations))
 	for i, kustomization := range f.Kustomizations {
+		substitutionsCopy := make(map[string]string, len(kustomization.Substitutions))
+		maps.Copy(substitutionsCopy, kustomization.Substitutions)
+
 		kustomizationsCopy[i] = ConditionalKustomization{
 			Kustomization: *kustomization.Kustomization.DeepCopy(),
 			When:          kustomization.When,
+			Substitutions: substitutionsCopy,
 		}
 	}
 
@@ -143,8 +154,12 @@ func (c *ConditionalKustomization) DeepCopy() *ConditionalKustomization {
 		return nil
 	}
 
+	substitutionsCopy := make(map[string]string, len(c.Substitutions))
+	maps.Copy(substitutionsCopy, c.Substitutions)
+
 	return &ConditionalKustomization{
 		Kustomization: *c.Kustomization.DeepCopy(),
 		When:          c.When,
+		Substitutions: substitutionsCopy,
 	}
 }

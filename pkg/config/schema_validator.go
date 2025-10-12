@@ -69,6 +69,8 @@ func (sv *SchemaValidator) LoadSchemaFromBytes(schemaContent []byte) error {
 		return fmt.Errorf("invalid schema structure: %w", err)
 	}
 
+	sv.injectSubstitutionSchema(&schema)
+
 	sv.Schema = schema
 	return nil
 }
@@ -395,6 +397,36 @@ func (sv *SchemaValidator) getValueType(value any) string {
 // valuesEqual compares two values for equality
 func (sv *SchemaValidator) valuesEqual(a, b any) bool {
 	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
+}
+
+// injectSubstitutionSchema injects the substitutions property schema into the provided schema.
+// The substitutions property is always allowed regardless of the schema's additionalProperties setting.
+// This enables users to define kustomization substitutions in values.yaml without schema conflicts.
+func (sv *SchemaValidator) injectSubstitutionSchema(schema *map[string]any) {
+	if schema == nil {
+		return
+	}
+
+	properties, ok := (*schema)["properties"]
+	if !ok {
+		properties = make(map[string]any)
+		(*schema)["properties"] = properties
+	}
+
+	propertiesMap, ok := properties.(map[string]any)
+	if !ok {
+		return
+	}
+
+	propertiesMap["substitutions"] = map[string]any{
+		"type": "object",
+		"additionalProperties": map[string]any{
+			"type": "object",
+			"additionalProperties": map[string]any{
+				"type": "string",
+			},
+		},
+	}
 }
 
 // validateSchemaStructure checks that the provided schema map conforms to Windsor or JSON Schema requirements.

@@ -45,6 +45,9 @@ func TestFeatureDeepCopy(t *testing.T) {
 						DependsOn:  []string{"pki-base"},
 					},
 					When: "ingress.enabled == true",
+					Substitutions: map[string]string{
+						"host": "example.com",
+					},
 				},
 			},
 		}
@@ -78,6 +81,11 @@ func TestFeatureDeepCopy(t *testing.T) {
 		original.Kustomizations[0].Components[0] = "modified"
 		if copy.Kustomizations[0].Components[0] == "modified" {
 			t.Error("Deep copy failed: kustomization components slice was not copied")
+		}
+
+		original.Kustomizations[0].Substitutions["host"] = "modified"
+		if copy.Kustomizations[0].Substitutions["host"] == "modified" {
+			t.Error("Deep copy failed: kustomization substitutions map was not copied")
 		}
 	})
 }
@@ -146,6 +154,10 @@ func TestConditionalKustomizationDeepCopy(t *testing.T) {
 				Interval:   interval,
 			},
 			When: "ingress.enabled == true",
+			Substitutions: map[string]string{
+				"host":     "example.com",
+				"replicas": "3",
+			},
 		}
 
 		copy := original.DeepCopy()
@@ -166,6 +178,11 @@ func TestConditionalKustomizationDeepCopy(t *testing.T) {
 		original.DependsOn[0] = "modified"
 		if copy.DependsOn[0] == "modified" {
 			t.Error("Deep copy failed: dependsOn slice was not copied")
+		}
+
+		original.Substitutions["host"] = "modified"
+		if copy.Substitutions["host"] == "modified" {
+			t.Error("Deep copy failed: substitutions map was not copied")
 		}
 	})
 }

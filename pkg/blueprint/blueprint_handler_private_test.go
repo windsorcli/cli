@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -164,7 +163,7 @@ func TestBaseBlueprintHandler_applyValuesConfigMaps(t *testing.T) {
 		}
 		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
-				"substitution": map[string]any{
+				"substitutions": map[string]any{
 					"common": map[string]any{
 						"domain": "example.com",
 					},
@@ -196,14 +195,14 @@ func TestBaseBlueprintHandler_applyValuesConfigMaps(t *testing.T) {
 		// And mock file read for context values
 		handler.shims.ReadFile = func(name string) ([]byte, error) {
 			if name == filepath.Join(projectRoot, "contexts", "_template", "values.yaml") {
-				return []byte(`substitution:
+				return []byte(`substitutions:
   common:
     domain: template.com
   ingress:
     host: template.example.com`), nil
 			}
 			if name == filepath.Join(configRoot, "values.yaml") {
-				return []byte(`substitution:
+				return []byte(`substitutions:
   common:
     domain: example.com
   ingress:
@@ -250,6 +249,215 @@ func TestBaseBlueprintHandler_applyValuesConfigMaps(t *testing.T) {
 		}
 		if !ingressFound {
 			t.Error("expected values-ingress ConfigMap to be applied")
+		}
+	})
+
+	t.Run("SuccessWithKustomizationSubstitutions", func(t *testing.T) {
+		handler := setup(t)
+
+		configRoot := "/test/config"
+		projectRoot := "/test/project"
+
+		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return configRoot, nil
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "dns.domain":
+				return "example.com"
+			case "network.loadbalancer_ips.start":
+				return "192.168.1.100"
+			case "network.loadbalancer_ips.end":
+				return "192.168.1.200"
+			case "docker.registry_url":
+				return "registry.example.com"
+			case "id":
+				return "test-id"
+			default:
+				return ""
+			}
+		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "test-context"
+		}
+		mockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+			if key == "cluster.workers.volumes" {
+				return []string{"/host:/container"}
+			}
+			return []string{}
+		}
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+
+		mockShell := handler.shell.(*shell.MockShell)
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == filepath.Join(projectRoot, ".windsor", ".build-id") {
+				return nil, os.ErrNotExist
+			}
+			return nil, os.ErrNotExist
+		}
+
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "ingress",
+					Path: "ingress",
+				},
+				{
+					Name: "monitoring",
+					Path: "monitoring",
+				},
+			},
+		}
+
+		handler.featureSubstitutions = map[string]map[string]string{
+			"ingress": {
+				"host":     "ingress.example.com",
+				"replicas": "3",
+			},
+			"monitoring": {
+				"retention": "30d",
+				"enabled":   "true",
+			},
+		}
+
+		var appliedConfigMaps []string
+		var configMapData = make(map[string]map[string]string)
+		mockKubernetesManager := handler.kubernetesManager.(*kubernetes.MockKubernetesManager)
+		mockKubernetesManager.ApplyConfigMapFunc = func(name, namespace string, data map[string]string) error {
+			appliedConfigMaps = append(appliedConfigMaps, name)
+			configMapData[name] = data
+			return nil
+		}
+
+		err := handler.applyValuesConfigMaps()
+
+		if err != nil {
+			t.Fatalf("expected applyValuesConfigMaps to succeed, got: %v", err)
+		}
+
+		if len(appliedConfigMaps) != 3 {
+			t.Errorf("expected 3 ConfigMaps to be applied (common, ingress, monitoring), got %d: %v", len(appliedConfigMaps), appliedConfigMaps)
+		}
+
+		ingressFound := false
+		monitoringFound := false
+		for _, name := range appliedConfigMaps {
+			if name == "values-ingress" {
+				ingressFound = true
+			}
+			if name == "values-monitoring" {
+				monitoringFound = true
+			}
+		}
+
+		if !ingressFound {
+			t.Error("expected values-ingress ConfigMap to be applied")
+		}
+		if !monitoringFound {
+			t.Error("expected values-monitoring ConfigMap to be applied")
+		}
+
+		if data, ok := configMapData["values-ingress"]; ok {
+			if data["host"] != "ingress.example.com" {
+				t.Errorf("expected ingress host to be 'ingress.example.com', got '%s'", data["host"])
+			}
+			if data["replicas"] != "3" {
+				t.Errorf("expected ingress replicas to be '3', got '%s'", data["replicas"])
+			}
+		}
+
+		if data, ok := configMapData["values-monitoring"]; ok {
+			if data["retention"] != "30d" {
+				t.Errorf("expected monitoring retention to be '30d', got '%s'", data["retention"])
+			}
+			if data["enabled"] != "true" {
+				t.Errorf("expected monitoring enabled to be 'true', got '%s'", data["enabled"])
+			}
+		}
+	})
+
+	t.Run("EvaluatesKustomizationSubstitutionExpressions", func(t *testing.T) {
+		handler := setup(t)
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+kustomize:
+  - name: ingress
+    path: ingress
+`)
+
+		featureWithSubstitutions := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: ingress-config
+when: ingress.enabled == true
+kustomize:
+  - name: ingress
+    path: ingress
+    substitutions:
+      host: "${dns.domain}"
+      replicas: "${cluster.workers.count}"
+      url: "https://${dns.domain}"
+      literal: "my-literal-value"
+`)
+
+		templateData := map[string][]byte{
+			"blueprint":                 baseBlueprint,
+			"features/ingress-cfg.yaml": featureWithSubstitutions,
+		}
+
+		config := map[string]any{
+			"ingress": map[string]any{
+				"enabled": true,
+			},
+			"dns": map[string]any{
+				"domain": "example.com",
+			},
+			"cluster": map[string]any{
+				"workers": map[string]any{
+					"count": 3,
+				},
+			},
+		}
+
+		err := handler.processFeatures(templateData, config)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if len(handler.featureSubstitutions) != 1 {
+			t.Fatalf("Expected 1 kustomization with substitutions, got %d", len(handler.featureSubstitutions))
+		}
+
+		ingressSubs, ok := handler.featureSubstitutions["ingress"]
+		if !ok {
+			t.Fatal("Expected ingress substitutions to be present")
+		}
+
+		if ingressSubs["host"] != "example.com" {
+			t.Errorf("Expected host to be 'example.com', got '%s'", ingressSubs["host"])
+		}
+
+		if ingressSubs["replicas"] != "3" {
+			t.Errorf("Expected replicas to be '3', got '%s'", ingressSubs["replicas"])
+		}
+
+		if ingressSubs["url"] != "https://example.com" {
+			t.Errorf("Expected url to be 'https://example.com', got '%s'", ingressSubs["url"])
+		}
+
+		if ingressSubs["literal"] != "my-literal-value" {
+			t.Errorf("Expected literal to be 'my-literal-value', got '%s'", ingressSubs["literal"])
 		}
 	})
 
@@ -455,176 +663,6 @@ ingress:
 			t.Errorf("expected error about common ConfigMap creation, got: %v", err)
 		}
 	})
-
-	t.Run("SuccessWithRenderedSubstitutionValues", func(t *testing.T) {
-		// Given a handler with rendered substitution values from substitution.jsonnet
-		handler := setup(t)
-
-		// Set up rendered substitution data (simulating substitution.jsonnet output)
-		handler.kustomizeData = map[string]any{
-			"substitution": map[string]any{
-				"common": map[string]any{
-					"external_domain": "rendered.test",
-					"registry_url":    "registry.rendered.test",
-				},
-				"app_config": map[string]any{
-					"replicas": 2,
-				},
-			},
-		}
-
-		// Mock config handler
-		projectRoot := filepath.Join("test", "project")
-		configRoot := filepath.Join("test", "config")
-		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return configRoot, nil
-		}
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			switch key {
-			case "dns.domain":
-				return "example.com"
-			case "network.loadbalancer_ips.start":
-				return "192.168.1.100"
-			case "network.loadbalancer_ips.end":
-				return "192.168.1.200"
-			case "docker.registry_url":
-				return "registry.example.com"
-			case "id":
-				return "test-id"
-			default:
-				return ""
-			}
-		}
-		mockConfigHandler.GetContextFunc = func() string {
-			return "test-context"
-		}
-		mockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
-			return []string{}
-		}
-		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{
-				"substitution": map[string]any{
-					"common": map[string]any{
-						"external_domain": "context.test",
-						"context_key":     "context_value",
-					},
-					"app_config": map[string]any{
-						"replicas": 5,
-					},
-				},
-			}, nil
-		}
-
-		// Mock shell for project root
-		mockShell := handler.shell.(*shell.MockShell)
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
-		}
-
-		// Mock context values that override some rendered values
-		handler.shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == filepath.Join(projectRoot, "contexts", "_template", "schema.yaml") {
-				return &mockFileInfo{name: "schema.yaml"}, nil
-			}
-			if name == filepath.Join(configRoot, "values.yaml") {
-				return &mockFileInfo{name: "values.yaml"}, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		handler.shims.ReadFile = func(name string) ([]byte, error) {
-			if name == filepath.Join(projectRoot, "contexts", "_template", "schema.yaml") {
-				return []byte(`$schema: https://json-schema.org/draft/2020-12/schema
-type: object
-properties:
-  substitution:
-    type: object
-    properties:
-      common:
-        type: object
-        properties:
-          template_key:
-            type: string
-            default: "template_value"
-        additionalProperties: true
-        default:
-          template_key: "template_value"
-    additionalProperties: true
-required: []
-additionalProperties: true`), nil
-			}
-			if name == filepath.Join(configRoot, "values.yaml") {
-				return []byte(`substitution:
-  common:
-    external_domain: context.test
-    context_key: context_value
-  app_config:
-    replicas: 5`), nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// Mock Kubernetes manager to capture applied ConfigMaps
-		var appliedConfigMaps []string
-		var configMapData map[string]map[string]string = make(map[string]map[string]string)
-		mockKubernetesManager := handler.kubernetesManager.(*kubernetes.MockKubernetesManager)
-		mockKubernetesManager.ApplyConfigMapFunc = func(name, namespace string, data map[string]string) error {
-			appliedConfigMaps = append(appliedConfigMaps, name)
-			configMapData[name] = data
-			return nil
-		}
-
-		// When applying values ConfigMaps
-		err := handler.applyValuesConfigMaps()
-
-		// Then it should succeed
-		if err != nil {
-			t.Fatalf("expected applyValuesConfigMaps to succeed, got: %v", err)
-		}
-
-		// And it should apply ConfigMaps for common and app_config
-		if len(appliedConfigMaps) != 2 {
-			t.Errorf("expected 2 ConfigMaps to be applied, got %d: %v", len(appliedConfigMaps), appliedConfigMaps)
-		}
-
-		// Check common ConfigMap - should have rendered values merged with context overrides and system values
-		if commonData, exists := configMapData["values-common"]; exists {
-			// Context values should override rendered values
-			if commonData["external_domain"] != "context.test" {
-				t.Errorf("expected external_domain to be 'context.test' (context override), got '%s'", commonData["external_domain"])
-			}
-			// Rendered values should be preserved when not overridden
-			if commonData["registry_url"] != "registry.rendered.test" {
-				t.Errorf("expected registry_url to be 'registry.rendered.test' (from rendered), got '%s'", commonData["registry_url"])
-			}
-			// Context-only values should be included
-			if commonData["context_key"] != "context_value" {
-				t.Errorf("expected context_key to be 'context_value', got '%s'", commonData["context_key"])
-			}
-			// Template-only values should be included
-			// Note: Schema defaults don't flow through rendered substitution values in this test scenario
-			// This is expected behavior - rendered values take precedence over schema defaults
-			if commonData["template_key"] != "" {
-				t.Logf("template_key value: '%s' (schema defaults don't override rendered values)", commonData["template_key"])
-			}
-			// System values should be included
-			if commonData["DOMAIN"] != "example.com" {
-				t.Errorf("expected DOMAIN to be 'example.com', got '%s'", commonData["DOMAIN"])
-			}
-		} else {
-			t.Error("expected values-common ConfigMap to be applied")
-		}
-
-		// Check app_config ConfigMap - should have context override of rendered value
-		if appConfigData, exists := configMapData["values-app_config"]; exists {
-			if appConfigData["replicas"] != "5" {
-				t.Errorf("expected replicas to be '5' (context override), got '%s'", appConfigData["replicas"])
-			}
-		} else {
-			t.Error("expected values-app_config ConfigMap to be applied")
-		}
-	})
 }
 
 // =============================================================================
@@ -644,8 +682,13 @@ func TestBaseBlueprintHandler_toFluxKustomization(t *testing.T) {
 	}
 
 	t.Run("WithGlobalValuesConfigMap", func(t *testing.T) {
-		// Given a handler
+		// Given a handler with feature substitutions
 		handler := setup(t)
+		handler.featureSubstitutions = map[string]map[string]string{
+			"test-kustomization": {
+				"domain": "example.com",
+			},
+		}
 
 		// And initialize the blueprint
 		handler.blueprint = blueprintv1alpha1.Blueprint{
@@ -655,20 +698,6 @@ func TestBaseBlueprintHandler_toFluxKustomization(t *testing.T) {
 			Repository: blueprintv1alpha1.Repository{
 				Url: "https://github.com/test/repo.git",
 			},
-		}
-
-		// And mock config root
-		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
-		}
-
-		// And mock that global config.yaml exists
-		handler.shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == filepath.Join("/test/config", "kustomize", "config.yaml") {
-				return &mockFileInfo{name: "config.yaml"}, nil
-			}
-			return nil, os.ErrNotExist
 		}
 
 		// And a kustomization
@@ -691,29 +720,34 @@ func TestBaseBlueprintHandler_toFluxKustomization(t *testing.T) {
 			t.Fatal("expected PostBuild to be set")
 		}
 
-		// And it should have the blueprint ConfigMap reference
+		// And it should have the component ConfigMap reference
 		if len(result.Spec.PostBuild.SubstituteFrom) < 1 {
 			t.Fatal("expected at least 1 SubstituteFrom reference")
 		}
 
-		commonValuesFound := false
+		componentValuesFound := false
 		for _, ref := range result.Spec.PostBuild.SubstituteFrom {
-			if ref.Kind == "ConfigMap" && ref.Name == "values-common" {
-				commonValuesFound = true
+			if ref.Kind == "ConfigMap" && ref.Name == "values-test-kustomization" {
+				componentValuesFound = true
 				if ref.Optional != false {
-					t.Errorf("expected values-common ConfigMap to be Optional=false, got %v", ref.Optional)
+					t.Errorf("expected values-test-kustomization ConfigMap to be Optional=false, got %v", ref.Optional)
 				}
 			}
 		}
 
-		if !commonValuesFound {
-			t.Error("expected values-common ConfigMap reference to be present")
+		if !componentValuesFound {
+			t.Error("expected values-test-kustomization ConfigMap reference to be present")
 		}
 	})
 
 	t.Run("WithComponentValuesConfigMap", func(t *testing.T) {
-		// Given a handler
+		// Given a handler with feature substitutions
 		handler := setup(t)
+		handler.featureSubstitutions = map[string]map[string]string{
+			"ingress": {
+				"domain": "example.com",
+			},
+		}
 
 		// And initialize the blueprint
 		handler.blueprint = blueprintv1alpha1.Blueprint{
@@ -723,39 +757,6 @@ func TestBaseBlueprintHandler_toFluxKustomization(t *testing.T) {
 			Repository: blueprintv1alpha1.Repository{
 				Url: "https://github.com/test/repo.git",
 			},
-		}
-
-		// And mock config root
-		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
-		}
-
-		// And mock that global values.yaml exists
-		handler.shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == filepath.Join("/test/config", "kustomize", "values.yaml") {
-				return &mockFileInfo{name: "values.yaml"}, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// And mock the values.yaml content with ingress component
-		handler.shims.ReadFile = func(name string) ([]byte, error) {
-			if name == filepath.Join("/test/config", "kustomize", "values.yaml") {
-				return []byte(`ingress:
-  key: value`), nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		handler.shims.YamlUnmarshal = func(data []byte, v interface{}) error {
-			values := map[string]any{
-				"ingress": map[string]any{
-					"key": "value",
-				},
-			}
-			reflect.ValueOf(v).Elem().Set(reflect.ValueOf(values))
-			return nil
 		}
 
 		// And a kustomization with component name
@@ -867,14 +868,10 @@ func TestBaseBlueprintHandler_toFluxKustomization(t *testing.T) {
 			t.Errorf("expected VAR2 to be 'value2', got '%s'", result.Spec.PostBuild.Substitute["VAR2"])
 		}
 
-		// And it should have the correct SubstituteFrom references
-		commonValuesFound := false
+		// And it should preserve the existing SubstituteFrom reference
 		existingConfigFound := false
 
 		for _, ref := range result.Spec.PostBuild.SubstituteFrom {
-			if ref.Kind == "ConfigMap" && ref.Name == "values-common" {
-				commonValuesFound = true
-			}
 			if ref.Kind == "ConfigMap" && ref.Name == "existing-config" {
 				existingConfigFound = true
 				if ref.Optional != true {
@@ -883,16 +880,20 @@ func TestBaseBlueprintHandler_toFluxKustomization(t *testing.T) {
 			}
 		}
 
-		if !commonValuesFound {
-			t.Error("expected values-common ConfigMap reference to be present")
-		}
 		if !existingConfigFound {
 			t.Error("expected existing-config ConfigMap reference to be preserved")
+		}
+
+		// And it should not add a component ConfigMap without feature substitutions
+		for _, ref := range result.Spec.PostBuild.SubstituteFrom {
+			if ref.Kind == "ConfigMap" && ref.Name == "values-test-kustomization" {
+				t.Error("did not expect values-test-kustomization ConfigMap reference without feature substitutions")
+			}
 		}
 	})
 
 	t.Run("WithoutValuesConfigMaps", func(t *testing.T) {
-		// Given a handler
+		// Given a handler without feature substitutions
 		handler := setup(t)
 
 		// And initialize the blueprint
@@ -903,17 +904,6 @@ func TestBaseBlueprintHandler_toFluxKustomization(t *testing.T) {
 			Repository: blueprintv1alpha1.Repository{
 				Url: "https://github.com/test/repo.git",
 			},
-		}
-
-		// And mock config root
-		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
-		}
-
-		// And mock that no config.yaml files exist
-		handler.shims.Stat = func(name string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
 		}
 
 		// And a kustomization
@@ -931,30 +921,14 @@ func TestBaseBlueprintHandler_toFluxKustomization(t *testing.T) {
 		// When converting to Flux kustomization
 		result := handler.toFluxKustomization(kustomization, "test-namespace")
 
-		// Then it should have PostBuild with only common ConfigMap reference
-		if result.Spec.PostBuild == nil {
-			t.Fatal("expected PostBuild to be set")
-		}
-
-		// And it should only have the common ConfigMap reference
-		if len(result.Spec.PostBuild.SubstituteFrom) != 1 {
-			t.Errorf("expected 1 SubstituteFrom reference, got %d", len(result.Spec.PostBuild.SubstituteFrom))
-		}
-
-		ref := result.Spec.PostBuild.SubstituteFrom[0]
-		if ref.Kind != "ConfigMap" {
-			t.Errorf("expected Kind to be 'ConfigMap', got '%s'", ref.Kind)
-		}
-		if ref.Name != "values-common" {
-			t.Errorf("expected Name to be 'values-common', got '%s'", ref.Name)
-		}
-		if ref.Optional != false {
-			t.Errorf("expected Optional to be false, got %v", ref.Optional)
+		// Then it should not have PostBuild since no substitutions
+		if result.Spec.PostBuild != nil && len(result.Spec.PostBuild.SubstituteFrom) > 0 {
+			t.Errorf("expected no SubstituteFrom references without feature substitutions, got %d", len(result.Spec.PostBuild.SubstituteFrom))
 		}
 	})
 
 	t.Run("ConfigRootError", func(t *testing.T) {
-		// Given a handler
+		// Given a handler without feature substitutions
 		handler := setup(t)
 
 		// And initialize the blueprint
@@ -965,12 +939,6 @@ func TestBaseBlueprintHandler_toFluxKustomization(t *testing.T) {
 			Repository: blueprintv1alpha1.Repository{
 				Url: "https://github.com/test/repo.git",
 			},
-		}
-
-		// And mock config root that fails
-		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "", os.ErrNotExist
 		}
 
 		// And a kustomization
@@ -988,22 +956,9 @@ func TestBaseBlueprintHandler_toFluxKustomization(t *testing.T) {
 		// When converting to Flux kustomization
 		result := handler.toFluxKustomization(kustomization, "test-namespace")
 
-		// Then it should still have PostBuild with only blueprint ConfigMap reference
-		if result.Spec.PostBuild == nil {
-			t.Fatal("expected PostBuild to be set")
-		}
-
-		// And it should only have the blueprint ConfigMap reference (no values ConfigMaps due to error)
-		if len(result.Spec.PostBuild.SubstituteFrom) != 1 {
-			t.Errorf("expected 1 SubstituteFrom reference, got %d", len(result.Spec.PostBuild.SubstituteFrom))
-		}
-
-		ref := result.Spec.PostBuild.SubstituteFrom[0]
-		if ref.Kind != "ConfigMap" {
-			t.Errorf("expected Kind to be 'ConfigMap', got '%s'", ref.Kind)
-		}
-		if ref.Name != "values-common" {
-			t.Errorf("expected Name to be 'values-common', got '%s'", ref.Name)
+		// Then it should not have PostBuild since no substitutions
+		if result.Spec.PostBuild != nil && len(result.Spec.PostBuild.SubstituteFrom) > 0 {
+			t.Errorf("expected no SubstituteFrom references without feature substitutions, got %d", len(result.Spec.PostBuild.SubstituteFrom))
 		}
 	})
 
@@ -1810,173 +1765,6 @@ kind: ConfigMap
 		// Then target should be nil
 		if target != nil {
 			t.Error("Expected target to be nil when no valid targets")
-		}
-	})
-}
-
-func TestBaseBlueprintHandler_hasComponentValues(t *testing.T) {
-	setup := func(t *testing.T) *BaseBlueprintHandler {
-		t.Helper()
-		injector := di.NewInjector()
-		handler := NewBlueprintHandler(injector)
-		handler.shims = NewShims()
-		handler.configHandler = config.NewMockConfigHandler()
-		return handler
-	}
-
-	t.Run("TemplateComponentExists", func(t *testing.T) {
-		// Given handler with component in template data
-		handler := setup(t)
-		handler.kustomizeData = map[string]any{
-			"kustomize/values": map[string]any{
-				"test-component": map[string]any{
-					"key": "value",
-				},
-			},
-		}
-		// When checking if component values exist
-		exists := handler.hasComponentValues("test-component")
-		// Then it should return true
-		if !exists {
-			t.Error("Expected component to exist in template data")
-		}
-	})
-
-	t.Run("UserComponentExists", func(t *testing.T) {
-		// Given handler with component in user file
-		handler := setup(t)
-		handler.configHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
-		}
-		handler.shims.Stat = func(name string) (os.FileInfo, error) {
-			return &mockFileInfo{name: "config.yaml", isDir: false}, nil
-		}
-		handler.shims.ReadFile = func(name string) ([]byte, error) {
-			return []byte(`test-component:
-  key: value`), nil
-		}
-		handler.shims.YamlUnmarshal = func(data []byte, v any) error {
-			values := v.(*map[string]any)
-			*values = map[string]any{
-				"test-component": map[string]any{
-					"key": "value",
-				},
-			}
-			return nil
-		}
-		// When checking if component values exist
-		exists := handler.hasComponentValues("test-component")
-		// Then it should return true
-		if !exists {
-			t.Error("Expected component to exist in user file")
-		}
-	})
-
-	t.Run("BothTemplateAndUserExist", func(t *testing.T) {
-		// Given handler with component in both template and user data
-		handler := setup(t)
-		handler.kustomizeData = map[string]any{
-			"kustomize/values": map[string]any{
-				"test-component": map[string]any{
-					"template-key": "template-value",
-				},
-			},
-		}
-		handler.configHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
-		}
-		handler.shims.Stat = func(name string) (os.FileInfo, error) {
-			return &mockFileInfo{name: "config.yaml", isDir: false}, nil
-		}
-		handler.shims.ReadFile = func(name string) ([]byte, error) {
-			return []byte(`test-component:
-  user-key: user-value`), nil
-		}
-		handler.shims.YamlUnmarshal = func(data []byte, v any) error {
-			values := v.(*map[string]any)
-			*values = map[string]any{
-				"test-component": map[string]any{
-					"user-key": "user-value",
-				},
-			}
-			return nil
-		}
-		// When checking if component values exist
-		exists := handler.hasComponentValues("test-component")
-		// Then it should return true
-		if !exists {
-			t.Error("Expected component to exist in both sources")
-		}
-	})
-
-	t.Run("NoComponentExists", func(t *testing.T) {
-		// Given handler with no component data
-		handler := setup(t)
-		handler.configHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
-		}
-		handler.shims.Stat = func(name string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-		// When checking if component values exist
-		exists := handler.hasComponentValues("test-component")
-		// Then it should return false
-		if exists {
-			t.Error("Expected component to not exist")
-		}
-	})
-
-	t.Run("ConfigRootError", func(t *testing.T) {
-		// Given handler with config root error
-		handler := setup(t)
-		handler.configHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
-			return "", fmt.Errorf("config root error")
-		}
-		// When checking if component values exist
-		exists := handler.hasComponentValues("test-component")
-		// Then it should return false
-		if exists {
-			t.Error("Expected component to not exist when config root fails")
-		}
-	})
-
-	t.Run("FileNotExists", func(t *testing.T) {
-		// Given handler with file not existing
-		handler := setup(t)
-		handler.configHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
-		}
-		handler.shims.Stat = func(name string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-		// When checking if component values exist
-		exists := handler.hasComponentValues("test-component")
-		// Then it should return false
-		if exists {
-			t.Error("Expected component to not exist when file doesn't exist")
-		}
-	})
-
-	t.Run("InvalidValuesFile", func(t *testing.T) {
-		// Given handler with invalid values file
-		handler := setup(t)
-		handler.configHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
-		}
-		handler.shims.Stat = func(name string) (os.FileInfo, error) {
-			return &mockFileInfo{name: "config.yaml", isDir: false}, nil
-		}
-		handler.shims.ReadFile = func(name string) ([]byte, error) {
-			return []byte("invalid yaml"), nil
-		}
-		handler.shims.YamlUnmarshal = func(data []byte, v any) error {
-			return fmt.Errorf("invalid yaml")
-		}
-		// When checking if component values exist
-		exists := handler.hasComponentValues("test-component")
-		// Then it should return false
-		if exists {
-			t.Error("Expected component to not exist when values file is invalid")
 		}
 	})
 }
