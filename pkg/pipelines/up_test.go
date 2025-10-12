@@ -7,11 +7,11 @@ import (
 
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/env"
-	"github.com/windsorcli/cli/pkg/network"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
 	"github.com/windsorcli/cli/pkg/tools"
-	"github.com/windsorcli/cli/pkg/virt"
+	"github.com/windsorcli/cli/pkg/workstation/network"
+	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
 
 // =============================================================================
