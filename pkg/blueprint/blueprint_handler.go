@@ -198,6 +198,10 @@ func (b *BaseBlueprintHandler) Write(overwrite ...bool) error {
 		return fmt.Errorf("error creating directory: %w", err)
 	}
 
+	if err := b.setRepositoryDefaults(); err != nil {
+		return fmt.Errorf("error setting repository defaults: %w", err)
+	}
+
 	cleanedBlueprint := b.blueprint.DeepCopy()
 	for i := range cleanedBlueprint.TerraformComponents {
 		cleanedBlueprint.TerraformComponents[i].Values = map[string]any{}
@@ -1807,4 +1811,49 @@ func (b *BaseBlueprintHandler) deepMergeMaps(base, overlay map[string]any) map[s
 		result[k] = overlayValue
 	}
 	return result
+}
+
+// setRepositoryDefaults sets the blueprint repository URL if not already specified.
+// Uses development URL if dev flag is enabled, otherwise falls back to git remote origin URL.
+func (b *BaseBlueprintHandler) setRepositoryDefaults() error {
+	if b.blueprint.Repository.Url != "" {
+		return nil
+	}
+
+	if b.configHandler.GetBool("dev") {
+		url := b.getDevelopmentRepositoryURL()
+		if url != "" {
+			b.blueprint.Repository.Url = url
+			return nil
+		}
+	}
+
+	gitURL, err := b.shell.ExecSilent("git", "config", "--get", "remote.origin.url")
+	if err == nil && gitURL != "" {
+		b.blueprint.Repository.Url = strings.TrimSpace(gitURL)
+		return nil
+	}
+
+	return nil
+}
+
+// getDevelopmentRepositoryURL generates a development repository URL from configuration.
+// Returns URL in format: http://git.<domain>/git/<folder>
+func (b *BaseBlueprintHandler) getDevelopmentRepositoryURL() string {
+	domain := b.configHandler.GetString("dns.domain")
+	if domain == "" {
+		return ""
+	}
+
+	projectRoot, err := b.shell.GetProjectRoot()
+	if err != nil {
+		return ""
+	}
+
+	folder := b.shims.FilepathBase(projectRoot)
+	if folder == "" {
+		return ""
+	}
+
+	return fmt.Sprintf("http://git.%s/git/%s", domain, folder)
 }
