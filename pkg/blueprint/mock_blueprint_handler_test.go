@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
@@ -670,6 +671,38 @@ func TestMockBlueprintHandler_SetRenderedKustomizeData(t *testing.T) {
 		// Then the function should be called with correct complex data
 		if !reflect.DeepEqual(receivedData, expectedData) {
 			t.Errorf("Expected data = %v, got = %v", expectedData, receivedData)
+		}
+	})
+}
+
+func TestMockBlueprintHandler_LoadData(t *testing.T) {
+	t.Run("WithFuncSet", func(t *testing.T) {
+		// Given a mock blueprint handler with LoadDataFunc set
+		handler := NewMockBlueprintHandler(di.NewInjector())
+		expectedError := fmt.Errorf("mock load data error")
+		handler.LoadDataFunc = func(data map[string]any, ociInfo ...*artifact.OCIArtifactInfo) error {
+			return expectedError
+		}
+
+		// When LoadData is called
+		err := handler.LoadData(map[string]any{})
+
+		// Then it should return the expected error
+		if err != expectedError {
+			t.Errorf("expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a mock blueprint handler without LoadDataFunc set
+		handler := NewMockBlueprintHandler(di.NewInjector())
+
+		// When LoadData is called
+		err := handler.LoadData(map[string]any{})
+
+		// Then it should return nil
+		if err != nil {
+			t.Errorf("expected nil, got %v", err)
 		}
 	})
 }
