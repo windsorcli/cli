@@ -116,11 +116,9 @@ func (p *InstallPipeline) Execute(ctx context.Context) error {
 	}
 
 	// Phase 3: Generate kustomize data using generators
-	if len(renderedData) > 0 {
-		for _, generator := range p.generators {
-			if err := generator.Generate(renderedData, false); err != nil {
-				return fmt.Errorf("failed to generate from template data: %w", err)
-			}
+	for _, generator := range p.generators {
+		if err := generator.Generate(renderedData, false); err != nil {
+			return fmt.Errorf("failed to generate from template data: %w", err)
 		}
 	}
 

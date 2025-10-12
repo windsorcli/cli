@@ -3491,4 +3491,145 @@ terraform:
 			t.Errorf("Expected condition evaluation error, got %v", err)
 		}
 	})
+
+	t.Run("EvaluatesAndMergesInputs", func(t *testing.T) {
+		handler := setup(t)
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+`)
+
+		featureWithInputs := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: aws-eks
+when: provider == "aws"
+terraform:
+  - path: cluster/aws-eks
+    values:
+      cluster_name: my-cluster
+    inputs:
+      node_groups:
+        default:
+          instance_types:
+            - ${cluster.workers.instance_type}
+          min_size: ${cluster.workers.count}
+          max_size: ${cluster.workers.count + 2}
+          desired_size: ${cluster.workers.count}
+      region: us-east-1
+      literal_string: my-literal-value
+`)
+
+		templateData := map[string][]byte{
+			"blueprint":         baseBlueprint,
+			"features/eks.yaml": featureWithInputs,
+		}
+
+		config := map[string]any{
+			"provider": "aws",
+			"cluster": map[string]any{
+				"workers": map[string]any{
+					"instance_type": "t3.medium",
+					"count":         3,
+				},
+			},
+		}
+
+		err := handler.processFeatures(templateData, config)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(handler.blueprint.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 terraform component, got %d", len(handler.blueprint.TerraformComponents))
+		}
+
+		component := handler.blueprint.TerraformComponents[0]
+
+		if component.Values["cluster_name"] != "my-cluster" {
+			t.Errorf("Expected cluster_name to be 'my-cluster', got %v", component.Values["cluster_name"])
+		}
+
+		nodeGroups, ok := component.Values["node_groups"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected node_groups to be a map, got %T", component.Values["node_groups"])
+		}
+
+		defaultGroup, ok := nodeGroups["default"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected default group to be a map, got %T", nodeGroups["default"])
+		}
+
+		instanceTypes, ok := defaultGroup["instance_types"].([]any)
+		if !ok {
+			t.Fatalf("Expected instance_types to be an array, got %T", defaultGroup["instance_types"])
+		}
+		if len(instanceTypes) != 1 || instanceTypes[0] != "t3.medium" {
+			t.Errorf("Expected instance_types to be ['t3.medium'], got %v", instanceTypes)
+		}
+
+		if defaultGroup["min_size"] != 3 {
+			t.Errorf("Expected min_size to be 3, got %v", defaultGroup["min_size"])
+		}
+
+		if defaultGroup["max_size"] != 5 {
+			t.Errorf("Expected max_size to be 5 (3+2), got %v", defaultGroup["max_size"])
+		}
+
+		if defaultGroup["desired_size"] != 3 {
+			t.Errorf("Expected desired_size to be 3, got %v", defaultGroup["desired_size"])
+		}
+
+		if component.Values["region"] != "us-east-1" {
+			t.Errorf("Expected region to be literal 'us-east-1', got %v", component.Values["region"])
+		}
+
+		if component.Values["literal_string"] != "my-literal-value" {
+			t.Errorf("Expected literal_string to be 'my-literal-value', got %v", component.Values["literal_string"])
+		}
+	})
+
+	t.Run("FailsOnInvalidExpressions", func(t *testing.T) {
+		handler := setup(t)
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+`)
+
+		featureWithBadExpression := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: test
+terraform:
+  - path: test/module
+    inputs:
+      bad_path: ${cluster.workrs.count}
+`)
+
+		templateData := map[string][]byte{
+			"blueprint":          baseBlueprint,
+			"features/test.yaml": featureWithBadExpression,
+		}
+
+		config := map[string]any{
+			"cluster": map[string]any{
+				"workers": map[string]any{
+					"count": 3,
+				},
+			},
+		}
+
+		err := handler.processFeatures(templateData, config)
+
+		if err == nil {
+			t.Fatal("Expected error for invalid expression, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to evaluate inputs") {
+			t.Errorf("Expected inputs evaluation error, got %v", err)
+		}
+	})
 }

@@ -38,6 +38,11 @@ type ConditionalTerraformComponent struct {
 	// When is a CEL expression that determines if this terraform component should be applied.
 	// If empty, the component is always applied when the parent feature matches.
 	When string `yaml:"when,omitempty"`
+
+	// Inputs contains input values for the terraform module.
+	// Values can be expressions using ${} syntax (e.g., "${cluster.workers.count + 2}") or literals (e.g., "us-east-1").
+	// Values with ${} are evaluated as expressions, plain values are passed through as literals.
+	Inputs map[string]any `yaml:"inputs,omitempty"`
 }
 
 // ConditionalKustomization extends Kustomization with conditional logic support.
@@ -65,6 +70,9 @@ func (f *Feature) DeepCopy() *Feature {
 		valuesCopy := make(map[string]any, len(component.Values))
 		maps.Copy(valuesCopy, component.Values)
 
+		inputsCopy := make(map[string]any, len(component.Inputs))
+		maps.Copy(inputsCopy, component.Inputs)
+
 		dependsOnCopy := append([]string{}, component.DependsOn...)
 
 		terraformComponentsCopy[i] = ConditionalTerraformComponent{
@@ -77,7 +85,8 @@ func (f *Feature) DeepCopy() *Feature {
 				Destroy:     component.Destroy,
 				Parallelism: component.Parallelism,
 			},
-			When: component.When,
+			When:   component.When,
+			Inputs: inputsCopy,
 		}
 	}
 
@@ -108,6 +117,9 @@ func (c *ConditionalTerraformComponent) DeepCopy() *ConditionalTerraformComponen
 	valuesCopy := make(map[string]any, len(c.Values))
 	maps.Copy(valuesCopy, c.Values)
 
+	inputsCopy := make(map[string]any, len(c.Inputs))
+	maps.Copy(inputsCopy, c.Inputs)
+
 	dependsOnCopy := append([]string{}, c.DependsOn...)
 
 	return &ConditionalTerraformComponent{
@@ -120,7 +132,8 @@ func (c *ConditionalTerraformComponent) DeepCopy() *ConditionalTerraformComponen
 			Destroy:     c.Destroy,
 			Parallelism: c.Parallelism,
 		},
-		When: c.When,
+		When:   c.When,
+		Inputs: inputsCopy,
 	}
 }
 
