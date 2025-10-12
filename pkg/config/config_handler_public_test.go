@@ -1224,8 +1224,7 @@ contexts:
 		}
 	})
 
-	t.Run("SkipsSavingContextValuesWhenNotLoaded", func(t *testing.T) {
-		// Given a configHandler with contextValues but not loaded
+	t.Run("SavesContextValuesEvenWhenNotLoaded", func(t *testing.T) {
 		handler, mocks := setup(t)
 
 		tempDir := t.TempDir()
@@ -1233,24 +1232,54 @@ contexts:
 			return tempDir, nil
 		}
 
-		handler.(*configHandler).context = "test-context"
+		contextValue := "test-context"
+		handler.(*configHandler).shims.WriteFile = os.WriteFile
+		handler.(*configHandler).shims.MkdirAll = os.MkdirAll
+		handler.(*configHandler).shims.Stat = os.Stat
+		handler.(*configHandler).shims.Getenv = func(key string) string {
+			if key == "WINDSOR_CONTEXT" {
+				return contextValue
+			}
+			return ""
+		}
+		handler.(*configHandler).shims.Setenv = func(key, value string) error {
+			if key == "WINDSOR_CONTEXT" {
+				contextValue = value
+			}
+			return nil
+		}
+
+		if err := handler.SetContext("test-context"); err != nil {
+			t.Fatalf("Failed to set context: %v", err)
+		}
+
 		handler.(*configHandler).loaded = false
 		handler.(*configHandler).contextValues = map[string]any{
 			"test_key": "test_value",
 		}
 
-		// When SaveConfig is called
 		err := handler.SaveConfig()
 
-		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// And values.yaml should NOT be created
 		valuesPath := filepath.Join(tempDir, "contexts", "test-context", "values.yaml")
-		if _, err := os.Stat(valuesPath); !os.IsNotExist(err) {
-			t.Errorf("values.yaml should not have been created when not loaded")
+
+		if _, err := os.Stat(valuesPath); os.IsNotExist(err) {
+			contextDir := filepath.Join(tempDir, "contexts", "test-context")
+			files, _ := os.ReadDir(contextDir)
+			t.Logf("Files in context directory: %v", files)
+			t.Errorf("values.yaml should have been created even when not loaded")
+		}
+
+		content, err := os.ReadFile(valuesPath)
+		if err != nil {
+			t.Fatalf("Failed to read values.yaml: %v", err)
+		}
+
+		if !strings.Contains(string(content), "test_value") {
+			t.Errorf("values.yaml should contain 'test_value', got: %s", string(content))
 		}
 	})
 

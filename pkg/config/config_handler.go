@@ -317,7 +317,7 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 		}
 	}
 
-	if c.loaded && c.contextValues != nil && len(c.contextValues) > 0 {
+	if len(c.contextValues) > 0 {
 		if err := c.saveContextValues(); err != nil {
 			return fmt.Errorf("error saving values.yaml: %w", err)
 		}
