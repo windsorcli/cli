@@ -1839,7 +1839,12 @@ func (b *BaseBlueprintHandler) setRepositoryDefaults() error {
 		return nil
 	}
 
-	if b.configHandler.GetBool("dev") {
+	devMode := b.configHandler.GetBool("dev")
+	if !devMode {
+		devMode = b.checkDevModeInValuesYaml()
+	}
+
+	if devMode {
 		url := b.getDevelopmentRepositoryURL()
 		if url != "" {
 			b.blueprint.Repository.Url = url

@@ -3616,6 +3616,66 @@ func TestBaseBlueprintHandler_setRepositoryDefaults(t *testing.T) {
 			t.Errorf("Expected URL to be %s, got %s", expectedURL, handler.blueprint.Repository.Url)
 		}
 	})
+
+	t.Run("UsesDevelopmentURLWhenDevInValuesYaml", func(t *testing.T) {
+		handler := setup(t)
+
+		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.domain" && len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return "/test/contexts/local", nil
+		}
+
+		mockShell := handler.shell.(*shell.MockShell)
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/test/project/core", nil
+		}
+
+		handler.shims.FilepathBase = func(path string) string {
+			if path == "/test/project/core" {
+				return "core"
+			}
+			return ""
+		}
+
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
+			if name == "/test/contexts/local/values.yaml" {
+				return []byte("dev: true\n"), nil
+			}
+			return nil, fmt.Errorf("file not found")
+		}
+
+		handler.shims.YamlUnmarshal = func(data []byte, v interface{}) error {
+			if string(data) == "dev: true\n" {
+				if m, ok := v.(*map[string]any); ok {
+					if *m == nil {
+						*m = make(map[string]any)
+					}
+					(*m)["dev"] = true
+					return nil
+				}
+			}
+			return fmt.Errorf("unexpected data")
+		}
+
+		err := handler.setRepositoryDefaults()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		expectedURL := "http://git.test/git/core"
+		if handler.blueprint.Repository.Url != expectedURL {
+			t.Errorf("Expected URL to be %s, got %s", expectedURL, handler.blueprint.Repository.Url)
+		}
+	})
 }
 
 func TestBaseBlueprintHandler_normalizeGitURL(t *testing.T) {
@@ -3671,6 +3731,154 @@ func TestBaseBlueprintHandler_normalizeGitURL(t *testing.T) {
 
 		if result != expected {
 			t.Errorf("Expected %s, got %s", expected, result)
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_checkDevModeInValuesYaml(t *testing.T) {
+	setup := func(t *testing.T) *BaseBlueprintHandler {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		handler.configHandler = mocks.ConfigHandler
+		return handler
+	}
+
+	t.Run("ReturnsTrueWhenDevTrueInValuesYaml", func(t *testing.T) {
+		handler := setup(t)
+
+		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return "/test/contexts/local", nil
+		}
+
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
+			if name == "/test/contexts/local/values.yaml" {
+				return []byte("dev: true\n"), nil
+			}
+			return nil, fmt.Errorf("file not found")
+		}
+
+		handler.shims.YamlUnmarshal = func(data []byte, v interface{}) error {
+			if string(data) == "dev: true\n" {
+				if m, ok := v.(*map[string]any); ok {
+					if *m == nil {
+						*m = make(map[string]any)
+					}
+					(*m)["dev"] = true
+					return nil
+				}
+			}
+			return fmt.Errorf("unexpected data")
+		}
+
+		result := handler.checkDevModeInValuesYaml()
+
+		if !result {
+			t.Errorf("Expected true, got false")
+		}
+	})
+
+	t.Run("ReturnsFalseWhenDevFalseInValuesYaml", func(t *testing.T) {
+		handler := setup(t)
+
+		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return "/test/contexts/local", nil
+		}
+
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
+			if name == "/test/contexts/local/values.yaml" {
+				return []byte("dev: false\n"), nil
+			}
+			return nil, fmt.Errorf("file not found")
+		}
+
+		handler.shims.YamlUnmarshal = func(data []byte, v interface{}) error {
+			if string(data) == "dev: false\n" {
+				if m, ok := v.(*map[string]any); ok {
+					if *m == nil {
+						*m = make(map[string]any)
+					}
+					(*m)["dev"] = false
+					return nil
+				}
+			}
+			return fmt.Errorf("unexpected data")
+		}
+
+		result := handler.checkDevModeInValuesYaml()
+
+		if result {
+			t.Errorf("Expected false, got true")
+		}
+	})
+
+	t.Run("ReturnsFalseWhenValuesYamlNotFound", func(t *testing.T) {
+		handler := setup(t)
+
+		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return "/test/contexts/local", nil
+		}
+
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
+			return nil, fmt.Errorf("file not found")
+		}
+
+		result := handler.checkDevModeInValuesYaml()
+
+		if result {
+			t.Errorf("Expected false when file not found, got true")
+		}
+	})
+
+	t.Run("ReturnsFalseWhenDevNotInValuesYaml", func(t *testing.T) {
+		handler := setup(t)
+
+		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return "/test/contexts/local", nil
+		}
+
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
+			if name == "/test/contexts/local/values.yaml" {
+				return []byte("other_key: value\n"), nil
+			}
+			return nil, fmt.Errorf("file not found")
+		}
+
+		handler.shims.YamlUnmarshal = func(data []byte, v interface{}) error {
+			if m, ok := v.(*map[string]any); ok {
+				if *m == nil {
+					*m = make(map[string]any)
+				}
+				(*m)["other_key"] = "value"
+				return nil
+			}
+			return fmt.Errorf("unexpected data")
+		}
+
+		result := handler.checkDevModeInValuesYaml()
+
+		if result {
+			t.Errorf("Expected false when dev key not present, got true")
+		}
+	})
+
+	t.Run("ReturnsFalseWhenGetConfigRootFails", func(t *testing.T) {
+		handler := setup(t)
+
+		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("config root error")
+		}
+
+		result := handler.checkDevModeInValuesYaml()
+
+		if result {
+			t.Errorf("Expected false when GetConfigRoot fails, got true")
 		}
 	})
 }
