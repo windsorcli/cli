@@ -146,6 +146,10 @@ func (b *BaseBlueprintHandler) LoadConfig() error {
 		return err
 	}
 
+	if err := b.setRepositoryDefaults(); err != nil {
+		return fmt.Errorf("error setting repository defaults: %w", err)
+	}
+
 	b.configLoaded = true
 	return nil
 }
@@ -167,6 +171,10 @@ func (b *BaseBlueprintHandler) LoadData(data map[string]any, ociInfo ...*artifac
 
 	if err := b.processBlueprintData(yamlData, &b.blueprint, ociInfo...); err != nil {
 		return err
+	}
+
+	if err := b.setRepositoryDefaults(); err != nil {
+		return fmt.Errorf("error setting repository defaults: %w", err)
 	}
 
 	return nil
@@ -1841,17 +1849,28 @@ func (b *BaseBlueprintHandler) setRepositoryDefaults() error {
 
 	gitURL, err := b.shell.ExecSilent("git", "config", "--get", "remote.origin.url")
 	if err == nil && gitURL != "" {
-		b.blueprint.Repository.Url = strings.TrimSpace(gitURL)
+		b.blueprint.Repository.Url = b.normalizeGitURL(strings.TrimSpace(gitURL))
 		return nil
 	}
 
 	return nil
 }
 
+// normalizeGitURL normalizes git repository URLs by prepending https:// when needed.
+// Preserves SSH URLs (git@...), http://, and https:// URLs as-is.
+func (b *BaseBlueprintHandler) normalizeGitURL(url string) string {
+	if strings.HasPrefix(url, "git@") ||
+		strings.HasPrefix(url, "http://") ||
+		strings.HasPrefix(url, "https://") {
+		return url
+	}
+	return "https://" + url
+}
+
 // getDevelopmentRepositoryURL generates a development repository URL from configuration.
 // Returns URL in format: http://git.<domain>/git/<folder>
 func (b *BaseBlueprintHandler) getDevelopmentRepositoryURL() string {
-	domain := b.configHandler.GetString("dns.domain")
+	domain := b.configHandler.GetString("dns.domain", "test")
 	if domain == "" {
 		return ""
 	}
