@@ -913,6 +913,81 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 			t.Errorf("expected normalized path, got %q", ks[0].Path)
 		}
 	})
+
+	t.Run("SetsRepositoryDefaultsInDevMode", func(t *testing.T) {
+		handler, mocks := setup(t)
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "dev" {
+				return true
+			}
+			return false
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.domain" && len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "dev" {
+				return true
+			}
+			return false
+		}
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return "/tmp/test-config", nil
+		}
+
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/Users/test/project/cli", nil
+		}
+
+		handler.shims.FilepathBase = func(path string) string {
+			if path == "/Users/test/project/cli" {
+				return "cli"
+			}
+			return ""
+		}
+
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.HasSuffix(name, ".yaml") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		blueprintWithoutURL := `kind: Blueprint
+apiVersion: v1alpha1
+metadata:
+  name: test-blueprint
+  description: A test blueprint
+repository:
+  ref:
+    branch: main
+sources: []
+terraform: []
+kustomize: []`
+
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
+			if strings.HasSuffix(name, ".yaml") {
+				return []byte(blueprintWithoutURL), nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		err := handler.LoadConfig()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		expectedURL := "http://git.test/git/cli"
+		if handler.blueprint.Repository.Url != expectedURL {
+			t.Errorf("Expected repository URL to be %s, got %s", expectedURL, handler.blueprint.Repository.Url)
+		}
+	})
 }
 
 func TestBlueprintHandler_Install(t *testing.T) {

@@ -3511,6 +3511,33 @@ func TestBaseBlueprintHandler_setRepositoryDefaults(t *testing.T) {
 		}
 	})
 
+	t.Run("PreservesSSHGitRemoteOrigin", func(t *testing.T) {
+		handler := setup(t)
+
+		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+
+		mockShell := handler.shell.(*shell.MockShell)
+		mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "git" && len(args) == 3 && args[0] == "config" && args[2] == "remote.origin.url" {
+				return "git@github.com:windsorcli/core.git\n", nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+
+		err := handler.setRepositoryDefaults()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		expectedURL := "git@github.com:windsorcli/core.git"
+		if handler.blueprint.Repository.Url != expectedURL {
+			t.Errorf("Expected URL to be %s, got %s", expectedURL, handler.blueprint.Repository.Url)
+		}
+	})
+
 	t.Run("HandlesGitRemoteOriginError", func(t *testing.T) {
 		handler := setup(t)
 
@@ -3589,6 +3616,64 @@ func TestBaseBlueprintHandler_setRepositoryDefaults(t *testing.T) {
 			t.Errorf("Expected URL to be %s, got %s", expectedURL, handler.blueprint.Repository.Url)
 		}
 	})
+
+}
+
+func TestBaseBlueprintHandler_normalizeGitURL(t *testing.T) {
+	setup := func(t *testing.T) *BaseBlueprintHandler {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		return handler
+	}
+
+	t.Run("PreservesSSHURL", func(t *testing.T) {
+		handler := setup(t)
+
+		input := "git@github.com:windsorcli/core.git"
+		expected := "git@github.com:windsorcli/core.git"
+		result := handler.normalizeGitURL(input)
+
+		if result != expected {
+			t.Errorf("Expected %s, got %s", expected, result)
+		}
+	})
+
+	t.Run("PreservesHTTPSURL", func(t *testing.T) {
+		handler := setup(t)
+
+		input := "https://github.com/windsorcli/core.git"
+		expected := "https://github.com/windsorcli/core.git"
+		result := handler.normalizeGitURL(input)
+
+		if result != expected {
+			t.Errorf("Expected %s, got %s", expected, result)
+		}
+	})
+
+	t.Run("PreservesHTTPURL", func(t *testing.T) {
+		handler := setup(t)
+
+		input := "http://git.test/git/core"
+		expected := "http://git.test/git/core"
+		result := handler.normalizeGitURL(input)
+
+		if result != expected {
+			t.Errorf("Expected %s, got %s", expected, result)
+		}
+	})
+
+	t.Run("PrependsHTTPSToPlainURL", func(t *testing.T) {
+		handler := setup(t)
+
+		input := "github.com/windsorcli/core.git"
+		expected := "https://github.com/windsorcli/core.git"
+		result := handler.normalizeGitURL(input)
+
+		if result != expected {
+			t.Errorf("Expected %s, got %s", expected, result)
+		}
+	})
 }
 
 func TestBaseBlueprintHandler_getDevelopmentRepositoryURL(t *testing.T) {
@@ -3630,11 +3715,14 @@ func TestBaseBlueprintHandler_getDevelopmentRepositoryURL(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsEmptyWhenDomainNotSet", func(t *testing.T) {
+	t.Run("UsesDefaultDomainWhenNotSet", func(t *testing.T) {
 		handler := setup(t)
 
 		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.domain" && len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
 			return ""
 		}
 
@@ -3643,10 +3731,15 @@ func TestBaseBlueprintHandler_getDevelopmentRepositoryURL(t *testing.T) {
 			return "/home/user/projects/my-project", nil
 		}
 
+		handler.shims.FilepathBase = func(path string) string {
+			return "my-project"
+		}
+
 		url := handler.getDevelopmentRepositoryURL()
 
-		if url != "" {
-			t.Errorf("Expected empty URL when domain not set, got %s", url)
+		expectedURL := "http://git.test/git/my-project"
+		if url != expectedURL {
+			t.Errorf("Expected URL to be %s, got %s", expectedURL, url)
 		}
 	})
 
