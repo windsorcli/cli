@@ -173,10 +173,6 @@ func (b *BaseBlueprintHandler) LoadData(data map[string]any, ociInfo ...*artifac
 		return err
 	}
 
-	if err := b.setRepositoryDefaults(); err != nil {
-		return fmt.Errorf("error setting repository defaults: %w", err)
-	}
-
 	return nil
 }
 

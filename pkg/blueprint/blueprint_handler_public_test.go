@@ -930,6 +930,15 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 			}
 			return ""
 		}
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "dev" {
+				return true
+			}
+			return false
+		}
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return "/tmp/test-config", nil
+		}
 
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/Users/test/project/cli", nil
