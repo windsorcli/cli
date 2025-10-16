@@ -1069,7 +1069,9 @@ func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *blue
 		Repository:          newBlueprint.Repository,
 	}
 
-	blueprint.Merge(completeBlueprint)
+	if err := blueprint.StrategicMerge(completeBlueprint); err != nil {
+		return fmt.Errorf("failed to strategic merge blueprint: %w", err)
+	}
 	return nil
 }
 

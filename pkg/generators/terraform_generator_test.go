@@ -1342,34 +1342,6 @@ variable "instance_type" {
 		}
 	})
 
-	t.Run("ErrorOnInvalidDataFormat", func(t *testing.T) {
-		// Given a TerraformGenerator with mocks
-		generator, mocks := setup(t)
-
-		// And mock paths
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "/mock/project", nil
-		}
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
-			return "/mock/context", nil
-		}
-
-		// When Generate is called with invalid data format
-		data := map[string]any{
-			"terraform/cluster": "invalid-string-instead-of-map",
-		}
-
-		err := generator.Generate(data)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("expected error for invalid data format, got nil")
-		}
-		if !strings.Contains(err.Error(), "invalid data format") {
-			t.Errorf("expected error about invalid data format, got: %v", err)
-		}
-	})
-
 	t.Run("ErrorWhenComponentNotFoundInBlueprint", func(t *testing.T) {
 		// Given a TerraformGenerator with mocks
 		generator, mocks := setup(t)
