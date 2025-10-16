@@ -287,112 +287,6 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 	}
 }
 
-// Merge integrates another Blueprint into the current one.
-func (b *Blueprint) Merge(overlay *Blueprint) {
-	if overlay == nil {
-		return
-	}
-
-	if overlay.Kind != "" {
-		b.Kind = overlay.Kind
-	}
-	if overlay.ApiVersion != "" {
-		b.ApiVersion = overlay.ApiVersion
-	}
-
-	if overlay.Metadata.Name != "" {
-		b.Metadata.Name = overlay.Metadata.Name
-	}
-	if overlay.Metadata.Description != "" {
-		b.Metadata.Description = overlay.Metadata.Description
-	}
-
-	if overlay.Repository.Url != "" {
-		b.Repository.Url = overlay.Repository.Url
-	}
-
-	// Merge the Reference type inline, prioritizing the first non-empty field
-	if overlay.Repository.Ref.Commit != "" {
-		b.Repository.Ref.Commit = overlay.Repository.Ref.Commit
-	} else if overlay.Repository.Ref.Name != "" {
-		b.Repository.Ref.Name = overlay.Repository.Ref.Name
-	} else if overlay.Repository.Ref.SemVer != "" {
-		b.Repository.Ref.SemVer = overlay.Repository.Ref.SemVer
-	} else if overlay.Repository.Ref.Tag != "" {
-		b.Repository.Ref.Tag = overlay.Repository.Ref.Tag
-	} else if overlay.Repository.Ref.Branch != "" {
-		b.Repository.Ref.Branch = overlay.Repository.Ref.Branch
-	}
-
-	if overlay.Repository.SecretName != "" {
-		b.Repository.SecretName = overlay.Repository.SecretName
-	}
-
-	sourceMap := make(map[string]Source)
-	for _, source := range b.Sources {
-		sourceMap[source.Name] = source
-	}
-	for _, overlaySource := range overlay.Sources {
-		if overlaySource.Name != "" {
-			sourceMap[overlaySource.Name] = overlaySource
-		}
-	}
-	b.Sources = make([]Source, 0, len(sourceMap))
-	for _, source := range sourceMap {
-		b.Sources = append(b.Sources, source)
-	}
-
-	componentMap := make(map[string]TerraformComponent)
-	for _, component := range b.TerraformComponents {
-		key := component.Path
-		componentMap[key] = component
-	}
-
-	if len(overlay.TerraformComponents) > 0 {
-		b.TerraformComponents = make([]TerraformComponent, 0, len(overlay.TerraformComponents))
-		for _, overlayComponent := range overlay.TerraformComponents {
-			key := overlayComponent.Path
-			if existingComponent, exists := componentMap[key]; exists {
-				if existingComponent.Source == overlayComponent.Source {
-					mergedComponent := existingComponent
-
-					if mergedComponent.Values == nil {
-						mergedComponent.Values = make(map[string]any)
-					}
-					maps.Copy(mergedComponent.Values, overlayComponent.Values)
-
-					if overlayComponent.FullPath != "" {
-						mergedComponent.FullPath = overlayComponent.FullPath
-					}
-
-					if overlayComponent.DependsOn != nil {
-						mergedComponent.DependsOn = overlayComponent.DependsOn
-					}
-
-					if overlayComponent.Destroy != nil {
-						mergedComponent.Destroy = overlayComponent.Destroy
-					}
-
-					if overlayComponent.Parallelism != nil {
-						mergedComponent.Parallelism = overlayComponent.Parallelism
-					}
-
-					b.TerraformComponents = append(b.TerraformComponents, mergedComponent)
-				} else {
-					b.TerraformComponents = append(b.TerraformComponents, overlayComponent)
-				}
-			} else {
-				b.TerraformComponents = append(b.TerraformComponents, overlayComponent)
-			}
-		}
-	}
-
-	// Always prefer the overlay's entire kustomizations if it's not empty
-	if len(overlay.Kustomizations) > 0 {
-		b.Kustomizations = overlay.Kustomizations
-	}
-}
-
 // StrategicMerge performs a strategic merge of the provided overlay Blueprint into the receiver Blueprint.
 // This method appends to array fields, deep merges map fields, and updates scalar fields if present in the overlay.
 // It is designed for feature composition, enabling the combination of multiple features into a single blueprint.
@@ -450,7 +344,9 @@ func (b *Blueprint) StrategicMerge(overlay *Blueprint) error {
 	}
 
 	for _, overlayComponent := range overlay.TerraformComponents {
-		b.strategicMergeTerraformComponent(overlayComponent)
+		if err := b.strategicMergeTerraformComponent(overlayComponent); err != nil {
+			return err
+		}
 	}
 
 	for _, overlayK := range overlay.Kustomizations {
@@ -462,9 +358,9 @@ func (b *Blueprint) StrategicMerge(overlay *Blueprint) error {
 }
 
 // strategicMergeTerraformComponent performs a strategic merge of the provided TerraformComponent into the Blueprint.
-// It merges values, appends unique dependencies, updates fields if provided, and inserts the component
-// in dependency order if not already present.
-func (b *Blueprint) strategicMergeTerraformComponent(component TerraformComponent) {
+// It merges values, appends unique dependencies, updates fields if provided, and maintains dependency order.
+// Returns an error if a dependency cycle is detected during sorting.
+func (b *Blueprint) strategicMergeTerraformComponent(component TerraformComponent) error {
 	for i, existing := range b.TerraformComponents {
 		if existing.Path == component.Path && existing.Source == component.Source {
 			if len(component.Values) > 0 {
@@ -485,30 +381,11 @@ func (b *Blueprint) strategicMergeTerraformComponent(component TerraformComponen
 				existing.Parallelism = component.Parallelism
 			}
 			b.TerraformComponents[i] = existing
-			return
+			return b.sortTerraform()
 		}
 	}
-	insertIndex := len(b.TerraformComponents)
-	if len(component.DependsOn) > 0 {
-		latestDepIndex := -1
-		for _, dep := range component.DependsOn {
-			for i, existing := range b.TerraformComponents {
-				if existing.Path == dep {
-					if i > latestDepIndex {
-						latestDepIndex = i
-					}
-				}
-			}
-		}
-		if latestDepIndex >= 0 {
-			insertIndex = latestDepIndex + 1
-		}
-	}
-	if insertIndex >= len(b.TerraformComponents) {
-		b.TerraformComponents = append(b.TerraformComponents, component)
-	} else {
-		b.TerraformComponents = slices.Insert(b.TerraformComponents, insertIndex, component)
-	}
+	b.TerraformComponents = append(b.TerraformComponents, component)
+	return b.sortTerraform()
 }
 
 // strategicMergeKustomization performs a strategic merge of the provided Kustomization into the Blueprint.
@@ -538,17 +415,17 @@ func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) err
 				existing.Destroy = kustomization.Destroy
 			}
 			b.Kustomizations[i] = existing
-			return b.sortKustomizationsByDependencies()
+			return b.sortKustomize()
 		}
 	}
 	b.Kustomizations = append(b.Kustomizations, kustomization)
-	return b.sortKustomizationsByDependencies()
+	return b.sortKustomize()
 }
 
-// sortKustomizationsByDependencies reorders the Blueprint's Kustomizations so that dependencies precede dependents.
+// sortKustomize reorders the Blueprint's Kustomizations so that dependencies precede dependents.
 // It first applies a topological sort to ensure dependency order, then groups kustomizations with similar name prefixes adjacently.
 // Returns an error if a dependency cycle is detected.
-func (b *Blueprint) sortKustomizationsByDependencies() error {
+func (b *Blueprint) sortKustomize() error {
 	if len(b.Kustomizations) <= 1 {
 		return nil
 	}
@@ -719,4 +596,76 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 		PostBuild:     postBuildCopy,
 		Destroy:       k.Destroy,
 	}
+}
+
+// sortTerraform reorders the Blueprint's TerraformComponents so that dependencies precede dependents.
+// It applies a topological sort to ensure dependency order. Components without dependencies come first.
+// Returns an error if a dependency cycle is detected.
+func (b *Blueprint) sortTerraform() error {
+	if len(b.TerraformComponents) <= 1 {
+		return nil
+	}
+
+	pathToIndex := make(map[string]int)
+	for i, component := range b.TerraformComponents {
+		pathToIndex[component.Path] = i
+	}
+
+	sorted := b.terraformTopologicalSort(pathToIndex)
+	if sorted == nil {
+		return fmt.Errorf("dependency cycle detected in terraform components")
+	}
+
+	newComponents := make([]TerraformComponent, len(b.TerraformComponents))
+	for i, sortedIndex := range sorted {
+		newComponents[i] = b.TerraformComponents[sortedIndex]
+	}
+	b.TerraformComponents = newComponents
+	return nil
+}
+
+// terraformTopologicalSort computes a topological ordering of terraform components based on dependencies.
+// Returns a slice of indices into the TerraformComponents slice, ordered so dependencies precede dependents.
+// Returns nil if a cycle is detected in the dependency graph.
+func (b *Blueprint) terraformTopologicalSort(pathToIndex map[string]int) []int {
+	var sorted []int
+	visited := make(map[int]bool)
+	visiting := make(map[int]bool)
+
+	var visit func(int) error
+	visit = func(componentIndex int) error {
+		if visiting[componentIndex] {
+			return fmt.Errorf("cycle detected in dependency graph involving terraform component '%s'", b.TerraformComponents[componentIndex].Path)
+		}
+		if visited[componentIndex] {
+			return nil
+		}
+
+		visiting[componentIndex] = true
+		// Visit dependencies first
+		for _, depPath := range b.TerraformComponents[componentIndex].DependsOn {
+			if depIndex, exists := pathToIndex[depPath]; exists {
+				if err := visit(depIndex); err != nil {
+					visiting[componentIndex] = false
+					return err
+				}
+			}
+		}
+		visiting[componentIndex] = false
+		visited[componentIndex] = true
+		// Add this component after its dependencies
+		sorted = append(sorted, componentIndex)
+		return nil
+	}
+
+	for i := range b.TerraformComponents {
+		if !visited[i] {
+			if err := visit(i); err != nil {
+				fmt.Printf("Error: %v\n", err)
+				return nil
+			}
+		}
+	}
+
+	return sorted
 }

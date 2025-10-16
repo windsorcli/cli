@@ -79,44 +79,15 @@ func (g *TerraformGenerator) Generate(data map[string]any, overwrite ...bool) er
 	}
 
 	components := g.blueprintHandler.GetTerraformComponents()
-	componentMap := make(map[string]blueprintv1alpha1.TerraformComponent)
+
 	for _, component := range components {
-		componentMap[component.Path] = component
-	}
-
-	for componentPath, componentData := range data {
-		if !strings.HasPrefix(componentPath, "terraform/") {
-			continue
-		}
-
-		componentValues, ok := componentData.(map[string]any)
-		if !ok {
-			return fmt.Errorf("invalid data format for component %s: expected map[string]any", componentPath)
-		}
-
-		actualPath := strings.TrimPrefix(componentPath, "terraform/")
-
-		component, exists := componentMap[actualPath]
-		if !exists {
-			continue
+		componentValues := component.Values
+		if componentValues == nil {
+			componentValues = make(map[string]any)
 		}
 
 		if err := g.generateComponentTfvars(projectRoot, contextPath, component, componentValues); err != nil {
-			return fmt.Errorf("failed to generate tfvars for component %s: %w", componentPath, err)
-		}
-	}
-
-	for _, component := range components {
-		terraformKey := "terraform/" + component.Path
-		if _, exists := data[terraformKey]; !exists {
-			componentValues := component.Values
-			if componentValues == nil {
-				componentValues = make(map[string]any)
-			}
-
-			if err := g.generateComponentTfvars(projectRoot, contextPath, component, componentValues); err != nil {
-				return fmt.Errorf("failed to generate tfvars for component %s: %w", component.Path, err)
-			}
+			return fmt.Errorf("failed to generate tfvars for component %s: %w", component.Path, err)
 		}
 	}
 
