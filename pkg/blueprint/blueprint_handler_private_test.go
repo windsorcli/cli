@@ -796,7 +796,7 @@ func TestBaseBlueprintHandler_toFluxKustomization(t *testing.T) {
 		}
 	})
 
-	t.Run("WithExistingPostBuild", func(t *testing.T) {
+	t.Run("WithoutFeatureSubstitutions", func(t *testing.T) {
 		// Given a handler
 		handler := setup(t)
 
@@ -824,7 +824,7 @@ func TestBaseBlueprintHandler_toFluxKustomization(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		// And a kustomization with existing PostBuild
+		// And a kustomization without PostBuild
 		kustomization := blueprintv1alpha1.Kustomization{
 			Name:          "test-kustomization",
 			Path:          "test/path",
@@ -834,54 +834,19 @@ func TestBaseBlueprintHandler_toFluxKustomization(t *testing.T) {
 			Timeout:       &metav1.Duration{Duration: 10 * time.Minute},
 			Force:         &[]bool{false}[0],
 			Wait:          &[]bool{false}[0],
-			PostBuild: &blueprintv1alpha1.PostBuild{
-				Substitute: map[string]string{
-					"VAR1": "value1",
-					"VAR2": "value2",
-				},
-				SubstituteFrom: []blueprintv1alpha1.SubstituteReference{
-					{
-						Kind:     "ConfigMap",
-						Name:     "existing-config",
-						Optional: true,
-					},
-				},
-			},
 		}
 
 		// When converting to Flux kustomization
 		result := handler.toFluxKustomization(kustomization, "test-namespace")
 
-		// Then it should have PostBuild with both existing and new references
+		// Then it should have PostBuild with only ConfigMap references from feature substitutions
 		if result.Spec.PostBuild == nil {
 			t.Fatal("expected PostBuild to be set")
 		}
 
-		// And it should preserve existing Substitute values
-		if len(result.Spec.PostBuild.Substitute) != 2 {
-			t.Errorf("expected 2 Substitute values, got %d", len(result.Spec.PostBuild.Substitute))
-		}
-		if result.Spec.PostBuild.Substitute["VAR1"] != "value1" {
-			t.Errorf("expected VAR1 to be 'value1', got '%s'", result.Spec.PostBuild.Substitute["VAR1"])
-		}
-		if result.Spec.PostBuild.Substitute["VAR2"] != "value2" {
-			t.Errorf("expected VAR2 to be 'value2', got '%s'", result.Spec.PostBuild.Substitute["VAR2"])
-		}
-
-		// And it should preserve the existing SubstituteFrom reference
-		existingConfigFound := false
-
-		for _, ref := range result.Spec.PostBuild.SubstituteFrom {
-			if ref.Kind == "ConfigMap" && ref.Name == "existing-config" {
-				existingConfigFound = true
-				if ref.Optional != true {
-					t.Errorf("expected existing-config to be Optional=true, got %v", ref.Optional)
-				}
-			}
-		}
-
-		if !existingConfigFound {
-			t.Error("expected existing-config ConfigMap reference to be preserved")
+		// And it should not have any Substitute values since PostBuild is no longer user-facing
+		if len(result.Spec.PostBuild.Substitute) != 0 {
+			t.Errorf("expected 0 Substitute values, got %d", len(result.Spec.PostBuild.Substitute))
 		}
 
 		// And it should not add a component ConfigMap without feature substitutions
@@ -3296,9 +3261,8 @@ metadata:
 when: provider == "aws"
 terraform:
   - path: cluster/aws-eks
-    values:
-      cluster_name: my-cluster
     inputs:
+      cluster_name: my-cluster
       node_groups:
         default:
           instance_types:
@@ -3336,13 +3300,13 @@ terraform:
 
 		component := handler.blueprint.TerraformComponents[0]
 
-		if component.Values["cluster_name"] != "my-cluster" {
-			t.Errorf("Expected cluster_name to be 'my-cluster', got %v", component.Values["cluster_name"])
+		if component.Inputs["cluster_name"] != "my-cluster" {
+			t.Errorf("Expected cluster_name to be 'my-cluster', got %v", component.Inputs["cluster_name"])
 		}
 
-		nodeGroups, ok := component.Values["node_groups"].(map[string]any)
+		nodeGroups, ok := component.Inputs["node_groups"].(map[string]any)
 		if !ok {
-			t.Fatalf("Expected node_groups to be a map, got %T", component.Values["node_groups"])
+			t.Fatalf("Expected node_groups to be a map, got %T", component.Inputs["node_groups"])
 		}
 
 		defaultGroup, ok := nodeGroups["default"].(map[string]any)
@@ -3370,12 +3334,12 @@ terraform:
 			t.Errorf("Expected desired_size to be 3, got %v", defaultGroup["desired_size"])
 		}
 
-		if component.Values["region"] != "us-east-1" {
-			t.Errorf("Expected region to be literal 'us-east-1', got %v", component.Values["region"])
+		if component.Inputs["region"] != "us-east-1" {
+			t.Errorf("Expected region to be literal 'us-east-1', got %v", component.Inputs["region"])
 		}
 
-		if component.Values["literal_string"] != "my-literal-value" {
-			t.Errorf("Expected literal_string to be 'my-literal-value', got %v", component.Values["literal_string"])
+		if component.Inputs["literal_string"] != "my-literal-value" {
+			t.Errorf("Expected literal_string to be 'my-literal-value', got %v", component.Inputs["literal_string"])
 		}
 	})
 

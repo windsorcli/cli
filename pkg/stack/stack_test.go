@@ -79,7 +79,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 				Source:   "git::https://github.com/terraform-aws-modules/terraform-aws-vpc.git//terraform/remote/path@v1.0.0",
 				Path:     "remote/path",
 				FullPath: filepath.Join(tmpDir, ".windsor", ".tf_modules", "remote", "path"),
-				Values: map[string]any{
+				Inputs: map[string]any{
 					"remote_variable1": "default_value",
 				},
 			},
@@ -87,7 +87,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 				Source:   "",
 				Path:     "local/path",
 				FullPath: filepath.Join(tmpDir, "terraform", "local", "path"),
-				Values: map[string]any{
+				Inputs: map[string]any{
 					"local_variable1": "default_value",
 				},
 			},
