@@ -2,10 +2,6 @@
 // +groupName=blueprints.windsorcli.dev
 package v1alpha1
 
-import (
-	"maps"
-)
-
 // Feature represents a conditional blueprint fragment that can be merged into a base blueprint.
 // Features enable modular composition of blueprints based on user configuration values.
 // Features inherit Repository and Sources from the base blueprint they are merged into.
