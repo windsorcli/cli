@@ -994,22 +994,7 @@ func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *blue
 		return fmt.Errorf("error unmarshalling blueprint data: %w", err)
 	}
 
-	var kustomizations []blueprintv1alpha1.Kustomization
-
-	for _, kMap := range newBlueprint.Kustomizations {
-		kustomizationYAML, err := b.shims.YamlMarshalNonNull(kMap)
-		if err != nil {
-			return fmt.Errorf("error marshalling kustomization map: %w", err)
-		}
-
-		var kustomization blueprintv1alpha1.Kustomization
-		err = b.shims.K8sYamlUnmarshal(kustomizationYAML, &kustomization)
-		if err != nil {
-			return fmt.Errorf("error unmarshalling kustomization YAML: %w", err)
-		}
-
-		kustomizations = append(kustomizations, kustomization)
-	}
+	kustomizations := newBlueprint.Kustomizations
 
 	sources := newBlueprint.Sources
 	terraformComponents := newBlueprint.TerraformComponents
