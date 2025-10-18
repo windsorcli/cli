@@ -812,11 +812,11 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 				}
 
 				if len(filteredInputs) > 0 {
-					if component.Values == nil {
-						component.Values = make(map[string]any)
+					if component.Inputs == nil {
+						component.Inputs = make(map[string]any)
 					}
 
-					component.Values = b.deepMergeMaps(component.Values, filteredInputs)
+					component.Inputs = b.deepMergeMaps(component.Inputs, filteredInputs)
 				}
 			}
 
@@ -989,7 +989,7 @@ func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *blueprintv1alpha
 // components and kustomizations lacking a source to use the OCI source, and ensures the OCI source is present
 // or updated in the sources slice.
 func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *blueprintv1alpha1.Blueprint, ociInfo ...*artifact.OCIArtifactInfo) error {
-	newBlueprint := &blueprintv1alpha1.PartialBlueprint{}
+	newBlueprint := &blueprintv1alpha1.Blueprint{}
 	if err := b.shims.YamlUnmarshal(data, newBlueprint); err != nil {
 		return fmt.Errorf("error unmarshalling blueprint data: %w", err)
 	}

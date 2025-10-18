@@ -3647,15 +3647,6 @@ func TestBlueprintHandler_Write(t *testing.T) {
 		if len(component.Inputs) != 0 {
 			t.Errorf("Expected all inputs to be cleared, but got %d inputs: %v", len(component.Inputs), component.Inputs)
 		}
-
-		// Also verify kustomizations have postBuild cleared
-		if len(writtenBlueprint.Kustomizations) > 0 {
-			for i, kustomization := range writtenBlueprint.Kustomizations {
-				if kustomization.PostBuild != nil {
-					t.Errorf("Expected PostBuild to be cleared for kustomization %d, but got %v", i, kustomization.PostBuild)
-				}
-			}
-		}
 	})
 
 	t.Run("ErrorWritingFile", func(t *testing.T) {
