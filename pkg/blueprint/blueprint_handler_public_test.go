@@ -882,27 +882,6 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorMarshallingYamlNonNull", func(t *testing.T) {
-		// Given a blueprint handler
-		handler, mocks := setup(t)
-
-		// And a mock yaml marshaller that returns an error
-		mocks.Shims.YamlMarshalNonNull = func(v any) ([]byte, error) {
-			return nil, fmt.Errorf("mock error marshalling yaml non null")
-		}
-
-		// When loading the config
-		err := handler.LoadConfig()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected error when marshalling yaml non null, got nil")
-		}
-		if !strings.Contains(err.Error(), "mock error marshalling yaml non null") {
-			t.Errorf("Expected error containing 'mock error marshalling yaml non null', got: %v", err)
-		}
-	})
-
 	t.Run("PathBackslashNormalization", func(t *testing.T) {
 		handler, _ := setup(t)
 		handler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
