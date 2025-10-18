@@ -3,6 +3,7 @@ package v1alpha1
 import (
 	"testing"
 
+	"github.com/goccy/go-yaml"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -29,7 +30,7 @@ func TestFeatureDeepCopy(t *testing.T) {
 					TerraformComponent: TerraformComponent{
 						Path:      "network/aws-vpc",
 						DependsOn: []string{"policy-base"},
-						Values: map[string]any{
+						Inputs: map[string]any{
 							"cidr": "10.0.0.0/16",
 						},
 					},
@@ -43,11 +44,11 @@ func TestFeatureDeepCopy(t *testing.T) {
 						Path:       "ingress",
 						Components: []string{"nginx", "nginx/web"},
 						DependsOn:  []string{"pki-base"},
+						Substitutions: map[string]string{
+							"host": "example.com",
+						},
 					},
 					When: "ingress.enabled == true",
-					Substitutions: map[string]string{
-						"host": "example.com",
-					},
 				},
 			},
 		}
@@ -73,9 +74,9 @@ func TestFeatureDeepCopy(t *testing.T) {
 			t.Error("Deep copy failed: metadata was not copied")
 		}
 
-		original.TerraformComponents[0].Values["cidr"] = "modified"
-		if copy.TerraformComponents[0].Values["cidr"] == "modified" {
-			t.Error("Deep copy failed: terraform values map was not copied")
+		original.TerraformComponents[0].Inputs["cidr"] = "modified"
+		if copy.TerraformComponents[0].Inputs["cidr"] == "modified" {
+			t.Error("Deep copy failed: terraform inputs map was not copied")
 		}
 
 		original.Kustomizations[0].Components[0] = "modified"
@@ -104,7 +105,7 @@ func TestConditionalTerraformComponentDeepCopy(t *testing.T) {
 			TerraformComponent: TerraformComponent{
 				Path:      "network/aws-vpc",
 				DependsOn: []string{"policy-base", "pki-base"},
-				Values: map[string]any{
+				Inputs: map[string]any{
 					"cidr":    "10.0.0.0/16",
 					"subnets": []string{"10.0.1.0/24", "10.0.2.0/24"},
 				},
@@ -127,9 +128,9 @@ func TestConditionalTerraformComponentDeepCopy(t *testing.T) {
 			t.Error("Deep copy failed: dependsOn slice was not copied")
 		}
 
-		original.Values["cidr"] = "modified"
-		if copy.Values["cidr"] == "modified" {
-			t.Error("Deep copy failed: values map was not copied")
+		original.Inputs["cidr"] = "modified"
+		if copy.Inputs["cidr"] == "modified" {
+			t.Error("Deep copy failed: inputs map was not copied")
 		}
 	})
 }
@@ -152,12 +153,11 @@ func TestConditionalKustomizationDeepCopy(t *testing.T) {
 				Components: []string{"nginx", "nginx/web"},
 				DependsOn:  []string{"pki-base"},
 				Interval:   interval,
+				Substitutions: map[string]string{
+					"host": "example.com",
+				},
 			},
 			When: "ingress.enabled == true",
-			Substitutions: map[string]string{
-				"host":     "example.com",
-				"replicas": "3",
-			},
 		}
 
 		copy := original.DeepCopy()
@@ -188,7 +188,7 @@ func TestConditionalKustomizationDeepCopy(t *testing.T) {
 }
 
 func TestFeatureYAMLTags(t *testing.T) {
-	t.Run("FeatureHasCorrectYamlTags", func(t *testing.T) {
+	t.Run("FeatureMarshalsAndUnmarshalsYAML", func(t *testing.T) {
 		feature := Feature{
 			Kind:       "Feature",
 			ApiVersion: "blueprints.windsorcli.dev/v1alpha1",
@@ -216,16 +216,37 @@ func TestFeatureYAMLTags(t *testing.T) {
 			},
 		}
 
-		// This test ensures the struct can be marshaled/unmarshaled
-		// The actual YAML tag validation is implicit through compilation
-		if feature.Kind == "" {
-			t.Error("Feature should have Kind field")
+		data, err := yaml.Marshal(&feature)
+		if err != nil {
+			t.Fatalf("Failed to marshal Feature struct to YAML: %v", err)
 		}
-		if feature.ApiVersion == "" {
-			t.Error("Feature should have ApiVersion field")
+
+		var out Feature
+		err = yaml.Unmarshal(data, &out)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal YAML into Feature struct: %v", err)
 		}
-		if feature.When == "" {
-			t.Error("Feature should have When field")
+
+		if out.Kind != feature.Kind {
+			t.Errorf("Expected Kind %q, got %q after YAML unmarshal", feature.Kind, out.Kind)
+		}
+		if out.ApiVersion != feature.ApiVersion {
+			t.Errorf("Expected ApiVersion %q, got %q after YAML unmarshal", feature.ApiVersion, out.ApiVersion)
+		}
+		if out.Metadata.Name != feature.Metadata.Name {
+			t.Errorf("Expected Metadata.Name %q, got %q after YAML unmarshal", feature.Metadata.Name, out.Metadata.Name)
+		}
+		if out.Metadata.Description != feature.Metadata.Description {
+			t.Errorf("Expected Metadata.Description %q, got %q after YAML unmarshal", feature.Metadata.Description, out.Metadata.Description)
+		}
+		if out.When != feature.When {
+			t.Errorf("Expected When %q, got %q after YAML unmarshal", feature.When, out.When)
+		}
+		if len(out.TerraformComponents) != len(feature.TerraformComponents) {
+			t.Errorf("Expected %d TerraformComponents, got %d after YAML unmarshal", len(feature.TerraformComponents), len(out.TerraformComponents))
+		}
+		if len(out.Kustomizations) != len(feature.Kustomizations) {
+			t.Errorf("Expected %d Kustomizations, got %d after YAML unmarshal", len(feature.Kustomizations), len(out.Kustomizations))
 		}
 	})
 }

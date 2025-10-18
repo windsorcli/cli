@@ -21,7 +21,7 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 				{
 					Path:      "network/vpc",
 					Source:    "core",
-					Values:    map[string]any{"cidr": "10.0.0.0/16"},
+					Inputs:    map[string]any{"cidr": "10.0.0.0/16"},
 					DependsOn: []string{"backend"},
 				},
 			},
@@ -33,13 +33,13 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 				{
 					Path:      "network/vpc", // Same path+source - should merge
 					Source:    "core",
-					Values:    map[string]any{"enable_dns": true},
+					Inputs:    map[string]any{"enable_dns": true},
 					DependsOn: []string{"security"},
 				},
 				{
 					Path:   "cluster/eks", // New component - should append
 					Source: "core",
-					Values: map[string]any{"version": "1.28"},
+					Inputs: map[string]any{"version": "1.28"},
 				},
 			},
 		}
@@ -57,13 +57,13 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		if vpc.Path != "network/vpc" {
 			t.Errorf("Expected path 'network/vpc', got '%s'", vpc.Path)
 		}
-		if len(vpc.Values) != 2 {
-			t.Errorf("Expected 2 values, got %d", len(vpc.Values))
+		if len(vpc.Inputs) != 2 {
+			t.Errorf("Expected 2 inputs, got %d", len(vpc.Inputs))
 		}
-		if vpc.Values["cidr"] != "10.0.0.0/16" {
+		if vpc.Inputs["cidr"] != "10.0.0.0/16" {
 			t.Errorf("Expected original cidr value preserved")
 		}
-		if vpc.Values["enable_dns"] != true {
+		if vpc.Inputs["enable_dns"] != true {
 			t.Errorf("Expected new enable_dns value added")
 		}
 		if len(vpc.DependsOn) != 2 {
@@ -263,15 +263,15 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		// Given a base blueprint with existing components
 		base := &Blueprint{
 			TerraformComponents: []TerraformComponent{
-				{Path: "existing-component", Source: "core", Values: map[string]any{"key": "value"}},
-				{Path: "another-existing", Source: "core", Values: map[string]any{"other": "data"}},
+				{Path: "existing-component", Source: "core", Inputs: map[string]any{"key": "value"}},
+				{Path: "another-existing", Source: "core", Inputs: map[string]any{"other": "data"}},
 			},
 		}
 
 		// When strategic merging with overlay that only has one component
 		overlay := &Blueprint{
 			TerraformComponents: []TerraformComponent{
-				{Path: "new-component", Source: "core", Values: map[string]any{"new": "value"}},
+				{Path: "new-component", Source: "core", Inputs: map[string]any{"new": "value"}},
 			},
 		}
 
@@ -295,18 +295,18 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 			switch comp.Path {
 			case "existing-component":
 				foundExisting = true
-				if comp.Values["key"] != "value" {
-					t.Errorf("Expected existing component values to be preserved")
+				if comp.Inputs["key"] != "value" {
+					t.Errorf("Expected existing component inputs to be preserved")
 				}
 			case "another-existing":
 				foundAnother = true
-				if comp.Values["other"] != "data" {
-					t.Errorf("Expected another existing component values to be preserved")
+				if comp.Inputs["other"] != "data" {
+					t.Errorf("Expected another existing component inputs to be preserved")
 				}
 			case "new-component":
 				foundNew = true
-				if comp.Values["new"] != "value" {
-					t.Errorf("Expected new component values to be added")
+				if comp.Inputs["new"] != "value" {
+					t.Errorf("Expected new component inputs to be added")
 				}
 			}
 		}
@@ -740,7 +740,7 @@ func TestBlueprint_DeepCopy(t *testing.T) {
 				{
 					Source: "source1",
 					Path:   "module/path1",
-					Values: map[string]any{
+					Inputs: map[string]any{
 						"key1": "value1",
 					},
 				},
@@ -750,14 +750,6 @@ func TestBlueprint_DeepCopy(t *testing.T) {
 					Name:       "kustomization1",
 					Path:       "kustomize/path1",
 					Components: []string{"component1"},
-					PostBuild: &PostBuild{
-						Substitute: map[string]string{
-							"key1": "value1",
-						},
-						SubstituteFrom: []SubstituteReference{
-							{Kind: "ConfigMap", Name: "config1"},
-						},
-					},
 				},
 			},
 		}
@@ -774,20 +766,14 @@ func TestBlueprint_DeepCopy(t *testing.T) {
 		if copy.TerraformComponents[0].Path != "module/path1" {
 			t.Errorf("Expected copy to have terraform component path %v, but got %v", "module/path1", copy.TerraformComponents[0].Path)
 		}
-		if len(copy.TerraformComponents[0].Values) != 1 || copy.TerraformComponents[0].Values["key1"] != "value1" {
-			t.Errorf("Expected copy to have terraform component value 'key1' with value 'value1', but got %v", copy.TerraformComponents[0].Values)
+		if len(copy.TerraformComponents[0].Inputs) != 1 || copy.TerraformComponents[0].Inputs["key1"] != "value1" {
+			t.Errorf("Expected copy to have terraform component input 'key1' with value 'value1', but got %v", copy.TerraformComponents[0].Inputs)
 		}
 		if len(copy.Kustomizations) != 1 || copy.Kustomizations[0].Name != "kustomization1" {
 			t.Errorf("Expected copy to have kustomization 'kustomization1', but got %v", copy.Kustomizations)
 		}
 		if len(copy.Kustomizations[0].Components) != 1 || copy.Kustomizations[0].Components[0] != "component1" {
 			t.Errorf("Expected copy to have kustomization component 'component1', but got %v", copy.Kustomizations[0].Components)
-		}
-		if len(copy.Kustomizations[0].PostBuild.Substitute) != 1 || copy.Kustomizations[0].PostBuild.Substitute["key1"] != "value1" {
-			t.Errorf("Expected copy to have Substitute 'key1:value1', but got %v", copy.Kustomizations[0].PostBuild.Substitute)
-		}
-		if len(copy.Kustomizations[0].PostBuild.SubstituteFrom) != 1 || copy.Kustomizations[0].PostBuild.SubstituteFrom[0].Kind != "ConfigMap" || copy.Kustomizations[0].PostBuild.SubstituteFrom[0].Name != "config1" {
-			t.Errorf("Expected copy to have SubstituteFrom 'ConfigMap:config1', but got %v", copy.Kustomizations[0].PostBuild.SubstituteFrom)
 		}
 	})
 

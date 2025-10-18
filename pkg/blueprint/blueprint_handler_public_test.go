@@ -882,27 +882,6 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorMarshallingYamlNonNull", func(t *testing.T) {
-		// Given a blueprint handler
-		handler, mocks := setup(t)
-
-		// And a mock yaml marshaller that returns an error
-		mocks.Shims.YamlMarshalNonNull = func(v any) ([]byte, error) {
-			return nil, fmt.Errorf("mock error marshalling yaml non null")
-		}
-
-		// When loading the config
-		err := handler.LoadConfig()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected error when marshalling yaml non null, got nil")
-		}
-		if !strings.Contains(err.Error(), "mock error marshalling yaml non null") {
-			t.Errorf("Expected error containing 'mock error marshalling yaml non null', got: %v", err)
-		}
-	})
-
 	t.Run("PathBackslashNormalization", func(t *testing.T) {
 		handler, _ := setup(t)
 		handler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
@@ -2208,7 +2187,7 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 			{
 				Source: "source1",
 				Path:   "path/to/module",
-				Values: map[string]any{"key": "value"},
+				Inputs: map[string]any{"key": "value"},
 			},
 		}
 		handler.blueprint.TerraformComponents = components
@@ -2234,8 +2213,8 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 		}
 
 		// And the values should be preserved
-		if resolvedComponents[0].Values["key"] != "value" {
-			t.Errorf("Expected value 'value' for key 'key', got %q", resolvedComponents[0].Values["key"])
+		if resolvedComponents[0].Inputs["key"] != "value" {
+			t.Errorf("Expected value 'value' for key 'key', got %q", resolvedComponents[0].Inputs["key"])
 		}
 	})
 
@@ -2282,7 +2261,7 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 			{
 				Source: "source1",
 				Path:   "path\\to\\module",
-				Values: map[string]any{"key": "value"},
+				Inputs: map[string]any{"key": "value"},
 			},
 		}
 		handler.blueprint.TerraformComponents = components
@@ -2332,7 +2311,7 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 			{
 				Source: "oci-source",
 				Path:   "cluster/talos",
-				Values: map[string]any{"key": "value"},
+				Inputs: map[string]any{"key": "value"},
 			},
 		}
 		handler.blueprint.TerraformComponents = components
@@ -3587,7 +3566,7 @@ func TestBlueprintHandler_Write(t *testing.T) {
 				{
 					Source: "core",
 					Path:   "cluster/talos",
-					Values: map[string]any{
+					Inputs: map[string]any{
 						"cluster_name":     "test-cluster",      // Should be kept (not a terraform variable)
 						"cluster_endpoint": "https://test:6443", // Should be filtered if it's a terraform variable
 						"controlplanes":    []string{"node1"},   // Should be filtered if it's a terraform variable
@@ -3644,17 +3623,8 @@ func TestBlueprintHandler_Write(t *testing.T) {
 		component := writtenBlueprint.TerraformComponents[0]
 
 		// Verify all values are cleared from the blueprint.yaml
-		if len(component.Values) != 0 {
-			t.Errorf("Expected all values to be cleared, but got %d values: %v", len(component.Values), component.Values)
-		}
-
-		// Also verify kustomizations have postBuild cleared
-		if len(writtenBlueprint.Kustomizations) > 0 {
-			for i, kustomization := range writtenBlueprint.Kustomizations {
-				if kustomization.PostBuild != nil {
-					t.Errorf("Expected PostBuild to be cleared for kustomization %d, but got %v", i, kustomization.PostBuild)
-				}
-			}
+		if len(component.Inputs) != 0 {
+			t.Errorf("Expected all inputs to be cleared, but got %d inputs: %v", len(component.Inputs), component.Inputs)
 		}
 	})
 

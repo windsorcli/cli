@@ -81,7 +81,7 @@ func (g *TerraformGenerator) Generate(data map[string]any, overwrite ...bool) er
 	components := g.blueprintHandler.GetTerraformComponents()
 
 	for _, component := range components {
-		componentValues := component.Values
+		componentValues := component.Inputs
 		if componentValues == nil {
 			componentValues = make(map[string]any)
 		}

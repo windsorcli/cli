@@ -108,7 +108,7 @@ contexts:
 				Path:     "test-module",
 				Source:   "git::https://github.com/test/module.git",
 				FullPath: filepath.Join(tmpDir, "terraform", "test-module"),
-				Values: map[string]any{
+				Inputs: map[string]any{
 					"cluster_name": "test-cluster",
 				},
 			},

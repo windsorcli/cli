@@ -210,7 +210,7 @@ func (b *BaseBlueprintHandler) Write(overwrite ...bool) error {
 
 	cleanedBlueprint := b.blueprint.DeepCopy()
 	for i := range cleanedBlueprint.TerraformComponents {
-		cleanedBlueprint.TerraformComponents[i].Values = map[string]any{}
+		cleanedBlueprint.TerraformComponents[i].Inputs = map[string]any{}
 	}
 
 	data, err := b.shims.YamlMarshal(cleanedBlueprint)
@@ -434,15 +434,6 @@ func (b *BaseBlueprintHandler) GetKustomizations() []blueprintv1alpha1.Kustomiza
 			kustomizations[i].Destroy = &defaultDestroy
 		}
 
-		kustomizations[i].PostBuild = &blueprintv1alpha1.PostBuild{
-			SubstituteFrom: []blueprintv1alpha1.SubstituteReference{
-				{
-					Kind:     "ConfigMap",
-					Name:     "values-common",
-					Optional: false,
-				},
-			},
-		}
 	}
 
 	return kustomizations
@@ -653,9 +644,6 @@ func (b *BaseBlueprintHandler) destroyKustomizations(ctx context.Context, kustom
 				RetryInterval: &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL},
 				Wait:          func() *bool { b := true; return &b }(),
 				Force:         func() *bool { b := true; return &b }(),
-				PostBuild: &blueprintv1alpha1.PostBuild{
-					SubstituteFrom: []blueprintv1alpha1.SubstituteReference{},
-				},
 			}
 
 			if err := b.kubernetesManager.ApplyKustomization(b.toFluxKustomization(*cleanupKustomization, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)); err != nil {
@@ -824,11 +812,11 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 				}
 
 				if len(filteredInputs) > 0 {
-					if component.Values == nil {
-						component.Values = make(map[string]any)
+					if component.Inputs == nil {
+						component.Inputs = make(map[string]any)
 					}
 
-					component.Values = b.deepMergeMaps(component.Values, filteredInputs)
+					component.Inputs = b.deepMergeMaps(component.Inputs, filteredInputs)
 				}
 			}
 
@@ -1001,27 +989,12 @@ func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *blueprintv1alpha
 // components and kustomizations lacking a source to use the OCI source, and ensures the OCI source is present
 // or updated in the sources slice.
 func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *blueprintv1alpha1.Blueprint, ociInfo ...*artifact.OCIArtifactInfo) error {
-	newBlueprint := &blueprintv1alpha1.PartialBlueprint{}
+	newBlueprint := &blueprintv1alpha1.Blueprint{}
 	if err := b.shims.YamlUnmarshal(data, newBlueprint); err != nil {
 		return fmt.Errorf("error unmarshalling blueprint data: %w", err)
 	}
 
-	var kustomizations []blueprintv1alpha1.Kustomization
-
-	for _, kMap := range newBlueprint.Kustomizations {
-		kustomizationYAML, err := b.shims.YamlMarshalNonNull(kMap)
-		if err != nil {
-			return fmt.Errorf("error marshalling kustomization map: %w", err)
-		}
-
-		var kustomization blueprintv1alpha1.Kustomization
-		err = b.shims.K8sYamlUnmarshal(kustomizationYAML, &kustomization)
-		if err != nil {
-			return fmt.Errorf("error unmarshalling kustomization YAML: %w", err)
-		}
-
-		kustomizations = append(kustomizations, kustomization)
-	}
+	kustomizations := newBlueprint.Kustomizations
 
 	sources := newBlueprint.Sources
 	terraformComponents := newBlueprint.TerraformComponents
@@ -1369,31 +1342,8 @@ func (b *BaseBlueprintHandler) toFluxKustomization(k blueprintv1alpha1.Kustomiza
 		})
 	}
 
-	if k.PostBuild != nil {
-		for _, ref := range k.PostBuild.SubstituteFrom {
-			duplicate := false
-			for _, existing := range substituteFrom {
-				if existing.Kind == ref.Kind && existing.Name == ref.Name {
-					duplicate = true
-					break
-				}
-			}
-			if !duplicate {
-				substituteFrom = append(substituteFrom, kustomizev1.SubstituteReference{
-					Kind:     ref.Kind,
-					Name:     ref.Name,
-					Optional: ref.Optional,
-				})
-			}
-		}
-		postBuild = &kustomizev1.PostBuild{
-			Substitute:     k.PostBuild.Substitute,
-			SubstituteFrom: substituteFrom,
-		}
-	} else {
-		postBuild = &kustomizev1.PostBuild{
-			SubstituteFrom: substituteFrom,
-		}
+	postBuild = &kustomizev1.PostBuild{
+		SubstituteFrom: substituteFrom,
 	}
 
 	interval := metav1.Duration{Duration: k.Interval.Duration}

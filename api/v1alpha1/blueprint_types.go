@@ -36,16 +36,6 @@ type Blueprint struct {
 	Kustomizations []Kustomization `yaml:"kustomize"`
 }
 
-type PartialBlueprint struct {
-	Kind                string               `yaml:"kind"`
-	ApiVersion          string               `yaml:"apiVersion"`
-	Metadata            Metadata             `yaml:"metadata"`
-	Sources             []Source             `yaml:"sources"`
-	Repository          Repository           `yaml:"repository"`
-	TerraformComponents []TerraformComponent `yaml:"terraform"`
-	Kustomizations      []map[string]any     `yaml:"kustomize"`
-}
-
 // Metadata describes a blueprint.
 type Metadata struct {
 	// Name is the blueprint's unique identifier.
@@ -117,8 +107,11 @@ type TerraformComponent struct {
 	// DependsOn lists dependencies of this terraform component.
 	DependsOn []string `yaml:"dependsOn,omitempty"`
 
-	// Values are configuration values for the module.
-	Values map[string]any `yaml:"values,omitempty"`
+	// Inputs are configuration values for the module.
+	// These values can be expressions using ${} syntax (e.g., "${cluster.name}") or literals.
+	// Values with ${} are evaluated as expressions, plain values are passed through as literals.
+	// These are used for generating tfvars files and are not written to the final context blueprint.yaml.
+	Inputs map[string]any `yaml:"inputs,omitempty"`
 
 	// Destroy determines if the component should be destroyed during down operations.
 	// Defaults to true if not specified.
@@ -127,6 +120,28 @@ type TerraformComponent struct {
 	// Parallelism limits the number of concurrent operations as Terraform walks the graph.
 	// This corresponds to the -parallelism flag in terraform apply/destroy commands.
 	Parallelism *int `yaml:"parallelism,omitempty"`
+}
+
+// DeepCopy creates a deep copy of the TerraformComponent object.
+func (t *TerraformComponent) DeepCopy() *TerraformComponent {
+	if t == nil {
+		return nil
+	}
+
+	inputsCopy := maps.Clone(t.Inputs)
+
+	dependsOnCopy := make([]string, len(t.DependsOn))
+	copy(dependsOnCopy, t.DependsOn)
+
+	return &TerraformComponent{
+		Source:      t.Source,
+		Path:        t.Path,
+		FullPath:    t.FullPath,
+		DependsOn:   dependsOnCopy,
+		Inputs:      inputsCopy,
+		Destroy:     t.Destroy,
+		Parallelism: t.Parallelism,
+	}
 }
 
 // BlueprintPatch represents a patch in the blueprint format.
@@ -184,12 +199,15 @@ type Kustomization struct {
 	// Cleanup lists resources to clean up after the kustomization is applied.
 	Cleanup []string `yaml:"cleanup,omitempty"`
 
-	// PostBuild is a post-build step to run after the kustomization is applied.
-	PostBuild *PostBuild `yaml:"postBuild,omitempty"`
-
 	// Destroy determines if the kustomization should be destroyed during down operations.
 	// Defaults to true if not specified.
 	Destroy *bool `yaml:"destroy,omitempty"`
+
+	// Substitutions contains values for post-build variable replacement,
+	// collected and stored in ConfigMaps for use by Flux postBuild substitution.
+	// All values are converted to strings as required by Flux variable substitution.
+	// These are used for generating ConfigMaps and are not written to the final context blueprint.yaml.
+	Substitutions map[string]string `yaml:"substitutions,omitempty"`
 }
 
 // PostBuild is a post-build step to run after the kustomization is applied.
@@ -255,20 +273,7 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 
 	terraformComponentsCopy := make([]TerraformComponent, len(b.TerraformComponents))
 	for i, component := range b.TerraformComponents {
-		valuesCopy := make(map[string]any, len(component.Values))
-		maps.Copy(valuesCopy, component.Values)
-
-		dependsOnCopy := append([]string{}, component.DependsOn...)
-
-		terraformComponentsCopy[i] = TerraformComponent{
-			Source:      component.Source,
-			Path:        component.Path,
-			FullPath:    component.FullPath,
-			DependsOn:   dependsOnCopy,
-			Values:      valuesCopy,
-			Destroy:     component.Destroy,
-			Parallelism: component.Parallelism,
-		}
+		terraformComponentsCopy[i] = *component.DeepCopy()
 	}
 
 	kustomizationsCopy := make([]Kustomization, len(b.Kustomizations))
@@ -287,71 +292,73 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 	}
 }
 
-// StrategicMerge performs a strategic merge of the provided overlay Blueprint into the receiver Blueprint.
-// This method appends to array fields, deep merges map fields, and updates scalar fields if present in the overlay.
+// StrategicMerge performs a strategic merge of the provided overlay Blueprints into the receiver Blueprint.
+// This method appends to array fields, deep merges map fields, and updates scalar fields if present in the overlays.
 // It is designed for feature composition, enabling the combination of multiple features into a single blueprint.
-func (b *Blueprint) StrategicMerge(overlay *Blueprint) error {
-	if overlay == nil {
-		return nil
-	}
-
-	if overlay.Kind != "" {
-		b.Kind = overlay.Kind
-	}
-	if overlay.ApiVersion != "" {
-		b.ApiVersion = overlay.ApiVersion
-	}
-
-	if overlay.Metadata.Name != "" {
-		b.Metadata.Name = overlay.Metadata.Name
-	}
-	if overlay.Metadata.Description != "" {
-		b.Metadata.Description = overlay.Metadata.Description
-	}
-
-	if overlay.Repository.Url != "" {
-		b.Repository.Url = overlay.Repository.Url
-	}
-
-	if overlay.Repository.Ref.Commit != "" {
-		b.Repository.Ref.Commit = overlay.Repository.Ref.Commit
-	} else if overlay.Repository.Ref.Name != "" {
-		b.Repository.Ref.Name = overlay.Repository.Ref.Name
-	} else if overlay.Repository.Ref.SemVer != "" {
-		b.Repository.Ref.SemVer = overlay.Repository.Ref.SemVer
-	} else if overlay.Repository.Ref.Tag != "" {
-		b.Repository.Ref.Tag = overlay.Repository.Ref.Tag
-	} else if overlay.Repository.Ref.Branch != "" {
-		b.Repository.Ref.Branch = overlay.Repository.Ref.Branch
-	}
-
-	if overlay.Repository.SecretName != "" {
-		b.Repository.SecretName = overlay.Repository.SecretName
-	}
-
-	sourceMap := make(map[string]Source)
-	for _, source := range b.Sources {
-		sourceMap[source.Name] = source
-	}
-	for _, overlaySource := range overlay.Sources {
-		if overlaySource.Name != "" {
-			sourceMap[overlaySource.Name] = overlaySource
+func (b *Blueprint) StrategicMerge(overlays ...*Blueprint) error {
+	for _, overlay := range overlays {
+		if overlay == nil {
+			continue
 		}
-	}
-	b.Sources = make([]Source, 0, len(sourceMap))
-	for _, source := range sourceMap {
-		b.Sources = append(b.Sources, source)
-	}
 
-	for _, overlayComponent := range overlay.TerraformComponents {
-		if err := b.strategicMergeTerraformComponent(overlayComponent); err != nil {
-			return err
+		if overlay.Kind != "" {
+			b.Kind = overlay.Kind
 		}
-	}
+		if overlay.ApiVersion != "" {
+			b.ApiVersion = overlay.ApiVersion
+		}
 
-	for _, overlayK := range overlay.Kustomizations {
-		if err := b.strategicMergeKustomization(overlayK); err != nil {
-			return err
+		if overlay.Metadata.Name != "" {
+			b.Metadata.Name = overlay.Metadata.Name
+		}
+		if overlay.Metadata.Description != "" {
+			b.Metadata.Description = overlay.Metadata.Description
+		}
+
+		if overlay.Repository.Url != "" {
+			b.Repository.Url = overlay.Repository.Url
+		}
+
+		if overlay.Repository.Ref.Commit != "" {
+			b.Repository.Ref.Commit = overlay.Repository.Ref.Commit
+		} else if overlay.Repository.Ref.Name != "" {
+			b.Repository.Ref.Name = overlay.Repository.Ref.Name
+		} else if overlay.Repository.Ref.SemVer != "" {
+			b.Repository.Ref.SemVer = overlay.Repository.Ref.SemVer
+		} else if overlay.Repository.Ref.Tag != "" {
+			b.Repository.Ref.Tag = overlay.Repository.Ref.Tag
+		} else if overlay.Repository.Ref.Branch != "" {
+			b.Repository.Ref.Branch = overlay.Repository.Ref.Branch
+		}
+
+		if overlay.Repository.SecretName != "" {
+			b.Repository.SecretName = overlay.Repository.SecretName
+		}
+
+		sourceMap := make(map[string]Source)
+		for _, source := range b.Sources {
+			sourceMap[source.Name] = source
+		}
+		for _, overlaySource := range overlay.Sources {
+			if overlaySource.Name != "" {
+				sourceMap[overlaySource.Name] = overlaySource
+			}
+		}
+		b.Sources = make([]Source, 0, len(sourceMap))
+		for _, source := range sourceMap {
+			b.Sources = append(b.Sources, source)
+		}
+
+		for _, overlayComponent := range overlay.TerraformComponents {
+			if err := b.strategicMergeTerraformComponent(overlayComponent); err != nil {
+				return err
+			}
+		}
+
+		for _, overlayK := range overlay.Kustomizations {
+			if err := b.strategicMergeKustomization(overlayK); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -363,11 +370,11 @@ func (b *Blueprint) StrategicMerge(overlay *Blueprint) error {
 func (b *Blueprint) strategicMergeTerraformComponent(component TerraformComponent) error {
 	for i, existing := range b.TerraformComponents {
 		if existing.Path == component.Path && existing.Source == component.Source {
-			if len(component.Values) > 0 {
-				if existing.Values == nil {
-					existing.Values = make(map[string]any)
+			if len(component.Inputs) > 0 {
+				if existing.Inputs == nil {
+					existing.Inputs = make(map[string]any)
 				}
-				maps.Copy(existing.Values, component.Values)
+				maps.Copy(existing.Inputs, component.Inputs)
 			}
 			for _, dep := range component.DependsOn {
 				if !slices.Contains(existing.DependsOn, dep) {
@@ -566,19 +573,6 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 		return nil
 	}
 
-	var postBuildCopy *PostBuild
-	if k.PostBuild != nil {
-		substituteCopy := maps.Clone(k.PostBuild.Substitute)
-		substituteFromCopy := slices.Clone(k.PostBuild.SubstituteFrom)
-
-		if len(substituteCopy) > 0 || len(substituteFromCopy) > 0 {
-			postBuildCopy = &PostBuild{
-				Substitute:     substituteCopy,
-				SubstituteFrom: substituteFromCopy,
-			}
-		}
-	}
-
 	return &Kustomization{
 		Name:          k.Name,
 		Path:          k.Path,
@@ -593,8 +587,8 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 		Prune:         k.Prune,
 		Components:    slices.Clone(k.Components),
 		Cleanup:       slices.Clone(k.Cleanup),
-		PostBuild:     postBuildCopy,
 		Destroy:       k.Destroy,
+		Substitutions: maps.Clone(k.Substitutions),
 	}
 }
 
