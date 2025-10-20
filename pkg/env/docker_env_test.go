@@ -727,7 +727,7 @@ contexts:
 		})
 
 		// And the registry URL is set in the context
-		printer.configHandler.SetContextValue("docker.registry_url", "registry.example.com:5000")
+		printer.configHandler.Set("docker.registry_url", "registry.example.com:5000")
 
 		// When getting the registry URL
 		url, err := printer.getRegistryURL()
@@ -760,7 +760,7 @@ contexts:
 		})
 
 		// And the registry URL is set in the context
-		printer.configHandler.SetContextValue("docker.registry_url", "registry.example.com")
+		printer.configHandler.Set("docker.registry_url", "registry.example.com")
 
 		// When getting the registry URL
 		url, err := printer.getRegistryURL()
@@ -849,7 +849,7 @@ contexts:
 		})
 
 		// And the registry URL is set in the context
-		printer.configHandler.SetContextValue("docker.registry_url", "registry.example.com")
+		printer.configHandler.Set("docker.registry_url", "registry.example.com")
 
 		// When getting the registry URL
 		url, err := printer.getRegistryURL()

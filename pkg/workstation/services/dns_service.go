@@ -58,7 +58,7 @@ func (s *DNSService) Initialize() error {
 
 // SetAddress updates DNS address in config and calls BaseService's SetAddress.
 func (s *DNSService) SetAddress(address string) error {
-	err := s.configHandler.SetContextValue("dns.address", address)
+	err := s.configHandler.Set("dns.address", address)
 	if err != nil {
 		return fmt.Errorf("error setting DNS address: %w", err)
 	}

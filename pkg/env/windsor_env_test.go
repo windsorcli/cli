@@ -31,6 +31,9 @@ contexts:
       SECRET_VAR: "{{secret_name}}"
 `
 	}
+	if opts[0].Context == "" {
+		opts[0].Context = "mock-context"
+	}
 	mocks := setupMocks(t, opts[0])
 
 	// Get the temp dir that was set up in setupMocks
@@ -385,7 +388,21 @@ contexts:
 	})
 
 	t.Run("NoEnvironmentVarsInConfig", func(t *testing.T) {
-		printer, mocks := setup(t)
+		// Setup with empty environment
+		mocks := setupWindsorEnvMocks(t, &SetupOptions{
+			ConfigStr: `
+version: v1alpha1
+contexts:
+  mock-context:
+    environment: {}
+`,
+			Context: "mock-context",
+		})
+		printer := NewWindsorEnvPrinter(mocks.Injector)
+		if err := printer.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize env: %v", err)
+		}
+		printer.shims = mocks.Shims
 
 		// Given a WindsorEnvPrinter with empty environment configuration
 		projectRoot, err := mocks.Shell.GetProjectRoot()
@@ -396,16 +413,6 @@ contexts:
 		// And no managed environment variables or aliases
 		printer.managedEnv = []string{}
 		printer.managedAlias = []string{}
-
-		// And empty environment map in config
-		if err := mocks.ConfigHandler.LoadConfigString(`
-version: v1alpha1
-contexts:
-  test-context:
-    environment: {}
-`); err != nil {
-			t.Fatalf("LoadConfigString returned error: %v", err)
-		}
 
 		// When GetEnvVars is called
 		envVars, err := printer.GetEnvVars()

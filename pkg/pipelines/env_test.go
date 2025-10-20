@@ -167,8 +167,14 @@ func TestEnvPipeline_Initialize(t *testing.T) {
 			return "", fmt.Errorf("project root error")
 		}
 
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.InitializeFunc = func() error { return nil }
+		mockConfigHandler.LoadConfigFunc = func() error {
+			return fmt.Errorf("error retrieving project root: project root error")
+		}
+
 		setupOptions := &SetupOptions{
-			ConfigHandler: config.NewMockConfigHandler(),
+			ConfigHandler: mockConfigHandler,
 		}
 		pipeline, mocks := setup(t, setupOptions)
 		mocks.Injector.Register("shell", mockShell)
@@ -180,7 +186,7 @@ func TestEnvPipeline_Initialize(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		if err.Error() != "failed to load base config: error retrieving project root: project root error" {
+		if err.Error() != "failed to load context config: error retrieving project root: project root error" {
 			t.Errorf("Expected load config error, got: %v", err)
 		}
 	})

@@ -153,8 +153,8 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 		service, mocks := setup(t)
 
 		// Set up the registry configuration
-		mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop")
-		mocks.ConfigHandler.SetContextValue("docker.registries.local-registry.hostport", 5000)
+		mocks.ConfigHandler.Set("vm.driver", "docker-desktop")
+		mocks.ConfigHandler.Set("docker.registries.local-registry.hostport", 5000)
 
 		// Configure service for local registry testing
 		service.address = "localhost"
@@ -199,20 +199,33 @@ func TestRegistryService_SetAddress(t *testing.T) {
 		mocks := setupMocks(t)
 		// Load initial config
 		configYAML := `
-apiVersion: v1alpha1
+version: v1alpha1
 contexts:
   mock-context:
     dns:
       domain: test
     docker:
       registries:
-        registry: {}
-        registry1: {}
-        registry2: {}
+        registry:
+          remote: ""
+          local: ""
+        registry1:
+          remote: ""
+          local: ""
+        registry2:
+          remote: ""
+          local: ""
 `
 		if err := mocks.ConfigHandler.LoadConfigString(configYAML); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
+
+		// Verify config loaded correctly
+		domain := mocks.ConfigHandler.GetString("dns.domain")
+		if domain != "test" {
+			t.Fatalf("Config not loaded correctly, dns.domain = '%s', expected 'test'", domain)
+		}
+
 		service := NewRegistryService(mocks.Injector)
 		service.shims = mocks.Shims
 		service.Initialize()
@@ -228,8 +241,21 @@ contexts:
 		service, mocks := setup(t)
 
 		// And localhost mode
-		if err := mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop"); err != nil {
+		if err := mocks.ConfigHandler.Set("vm.driver", "docker-desktop"); err != nil {
 			t.Fatalf("Failed to set vm.driver: %v", err)
+		}
+
+		// Verify vm.driver was set
+		if vmDriver := mocks.ConfigHandler.GetString("vm.driver"); vmDriver != "docker-desktop" {
+			t.Fatalf("vm.driver not set correctly, got '%s'", vmDriver)
+		}
+
+		// Manually set the expected values to verify Get/Set works
+		if err := mocks.ConfigHandler.Set("docker.registries.registry.hostname", "manual.test"); err != nil {
+			t.Fatalf("Manual set failed: %v", err)
+		}
+		if manual := mocks.ConfigHandler.GetString("docker.registries.registry.hostname"); manual != "manual.test" {
+			t.Fatalf("Manual get failed, expected 'manual.test', got '%s'", manual)
 		}
 
 		// When SetAddress is called with localhost
@@ -267,12 +293,12 @@ contexts:
 		service, mocks := setup(t)
 
 		// And remote registry configuration
-		if err := mocks.ConfigHandler.SetContextValue("docker.registries.registry.remote", "remote.registry:5000"); err != nil {
+		if err := mocks.ConfigHandler.Set("docker.registries.registry.remote", "remote.registry:5000"); err != nil {
 			t.Fatalf("Failed to set remote registry: %v", err)
 		}
 
 		// And localhost mode
-		if err := mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop"); err != nil {
+		if err := mocks.ConfigHandler.Set("vm.driver", "docker-desktop"); err != nil {
 			t.Fatalf("Failed to set vm.driver: %v", err)
 		}
 
@@ -303,13 +329,13 @@ contexts:
 		service, mocks := setup(t)
 
 		// And localhost mode
-		if err := mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop"); err != nil {
+		if err := mocks.ConfigHandler.Set("vm.driver", "docker-desktop"); err != nil {
 			t.Fatalf("Failed to set vm.driver: %v", err)
 		}
 
 		// And custom host port
 		customHostPort := 5001
-		if err := mocks.ConfigHandler.SetContextValue("docker.registries.registry.hostport", customHostPort); err != nil {
+		if err := mocks.ConfigHandler.Set("docker.registries.registry.hostport", customHostPort); err != nil {
 			t.Fatalf("Failed to set custom host port: %v", err)
 		}
 
@@ -333,7 +359,7 @@ contexts:
 		service1, mocks := setup(t)
 
 		// And localhost mode
-		if err := mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop"); err != nil {
+		if err := mocks.ConfigHandler.Set("vm.driver", "docker-desktop"); err != nil {
 			t.Fatalf("Failed to set vm.driver: %v", err)
 		}
 
@@ -409,7 +435,7 @@ contexts:
 		service.SetName("registry")
 
 		// And mock error when setting hostname
-		mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
+		mockConfigHandler.SetFunc = func(key string, value any) error {
 			return fmt.Errorf("mock error setting hostname")
 		}
 
@@ -448,7 +474,7 @@ contexts:
 			return ""
 		}
 
-		mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
+		mockConfigHandler.SetFunc = func(key string, value any) error {
 			if strings.Contains(key, "hostport") {
 				return fmt.Errorf("mock error setting host port")
 			}
@@ -504,7 +530,7 @@ contexts:
 			return ""
 		}
 
-		mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
+		mockConfigHandler.SetFunc = func(key string, value any) error {
 			if key == "docker.registry_url" {
 				return fmt.Errorf("mock error setting registry URL")
 			}

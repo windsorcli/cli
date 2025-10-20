@@ -27,7 +27,6 @@ var (
 	nextAPIPort        = constants.DEFAULT_TALOS_API_PORT + 1
 	defaultAPIPort     = constants.DEFAULT_TALOS_API_PORT
 	portLock           sync.Mutex
-	extraPortIndex     = 0
 	controlPlaneLeader *TalosService
 	usedHostPorts      = make(map[uint32]bool)
 )
@@ -82,10 +81,10 @@ func (s *TalosService) SetAddress(address string) error {
 		nodeType = "controlplanes"
 	}
 
-	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.hostname", nodeType, s.name), s.GetHostname()); err != nil {
+	if err := s.configHandler.Set(fmt.Sprintf("cluster.%s.nodes.%s.hostname", nodeType, s.name), s.GetHostname()); err != nil {
 		return err
 	}
-	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.node", nodeType, s.name), s.GetHostname()); err != nil {
+	if err := s.configHandler.Set(fmt.Sprintf("cluster.%s.nodes.%s.node", nodeType, s.name), s.GetHostname()); err != nil {
 		return err
 	}
 
@@ -106,7 +105,8 @@ func (s *TalosService) SetAddress(address string) error {
 	}
 
 	endpoint := fmt.Sprintf("%s:%d", endpointAddress, port)
-	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.endpoint", nodeType, s.name), endpoint); err != nil {
+	nodePath := fmt.Sprintf("cluster.%s.nodes.%s.endpoint", nodeType, s.name)
+	if err := s.configHandler.Set(nodePath, endpoint); err != nil {
 		return err
 	}
 
@@ -130,7 +130,7 @@ func (s *TalosService) SetAddress(address string) error {
 		hostPortsCopy[i] = fmt.Sprintf("%d:%d/%s", hostPort, nodePort, protocol)
 	}
 
-	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.hostports", nodeType, s.name), hostPortsCopy); err != nil {
+	if err := s.configHandler.Set(fmt.Sprintf("cluster.%s.nodes.%s.hostports", nodeType, s.name), hostPortsCopy); err != nil {
 		return err
 	}
 

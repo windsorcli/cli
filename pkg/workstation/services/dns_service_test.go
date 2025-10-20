@@ -168,7 +168,7 @@ func TestDNSService_SetAddress(t *testing.T) {
 
 	t.Run("ErrorSettingAddress", func(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
+		mockConfigHandler.SetFunc = func(key string, value any) error {
 			return fmt.Errorf("mocked error setting address")
 		}
 		mocks := setupDnsMocks(t, &SetupOptions{
@@ -232,9 +232,9 @@ func TestDNSService_GetComposeConfig(t *testing.T) {
 		service, mocks := setup(t)
 
 		// Set vm.driver to docker-desktop to simulate localhost mode
-		mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop")
-		mocks.ConfigHandler.SetContextValue("dns.domain", "test")
-		mocks.ConfigHandler.SetContextValue("network.cidr_block", "192.168.1.0/24")
+		mocks.ConfigHandler.Set("vm.driver", "docker-desktop")
+		mocks.ConfigHandler.Set("dns.domain", "test")
+		mocks.ConfigHandler.Set("network.cidr_block", "192.168.1.0/24")
 
 		// When GetComposeConfig is called
 		cfg, err := service.GetComposeConfig()
@@ -332,7 +332,7 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		service.SetAddress("127.0.0.1")
 
 		// Set the DNS domain
-		mocks.ConfigHandler.SetContextValue("dns.domain", "test")
+		mocks.ConfigHandler.Set("dns.domain", "test")
 
 		// Mock the writeFile function to capture the content written
 		var writtenContent []byte
@@ -375,7 +375,7 @@ func TestDNSService_WriteConfig(t *testing.T) {
 	t.Run("SuccessLocalhostMode", func(t *testing.T) {
 		// Setup
 		service, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop")
+		mocks.ConfigHandler.Set("vm.driver", "docker-desktop")
 
 		var writtenContent []byte
 		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
@@ -634,7 +634,7 @@ func TestDNSService_WriteConfig(t *testing.T) {
 	t.Run("SuccessLocalhostModeWithWildcard", func(t *testing.T) {
 		// Setup
 		service, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop")
+		mocks.ConfigHandler.Set("vm.driver", "docker-desktop")
 
 		var writtenContent []byte
 		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
@@ -818,7 +818,7 @@ func TestDNSService_GetHostname(t *testing.T) {
 		service.SetName("test")
 
 		// Set the dns.domain configuration value
-		mocks.ConfigHandler.SetContextValue("dns.domain", "test")
+		mocks.ConfigHandler.Set("dns.domain", "test")
 
 		return service, mocks
 	}
@@ -841,7 +841,7 @@ func TestDNSService_GetHostname(t *testing.T) {
 		// Given a DNSService with no name set
 		service, mocks := setup(t)
 		service.SetName("")                                   // Clear the name
-		mocks.ConfigHandler.SetContextValue("dns.domain", "") // Clear the domain
+		mocks.ConfigHandler.Set("dns.domain", "") // Clear the domain
 
 		// When GetHostname is called
 		hostname := service.GetHostname()

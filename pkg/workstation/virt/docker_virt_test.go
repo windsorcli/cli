@@ -217,7 +217,7 @@ func TestDockerVirt_Initialize(t *testing.T) {
 	t.Run("ErrorDockerNotEnabled", func(t *testing.T) {
 		// Given a docker virt instance with docker disabled
 		dockerVirt, mocks := setup(t)
-		if err := mocks.ConfigHandler.SetContextValue("docker.enabled", false); err != nil {
+		if err := mocks.ConfigHandler.Set("docker.enabled", false); err != nil {
 			t.Fatalf("Failed to set docker.enabled: %v", err)
 		}
 

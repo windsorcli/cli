@@ -28,9 +28,13 @@ func setupTalosServiceMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	// Create base mocks using setupMocks
 	mocks := setupMocks(t, opts...)
 
-	// Load config
-	configYAML := fmt.Sprintf(`
-apiVersion: v1alpha1
+	// Load config - use provided config if available, otherwise use default
+	var configToLoad string
+	if len(opts) > 0 && opts[0].ConfigStr != "" {
+		configToLoad = opts[0].ConfigStr
+	} else {
+		configToLoad = fmt.Sprintf(`
+version: v1alpha1
 contexts:
   mock-context:
     dns:
@@ -72,18 +76,12 @@ contexts:
         cpu: %d
         memory: %d
 `, constants.DEFAULT_TALOS_API_PORT,
-		constants.DEFAULT_TALOS_WORKER_CPU,
-		constants.DEFAULT_TALOS_WORKER_RAM)
-
-	if err := mocks.ConfigHandler.LoadConfigString(configYAML); err != nil {
-		t.Fatalf("Failed to load config: %v", err)
+			constants.DEFAULT_TALOS_WORKER_CPU,
+			constants.DEFAULT_TALOS_WORKER_RAM)
 	}
 
-	// Load optional config if provided
-	if len(opts) > 0 && opts[0].ConfigStr != "" {
-		if err := mocks.ConfigHandler.LoadConfigString(opts[0].ConfigStr); err != nil {
-			t.Fatalf("Failed to load config string: %v", err)
-		}
+	if err := mocks.ConfigHandler.LoadConfigString(configToLoad); err != nil {
+		t.Fatalf("Failed to load config: %v", err)
 	}
 
 	mocks.Shell.GetProjectRootFunc = func() (string, error) {
@@ -286,7 +284,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 			"30001:30001/udp",
 			"30002:30002/tcp",
 		}
-		if err := mocks.ConfigHandler.SetContextValue("cluster.workers.hostports", hostPorts); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.workers.hostports", hostPorts); err != nil {
 			t.Fatalf("Failed to set host ports: %v", err)
 		}
 
@@ -338,7 +336,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// And invalid host port format in config
-		if err := mocks.ConfigHandler.SetContextValue("cluster.workers.hostports", []string{"invalid:format:extra"}); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.workers.hostports", []string{"invalid:format:extra"}); err != nil {
 			t.Fatalf("Failed to set invalid host port format: %v", err)
 		}
 
@@ -371,7 +369,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// And invalid protocol in config
-		if err := mocks.ConfigHandler.SetContextValue("cluster.workers.hostports", []string{"30000:30000/invalid"}); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.workers.hostports", []string{"30000:30000/invalid"}); err != nil {
 			t.Fatalf("Failed to set invalid protocol: %v", err)
 		}
 
@@ -404,7 +402,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// Set host ports for first worker
-		if err := mocks.ConfigHandler.SetContextValue("cluster.workers.hostports", []string{"30000:30000"}); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.workers.hostports", []string{"30000:30000"}); err != nil {
 			t.Fatalf("Failed to set host ports: %v", err)
 		}
 
@@ -421,7 +419,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// Set same host ports for second worker
-		if err := mocks.ConfigHandler.SetContextValue("cluster.workers.hostports", []string{"30000:30000"}); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.workers.hostports", []string{"30000:30000"}); err != nil {
 			t.Fatalf("Failed to set host ports: %v", err)
 		}
 
@@ -451,7 +449,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		usedHostPorts = make(map[uint32]bool)
 
 		// And a custom TLD
-		if err := mocks.ConfigHandler.SetContextValue("dns.domain", "custom.local"); err != nil {
+		if err := mocks.ConfigHandler.Set("dns.domain", "custom.local"); err != nil {
 			t.Fatalf("Failed to set custom TLD: %v", err)
 		}
 
@@ -505,7 +503,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		hostPorts := []string{
 			"abc:30000", // Non-numeric host port
 		}
-		if err := mocks.ConfigHandler.SetContextValue("cluster.workers.hostports", hostPorts); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.workers.hostports", hostPorts); err != nil {
 			t.Fatalf("Failed to set host ports: %v", err)
 		}
 
@@ -524,7 +522,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		hostPorts = []string{
 			"30000:xyz", // Non-numeric node port
 		}
-		if err := mocks.ConfigHandler.SetContextValue("cluster.workers.hostports", hostPorts); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.workers.hostports", hostPorts); err != nil {
 			t.Fatalf("Failed to set host ports: %v", err)
 		}
 
@@ -543,7 +541,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		hostPorts = []string{
 			"xyz", // Non-numeric single port
 		}
-		if err := mocks.ConfigHandler.SetContextValue("cluster.workers.hostports", hostPorts); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.workers.hostports", hostPorts); err != nil {
 			t.Fatalf("Failed to set host ports: %v", err)
 		}
 
@@ -581,7 +579,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 			"30001:30001",
 			"30002:30002",
 		}
-		if err := mocks.ConfigHandler.SetContextValue("cluster.workers.hostports", hostPorts1); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.workers.hostports", hostPorts1); err != nil {
 			t.Fatalf("Failed to set host ports: %v", err)
 		}
 
@@ -603,7 +601,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 			"30002:30002", // Overlaps with first worker
 			"30003:30003", // New port
 		}
-		if err := mocks.ConfigHandler.SetContextValue("cluster.workers.hostports", hostPorts2); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.workers.hostports", hostPorts2); err != nil {
 			t.Fatalf("Failed to set host ports: %v", err)
 		}
 
@@ -642,7 +640,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 			"30000:30000", // Overlaps with first worker
 			"30003:30004", // Overlaps with second worker's incremented port
 		}
-		if err := mocks.ConfigHandler.SetContextValue("cluster.workers.hostports", hostPorts3); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.workers.hostports", hostPorts3); err != nil {
 			t.Fatalf("Failed to set host ports: %v", err)
 		}
 
@@ -703,7 +701,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 			"30000:30000",
 			"30000:30001", // Intentional conflict with first port
 		}
-		if err := mocks.ConfigHandler.SetContextValue("cluster.workers.hostports", hostPorts); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.workers.hostports", hostPorts); err != nil {
 			t.Fatalf("Failed to set host ports: %v", err)
 		}
 
@@ -757,7 +755,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		hostPorts := []string{
 			"30000:30000/invalid",
 		}
-		if err := mocks.ConfigHandler.SetContextValue("cluster.workers.hostports", hostPorts); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.workers.hostports", hostPorts); err != nil {
 			t.Fatalf("Failed to set host ports: %v", err)
 		}
 
@@ -793,7 +791,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		hostPorts := []string{
 			"30000:30000:30000", // Too many colons
 		}
-		if err := mocks.ConfigHandler.SetContextValue("cluster.workers.hostports", hostPorts); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.workers.hostports", hostPorts); err != nil {
 			t.Fatalf("Failed to set host ports: %v", err)
 		}
 
@@ -829,7 +827,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		hostPorts := []string{
 			"invalid:30000",
 		}
-		if err := mocks.ConfigHandler.SetContextValue("cluster.workers.hostports", hostPorts); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.workers.hostports", hostPorts); err != nil {
 			t.Fatalf("Failed to set host ports: %v", err)
 		}
 
@@ -1065,7 +1063,7 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 
 		// And a custom image is configured
 		customImage := "custom/talos:latest"
-		if err := mocks.ConfigHandler.SetContextValue("cluster.controlplanes.nodes.controlplane1.image", customImage); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.controlplanes.nodes.controlplane1.image", customImage); err != nil {
 			t.Fatalf("Failed to set custom image: %v", err)
 		}
 
@@ -1096,7 +1094,7 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 			"/data/controlplane1:/mnt/data",
 			"/logs/controlplane1:/mnt/logs",
 		}
-		if err := mocks.ConfigHandler.SetContextValue("cluster.controlplanes.volumes", volumes); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.controlplanes.volumes", volumes); err != nil {
 			t.Fatalf("Failed to set volumes: %v", err)
 		}
 
@@ -1128,20 +1126,24 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 	})
 
 	t.Run("SuccessEmptyConfig", func(t *testing.T) {
-		// Given a TalosService with mock components
-		service, mocks := setup(t)
-
-		// And an empty cluster config
-		if err := mocks.ConfigHandler.LoadConfigString(`
-apiVersion: v1alpha1
+		// Given a TalosService with mock components and empty cluster config
+		emptyConfig := &SetupOptions{
+			ConfigStr: `
+version: v1alpha1
 contexts:
   mock-context:
     dns:
       domain: test
     vm:
       driver: docker-desktop
-`); err != nil {
-			t.Fatalf("Failed to load empty config: %v", err)
+`,
+		}
+		mocks := setupTalosServiceMocks(t, emptyConfig)
+		service := NewTalosService(mocks.Injector, "controlplane")
+		service.shims = mocks.Shims
+		service.SetName("controlplane1")
+		if err := service.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize service: %v", err)
 		}
 
 		// When GetComposeConfig is called
@@ -1162,20 +1164,24 @@ contexts:
 	})
 
 	t.Run("EmptyConfig", func(t *testing.T) {
-		// Given a TalosService with mock components
-		service, mocks := setup(t)
-
-		// And an empty cluster config
-		if err := mocks.ConfigHandler.LoadConfigString(`
-apiVersion: v1alpha1
+		// Given a TalosService with mock components and empty cluster config
+		emptyConfig := &SetupOptions{
+			ConfigStr: `
+version: v1alpha1
 contexts:
   mock-context:
     dns:
       domain: test
     vm:
       driver: docker-desktop
-`); err != nil {
-			t.Fatalf("Failed to load empty config: %v", err)
+`,
+		}
+		mocks := setupTalosServiceMocks(t, emptyConfig)
+		service := NewTalosService(mocks.Injector, "controlplane")
+		service.shims = mocks.Shims
+		service.SetName("controlplane1")
+		if err := service.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize service: %v", err)
 		}
 
 		// When GetComposeConfig is called
@@ -1200,13 +1206,13 @@ contexts:
 		service, mocks := setup(t)
 
 		// And custom images at different levels
-		if err := mocks.ConfigHandler.SetContextValue("cluster.image", "cluster-wide:latest"); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.image", "cluster-wide:latest"); err != nil {
 			t.Fatalf("Failed to set cluster-wide image: %v", err)
 		}
-		if err := mocks.ConfigHandler.SetContextValue("cluster.controlplanes.image", "group-specific:latest"); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.controlplanes.image", "group-specific:latest"); err != nil {
 			t.Fatalf("Failed to set group-specific image: %v", err)
 		}
-		if err := mocks.ConfigHandler.SetContextValue("cluster.controlplanes.nodes.controlplane1.image", "node-specific:latest"); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.controlplanes.nodes.controlplane1.image", "node-specific:latest"); err != nil {
 			t.Fatalf("Failed to set node-specific image: %v", err)
 		}
 
@@ -1237,7 +1243,7 @@ contexts:
 			"/data/controlplane1:/mnt/data",
 			"/logs/controlplane1:/mnt/logs",
 		}
-		if err := mocks.ConfigHandler.SetContextValue("cluster.controlplanes.volumes", customVolumes); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.controlplanes.volumes", customVolumes); err != nil {
 			t.Fatalf("Failed to set custom volumes: %v", err)
 		}
 
@@ -1273,7 +1279,7 @@ contexts:
 		service, mocks := setup(t)
 
 		// And invalid volume format in config
-		if err := mocks.ConfigHandler.SetContextValue("cluster.controlplanes.volumes", []string{"invalid:format:extra"}); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.controlplanes.volumes", []string{"invalid:format:extra"}); err != nil {
 			t.Fatalf("Failed to set invalid volume format: %v", err)
 		}
 
@@ -1294,8 +1300,8 @@ contexts:
 		mocks := setupTalosServiceMocks(t)
 
 		// And DNS configuration is set
-		mocks.ConfigHandler.SetContextValue("dns.domain", "test")
-		mocks.ConfigHandler.SetContextValue("dns.address", "192.168.1.1")
+		mocks.ConfigHandler.Set("dns.domain", "test")
+		mocks.ConfigHandler.Set("dns.address", "192.168.1.1")
 
 		// Create a worker node
 		service := NewTalosService(mocks.Injector, "worker")
@@ -1342,7 +1348,7 @@ contexts:
 		service, mocks := setup(t)
 
 		// And localhost mode is enabled
-		if err := mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop"); err != nil {
+		if err := mocks.ConfigHandler.Set("vm.driver", "docker-desktop"); err != nil {
 			t.Fatalf("Failed to set VM driver: %v", err)
 		}
 
@@ -1351,7 +1357,7 @@ contexts:
 			"30000:30000/tcp",
 			"30001:30001/udp",
 		}
-		if err := mocks.ConfigHandler.SetContextValue("cluster.controlplanes.nodes.controlplane1.hostports", hostPorts); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.controlplanes.nodes.controlplane1.hostports", hostPorts); err != nil {
 			t.Fatalf("Failed to set host ports: %v", err)
 		}
 
@@ -1422,7 +1428,7 @@ contexts:
 		service, mocks := setup(t)
 
 		// And localhost mode is enabled
-		if err := mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop"); err != nil {
+		if err := mocks.ConfigHandler.Set("vm.driver", "docker-desktop"); err != nil {
 			t.Fatalf("Failed to set VM driver: %v", err)
 		}
 
@@ -1430,7 +1436,7 @@ contexts:
 		hostPorts := []string{
 			fmt.Sprintf("%d:30000/tcp", math.MaxUint32+1), // Port too large
 		}
-		if err := mocks.ConfigHandler.SetContextValue("cluster.controlplanes.nodes.controlplane1.hostports", hostPorts); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.controlplanes.nodes.controlplane1.hostports", hostPorts); err != nil {
 			t.Fatalf("Failed to set host ports: %v", err)
 		}
 
@@ -1451,7 +1457,7 @@ contexts:
 		service, mocks := setup(t)
 
 		// And localhost mode is enabled
-		if err := mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop"); err != nil {
+		if err := mocks.ConfigHandler.Set("vm.driver", "docker-desktop"); err != nil {
 			t.Fatalf("Failed to set VM driver: %v", err)
 		}
 
@@ -1486,7 +1492,7 @@ contexts:
 			"${TEST_DATA_DIR}/controlplane1:/mnt/data",
 			"/logs/controlplane1:/mnt/logs",
 		}
-		if err := mocks.ConfigHandler.SetContextValue("cluster.controlplanes.volumes", volumes); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.controlplanes.volumes", volumes); err != nil {
 			t.Fatalf("Failed to set volumes: %v", err)
 		}
 
@@ -1552,10 +1558,10 @@ contexts:
 		// And custom CPU and RAM settings
 		customCPU := 4
 		customRAM := 8
-		if err := mocks.ConfigHandler.SetContextValue("cluster.controlplanes.cpu", customCPU); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.controlplanes.cpu", customCPU); err != nil {
 			t.Fatalf("Failed to set control plane CPU: %v", err)
 		}
-		if err := mocks.ConfigHandler.SetContextValue("cluster.controlplanes.memory", customRAM); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.controlplanes.memory", customRAM); err != nil {
 			t.Fatalf("Failed to set control plane RAM: %v", err)
 		}
 
@@ -1585,10 +1591,10 @@ contexts:
 		// And custom CPU and RAM settings
 		customWorkerCPU := 2
 		customWorkerRAM := 4
-		if err := mocks.ConfigHandler.SetContextValue("cluster.workers.cpu", customWorkerCPU); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.workers.cpu", customWorkerCPU); err != nil {
 			t.Fatalf("Failed to set worker CPU: %v", err)
 		}
-		if err := mocks.ConfigHandler.SetContextValue("cluster.workers.memory", customWorkerRAM); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.workers.memory", customWorkerRAM); err != nil {
 			t.Fatalf("Failed to set worker RAM: %v", err)
 		}
 
@@ -1621,7 +1627,7 @@ contexts:
 		volumes := []string{
 			"/data/controlplane1:/mnt/data",
 		}
-		if err := mocks.ConfigHandler.SetContextValue("cluster.controlplanes.volumes", volumes); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.controlplanes.volumes", volumes); err != nil {
 			t.Fatalf("Failed to set volumes: %v", err)
 		}
 
@@ -1691,7 +1697,7 @@ contexts:
 		service, mocks := setup(t)
 
 		// And DNS configuration
-		if err := mocks.ConfigHandler.SetContextValue("dns.address", "8.8.8.8"); err != nil {
+		if err := mocks.ConfigHandler.Set("dns.address", "8.8.8.8"); err != nil {
 			t.Fatalf("Failed to set DNS address: %v", err)
 		}
 
@@ -1723,7 +1729,7 @@ contexts:
 		service, mocks := setup(t)
 
 		// And an invalid port value in config
-		if err := mocks.ConfigHandler.SetContextValue("cluster.controlplanes.nodes.controlplane1.endpoint", "controlplane1.test:invalid"); err != nil {
+		if err := mocks.ConfigHandler.Set("cluster.controlplanes.nodes.controlplane1.endpoint", "controlplane1.test:invalid"); err != nil {
 			t.Fatalf("Failed to set invalid port value: %v", err)
 		}
 

@@ -31,6 +31,9 @@ contexts:
       environment: "test-environment"
 `
 	}
+	if opts[0].Context == "" {
+		opts[0].Context = "mock-context"
+	}
 	mocks := setupMocks(t, opts[0])
 
 	// Mock stat function to make Azure config directory exist
@@ -105,14 +108,15 @@ func TestAzureEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("MissingConfiguration", func(t *testing.T) {
-		printer, mocks := setup(t)
-		if err := mocks.ConfigHandler.LoadConfigString(`
+		// Setup without default Azure config
+		printer, _ := setup(t, &SetupOptions{
+			ConfigStr: `
 version: v1alpha1
 contexts:
   mock-context: {}
-`); err != nil {
-			t.Fatalf("Failed to load config: %v", err)
-		}
+`,
+			Context: "mock-context",
+		})
 		envVars, err := printer.GetEnvVars()
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)

@@ -59,7 +59,7 @@ func (v *ColimaVirt) Up() error {
 		return fmt.Errorf("failed to start Colima VM: %w", err)
 	}
 
-	if err := v.configHandler.SetContextValue("vm.address", info.Address); err != nil {
+	if err := v.configHandler.Set("vm.address", info.Address); err != nil {
 		return fmt.Errorf("failed to set VM address in config handler: %w", err)
 	}
 

@@ -76,7 +76,7 @@ func (s *RegistryService) SetAddress(address string) error {
 
 	hostName := s.GetHostname()
 
-	err := s.configHandler.SetContextValue(fmt.Sprintf("docker.registries[%s].hostname", s.name), hostName)
+	err := s.configHandler.Set(fmt.Sprintf("docker.registries[%s].hostname", s.name), hostName)
 	if err != nil {
 		return fmt.Errorf("failed to set hostname for registry %s: %w", s.name, err)
 	}
@@ -93,7 +93,7 @@ func (s *RegistryService) SetAddress(address string) error {
 		if localRegistry == nil {
 			localRegistry = s
 			hostPort = constants.REGISTRY_DEFAULT_HOST_PORT
-			err = s.configHandler.SetContextValue("docker.registry_url", hostName)
+			err = s.configHandler.Set("docker.registry_url", hostName)
 			if err != nil {
 				return fmt.Errorf("failed to set registry URL for registry %s: %w", s.name, err)
 			}
@@ -105,7 +105,7 @@ func (s *RegistryService) SetAddress(address string) error {
 
 	if hostPort != 0 {
 		s.hostPort = hostPort
-		err := s.configHandler.SetContextValue(fmt.Sprintf("docker.registries[%s].hostport", s.name), hostPort)
+		err := s.configHandler.Set(fmt.Sprintf("docker.registries[%s].hostport", s.name), hostPort)
 		if err != nil {
 			return fmt.Errorf("failed to set host port for registry %s: %w", s.name, err)
 		}

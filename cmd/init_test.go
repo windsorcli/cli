@@ -226,13 +226,13 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ConfigHandlerSetContextValueError", func(t *testing.T) {
+	t.Run("ConfigHandlerSetError", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupInitTest(t)
 
 		// And a config handler that fails to set context values
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 			return fmt.Errorf("failed to set %s", key)
 		}
 		mocks.Injector.Register("configHandler", mockConfigHandler)
@@ -1066,7 +1066,7 @@ func TestInitCmd(t *testing.T) {
 
 		// And a config handler that fails to set values
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 			return fmt.Errorf("failed to set %s", key)
 		}
 		mocks.Injector.Register("configHandler", mockConfigHandler)

@@ -296,7 +296,7 @@ func TestToolsManager_Check(t *testing.T) {
 	t.Run("DockerDisabled", func(t *testing.T) {
 		// When docker is disabled in config
 		mocks, toolsManager := setup(t, defaultConfig)
-		mocks.ConfigHandler.SetContextValue("docker.enabled", false)
+		mocks.ConfigHandler.Set("docker.enabled", false)
 		originalExecLookPath := execLookPath
 		execLookPath = func(name string) (string, error) {
 			if name == "docker" || name == "docker-compose" || name == "docker-cli-plugin-docker-compose" {
@@ -314,7 +314,7 @@ func TestToolsManager_Check(t *testing.T) {
 	t.Run("ClusterDisabled", func(t *testing.T) {
 		// When cluster is disabled in config
 		mocks, toolsManager := setup(t, defaultConfig)
-		mocks.ConfigHandler.SetContextValue("cluster.enabled", false)
+		mocks.ConfigHandler.Set("cluster.enabled", false)
 		originalExecLookPath := execLookPath
 		execLookPath = func(name string) (string, error) {
 			if name == "kubectl" {
@@ -332,8 +332,8 @@ func TestToolsManager_Check(t *testing.T) {
 	t.Run("AllToolsDisabled", func(t *testing.T) {
 		// When all tools are disabled in config
 		mocks, toolsManager := setup(t, defaultConfig)
-		mocks.ConfigHandler.SetContextValue("docker.enabled", false)
-		mocks.ConfigHandler.SetContextValue("cluster.enabled", false)
+		mocks.ConfigHandler.Set("docker.enabled", false)
+		mocks.ConfigHandler.Set("cluster.enabled", false)
 		originalExecLookPath := execLookPath
 		execLookPath = func(name string) (string, error) {
 			if name == "docker" || name == "docker-compose" || name == "docker-cli-plugin-docker-compose" || name == "kubectl" {
@@ -351,7 +351,7 @@ func TestToolsManager_Check(t *testing.T) {
 	t.Run("DockerEnabledButNotAvailable", func(t *testing.T) {
 		// When docker is enabled but not available in PATH
 		mocks, toolsManager := setup(t, defaultConfig)
-		mocks.ConfigHandler.SetContextValue("docker.enabled", true)
+		mocks.ConfigHandler.Set("docker.enabled", true)
 		originalExecLookPath := execLookPath
 		execLookPath = func(name string) (string, error) {
 			if name == "docker" || name == "docker-compose" || name == "docker-cli-plugin-docker-compose" {
@@ -369,7 +369,7 @@ func TestToolsManager_Check(t *testing.T) {
 	t.Run("ClusterEnabledButNotAvailable", func(t *testing.T) {
 		// When cluster is enabled but kubectl not available in PATH
 		mocks, toolsManager := setup(t, defaultConfig)
-		mocks.ConfigHandler.SetContextValue("cluster.enabled", true)
+		mocks.ConfigHandler.Set("cluster.enabled", true)
 		originalExecLookPath := execLookPath
 		execLookPath = func(name string) (string, error) {
 			if name == "kubectl" {
@@ -387,7 +387,7 @@ func TestToolsManager_Check(t *testing.T) {
 	t.Run("TerraformEnabledButNotAvailable", func(t *testing.T) {
 		// When terraform is enabled but not available in PATH
 		mocks, toolsManager := setup(t, defaultConfig)
-		mocks.ConfigHandler.SetContextValue("terraform.enabled", true)
+		mocks.ConfigHandler.Set("terraform.enabled", true)
 		originalExecLookPath := execLookPath
 		execLookPath = func(name string) (string, error) {
 			if name == "terraform" {
@@ -405,7 +405,7 @@ func TestToolsManager_Check(t *testing.T) {
 	t.Run("ColimaEnabledButNotAvailable", func(t *testing.T) {
 		// When colima is enabled but not available in PATH
 		mocks, toolsManager := setup(t, defaultConfig)
-		mocks.ConfigHandler.SetContextValue("vm.driver", "colima")
+		mocks.ConfigHandler.Set("vm.driver", "colima")
 		originalExecLookPath := execLookPath
 		execLookPath = func(name string) (string, error) {
 			if name == "colima" {
@@ -462,9 +462,9 @@ contexts:
 	t.Run("MultipleToolFailures", func(t *testing.T) {
 		// Given multiple tools are enabled but fail checks
 		mocks, toolsManager := setup(t, defaultConfig)
-		mocks.ConfigHandler.SetContextValue("docker.enabled", true)
-		mocks.ConfigHandler.SetContextValue("aws.enabled", true)
-		mocks.ConfigHandler.SetContextValue("cluster.enabled", true)
+		mocks.ConfigHandler.Set("docker.enabled", true)
+		mocks.ConfigHandler.Set("aws.enabled", true)
+		mocks.ConfigHandler.Set("cluster.enabled", true)
 
 		// Mock failures for multiple tools
 		originalExecLookPath := execLookPath

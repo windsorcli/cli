@@ -128,7 +128,7 @@ func (t *BaseToolsManager) Check() error {
 		}
 	}
 
-	if vaults := t.configHandler.Get(fmt.Sprintf("contexts.%s.secrets.onepassword.vaults", t.configHandler.GetContext())); vaults != nil {
+	if vaults := t.configHandler.Get("secrets.onepassword.vaults"); vaults != nil {
 		if err := t.checkOnePassword(); err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)

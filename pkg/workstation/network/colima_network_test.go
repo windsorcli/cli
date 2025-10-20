@@ -104,7 +104,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	t.Run("NoNetworkCIDRConfigured", func(t *testing.T) {
 		// Given a network manager with no CIDR configured
 		manager, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("network.cidr_block", "")
+		mocks.ConfigHandler.Set("network.cidr_block", "")
 
 		// And configuring the guest
 		err := manager.ConfigureGuest()
@@ -122,7 +122,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	t.Run("NoGuestIPConfigured", func(t *testing.T) {
 		// Given a network manager with no guest IP configured
 		manager, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("vm.address", "")
+		mocks.ConfigHandler.Set("vm.address", "")
 
 		// And configuring the guest
 		err := manager.ConfigureGuest()
@@ -397,7 +397,7 @@ func TestColimaNetworkManager_getHostIP(t *testing.T) {
 	t.Run("NoGuestAddressSet", func(t *testing.T) {
 		// Given a network manager with no guest address
 		manager, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("vm.address", "")
+		mocks.ConfigHandler.Set("vm.address", "")
 
 		// And getting the host IP
 		hostIP, err := manager.getHostIP()
@@ -422,7 +422,7 @@ func TestColimaNetworkManager_getHostIP(t *testing.T) {
 	t.Run("ErrorParsingGuestIP", func(t *testing.T) {
 		// Given a network manager with invalid guest IP
 		manager, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("vm.address", "invalid_ip_address")
+		mocks.ConfigHandler.Set("vm.address", "invalid_ip_address")
 
 		// And getting the host IP
 		hostIP, err := manager.getHostIP()
