@@ -43,9 +43,9 @@ tasks:
     cmds:
       - |
         if [ -n "{{.CLI_ARGS}}" ]; then
-          go test -coverprofile=coverage.out -run {{.CLI_ARGS}} ./...
+          go test -covermode=atomic -coverprofile=coverage.out -run {{.CLI_ARGS}} ./api/... ./pkg/... ./cmd
         else
-          go test -coverprofile=coverage.out ./...
+          go test -covermode=atomic -coverprofile=coverage.out ./api/... ./pkg/... ./cmd
         fi
       - go tool cover -html=coverage.out -o coverage.html
     silent: true
