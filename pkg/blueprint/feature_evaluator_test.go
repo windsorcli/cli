@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
@@ -1334,7 +1335,7 @@ func TestFeatureEvaluator_AbsolutePaths(t *testing.T) {
 		jsonnetContent := `{
   test: "absolute"
 }`
-		jsonnetPath := tmpDir + "/absolute.jsonnet"
+		jsonnetPath := filepath.Join(tmpDir, "absolute.jsonnet")
 		if err := writeTestFile(jsonnetPath, jsonnetContent); err != nil {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
@@ -1343,7 +1344,7 @@ func TestFeatureEvaluator_AbsolutePaths(t *testing.T) {
 		evaluator := NewFeatureEvaluator(injector)
 		_ = evaluator.Initialize()
 
-		result, err := evaluator.EvaluateValue(`jsonnet("`+jsonnetPath+`")`, map[string]any{}, "features/test.yaml")
+		result, err := evaluator.EvaluateValue(`jsonnet("`+strings.ReplaceAll(jsonnetPath, "\\", "\\\\")+`")`, map[string]any{}, "features/test.yaml")
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1418,7 +1419,7 @@ func TestFeatureEvaluator_PathResolution(t *testing.T) {
 		evaluator := NewFeatureEvaluator(injector)
 		_ = evaluator.Initialize()
 
-		result, err := evaluator.EvaluateValue(`jsonnet("`+testFile+`")`, map[string]any{}, "features/test.yaml")
+		result, err := evaluator.EvaluateValue(`jsonnet("`+strings.ReplaceAll(testFile, "\\", "\\\\")+`")`, map[string]any{}, "features/test.yaml")
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1664,7 +1665,7 @@ func TestFeatureEvaluator_PathResolution(t *testing.T) {
 		evaluator := NewFeatureEvaluator(injector)
 		_ = evaluator.Initialize()
 
-		result, err := evaluator.EvaluateValue(`jsonnet("`+testFile+`")`, map[string]any{}, "features/test.yaml")
+		result, err := evaluator.EvaluateValue(`jsonnet("`+strings.ReplaceAll(testFile, "\\", "\\\\")+`")`, map[string]any{}, "features/test.yaml")
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
