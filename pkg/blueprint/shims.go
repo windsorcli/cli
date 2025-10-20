@@ -8,11 +8,39 @@ import (
 	"time"
 
 	"github.com/goccy/go-yaml"
+	"github.com/google/go-jsonnet"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	k8syaml "sigs.k8s.io/yaml"
 )
+
+// JsonnetVM provides an interface for Jsonnet virtual machine operations
+type JsonnetVM interface {
+	ExtCode(key, val string)
+	Importer(importer jsonnet.Importer)
+	EvaluateAnonymousSnippet(filename, snippet string) (string, error)
+}
+
+// RealJsonnetVM is the real implementation of JsonnetVM
+type RealJsonnetVM struct {
+	vm *jsonnet.VM
+}
+
+// ExtCode sets external code for the Jsonnet VM
+func (j *RealJsonnetVM) ExtCode(key, val string) {
+	j.vm.ExtCode(key, val)
+}
+
+// Importer sets the importer for the Jsonnet VM
+func (j *RealJsonnetVM) Importer(importer jsonnet.Importer) {
+	j.vm.Importer(importer)
+}
+
+// EvaluateAnonymousSnippet evaluates a Jsonnet snippet
+func (j *RealJsonnetVM) EvaluateAnonymousSnippet(filename, snippet string) (string, error) {
+	return j.vm.EvaluateAnonymousSnippet(filename, snippet)
+}
 
 // Shims provides testable wrappers around external dependencies for the blueprint package.
 // This enables dependency injection and mocking in unit tests while maintaining
@@ -37,6 +65,7 @@ type Shims struct {
 	JsonMarshal        func(any) ([]byte, error)
 	JsonUnmarshal      func([]byte, any) error
 	FilepathBase       func(string) string
+	NewJsonnetVM       func() JsonnetVM
 }
 
 // NewShims creates a new Shims instance with default implementations
@@ -75,5 +104,8 @@ func NewShims() *Shims {
 		JsonMarshal:   json.Marshal,
 		JsonUnmarshal: json.Unmarshal,
 		FilepathBase:  filepath.Base,
+		NewJsonnetVM: func() JsonnetVM {
+			return &RealJsonnetVM{vm: jsonnet.MakeVM()}
+		},
 	}
 }

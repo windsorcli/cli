@@ -3401,6 +3401,14 @@ func TestBaseBlueprintHandler_setRepositoryDefaults(t *testing.T) {
 		handler := setup(t)
 		handler.blueprint.Repository.Url = "https://github.com/existing/repo"
 
+		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "dev" {
+				return false
+			}
+			return false
+		}
+
 		err := handler.setRepositoryDefaults()
 
 		if err != nil {

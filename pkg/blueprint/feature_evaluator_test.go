@@ -1,7 +1,14 @@
 package blueprint
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/shell"
 )
 
 // =============================================================================
@@ -10,7 +17,8 @@ import (
 
 func TestNewFeatureEvaluator(t *testing.T) {
 	t.Run("CreatesNewFeatureEvaluatorSuccessfully", func(t *testing.T) {
-		evaluator := NewFeatureEvaluator()
+		injector := di.NewInjector()
+		evaluator := NewFeatureEvaluator(injector)
 		if evaluator == nil {
 			t.Fatal("Expected evaluator, got nil")
 		}
@@ -22,7 +30,9 @@ func TestNewFeatureEvaluator(t *testing.T) {
 // =============================================================================
 
 func TestFeatureEvaluator_EvaluateExpression(t *testing.T) {
-	evaluator := NewFeatureEvaluator()
+	injector := di.NewInjector()
+	evaluator := NewFeatureEvaluator(injector)
+	_ = evaluator.Initialize()
 
 	tests := []struct {
 		name        string
@@ -140,7 +150,7 @@ func TestFeatureEvaluator_EvaluateExpression(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := evaluator.EvaluateExpression(tt.expression, tt.config)
+			result, err := evaluator.EvaluateExpression(tt.expression, tt.config, "features/test.yaml")
 
 			if tt.shouldError {
 				if err == nil {
@@ -163,7 +173,9 @@ func TestFeatureEvaluator_EvaluateExpression(t *testing.T) {
 }
 
 func TestFeatureEvaluator_EvaluateValue(t *testing.T) {
-	evaluator := NewFeatureEvaluator()
+	injector := di.NewInjector()
+	evaluator := NewFeatureEvaluator(injector)
+	_ = evaluator.Initialize()
 
 	tests := []struct {
 		name        string
@@ -256,7 +268,7 @@ func TestFeatureEvaluator_EvaluateValue(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := evaluator.EvaluateValue(tt.expression, tt.config)
+			result, err := evaluator.EvaluateValue(tt.expression, tt.config, "features/test.yaml")
 
 			if tt.shouldError {
 				if err == nil {
@@ -279,7 +291,9 @@ func TestFeatureEvaluator_EvaluateValue(t *testing.T) {
 }
 
 func TestFeatureEvaluator_EvaluateDefaults(t *testing.T) {
-	evaluator := NewFeatureEvaluator()
+	injector := di.NewInjector()
+	evaluator := NewFeatureEvaluator(injector)
+	_ = evaluator.Initialize()
 
 	t.Run("EvaluatesLiteralValues", func(t *testing.T) {
 		defaults := map[string]any{
@@ -289,7 +303,7 @@ func TestFeatureEvaluator_EvaluateDefaults(t *testing.T) {
 
 		config := map[string]any{}
 
-		result, err := evaluator.EvaluateDefaults(defaults, config)
+		result, err := evaluator.EvaluateDefaults(defaults, config, "features/test.yaml")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -317,7 +331,7 @@ func TestFeatureEvaluator_EvaluateDefaults(t *testing.T) {
 			},
 		}
 
-		result, err := evaluator.EvaluateDefaults(defaults, config)
+		result, err := evaluator.EvaluateDefaults(defaults, config, "features/test.yaml")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -344,7 +358,7 @@ func TestFeatureEvaluator_EvaluateDefaults(t *testing.T) {
 			},
 		}
 
-		result, err := evaluator.EvaluateDefaults(defaults, config)
+		result, err := evaluator.EvaluateDefaults(defaults, config, "features/test.yaml")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -376,7 +390,7 @@ func TestFeatureEvaluator_EvaluateDefaults(t *testing.T) {
 			},
 		}
 
-		result, err := evaluator.EvaluateDefaults(defaults, config)
+		result, err := evaluator.EvaluateDefaults(defaults, config, "features/test.yaml")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -414,7 +428,7 @@ func TestFeatureEvaluator_EvaluateDefaults(t *testing.T) {
 			},
 		}
 
-		result, err := evaluator.EvaluateDefaults(defaults, config)
+		result, err := evaluator.EvaluateDefaults(defaults, config, "features/test.yaml")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -444,7 +458,7 @@ func TestFeatureEvaluator_EvaluateDefaults(t *testing.T) {
 			},
 		}
 
-		result, err := evaluator.EvaluateDefaults(defaults, config)
+		result, err := evaluator.EvaluateDefaults(defaults, config, "features/test.yaml")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -473,7 +487,7 @@ func TestFeatureEvaluator_EvaluateDefaults(t *testing.T) {
 			},
 		}
 
-		_, err := evaluator.EvaluateDefaults(defaults, config)
+		_, err := evaluator.EvaluateDefaults(defaults, config, "features/test.yaml")
 		if err == nil {
 			t.Fatal("Expected error for invalid expression, got nil")
 		}
@@ -496,7 +510,7 @@ func TestFeatureEvaluator_EvaluateDefaults(t *testing.T) {
 			},
 		}
 
-		result, err := evaluator.EvaluateDefaults(defaults, config)
+		result, err := evaluator.EvaluateDefaults(defaults, config, "features/test.yaml")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -529,7 +543,7 @@ func TestFeatureEvaluator_EvaluateDefaults(t *testing.T) {
 			},
 		}
 
-		result, err := evaluator.EvaluateDefaults(defaults, config)
+		result, err := evaluator.EvaluateDefaults(defaults, config, "features/test.yaml")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -552,7 +566,7 @@ func TestFeatureEvaluator_EvaluateDefaults(t *testing.T) {
 			"port": 8080,
 		}
 
-		result, err := evaluator.EvaluateDefaults(defaults, config)
+		result, err := evaluator.EvaluateDefaults(defaults, config, "features/test.yaml")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -575,7 +589,7 @@ func TestFeatureEvaluator_EvaluateDefaults(t *testing.T) {
 			},
 		}
 
-		result, err := evaluator.EvaluateDefaults(defaults, config)
+		result, err := evaluator.EvaluateDefaults(defaults, config, "features/test.yaml")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -596,7 +610,7 @@ func TestFeatureEvaluator_EvaluateDefaults(t *testing.T) {
 			},
 		}
 
-		_, err := evaluator.EvaluateDefaults(defaults, config)
+		_, err := evaluator.EvaluateDefaults(defaults, config, "features/test.yaml")
 		if err == nil {
 			t.Fatal("Expected error for unclosed expression, got nil")
 		}
@@ -609,7 +623,7 @@ func TestFeatureEvaluator_EvaluateDefaults(t *testing.T) {
 
 		config := map[string]any{}
 
-		_, err := evaluator.EvaluateDefaults(defaults, config)
+		_, err := evaluator.EvaluateDefaults(defaults, config, "features/test.yaml")
 		if err == nil {
 			t.Fatal("Expected error for invalid interpolation expression, got nil")
 		}
@@ -621,7 +635,9 @@ func TestFeatureEvaluator_EvaluateDefaults(t *testing.T) {
 // =============================================================================
 
 func TestFeatureEvaluator_extractExpression(t *testing.T) {
-	evaluator := NewFeatureEvaluator()
+	injector := di.NewInjector()
+	evaluator := NewFeatureEvaluator(injector)
+	_ = evaluator.Initialize()
 
 	tests := []struct {
 		name     string
@@ -681,10 +697,12 @@ func TestFeatureEvaluator_extractExpression(t *testing.T) {
 }
 
 func TestFeatureEvaluator_evaluateDefaultValue(t *testing.T) {
-	evaluator := NewFeatureEvaluator()
+	injector := di.NewInjector()
+	evaluator := NewFeatureEvaluator(injector)
+	_ = evaluator.Initialize()
 
 	t.Run("LiteralStringPassesThrough", func(t *testing.T) {
-		result, err := evaluator.evaluateDefaultValue("talos", map[string]any{})
+		result, err := evaluator.evaluateDefaultValue("talos", map[string]any{}, "features/test.yaml")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -702,7 +720,7 @@ func TestFeatureEvaluator_evaluateDefaultValue(t *testing.T) {
 			},
 		}
 
-		result, err := evaluator.evaluateDefaultValue("${cluster.workers.count}", config)
+		result, err := evaluator.evaluateDefaultValue("${cluster.workers.count}", config, "features/test.yaml")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -725,7 +743,7 @@ func TestFeatureEvaluator_evaluateDefaultValue(t *testing.T) {
 			},
 		}
 
-		result, err := evaluator.evaluateDefaultValue(input, config)
+		result, err := evaluator.evaluateDefaultValue(input, config, "features/test.yaml")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -757,7 +775,7 @@ func TestFeatureEvaluator_evaluateDefaultValue(t *testing.T) {
 			},
 		}
 
-		result, err := evaluator.evaluateDefaultValue(input, config)
+		result, err := evaluator.evaluateDefaultValue(input, config, "features/test.yaml")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -779,7 +797,7 @@ func TestFeatureEvaluator_evaluateDefaultValue(t *testing.T) {
 	})
 
 	t.Run("NonStringTypesPassThrough", func(t *testing.T) {
-		result, err := evaluator.evaluateDefaultValue(42, map[string]any{})
+		result, err := evaluator.evaluateDefaultValue(42, map[string]any{}, "features/test.yaml")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -787,7 +805,7 @@ func TestFeatureEvaluator_evaluateDefaultValue(t *testing.T) {
 			t.Errorf("Expected 42, got %v", result)
 		}
 
-		result, err = evaluator.evaluateDefaultValue(true, map[string]any{})
+		result, err = evaluator.evaluateDefaultValue(true, map[string]any{}, "features/test.yaml")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -841,4 +859,838 @@ func deepEqual(a, b any) bool {
 	default:
 		return a == b
 	}
+}
+
+// =============================================================================
+// Test File Loading Functions
+// =============================================================================
+
+func TestFeatureEvaluator_JsonnetFunction(t *testing.T) {
+	t.Run("LoadsAndEvaluatesJsonnetFile", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		jsonnetContent := `{
+  name: "test-config",
+  replicas: 3,
+  enabled: true
+}`
+
+		// Create the expected directory structure and file
+		expectedDir := filepath.Join(tmpDir, "contexts", "_template", "features")
+		if err := os.MkdirAll(expectedDir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+		expectedPath := filepath.Join(expectedDir, "config.jsonnet")
+		if err := os.WriteFile(expectedPath, []byte(jsonnetContent), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		injector := di.NewInjector()
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetConfigRootFunc = func() (string, error) { return tmpDir, nil }
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) { return tmpDir, nil }
+
+		injector.Register("configHandler", mockConfig)
+		injector.Register("shell", mockShell)
+		evaluator := NewFeatureEvaluator(injector)
+		_ = evaluator.Initialize()
+		config := map[string]any{}
+
+		featurePath := filepath.Join(expectedDir, "test.yaml")
+		result, err := evaluator.EvaluateValue(`jsonnet("config.jsonnet")`, config, featurePath)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		resultMap, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("Expected map[string]any, got %T", result)
+		}
+
+		if resultMap["name"] != "test-config" {
+			t.Errorf("Expected name='test-config', got %v", resultMap["name"])
+		}
+		if resultMap["replicas"] != float64(3) {
+			t.Errorf("Expected replicas=3, got %v", resultMap["replicas"])
+		}
+		if resultMap["enabled"] != true {
+			t.Errorf("Expected enabled=true, got %v", resultMap["enabled"])
+		}
+	})
+
+	t.Run("JsonnetFileWithContextVariable", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		jsonnetContent := `local ctx = std.extVar('context');
+{
+  namespace: ctx.namespace,
+  region: ctx.region
+}`
+
+		// Create the expected directory structure and file
+		expectedDir := filepath.Join(tmpDir, "contexts", "_template", "features")
+		if err := os.MkdirAll(expectedDir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+		expectedPath := filepath.Join(expectedDir, "context-config.jsonnet")
+		if err := os.WriteFile(expectedPath, []byte(jsonnetContent), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		injector := di.NewInjector()
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetConfigRootFunc = func() (string, error) { return tmpDir, nil }
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) { return tmpDir, nil }
+
+		injector.Register("configHandler", mockConfig)
+		injector.Register("shell", mockShell)
+		evaluator := NewFeatureEvaluator(injector)
+		_ = evaluator.Initialize()
+		config := map[string]any{
+			"namespace": "production",
+			"region":    "us-west-2",
+		}
+
+		featurePath := filepath.Join(expectedDir, "test.yaml")
+		result, err := evaluator.EvaluateValue(`jsonnet("context-config.jsonnet")`, config, featurePath)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		resultMap, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("Expected map[string]any, got %T", result)
+		}
+
+		if resultMap["namespace"] != "production" {
+			t.Errorf("Expected namespace='production', got %v", resultMap["namespace"])
+		}
+		if resultMap["region"] != "us-west-2" {
+			t.Errorf("Expected region='us-west-2', got %v", resultMap["region"])
+		}
+	})
+
+	t.Run("JsonnetFileWithEnrichedContext", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		projectDir := tmpDir + "/my-project"
+
+		jsonnetContent := `local ctx = std.extVar('context');
+{
+  projectName: if std.objectHas(ctx, 'projectName') then ctx.projectName else 'unknown',
+  environment: ctx.environment
+}`
+
+		// Create the expected directory structure and file
+		expectedDir := filepath.Join(projectDir, "contexts", "_template", "features")
+		if err := os.MkdirAll(expectedDir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+		expectedPath := filepath.Join(expectedDir, "enriched-config.jsonnet")
+		if err := os.WriteFile(expectedPath, []byte(jsonnetContent), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		injector := di.NewInjector()
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetConfigRootFunc = func() (string, error) { return tmpDir, nil }
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) { return projectDir, nil }
+
+		injector.Register("configHandler", mockConfig)
+		injector.Register("shell", mockShell)
+		evaluator := NewFeatureEvaluator(injector)
+		_ = evaluator.Initialize()
+		config := map[string]any{
+			"environment": "production",
+		}
+
+		featurePath := filepath.Join(expectedDir, "test.yaml")
+		result, err := evaluator.EvaluateValue(`jsonnet("enriched-config.jsonnet")`, config, featurePath)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		resultMap, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("Expected map[string]any, got %T", result)
+		}
+
+		if resultMap["projectName"] != "my-project" {
+			t.Errorf("Expected projectName='my-project', got %v", resultMap["projectName"])
+		}
+		if resultMap["environment"] != "production" {
+			t.Errorf("Expected environment='production', got %v", resultMap["environment"])
+		}
+	})
+
+	t.Run("JsonnetFileWithRelativePath", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		jsonnetContent := `{
+  source: "nested"
+}`
+
+		// Create the expected directory structure and file
+		expectedDir := filepath.Join(tmpDir, "contexts", "_template", "features", "configs")
+		if err := os.MkdirAll(expectedDir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+		expectedPath := filepath.Join(expectedDir, "nested.jsonnet")
+		if err := os.WriteFile(expectedPath, []byte(jsonnetContent), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		injector := di.NewInjector()
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetConfigRootFunc = func() (string, error) { return tmpDir, nil }
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) { return tmpDir, nil }
+		injector.Register("configHandler", mockConfig)
+		injector.Register("shell", mockShell)
+		evaluator := NewFeatureEvaluator(injector)
+		_ = evaluator.Initialize()
+		config := map[string]any{}
+
+		featurePath := filepath.Join(tmpDir, "contexts", "_template", "features", "test.yaml")
+		result, err := evaluator.EvaluateValue(`jsonnet("configs/nested.jsonnet")`, config, featurePath)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		resultMap, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("Expected map[string]any, got %T", result)
+		}
+
+		if resultMap["source"] != "nested" {
+			t.Errorf("Expected source='nested', got %v", resultMap["source"])
+		}
+	})
+
+	t.Run("JsonnetFileNotFound", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		injector := di.NewInjector()
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetConfigRootFunc = func() (string, error) { return tmpDir, nil }
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) { return tmpDir, nil }
+		injector.Register("configHandler", mockConfig)
+		injector.Register("shell", mockShell)
+		evaluator := NewFeatureEvaluator(injector)
+		_ = evaluator.Initialize()
+		config := map[string]any{}
+
+		_, err := evaluator.EvaluateValue(`jsonnet("nonexistent.jsonnet")`, config, "features/test.yaml")
+		if err == nil {
+			t.Fatal("Expected error for nonexistent file, got nil")
+		}
+	})
+
+	t.Run("JsonnetFileInvalidSyntax", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		jsonnetContent := `{
+  invalid syntax here
+}`
+		jsonnetPath := tmpDir + "/invalid.jsonnet"
+		if err := writeTestFile(jsonnetPath, jsonnetContent); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		injector := di.NewInjector()
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetConfigRootFunc = func() (string, error) { return tmpDir, nil }
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) { return tmpDir, nil }
+		injector.Register("configHandler", mockConfig)
+		injector.Register("shell", mockShell)
+		evaluator := NewFeatureEvaluator(injector)
+		_ = evaluator.Initialize()
+		config := map[string]any{}
+
+		_, err := evaluator.EvaluateValue(`jsonnet("invalid.jsonnet")`, config, "features/test.yaml")
+		if err == nil {
+			t.Fatal("Expected error for invalid jsonnet, got nil")
+		}
+	})
+}
+
+func TestFeatureEvaluator_FileFunction(t *testing.T) {
+	t.Run("LoadsRawFileContent", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		content := "Hello, World!\nThis is a test file."
+
+		// Create the expected directory structure and file
+		expectedDir := filepath.Join(tmpDir, "contexts", "_template", "features")
+		if err := os.MkdirAll(expectedDir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+		expectedPath := filepath.Join(expectedDir, "test.txt")
+		if err := os.WriteFile(expectedPath, []byte(content), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		injector := di.NewInjector()
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetConfigRootFunc = func() (string, error) { return tmpDir, nil }
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) { return tmpDir, nil }
+
+		injector.Register("configHandler", mockConfig)
+		injector.Register("shell", mockShell)
+		evaluator := NewFeatureEvaluator(injector)
+		_ = evaluator.Initialize()
+
+		featurePath := filepath.Join(expectedDir, "test.yaml")
+		result, err := evaluator.EvaluateValue(`file("test.txt")`, map[string]any{}, featurePath)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		resultStr, ok := result.(string)
+		if !ok {
+			t.Fatalf("Expected string, got %T", result)
+		}
+
+		if resultStr != content {
+			t.Errorf("Expected content='%s', got '%s'", content, resultStr)
+		}
+	})
+
+	t.Run("LoadsYAMLFile", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		yamlContent := `name: test-service
+version: 1.0.0
+enabled: true`
+
+		// Create the expected directory structure and file
+		expectedDir := filepath.Join(tmpDir, "contexts", "_template", "features")
+		if err := os.MkdirAll(expectedDir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+		expectedPath := filepath.Join(expectedDir, "config.yaml")
+		if err := os.WriteFile(expectedPath, []byte(yamlContent), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		injector := di.NewInjector()
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetConfigRootFunc = func() (string, error) { return tmpDir, nil }
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) { return tmpDir, nil }
+		injector.Register("configHandler", mockConfig)
+		injector.Register("shell", mockShell)
+		evaluator := NewFeatureEvaluator(injector)
+		_ = evaluator.Initialize()
+
+		featurePath := filepath.Join(expectedDir, "test.yaml")
+		result, err := evaluator.EvaluateValue(`file("config.yaml")`, map[string]any{}, featurePath)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		resultStr, ok := result.(string)
+		if !ok {
+			t.Fatalf("Expected string, got %T", result)
+		}
+
+		if resultStr != yamlContent {
+			t.Errorf("Expected yaml content, got different content")
+		}
+	})
+
+	t.Run("FileNotFound", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		injector := di.NewInjector()
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetConfigRootFunc = func() (string, error) { return tmpDir, nil }
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) { return tmpDir, nil }
+		injector.Register("configHandler", mockConfig)
+		injector.Register("shell", mockShell)
+		evaluator := NewFeatureEvaluator(injector)
+		_ = evaluator.Initialize()
+
+		_, err := evaluator.EvaluateValue(`file("nonexistent.txt")`, map[string]any{}, "features/test.yaml")
+		if err == nil {
+			t.Fatal("Expected error for nonexistent file, got nil")
+		}
+	})
+}
+
+func TestFeatureEvaluator_FileLoadingInDefaults(t *testing.T) {
+	t.Run("EvaluatesJsonnetInDefaults", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		jsonnetContent := `{
+  database: {
+    host: "localhost",
+    port: 5432
+  }
+}`
+
+		// Create the expected directory structure and file
+		expectedDir := filepath.Join(tmpDir, "contexts", "_template", "features")
+		if err := os.MkdirAll(expectedDir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+		expectedPath := filepath.Join(expectedDir, "db-config.jsonnet")
+		if err := os.WriteFile(expectedPath, []byte(jsonnetContent), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		injector := di.NewInjector()
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetConfigRootFunc = func() (string, error) { return tmpDir, nil }
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) { return tmpDir, nil }
+		injector.Register("configHandler", mockConfig)
+		injector.Register("shell", mockShell)
+		evaluator := NewFeatureEvaluator(injector)
+		_ = evaluator.Initialize()
+
+		defaults := map[string]any{
+			"db_config": `${jsonnet("db-config.jsonnet")}`,
+			"name":      "my-service",
+		}
+
+		config := map[string]any{}
+
+		featurePath := filepath.Join(expectedDir, "test.yaml")
+		result, err := evaluator.EvaluateDefaults(defaults, config, featurePath)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		dbConfig, ok := result["db_config"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected map[string]any for db_config, got %T", result["db_config"])
+		}
+
+		database, ok := dbConfig["database"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected map[string]any for database, got %T", dbConfig["database"])
+		}
+
+		if database["host"] != "localhost" {
+			t.Errorf("Expected host='localhost', got %v", database["host"])
+		}
+		if database["port"] != float64(5432) {
+			t.Errorf("Expected port=5432, got %v", database["port"])
+		}
+	})
+
+	t.Run("EvaluatesFileInDefaults", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		fileContent := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC..."
+
+		// Create the expected directory structure and file
+		expectedDir := filepath.Join(tmpDir, "contexts", "_template", "features")
+		if err := os.MkdirAll(expectedDir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+		expectedPath := filepath.Join(expectedDir, "key.pub")
+		if err := os.WriteFile(expectedPath, []byte(fileContent), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		injector := di.NewInjector()
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetConfigRootFunc = func() (string, error) { return tmpDir, nil }
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) { return tmpDir, nil }
+		injector.Register("configHandler", mockConfig)
+		injector.Register("shell", mockShell)
+		evaluator := NewFeatureEvaluator(injector)
+		_ = evaluator.Initialize()
+
+		defaults := map[string]any{
+			"ssh_key": `${file("key.pub")}`,
+		}
+
+		config := map[string]any{}
+
+		featurePath := filepath.Join(expectedDir, "test.yaml")
+		result, err := evaluator.EvaluateDefaults(defaults, config, featurePath)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result["ssh_key"] != fileContent {
+			t.Errorf("Expected ssh_key to contain file content")
+		}
+	})
+}
+
+func TestFeatureEvaluator_AbsolutePaths(t *testing.T) {
+	t.Run("HandlesAbsolutePathForJsonnet", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		jsonnetContent := `{
+  test: "absolute"
+}`
+		jsonnetPath := tmpDir + "/absolute.jsonnet"
+		if err := writeTestFile(jsonnetPath, jsonnetContent); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		injector := di.NewInjector()
+		evaluator := NewFeatureEvaluator(injector)
+		_ = evaluator.Initialize()
+
+		result, err := evaluator.EvaluateValue(`jsonnet("`+jsonnetPath+`")`, map[string]any{}, "features/test.yaml")
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		resultMap, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("Expected map[string]any, got %T", result)
+		}
+
+		if resultMap["test"] != "absolute" {
+			t.Errorf("Expected test='absolute', got %v", resultMap["test"])
+		}
+	})
+}
+
+func TestFeatureEvaluator_PathResolution(t *testing.T) {
+	t.Run("FallbackToProjectRootWhenNoContextRoot", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		jsonnetContent := `{
+  test: "project-root"
+}`
+		if err := writeTestFile(filepath.Join(tmpDir, "config.jsonnet"), jsonnetContent); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		injector := di.NewInjector()
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("no context root")
+		}
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		injector.Register("configHandler", mockConfig)
+		injector.Register("shell", mockShell)
+		evaluator := NewFeatureEvaluator(injector)
+		_ = evaluator.Initialize()
+
+		result, err := evaluator.EvaluateValue(`jsonnet("config.jsonnet")`, map[string]any{}, "")
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		resultMap, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("Expected map[string]any, got %T", result)
+		}
+
+		if resultMap["test"] != "project-root" {
+			t.Errorf("Expected test='project-root', got %v", resultMap["test"])
+		}
+	})
+
+	t.Run("FallbackToCleanPathWhenNoShell", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		jsonnetContent := `{
+  test: "clean-path"
+}`
+		testFile := filepath.Join(tmpDir, "test.jsonnet")
+		if err := writeTestFile(testFile, jsonnetContent); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		injector := di.NewInjector()
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("no context root")
+		}
+		injector.Register("configHandler", mockConfig)
+
+		evaluator := NewFeatureEvaluator(injector)
+		_ = evaluator.Initialize()
+
+		result, err := evaluator.EvaluateValue(`jsonnet("`+testFile+`")`, map[string]any{}, "features/test.yaml")
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		resultMap, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("Expected map[string]any, got %T", result)
+		}
+
+		if resultMap["test"] != "clean-path" {
+			t.Errorf("Expected test='clean-path', got %v", resultMap["test"])
+		}
+	})
+
+	t.Run("FeatureDirTakesPrecedenceOverContextRoot", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		featureSubDir := filepath.Join(tmpDir, "contexts", "_template", "features", "aws")
+		if err := os.MkdirAll(featureSubDir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+
+		featuresDir := filepath.Join(tmpDir, "contexts", "_template", "features")
+		if err := os.MkdirAll(featuresDir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+
+		jsonnetContent := `{
+  test: "feature-dir"
+}`
+		if err := os.WriteFile(filepath.Join(featuresDir, "config.jsonnet"), []byte(jsonnetContent), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		wrongJsonnetContent := `{
+  test: "wrong"
+}`
+		if err := os.WriteFile(filepath.Join(tmpDir, "config.jsonnet"), []byte(wrongJsonnetContent), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		injector := di.NewInjector()
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetConfigRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		injector.Register("configHandler", mockConfig)
+		injector.Register("shell", mockShell)
+		evaluator := NewFeatureEvaluator(injector)
+		_ = evaluator.Initialize()
+
+		featurePath := filepath.Join(featuresDir, "test.yaml")
+		result, err := evaluator.EvaluateValue(`jsonnet("config.jsonnet")`, map[string]any{}, featurePath)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		resultMap, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("Expected map[string]any, got %T", result)
+		}
+
+		if resultMap["test"] != "feature-dir" {
+			t.Errorf("Expected test='feature-dir', got %v", resultMap["test"])
+		}
+	})
+
+	t.Run("AccessNestedFieldFromJsonnetFunction", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		jsonnetContent := `{
+  worker_config_patches: ["patch1", "patch2"],
+  control_plane_patches: ["cp-patch1"],
+  other_config: {
+    nested: "value"
+  }
+}`
+
+		// Create the expected directory structure and file
+		expectedDir := filepath.Join(tmpDir, "contexts", "_template", "features")
+		if err := os.MkdirAll(expectedDir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+		expectedPath := filepath.Join(expectedDir, "talos-dev.jsonnet")
+		if err := os.WriteFile(expectedPath, []byte(jsonnetContent), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		injector := di.NewInjector()
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetConfigRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		injector.Register("configHandler", mockConfig)
+		injector.Register("shell", mockShell)
+		evaluator := NewFeatureEvaluator(injector)
+		_ = evaluator.Initialize()
+
+		featurePath := filepath.Join(expectedDir, "test.yaml")
+		result, err := evaluator.EvaluateValue(`jsonnet("talos-dev.jsonnet").worker_config_patches`, map[string]any{}, featurePath)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		resultSlice, ok := result.([]any)
+		if !ok {
+			t.Fatalf("Expected []any, got %T", result)
+		}
+
+		if len(resultSlice) != 2 {
+			t.Errorf("Expected 2 patches, got %d", len(resultSlice))
+		}
+
+		if resultSlice[0] != "patch1" || resultSlice[1] != "patch2" {
+			t.Errorf("Expected ['patch1', 'patch2'], got %v", resultSlice)
+		}
+	})
+
+	t.Run("AccessDeeplyNestedFieldFromJsonnetFunction", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		jsonnetContent := `{
+  config: {
+    nested: {
+      deeply: {
+        value: "found it!"
+      }
+    }
+  }
+}`
+
+		// Create the expected directory structure and file
+		expectedDir := filepath.Join(tmpDir, "contexts", "_template", "features")
+		if err := os.MkdirAll(expectedDir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+		expectedPath := filepath.Join(expectedDir, "nested.jsonnet")
+		if err := os.WriteFile(expectedPath, []byte(jsonnetContent), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		injector := di.NewInjector()
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetConfigRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		injector.Register("configHandler", mockConfig)
+		injector.Register("shell", mockShell)
+		evaluator := NewFeatureEvaluator(injector)
+		_ = evaluator.Initialize()
+
+		featurePath := filepath.Join(expectedDir, "test.yaml")
+		result, err := evaluator.EvaluateValue(`jsonnet("nested.jsonnet").config.nested.deeply.value`, map[string]any{}, featurePath)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result != "found it!" {
+			t.Errorf("Expected 'found it!', got %v", result)
+		}
+	})
+
+	t.Run("RelativePathFromFeatureFileInFeaturesDirectory", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
+
+		configsDir := filepath.Join(templateRoot, "configs")
+		if err := os.MkdirAll(configsDir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+
+		featuresDir := filepath.Join(templateRoot, "features")
+		if err := os.MkdirAll(featuresDir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+
+		jsonnetContent := `{
+  worker_config_patches: ["patch1", "patch2"]
+}`
+		if err := os.WriteFile(filepath.Join(configsDir, "talos-dev.jsonnet"), []byte(jsonnetContent), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		injector := di.NewInjector()
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		injector.Register("shell", mockShell)
+		evaluator := NewFeatureEvaluator(injector)
+		_ = evaluator.Initialize()
+
+		featurePath := filepath.Join(featuresDir, "test.yaml")
+		result, err := evaluator.EvaluateValue(`jsonnet("../configs/talos-dev.jsonnet").worker_config_patches`, map[string]any{}, featurePath)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v\nFeatureDir: %s\nExpected file: %s", err, featuresDir, filepath.Join(configsDir, "talos-dev.jsonnet"))
+		}
+
+		resultSlice, ok := result.([]any)
+		if !ok {
+			t.Fatalf("Expected []any, got %T", result)
+		}
+
+		if len(resultSlice) != 2 {
+			t.Errorf("Expected 2 patches, got %d", len(resultSlice))
+		}
+
+		if resultSlice[0] != "patch1" || resultSlice[1] != "patch2" {
+			t.Errorf("Expected ['patch1', 'patch2'], got %v", resultSlice)
+		}
+	})
+
+	t.Run("ProjectRootErrorFallsBackToCleanPath", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		jsonnetContent := `{
+  test: "clean-fallback"
+}`
+		testFile := filepath.Join(tmpDir, "fallback.jsonnet")
+		if err := writeTestFile(testFile, jsonnetContent); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		injector := di.NewInjector()
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("no context root")
+		}
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("no project root")
+		}
+		injector.Register("configHandler", mockConfig)
+		injector.Register("shell", mockShell)
+		evaluator := NewFeatureEvaluator(injector)
+		_ = evaluator.Initialize()
+
+		result, err := evaluator.EvaluateValue(`jsonnet("`+testFile+`")`, map[string]any{}, "features/test.yaml")
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		resultMap, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("Expected map[string]any, got %T", result)
+		}
+
+		if resultMap["test"] != "clean-fallback" {
+			t.Errorf("Expected test='clean-fallback', got %v", resultMap["test"])
+		}
+	})
+}
+
+func writeTestFile(path, content string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	_, err = file.WriteString(content)
+	return err
+}
+
+func mkdirAll(path string) error {
+	return os.MkdirAll(path, 0755)
 }
