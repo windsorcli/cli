@@ -25,7 +25,7 @@ type NodeGroupConfig struct {
 	CPU       *int                  `yaml:"cpu,omitempty"`
 	Memory    *int                  `yaml:"memory,omitempty"`
 	Image     *string               `yaml:"image,omitempty"`
-	Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+	Nodes     map[string]NodeConfig `yaml:"-"`
 	HostPorts []string              `yaml:"hostports,omitempty"`
 	Volumes   []string              `yaml:"volumes,omitempty"`
 }
