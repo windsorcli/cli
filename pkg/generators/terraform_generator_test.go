@@ -478,6 +478,16 @@ func TestConvertToCtyValue(t *testing.T) {
 			expected: cty.ObjectVal(map[string]cty.Value{"key": cty.StringVal("value")}),
 		},
 		{
+			name:     "StringSliceEmpty",
+			input:    []string{},
+			expected: cty.ListValEmpty(cty.String),
+		},
+		{
+			name:     "StringSliceNonEmpty",
+			input:    []string{"a", "b"},
+			expected: cty.ListVal([]cty.Value{cty.StringVal("a"), cty.StringVal("b")}),
+		},
+		{
 			name:     "Unsupported",
 			input:    struct{}{},
 			expected: cty.NilVal,
@@ -607,6 +617,13 @@ func TestFormatValue(t *testing.T) {
 		}
 	})
 
+	t.Run("StringSliceEmpty", func(t *testing.T) {
+		result := formatValue([]string{})
+		if result != "[]" {
+			t.Errorf("expected [] got %q", result)
+		}
+	})
+
 	t.Run("NilValue", func(t *testing.T) {
 		result := formatValue(nil)
 		if result != "null" {
@@ -638,6 +655,13 @@ func TestFormatValue(t *testing.T) {
 		result := formatValue(input)
 		if result != expected {
 			t.Errorf("expected %q, got %q", expected, result)
+		}
+	})
+
+	t.Run("StringSliceNonEmpty", func(t *testing.T) {
+		result := formatValue([]string{"a", "b"})
+		if result != "[\"a\", \"b\"]" {
+			t.Errorf("expected [\"a\", \"b\"] got %q", result)
 		}
 	})
 

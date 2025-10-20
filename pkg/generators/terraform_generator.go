@@ -354,6 +354,15 @@ func formatValue(value any) string {
 	switch v := value.(type) {
 	case string:
 		return fmt.Sprintf("%q", v)
+	case []string:
+		if len(v) == 0 {
+			return "[]"
+		}
+		var items []string
+		for _, item := range v {
+			items = append(items, fmt.Sprintf("%q", item))
+		}
+		return fmt.Sprintf("[%s]", strings.Join(items, ", "))
 	case []any:
 		if len(v) == 0 {
 			return "[]"
@@ -407,6 +416,15 @@ func convertToCtyValue(value any) cty.Value {
 		return cty.NumberFloatVal(v)
 	case bool:
 		return cty.BoolVal(v)
+	case []string:
+		if len(v) == 0 {
+			return cty.ListValEmpty(cty.String)
+		}
+		var ctyList []cty.Value
+		for _, item := range v {
+			ctyList = append(ctyList, cty.StringVal(item))
+		}
+		return cty.ListVal(ctyList)
 	case []any:
 		if len(v) == 0 {
 			return cty.ListValEmpty(cty.DynamicPseudoType)
