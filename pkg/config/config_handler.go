@@ -437,9 +437,11 @@ func (c *configHandler) GetString(key string, defaultValue ...string) string {
 	return strValue
 }
 
-// GetInt retrieves an integer value for the specified key from the configuration, with an optional default value.
-// It attempts to convert the found value to an integer, handling int, float64, int64, uint64, uint, and string types commonly returned by deserializers.
-// If the key is not found, it returns the provided default value or 0 if no default is supplied.
+// GetInt retrieves an integer value for the specified key from the configuration.
+// It accepts an optional default value. The function safely converts supported types (int, int64, uint64, uint)
+// to int with appropriate overflow protection, and parses string values if they represent valid integer literals.
+// Types that cannot be converted (such as float64 or invalid strings) are ignored and the default is used.
+// If the key is not found or if conversion fails, the provided default value or 0 is returned.
 func (c *configHandler) GetInt(key string, defaultValue ...int) int {
 	value := c.Get(key)
 	if value == nil {
@@ -451,22 +453,42 @@ func (c *configHandler) GetInt(key string, defaultValue ...int) int {
 	if intValue, ok := value.(int); ok {
 		return intValue
 	}
-	if floatValue, ok := value.(float64); ok {
-		return int(floatValue)
-	}
 	if int64Value, ok := value.(int64); ok {
+		maxInt := int64(^uint(0) >> 1)
+		minInt := -maxInt - 1
+		if int64Value > maxInt || int64Value < minInt {
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return 0
+		}
 		return int(int64Value)
 	}
 	if uint64Value, ok := value.(uint64); ok {
+		if uint64Value > uint64(^uint(0)>>1) {
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return 0
+		}
 		return int(uint64Value)
 	}
 	if uintValue, ok := value.(uint); ok {
+		if uintValue > uint(^uint(0)>>1) {
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return 0
+		}
 		return int(uintValue)
 	}
 	if strValue, ok := value.(string); ok {
 		if intVal, err := strconv.Atoi(strValue); err == nil {
 			return intVal
 		}
+	}
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
 	}
 	return 0
 }

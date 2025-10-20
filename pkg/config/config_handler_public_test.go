@@ -855,7 +855,7 @@ func TestConfigHandler_GetInt(t *testing.T) {
 		}
 	})
 
-	t.Run("ConvertsFloat64ToInt", func(t *testing.T) {
+	t.Run("IgnoresFloat64Values", func(t *testing.T) {
 		mocks := setupMocks(t)
 		handler := NewConfigHandler(mocks.Injector)
 		handler.Initialize()
@@ -864,8 +864,8 @@ func TestConfigHandler_GetInt(t *testing.T) {
 
 		result := handler.GetInt("count")
 
-		if result != 42 {
-			t.Errorf("Expected 42, got %d", result)
+		if result != 0 {
+			t.Errorf("Expected 0 (fallback for non-integer), got %d", result)
 		}
 	})
 
