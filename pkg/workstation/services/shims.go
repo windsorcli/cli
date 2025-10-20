@@ -59,7 +59,3 @@ func NewShims() *Shims {
 func ptrString(s string) *string {
 	return &s
 }
-
-func ptrBool(b bool) *bool {
-	return &b
-}

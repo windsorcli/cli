@@ -14,9 +14,8 @@ import (
 // =============================================================================
 
 const (
-	gitGenTestMockGitignorePath = "mock/project/root/.gitignore"
-	gitGenTestExistingContent   = "existing content\n"
-	gitGenTestExpectedContent   = `existing content
+	gitGenTestExistingContent = "existing content\n"
+	gitGenTestExpectedContent = `existing content
 
 # managed by windsor cli
 .windsor/
@@ -29,7 +28,6 @@ contexts/**/.talos/
 contexts/**/.omni/
 contexts/**/.aws/
 contexts/**/.azure/`
-	gitGenTestExpectedPerm = fs.FileMode(0644)
 )
 
 // =============================================================================

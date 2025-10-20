@@ -1691,7 +1691,3 @@ func writeTestFile(path, content string) error {
 	_, err = file.WriteString(content)
 	return err
 }
-
-func mkdirAll(path string) error {
-	return os.MkdirAll(path, 0755)
-}
