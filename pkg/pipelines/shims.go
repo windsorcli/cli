@@ -2,30 +2,6 @@ package pipelines
 
 import "os"
 
-// osStat retrieves the file info for a given path
-var osStat = os.Stat
-
-// osGetenv retrieves an environment variable
-var osGetenv = os.Getenv
-
-// osSetenv sets an environment variable
-var osSetenv = os.Setenv
-
-// osReadDir reads the directory and returns directory entries
-var osReadDir = os.ReadDir
-
-// osReadFile reads the file and returns its contents
-var osReadFile = os.ReadFile
-
-// osRemoveAll removes a directory and all its contents
-var osRemoveAll = os.RemoveAll
-
-// osMkdirAll creates a directory and all its parents
-var osMkdirAll = os.MkdirAll
-
-// osWriteFile writes data to a file
-var osWriteFile = os.WriteFile
-
 // Shims provides a testable interface for system operations used by pipelines.
 // This struct-based approach allows for better isolation during testing by enabling
 // dependency injection of mock implementations for file system and environment operations.

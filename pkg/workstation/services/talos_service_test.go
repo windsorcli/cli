@@ -10,13 +10,6 @@ import (
 	"github.com/windsorcli/cli/pkg/constants"
 )
 
-// Package-level variables for mocking os functions
-var (
-	stat     = os.Stat
-	mkdir    = os.Mkdir
-	mkdirAll = os.MkdirAll
-)
-
 // =============================================================================
 // Test Setup
 // =============================================================================

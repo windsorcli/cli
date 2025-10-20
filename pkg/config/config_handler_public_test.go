@@ -24,7 +24,7 @@ type SetupOptions struct {
 	ConfigStr string
 }
 
-func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+func setupMocks(t *testing.T, _ ...*SetupOptions) *Mocks {
 	t.Helper()
 
 	tmpDir := t.TempDir()
