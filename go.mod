@@ -9,9 +9,9 @@ require (
 	github.com/compose-spec/compose-go/v2 v2.9.0
 	github.com/expr-lang/expr v1.17.6
 	github.com/fluxcd/helm-controller/api v1.3.0
-	github.com/fluxcd/kustomize-controller/api v1.6.1
-	github.com/fluxcd/pkg/apis/kustomize v1.11.0
-	github.com/fluxcd/pkg/apis/meta v1.18.0
+	github.com/fluxcd/kustomize-controller/api v1.7.1
+	github.com/fluxcd/pkg/apis/kustomize v1.13.0
+	github.com/fluxcd/pkg/apis/meta v1.22.0
 	github.com/fluxcd/source-controller/api v1.6.2
 	github.com/getsops/sops/v3 v3.11.0
 	github.com/goccy/go-yaml v1.18.0
