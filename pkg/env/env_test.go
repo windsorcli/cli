@@ -26,6 +26,7 @@ type SetupOptions struct {
 	Injector      di.Injector
 	ConfigHandler config.ConfigHandler
 	ConfigStr     string
+	Context       string
 }
 
 // setupShims creates a new Shims instance with default implementations
@@ -60,12 +61,18 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 
 	// Set project root environment variable
 	os.Setenv("WINDSOR_PROJECT_ROOT", tmpDir)
-	os.Setenv("WINDSOR_CONTEXT", "mock-context")
 
 	// Process options with defaults
 	options := &SetupOptions{}
 	if len(opts) > 0 && opts[0] != nil {
 		options = opts[0]
+	}
+
+	// Set context from options or default to test-context
+	if options.Context != "" {
+		os.Setenv("WINDSOR_CONTEXT", options.Context)
+	} else {
+		os.Setenv("WINDSOR_CONTEXT", "test-context")
 	}
 
 	// Create injector

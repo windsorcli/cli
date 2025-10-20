@@ -47,7 +47,7 @@ func setupTerraformEnvMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		return nil, nil
 	}
 
-	mocks.ConfigHandler.SetContextValue("terraform.backend.type", "local")
+	mocks.ConfigHandler.Set("terraform.backend.type", "local")
 
 	mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
 		// Convert paths to slash format for consistent comparison
@@ -411,7 +411,7 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 
 	t.Run("UnsupportedBackend", func(t *testing.T) {
 		printer, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("terraform.backend.type", "unsupported")
+		mocks.ConfigHandler.Set("terraform.backend.type", "unsupported")
 
 		// When the PostEnvHook function is called
 		err := printer.PostEnvHook()
@@ -739,7 +739,7 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 	t.Run("S3Backend", func(t *testing.T) {
 		// Given a TerraformEnvPrinter with S3 backend configuration
 		printer, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("terraform.backend.type", "s3")
+		mocks.ConfigHandler.Set("terraform.backend.type", "s3")
 
 		var writtenData []byte
 		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
@@ -766,7 +766,7 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 	t.Run("KubernetesBackend", func(t *testing.T) {
 		// Given a TerraformEnvPrinter with Kubernetes backend configuration
 		printer, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("terraform.backend.type", "kubernetes")
+		mocks.ConfigHandler.Set("terraform.backend.type", "kubernetes")
 
 		var writtenData []byte
 		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
@@ -793,7 +793,7 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 	t.Run("AzureRMBackend", func(t *testing.T) {
 		// Given a TerraformEnvPrinter with AzureRM backend configuration
 		printer, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("terraform.backend.type", "azurerm")
+		mocks.ConfigHandler.Set("terraform.backend.type", "azurerm")
 
 		var writtenData []byte
 		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
@@ -820,7 +820,7 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 	t.Run("UnsupportedBackend", func(t *testing.T) {
 		// Given a TerraformEnvPrinter with unsupported backend configuration
 		printer, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("terraform.backend.type", "unsupported")
+		mocks.ConfigHandler.Set("terraform.backend.type", "unsupported")
 
 		// When generateBackendOverrideTf is called
 		err := printer.generateBackendOverrideTf()
@@ -853,7 +853,7 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 	t.Run("NoneBackend", func(t *testing.T) {
 		// Given a TerraformEnvPrinter with "none" backend configuration
 		printer, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("terraform.backend.type", "none")
+		mocks.ConfigHandler.Set("terraform.backend.type", "none")
 
 		// Mock Stat and Remove to verify file deletion
 		fileExists := true
@@ -892,7 +892,7 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 	t.Run("NoneBackendFileNotExists", func(t *testing.T) {
 		// Given a TerraformEnvPrinter with "none" backend configuration and no existing file
 		printer, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("terraform.backend.type", "none")
+		mocks.ConfigHandler.Set("terraform.backend.type", "none")
 
 		// Mock Stat to return file not exists
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
@@ -926,7 +926,7 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 	t.Run("NoneBackendRemoveError", func(t *testing.T) {
 		// Given a TerraformEnvPrinter with "none" backend configuration and failing Remove
 		printer, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("terraform.backend.type", "none")
+		mocks.ConfigHandler.Set("terraform.backend.type", "none")
 
 		// Mock Stat to return file exists
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
@@ -1054,7 +1054,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 	t.Run("LocalBackendWithPrefix", func(t *testing.T) {
 		// Given a TerraformEnvPrinter with local backend and prefix configuration
 		printer, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("terraform.backend.prefix", "mock-prefix/")
+		mocks.ConfigHandler.Set("terraform.backend.prefix", "mock-prefix/")
 		projectPath := "project/path"
 		configRoot := "/mock/config/root"
 
@@ -1078,11 +1078,11 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 	t.Run("S3BackendWithPrefix", func(t *testing.T) {
 		// Given a TerraformEnvPrinter with S3 backend and prefix configuration
 		printer, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("terraform.backend.type", "s3")
-		mocks.ConfigHandler.SetContextValue("terraform.backend.prefix", "mock-prefix/")
-		mocks.ConfigHandler.SetContextValue("terraform.backend.s3.bucket", "mock-bucket")
-		mocks.ConfigHandler.SetContextValue("terraform.backend.s3.region", "mock-region")
-		mocks.ConfigHandler.SetContextValue("terraform.backend.s3.secret_key", "mock-secret-key")
+		mocks.ConfigHandler.Set("terraform.backend.type", "s3")
+		mocks.ConfigHandler.Set("terraform.backend.prefix", "mock-prefix/")
+		mocks.ConfigHandler.Set("terraform.backend.s3.bucket", "mock-bucket")
+		mocks.ConfigHandler.Set("terraform.backend.s3.region", "mock-region")
+		mocks.ConfigHandler.Set("terraform.backend.s3.secret_key", "mock-secret-key")
 		projectPath := "project/path"
 		configRoot := "/mock/config/root"
 
@@ -1109,9 +1109,9 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 	t.Run("KubernetesBackendWithPrefix", func(t *testing.T) {
 		// Given a TerraformEnvPrinter with Kubernetes backend and prefix configuration
 		printer, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("terraform.backend.type", "kubernetes")
-		mocks.ConfigHandler.SetContextValue("terraform.backend.prefix", "mock-prefix")
-		mocks.ConfigHandler.SetContextValue("terraform.backend.kubernetes.namespace", "mock-namespace")
+		mocks.ConfigHandler.Set("terraform.backend.type", "kubernetes")
+		mocks.ConfigHandler.Set("terraform.backend.prefix", "mock-prefix")
+		mocks.ConfigHandler.Set("terraform.backend.kubernetes.namespace", "mock-namespace")
 		projectPath := "project/path"
 		configRoot := "/mock/config/root"
 
@@ -1136,8 +1136,8 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 	t.Run("BackendTfvarsFileExistsWithPrefix", func(t *testing.T) {
 		// Given a TerraformEnvPrinter with backend tfvars file and prefix configuration
 		printer, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("terraform.backend.prefix", "mock-prefix/")
-		mocks.ConfigHandler.SetContextValue("context", "mock-context")
+		mocks.ConfigHandler.Set("terraform.backend.prefix", "mock-prefix/")
+		mocks.ConfigHandler.Set("context", "mock-context")
 		projectPath := "project/path"
 		configRoot := "/mock/config/root"
 
@@ -1161,7 +1161,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 	t.Run("BackendTfvarsFileExists", func(t *testing.T) {
 		// Given a TerraformEnvPrinter with a backend.tfvars file
 		printer, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("context", "mock-context")
+		mocks.ConfigHandler.Set("context", "mock-context")
 		projectPath := "project/path"
 		configRoot := "/mock/config/root"
 
@@ -1195,7 +1195,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 	t.Run("BackendTfvarsFileDoesNotExist", func(t *testing.T) {
 		// Given a TerraformEnvPrinter without a backend.tfvars file
 		printer, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("context", "mock-context")
+		mocks.ConfigHandler.Set("context", "mock-context")
 		projectPath := "project/path"
 		configRoot := "/mock/config/root"
 
@@ -1228,11 +1228,11 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 	t.Run("AzureRMBackendWithPrefix", func(t *testing.T) {
 		// Given a TerraformEnvPrinter with AzureRM backend and prefix configuration
 		printer, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("terraform.backend.type", "azurerm")
-		mocks.ConfigHandler.SetContextValue("terraform.backend.prefix", "mock-prefix/")
-		mocks.ConfigHandler.SetContextValue("terraform.backend.azurerm.storage_account_name", "mock-storage")
-		mocks.ConfigHandler.SetContextValue("terraform.backend.azurerm.container_name", "mock-container")
-		mocks.ConfigHandler.SetContextValue("terraform.backend.azurerm.use_azuread", true)
+		mocks.ConfigHandler.Set("terraform.backend.type", "azurerm")
+		mocks.ConfigHandler.Set("terraform.backend.prefix", "mock-prefix/")
+		mocks.ConfigHandler.Set("terraform.backend.azurerm.storage_account_name", "mock-storage")
+		mocks.ConfigHandler.Set("terraform.backend.azurerm.container_name", "mock-container")
+		mocks.ConfigHandler.Set("terraform.backend.azurerm.use_azuread", true)
 		projectPath := "project/path"
 		configRoot := "/mock/config/root"
 
@@ -1259,7 +1259,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 	t.Run("UnsupportedBackendType", func(t *testing.T) {
 		// Given a TerraformEnvPrinter with unsupported backend configuration
 		printer, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("terraform.backend.type", "unsupported")
+		mocks.ConfigHandler.Set("terraform.backend.type", "unsupported")
 		projectPath := "project/path"
 		configRoot := "/mock/config/root"
 

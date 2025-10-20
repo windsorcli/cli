@@ -29,7 +29,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"-"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
@@ -51,7 +51,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"-"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
@@ -80,7 +80,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"-"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
@@ -102,7 +102,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"-"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
@@ -193,7 +193,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"-"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
@@ -210,7 +210,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"-"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
@@ -234,7 +234,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"-"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
@@ -251,7 +251,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"-"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
@@ -333,7 +333,7 @@ func TestClusterConfig_Copy(t *testing.T) {
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"-"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
@@ -355,7 +355,7 @@ func TestClusterConfig_Copy(t *testing.T) {
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"-"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{

@@ -252,7 +252,7 @@ func TestCheckPipeline_Initialize(t *testing.T) {
 		injector := di.NewInjector()
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.InitializeFunc = func() error { return nil }
-		mockConfigHandler.LoadConfigFunc = func(path string) error {
+		mockConfigHandler.LoadConfigFunc = func() error {
 			return fmt.Errorf("config loading failed")
 		}
 		injector.Register("configHandler", mockConfigHandler)
@@ -281,7 +281,7 @@ func TestCheckPipeline_Initialize(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		if err.Error() != "failed to load base config: error loading config file: config loading failed" {
+		if err.Error() != "failed to load context config: config loading failed" {
 			t.Errorf("Expected config loading error, got: %v", err)
 		}
 	})

@@ -40,7 +40,7 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 	t.Run("NoNetworkCIDRConfigured", func(t *testing.T) {
 		// Given a network manager with no CIDR configured
 		manager, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("network.cidr_block", "")
+		mocks.ConfigHandler.Set("network.cidr_block", "")
 
 		// And configuring the host route
 		err := manager.ConfigureHostRoute()
@@ -81,8 +81,8 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 	t.Run("NoGuestIPConfigured", func(t *testing.T) {
 		// Given a network manager with no guest IP configured
 		manager, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("network.cidr_block", "192.168.5.0/24")
-		mocks.ConfigHandler.SetContextValue("vm.address", "")
+		mocks.ConfigHandler.Set("network.cidr_block", "192.168.5.0/24")
+		mocks.ConfigHandler.Set("vm.address", "")
 
 		// And configuring the host route
 		err := manager.ConfigureHostRoute()
@@ -106,8 +106,8 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 			}
 			return "", nil
 		}
-		mocks.ConfigHandler.SetContextValue("network.cidr_block", "192.168.5.0/24")
-		mocks.ConfigHandler.SetContextValue("vm.address", "192.168.1.2")
+		mocks.ConfigHandler.Set("network.cidr_block", "192.168.5.0/24")
+		mocks.ConfigHandler.Set("vm.address", "192.168.1.2")
 
 		// And configuring the host route
 		err := manager.ConfigureHostRoute()
@@ -127,8 +127,8 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 			}
 			return "", nil
 		}
-		mocks.ConfigHandler.SetContextValue("network.cidr_block", "192.168.5.0/24")
-		mocks.ConfigHandler.SetContextValue("vm.address", "192.168.5.100")
+		mocks.ConfigHandler.Set("network.cidr_block", "192.168.5.0/24")
+		mocks.ConfigHandler.Set("vm.address", "192.168.5.100")
 
 		// And configuring the host route
 		err := manager.ConfigureHostRoute()
@@ -194,8 +194,8 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 	t.Run("SuccessLocalhostMode", func(t *testing.T) {
 		// Given a network manager in localhost mode
 		manager, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop")
-		mocks.ConfigHandler.SetContextValue("dns.domain", "example.com")
+		mocks.ConfigHandler.Set("vm.driver", "docker-desktop")
+		mocks.ConfigHandler.Set("dns.domain", "example.com")
 
 		// And configuring DNS
 		err := manager.ConfigureDNS()
@@ -249,7 +249,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 	t.Run("DomainNotConfigured", func(t *testing.T) {
 		// Given a network manager with no DNS domain
 		manager, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("dns.domain", "")
+		mocks.ConfigHandler.Set("dns.domain", "")
 
 		// And configuring DNS
 		err := manager.ConfigureDNS()
@@ -267,9 +267,9 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 	t.Run("NoDNSAddressConfigured", func(t *testing.T) {
 		// Given a network manager with no DNS address
 		manager, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("dns.domain", "example.com")
-		mocks.ConfigHandler.SetContextValue("dns.address", "")
-		mocks.ConfigHandler.SetContextValue("vm.driver", "colima")
+		mocks.ConfigHandler.Set("dns.domain", "example.com")
+		mocks.ConfigHandler.Set("dns.address", "")
+		mocks.ConfigHandler.Set("vm.driver", "colima")
 
 		// And mocking systemd-resolved being in use
 		mocks.Shims.ReadLink = func(_ string) (string, error) {
@@ -337,8 +337,8 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 	t.Run("ErrorCreatingDropInDirectory", func(t *testing.T) {
 		// Given a network manager with drop-in directory creation error
 		manager, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("dns.domain", "example.com")
-		mocks.ConfigHandler.SetContextValue("dns.address", "1.2.3.4")
+		mocks.ConfigHandler.Set("dns.domain", "example.com")
+		mocks.ConfigHandler.Set("dns.address", "1.2.3.4")
 
 		// And mocking systemd-resolved being in use
 		mocks.Shims.ReadLink = func(_ string) (string, error) {
@@ -374,8 +374,8 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 	t.Run("ErrorWritingDNSConfig", func(t *testing.T) {
 		// Given a network manager with DNS config writing error
 		manager, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("dns.domain", "example.com")
-		mocks.ConfigHandler.SetContextValue("dns.address", "1.2.3.4")
+		mocks.ConfigHandler.Set("dns.domain", "example.com")
+		mocks.ConfigHandler.Set("dns.address", "1.2.3.4")
 
 		// And mocking systemd-resolved being in use
 		mocks.Shims.ReadLink = func(_ string) (string, error) {
@@ -411,8 +411,8 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 	t.Run("ErrorRestartingSystemdResolved", func(t *testing.T) {
 		// Given a network manager with systemd-resolved restart error
 		manager, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("dns.domain", "example.com")
-		mocks.ConfigHandler.SetContextValue("dns.address", "1.2.3.4")
+		mocks.ConfigHandler.Set("dns.domain", "example.com")
+		mocks.ConfigHandler.Set("dns.address", "1.2.3.4")
 
 		// And mocking systemd-resolved being in use
 		mocks.Shims.ReadLink = func(_ string) (string, error) {

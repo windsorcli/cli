@@ -232,7 +232,7 @@ func TestWindsorStack_Up(t *testing.T) {
 
 	t.Run("ErrorGeneratingTerraformArgs", func(t *testing.T) {
 		stack, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("terraform.backend.type", "unsupported")
+		mocks.ConfigHandler.Set("terraform.backend.type", "unsupported")
 
 		// And when Up is called
 		err := stack.Up()
@@ -363,7 +363,7 @@ func TestWindsorStack_Down(t *testing.T) {
 
 	t.Run("ErrorGeneratingTerraformArgs", func(t *testing.T) {
 		stack, mocks := setup(t)
-		mocks.ConfigHandler.SetContextValue("terraform.backend.type", "unsupported")
+		mocks.ConfigHandler.Set("terraform.backend.type", "unsupported")
 
 		// And when Down is called
 		err := stack.Down()

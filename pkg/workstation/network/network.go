@@ -92,7 +92,7 @@ func (n *BaseNetworkManager) Initialize() error {
 	networkCIDR := n.configHandler.GetString("network.cidr_block")
 	if networkCIDR == "" {
 		networkCIDR = constants.DEFAULT_NETWORK_CIDR
-		if err := n.configHandler.SetContextValue("network.cidr_block", networkCIDR); err != nil {
+		if err := n.configHandler.Set("network.cidr_block", networkCIDR); err != nil {
 			return fmt.Errorf("error setting default network CIDR: %w", err)
 		}
 	}

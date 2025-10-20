@@ -105,6 +105,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 
 	// Set project root environment variable
 	t.Setenv("WINDSOR_PROJECT_ROOT", tmpDir)
+	t.Setenv("WINDSOR_CONTEXT", "mock-context")
 
 	// Register cleanup to restore original state
 	t.Cleanup(func() {
@@ -147,7 +148,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 
 	// Load config
 	configYAML := `
-apiVersion: v1alpha1
+version: v1alpha1
 contexts:
   mock-context:
     dns:
@@ -407,7 +408,7 @@ func TestBaseService_IsLocalhostMode(t *testing.T) {
 		service, mocks := setup(t)
 
 		// And mock behavior for docker-desktop driver
-		mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop")
+		mocks.ConfigHandler.Set("vm.driver", "docker-desktop")
 
 		// When isLocalhostMode is called
 		isLocal := service.isLocalhostMode()
@@ -423,7 +424,7 @@ func TestBaseService_IsLocalhostMode(t *testing.T) {
 		service, mocks := setup(t)
 
 		// And mock behavior for non-docker-desktop driver
-		mocks.ConfigHandler.SetContextValue("vm.driver", "other-driver")
+		mocks.ConfigHandler.Set("vm.driver", "other-driver")
 
 		// When isLocalhostMode is called
 		isLocal := service.isLocalhostMode()

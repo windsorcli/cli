@@ -163,9 +163,14 @@ func (p *BasePipeline) Initialize(injector di.Injector, ctx context.Context) err
 		}
 	}
 
-	// Load context config after context is set
-	if err := p.configHandler.LoadContextConfig(); err != nil {
-		return fmt.Errorf("failed to load context config: %w", err)
+	// Load context config after context is set (only if not in init pipeline)
+	// Init pipeline doesn't load config because files don't exist yet
+	isInit, _ := ctx.Value("initPipeline").(bool)
+	if !isInit {
+		if err := p.configHandler.LoadConfig(); err != nil {
+			return fmt.Errorf("failed to load context config: %w", err)
+		}
+	} else {
 	}
 
 	return nil
@@ -488,47 +493,6 @@ func (p *BasePipeline) handleSessionReset() error {
 	return nil
 }
 
-// loadConfig loads the windsor.yaml config file from the project root into the config handler.
-// This is a common operation that most pipelines will need, so it's provided in the base pipeline.
-func (p *BasePipeline) loadConfig() error {
-	if p.shell == nil {
-		return fmt.Errorf("shell not initialized")
-	}
-	if p.configHandler == nil {
-		return fmt.Errorf("config handler not initialized")
-	}
-	if p.shims == nil {
-		return fmt.Errorf("shims not initialized")
-	}
-
-	projectRoot, err := p.shell.GetProjectRoot()
-	if err != nil {
-		return fmt.Errorf("error retrieving project root: %w", err)
-	}
-
-	yamlPath := filepath.Join(projectRoot, "windsor.yaml")
-	ymlPath := filepath.Join(projectRoot, "windsor.yml")
-
-	var cliConfigPath string
-	if _, err := p.shims.Stat(yamlPath); err == nil {
-		cliConfigPath = yamlPath
-	} else if _, err := p.shims.Stat(ymlPath); err == nil {
-		cliConfigPath = ymlPath
-	}
-
-	if cliConfigPath != "" {
-		if err := p.configHandler.LoadConfig(cliConfigPath); err != nil {
-			return fmt.Errorf("error loading config file: %w", err)
-		}
-	}
-
-	if err := p.configHandler.LoadContextConfig(); err != nil {
-		return fmt.Errorf("error loading context config: %w", err)
-	}
-
-	return nil
-}
-
 // loadBaseConfig loads only the base configuration file (windsor.yaml) without loading context config
 func (p *BasePipeline) loadBaseConfig() error {
 	if p.shell == nil {
@@ -541,26 +505,8 @@ func (p *BasePipeline) loadBaseConfig() error {
 		return fmt.Errorf("shims not initialized")
 	}
 
-	projectRoot, err := p.shell.GetProjectRoot()
-	if err != nil {
-		return fmt.Errorf("error retrieving project root: %w", err)
-	}
-
-	yamlPath := filepath.Join(projectRoot, "windsor.yaml")
-	ymlPath := filepath.Join(projectRoot, "windsor.yml")
-
-	var cliConfigPath string
-	if _, err := p.shims.Stat(yamlPath); err == nil {
-		cliConfigPath = yamlPath
-	} else if _, err := p.shims.Stat(ymlPath); err == nil {
-		cliConfigPath = ymlPath
-	}
-
-	if cliConfigPath != "" {
-		if err := p.configHandler.LoadConfig(cliConfigPath); err != nil {
-			return fmt.Errorf("error loading config file: %w", err)
-		}
-	}
+	// Config is now loaded via LoadConfig() which loads from standard paths
+	// Root windsor.yaml loading is handled by LoadConfig()
 
 	return nil
 }
@@ -641,8 +587,7 @@ func (p *BasePipeline) withSecretsProviders() ([]secrets.SecretsProvider, error)
 		}
 	}
 
-	contextName := p.configHandler.GetContext()
-	vaults, ok := p.configHandler.Get(fmt.Sprintf("contexts.%s.secrets.onepassword.vaults", contextName)).(map[string]secretsConfigType.OnePasswordVault)
+	vaults, ok := p.configHandler.Get("secrets.onepassword.vaults").(map[string]secretsConfigType.OnePasswordVault)
 	if ok && len(vaults) > 0 {
 		useSDK := p.shims.Getenv("OP_SERVICE_ACCOUNT_TOKEN") != ""
 

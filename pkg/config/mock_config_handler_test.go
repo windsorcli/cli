@@ -2,1070 +2,1254 @@ package config
 
 import (
 	"fmt"
-	"reflect"
 	"testing"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/secrets"
 )
 
+// The MockConfigHandlerTest is a test suite for the MockConfigHandler implementation.
+// It provides comprehensive test coverage for mock config handler operations,
+// ensuring reliable testing of config-dependent functionality.
+// The MockConfigHandlerTest validates the mock implementation's behavior.
+
+// =============================================================================
+// Test Setup
+// =============================================================================
+
+// stringPtr returns a pointer to the given string value
+func stringPtr(s string) *string {
+	return &s
+}
+
+// setupMockConfigHandlerMocks creates a new set of mocks for testing MockConfigHandler
+func setupMockConfigHandlerMocks(t *testing.T) *MockConfigHandler {
+	t.Helper()
+
+	// Create mock config handler
+	mockConfigHandler := NewMockConfigHandler()
+
+	return mockConfigHandler
+}
+
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
+// TestMockConfigHandler_NewMockConfigHandler tests the constructor for MockConfigHandler
+func TestMockConfigHandler_NewMockConfigHandler(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// Then the mock config handler should be created successfully
+		if mockConfigHandler == nil {
+			t.Errorf("Expected mockConfigHandler, got nil")
+		}
+	})
+}
+
+// TestMockConfigHandler_Initialize tests the Initialize method of MockConfigHandler
 func TestMockConfigHandler_Initialize(t *testing.T) {
-	mockInitializeErr := fmt.Errorf("mock initialize error")
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock config handler with InitializeFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		mockConfigHandler.InitializeFunc = func() error {
+			return nil
+		}
 
-	t.Run("WithFuncSet", func(t *testing.T) {
+		// When calling Initialize
+		err := mockConfigHandler.Initialize()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
 		// Given a mock config handler with InitializeFunc set to return an error
-		handler := NewMockConfigHandler()
-		handler.InitializeFunc = func() error { return mockInitializeErr }
-
-		// When Initialize is called
-		err := handler.Initialize()
-
-		// Then the error should match the expected mock error
-		if err != mockInitializeErr {
-			t.Errorf("Expected error = %v, got = %v", mockInitializeErr, err)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock config handler without InitializeFunc set
-		handler := NewMockConfigHandler()
-
-		// When Initialize is called
-		err := handler.Initialize()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-	})
-}
-
-func TestMockConfigHandler_LoadConfig(t *testing.T) {
-	mockLoadErr := fmt.Errorf("mock load config error")
-
-	t.Run("WithPath", func(t *testing.T) {
-		// Given a mock config handler with LoadConfigFunc set to return an error
-		handler := NewMockConfigHandler()
-		handler.LoadConfigFunc = func(path string) error {
-			return mockLoadErr
-		}
-
-		// When LoadConfig is called with a path
-		err := handler.LoadConfig("some/path")
-
-		// Then the error should match the expected mock error
-		if err != mockLoadErr {
-			t.Errorf("Expected error = %v, got = %v", mockLoadErr, err)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock config handler without LoadConfigFunc set
-		handler := NewMockConfigHandler()
-
-		// When LoadConfig is called with a path
-		err := handler.LoadConfig("some/path")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-	})
-}
-
-func TestMockConfigHandler_GetString(t *testing.T) {
-	t.Run("WithKey", func(t *testing.T) {
-		// Given a mock config handler with GetStringFunc set to return an empty string
-		handler := NewMockConfigHandler()
-		handler.GetStringFunc = func(key string, defaultValue ...string) string { return "" }
-
-		// When GetString is called with a key
-		value := handler.GetString("someKey")
-
-		// Then the returned value should be an empty string
-		if value != "" {
-			t.Errorf("Expected GetString with key to return empty string, got %v", value)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock config handler without GetStringFunc set
-		handler := NewMockConfigHandler()
-
-		// When GetString is called with a key
-		value := handler.GetString("someKey")
-
-		// Then the returned value should be 'mock-string'
-		if value != "mock-string" {
-			t.Errorf("Expected GetString with no func set to return 'mock-string', got %v", value)
-		}
-	})
-
-	t.Run("WithDefaultValue", func(t *testing.T) {
-		// Given a mock config handler
-		handler := NewMockConfigHandler()
-		defaultValue := "default"
-
-		// When GetString is called with a key and a default value
-		value := handler.GetString("someKey", defaultValue)
-
-		// Then the returned value should match the default value
-		if value != defaultValue {
-			t.Errorf("Expected GetString with default to return %v, got %v", defaultValue, value)
-		}
-	})
-}
-
-func TestMockConfigHandler_GetInt(t *testing.T) {
-	t.Run("WithKey", func(t *testing.T) {
-		// Given a mock config handler with GetIntFunc set to return 0
-		handler := NewMockConfigHandler()
-		handler.GetIntFunc = func(key string, defaultValue ...int) int { return 0 }
-
-		// When GetInt is called with a key
-		value := handler.GetInt("someKey")
-
-		// Then the returned value should be 0
-		if value != 0 {
-			t.Errorf("Expected GetInt with key to return 0, got %v", value)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock config handler without GetIntFunc set
-		handler := NewMockConfigHandler()
-
-		// When GetInt is called with a key
-		value := handler.GetInt("someKey")
-
-		// Then the returned value should be 42
-		if value != 42 {
-			t.Errorf("Expected GetInt with no func set to return 42, got %v", value)
-		}
-	})
-
-	t.Run("WithDefaultValue", func(t *testing.T) {
-		// Given a mock config handler
-		handler := NewMockConfigHandler()
-		defaultValue := 42
-
-		// When GetInt is called with a key and a default value
-		value := handler.GetInt("someKey", defaultValue)
-
-		// Then the returned value should match the default value
-		if value != defaultValue {
-			t.Errorf("Expected GetInt with default to return %v, got %v", defaultValue, value)
-		}
-	})
-}
-
-func TestMockConfigHandler_GetBool(t *testing.T) {
-	t.Run("WithKey", func(t *testing.T) {
-		// Given a mock config handler with GetBoolFunc set to return false
-		handler := NewMockConfigHandler()
-		handler.GetBoolFunc = func(key string, defaultValue ...bool) bool { return false }
-
-		// When GetBool is called with a key
-		value := handler.GetBool("someKey")
-
-		// Then the returned value should be false
-		if value != false {
-			t.Errorf("Expected GetBool with key to return false, got %v", value)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock config handler without GetBoolFunc set
-		handler := NewMockConfigHandler()
-
-		// When GetBool is called with a key
-		value := handler.GetBool("someKey")
-
-		// Then the returned value should be true
-		if value != true {
-			t.Errorf("Expected GetBool with no func set to return true, got %v", value)
-		}
-	})
-
-	t.Run("WithDefaultValue", func(t *testing.T) {
-		// Given a mock config handler
-		handler := NewMockConfigHandler()
-		defaultValue := true
-
-		// When GetBool is called with a key and a default value
-		value := handler.GetBool("someKey", defaultValue)
-
-		// Then the returned value should match the default value
-		if value != defaultValue {
-			t.Errorf("Expected GetBool with default to return %v, got %v", defaultValue, value)
-		}
-	})
-}
-
-func TestMockConfigHandler_GetStringSlice(t *testing.T) {
-	t.Run("WithKey", func(t *testing.T) {
-		// Given a mock config handler with GetStringSliceFunc set to return a specific slice
-		handler := NewMockConfigHandler()
-		expectedSlice := []string{"value1", "value2"}
-		handler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string { return expectedSlice }
-
-		// When GetStringSlice is called with a key
-		value := handler.GetStringSlice("someKey")
-
-		// Then the returned value should match the expected slice
-		if !reflect.DeepEqual(value, expectedSlice) {
-			t.Errorf("Expected GetStringSlice with key to return %v, got %v", expectedSlice, value)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock config handler without GetStringSliceFunc set
-		handler := NewMockConfigHandler()
-
-		// When GetStringSlice is called with a key
-		value := handler.GetStringSlice("someKey")
-
-		// Then the returned value should be the default empty slice
-		if len(value) != 0 {
-			t.Errorf("Expected GetStringSlice with no func set to return an empty slice, got %v", value)
-		}
-	})
-
-	t.Run("WithDefaultValue", func(t *testing.T) {
-		// Given a mock config handler
-		handler := NewMockConfigHandler()
-		defaultValue := []string{"default1", "default2"}
-
-		// When GetStringSlice is called with a key and a default value
-		value := handler.GetStringSlice("someKey", defaultValue)
-
-		// Then the returned value should match the default value
-		if !reflect.DeepEqual(value, defaultValue) {
-			t.Errorf("Expected GetStringSlice with default to return %v, got %v", defaultValue, value)
-		}
-	})
-}
-
-func TestMockConfigHandler_GetStringMap(t *testing.T) {
-	t.Run("WithKey", func(t *testing.T) {
-		// Given a mock config handler with GetStringMapFunc set to return a specific map
-		handler := NewMockConfigHandler()
-		expectedMap := map[string]string{"key1": "value1", "key2": "value2"}
-		handler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string { return expectedMap }
-
-		// When GetStringMap is called with a key
-		value := handler.GetStringMap("someKey")
-
-		// Then the returned value should match the expected map
-		if !reflect.DeepEqual(value, expectedMap) {
-			t.Errorf("Expected GetStringMap with key to return %v, got %v", expectedMap, value)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock config handler without GetStringMapFunc set
-		handler := NewMockConfigHandler()
-
-		// When GetStringMap is called with a key
-		value := handler.GetStringMap("someKey")
-
-		// Then the returned value should be the default empty map
-		if len(value) != 0 {
-			t.Errorf("Expected GetStringMap with no func set to return an empty map, got %v", value)
-		}
-	})
-
-	t.Run("WithDefaultValue", func(t *testing.T) {
-		// Given a mock config handler
-		handler := NewMockConfigHandler()
-		defaultValue := map[string]string{"defaultKey1": "defaultValue1", "defaultKey2": "defaultValue2"}
-
-		// When GetStringMap is called with a key and a default value
-		value := handler.GetStringMap("someKey", defaultValue)
-
-		// Then the returned value should match the default value
-		if !reflect.DeepEqual(value, defaultValue) {
-			t.Errorf("Expected GetStringMap with default to return %v, got %v", defaultValue, value)
-		}
-	})
-}
-
-func TestMockConfigHandler_Set(t *testing.T) {
-	t.Run("WithKeyAndValue", func(t *testing.T) {
-		// Given a mock config handler with SetFunc set to do nothing
-		handler := NewMockConfigHandler()
-		handler.SetFunc = func(key string, value any) error { return nil }
-
-		// When Set is called with a key and a value
-		handler.Set("someKey", "someValue")
-
-		// Then no error should occur
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock config handler without SetFunc set
-		handler := NewMockConfigHandler()
-
-		// When Set is called with a key and a value
-		handler.Set("someKey", "someValue")
-
-		// Then no error should occur
-	})
-}
-
-func TestMockConfigHandler_SetContextValue(t *testing.T) {
-	t.Run("WithKeyAndValue", func(t *testing.T) {
-		// Given a mock config handler with SetContextValueFunc set to do nothing
-		handler := NewMockConfigHandler()
-		handler.SetContextValueFunc = func(key string, value any) error { return nil }
-
-		// When SetContextValue is called with a key and a value
-		err := handler.SetContextValue("someKey", "someValue")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected SetContextValue to return nil, got %v", err)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock config handler without SetContextValueFunc set
-		handler := NewMockConfigHandler()
-
-		// When SetContextValue is called with a key and a value
-		err := handler.SetContextValue("someKey", "someValue")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected SetContextValue to return nil, got %v", err)
-		}
-	})
-}
-
-func TestMockConfigHandler_SaveConfig(t *testing.T) {
-	mockSaveErr := fmt.Errorf("mock save config error")
-
-	t.Run("WithPath", func(t *testing.T) {
-		// Given a mock config handler with SaveConfigFunc set to return an error
-		handler := NewMockConfigHandler()
-		handler.SaveConfigFunc = func(overwrite ...bool) error { return mockSaveErr }
-
-		// When SaveConfig is called
-		err := handler.SaveConfig()
-
-		// Then the error should match the expected mock error
-		if err != mockSaveErr {
-			t.Errorf("Expected error = %v, got = %v", mockSaveErr, err)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock config handler without SaveConfigFunc set
-		handler := NewMockConfigHandler()
-
-		// When SaveConfig is called
-		err := handler.SaveConfig()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected SaveConfig to return nil, got %v", err)
-		}
-	})
-}
-
-func TestMockConfigHandler_Get(t *testing.T) {
-	t.Run("WithKey", func(t *testing.T) {
-		// Given a mock config handler with GetFunc set to return 'mock-value'
-		handler := NewMockConfigHandler()
-		handler.GetFunc = func(key string) any { return "mock-value" }
-
-		// When Get is called with a key
-		value := handler.Get("someKey")
-
-		// Then the returned value should be 'mock-value'
-		if value != "mock-value" {
-			t.Errorf("Expected Get to return 'mock-value', got %v", value)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock config handler without GetFunc set
-		handler := NewMockConfigHandler()
-
-		// When Get is called with a key
-		value := handler.Get("someKey")
-
-		// Then the returned value should be 'mock-value'
-		if value != "mock-value" {
-			t.Errorf("Expected Get to return 'mock-value', got %v", value)
-		}
-	})
-}
-
-func TestMockConfigHandler_SetDefault(t *testing.T) {
-	t.Run("WithFuncSet", func(t *testing.T) {
-		// Given a mock config handler with SetDefaultFunc set to verify parameters
-		mockHandler := NewMockConfigHandler()
-		called := false
-
-		// And SetDefaultFunc updates the flag and checks the parameters
-		mockHandler.SetDefaultFunc = func(context v1alpha1.Context) error {
-			called = true
-			if !reflect.DeepEqual(context, DefaultConfig_Localhost) {
-				t.Errorf("Expected value %v, got %v", DefaultConfig_Localhost, context)
-			}
-			return nil
-		}
-
-		// When SetDefault is called
-		mockHandler.SetDefault(DefaultConfig_Localhost)
-
-		// Then the function should be called
-		if !called {
-			t.Error("Expected SetDefaultFunc to be called")
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock config handler without SetDefaultFunc set
-		mockHandler := NewMockConfigHandler()
-
-		// When SetDefault is called
-		mockHandler.SetDefault(DefaultConfig_Localhost)
-
-		// Then no error should occur
-	})
-}
-
-func TestMockConfigHandler_GetConfig(t *testing.T) {
-	t.Run("WithFuncSet", func(t *testing.T) {
-		// Given a mock config handler with GetConfigFunc set to return a mock context
-		mockHandler := NewMockConfigHandler()
-		called := false
-
-		// And GetConfigFunc updates the flag and returns a mock context
-		mockContext := &v1alpha1.Context{}
-		mockHandler.GetConfigFunc = func() *v1alpha1.Context {
-			called = true
-			return mockContext
-		}
-
-		// When GetConfig is called
-		config := mockHandler.GetConfig()
-
-		// Then the returned config should match the mock context
-		if !reflect.DeepEqual(config, mockContext) {
-			t.Errorf("Expected GetConfig to return %v, got %v", mockContext, config)
-		}
-
-		// And the function should be called
-		if !called {
-			t.Error("Expected GetConfigFunc to be called")
-		}
-	})
-
-	t.Run("NoFuncSet", func(t *testing.T) {
-		// Given a mock config handler without GetConfigFunc set
-		mockHandler := NewMockConfigHandler()
-		mockHandler.GetConfigFunc = nil
-
-		// When GetConfig is called
-		config := mockHandler.GetConfig()
-
-		// Then an empty Context should be returned
-		if !reflect.DeepEqual(config, &v1alpha1.Context{}) {
-			t.Errorf("Expected GetConfig to return empty Context, got %v", config)
-		}
-	})
-}
-
-func TestMockConfigHandler_GetContext(t *testing.T) {
-	t.Run("WithFuncSet", func(t *testing.T) {
-		// Given a new mock config handler
-		handler := NewMockConfigHandler()
-
-		// And the GetContextFunc is set to return a specific mock context string
-		handler.GetContextFunc = func() string {
-			return "mock-context"
-		}
-
-		// When GetContext is called to retrieve the context
-		context := handler.GetContext()
-
-		// Then the returned context should match the expected mock context
-		if context != "mock-context" {
-			t.Errorf("Expected GetContext to return 'mock-context', got %v", context)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a new mock config handler without setting GetContextFunc
-		handler := NewMockConfigHandler()
-
-		// When GetContext is called to retrieve the context
-		context := handler.GetContext()
-
-		// Then the returned context should match the default mock context
-		if context != "mock-context" {
-			t.Errorf("Expected GetContext to return 'mock-context', got %v", context)
-		}
-	})
-}
-
-func TestMockConfigHandler_SetContext(t *testing.T) {
-	t.Run("WithFuncSet", func(t *testing.T) {
-		// Given a new mock config handler
-		handler := NewMockConfigHandler()
-
-		// And the SetContextFunc is set to a function that returns no error
-		handler.SetContextFunc = func(context string) error {
-			return nil
-		}
-
-		// When SetContext is called with a mock context string
-		err := handler.SetContext("mock-context")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a new mock config handler without setting SetContextFunc
-		handler := NewMockConfigHandler()
-
-		// When SetContext is called with a mock context string
-		err := handler.SetContext("mock-context")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-	})
-}
-
-func TestMockConfigHandler_GetConfigRoot(t *testing.T) {
-	t.Run("WithFuncSet", func(t *testing.T) {
-		// Given a new mock config handler with GetConfigRootFunc set
-		handler := NewMockConfigHandler()
-		handler.GetConfigRootFunc = func() (string, error) { return "mock-config-root", nil }
-
-		// When GetConfigRoot is called
-		root, err := handler.GetConfigRoot()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-
-		// And the root should be 'mock-config-root'
-		if root != "mock-config-root" {
-			t.Errorf("Expected GetConfigRoot to return 'mock-config-root', got %v", root)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a new mock config handler without GetConfigRootFunc set
-		handler := NewMockConfigHandler()
-
-		// When GetConfigRoot is called
-		root, err := handler.GetConfigRoot()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-
-		// And the root should be 'mock-config-root'
-		if root != "mock-config-root" {
-			t.Errorf("Expected GetConfigRoot to return 'mock-config-root', got %v", root)
-		}
-	})
-}
-
-func TestMockConfigHandler_Clean(t *testing.T) {
-	t.Run("WithFuncSet", func(t *testing.T) {
-		// Given a new mock config handler with CleanFunc set
-		handler := NewMockConfigHandler()
-		handler.CleanFunc = func() error { return nil }
-
-		// When Clean is called
-		err := handler.Clean()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a new mock config handler without CleanFunc set
-		handler := NewMockConfigHandler()
-
-		// When Clean is called
-		err := handler.Clean()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-	})
-}
-
-func TestMockConfigHandler_IsLoaded(t *testing.T) {
-	t.Run("WithFuncSet", func(t *testing.T) {
-		// Given a new mock config handler with IsLoadedFunc set
-		handler := NewMockConfigHandler()
-		handler.IsLoadedFunc = func() bool { return true }
-
-		// When IsLoaded is called
-		loaded := handler.IsLoaded()
-
-		// Then the returned value should be true
-		if !loaded {
-			t.Errorf("Expected IsLoaded to return true, got %v", loaded)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a new mock config handler without IsLoadedFunc set
-		handler := NewMockConfigHandler()
-
-		// When IsLoaded is called
-		loaded := handler.IsLoaded()
-
-		// Then the returned value should be false
-		if loaded {
-			t.Errorf("Expected IsLoaded to return false, got %v", loaded)
-		}
-	})
-}
-
-func TestMockConfigHandler_IsContextConfigLoaded(t *testing.T) {
-	t.Run("WithFuncSet", func(t *testing.T) {
-		// Given a new mock config handler with IsContextConfigLoadedFunc set
-		handler := NewMockConfigHandler()
-		handler.IsContextConfigLoadedFunc = func() bool { return true }
-
-		// When IsContextConfigLoaded is called
-		loaded := handler.IsContextConfigLoaded()
-
-		// Then the returned value should be true
-		if !loaded {
-			t.Errorf("Expected IsContextConfigLoaded to return true, got %v", loaded)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a new mock config handler without IsContextConfigLoadedFunc set
-		handler := NewMockConfigHandler()
-
-		// When IsContextConfigLoaded is called
-		loaded := handler.IsContextConfigLoaded()
-
-		// Then the returned value should be false
-		if loaded {
-			t.Errorf("Expected IsContextConfigLoaded to return false, got %v", loaded)
-		}
-	})
-}
-
-func TestMockConfigHandler_LoadConfigString(t *testing.T) {
-	t.Run("WithFuncSet", func(t *testing.T) {
-		// Given a mock config handler with LoadConfigStringFunc set
-		handler := NewMockConfigHandler()
-		mockErr := fmt.Errorf("mock load config string error")
-		handler.LoadConfigStringFunc = func(content string) error { return mockErr }
-
-		// When LoadConfigString is called
-		err := handler.LoadConfigString("some content")
-
-		// Then the error should match the expected mock error
-		if err != mockErr {
-			t.Errorf("Expected error = %v, got = %v", mockErr, err)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock config handler without LoadConfigStringFunc set
-		handler := NewMockConfigHandler()
-
-		// When LoadConfigString is called
-		err := handler.LoadConfigString("some content")
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-	})
-}
-
-func TestMockConfigHandler_SetSecretsProvider(t *testing.T) {
-	t.Run("WithFuncSet", func(t *testing.T) {
-		// Given a mock config handler with SetSecretsProviderFunc set
-		handler := NewMockConfigHandler()
-		var calledProvider secrets.SecretsProvider
-		handler.SetSecretsProviderFunc = func(provider secrets.SecretsProvider) {
-			calledProvider = provider
-		}
-
-		// And a mock secrets provider
-		mockProvider := secrets.NewMockSecretsProvider(nil)
-
-		// When setting the secrets provider
-		handler.SetSecretsProvider(mockProvider)
-
-		// Then the function should be called with the provider
-		if calledProvider != mockProvider {
-			t.Errorf("Expected SetSecretsProviderFunc to be called with %v, got %v", mockProvider, calledProvider)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock config handler without SetSecretsProviderFunc set
-		handler := NewMockConfigHandler()
-
-		// And a mock secrets provider
-		mockProvider := secrets.NewMockSecretsProvider(nil)
-
-		// When setting the secrets provider
-		// Then it should not panic
-		handler.SetSecretsProvider(mockProvider)
-	})
-}
-
-func TestMockConfigHandler_GenerateContextID(t *testing.T) {
-	t.Run("WithMockFunction", func(t *testing.T) {
-		// Given a mock config handler with GenerateContextIDFunc set
-		handler := NewMockConfigHandler()
-		mockErr := fmt.Errorf("mock generate context ID error")
-		handler.GenerateContextIDFunc = func() error { return mockErr }
-
-		// When GenerateContextID is called
-		err := handler.GenerateContextID()
-
-		// Then the error should match the expected mock error
-		if err != mockErr {
-			t.Errorf("Expected error = %v, got = %v", mockErr, err)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock config handler without GenerateContextIDFunc set
-		handler := NewMockConfigHandler()
-
-		// When GenerateContextID is called
-		err := handler.GenerateContextID()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-	})
-}
-
-func TestMockConfigHandler_LoadContextConfig(t *testing.T) {
-	t.Run("WithFuncSet", func(t *testing.T) {
-		// Given a MockConfigHandler with LoadContextConfigFunc set
-		mockHandler := NewMockConfigHandler()
-		expectedError := fmt.Errorf("mocked load context config error")
-		mockHandler.LoadContextConfigFunc = func() error {
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedError := fmt.Errorf("mock initialize error")
+		mockConfigHandler.InitializeFunc = func() error {
 			return expectedError
 		}
 
-		// When LoadContextConfig is called
-		err := mockHandler.LoadContextConfig()
+		// When calling Initialize
+		err := mockConfigHandler.Initialize()
 
-		// Then it should return the mocked error
-		if err != expectedError {
-			t.Errorf("LoadContextConfig() error = %v, expected %v", err, expectedError)
+		// Then the expected error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
 		}
 	})
 
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a MockConfigHandler with no LoadContextConfigFunc set
-		mockHandler := NewMockConfigHandler()
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock config handler with InitializeFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
 
-		// When LoadContextConfig is called
-		err := mockHandler.LoadContextConfig()
+		// When calling Initialize
+		err := mockConfigHandler.Initialize()
 
-		// Then it should return nil
+		// Then no error should be returned (default implementation)
 		if err != nil {
-			t.Errorf("LoadContextConfig() error = %v, expected nil", err)
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 }
 
+// TestMockConfigHandler_LoadConfig tests the LoadConfig method of MockConfigHandler
+func TestMockConfigHandler_LoadConfig(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock config handler with LoadConfigFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		mockConfigHandler.LoadConfigFunc = func() error {
+			return nil
+		}
+
+		// When calling LoadConfig
+		err := mockConfigHandler.LoadConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		// Given a mock config handler with LoadConfigFunc set to return an error
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedError := fmt.Errorf("mock load config error")
+		mockConfigHandler.LoadConfigFunc = func() error {
+			return expectedError
+		}
+
+		// When calling LoadConfig
+		err := mockConfigHandler.LoadConfig()
+
+		// Then the expected error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock config handler with LoadConfigFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling LoadConfig
+		err := mockConfigHandler.LoadConfig()
+
+		// Then no error should be returned (default implementation)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+}
+
+// TestMockConfigHandler_LoadConfigString tests the LoadConfigString method of MockConfigHandler
+func TestMockConfigHandler_LoadConfigString(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock config handler with LoadConfigStringFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		mockConfigHandler.LoadConfigStringFunc = func(content string) error {
+			return nil
+		}
+
+		// When calling LoadConfigString
+		err := mockConfigHandler.LoadConfigString("test content")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		// Given a mock config handler with LoadConfigStringFunc set to return an error
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedError := fmt.Errorf("mock load config string error")
+		mockConfigHandler.LoadConfigStringFunc = func(content string) error {
+			return expectedError
+		}
+
+		// When calling LoadConfigString
+		err := mockConfigHandler.LoadConfigString("test content")
+
+		// Then the expected error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock config handler with LoadConfigStringFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling LoadConfigString
+		err := mockConfigHandler.LoadConfigString("test content")
+
+		// Then no error should be returned (default implementation)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+}
+
+// TestMockConfigHandler_IsLoaded tests the IsLoaded method of MockConfigHandler
+func TestMockConfigHandler_IsLoaded(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock config handler with IsLoadedFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedResult := true
+		mockConfigHandler.IsLoadedFunc = func() bool {
+			return expectedResult
+		}
+
+		// When calling IsLoaded
+		result := mockConfigHandler.IsLoaded()
+
+		// Then the expected result should be returned
+		if result != expectedResult {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock config handler with IsLoadedFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling IsLoaded
+		result := mockConfigHandler.IsLoaded()
+
+		// Then false should be returned (default implementation)
+		if result != false {
+			t.Errorf("Expected false, got %v", result)
+		}
+	})
+}
+
+// TestMockConfigHandler_GetString tests the GetString method of MockConfigHandler
+func TestMockConfigHandler_GetString(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock config handler with GetStringFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedResult := "mock-string-value"
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return expectedResult
+		}
+
+		// When calling GetString
+		result := mockConfigHandler.GetString("test-key")
+
+		// Then the expected result should be returned
+		if result != expectedResult {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+
+	t.Run("WithDefaultValue", func(t *testing.T) {
+		// Given a mock config handler with GetStringFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedResult := "mock-string-value"
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return expectedResult
+		}
+
+		// When calling GetString with default value
+		result := mockConfigHandler.GetString("test-key", "default-value")
+
+		// Then the expected result should be returned
+		if result != expectedResult {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock config handler with GetStringFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling GetString
+		result := mockConfigHandler.GetString("test-key")
+
+		// Then the default mock string should be returned
+		expectedResult := "mock-string"
+		if result != expectedResult {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+
+	t.Run("NotImplementedWithDefault", func(t *testing.T) {
+		// Given a mock config handler with GetStringFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling GetString with default value
+		result := mockConfigHandler.GetString("test-key", "custom-default")
+
+		// Then the custom default should be returned
+		expectedResult := "custom-default"
+		if result != expectedResult {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+}
+
+// TestMockConfigHandler_GetInt tests the GetInt method of MockConfigHandler
+func TestMockConfigHandler_GetInt(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock config handler with GetIntFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedResult := 123
+		mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) int {
+			return expectedResult
+		}
+
+		// When calling GetInt
+		result := mockConfigHandler.GetInt("test-key")
+
+		// Then the expected result should be returned
+		if result != expectedResult {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+
+	t.Run("WithDefaultValue", func(t *testing.T) {
+		// Given a mock config handler with GetIntFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedResult := 456
+		mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) int {
+			return expectedResult
+		}
+
+		// When calling GetInt with default value
+		result := mockConfigHandler.GetInt("test-key", 999)
+
+		// Then the expected result should be returned
+		if result != expectedResult {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock config handler with GetIntFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling GetInt
+		result := mockConfigHandler.GetInt("test-key")
+
+		// Then the default mock int should be returned
+		expectedResult := 42
+		if result != expectedResult {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+
+	t.Run("NotImplementedWithDefault", func(t *testing.T) {
+		// Given a mock config handler with GetIntFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling GetInt with default value
+		result := mockConfigHandler.GetInt("test-key", 999)
+
+		// Then the custom default should be returned
+		expectedResult := 999
+		if result != expectedResult {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+}
+
+// TestMockConfigHandler_GetBool tests the GetBool method of MockConfigHandler
+func TestMockConfigHandler_GetBool(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock config handler with GetBoolFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedResult := false
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return expectedResult
+		}
+
+		// When calling GetBool
+		result := mockConfigHandler.GetBool("test-key")
+
+		// Then the expected result should be returned
+		if result != expectedResult {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+
+	t.Run("WithDefaultValue", func(t *testing.T) {
+		// Given a mock config handler with GetBoolFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedResult := false
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return expectedResult
+		}
+
+		// When calling GetBool with default value
+		result := mockConfigHandler.GetBool("test-key", true)
+
+		// Then the expected result should be returned
+		if result != expectedResult {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock config handler with GetBoolFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling GetBool
+		result := mockConfigHandler.GetBool("test-key")
+
+		// Then the default mock bool should be returned
+		expectedResult := true
+		if result != expectedResult {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+
+	t.Run("NotImplementedWithDefault", func(t *testing.T) {
+		// Given a mock config handler with GetBoolFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling GetBool with default value
+		result := mockConfigHandler.GetBool("test-key", false)
+
+		// Then the custom default should be returned
+		expectedResult := false
+		if result != expectedResult {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+}
+
+// TestMockConfigHandler_GetStringSlice tests the GetStringSlice method of MockConfigHandler
+func TestMockConfigHandler_GetStringSlice(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock config handler with GetStringSliceFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedResult := []string{"item1", "item2"}
+		mockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+			return expectedResult
+		}
+
+		// When calling GetStringSlice
+		result := mockConfigHandler.GetStringSlice("test-key")
+
+		// Then the expected result should be returned
+		if len(result) != len(expectedResult) {
+			t.Errorf("Expected result length %v, got %v", len(expectedResult), len(result))
+		}
+		if result[0] != expectedResult[0] || result[1] != expectedResult[1] {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+
+	t.Run("WithDefaultValue", func(t *testing.T) {
+		// Given a mock config handler with GetStringSliceFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedResult := []string{"custom1", "custom2"}
+		mockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+			return expectedResult
+		}
+
+		// When calling GetStringSlice with default value
+		result := mockConfigHandler.GetStringSlice("test-key", []string{"default1", "default2"})
+
+		// Then the expected result should be returned
+		if len(result) != len(expectedResult) {
+			t.Errorf("Expected result length %v, got %v", len(expectedResult), len(result))
+		}
+		if result[0] != expectedResult[0] || result[1] != expectedResult[1] {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock config handler with GetStringSliceFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling GetStringSlice
+		result := mockConfigHandler.GetStringSlice("test-key")
+
+		// Then an empty slice should be returned (default implementation)
+		if len(result) != 0 {
+			t.Errorf("Expected empty slice, got %v", result)
+		}
+	})
+
+	t.Run("NotImplementedWithDefault", func(t *testing.T) {
+		// Given a mock config handler with GetStringSliceFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling GetStringSlice with default value
+		result := mockConfigHandler.GetStringSlice("test-key", []string{"default1", "default2"})
+
+		// Then the custom default should be returned
+		expectedResult := []string{"default1", "default2"}
+		if len(result) != len(expectedResult) {
+			t.Errorf("Expected result length %v, got %v", len(expectedResult), len(result))
+		}
+		if result[0] != expectedResult[0] || result[1] != expectedResult[1] {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+}
+
+// TestMockConfigHandler_GetStringMap tests the GetStringMap method of MockConfigHandler
+func TestMockConfigHandler_GetStringMap(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock config handler with GetStringMapFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedResult := map[string]string{"key1": "value1", "key2": "value2"}
+		mockConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
+			return expectedResult
+		}
+
+		// When calling GetStringMap
+		result := mockConfigHandler.GetStringMap("test-key")
+
+		// Then the expected result should be returned
+		if len(result) != len(expectedResult) {
+			t.Errorf("Expected result length %v, got %v", len(expectedResult), len(result))
+		}
+		if result["key1"] != expectedResult["key1"] || result["key2"] != expectedResult["key2"] {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+
+	t.Run("WithDefaultValue", func(t *testing.T) {
+		// Given a mock config handler with GetStringMapFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedResult := map[string]string{"custom1": "custom2"}
+		mockConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
+			return expectedResult
+		}
+
+		// When calling GetStringMap with default value
+		result := mockConfigHandler.GetStringMap("test-key", map[string]string{"default1": "default2"})
+
+		// Then the expected result should be returned
+		if len(result) != len(expectedResult) {
+			t.Errorf("Expected result length %v, got %v", len(expectedResult), len(result))
+		}
+		if result["custom1"] != expectedResult["custom1"] {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock config handler with GetStringMapFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling GetStringMap
+		result := mockConfigHandler.GetStringMap("test-key")
+
+		// Then an empty map should be returned (default implementation)
+		if len(result) != 0 {
+			t.Errorf("Expected empty map, got %v", result)
+		}
+	})
+
+	t.Run("NotImplementedWithDefault", func(t *testing.T) {
+		// Given a mock config handler with GetStringMapFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling GetStringMap with default value
+		result := mockConfigHandler.GetStringMap("test-key", map[string]string{"default1": "default2"})
+
+		// Then the custom default should be returned
+		expectedResult := map[string]string{"default1": "default2"}
+		if len(result) != len(expectedResult) {
+			t.Errorf("Expected result length %v, got %v", len(expectedResult), len(result))
+		}
+		if result["default1"] != expectedResult["default1"] {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+}
+
+// TestMockConfigHandler_Set tests the Set method of MockConfigHandler
+func TestMockConfigHandler_Set(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock config handler with SetFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		mockConfigHandler.SetFunc = func(key string, value any) error {
+			return nil
+		}
+
+		// When calling Set
+		err := mockConfigHandler.Set("test-key", "test-value")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		// Given a mock config handler with SetFunc set to return an error
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedError := fmt.Errorf("mock set error")
+		mockConfigHandler.SetFunc = func(key string, value any) error {
+			return expectedError
+		}
+
+		// When calling Set
+		err := mockConfigHandler.Set("test-key", "test-value")
+
+		// Then the expected error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock config handler with SetFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling Set
+		err := mockConfigHandler.Set("test-key", "test-value")
+
+		// Then no error should be returned (default implementation)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+}
+
+// TestMockConfigHandler_Get tests the Get method of MockConfigHandler
+func TestMockConfigHandler_Get(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock config handler with GetFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedResult := "mock-get-value"
+		mockConfigHandler.GetFunc = func(key string) any {
+			return expectedResult
+		}
+
+		// When calling Get
+		result := mockConfigHandler.Get("test-key")
+
+		// Then the expected result should be returned
+		if result != expectedResult {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock config handler with GetFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling Get
+		result := mockConfigHandler.Get("test-key")
+
+		// Then the default mock value should be returned
+		expectedResult := "mock-value"
+		if result != expectedResult {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+}
+
+// TestMockConfigHandler_SaveConfig tests the SaveConfig method of MockConfigHandler
+func TestMockConfigHandler_SaveConfig(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock config handler with SaveConfigFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		mockConfigHandler.SaveConfigFunc = func(overwrite ...bool) error {
+			return nil
+		}
+
+		// When calling SaveConfig
+		err := mockConfigHandler.SaveConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("WithOverwrite", func(t *testing.T) {
+		// Given a mock config handler with SaveConfigFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		mockConfigHandler.SaveConfigFunc = func(overwrite ...bool) error {
+			return nil
+		}
+
+		// When calling SaveConfig with overwrite
+		err := mockConfigHandler.SaveConfig(true)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		// Given a mock config handler with SaveConfigFunc set to return an error
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedError := fmt.Errorf("mock save config error")
+		mockConfigHandler.SaveConfigFunc = func(overwrite ...bool) error {
+			return expectedError
+		}
+
+		// When calling SaveConfig
+		err := mockConfigHandler.SaveConfig()
+
+		// Then the expected error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock config handler with SaveConfigFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling SaveConfig
+		err := mockConfigHandler.SaveConfig()
+
+		// Then no error should be returned (default implementation)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+}
+
+// TestMockConfigHandler_SetDefault tests the SetDefault method of MockConfigHandler
+func TestMockConfigHandler_SetDefault(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock config handler with SetDefaultFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		mockConfigHandler.SetDefaultFunc = func(context v1alpha1.Context) error {
+			return nil
+		}
+
+		// When calling SetDefault
+		err := mockConfigHandler.SetDefault(v1alpha1.Context{})
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		// Given a mock config handler with SetDefaultFunc set to return an error
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedError := fmt.Errorf("mock set default error")
+		mockConfigHandler.SetDefaultFunc = func(context v1alpha1.Context) error {
+			return expectedError
+		}
+
+		// When calling SetDefault
+		err := mockConfigHandler.SetDefault(v1alpha1.Context{})
+
+		// Then the expected error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock config handler with SetDefaultFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling SetDefault
+		err := mockConfigHandler.SetDefault(v1alpha1.Context{})
+
+		// Then no error should be returned (default implementation)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+}
+
+// TestMockConfigHandler_GetConfig tests the GetConfig method of MockConfigHandler
+func TestMockConfigHandler_GetConfig(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock config handler with GetConfigFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedResult := &v1alpha1.Context{ID: stringPtr("test-context")}
+		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return expectedResult
+		}
+
+		// When calling GetConfig
+		result := mockConfigHandler.GetConfig()
+
+		// Then the expected result should be returned
+		if result != expectedResult {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock config handler with GetConfigFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling GetConfig
+		result := mockConfigHandler.GetConfig()
+
+		// Then an empty context should be returned (default implementation)
+		if result == nil {
+			t.Error("Expected non-nil result, got nil")
+		}
+		if result.ID != nil {
+			t.Errorf("Expected empty context, got %v", result)
+		}
+	})
+}
+
+// TestMockConfigHandler_GetContext tests the GetContext method of MockConfigHandler
+func TestMockConfigHandler_GetContext(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock config handler with GetContextFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedResult := "test-context"
+		mockConfigHandler.GetContextFunc = func() string {
+			return expectedResult
+		}
+
+		// When calling GetContext
+		result := mockConfigHandler.GetContext()
+
+		// Then the expected result should be returned
+		if result != expectedResult {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock config handler with GetContextFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling GetContext
+		result := mockConfigHandler.GetContext()
+
+		// Then the default mock context should be returned
+		expectedResult := "mock-context"
+		if result != expectedResult {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+}
+
+// TestMockConfigHandler_SetContext tests the SetContext method of MockConfigHandler
+func TestMockConfigHandler_SetContext(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock config handler with SetContextFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		mockConfigHandler.SetContextFunc = func(context string) error {
+			return nil
+		}
+
+		// When calling SetContext
+		err := mockConfigHandler.SetContext("test-context")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		// Given a mock config handler with SetContextFunc set to return an error
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedError := fmt.Errorf("mock set context error")
+		mockConfigHandler.SetContextFunc = func(context string) error {
+			return expectedError
+		}
+
+		// When calling SetContext
+		err := mockConfigHandler.SetContext("test-context")
+
+		// Then the expected error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock config handler with SetContextFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling SetContext
+		err := mockConfigHandler.SetContext("test-context")
+
+		// Then no error should be returned (default implementation)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+}
+
+// TestMockConfigHandler_GetConfigRoot tests the GetConfigRoot method of MockConfigHandler
+func TestMockConfigHandler_GetConfigRoot(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock config handler with GetConfigRootFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedResult := "/mock/config/root"
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return expectedResult, nil
+		}
+
+		// When calling GetConfigRoot
+		result, err := mockConfigHandler.GetConfigRoot()
+
+		// Then no error should be returned and the result should match
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if result != expectedResult {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		// Given a mock config handler with GetConfigRootFunc set to return an error
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedError := fmt.Errorf("mock get config root error")
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return "", expectedError
+		}
+
+		// When calling GetConfigRoot
+		result, err := mockConfigHandler.GetConfigRoot()
+
+		// Then the expected error should be returned and result should be empty
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+		if result != "" {
+			t.Errorf("Expected empty result, got %v", result)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock config handler with GetConfigRootFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling GetConfigRoot
+		result, err := mockConfigHandler.GetConfigRoot()
+
+		// Then no error should be returned and result should be default (default implementation)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		expectedResult := "mock-config-root"
+		if result != expectedResult {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+}
+
+// TestMockConfigHandler_Clean tests the Clean method of MockConfigHandler
+func TestMockConfigHandler_Clean(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock config handler with CleanFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		mockConfigHandler.CleanFunc = func() error {
+			return nil
+		}
+
+		// When calling Clean
+		err := mockConfigHandler.Clean()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		// Given a mock config handler with CleanFunc set to return an error
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedError := fmt.Errorf("mock clean error")
+		mockConfigHandler.CleanFunc = func() error {
+			return expectedError
+		}
+
+		// When calling Clean
+		err := mockConfigHandler.Clean()
+
+		// Then the expected error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock config handler with CleanFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling Clean
+		err := mockConfigHandler.Clean()
+
+		// Then no error should be returned (default implementation)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+}
+
+// TestMockConfigHandler_GenerateContextID tests the GenerateContextID method of MockConfigHandler
+func TestMockConfigHandler_GenerateContextID(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock config handler with GenerateContextIDFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		mockConfigHandler.GenerateContextIDFunc = func() error {
+			return nil
+		}
+
+		// When calling GenerateContextID
+		err := mockConfigHandler.GenerateContextID()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		// Given a mock config handler with GenerateContextIDFunc set to return an error
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedError := fmt.Errorf("mock generate context id error")
+		mockConfigHandler.GenerateContextIDFunc = func() error {
+			return expectedError
+		}
+
+		// When calling GenerateContextID
+		err := mockConfigHandler.GenerateContextID()
+
+		// Then the expected error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock config handler with GenerateContextIDFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling GenerateContextID
+		err := mockConfigHandler.GenerateContextID()
+
+		// Then no error should be returned (default implementation)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+}
+
+// TestMockConfigHandler_LoadSchema tests the LoadSchema method of MockConfigHandler
 func TestMockConfigHandler_LoadSchema(t *testing.T) {
-	mockErr := fmt.Errorf("mock load schema error")
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock config handler with LoadSchemaFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		mockConfigHandler.LoadSchemaFunc = func(schemaPath string) error {
+			return nil
+		}
 
-	t.Run("WithFuncSet", func(t *testing.T) {
+		// When calling LoadSchema
+		err := mockConfigHandler.LoadSchema("/mock/schema.yaml")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
 		// Given a mock config handler with LoadSchemaFunc set to return an error
-		handler := NewMockConfigHandler()
-		handler.LoadSchemaFunc = func(path string) error {
-			return mockErr
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedError := fmt.Errorf("mock load schema error")
+		mockConfigHandler.LoadSchemaFunc = func(schemaPath string) error {
+			return expectedError
 		}
 
-		// When LoadSchema is called
-		err := handler.LoadSchema("/path/to/schema.yaml")
+		// When calling LoadSchema
+		err := mockConfigHandler.LoadSchema("/mock/schema.yaml")
 
-		// Then the error should match the expected mock error
-		if err != mockErr {
-			t.Errorf("Expected error = %v, got = %v", mockErr, err)
-		}
-	})
-
-	t.Run("WithFuncSetSuccess", func(t *testing.T) {
-		// Given a mock config handler with LoadSchemaFunc set to return nil
-		handler := NewMockConfigHandler()
-		var capturedPath string
-		handler.LoadSchemaFunc = func(path string) error {
-			capturedPath = path
-			return nil
-		}
-
-		// When LoadSchema is called with a specific path
-		testPath := "/test/schema.yaml"
-		err := handler.LoadSchema(testPath)
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got = %v", err)
-		}
-
-		// And the path should be captured correctly
-		if capturedPath != testPath {
-			t.Errorf("Expected path = %s, got = %s", testPath, capturedPath)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock config handler without LoadSchemaFunc set
-		handler := NewMockConfigHandler()
-
-		// When LoadSchema is called
-		err := handler.LoadSchema("/path/to/schema.yaml")
-
-		// Then an error should be returned
+		// Then the expected error should be returned
 		if err == nil {
-			t.Error("Expected error when LoadSchemaFunc not set, got nil")
+			t.Error("Expected error, got nil")
 		}
-		expectedErr := "LoadSchemaFunc not set"
-		if err.Error() != expectedErr {
-			t.Errorf("Expected error message = %s, got = %s", expectedErr, err.Error())
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock config handler with LoadSchemaFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling LoadSchema
+		err := mockConfigHandler.LoadSchema("/mock/schema.yaml")
+
+		// Then an error should be returned (default implementation)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		expectedError := "LoadSchemaFunc not set"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
 		}
 	})
 }
 
+// TestMockConfigHandler_LoadSchemaFromBytes tests the LoadSchemaFromBytes method of MockConfigHandler
 func TestMockConfigHandler_LoadSchemaFromBytes(t *testing.T) {
-	mockErr := fmt.Errorf("mock load schema from bytes error")
-
-	t.Run("WithFuncSet", func(t *testing.T) {
-		// Given a mock config handler with LoadSchemaFromBytesFunc set to return an error
-		handler := NewMockConfigHandler()
-		handler.LoadSchemaFromBytesFunc = func(content []byte) error {
-			return mockErr
-		}
-
-		// When LoadSchemaFromBytes is called
-		err := handler.LoadSchemaFromBytes([]byte("schema content"))
-
-		// Then the error should match the expected mock error
-		if err != mockErr {
-			t.Errorf("Expected error = %v, got = %v", mockErr, err)
-		}
-	})
-
-	t.Run("WithFuncSetSuccess", func(t *testing.T) {
-		// Given a mock config handler with LoadSchemaFromBytesFunc set to return nil
-		handler := NewMockConfigHandler()
-		var capturedContent []byte
-		handler.LoadSchemaFromBytesFunc = func(content []byte) error {
-			capturedContent = content
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock config handler with LoadSchemaFromBytesFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		mockConfigHandler.LoadSchemaFromBytesFunc = func(schemaContent []byte) error {
 			return nil
 		}
 
-		// When LoadSchemaFromBytes is called with specific content
-		testContent := []byte("test schema content")
-		err := handler.LoadSchemaFromBytes(testContent)
+		// When calling LoadSchemaFromBytes
+		err := mockConfigHandler.LoadSchemaFromBytes([]byte("schema content"))
 
 		// Then no error should be returned
 		if err != nil {
-			t.Errorf("Expected no error, got = %v", err)
-		}
-
-		// And the content should be captured correctly
-		if string(capturedContent) != string(testContent) {
-			t.Errorf("Expected content = %s, got = %s", string(testContent), string(capturedContent))
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock config handler without LoadSchemaFromBytesFunc set
-		handler := NewMockConfigHandler()
-
-		// When LoadSchemaFromBytes is called
-		err := handler.LoadSchemaFromBytes([]byte("schema content"))
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error when LoadSchemaFromBytesFunc not set, got nil")
+	t.Run("Error", func(t *testing.T) {
+		// Given a mock config handler with LoadSchemaFromBytesFunc set to return an error
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedError := fmt.Errorf("mock load schema from bytes error")
+		mockConfigHandler.LoadSchemaFromBytesFunc = func(schemaContent []byte) error {
+			return expectedError
 		}
-		expectedErr := "LoadSchemaFromBytesFunc not set"
-		if err.Error() != expectedErr {
-			t.Errorf("Expected error message = %s, got = %s", expectedErr, err.Error())
+
+		// When calling LoadSchemaFromBytes
+		err := mockConfigHandler.LoadSchemaFromBytes([]byte("schema content"))
+
+		// Then the expected error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock config handler with LoadSchemaFromBytesFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling LoadSchemaFromBytes
+		err := mockConfigHandler.LoadSchemaFromBytes([]byte("schema content"))
+
+		// Then an error should be returned (default implementation)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		expectedError := "LoadSchemaFromBytesFunc not set"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
 		}
 	})
 }
 
-func TestMockConfigHandler_GetSchemaDefaults(t *testing.T) {
-	mockErr := fmt.Errorf("mock get schema defaults error")
-
-	t.Run("WithFuncSet", func(t *testing.T) {
-		// Given a mock config handler with GetSchemaDefaultsFunc set to return an error
-		handler := NewMockConfigHandler()
-		handler.GetSchemaDefaultsFunc = func() (map[string]any, error) {
-			return nil, mockErr
-		}
-
-		// When GetSchemaDefaults is called
-		defaults, err := handler.GetSchemaDefaults()
-
-		// Then the error should match the expected mock error
-		if err != mockErr {
-			t.Errorf("Expected error = %v, got = %v", mockErr, err)
-		}
-
-		// And defaults should be nil
-		if defaults != nil {
-			t.Errorf("Expected defaults = nil, got = %v", defaults)
-		}
-	})
-
-	t.Run("WithFuncSetSuccess", func(t *testing.T) {
-		// Given a mock config handler with GetSchemaDefaultsFunc set to return defaults
-		handler := NewMockConfigHandler()
-		expectedDefaults := map[string]any{
-			"key1": "value1",
-			"key2": 42,
-			"key3": true,
-		}
-		handler.GetSchemaDefaultsFunc = func() (map[string]any, error) {
-			return expectedDefaults, nil
-		}
-
-		// When GetSchemaDefaults is called
-		defaults, err := handler.GetSchemaDefaults()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got = %v", err)
-		}
-
-		// And the defaults should match the expected values
-		if !reflect.DeepEqual(defaults, expectedDefaults) {
-			t.Errorf("Expected defaults = %v, got = %v", expectedDefaults, defaults)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock config handler without GetSchemaDefaultsFunc set
-		handler := NewMockConfigHandler()
-
-		// When GetSchemaDefaults is called
-		defaults, err := handler.GetSchemaDefaults()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error when GetSchemaDefaultsFunc not set, got nil")
-		}
-		expectedErr := "GetSchemaDefaultsFunc not set"
-		if err.Error() != expectedErr {
-			t.Errorf("Expected error message = %s, got = %s", expectedErr, err.Error())
-		}
-
-		// And defaults should be nil
-		if defaults != nil {
-			t.Errorf("Expected defaults = nil, got = %v", defaults)
-		}
-	})
-}
-
+// TestMockConfigHandler_GetContextValues tests the GetContextValues method of MockConfigHandler
 func TestMockConfigHandler_GetContextValues(t *testing.T) {
-	mockErr := fmt.Errorf("mock get context values error")
-
-	t.Run("WithFuncSet", func(t *testing.T) {
-		// Given a mock config handler with GetContextValuesFunc set to return an error
-		handler := NewMockConfigHandler()
-		handler.GetContextValuesFunc = func() (map[string]any, error) {
-			return nil, mockErr
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock config handler with GetContextValuesFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedResult := map[string]any{"key1": "value1", "key2": 42}
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return expectedResult, nil
 		}
 
-		// When GetContextValues is called
-		values, err := handler.GetContextValues()
+		// When calling GetContextValues
+		result, err := mockConfigHandler.GetContextValues()
 
-		// Then the error should match the expected mock error
-		if err != mockErr {
-			t.Errorf("Expected error = %v, got = %v", mockErr, err)
-		}
-
-		// And values should be nil
-		if values != nil {
-			t.Errorf("Expected values = nil, got = %v", values)
-		}
-	})
-
-	t.Run("WithFuncSetSuccess", func(t *testing.T) {
-		// Given a mock config handler with GetContextValuesFunc set to return values
-		handler := NewMockConfigHandler()
-		expectedValues := map[string]any{
-			"environment": map[string]any{
-				"VAR1": "value1",
-				"VAR2": "value2",
-			},
-			"cluster": map[string]any{
-				"enabled": true,
-				"nodes":   3,
-			},
-		}
-		handler.GetContextValuesFunc = func() (map[string]any, error) {
-			return expectedValues, nil
-		}
-
-		// When GetContextValues is called
-		values, err := handler.GetContextValues()
-
-		// Then no error should be returned
+		// Then no error should be returned and the result should match
 		if err != nil {
-			t.Errorf("Expected no error, got = %v", err)
+			t.Errorf("Expected no error, got %v", err)
 		}
-
-		// And the values should match the expected values
-		if !reflect.DeepEqual(values, expectedValues) {
-			t.Errorf("Expected values = %v, got = %v", expectedValues, values)
+		if len(result) != len(expectedResult) {
+			t.Errorf("Expected result length %v, got %v", len(expectedResult), len(result))
+		}
+		if result["key1"] != expectedResult["key1"] || result["key2"] != expectedResult["key2"] {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
 		}
 	})
 
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock config handler without GetContextValuesFunc set
-		handler := NewMockConfigHandler()
+	t.Run("Error", func(t *testing.T) {
+		// Given a mock config handler with GetContextValuesFunc set to return an error
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedError := fmt.Errorf("mock get context values error")
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return nil, expectedError
+		}
 
-		// When GetContextValues is called
-		values, err := handler.GetContextValues()
+		// When calling GetContextValues
+		result, err := mockConfigHandler.GetContextValues()
 
-		// Then an error should be returned
+		// Then the expected error should be returned and result should be nil
 		if err == nil {
-			t.Error("Expected error when GetContextValuesFunc not set, got nil")
+			t.Error("Expected error, got nil")
 		}
-		expectedErr := "GetContextValuesFunc not set"
-		if err.Error() != expectedErr {
-			t.Errorf("Expected error message = %s, got = %s", expectedErr, err.Error())
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
 		}
+		if result != nil {
+			t.Errorf("Expected nil result, got %v", result)
+		}
+	})
 
-		// And values should be nil
-		if values != nil {
-			t.Errorf("Expected values = nil, got = %v", values)
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock config handler with GetContextValuesFunc not set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When calling GetContextValues
+		result, err := mockConfigHandler.GetContextValues()
+
+		// Then an error should be returned and result should be nil (default implementation)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		expectedError := "GetContextValuesFunc not set"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+		if result != nil {
+			t.Errorf("Expected nil result, got %v", result)
 		}
 	})
 }

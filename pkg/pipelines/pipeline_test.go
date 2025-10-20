@@ -175,10 +175,7 @@ network:
 		t.Fatalf("Failed to write context config: %v", err)
 	}
 
-	// Load context config to set loaded flag
-	if err := configHandler.LoadContextConfig(); err != nil {
-		t.Fatalf("Failed to load context config: %v", err)
-	}
+	// Config will be loaded by pipeline initialization
 
 	// Register shims
 	shims := setupShims(t)
@@ -1064,201 +1061,8 @@ func TestBasePipeline_handleSessionReset(t *testing.T) {
 	})
 }
 
-func TestBasePipeline_loadConfig(t *testing.T) {
-	t.Run("ReturnsErrorWhenShellIsNil", func(t *testing.T) {
-		// Given a BasePipeline with nil shell
-		pipeline := NewBasePipeline()
-
-		// When loadConfig is called
-		err := pipeline.loadConfig()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error when shell is nil")
-		}
-		if err.Error() != "shell not initialized" {
-			t.Errorf("Expected 'shell not initialized' error, got %v", err)
-		}
-	})
-
-	t.Run("ReturnsErrorWhenConfigHandlerIsNil", func(t *testing.T) {
-		// Given a BasePipeline with shell but nil config handler
-		pipeline := NewBasePipeline()
-		pipeline.shell = shell.NewMockShell()
-
-		// When loadConfig is called
-		err := pipeline.loadConfig()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error when config handler is nil")
-		}
-		if err.Error() != "config handler not initialized" {
-			t.Errorf("Expected 'config handler not initialized' error, got %v", err)
-		}
-	})
-
-	t.Run("ReturnsErrorWhenShimsIsNil", func(t *testing.T) {
-		// Given a BasePipeline with shell and config handler but nil shims
-		pipeline := NewBasePipeline()
-		pipeline.shell = shell.NewMockShell()
-		pipeline.configHandler = config.NewMockConfigHandler()
-
-		// When loadConfig is called
-		err := pipeline.loadConfig()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error when shims is nil")
-		}
-		if err.Error() != "shims not initialized" {
-			t.Errorf("Expected 'shims not initialized' error, got %v", err)
-		}
-	})
-
-	t.Run("LoadsConfigSuccessfully", func(t *testing.T) {
-		// Given a BasePipeline with shell, config handler, and shims
-		pipeline := NewBasePipeline()
-
-		mockShell := shell.NewMockShell()
-		projectRoot := t.TempDir()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
-		}
-		pipeline.shell = mockShell
-
-		mockConfigHandler := config.NewMockConfigHandler()
-		loadConfigCalled := false
-		mockConfigHandler.LoadConfigFunc = func(path string) error {
-			loadConfigCalled = true
-			expectedPath := filepath.Join(projectRoot, "windsor.yaml")
-			if path != expectedPath {
-				t.Errorf("Expected config path %q, got %q", expectedPath, path)
-			}
-			return nil
-		}
-		pipeline.configHandler = mockConfigHandler
-
-		pipeline.shims = NewShims()
-
-		// Create a test config file
-		configPath := filepath.Join(projectRoot, "windsor.yaml")
-		if err := os.WriteFile(configPath, []byte("test: config"), 0644); err != nil {
-			t.Fatalf("Failed to create test config file: %v", err)
-		}
-
-		// When loadConfig is called
-		err := pipeline.loadConfig()
-
-		// Then no error should be returned and config should be loaded
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if !loadConfigCalled {
-			t.Error("Expected loadConfig to be called on config handler")
-		}
-	})
-
-	t.Run("ReturnsErrorWhenGetProjectRootFails", func(t *testing.T) {
-		// Given a BasePipeline with failing shell
-		pipeline := NewBasePipeline()
-
-		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "", fmt.Errorf("project root error")
-		}
-		pipeline.shell = mockShell
-
-		mockConfigHandler := config.NewMockConfigHandler()
-		pipeline.configHandler = mockConfigHandler
-
-		pipeline.shims = NewShims()
-
-		// When loadConfig is called
-		err := pipeline.loadConfig()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error when GetProjectRoot fails")
-		}
-		if !strings.Contains(err.Error(), "error retrieving project root") {
-			t.Errorf("Expected 'error retrieving project root' in error, got %v", err)
-		}
-	})
-
-	t.Run("ReturnsErrorWhenLoadConfigFails", func(t *testing.T) {
-		// Given a BasePipeline with config handler that fails to load
-		pipeline := NewBasePipeline()
-
-		mockShell := shell.NewMockShell()
-		projectRoot := t.TempDir()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
-		}
-		pipeline.shell = mockShell
-
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.LoadConfigFunc = func(path string) error {
-			return fmt.Errorf("load config error")
-		}
-		pipeline.configHandler = mockConfigHandler
-
-		pipeline.shims = NewShims()
-
-		// Create a test config file
-		configPath := filepath.Join(projectRoot, "windsor.yaml")
-		if err := os.WriteFile(configPath, []byte("test: config"), 0644); err != nil {
-			t.Fatalf("Failed to create test config file: %v", err)
-		}
-
-		// When loadConfig is called
-		err := pipeline.loadConfig()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error when loadConfig fails")
-		}
-		if !strings.Contains(err.Error(), "error loading config file") {
-			t.Errorf("Expected 'error loading config file' in error, got %v", err)
-		}
-	})
-
-	t.Run("SkipsLoadingWhenNoConfigFileExists", func(t *testing.T) {
-		// Given a BasePipeline with no config file
-		pipeline := NewBasePipeline()
-
-		mockShell := shell.NewMockShell()
-		projectRoot := t.TempDir()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
-		}
-		pipeline.shell = mockShell
-
-		mockConfigHandler := config.NewMockConfigHandler()
-		loadConfigCalled := false
-		mockConfigHandler.LoadConfigFunc = func(path string) error {
-			loadConfigCalled = true
-			return nil
-		}
-		pipeline.configHandler = mockConfigHandler
-
-		pipeline.shims = NewShims()
-
-		// When loadConfig is called (no config file exists)
-		err := pipeline.loadConfig()
-
-		// Then no error should be returned and loadConfig should not be called
-		if err != nil {
-			t.Errorf("Expected no error when no config file exists, got %v", err)
-		}
-		if loadConfigCalled {
-			t.Error("Expected loadConfig not to be called when no config file exists")
-		}
-	})
-}
-
 // =============================================================================
-// Test Private Methods - withEnvPrinters
+// Test Private Methods
 // =============================================================================
 
 func TestBasePipeline_withEnvPrinters(t *testing.T) {
@@ -1557,10 +1361,6 @@ func TestBasePipeline_withEnvPrinters(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Test Private Methods - withSecretsProviders
-// =============================================================================
-
 func TestBasePipeline_withSecretsProviders(t *testing.T) {
 	setup := func(t *testing.T) (*BasePipeline, *Mocks, string) {
 		pipeline := NewBasePipeline()
@@ -1690,7 +1490,7 @@ func TestBasePipeline_withSecretsProviders(t *testing.T) {
 		// Configure OnePassword vaults
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetFunc = func(key string) any {
-			if key == "contexts.test-context.secrets.onepassword.vaults" {
+			if key == "secrets.onepassword.vaults" {
 				return map[string]secretsConfigType.OnePasswordVault{
 					"vault1": {
 						Name: "test-vault",
@@ -1727,7 +1527,7 @@ func TestBasePipeline_withSecretsProviders(t *testing.T) {
 		// Configure OnePassword vaults
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetFunc = func(key string) any {
-			if key == "contexts.test-context.secrets.onepassword.vaults" {
+			if key == "secrets.onepassword.vaults" {
 				return map[string]secretsConfigType.OnePasswordVault{
 					"vault1": {
 						Name: "test-vault",
@@ -1781,10 +1581,6 @@ func TestBasePipeline_withSecretsProviders(t *testing.T) {
 		}
 	})
 }
-
-// =============================================================================
-// Test Private Methods - withBlueprintHandler
-// =============================================================================
 
 func TestBasePipeline_withBlueprintHandler(t *testing.T) {
 	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
@@ -1842,10 +1638,6 @@ func TestBasePipeline_withBlueprintHandler(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Test Private Methods - withStack
-// =============================================================================
-
 func TestBasePipeline_withStack(t *testing.T) {
 	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
 		pipeline := NewBasePipeline()
@@ -1902,10 +1694,6 @@ func TestBasePipeline_withStack(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Test Private Methods - withArtifactBuilder
-// =============================================================================
-
 func TestBasePipeline_withArtifactBuilder(t *testing.T) {
 	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
 		pipeline := NewBasePipeline()
@@ -1961,10 +1749,6 @@ func TestBasePipeline_withArtifactBuilder(t *testing.T) {
 		}
 	})
 }
-
-// =============================================================================
-// Test Private Methods - withVirtualMachine
-// =============================================================================
 
 func TestBasePipeline_withVirtualMachine(t *testing.T) {
 	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
@@ -2093,10 +1877,6 @@ func TestBasePipeline_withVirtualMachine(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Test Private Methods - withContainerRuntime
-// =============================================================================
-
 func TestBasePipeline_withContainerRuntime(t *testing.T) {
 	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
 		pipeline := NewBasePipeline()
@@ -2196,10 +1976,6 @@ func TestBasePipeline_withContainerRuntime(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Test Private Methods - withKubernetesClient
-// =============================================================================
-
 func TestBasePipeline_withKubernetesClient(t *testing.T) {
 	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
 		pipeline := NewBasePipeline()
@@ -2256,10 +2032,6 @@ func TestBasePipeline_withKubernetesClient(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Test Private Methods - withKubernetesManager
-// =============================================================================
-
 func TestBasePipeline_withKubernetesManager(t *testing.T) {
 	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
 		pipeline := NewBasePipeline()
@@ -2315,10 +2087,6 @@ func TestBasePipeline_withKubernetesManager(t *testing.T) {
 		}
 	})
 }
-
-// =============================================================================
-// Test Private Methods - withServices
-// =============================================================================
 
 func TestBasePipeline_withServices(t *testing.T) {
 	t.Run("ReturnsEmptyWhenDockerDisabled", func(t *testing.T) {

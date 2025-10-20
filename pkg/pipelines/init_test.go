@@ -480,7 +480,7 @@ func TestInitPipeline_setDefaultConfiguration(t *testing.T) {
 		mockConfigHandler.SetDefaultFunc = func(defaultConfig v1alpha1.Context) error {
 			return nil
 		}
-		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 			return nil
 		}
 		pipeline.configHandler = mockConfigHandler
@@ -521,7 +521,7 @@ func TestInitPipeline_setDefaultConfiguration(t *testing.T) {
 		// Given a pipeline with no provider set and "local" context name
 		pipeline, mockConfigHandler := setup(t, "", "")
 		providerSet := false
-		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "provider" {
 				providerSet = true
 			}
@@ -544,7 +544,7 @@ func TestInitPipeline_setDefaultConfiguration(t *testing.T) {
 		// Given a pipeline with no provider set and "aws" context name
 		pipeline, mockConfigHandler := setup(t, "", "")
 		providerSet := false
-		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "provider" {
 				providerSet = true
 			}
@@ -621,7 +621,7 @@ func TestInitPipeline_setDefaultConfiguration(t *testing.T) {
 		// Given a pipeline with no provider set and "local" context name
 		pipeline, mockConfigHandler := setup(t, "", "")
 		var setProvider string
-		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "provider" {
 				setProvider = value.(string)
 			}
@@ -644,7 +644,7 @@ func TestInitPipeline_setDefaultConfiguration(t *testing.T) {
 		// Given a pipeline with provider already set to "aws"
 		pipeline, mockConfigHandler := setup(t, "", "aws")
 		providerSetCount := 0
-		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "provider" {
 				providerSetCount++
 			}
@@ -667,7 +667,7 @@ func TestInitPipeline_setDefaultConfiguration(t *testing.T) {
 		// Given a pipeline with no provider set and unknown context name
 		pipeline, mockConfigHandler := setup(t, "", "")
 		providerSet := false
-		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "provider" {
 				providerSet = true
 			}
@@ -708,9 +708,9 @@ func TestInitPipeline_setDefaultConfiguration(t *testing.T) {
 	})
 
 	t.Run("ReturnsErrorWhenSetProviderFromContextNameFails", func(t *testing.T) {
-		// Given a pipeline with config handler that fails on SetContextValue for provider
+		// Given a pipeline with config handler that fails on Set for provider
 		pipeline, mockConfigHandler := setup(t, "", "")
-		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "provider" {
 				return fmt.Errorf("set provider failed")
 			}
@@ -748,10 +748,10 @@ func TestInitPipeline_setDefaultConfiguration(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsErrorWhenSetContextValueFails", func(t *testing.T) {
-		// Given a pipeline with config handler that fails on SetContextValue
+	t.Run("ReturnsErrorWhenSetFails", func(t *testing.T) {
+		// Given a pipeline with config handler that fails on Set
 		pipeline, mockConfigHandler := setup(t, "", "")
-		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 			return fmt.Errorf("set context value failed")
 		}
 
@@ -780,7 +780,7 @@ func TestInitPipeline_processPlatformConfiguration(t *testing.T) {
 			}
 			return ""
 		}
-		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 			return nil
 		}
 		pipeline.configHandler = mockConfigHandler
@@ -813,10 +813,10 @@ func TestInitPipeline_processPlatformConfiguration(t *testing.T) {
 		})
 	}
 
-	t.Run("ReturnsErrorWhenSetContextValueFails", func(t *testing.T) {
+	t.Run("ReturnsErrorWhenSetFails", func(t *testing.T) {
 		// Given a pipeline with platform configuration that fails
 		pipeline, mockConfigHandler := setup(t, "aws")
-		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 			return fmt.Errorf("config error")
 		}
 
@@ -1135,7 +1135,7 @@ func TestInitPipeline_setDefaultConfiguration_HostPortsValidation(t *testing.T) 
 			setDefaultConfig = defaultConfig
 			return nil
 		}
-		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 			return nil
 		}
 

@@ -26,11 +26,11 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 		service, mocks := setup(t)
 
 		// Mock configuration for Localstack
-		err := mocks.ConfigHandler.SetContextValue("aws.localstack.enabled", true)
+		err := mocks.ConfigHandler.Set("aws.localstack.enabled", true)
 		if err != nil {
 			t.Fatalf("failed to set localstack enabled: %v", err)
 		}
-		err = mocks.ConfigHandler.SetContextValue("aws.localstack.services", []string{"s3", "dynamodb"})
+		err = mocks.ConfigHandler.Set("aws.localstack.services", []string{"s3", "dynamodb"})
 		if err != nil {
 			t.Fatalf("failed to set localstack services: %v", err)
 		}
@@ -71,11 +71,11 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 		service, mocks := setup(t)
 
 		// Mock configuration for Localstack
-		err := mocks.ConfigHandler.SetContextValue("aws.localstack.enabled", true)
+		err := mocks.ConfigHandler.Set("aws.localstack.enabled", true)
 		if err != nil {
 			t.Fatalf("failed to set localstack enabled: %v", err)
 		}
-		err = mocks.ConfigHandler.SetContextValue("aws.localstack.services", []string{"s3", "dynamodb"})
+		err = mocks.ConfigHandler.Set("aws.localstack.services", []string{"s3", "dynamodb"})
 		if err != nil {
 			t.Fatalf("failed to set localstack services: %v", err)
 		}

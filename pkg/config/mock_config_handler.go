@@ -4,38 +4,32 @@ import (
 	"fmt"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/secrets"
 )
 
 // MockConfigHandler is a mock implementation of the ConfigHandler interface
 type MockConfigHandler struct {
-	InitializeFunc            func() error
-	LoadConfigFunc            func(path string) error
-	LoadConfigStringFunc      func(content string) error
-	LoadContextConfigFunc     func() error
-	IsLoadedFunc              func() bool
-	GetStringFunc             func(key string, defaultValue ...string) string
-	GetIntFunc                func(key string, defaultValue ...int) int
-	GetBoolFunc               func(key string, defaultValue ...bool) bool
-	IsContextConfigLoadedFunc func() bool
-	GetStringSliceFunc        func(key string, defaultValue ...[]string) []string
-	GetStringMapFunc          func(key string, defaultValue ...map[string]string) map[string]string
-	SetFunc                   func(key string, value any) error
-	SetContextValueFunc       func(key string, value any) error
-	SaveConfigFunc            func(overwrite ...bool) error
-	GetFunc                   func(key string) any
-	SetDefaultFunc            func(context v1alpha1.Context) error
-	GetConfigFunc             func() *v1alpha1.Context
-	GetContextFunc            func() string
-	SetContextFunc            func(context string) error
-	GetConfigRootFunc         func() (string, error)
-	CleanFunc                 func() error
-	SetSecretsProviderFunc    func(provider secrets.SecretsProvider)
-	GenerateContextIDFunc     func() error
-	LoadSchemaFunc            func(schemaPath string) error
-	LoadSchemaFromBytesFunc   func(schemaContent []byte) error
-	GetSchemaDefaultsFunc     func() (map[string]any, error)
-	GetContextValuesFunc      func() (map[string]any, error)
+	InitializeFunc          func() error
+	LoadConfigFunc          func() error
+	LoadConfigStringFunc    func(content string) error
+	IsLoadedFunc            func() bool
+	GetStringFunc           func(key string, defaultValue ...string) string
+	GetIntFunc              func(key string, defaultValue ...int) int
+	GetBoolFunc             func(key string, defaultValue ...bool) bool
+	GetStringSliceFunc      func(key string, defaultValue ...[]string) []string
+	GetStringMapFunc        func(key string, defaultValue ...map[string]string) map[string]string
+	SetFunc                 func(key string, value any) error
+	SaveConfigFunc          func(overwrite ...bool) error
+	GetFunc                 func(key string) any
+	SetDefaultFunc          func(context v1alpha1.Context) error
+	GetConfigFunc           func() *v1alpha1.Context
+	GetContextFunc          func() string
+	SetContextFunc          func(context string) error
+	GetConfigRootFunc       func() (string, error)
+	CleanFunc               func() error
+	GenerateContextIDFunc   func() error
+	LoadSchemaFunc          func(schemaPath string) error
+	LoadSchemaFromBytesFunc func(schemaContent []byte) error
+	GetContextValuesFunc    func() (map[string]any, error)
 }
 
 // =============================================================================
@@ -60,9 +54,9 @@ func (m *MockConfigHandler) Initialize() error {
 }
 
 // LoadConfig calls the mock LoadConfigFunc if set, otherwise returns nil
-func (m *MockConfigHandler) LoadConfig(path string) error {
+func (m *MockConfigHandler) LoadConfig() error {
 	if m.LoadConfigFunc != nil {
-		return m.LoadConfigFunc(path)
+		return m.LoadConfigFunc()
 	}
 	return nil
 }
@@ -75,26 +69,10 @@ func (m *MockConfigHandler) LoadConfigString(content string) error {
 	return nil
 }
 
-// LoadContextConfig calls the mock LoadContextConfigFunc if set, otherwise returns nil
-func (m *MockConfigHandler) LoadContextConfig() error {
-	if m.LoadContextConfigFunc != nil {
-		return m.LoadContextConfigFunc()
-	}
-	return nil
-}
-
 // IsLoaded calls the mock IsLoadedFunc if set, otherwise returns false
 func (m *MockConfigHandler) IsLoaded() bool {
 	if m.IsLoadedFunc != nil {
 		return m.IsLoadedFunc()
-	}
-	return false
-}
-
-// IsContextConfigLoaded calls the mock IsContextConfigLoadedFunc if set, otherwise returns false
-func (m *MockConfigHandler) IsContextConfigLoaded() bool {
-	if m.IsContextConfigLoadedFunc != nil {
-		return m.IsContextConfigLoadedFunc()
 	}
 	return false
 }
@@ -158,14 +136,6 @@ func (m *MockConfigHandler) GetStringMap(key string, defaultValue ...map[string]
 func (m *MockConfigHandler) Set(key string, value any) error {
 	if m.SetFunc != nil {
 		return m.SetFunc(key, value)
-	}
-	return nil
-}
-
-// SetContextValue calls the mock SetContextValueFunc if set, otherwise returns nil
-func (m *MockConfigHandler) SetContextValue(key string, value any) error {
-	if m.SetContextValueFunc != nil {
-		return m.SetContextValueFunc(key, value)
 	}
 	return nil
 }
@@ -234,13 +204,6 @@ func (m *MockConfigHandler) Clean() error {
 	return nil
 }
 
-// SetSecretsProvider calls the mock SetSecretsProviderFunc if set, otherwise does nothing
-func (m *MockConfigHandler) SetSecretsProvider(provider secrets.SecretsProvider) {
-	if m.SetSecretsProviderFunc != nil {
-		m.SetSecretsProviderFunc(provider)
-	}
-}
-
 // GenerateContextID calls the mock GenerateContextIDFunc if set, otherwise returns nil
 func (m *MockConfigHandler) GenerateContextID() error {
 	if m.GenerateContextIDFunc != nil {
@@ -263,14 +226,6 @@ func (m *MockConfigHandler) LoadSchemaFromBytes(schemaContent []byte) error {
 		return m.LoadSchemaFromBytesFunc(schemaContent)
 	}
 	return fmt.Errorf("LoadSchemaFromBytesFunc not set")
-}
-
-// GetSchemaDefaults calls the mock GetSchemaDefaultsFunc if set, otherwise returns an error
-func (m *MockConfigHandler) GetSchemaDefaults() (map[string]any, error) {
-	if m.GetSchemaDefaultsFunc != nil {
-		return m.GetSchemaDefaultsFunc()
-	}
-	return nil, fmt.Errorf("GetSchemaDefaultsFunc not set")
 }
 
 // GetContextValues calls the mock GetContextValuesFunc if set, otherwise returns an error

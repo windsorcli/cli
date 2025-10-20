@@ -54,6 +54,7 @@ var initCmd = &cobra.Command{
 
 		ctx = context.WithValue(ctx, "quiet", true)
 		ctx = context.WithValue(ctx, "decrypt", true)
+		ctx = context.WithValue(ctx, "initPipeline", true)
 		envPipeline, err := pipelines.WithPipeline(injector, ctx, "envPipeline")
 		if err != nil {
 			return fmt.Errorf("failed to set up env pipeline: %w", err)
@@ -76,72 +77,67 @@ var initCmd = &cobra.Command{
 		}
 
 		configHandler := injector.Resolve("configHandler").(config.ConfigHandler)
-		
+
 		// Initialize the config handler to ensure schema validator is available
 		if err := configHandler.Initialize(); err != nil {
 			return fmt.Errorf("failed to initialize config handler: %w", err)
 		}
-		
-		// Load the schema to enable validation of --set flags
-		if err := configHandler.LoadContextConfig(); err != nil {
-			return fmt.Errorf("failed to load context config: %w", err)
-		}
 
 		// Set provider in context if it's been set (either via --provider or --platform)
 		if initProvider != "" {
-			if err := configHandler.SetContextValue("provider", initProvider); err != nil {
+			if err := configHandler.Set("provider", initProvider); err != nil {
 				return fmt.Errorf("failed to set provider: %w", err)
 			}
 		}
 
 		// Set other configuration values
 		if initBackend != "" {
-			if err := configHandler.SetContextValue("terraform.backend.type", initBackend); err != nil {
+			if err := configHandler.Set("terraform.backend.type", initBackend); err != nil {
 				return fmt.Errorf("failed to set terraform.backend.type: %w", err)
 			}
 		}
 		if initAwsProfile != "" {
-			if err := configHandler.SetContextValue("aws.profile", initAwsProfile); err != nil {
+			if err := configHandler.Set("aws.profile", initAwsProfile); err != nil {
 				return fmt.Errorf("failed to set aws.profile: %w", err)
 			}
 		}
 		if initAwsEndpointURL != "" {
-			if err := configHandler.SetContextValue("aws.endpoint_url", initAwsEndpointURL); err != nil {
+			if err := configHandler.Set("aws.endpoint_url", initAwsEndpointURL); err != nil {
 				return fmt.Errorf("failed to set aws.endpoint_url: %w", err)
 			}
 		}
 		if initVmDriver != "" {
-			if err := configHandler.SetContextValue("vm.driver", initVmDriver); err != nil {
+			if err := configHandler.Set("vm.driver", initVmDriver); err != nil {
 				return fmt.Errorf("failed to set vm.driver: %w", err)
 			}
 		}
 		if initCpu > 0 {
-			if err := configHandler.SetContextValue("vm.cpu", initCpu); err != nil {
+			if err := configHandler.Set("vm.cpu", initCpu); err != nil {
 				return fmt.Errorf("failed to set vm.cpu: %w", err)
 			}
 		}
 		if initDisk > 0 {
-			if err := configHandler.SetContextValue("vm.disk", initDisk); err != nil {
+			if err := configHandler.Set("vm.disk", initDisk); err != nil {
 				return fmt.Errorf("failed to set vm.disk: %w", err)
 			}
 		}
 		if initMemory > 0 {
-			if err := configHandler.SetContextValue("vm.memory", initMemory); err != nil {
+			if err := configHandler.Set("vm.memory", initMemory); err != nil {
 				return fmt.Errorf("failed to set vm.memory: %w", err)
 			}
 		}
 		if initArch != "" {
-			if err := configHandler.SetContextValue("vm.arch", initArch); err != nil {
+			if err := configHandler.Set("vm.arch", initArch); err != nil {
 				return fmt.Errorf("failed to set vm.arch: %w", err)
 			}
 		}
 		if initDocker {
-			if err := configHandler.SetContextValue("docker.enabled", true); err != nil {
+			if err := configHandler.Set("docker.enabled", true); err != nil {
 				return fmt.Errorf("failed to set docker.enabled: %w", err)
 			}
 		}
 		if initGitLivereload {
-			if err := configHandler.SetContextValue("git.livereload.enabled", true); err != nil {
+			if err := configHandler.Set("git.livereload.enabled", true); err != nil {
 				return fmt.Errorf("failed to set git.livereload.enabled: %w", err)
 			}
 		}
@@ -150,7 +146,7 @@ var initCmd = &cobra.Command{
 		for _, setFlag := range initSetFlags {
 			parts := strings.SplitN(setFlag, "=", 2)
 			if len(parts) == 2 {
-				if err := configHandler.SetContextValue(parts[0], parts[1]); err != nil {
+				if err := configHandler.Set(parts[0], parts[1]); err != nil {
 					return fmt.Errorf("failed to set %s: %w", parts[0], err)
 				}
 			}

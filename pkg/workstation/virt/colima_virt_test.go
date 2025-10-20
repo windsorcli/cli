@@ -189,7 +189,7 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		mocks := setupColimaMocks(t)
 
 		// Ensure vm.driver is explicitly set to colima
-		if err := mocks.ConfigHandler.SetContextValue("vm.driver", "colima"); err != nil {
+		if err := mocks.ConfigHandler.Set("vm.driver", "colima"); err != nil {
 			t.Fatalf("Failed to set vm.driver: %v", err)
 		}
 
@@ -338,7 +338,7 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		}
 
 		// And vm.driver is not colima
-		if err := mocks.ConfigHandler.SetContextValue("vm.driver", "other"); err != nil {
+		if err := mocks.ConfigHandler.Set("vm.driver", "other"); err != nil {
 			t.Fatalf("Failed to set vm.driver: %v", err)
 		}
 
@@ -677,8 +677,8 @@ func TestColimaVirt_Up(t *testing.T) {
 			return mocks.ConfigHandler.GetInt(key, defaultValues...)
 		}
 
-		// Override just the SetContextValue to return an error
-		mockConfigHandler.SetContextValueFunc = func(key string, _ any) error {
+		// Override just the Set to return an error
+		mockConfigHandler.SetFunc = func(key string, _ any) error {
 			if key == "vm.address" {
 				return fmt.Errorf("mock set context value error")
 			}

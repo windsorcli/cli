@@ -84,7 +84,8 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 		return fmt.Errorf("Error setting context value: %w", err)
 	}
 
-	if !p.configHandler.IsContextConfigLoaded() {
+	isLoaded := p.configHandler.IsLoaded()
+	if !isLoaded {
 		if err := p.setDefaultConfiguration(ctx, contextName); err != nil {
 			return err
 		}
@@ -100,6 +101,11 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 
 	if err := p.configHandler.SaveConfig(); err != nil {
 		return fmt.Errorf("Error saving config file: %w", err)
+	}
+
+	// Reload config to ensure everything is synchronized in memory
+	if err := p.configHandler.LoadConfig(); err != nil {
+		return fmt.Errorf("failed to reload context config: %w", err)
 	}
 
 	// Component Collection Phase
@@ -376,14 +382,14 @@ func (p *InitPipeline) setDefaultConfiguration(_ context.Context, contextName st
 	}
 
 	if isLocalContext && p.configHandler.GetString("vm.driver") == "" && vmDriver != "" {
-		if err := p.configHandler.SetContextValue("vm.driver", vmDriver); err != nil {
+		if err := p.configHandler.Set("vm.driver", vmDriver); err != nil {
 			return fmt.Errorf("Error setting vm.driver: %w", err)
 		}
 	}
 
 	if existingProvider == "" {
 		if contextName == "local" || strings.HasPrefix(contextName, "local-") {
-			if err := p.configHandler.SetContextValue("provider", "generic"); err != nil {
+			if err := p.configHandler.Set("provider", "generic"); err != nil {
 				return fmt.Errorf("Error setting provider from context name: %w", err)
 			}
 		}
@@ -406,21 +412,21 @@ func (p *InitPipeline) processPlatformConfiguration(_ context.Context) error {
 
 	switch provider {
 	case "aws":
-		if err := p.configHandler.SetContextValue("aws.enabled", true); err != nil {
+		if err := p.configHandler.Set("aws.enabled", true); err != nil {
 			return fmt.Errorf("Error setting aws.enabled: %w", err)
 		}
-		if err := p.configHandler.SetContextValue("cluster.driver", "eks"); err != nil {
+		if err := p.configHandler.Set("cluster.driver", "eks"); err != nil {
 			return fmt.Errorf("Error setting cluster.driver: %w", err)
 		}
 	case "azure":
-		if err := p.configHandler.SetContextValue("azure.enabled", true); err != nil {
+		if err := p.configHandler.Set("azure.enabled", true); err != nil {
 			return fmt.Errorf("Error setting azure.enabled: %w", err)
 		}
-		if err := p.configHandler.SetContextValue("cluster.driver", "aks"); err != nil {
+		if err := p.configHandler.Set("cluster.driver", "aks"); err != nil {
 			return fmt.Errorf("Error setting cluster.driver: %w", err)
 		}
 	case "generic":
-		if err := p.configHandler.SetContextValue("cluster.driver", "talos"); err != nil {
+		if err := p.configHandler.Set("cluster.driver", "talos"); err != nil {
 			return fmt.Errorf("Error setting cluster.driver: %w", err)
 		}
 	}

@@ -112,7 +112,7 @@ func TestGitLivereloadService_GetComposeConfig(t *testing.T) {
 		gitLivereloadService.SetName("git")
 
 		// Configure rsync_include in the mock config
-		mocks.ConfigHandler.SetContextValue("git.livereload.rsync_include", "kustomize")
+		mocks.ConfigHandler.Set("git.livereload.rsync_include", "kustomize")
 
 		// When GetComposeConfig is called
 		composeConfig, err := gitLivereloadService.GetComposeConfig()
