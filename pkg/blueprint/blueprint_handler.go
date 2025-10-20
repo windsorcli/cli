@@ -1297,9 +1297,9 @@ func (b *BaseBlueprintHandler) calculateMaxWaitTime() time.Duration {
 // determines the source reference type (GitRepository or OCIRepository), and sets all required
 // Flux Kustomization fields for cluster application.
 func (b *BaseBlueprintHandler) toFluxKustomization(k blueprintv1alpha1.Kustomization, namespace string) kustomizev1.Kustomization {
-	dependsOn := make([]meta.NamespacedObjectReference, len(k.DependsOn))
+	dependsOn := make([]kustomizev1.DependencyReference, len(k.DependsOn))
 	for i, dep := range k.DependsOn {
-		dependsOn[i] = meta.NamespacedObjectReference{
+		dependsOn[i] = kustomizev1.DependencyReference{
 			Name:      dep,
 			Namespace: namespace,
 		}
