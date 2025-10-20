@@ -19,7 +19,6 @@ import (
 	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
-	"github.com/windsorcli/cli/pkg/template"
 	"github.com/windsorcli/cli/pkg/terraform"
 	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/workstation/network"
@@ -100,7 +99,6 @@ type BasePipeline struct {
 	configHandler    config.ConfigHandler
 	shims            *Shims
 	injector         di.Injector
-	templateRenderer template.Template
 	artifactBuilder  bundler.Artifact
 	blueprintHandler blueprint.BlueprintHandler
 }
@@ -127,7 +125,6 @@ func (p *BasePipeline) Initialize(injector di.Injector, ctx context.Context) err
 	p.shell = p.withShell()
 	p.configHandler = p.withConfigHandler()
 	p.shims = p.withShims()
-	p.templateRenderer = p.withTemplateRenderer()
 	p.artifactBuilder = p.withArtifactBuilder()
 	p.blueprintHandler = p.withBlueprintHandler()
 
@@ -279,9 +276,9 @@ func (p *BasePipeline) withStack() stack.Stack {
 	return stack
 }
 
-// withGenerators creates and registers generator instances for git, terraform, and kustomize based on configuration.
+// withGenerators creates and registers generator instances for git and terraform based on configuration.
 // It always registers the git generator. The terraform generator is registered if "terraform.enabled" is true.
-// The kustomize generator is registered if "cluster.enabled" is true. Returns a slice of initialized generators or an error.
+// Returns a slice of initialized generators or an error.
 func (p *BasePipeline) withGenerators() ([]generators.Generator, error) {
 	var generatorList []generators.Generator
 
@@ -293,12 +290,6 @@ func (p *BasePipeline) withGenerators() ([]generators.Generator, error) {
 		terraformGenerator := generators.NewTerraformGenerator(p.injector)
 		p.injector.Register("terraformGenerator", terraformGenerator)
 		generatorList = append(generatorList, terraformGenerator)
-	}
-
-	if p.configHandler.GetBool("cluster.enabled", false) {
-		kustomizeGenerator := generators.NewKustomizeGenerator(p.injector)
-		p.injector.Register("kustomizeGenerator", kustomizeGenerator)
-		generatorList = append(generatorList, kustomizeGenerator)
 	}
 
 	return generatorList, nil
@@ -712,22 +703,6 @@ func (p *BasePipeline) withTerraformResolvers() ([]terraform.ModuleResolver, err
 	return resolvers, nil
 }
 
-// withTemplateRenderer resolves or creates a jsonnet template renderer from DI container
-func (p *BasePipeline) withTemplateRenderer() template.Template {
-	if existing := p.injector.Resolve("templateRenderer"); existing != nil {
-		if templateRenderer, ok := existing.(template.Template); ok {
-			return templateRenderer
-		}
-	}
-
-	templateRenderer := template.NewJsonnetTemplate(p.injector)
-	if err := templateRenderer.Initialize(); err != nil {
-		return nil
-	}
-	p.injector.Register("templateRenderer", templateRenderer)
-	return templateRenderer
-}
-
 // prepareTemplateData loads template data for pipeline execution.
 // Source priority: blueprint context, local handler data, default artifact,
 // then default template for current context. Returns a map of template file
@@ -791,66 +766,6 @@ func (p *BasePipeline) prepareTemplateData(ctx context.Context) (map[string][]by
 	}
 
 	return make(map[string][]byte), nil
-}
-
-// processTemplateData renders template data using the pipeline's template renderer.
-// Returns a map of rendered template data or an error if processing fails.
-func (p *BasePipeline) processTemplateData(templateData map[string][]byte) (map[string]any, error) {
-	if p.templateRenderer == nil || len(templateData) == 0 {
-		return nil, nil
-	}
-
-	renderedData := make(map[string]any)
-	if err := p.templateRenderer.Process(templateData, renderedData); err != nil {
-		return nil, fmt.Errorf("failed to process template data: %w", err)
-	}
-
-	if err := p.loadBlueprintFromTemplate(context.Background(), renderedData); err != nil {
-		return nil, fmt.Errorf("failed to load blueprint from template: %w", err)
-	}
-
-	return renderedData, nil
-}
-
-// loadBlueprintFromTemplate loads blueprint data from rendered template data.
-// If the "blueprint" key exists in renderedData and is a map, attempts to parse OCI artifact info
-// from the context's "blueprint" value or falls back to the default blueprint URL if artifactBuilder is set.
-// Delegates loading to blueprintHandler.LoadData with the parsed blueprint map and optional OCI info.
-func (p *BasePipeline) loadBlueprintFromTemplate(ctx context.Context, renderedData map[string]any) error {
-	if blueprintData, exists := renderedData["blueprint"]; exists {
-		if blueprintMap, ok := blueprintData.(map[string]any); ok {
-			if kustomizeData, exists := blueprintMap["kustomize"]; exists {
-				if kustomizeList, ok := kustomizeData.([]any); ok {
-					for _, k := range kustomizeList {
-						if kustomizeMap, ok := k.(map[string]any); ok {
-							if _, exists := kustomizeMap["patches"]; exists {
-								// Patches exist in this kustomization
-							}
-						}
-					}
-				}
-			}
-
-			var ociInfo *bundler.OCIArtifactInfo
-			if blueprintCtx := ctx.Value("blueprint"); blueprintCtx != nil {
-				if blueprintValue, ok := blueprintCtx.(string); ok {
-					var err error
-					ociInfo, err = bundler.ParseOCIReference(blueprintValue)
-					if err != nil {
-						return err
-					}
-				}
-			}
-
-			blueprintHandler := p.withBlueprintHandler()
-			if blueprintHandler != nil {
-				if err := blueprintHandler.LoadData(blueprintMap, ociInfo); err != nil {
-					return fmt.Errorf("failed to load blueprint data: %w", err)
-				}
-			}
-		}
-	}
-	return nil
 }
 
 // determineContextName selects the context name from ctx, config, or defaults to "local" if unset or "local".

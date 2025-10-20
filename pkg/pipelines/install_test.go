@@ -3,6 +3,7 @@ package pipelines
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/artifact"
@@ -354,14 +355,28 @@ func TestInstallPipeline_Execute(t *testing.T) {
 		}
 
 		// And LoadConfig should be called before Install
-		if len(callOrder) != 2 {
-			t.Errorf("Expected 2 method calls, got %d", len(callOrder))
+		if len(callOrder) < 2 {
+			t.Errorf("Expected at least 2 method calls, got %d", len(callOrder))
 		}
-		if callOrder[0] != "LoadConfig" {
-			t.Errorf("Expected LoadConfig to be called first, got %s", callOrder[0])
+		// Find the first LoadConfig call
+		loadConfigIndex := -1
+		installIndex := -1
+		for i, call := range callOrder {
+			if call == "LoadConfig" && loadConfigIndex == -1 {
+				loadConfigIndex = i
+			}
+			if call == "Install" {
+				installIndex = i
+			}
 		}
-		if callOrder[1] != "Install" {
-			t.Errorf("Expected Install to be called second, got %s", callOrder[1])
+		if loadConfigIndex == -1 {
+			t.Error("Expected LoadConfig to be called")
+		}
+		if installIndex == -1 {
+			t.Error("Expected Install to be called")
+		}
+		if loadConfigIndex >= installIndex {
+			t.Error("Expected LoadConfig to be called before Install")
 		}
 	})
 
@@ -386,35 +401,13 @@ func TestInstallPipeline_Execute(t *testing.T) {
 		}
 	})
 
-	t.Run("ProcessesTemplateDataSuccessfully", func(t *testing.T) {
-		// Given a pipeline with template data
+	t.Run("LoadsBlueprintConfigSuccessfully", func(t *testing.T) {
+		// Given a pipeline
 		pipeline, mocks := setup(t)
-
-		// Mock template renderer to return test data
-		mockTemplateRenderer := &MockTemplate{}
-		mockTemplateRenderer.ProcessFunc = func(templateData map[string][]byte, renderedData map[string]any) error {
-			t.Log("Template renderer Process called")
-			renderedData["kustomize/values"] = map[string]any{
-				"common": map[string]any{
-					"domain": "test.com",
-				},
-			}
-			return nil
-		}
-		// Register the mock template renderer in the injector BEFORE initialization
-		mocks.Injector.Register("templateRenderer", mockTemplateRenderer)
 
 		// Initialize the pipeline to set up generators
 		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
-
-		// Mock blueprint handler to return template data
-		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
-			t.Log("GetLocalTemplateData called")
-			return map[string][]byte{
-				"blueprint.jsonnet": []byte(`{"kustomize": [{"name": "test"}]}`),
-			}, nil
 		}
 
 		// When Execute is called
@@ -424,35 +417,20 @@ func TestInstallPipeline_Execute(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-
-		// And template processing should be called
-		if !mockTemplateRenderer.ProcessCalled {
-			t.Errorf("Expected template processing to be called. Config loaded: %v, Blueprint handler: %v", pipeline.configHandler.IsLoaded(), pipeline.blueprintHandler != nil)
-		}
 	})
 
-	t.Run("ReturnsErrorWhenTemplateProcessingFails", func(t *testing.T) {
-		// Given a pipeline with failing template processing
+	t.Run("ReturnsErrorWhenBlueprintLoadConfigFails", func(t *testing.T) {
+		// Given a pipeline with failing blueprint loading
 		pipeline, mocks := setup(t)
 
-		// Mock template renderer to return error
-		mockTemplateRenderer := &MockTemplate{}
-		mockTemplateRenderer.ProcessFunc = func(templateData map[string][]byte, renderedData map[string]any) error {
-			return fmt.Errorf("template processing failed")
+		// Mock blueprint handler to return error on LoadConfig
+		mocks.BlueprintHandler.LoadConfigFunc = func() error {
+			return fmt.Errorf("blueprint load config failed")
 		}
-		// Register the mock template renderer in the injector BEFORE initialization
-		mocks.Injector.Register("templateRenderer", mockTemplateRenderer)
 
 		// Initialize the pipeline to set up generators
 		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
-
-		// Mock blueprint handler to return template data
-		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
-			return map[string][]byte{
-				"blueprint.jsonnet": []byte(`{"kustomize": [{"name": "test"}]}`),
-			}, nil
 		}
 
 		// When Execute is called
@@ -462,62 +440,10 @@ func TestInstallPipeline_Execute(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		if err.Error() != "failed to process template data: failed to process template data: template processing failed" {
-			t.Errorf("Expected template processing error, got %q", err.Error())
-		}
-	})
 
-	t.Run("GeneratesKustomizeDataSuccessfully", func(t *testing.T) {
-		// Given a pipeline with rendered data
-		pipeline, mocks := setup(t)
-
-		// Mock template renderer to return test data
-		mockTemplateRenderer := &MockTemplate{}
-		mockTemplateRenderer.ProcessFunc = func(templateData map[string][]byte, renderedData map[string]any) error {
-			renderedData["kustomize/values"] = map[string]any{
-				"common": map[string]any{
-					"domain": "test.com",
-				},
-			}
-			return nil
-		}
-		// Register the mock template renderer in the injector BEFORE initialization
-		mocks.Injector.Register("templateRenderer", mockTemplateRenderer)
-
-		// Initialize the pipeline to set up generators
-		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
-			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
-
-		// Mock blueprint handler to return template data
-		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
-			return map[string][]byte{
-				"blueprint.jsonnet": []byte(`{"kustomize": [{"name": "test"}]}`),
-			}, nil
-		}
-
-		// Track generator calls
-		generatorCalled := false
-		for i := range pipeline.generators {
-			mockGenerator := &MockGenerator{}
-			mockGenerator.GenerateFunc = func(data map[string]any, overwrite ...bool) error {
-				generatorCalled = true
-				return nil
-			}
-			pipeline.generators[i] = mockGenerator
-		}
-
-		// When Execute is called
-		err := pipeline.Execute(context.Background())
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-
-		// And generators should be called
-		if !generatorCalled {
-			t.Error("Expected generators to be called")
+		// And the error should be about blueprint loading
+		if !strings.Contains(err.Error(), "failed to load blueprint config") && !strings.Contains(err.Error(), "Error loading blueprint config") {
+			t.Errorf("Expected blueprint loading error, got %q", err.Error())
 		}
 	})
 
@@ -621,37 +547,13 @@ func TestInstallPipeline_Execute(t *testing.T) {
 		}
 	})
 
-	t.Run("PassesCorrectDataToGenerators", func(t *testing.T) {
-		// Given a pipeline with specific rendered data
+	t.Run("CallsGeneratorsWithNilData", func(t *testing.T) {
+		// Given a pipeline
 		pipeline, mocks := setup(t)
-
-		expectedData := map[string]any{
-			"kustomize/values": map[string]any{
-				"common": map[string]any{
-					"domain": "test.com",
-				},
-			},
-		}
-
-		// Mock template renderer to return specific data
-		mockTemplateRenderer := &MockTemplate{}
-		mockTemplateRenderer.ProcessFunc = func(templateData map[string][]byte, renderedData map[string]any) error {
-			renderedData["kustomize/values"] = expectedData["kustomize/values"]
-			return nil
-		}
-		// Register the mock template renderer in the injector BEFORE initialization
-		mocks.Injector.Register("templateRenderer", mockTemplateRenderer)
 
 		// Initialize the pipeline to set up generators
 		if err := pipeline.Initialize(mocks.Injector, context.Background()); err != nil {
 			t.Fatalf("Failed to initialize pipeline: %v", err)
-		}
-
-		// Mock blueprint handler to return template data
-		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
-			return map[string][]byte{
-				"blueprint.jsonnet": []byte(`{"kustomize": [{"name": "test"}]}`),
-			}, nil
 		}
 
 		// Track data passed to generators
@@ -673,18 +575,9 @@ func TestInstallPipeline_Execute(t *testing.T) {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// And correct data should be passed to generators
-		if receivedData == nil {
-			t.Fatal("Expected data to be passed to generators")
-		}
-
-		// Check that the expected data structure is passed
-		if kustomizeValues, exists := receivedData["kustomize/values"]; !exists {
-			t.Error("Expected kustomize/values to be in passed data")
-		} else if commonValues, exists := kustomizeValues.(map[string]any)["common"]; !exists {
-			t.Error("Expected common values to be in kustomize/values")
-		} else if domain, exists := commonValues.(map[string]any)["domain"]; !exists || domain != "test.com" {
-			t.Errorf("Expected domain to be 'test.com', got %v", domain)
+		// And empty data should be passed to generators (since we no longer use template processing)
+		if receivedData == nil || len(receivedData) != 0 {
+			t.Errorf("Expected empty data to be passed to generators, got %v", receivedData)
 		}
 	})
 

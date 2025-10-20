@@ -8,7 +8,6 @@ import (
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/generators"
-	"github.com/windsorcli/cli/pkg/template"
 )
 
 // The InstallPipeline is a specialized component that manages blueprint installation functionality.
@@ -24,7 +23,6 @@ import (
 type InstallPipeline struct {
 	BasePipeline
 	blueprintHandler blueprint.BlueprintHandler
-	templateRenderer template.Template
 	generators       []generators.Generator
 	artifactBuilder  artifact.Artifact
 }
@@ -57,7 +55,6 @@ func (p *InstallPipeline) Initialize(injector di.Injector, ctx context.Context) 
 	kubernetesManager := p.withKubernetesManager()
 	_ = p.withKubernetesClient()
 	p.blueprintHandler = p.withBlueprintHandler()
-	p.templateRenderer = p.withTemplateRenderer()
 	p.artifactBuilder = p.withArtifactBuilder()
 	generators, err := p.withGenerators()
 	if err != nil {
@@ -100,34 +97,24 @@ func (p *InstallPipeline) Execute(ctx context.Context) error {
 		return fmt.Errorf("No blueprint handler found")
 	}
 
-	// Phase 1: Load blueprint config (cached if already loaded)
+	// Phase 1: Load blueprint config
 	if err := p.blueprintHandler.LoadConfig(); err != nil {
 		return fmt.Errorf("Error loading blueprint config: %w", err)
 	}
 
-	// Phase 2: Process templates for kustomize data
-	templateData, err := p.prepareTemplateData(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to prepare template data: %w", err)
-	}
-	renderedData, err := p.processTemplateData(templateData)
-	if err != nil {
-		return fmt.Errorf("failed to process template data: %w", err)
-	}
-
-	// Phase 3: Generate kustomize data using generators
+	// Phase 2: Generate files using generators
 	for _, generator := range p.generators {
-		if err := generator.Generate(renderedData, false); err != nil {
+		if err := generator.Generate(map[string]any{}, false); err != nil {
 			return fmt.Errorf("failed to generate from template data: %w", err)
 		}
 	}
 
-	// Phase 4: Install blueprint
+	// Phase 3: Install blueprint
 	if err := p.blueprintHandler.Install(); err != nil {
 		return fmt.Errorf("Error installing blueprint: %w", err)
 	}
 
-	// Phase 5: Wait for kustomizations if requested
+	// Phase 4: Wait for kustomizations if requested
 	waitFlag := ctx.Value("wait")
 	if waitFlag != nil {
 		if wait, ok := waitFlag.(bool); ok && wait {
