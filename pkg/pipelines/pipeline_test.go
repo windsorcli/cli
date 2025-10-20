@@ -175,8 +175,6 @@ network:
 		t.Fatalf("Failed to write context config: %v", err)
 	}
 
-	// Config will be loaded by pipeline initialization
-
 	// Register shims
 	shims := setupShims(t)
 	injector.Register("shims", shims)

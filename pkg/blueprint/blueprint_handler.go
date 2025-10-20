@@ -71,6 +71,8 @@ type BaseBlueprintHandler struct {
 	kubernetesManager    kubernetes.KubernetesManager
 	blueprint            blueprintv1alpha1.Blueprint
 	projectRoot          string
+	templateRoot         string
+	featureEvaluator     *FeatureEvaluator
 	shims                *Shims
 	kustomizeData        map[string]any
 	featureSubstitutions map[string]map[string]string
@@ -82,6 +84,7 @@ type BaseBlueprintHandler struct {
 func NewBlueprintHandler(injector di.Injector) *BaseBlueprintHandler {
 	return &BaseBlueprintHandler{
 		injector:             injector,
+		featureEvaluator:     NewFeatureEvaluator(injector),
 		shims:                NewShims(),
 		kustomizeData:        make(map[string]any),
 		featureSubstitutions: make(map[string]map[string]string),
@@ -119,6 +122,11 @@ func (b *BaseBlueprintHandler) Initialize() error {
 		return fmt.Errorf("error getting project root: %w", err)
 	}
 	b.projectRoot = projectRoot
+	b.templateRoot = filepath.Join(projectRoot, "contexts", "_template")
+
+	if err := b.featureEvaluator.Initialize(); err != nil {
+		return fmt.Errorf("error initializing feature evaluator: %w", err)
+	}
 
 	return nil
 }
@@ -146,10 +154,6 @@ func (b *BaseBlueprintHandler) LoadConfig() error {
 		return err
 	}
 
-	if err := b.setRepositoryDefaults(); err != nil {
-		return fmt.Errorf("error setting repository defaults: %w", err)
-	}
-
 	b.configLoaded = true
 	return nil
 }
@@ -159,7 +163,6 @@ func (b *BaseBlueprintHandler) LoadConfig() error {
 // The ociInfo parameter optionally provides OCI artifact source information for source resolution and tracking.
 // If config is already loaded from YAML, this is a no-op to preserve resolved state.
 func (b *BaseBlueprintHandler) LoadData(data map[string]any, ociInfo ...*artifact.OCIArtifactInfo) error {
-	// If config is already loaded from YAML, don't overwrite with template data
 	if b.configLoaded {
 		return nil
 	}
@@ -180,7 +183,7 @@ func (b *BaseBlueprintHandler) LoadData(data map[string]any, ociInfo ...*artifac
 // If overwrite is true, the file is overwritten regardless of existence. If overwrite is false or omitted,
 // the file is only written if it does not already exist. The method ensures the target directory exists,
 // marshals the blueprint to YAML, and writes the file using the configured shims.
-// Terraform variables are filtered out to prevent them from appearing in the final blueprint.yaml.
+// Terraform inputs and kustomization substitutions are manually cleared to prevent them from appearing in the final blueprint.yaml.
 func (b *BaseBlueprintHandler) Write(overwrite ...bool) error {
 	shouldOverwrite := false
 	if len(overwrite) > 0 {
@@ -460,18 +463,12 @@ func (b *BaseBlueprintHandler) GetDefaultTemplateData(contextName string) (map[s
 // values taking precedence. Returns nil if no templates exist. Keys are relative file paths,
 // values are file contents.
 func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error) {
-	projectRoot, err := b.shell.GetProjectRoot()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get project root: %w", err)
-	}
-
-	templateDir := filepath.Join(projectRoot, "contexts", "_template")
-	if _, err := b.shims.Stat(templateDir); os.IsNotExist(err) {
+	if _, err := b.shims.Stat(b.templateRoot); os.IsNotExist(err) {
 		return nil, nil
 	}
 
 	templateData := make(map[string][]byte)
-	if err := b.walkAndCollectTemplates(templateDir, templateDir, templateData); err != nil {
+	if err := b.walkAndCollectTemplates(b.templateRoot, templateData); err != nil {
 		return nil, fmt.Errorf("failed to collect templates: %w", err)
 	}
 
@@ -710,7 +707,7 @@ func (b *BaseBlueprintHandler) destroyKustomizations(ctx context.Context, kustom
 // It updates the provided templateData map with the relative paths and content of
 // the .jsonnet files found. The function handles directory recursion and file reading
 // errors, returning an error if any operation fails.
-func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir, templateRoot string, templateData map[string][]byte) error {
+func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir string, templateData map[string][]byte) error {
 	entries, err := b.shims.ReadDir(templateDir)
 	if err != nil {
 		return fmt.Errorf("failed to read template directory: %w", err)
@@ -720,10 +717,13 @@ func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir, templateRoot
 		entryPath := filepath.Join(templateDir, entry.Name())
 
 		if entry.IsDir() {
-			if err := b.walkAndCollectTemplates(entryPath, templateRoot, templateData); err != nil {
+			if err := b.walkAndCollectTemplates(entryPath, templateData); err != nil {
 				return err
 			}
-		} else if strings.HasSuffix(entry.Name(), ".jsonnet") || entry.Name() == "schema.yaml" || entry.Name() == "blueprint.yaml" || (strings.HasPrefix(filepath.Dir(entryPath), filepath.Join(templateRoot, "features")) && strings.HasSuffix(entry.Name(), ".yaml")) {
+		} else if strings.HasSuffix(entry.Name(), ".jsonnet") ||
+			entry.Name() == "schema.yaml" ||
+			entry.Name() == "blueprint.yaml" ||
+			(strings.HasPrefix(filepath.Dir(entryPath), filepath.Join(b.templateRoot, "features")) && strings.HasSuffix(entry.Name(), ".yaml")) {
 			content, err := b.shims.ReadFile(filepath.Clean(entryPath))
 			if err != nil {
 				return fmt.Errorf("failed to read template file %s: %w", entryPath, err)
@@ -734,7 +734,7 @@ func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir, templateRoot
 			} else if entry.Name() == "blueprint.yaml" {
 				templateData["blueprint"] = content
 			} else {
-				relPath, err := filepath.Rel(templateRoot, entryPath)
+				relPath, err := filepath.Rel(b.templateRoot, entryPath)
 				if err != nil {
 					return fmt.Errorf("failed to calculate relative path for %s: %w", entryPath, err)
 				}
@@ -768,7 +768,7 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 		return nil
 	}
 
-	evaluator := NewFeatureEvaluator()
+	evaluator := NewFeatureEvaluator(b.injector)
 
 	sort.Slice(features, func(i, j int) bool {
 		return features[i].Metadata.Name < features[j].Metadata.Name
@@ -776,7 +776,7 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 
 	for _, feature := range features {
 		if feature.When != "" {
-			matches, err := evaluator.EvaluateExpression(feature.When, config)
+			matches, err := evaluator.EvaluateExpression(feature.When, config, feature.Path)
 			if err != nil {
 				return fmt.Errorf("failed to evaluate feature condition '%s': %w", feature.When, err)
 			}
@@ -787,7 +787,7 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 
 		for _, terraformComponent := range feature.TerraformComponents {
 			if terraformComponent.When != "" {
-				matches, err := evaluator.EvaluateExpression(terraformComponent.When, config)
+				matches, err := evaluator.EvaluateExpression(terraformComponent.When, config, feature.Path)
 				if err != nil {
 					return fmt.Errorf("failed to evaluate terraform component condition '%s': %w", terraformComponent.When, err)
 				}
@@ -799,7 +799,7 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 			component := terraformComponent.TerraformComponent
 
 			if len(terraformComponent.Inputs) > 0 {
-				evaluatedInputs, err := evaluator.EvaluateDefaults(terraformComponent.Inputs, config)
+				evaluatedInputs, err := evaluator.EvaluateDefaults(terraformComponent.Inputs, config, feature.Path)
 				if err != nil {
 					return fmt.Errorf("failed to evaluate inputs for component '%s': %w", component.Path, err)
 				}
@@ -830,7 +830,7 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 
 		for _, kustomization := range feature.Kustomizations {
 			if kustomization.When != "" {
-				matches, err := evaluator.EvaluateExpression(kustomization.When, config)
+				matches, err := evaluator.EvaluateExpression(kustomization.When, config, feature.Path)
 				if err != nil {
 					return fmt.Errorf("failed to evaluate kustomization condition '%s': %w", kustomization.When, err)
 				}
@@ -846,13 +846,16 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 					b.featureSubstitutions[kustomizationCopy.Name] = make(map[string]string)
 				}
 
-				evaluatedSubstitutions, err := b.evaluateSubstitutions(kustomization.Substitutions, config)
+				evaluatedSubstitutions, err := b.evaluateSubstitutions(kustomization.Substitutions, config, feature.Path)
 				if err != nil {
 					return fmt.Errorf("failed to evaluate substitutions for kustomization '%s': %w", kustomizationCopy.Name, err)
 				}
 
 				maps.Copy(b.featureSubstitutions[kustomizationCopy.Name], evaluatedSubstitutions)
 			}
+
+			// Clear substitutions as they are used for ConfigMap generation and should not appear in the final blueprint
+			kustomizationCopy.Substitutions = nil
 
 			tempBlueprint := &blueprintv1alpha1.Blueprint{
 				Kustomizations: []blueprintv1alpha1.Kustomization{kustomizationCopy},
@@ -879,6 +882,7 @@ func (b *BaseBlueprintHandler) loadFeatures(templateData map[string][]byte) ([]b
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse feature %s: %w", path, err)
 			}
+			feature.Path = filepath.Join(b.templateRoot, path)
 			features = append(features, *feature)
 		}
 	}
@@ -995,7 +999,6 @@ func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *blue
 	}
 
 	kustomizations := newBlueprint.Kustomizations
-
 	sources := newBlueprint.Sources
 	terraformComponents := newBlueprint.TerraformComponents
 
@@ -1536,7 +1539,12 @@ func (b *BaseBlueprintHandler) applyValuesConfigMaps() error {
 
 	var localVolumePath string
 	if len(localVolumePaths) > 0 {
-		localVolumePath = strings.Split(localVolumePaths[0], ":")[1]
+		volumeParts := strings.Split(localVolumePaths[0], ":")
+		if len(volumeParts) > 1 {
+			localVolumePath = volumeParts[1]
+		} else {
+			localVolumePath = ""
+		}
 	} else {
 		localVolumePath = ""
 	}
@@ -1678,35 +1686,6 @@ func (b *BaseBlueprintHandler) createConfigMap(values map[string]any, configMapN
 	return nil
 }
 
-// evaluateSubstitutions evaluates expressions in substitution values and converts all results to strings.
-// Values can use ${} syntax for expressions (e.g., "${dns.domain}") or be literals.
-// All evaluated values are converted to strings as required by Flux postBuild substitution.
-func (b *BaseBlueprintHandler) evaluateSubstitutions(substitutions map[string]string, config map[string]any) (map[string]string, error) {
-	result := make(map[string]string)
-	evaluator := NewFeatureEvaluator()
-
-	for key, value := range substitutions {
-		if strings.Contains(value, "${") {
-			anyMap := map[string]any{key: value}
-			evaluated, err := evaluator.EvaluateDefaults(anyMap, config)
-			if err != nil {
-				return nil, fmt.Errorf("failed to evaluate substitution for key '%s': %w", key, err)
-			}
-
-			evaluatedValue := evaluated[key]
-			if evaluatedValue == nil {
-				result[key] = ""
-			} else {
-				result[key] = fmt.Sprintf("%v", evaluatedValue)
-			}
-		} else {
-			result[key] = value
-		}
-	}
-
-	return result, nil
-}
-
 // flattenValuesToConfigMap recursively flattens nested values into a flat map suitable for ConfigMap data.
 // Nested maps are flattened using dot notation (e.g., "ingress.host").
 func (b *BaseBlueprintHandler) flattenValuesToConfigMap(values map[string]any, prefix string, result map[string]string) error {
@@ -1782,11 +1761,8 @@ func (b *BaseBlueprintHandler) deepMergeMaps(base, overlay map[string]any) map[s
 
 // setRepositoryDefaults sets the blueprint repository URL if not already specified.
 // Uses development URL if dev flag is enabled, otherwise falls back to git remote origin URL.
+// In dev mode, always overrides the URL even if it's already set.
 func (b *BaseBlueprintHandler) setRepositoryDefaults() error {
-	if b.blueprint.Repository.Url != "" {
-		return nil
-	}
-
 	devMode := b.configHandler.GetBool("dev")
 
 	if devMode {
@@ -1797,6 +1773,11 @@ func (b *BaseBlueprintHandler) setRepositoryDefaults() error {
 		}
 	}
 
+	// Only set from git remote if URL is not already set
+	if b.blueprint.Repository.Url != "" {
+		return nil
+	}
+
 	gitURL, err := b.shell.ExecSilent("git", "config", "--get", "remote.origin.url")
 	if err == nil && gitURL != "" {
 		b.blueprint.Repository.Url = b.normalizeGitURL(strings.TrimSpace(gitURL))
@@ -1804,6 +1785,35 @@ func (b *BaseBlueprintHandler) setRepositoryDefaults() error {
 	}
 
 	return nil
+}
+
+// evaluateSubstitutions evaluates expressions in substitution values and converts all results to strings.
+// Values can use ${} syntax for expressions (e.g., "${dns.domain}") or be literals.
+// All evaluated values are converted to strings as required by Flux postBuild substitution.
+func (b *BaseBlueprintHandler) evaluateSubstitutions(substitutions map[string]string, config map[string]any, featurePath string) (map[string]string, error) {
+	result := make(map[string]string)
+	evaluator := NewFeatureEvaluator(b.injector)
+
+	for key, value := range substitutions {
+		if strings.Contains(value, "${") {
+			anyMap := map[string]any{key: value}
+			evaluated, err := evaluator.EvaluateDefaults(anyMap, config, featurePath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to evaluate substitution for key '%s': %w", key, err)
+			}
+
+			evaluatedValue := evaluated[key]
+			if evaluatedValue == nil {
+				result[key] = ""
+			} else {
+				result[key] = fmt.Sprintf("%v", evaluatedValue)
+			}
+		} else {
+			result[key] = value
+		}
+	}
+
+	return result, nil
 }
 
 // normalizeGitURL normalizes git repository URLs by prepending https:// when needed.

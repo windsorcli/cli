@@ -15,6 +15,10 @@ type Feature struct {
 	// Metadata includes the feature's name and description.
 	Metadata Metadata `yaml:"metadata"`
 
+	// Path is the file path where this feature was loaded from.
+	// This is used for resolving relative paths in jsonnet() and file() functions.
+	Path string `yaml:"-"`
+
 	// When is a CEL expression that determines if this feature should be applied.
 	// The expression is evaluated against user configuration values.
 	// Examples: "provider == 'aws'", "observability.enabled == true && observability.backend == 'quickwit'"
@@ -70,6 +74,7 @@ func (f *Feature) DeepCopy() *Feature {
 		Kind:                f.Kind,
 		ApiVersion:          f.ApiVersion,
 		Metadata:            metadataCopy,
+		Path:                f.Path,
 		When:                f.When,
 		TerraformComponents: terraformComponentsCopy,
 		Kustomizations:      kustomizationsCopy,

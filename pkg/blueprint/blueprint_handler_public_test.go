@@ -956,15 +956,33 @@ kustomize: []`
 			return nil, os.ErrNotExist
 		}
 
+		// Mock WriteFile to allow Write() to succeed
+		handler.shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			return nil
+		}
+
 		err := handler.LoadConfig()
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
+		// Repository defaults are now set during Write(), not LoadConfig()
+		// So the URL should be empty after LoadConfig()
+		if handler.blueprint.Repository.Url != "" {
+			t.Errorf("Expected repository URL to be empty after LoadConfig(), got %s", handler.blueprint.Repository.Url)
+		}
+
+		// Now test that Write() sets the repository defaults
+		// Use overwrite=true to ensure setRepositoryDefaults() is called
+		err = handler.Write(true)
+		if err != nil {
+			t.Fatalf("Expected no error during Write(), got %v", err)
+		}
+
 		expectedURL := "http://git.test/git/cli"
 		if handler.blueprint.Repository.Url != expectedURL {
-			t.Errorf("Expected repository URL to be %s, got %s", expectedURL, handler.blueprint.Repository.Url)
+			t.Errorf("Expected repository URL to be %s after Write(), got %s", expectedURL, handler.blueprint.Repository.Url)
 		}
 	})
 }
@@ -2423,54 +2441,59 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 
 	t.Run("CollectsJsonnetFilesFromTemplateDirectory", func(t *testing.T) {
 		// Given a blueprint handler with template directory containing jsonnet files
-		handler, mocks := setup(t)
-
 		projectRoot := filepath.Join("mock", "project")
 		templateDir := filepath.Join(projectRoot, "contexts", "_template")
 
-		// Mock shell to return project root
+		// Set up mocks first, before initializing the handler
+		mocks := setupMocks(t)
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return projectRoot, nil
 		}
 
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+
 		// Mock shims to simulate template directory with files
-		if baseHandler, ok := handler.(*BaseBlueprintHandler); ok {
-			baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
-				if path == templateDir {
-					return mockFileInfo{name: "_template"}, nil
-				}
-				return nil, os.ErrNotExist
+		baseHandler := handler
+		baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == templateDir {
+				return mockFileInfo{name: "_template"}, nil
 			}
+			return nil, os.ErrNotExist
+		}
 
-			baseHandler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-				if path == templateDir {
-					return []os.DirEntry{
-						&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
-						&mockDirEntry{name: "config.yaml", isDir: false}, // Should be ignored
-						&mockDirEntry{name: "terraform", isDir: true},
-					}, nil
-				}
-				if path == filepath.Join(templateDir, "terraform") {
-					return []os.DirEntry{
-						&mockDirEntry{name: "cluster.jsonnet", isDir: false},
-						&mockDirEntry{name: "network.jsonnet", isDir: false},
-						&mockDirEntry{name: "README.md", isDir: false}, // Should be ignored
-					}, nil
-				}
-				return nil, fmt.Errorf("directory not found")
+		baseHandler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+			if path == templateDir {
+				return []os.DirEntry{
+					&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
+					&mockDirEntry{name: "config.yaml", isDir: false}, // Should be ignored
+					&mockDirEntry{name: "terraform", isDir: true},
+				}, nil
 			}
+			if path == filepath.Join(templateDir, "terraform") {
+				return []os.DirEntry{
+					&mockDirEntry{name: "cluster.jsonnet", isDir: false},
+					&mockDirEntry{name: "network.jsonnet", isDir: false},
+					&mockDirEntry{name: "README.md", isDir: false}, // Should be ignored
+				}, nil
+			}
+			return nil, fmt.Errorf("directory not found")
+		}
 
-			baseHandler.shims.ReadFile = func(path string) ([]byte, error) {
-				switch path {
-				case filepath.Join(templateDir, "blueprint.jsonnet"):
-					return []byte("{ kind: 'Blueprint' }"), nil
-				case filepath.Join(templateDir, "terraform", "cluster.jsonnet"):
-					return []byte("{ cluster_name: 'test' }"), nil
-				case filepath.Join(templateDir, "terraform", "network.jsonnet"):
-					return []byte("{ vpc_cidr: '10.0.0.0/16' }"), nil
-				default:
-					return nil, fmt.Errorf("file not found: %s", path)
-				}
+		baseHandler.shims.ReadFile = func(path string) ([]byte, error) {
+			switch path {
+			case filepath.Join(templateDir, "blueprint.jsonnet"):
+				return []byte("{ kind: 'Blueprint' }"), nil
+			case filepath.Join(templateDir, "terraform", "cluster.jsonnet"):
+				return []byte("{ cluster_name: 'test' }"), nil
+			case filepath.Join(templateDir, "terraform", "network.jsonnet"):
+				return []byte("{ vpc_cidr: '10.0.0.0/16' }"), nil
+			default:
+				return nil, fmt.Errorf("file not found: %s", path)
 			}
 		}
 
@@ -2520,13 +2543,26 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsErrorWhenGetProjectRootFails", func(t *testing.T) {
-		// Given a blueprint handler with shell that fails to get project root
-		handler, mocks := setup(t)
+	t.Run("ReturnsErrorWhenTemplateDirectoryReadFails", func(t *testing.T) {
+		// Given a blueprint handler with template directory that fails to read
+		handler, _ := setup(t)
 
-		// Mock shell to return error
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "", fmt.Errorf("failed to get project root")
+		// Mock shims to return error when reading template directory
+		if baseHandler, ok := handler.(*BaseBlueprintHandler); ok {
+			baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
+				if path == baseHandler.templateRoot {
+					return nil, fmt.Errorf("failed to read template directory")
+				}
+				return nil, os.ErrNotExist
+			}
+
+			// Mock ReadDir to return error when trying to read the template directory
+			baseHandler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+				if path == baseHandler.templateRoot {
+					return nil, fmt.Errorf("failed to read template directory")
+				}
+				return nil, fmt.Errorf("directory not found")
+			}
 		}
 
 		// When getting local template data
@@ -2537,8 +2573,8 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 			t.Fatal("Expected error, got nil")
 		}
 
-		if !strings.Contains(err.Error(), "failed to get project root") {
-			t.Errorf("Expected error to contain 'failed to get project root', got: %v", err)
+		if !strings.Contains(err.Error(), "failed to read template directory") {
+			t.Errorf("Expected error to contain 'failed to read template directory', got: %v", err)
 		}
 
 		// And result should be nil
@@ -2549,28 +2585,33 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 
 	t.Run("ReturnsErrorWhenWalkAndCollectTemplatesFails", func(t *testing.T) {
 		// Given a blueprint handler with template directory that fails to read
-		handler, mocks := setup(t)
-
 		projectRoot := filepath.Join("mock", "project")
 		templateDir := filepath.Join(projectRoot, "contexts", "_template")
 
-		// Mock shell to return project root
+		// Set up mocks first, before initializing the handler
+		mocks := setupMocks(t)
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return projectRoot, nil
 		}
 
-		// Mock shims to simulate template directory exists but ReadDir fails
-		if baseHandler, ok := handler.(*BaseBlueprintHandler); ok {
-			baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
-				if path == templateDir {
-					return mockFileInfo{name: "_template"}, nil
-				}
-				return nil, os.ErrNotExist
-			}
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
 
-			baseHandler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-				return nil, fmt.Errorf("failed to read directory")
+		// Mock shims to simulate template directory exists but ReadDir fails
+		baseHandler := handler
+		baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == templateDir {
+				return mockFileInfo{name: "_template"}, nil
 			}
+			return nil, os.ErrNotExist
+		}
+
+		baseHandler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+			return nil, fmt.Errorf("failed to read directory")
 		}
 
 		// When getting local template data
@@ -2933,20 +2974,26 @@ substitutions:
 
 	t.Run("HandlesContextValuesWithoutExistingValues", func(t *testing.T) {
 		// Given a blueprint handler with only context values (no existing OCI values)
-		handler, mocks := setup(t)
-
-		// Ensure the handler uses the mock shell and config handler
-		baseHandler := handler.(*BaseBlueprintHandler)
-		baseHandler.shell = mocks.Shell
-		baseHandler.configHandler = mocks.ConfigHandler
-
 		projectRoot := filepath.Join("mock", "project")
 		templateDir := filepath.Join(projectRoot, "contexts", "_template")
 
-		// Mock shell to return project root
+		// Set up mocks first, before initializing the handler
+		mocks := setupMocks(t)
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return projectRoot, nil
 		}
+
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+
+		// Ensure the handler uses the mock shell and config handler
+		baseHandler := handler
+		baseHandler.shell = mocks.Shell
+		baseHandler.configHandler = mocks.ConfigHandler
 
 		// Mock config handler to return context
 		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
@@ -2971,30 +3018,29 @@ substitutions:
 		}
 
 		// Mock shims to simulate template directory and context values
-		if baseHandler, ok := handler.(*BaseBlueprintHandler); ok {
-			baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
-				if path == templateDir ||
-					path == filepath.Join(projectRoot, "contexts", "test-context", "values.yaml") {
-					return mockFileInfo{name: "template"}, nil
-				}
-				return nil, os.ErrNotExist
+		baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == templateDir ||
+				path == filepath.Join(projectRoot, "contexts", "test-context", "values.yaml") {
+				return mockFileInfo{name: "template"}, nil
 			}
+			return nil, os.ErrNotExist
+		}
 
-			baseHandler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-				if path == templateDir {
-					return []os.DirEntry{
-						&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
-					}, nil
-				}
-				return nil, fmt.Errorf("directory not found")
+		baseHandler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+			if path == templateDir {
+				return []os.DirEntry{
+					&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
+				}, nil
 			}
+			return nil, fmt.Errorf("directory not found")
+		}
 
-			baseHandler.shims.ReadFile = func(path string) ([]byte, error) {
-				switch path {
-				case filepath.Join(templateDir, "blueprint.jsonnet"):
-					return []byte("{ kind: 'Blueprint' }"), nil
-				case filepath.Join(projectRoot, "contexts", "test-context", "values.yaml"):
-					return []byte(`
+		baseHandler.shims.ReadFile = func(path string) ([]byte, error) {
+			switch path {
+			case filepath.Join(templateDir, "blueprint.jsonnet"):
+				return []byte("{ kind: 'Blueprint' }"), nil
+			case filepath.Join(projectRoot, "contexts", "test-context", "values.yaml"):
+				return []byte(`
 external_domain: context.test
 context_only: context_value
 substitutions:
@@ -3002,18 +3048,17 @@ substitutions:
     registry_url: registry.context.test
     context_sub: context_sub_value
 `), nil
-				default:
-					return nil, fmt.Errorf("file not found: %s", path)
-				}
+			default:
+				return nil, fmt.Errorf("file not found: %s", path)
 			}
+		}
 
-			baseHandler.shims.YamlMarshal = func(v any) ([]byte, error) {
-				return yaml.Marshal(v)
-			}
+		baseHandler.shims.YamlMarshal = func(v any) ([]byte, error) {
+			return yaml.Marshal(v)
+		}
 
-			baseHandler.shims.YamlUnmarshal = func(data []byte, v any) error {
-				return yaml.Unmarshal(data, v)
-			}
+		baseHandler.shims.YamlUnmarshal = func(data []byte, v any) error {
+			return yaml.Unmarshal(data, v)
 		}
 
 		// When getting local template data
@@ -3054,59 +3099,64 @@ substitutions:
 
 	t.Run("HandlesErrorInLoadAndMergeContextValues", func(t *testing.T) {
 		// Given a blueprint handler that fails to load context values
-		handler, mocks := setup(t)
-
 		projectRoot := filepath.Join("mock", "project")
 		templateDir := filepath.Join(projectRoot, "contexts", "_template")
 
-		// Mock shell to return project root
+		// Set up mocks first, before initializing the handler
+		mocks := setupMocks(t)
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return projectRoot, nil
 		}
 
-		// Mock shell to fail when getting project root (for loadAndMergeContextValues)
-		if baseHandler, ok := handler.(*BaseBlueprintHandler); ok {
-			// Override the shell in the base handler to return error
-			baseHandler.shell = &shell.MockShell{
-				GetProjectRootFunc: func() (string, error) {
-					return "", fmt.Errorf("project root error")
-				},
-			}
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
 
-			baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
-				if path == templateDir {
-					return mockFileInfo{name: "template"}, nil
-				}
-				return nil, os.ErrNotExist
+		// Mock config handler to return error when getting context values
+		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+				return nil, fmt.Errorf("failed to load context values")
 			}
+		}
 
-			baseHandler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-				if path == templateDir {
-					return []os.DirEntry{
-						&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
-					}, nil
-				}
-				return nil, fmt.Errorf("directory not found")
+		// Mock shims to simulate template directory exists
+		baseHandler := handler
+		baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == templateDir {
+				return mockFileInfo{name: "template"}, nil
 			}
+			return nil, os.ErrNotExist
+		}
 
-			baseHandler.shims.ReadFile = func(path string) ([]byte, error) {
-				if path == filepath.Join(templateDir, "blueprint.jsonnet") {
-					return []byte("{ kind: 'Blueprint' }"), nil
-				}
-				return nil, fmt.Errorf("file not found: %s", path)
+		baseHandler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+			if path == templateDir {
+				return []os.DirEntry{
+					&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
+				}, nil
 			}
+			return nil, fmt.Errorf("directory not found")
+		}
+
+		baseHandler.shims.ReadFile = func(path string) ([]byte, error) {
+			if path == filepath.Join(templateDir, "blueprint.jsonnet") {
+				return []byte("{ kind: 'Blueprint' }"), nil
+			}
+			return nil, fmt.Errorf("file not found: %s", path)
 		}
 
 		// When getting local template data
-		_, err := handler.GetLocalTemplateData()
+		_, err = handler.GetLocalTemplateData()
 
 		// Then an error should occur
 		if err == nil {
-			t.Error("Expected error when loadAndMergeContextValues fails")
+			t.Error("Expected error when GetContextValues fails")
 		}
 
-		if !strings.Contains(err.Error(), "failed to get project root") {
-			t.Errorf("Expected error about project root, got: %v", err)
+		if !strings.Contains(err.Error(), "failed to load context values") {
+			t.Errorf("Expected error about context values, got: %v", err)
 		}
 	})
 }
@@ -3744,7 +3794,13 @@ func TestBaseBlueprintHandler_SetRenderedKustomizeData(t *testing.T) {
 
 func TestBaseBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 	t.Run("CollectsBlueprintAndFeatureFiles", func(t *testing.T) {
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+
 		mocks := setupMocks(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
 		handler := NewBlueprintHandler(mocks.Injector)
 		err := handler.Initialize()
 		if err != nil {
@@ -3757,11 +3813,7 @@ func TestBaseBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 			return contextName
 		}
 
-		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
-		}
-
+		projectRoot = os.Getenv("WINDSOR_PROJECT_ROOT")
 		templateDir := filepath.Join(projectRoot, "contexts", "_template")
 		featuresDir := filepath.Join(templateDir, "features")
 		contextDir := filepath.Join(projectRoot, "contexts", contextName)
@@ -3848,7 +3900,13 @@ metadata:
 	})
 
 	t.Run("CollectsNestedFeatures", func(t *testing.T) {
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+
 		mocks := setupMocks(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
 		handler := NewBlueprintHandler(mocks.Injector)
 		err := handler.Initialize()
 		if err != nil {
@@ -3861,11 +3919,7 @@ metadata:
 			return contextName
 		}
 
-		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
-		}
-
+		projectRoot = os.Getenv("WINDSOR_PROJECT_ROOT")
 		templateDir := filepath.Join(projectRoot, "contexts", "_template")
 		nestedFeaturesDir := filepath.Join(templateDir, "features", "aws")
 		contextDir := filepath.Join(projectRoot, "contexts", contextName)
@@ -3898,7 +3952,13 @@ metadata:
 	})
 
 	t.Run("IgnoresNonYAMLFilesInFeatures", func(t *testing.T) {
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+
 		mocks := setupMocks(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
 		handler := NewBlueprintHandler(mocks.Injector)
 		err := handler.Initialize()
 		if err != nil {
@@ -3911,11 +3971,7 @@ metadata:
 			return contextName
 		}
 
-		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
-		}
-
+		projectRoot = os.Getenv("WINDSOR_PROJECT_ROOT")
 		templateDir := filepath.Join(projectRoot, "contexts", "_template")
 		featuresDir := filepath.Join(templateDir, "features")
 		contextDir := filepath.Join(projectRoot, "contexts", contextName)
@@ -3964,7 +4020,13 @@ metadata:
 	})
 
 	t.Run("ComposesFeaturesByEvaluatingConditions", func(t *testing.T) {
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+
 		mocks := setupMocks(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
 		handler := NewBlueprintHandler(mocks.Injector)
 		err := handler.Initialize()
 		if err != nil {
@@ -3983,11 +4045,6 @@ metadata:
 					"enabled": true,
 				},
 			}, nil
-		}
-
-		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
 		}
 
 		templateDir := filepath.Join(projectRoot, "contexts", "_template")
@@ -4074,7 +4131,13 @@ terraform:
 	})
 
 	t.Run("SetsMetadataFromContextName", func(t *testing.T) {
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+
 		mocks := setupMocks(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
 		handler := NewBlueprintHandler(mocks.Injector)
 		err := handler.Initialize()
 		if err != nil {
@@ -4088,11 +4151,6 @@ terraform:
 		}
 		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{}, nil
-		}
-
-		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
 		}
 
 		templateDir := filepath.Join(projectRoot, "contexts", "_template")
@@ -4142,7 +4200,13 @@ terraform:
 	})
 
 	t.Run("HandlesSubstitutionValues", func(t *testing.T) {
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+
 		mocks := setupMocks(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
 		handler := NewBlueprintHandler(mocks.Injector)
 		err := handler.Initialize()
 		if err != nil {
@@ -4161,11 +4225,6 @@ terraform:
 					"port":   8080,
 				},
 			}, nil
-		}
-
-		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
 		}
 
 		templateDir := filepath.Join(projectRoot, "contexts", "_template")
@@ -4216,16 +4275,17 @@ terraform:
 	})
 
 	t.Run("ReturnsNilWhenNoTemplateDirectory", func(t *testing.T) {
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+
 		mocks := setupMocks(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
 		handler := NewBlueprintHandler(mocks.Injector)
 		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
-		}
-
-		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
 		}
 
 		templateData, err := handler.GetLocalTemplateData()
@@ -4240,7 +4300,13 @@ terraform:
 	})
 
 	t.Run("HandlesEmptyBlueprintWithOnlyFeatures", func(t *testing.T) {
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+
 		mocks := setupMocks(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
 		handler := NewBlueprintHandler(mocks.Injector)
 		err := handler.Initialize()
 		if err != nil {
@@ -4256,11 +4322,6 @@ terraform:
 			return map[string]any{
 				"feature": "enabled",
 			}, nil
-		}
-
-		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
 		}
 
 		templateDir := filepath.Join(projectRoot, "contexts", "_template")
@@ -4303,7 +4364,13 @@ terraform:
 	})
 
 	t.Run("HandlesKustomizationsInFeatures", func(t *testing.T) {
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+
 		mocks := setupMocks(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
 		handler := NewBlueprintHandler(mocks.Injector)
 		err := handler.Initialize()
 		if err != nil {
@@ -4321,11 +4388,6 @@ terraform:
 					"enabled": true,
 				},
 			}, nil
-		}
-
-		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
 		}
 
 		templateDir := filepath.Join(projectRoot, "contexts", "_template")
@@ -4381,7 +4443,13 @@ kustomize:
 	})
 
 	t.Run("SkipsComposedBlueprintWhenEmpty", func(t *testing.T) {
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+
 		mocks := setupMocks(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return projectRoot, nil
+		}
+
 		handler := NewBlueprintHandler(mocks.Injector)
 		err := handler.Initialize()
 		if err != nil {
@@ -4395,11 +4463,6 @@ kustomize:
 		}
 		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{}, nil
-		}
-
-		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
 		}
 
 		templateDir := filepath.Join(projectRoot, "contexts", "_template")
