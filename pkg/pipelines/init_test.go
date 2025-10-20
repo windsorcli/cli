@@ -399,12 +399,12 @@ func TestInitPipeline_Execute(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsErrorWhenPrepareTemplateDataFails", func(t *testing.T) {
+	t.Run("ReturnsErrorWhenBlueprintLoadConfigFails", func(t *testing.T) {
 		// Given successful reset token
 		mocks.Shell.WriteResetTokenFunc = func() (string, error) {
 			return "token", nil
 		}
-		// And blueprint handler returns error
+		// And blueprint handler returns error on GetLocalTemplateData (template loading path)
 		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
 			return nil, fmt.Errorf("template data error")
 		}
@@ -421,18 +421,19 @@ func TestInitPipeline_Execute(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "failed to prepare template data") {
+		if !strings.Contains(err.Error(), "failed to get template data") {
 			t.Errorf("Expected template data error, got %v", err)
 		}
 	})
 
 	t.Run("ReturnsErrorWhenBlueprintWriteFails", func(t *testing.T) {
-		// Given successful template processing
+		// Given successful reset token
 		mocks.Shell.WriteResetTokenFunc = func() (string, error) {
 			return "token", nil
 		}
+		// And successful template data loading
 		mocks.BlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
-			return map[string][]byte{"test.jsonnet": []byte("test")}, nil
+			return map[string][]byte{"blueprint": []byte("test")}, nil
 		}
 		// And blueprint write fails
 		mocks.BlueprintHandler.WriteFunc = func(overwrite ...bool) error {

@@ -17,7 +17,6 @@ import (
 	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
-	"github.com/windsorcli/cli/pkg/template"
 	"github.com/windsorcli/cli/pkg/terraform"
 	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/workstation/network"
@@ -38,7 +37,6 @@ import (
 // InitPipeline handles the initialization of a Windsor project
 type InitPipeline struct {
 	BasePipeline
-	templateRenderer     template.Template
 	blueprintHandler     blueprint.BlueprintHandler
 	toolsManager         tools.ToolsManager
 	stack                stack.Stack
@@ -152,7 +150,6 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 	}
 	p.terraformResolvers = terraformResolvers
 
-	p.templateRenderer = p.withTemplateRenderer()
 	p.networkManager = p.withNetworking()
 	p.virtualMachine = p.withVirtualMachine()
 	p.containerRuntime = p.withContainerRuntime()
@@ -213,12 +210,6 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 		}
 	}
 
-	if p.templateRenderer != nil {
-		if err := p.templateRenderer.Initialize(); err != nil {
-			return fmt.Errorf("failed to initialize template renderer: %w", err)
-		}
-	}
-
 	if p.networkManager != nil {
 		if err := p.networkManager.Initialize(); err != nil {
 			return fmt.Errorf("failed to initialize network manager: %w", err)
@@ -257,14 +248,12 @@ func (p *InitPipeline) Execute(ctx context.Context) error {
 		return fmt.Errorf("Error writing reset token: %w", err)
 	}
 
-	// Phase 2: Template processing
-	templateData, err := p.prepareTemplateData(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to prepare template data: %w", err)
-	}
-	renderedData, err := p.processTemplateData(templateData)
-	if err != nil {
-		return err
+	// Phase 2: Blueprint loading
+	if ctx.Value("blueprint") == nil && p.artifactBuilder != nil {
+		hasLocalTemplates := p.hasLocalTemplates()
+		if !hasLocalTemplates {
+			p.fallbackBlueprintURL = constants.GetEffectiveBlueprintURL()
+		}
 	}
 
 	// Phase 3: Blueprint handling
@@ -272,7 +261,7 @@ func (p *InitPipeline) Execute(ctx context.Context) error {
 	if resetValue := ctx.Value("reset"); resetValue != nil {
 		reset = resetValue.(bool)
 	}
-	if err := p.handleBlueprintLoading(ctx, renderedData, reset); err != nil {
+	if err := p.handleBlueprintLoading(ctx, reset); err != nil {
 		return err
 	}
 	if err := p.blueprintHandler.Write(reset); err != nil {
@@ -288,7 +277,7 @@ func (p *InitPipeline) Execute(ctx context.Context) error {
 
 	// Phase 5: Final file generation
 	for _, generator := range p.generators {
-		if err := generator.Generate(renderedData, reset); err != nil {
+		if err := generator.Generate(map[string]any{}, reset); err != nil {
 			return fmt.Errorf("failed to generate from template data: %w", err)
 		}
 	}
@@ -309,30 +298,6 @@ func (p *InitPipeline) Execute(ctx context.Context) error {
 	fmt.Fprintln(os.Stderr, "Initialization successful")
 
 	return nil
-}
-
-// prepareTemplateData sets the fallbackBlueprintURL if the default blueprint URL is used.
-// It calls the base pipeline's prepareTemplateData, checks for explicit blueprint context and local templates,
-// and assigns the fallback URL for blueprint processing if necessary.
-// Returns the prepared template data or an error.
-func (p *InitPipeline) prepareTemplateData(ctx context.Context) (map[string][]byte, error) {
-	templateData, err := p.BasePipeline.prepareTemplateData(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if ctx.Value("blueprint") == nil && p.artifactBuilder != nil {
-		blueprintHandler := p.withBlueprintHandler()
-		hasLocalTemplates := false
-		if blueprintHandler != nil {
-			if localTemplateData, err := blueprintHandler.GetLocalTemplateData(); err == nil && len(localTemplateData) > 0 {
-				hasLocalTemplates = true
-			}
-		}
-		if !hasLocalTemplates {
-			p.fallbackBlueprintURL = constants.GetEffectiveBlueprintURL()
-		}
-	}
-	return templateData, nil
 }
 
 // =============================================================================
@@ -468,7 +433,7 @@ func (p *InitPipeline) writeConfigurationFiles() error {
 // handleBlueprintLoading loads blueprint data for the InitPipeline based on the reset flag and blueprint file presence.
 // If reset is true, loads blueprint from template data if available. If reset is false, prefers an existing blueprint.yaml file over template data.
 // If no template blueprint data exists, loads from existing config. Returns an error if loading fails.
-func (p *InitPipeline) handleBlueprintLoading(ctx context.Context, renderedData map[string]any, reset bool) error {
+func (p *InitPipeline) handleBlueprintLoading(ctx context.Context, reset bool) error {
 	shouldLoadFromTemplate := false
 	usingLocalTemplates := p.hasLocalTemplates()
 
@@ -485,28 +450,22 @@ func (p *InitPipeline) handleBlueprintLoading(ctx context.Context, renderedData 
 		}
 	}
 
-	if shouldLoadFromTemplate && len(renderedData) > 0 && renderedData["blueprint"] != nil {
+	if shouldLoadFromTemplate {
 		if p.fallbackBlueprintURL != "" {
 			ctx = context.WithValue(ctx, "blueprint", p.fallbackBlueprintURL)
 		}
-		if err := p.loadBlueprintFromTemplate(ctx, renderedData); err != nil {
-			return err
+
+		_, err := p.blueprintHandler.GetLocalTemplateData()
+		if err != nil {
+			return fmt.Errorf("failed to get template data: %w", err)
 		}
-		if usingLocalTemplates {
-			if blueprintData, exists := renderedData["blueprint"]; exists {
-				if blueprintMap, ok := blueprintData.(map[string]any); ok {
-					if sources, ok := blueprintMap["sources"].([]any); ok && len(sources) > 0 {
-						if err := p.loadExplicitSources(sources); err != nil {
-							return fmt.Errorf("failed to load explicit sources: %w", err)
-						}
-					}
-				}
-			}
-		}
-	} else if !usingLocalTemplates {
+	} else {
 		if err := p.blueprintHandler.LoadConfig(); err != nil {
-			return fmt.Errorf("error loading blueprint config: %w", err)
+			return fmt.Errorf("failed to load blueprint config: %w", err)
 		}
+	}
+
+	if !usingLocalTemplates {
 		sources := p.blueprintHandler.GetSources()
 		if len(sources) > 0 && p.artifactBuilder != nil {
 			var ociURLs []string
@@ -541,31 +500,6 @@ func (p *InitPipeline) hasLocalTemplates() bool {
 	templateDir := filepath.Join(projectRoot, "contexts", "_template")
 	_, err = p.shims.Stat(templateDir)
 	return err == nil
-}
-
-// loadExplicitSources loads OCI sources that are explicitly defined in blueprint templates.
-func (p *InitPipeline) loadExplicitSources(sources []any) error {
-	if p.artifactBuilder == nil {
-		return nil
-	}
-
-	var ociURLs []string
-	for _, source := range sources {
-		if sourceMap, ok := source.(map[string]any); ok {
-			if url, ok := sourceMap["url"].(string); ok && strings.HasPrefix(url, "oci://") {
-				ociURLs = append(ociURLs, url)
-			}
-		}
-	}
-
-	if len(ociURLs) > 0 {
-		_, err := p.artifactBuilder.Pull(ociURLs)
-		if err != nil {
-			return fmt.Errorf("failed to load explicit OCI sources: %w", err)
-		}
-	}
-
-	return nil
 }
 
 // =============================================================================
