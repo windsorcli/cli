@@ -18,22 +18,13 @@ import (
 // Test Setup
 // =============================================================================
 
-type Mocks struct {
-	Injector  di.Injector
-	MockShell *shell.MockShell
-}
-
 // setupMocks creates a new set of mocks for testing
-func setupMocks(t *testing.T) *Mocks {
+func setupMocks(t *testing.T) *Dependencies {
 	t.Helper()
 
-	injector := di.NewInjector()
-	mockShell := shell.NewMockShell()
-	injector.Register("shell", mockShell)
-
-	return &Mocks{
-		Injector:  injector,
-		MockShell: mockShell,
+	return &Dependencies{
+		Injector:      di.NewInjector(),
+		Shell:         shell.NewMockShell(),
 	}
 }
 
@@ -42,19 +33,19 @@ func setupMocks(t *testing.T) *Mocks {
 // =============================================================================
 
 func TestRuntime_NewRuntime(t *testing.T) {
-	t.Run("CreatesRuntimeWithInjector", func(t *testing.T) {
-		// Given an injector
+	t.Run("CreatesRuntimeWithDependencies", func(t *testing.T) {
+		// Given dependencies
 		mocks := setupMocks(t)
 
 		// When creating a new runtime
-		runtime := NewRuntime(mocks.Injector)
+		runtime := NewRuntime(mocks)
 
 		// Then runtime should be created successfully
 		if runtime == nil {
 			t.Error("Expected runtime to be created")
 		}
 
-		if runtime.injector != mocks.Injector {
+		if runtime.Injector != mocks.Injector {
 			t.Error("Expected injector to be set")
 		}
 	})
@@ -62,9 +53,9 @@ func TestRuntime_NewRuntime(t *testing.T) {
 
 func TestRuntime_LoadShell(t *testing.T) {
 	t.Run("LoadsShellSuccessfully", func(t *testing.T) {
-		// Given a runtime with injector
+		// Given a runtime with dependencies
 		mocks := setupMocks(t)
-		runtime := NewRuntime(mocks.Injector)
+		runtime := NewRuntime(mocks)
 
 		// When loading shell
 		result := runtime.LoadShell()
@@ -75,7 +66,7 @@ func TestRuntime_LoadShell(t *testing.T) {
 		}
 
 		// And shell should be loaded
-		if runtime.shell == nil {
+		if runtime.Shell == nil {
 			t.Error("Expected shell to be loaded")
 		}
 
@@ -85,10 +76,38 @@ func TestRuntime_LoadShell(t *testing.T) {
 		}
 	})
 
+	t.Run("CreatesNewShellWhenNoneExists", func(t *testing.T) {
+		// Given a runtime without pre-loaded shell
+		runtime := NewRuntime()
+
+		// When loading shell
+		result := runtime.LoadShell()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadShell to return the same runtime instance")
+		}
+
+		// And shell should be loaded
+		if runtime.Shell == nil {
+			t.Error("Expected shell to be loaded")
+		}
+
+		// And shell should be registered in injector
+		resolvedShell := runtime.Injector.Resolve("shell")
+		if resolvedShell == nil {
+			t.Error("Expected shell to be registered in injector")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+	})
+
 	t.Run("ReturnsEarlyOnExistingError", func(t *testing.T) {
-		// Given a runtime with an existing error
-		mocks := setupMocks(t)
-		runtime := NewRuntime(mocks.Injector)
+		// Given a runtime with an existing error (no pre-loaded dependencies)
+		runtime := NewRuntime()
 		runtime.err = errors.New("existing error")
 
 		// When loading shell
@@ -100,7 +119,7 @@ func TestRuntime_LoadShell(t *testing.T) {
 		}
 
 		// And shell should not be loaded
-		if runtime.shell != nil {
+		if runtime.Shell != nil {
 			t.Error("Expected shell to not be loaded when error exists")
 		}
 
@@ -180,7 +199,7 @@ func TestRuntime_Do(t *testing.T) {
 	t.Run("ReturnsNilWhenNoError", func(t *testing.T) {
 		// Given a runtime with no error
 		mocks := setupMocks(t)
-		runtime := NewRuntime(mocks.Injector)
+		runtime := NewRuntime(mocks)
 
 		// When calling Do
 		err := runtime.Do()
@@ -194,7 +213,7 @@ func TestRuntime_Do(t *testing.T) {
 	t.Run("ReturnsErrorWhenErrorSet", func(t *testing.T) {
 		// Given a runtime with an error
 		mocks := setupMocks(t)
-		runtime := NewRuntime(mocks.Injector)
+		runtime := NewRuntime(mocks)
 		expectedError := errors.New("test error")
 		runtime.err = expectedError
 

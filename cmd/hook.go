@@ -15,19 +15,17 @@ var hookCmd = &cobra.Command{
 	SilenceUsage: true,
 	Args:         cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get shared dependency injector from context
-		injector := cmd.Context().Value(injectorKey).(di.Injector)
-
-		// Create Runtime and execute hook installation
-		err := runtime.NewRuntime(injector).
-			LoadShell().
-			InstallHook(args[0]).
-			Do()
-
-		if err != nil {
-			return fmt.Errorf("Error installing hook: %w", err)
+		deps := &runtime.Dependencies{
+			Injector: cmd.Context().Value(injectorKey).(di.Injector),
 		}
 
+		// Create Runtime and execute hook installation
+		if err := runtime.NewRuntime(deps).
+			LoadShell().
+			InstallHook(args[0]).
+			Do(); err != nil {
+			return fmt.Errorf("Error installing hook: %w", err)
+		}
 		return nil
 	},
 }
