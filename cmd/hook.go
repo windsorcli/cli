@@ -1,12 +1,11 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/pipelines"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 var hookCmd = &cobra.Command{
@@ -19,21 +18,14 @@ var hookCmd = &cobra.Command{
 		// Get shared dependency injector from context
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		// Create execution context with shell type
-		ctx := context.WithValue(cmd.Context(), "shellType", args[0])
-		if verbose {
-			ctx = context.WithValue(ctx, "verbose", true)
-		}
+		// Create Runtime and execute hook installation
+		err := runtime.NewRuntime(injector).
+			LoadShell().
+			InstallHook(args[0]).
+			Do()
 
-		// Set up the hook pipeline
-		pipeline, err := pipelines.WithPipeline(injector, ctx, "hookPipeline")
 		if err != nil {
-			return fmt.Errorf("failed to set up hook pipeline: %w", err)
-		}
-
-		// Execute the pipeline
-		if err := pipeline.Execute(ctx); err != nil {
-			return fmt.Errorf("Error executing hook pipeline: %w", err)
+			return fmt.Errorf("Error installing hook: %w", err)
 		}
 
 		return nil
