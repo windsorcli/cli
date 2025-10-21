@@ -115,8 +115,6 @@ func (r *Runtime) LoadShell() *Runtime {
 	}
 	return r
 }
-	return r
-}
 
 // InstallHook installs a shell hook for the specified shell type.
 func (r *Runtime) InstallHook(shellType string) *Runtime {
@@ -128,12 +126,5 @@ func (r *Runtime) InstallHook(shellType string) *Runtime {
 		return r
 	}
 	r.err = r.Shell.InstallHook(shellType)
-	return r
-}
-
-		r.err = fmt.Errorf("shell not loaded - call LoadShell() first")
-		return r
-	}
-	r.err = r.shell.InstallHook(shellType)
 	return r
 }
