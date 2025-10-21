@@ -134,7 +134,7 @@ func TestRuntime_InstallHook(t *testing.T) {
 	t.Run("InstallsHookSuccessfully", func(t *testing.T) {
 		// Given a runtime with loaded shell
 		mocks := setupMocks(t)
-		runtime := NewRuntime(mocks.Injector).LoadShell()
+		runtime := NewRuntime(mocks).LoadShell()
 
 		// When installing hook
 		result := runtime.InstallHook("bash")
@@ -151,9 +151,8 @@ func TestRuntime_InstallHook(t *testing.T) {
 	})
 
 	t.Run("ReturnsErrorWhenShellNotLoaded", func(t *testing.T) {
-		// Given a runtime without loaded shell
-		mocks := setupMocks(t)
-		runtime := NewRuntime(mocks.Injector)
+		// Given a runtime without loaded shell (no pre-loaded dependencies)
+		runtime := NewRuntime()
 
 		// When installing hook
 		result := runtime.InstallHook("bash")
@@ -175,9 +174,8 @@ func TestRuntime_InstallHook(t *testing.T) {
 	})
 
 	t.Run("ReturnsEarlyOnExistingError", func(t *testing.T) {
-		// Given a runtime with an existing error
-		mocks := setupMocks(t)
-		runtime := NewRuntime(mocks.Injector)
+		// Given a runtime with an existing error (no pre-loaded dependencies)
+		runtime := NewRuntime()
 		runtime.err = errors.New("existing error")
 
 		// When installing hook
