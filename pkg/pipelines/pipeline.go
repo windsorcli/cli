@@ -54,7 +54,6 @@ var pipelineConstructors = map[string]PipelineConstructor{
 	"envPipeline":      func() Pipeline { return NewEnvPipeline() },
 	"initPipeline":     func() Pipeline { return NewInitPipeline() },
 	"execPipeline":     func() Pipeline { return NewExecPipeline() },
-	"contextPipeline":  func() Pipeline { return NewContextPipeline() },
 	"checkPipeline":    func() Pipeline { return NewCheckPipeline() },
 	"upPipeline":       func() Pipeline { return NewUpPipeline() },
 	"downPipeline":     func() Pipeline { return NewDownPipeline() },
