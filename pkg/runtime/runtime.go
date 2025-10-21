@@ -25,69 +25,72 @@ import (
 // Types
 // =============================================================================
 
-// Runtime encapsulates all core Windsor CLI runtime dependencies for injection.
-type Runtime struct {
-
-	// Core dependencies
-	shell         shell.Shell
-	configHandler config.ConfigHandler
-	toolsManager  tools.ToolsManager
-	envPrinters   struct {
-		awsEnv       env.EnvPrinter
-		azureEnv     env.EnvPrinter
-		dockerEnv    env.EnvPrinter
-		kubeEnv      env.EnvPrinter
-		talosEnv     env.EnvPrinter
-		terraformEnv env.EnvPrinter
-		windsorEnv   env.EnvPrinter
+// Dependencies contains all the dependencies that Runtime might need.
+// This allows for explicit dependency injection without complex DI frameworks.
+type Dependencies struct {
+	Injector      di.Injector
+	Shell         shell.Shell
+	ConfigHandler config.ConfigHandler
+	ToolsManager  tools.ToolsManager
+	EnvPrinters   struct {
+		AwsEnv       env.EnvPrinter
+		AzureEnv     env.EnvPrinter
+		DockerEnv    env.EnvPrinter
+		KubeEnv      env.EnvPrinter
+		TalosEnv     env.EnvPrinter
+		TerraformEnv env.EnvPrinter
+		WindsorEnv   env.EnvPrinter
 	}
-	secretsProviders struct {
-		sops        secrets.SecretsProvider
-		onepassword secrets.SecretsProvider
+	SecretsProviders struct {
+		Sops        secrets.SecretsProvider
+		Onepassword secrets.SecretsProvider
 	}
-
-	// Blueprint dependencies
-	blueprintHandler blueprint.BlueprintHandler
-	artifactBuilder  artifact.Artifact
-	generators       struct {
-		gitGenerator       generators.Generator
-		terraformGenerator generators.Generator
+	BlueprintHandler blueprint.BlueprintHandler
+	ArtifactBuilder  artifact.Artifact
+	Generators       struct {
+		GitGenerator       generators.Generator
+		TerraformGenerator generators.Generator
 	}
-	terraformResolver terraform.ModuleResolver
-
-	// Cluster dependencies
-	clusterClient cluster.ClusterClient
-	k8sManager    kubernetes.KubernetesManager
-
-	// Workstation dependencies
-	workstation struct {
-		virt     virt.Virt
-		services struct {
-			dnsService           services.Service
-			gitLivereloadService services.Service
-			localstackService    services.Service
-			registryServices     map[string]services.Service
-			talosServices        map[string]services.Service
+	TerraformResolver terraform.ModuleResolver
+	ClusterClient     cluster.ClusterClient
+	K8sManager        kubernetes.KubernetesManager
+	Workstation       struct {
+		Virt     virt.Virt
+		Services struct {
+			DnsService           services.Service
+			GitLivereloadService services.Service
+			LocalstackService    services.Service
+			RegistryServices     map[string]services.Service
+			TalosServices        map[string]services.Service
 		}
-		network network.NetworkManager
-		ssh     ssh.SSHClient
+		Network network.NetworkManager
+		Ssh     ssh.SSHClient
 	}
+}
 
-	// Error
+// Runtime encapsulates all core Windsor CLI runtime dependencies.
+type Runtime struct {
+	Dependencies
 	err error
-
-	// Injector (to be deprecated)
-	injector di.Injector
 }
 
 // =============================================================================
 // Constructor
 // =============================================================================
 
-// NewRuntime creates a new Runtime instance
-func NewRuntime(injector di.Injector) *Runtime {
+// NewRuntime creates a new Runtime instance with the provided dependencies.
+func NewRuntime(deps ...*Dependencies) *Runtime {
+	var depsVal *Dependencies
+	if len(deps) > 0 && deps[0] != nil {
+		depsVal = deps[0]
+	} else {
+		depsVal = &Dependencies{}
+	}
+	if depsVal.Injector == nil {
+		depsVal.Injector = di.NewInjector()
+	}
 	return &Runtime{
-		injector: injector,
+		Dependencies: *depsVal,
 	}
 }
 
@@ -95,36 +98,33 @@ func NewRuntime(injector di.Injector) *Runtime {
 // Public Methods
 // =============================================================================
 
-// Do serves as the final execution point in the Windsor application lifecycle.
-// It returns the cumulative error state from all preceding runtime operations, ensuring that the
-// top-level caller receives any error reported by the Windsor runtime subsystems.
-//
-// Do does not perform any additional processing; it solely propagates the stored error value,
-// which must be set by lower-level runtime methods. If no error has occurred, Do returns nil.
+// Do returns the cumulative error state from all preceding runtime operations.
 func (r *Runtime) Do() error {
 	return r.err
 }
 
-// LoadShell loads the shell dependency from the injector.
+// LoadShell loads the shell dependency, creating a new default shell if none exists.
 func (r *Runtime) LoadShell() *Runtime {
 	if r.err != nil {
 		return r
 	}
-	r.shell = shell.NewDefaultShell(r.injector)
-	r.injector.Register("shell", r.shell)
+
+	if r.Shell == nil {
+		r.Shell = shell.NewDefaultShell(r.Injector)
+		r.Injector.Register("shell", r.Shell)
+	}
 	return r
 }
 
 // InstallHook installs a shell hook for the specified shell type.
-// It requires the shell to be loaded first via LoadShell().
 func (r *Runtime) InstallHook(shellType string) *Runtime {
 	if r.err != nil {
 		return r
 	}
-	if r.shell == nil {
+	if r.Shell == nil {
 		r.err = fmt.Errorf("shell not loaded - call LoadShell() first")
 		return r
 	}
-	r.err = r.shell.InstallHook(shellType)
+	r.err = r.Shell.InstallHook(shellType)
 	return r
 }
