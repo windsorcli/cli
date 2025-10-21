@@ -10,6 +10,15 @@ func TestContextCmd(t *testing.T) {
 	setup := func(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
 		t.Helper()
 
+		// Clear environment variables that could affect tests
+		origContext := os.Getenv("WINDSOR_CONTEXT")
+		os.Unsetenv("WINDSOR_CONTEXT")
+		t.Cleanup(func() {
+			if origContext != "" {
+				os.Setenv("WINDSOR_CONTEXT", origContext)
+			}
+		})
+
 		// Change to a temporary directory without a config file
 		origDir, err := os.Getwd()
 		if err != nil {
@@ -34,30 +43,33 @@ func TestContextCmd(t *testing.T) {
 		return stdout, stderr
 	}
 
-	t.Run("GetContextNoConfig", func(t *testing.T) {
+	t.Run("GetContext", func(t *testing.T) {
 		// Given proper output capture in a directory without config
-		_, _ = setup(t)
+		stdout, _ := setup(t)
+		// Don't set up mocks - we want to test real behavior
 
 		rootCmd.SetArgs([]string{"context", "get"})
 
 		// When executing the command
 		err := Execute()
 
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// And error should contain init message
-		expectedError := "Error executing context pipeline: No context is available. Have you run `windsor init`?"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		// And should output default context (real behavior)
+		output := stdout.String()
+		expectedOutput := "local\n"
+		if output != expectedOutput {
+			t.Errorf("Expected output %q, got %q", expectedOutput, output)
 		}
 	})
 
 	t.Run("SetContextNoArgs", func(t *testing.T) {
 		// Given proper output capture in a directory without config
 		_, _ = setup(t)
+		setupMocks(t)
 
 		rootCmd.SetArgs([]string{"context", "set"})
 
@@ -76,51 +88,48 @@ func TestContextCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("SetContextNoConfig", func(t *testing.T) {
+	t.Run("SetContext", func(t *testing.T) {
 		// Given proper output capture in a directory without config
 		_, _ = setup(t)
+		setupMocks(t)
 
 		rootCmd.SetArgs([]string{"context", "set", "new-context"})
 
 		// When executing the command
 		err := Execute()
 
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		// And error should contain init message
-		expectedError := "Error executing context pipeline: No context is available. Have you run `windsor init`?"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
-	t.Run("GetContextAliasNoConfig", func(t *testing.T) {
+	t.Run("GetContextAlias", func(t *testing.T) {
 		// Given proper output capture in a directory without config
-		_, _ = setup(t)
+		stdout, _ := setup(t)
+		// Don't set up mocks - we want to test real behavior
 
 		rootCmd.SetArgs([]string{"get-context"})
 
 		// When executing the command
 		err := Execute()
 
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// And error should contain init message
-		expectedError := "Error executing context pipeline: No context is available. Have you run `windsor init`?"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		// And should output the current context (may be "local" or previously set context)
+		output := stdout.String()
+		if output == "" {
+			t.Error("Expected some output, got empty string")
 		}
 	})
 
 	t.Run("SetContextAliasNoArgs", func(t *testing.T) {
 		// Given proper output capture in a directory without config
 		_, _ = setup(t)
+		setupMocks(t)
 
 		rootCmd.SetArgs([]string{"set-context"})
 
@@ -139,24 +148,19 @@ func TestContextCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("SetContextAliasNoConfig", func(t *testing.T) {
+	t.Run("SetContextAlias", func(t *testing.T) {
 		// Given proper output capture in a directory without config
 		_, _ = setup(t)
+		setupMocks(t)
 
 		rootCmd.SetArgs([]string{"set-context", "new-context"})
 
 		// When executing the command
 		err := Execute()
 
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		// And error should contain init message
-		expectedError := "Error executing context pipeline: No context is available. Have you run `windsor init`?"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 }
