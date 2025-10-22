@@ -116,6 +116,26 @@ func (r *Runtime) LoadShell() *Runtime {
 	return r
 }
 
+// LoadConfigHandler loads and initializes the configuration handler dependency.
+func (r *Runtime) LoadConfigHandler() *Runtime {
+	if r.err != nil {
+		return r
+	}
+	if r.Shell == nil {
+		r.err = fmt.Errorf("shell not loaded - call LoadShell() first")
+		return r
+	}
+
+	if r.ConfigHandler == nil {
+		r.ConfigHandler = config.NewConfigHandler(r.Injector)
+		if err := r.ConfigHandler.Initialize(); err != nil {
+			r.err = fmt.Errorf("failed to initialize config handler: %w", err)
+			return r
+		}
+	}
+	return r
+}
+
 // InstallHook installs a shell hook for the specified shell type.
 func (r *Runtime) InstallHook(shellType string) *Runtime {
 	if r.err != nil {
@@ -126,5 +146,45 @@ func (r *Runtime) InstallHook(shellType string) *Runtime {
 		return r
 	}
 	r.err = r.Shell.InstallHook(shellType)
+	return r
+}
+
+// SetContext sets the context for the configuration handler.
+func (r *Runtime) SetContext(context string) *Runtime {
+	if r.err != nil {
+		return r
+	}
+	if r.ConfigHandler == nil {
+		r.err = fmt.Errorf("config handler not loaded - call LoadConfigHandler() first")
+		return r
+	}
+	r.err = r.ConfigHandler.SetContext(context)
+	return r
+}
+
+// PrintContext outputs the current context using the provided output function.
+func (r *Runtime) PrintContext(outputFunc func(string)) *Runtime {
+	if r.err != nil {
+		return r
+	}
+	if r.ConfigHandler == nil {
+		r.err = fmt.Errorf("config handler not loaded - call LoadConfigHandler() first")
+		return r
+	}
+	context := r.ConfigHandler.GetContext()
+	outputFunc(context)
+	return r
+}
+
+// WriteResetToken writes a session/token reset file using the shell.
+func (r *Runtime) WriteResetToken() *Runtime {
+	if r.err != nil {
+		return r
+	}
+	if r.Shell == nil {
+		r.err = fmt.Errorf("shell not loaded - call LoadShell() first")
+		return r
+	}
+	_, r.err = r.Shell.WriteResetToken()
 	return r
 }

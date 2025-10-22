@@ -527,7 +527,6 @@ func TestWithPipeline(t *testing.T) {
 			{"EnvPipeline", "envPipeline"},
 			{"InitPipeline", "initPipeline"},
 			{"ExecPipeline", "execPipeline"},
-			{"ContextPipeline", "contextPipeline"},
 			{"CheckPipeline", "checkPipeline"},
 			{"UpPipeline", "upPipeline"},
 			{"DownPipeline", "downPipeline"},
@@ -726,7 +725,6 @@ func TestWithPipeline(t *testing.T) {
 			"envPipeline",
 			"initPipeline",
 			"execPipeline",
-			"contextPipeline",
 			"checkPipeline",
 			"basePipeline",
 		}
