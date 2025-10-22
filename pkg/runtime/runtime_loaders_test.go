@@ -7,8 +7,10 @@ import (
 	"testing"
 
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
+	"github.com/windsorcli/cli/pkg/cluster"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
@@ -824,6 +826,315 @@ func TestRuntime_LoadSecretsProviders(t *testing.T) {
 		}
 		if runtime.SecretsProviders.Onepassword != nil {
 			t.Error("Expected OnePassword provider to not be loaded when no vaults configured")
+		}
+	})
+}
+
+func TestRuntime_LoadKubernetes(t *testing.T) {
+	t.Run("LoadsKubernetesSuccessfully", func(t *testing.T) {
+		// Given a runtime with loaded config handler
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+
+		// And mock config handler returns "talos" for cluster driver
+		mockConfigHandler := runtime.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.driver" {
+				return "talos"
+			}
+			return "mock-string"
+		}
+
+		// When loading kubernetes
+		result := runtime.LoadKubernetes()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadKubernetes to return the same runtime instance")
+		}
+
+		// And kubernetes client should be registered in injector
+		kubernetesClient := runtime.Injector.Resolve("kubernetesClient")
+		if kubernetesClient == nil {
+			t.Error("Expected kubernetes client to be registered in injector")
+		}
+
+		// And cluster client should be loaded
+		if runtime.ClusterClient == nil {
+			t.Error("Expected cluster client to be loaded")
+		}
+
+		// And cluster client should be registered in injector
+		clusterClient := runtime.Injector.Resolve("clusterClient")
+		if clusterClient == nil {
+			t.Error("Expected cluster client to be registered in injector")
+		}
+
+		// And kubernetes manager should be loaded
+		if runtime.K8sManager == nil {
+			t.Error("Expected kubernetes manager to be loaded")
+		}
+
+		// And kubernetes manager should be registered in injector
+		kubernetesManager := runtime.Injector.Resolve("kubernetesManager")
+		if kubernetesManager == nil {
+			t.Error("Expected kubernetes manager to be registered in injector")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenConfigHandlerNotLoaded", func(t *testing.T) {
+		// Given a runtime without loaded config handler (no pre-loaded dependencies)
+		runtime := NewRuntime()
+
+		// When loading kubernetes
+		result := runtime.LoadKubernetes()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadKubernetes to return the same runtime instance")
+		}
+
+		// And error should be set
+		if runtime.err == nil {
+			t.Error("Expected error when config handler not loaded")
+		}
+
+		expectedError := "config handler not loaded - call LoadConfigHandler() first"
+		if runtime.err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, runtime.err.Error())
+		}
+
+		// And no kubernetes components should be loaded
+		if runtime.ClusterClient != nil {
+			t.Error("Expected cluster client to not be loaded when error occurs")
+		}
+		if runtime.K8sManager != nil {
+			t.Error("Expected kubernetes manager to not be loaded when error occurs")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenUnsupportedClusterDriver", func(t *testing.T) {
+		// Given a runtime with loaded config handler
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+
+		// And mock config handler returns unsupported cluster driver
+		mockConfigHandler := runtime.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.driver" {
+				return "unsupported-driver"
+			}
+			return "mock-string"
+		}
+
+		// When loading kubernetes
+		result := runtime.LoadKubernetes()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadKubernetes to return the same runtime instance")
+		}
+
+		// And error should be set
+		if runtime.err == nil {
+			t.Error("Expected error when unsupported cluster driver")
+		}
+
+		expectedError := "unsupported cluster driver: unsupported-driver"
+		if runtime.err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, runtime.err.Error())
+		}
+
+		// And no kubernetes components should be loaded
+		if runtime.ClusterClient != nil {
+			t.Error("Expected cluster client to not be loaded when error occurs")
+		}
+		if runtime.K8sManager != nil {
+			t.Error("Expected kubernetes manager to not be loaded when error occurs")
+		}
+	})
+
+	t.Run("ReturnsEarlyOnExistingError", func(t *testing.T) {
+		// Given a runtime with an existing error (no pre-loaded dependencies)
+		runtime := NewRuntime()
+		runtime.err = errors.New("existing error")
+
+		// When loading kubernetes
+		result := runtime.LoadKubernetes()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadKubernetes to return the same runtime instance")
+		}
+
+		// And kubernetes components should not be loaded
+		if runtime.ClusterClient != nil {
+			t.Error("Expected cluster client to not be loaded when error exists")
+		}
+		if runtime.K8sManager != nil {
+			t.Error("Expected kubernetes manager to not be loaded when error exists")
+		}
+
+		// And original error should be preserved
+		if runtime.err.Error() != "existing error" {
+			t.Errorf("Expected original error to be preserved, got %v", runtime.err)
+		}
+	})
+
+	t.Run("ReusesExistingKubernetesClient", func(t *testing.T) {
+		// Given a runtime with loaded config handler
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+
+		// And mock config handler returns "talos" for cluster driver
+		mockConfigHandler := runtime.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.driver" {
+				return "talos"
+			}
+			return "mock-string"
+		}
+
+		// And an existing kubernetes client registered
+		existingClient := kubernetes.NewMockKubernetesClient()
+		runtime.Injector.Register("kubernetesClient", existingClient)
+
+		// When loading kubernetes
+		result := runtime.LoadKubernetes()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadKubernetes to return the same runtime instance")
+		}
+
+		// And the same kubernetes client should be reused
+		currentClient := runtime.Injector.Resolve("kubernetesClient")
+		if currentClient != existingClient {
+			t.Error("Expected to reuse existing kubernetes client")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+	})
+
+	t.Run("ReusesExistingClusterClient", func(t *testing.T) {
+		// Given a runtime with loaded config handler
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+
+		// And mock config handler returns "talos" for cluster driver
+		mockConfigHandler := runtime.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.driver" {
+				return "talos"
+			}
+			return "mock-string"
+		}
+
+		// And an existing cluster client
+		existingClusterClient := cluster.NewMockClusterClient()
+		runtime.ClusterClient = existingClusterClient
+
+		// When loading kubernetes
+		result := runtime.LoadKubernetes()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadKubernetes to return the same runtime instance")
+		}
+
+		// And the same cluster client should be reused
+		if runtime.ClusterClient != existingClusterClient {
+			t.Error("Expected to reuse existing cluster client")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+	})
+
+	t.Run("ReusesExistingKubernetesManager", func(t *testing.T) {
+		// Given a runtime with loaded config handler
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+
+		// And mock config handler returns "talos" for cluster driver
+		mockConfigHandler := runtime.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.driver" {
+				return "talos"
+			}
+			return "mock-string"
+		}
+
+		// And an existing kubernetes manager
+		existingManager := kubernetes.NewMockKubernetesManager(nil)
+		runtime.K8sManager = existingManager
+
+		// When loading kubernetes
+		result := runtime.LoadKubernetes()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadKubernetes to return the same runtime instance")
+		}
+
+		// And the same kubernetes manager should be reused
+		if runtime.K8sManager != existingManager {
+			t.Error("Expected to reuse existing kubernetes manager")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+	})
+
+	t.Run("PropagatesKubernetesManagerInitializationError", func(t *testing.T) {
+		// Given a runtime with loaded config handler
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+
+		// And mock config handler returns "talos" for cluster driver
+		mockConfigHandler := runtime.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.driver" {
+				return "talos"
+			}
+			return "mock-string"
+		}
+
+		// And a mock kubernetes manager that fails initialization
+		mockManager := kubernetes.NewMockKubernetesManager(nil)
+		mockManager.InitializeFunc = func() error {
+			return errors.New("initialization failed")
+		}
+		runtime.K8sManager = mockManager
+
+		// When loading kubernetes
+		result := runtime.LoadKubernetes()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadKubernetes to return the same runtime instance")
+		}
+
+		// And error should be set
+		if runtime.err == nil {
+			t.Error("Expected error when kubernetes manager initialization fails")
+		}
+
+		expectedError := "failed to initialize kubernetes manager: initialization failed"
+		if runtime.err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, runtime.err.Error())
 		}
 	})
 }
