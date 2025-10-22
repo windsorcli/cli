@@ -2,9 +2,11 @@ package runtime
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
+	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -561,6 +563,286 @@ func TestRuntime_LoadEnvPrinters(t *testing.T) {
 		// And WindsorEnv should always be loaded
 		if runtime.EnvPrinters.WindsorEnv == nil {
 			t.Error("Expected WindsorEnv to be loaded")
+		}
+	})
+}
+
+func TestRuntime_LoadSecretsProviders(t *testing.T) {
+	t.Run("LoadsSecretsProvidersSuccessfully", func(t *testing.T) {
+		// Given a runtime with loaded shell and config handler
+		mocks := setupMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/test/config/root", nil
+		}
+		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+
+		// When loading secrets providers
+		result := runtime.LoadSecretsProviders()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadSecretsProviders to return the same runtime instance")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenConfigHandlerNotLoaded", func(t *testing.T) {
+		// Given a runtime without loaded config handler (no pre-loaded dependencies)
+		runtime := NewRuntime()
+
+		// When loading secrets providers
+		result := runtime.LoadSecretsProviders()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadSecretsProviders to return the same runtime instance")
+		}
+
+		// And error should be set
+		if runtime.err == nil {
+			t.Error("Expected error when config handler not loaded")
+		}
+
+		expectedError := "config handler not loaded - call LoadConfigHandler() first"
+		if runtime.err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, runtime.err.Error())
+		}
+	})
+
+	t.Run("ReturnsEarlyOnExistingError", func(t *testing.T) {
+		// Given a runtime with an existing error (no pre-loaded dependencies)
+		runtime := NewRuntime()
+		runtime.err = errors.New("existing error")
+
+		// When loading secrets providers
+		result := runtime.LoadSecretsProviders()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadSecretsProviders to return the same runtime instance")
+		}
+
+		// And original error should be preserved
+		if runtime.err.Error() != "existing error" {
+			t.Errorf("Expected original error to be preserved, got %v", runtime.err)
+		}
+
+		// And no secrets providers should be loaded
+		if runtime.SecretsProviders.Sops != nil {
+			t.Error("Expected no secrets providers to be loaded when error exists")
+		}
+		if runtime.SecretsProviders.Onepassword != nil {
+			t.Error("Expected no secrets providers to be loaded when error exists")
+		}
+	})
+
+	t.Run("PropagatesConfigRootError", func(t *testing.T) {
+		// Given a runtime with loaded shell and config handler that returns error for GetConfigRoot
+		mocks := setupMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "", errors.New("config root error")
+		}
+		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+
+		// When loading secrets providers
+		result := runtime.LoadSecretsProviders()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadSecretsProviders to return the same runtime instance")
+		}
+
+		// And error should be propagated
+		if runtime.err == nil {
+			t.Error("Expected error to be propagated from config root")
+		} else {
+			expectedError := "error getting config root"
+			if !strings.Contains(runtime.err.Error(), expectedError) {
+				t.Errorf("Expected error to contain %q, got %q", expectedError, runtime.err.Error())
+			}
+		}
+	})
+
+	t.Run("LoadsSopsProviderWhenSecretsFileExists", func(t *testing.T) {
+		// Given a runtime with loaded shell and config handler, and secrets file exists
+		mocks := setupMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/test/config/root", nil
+		}
+		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+
+		// Mock Stat to return success for secrets.enc.yaml
+		runtime.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "secrets.enc.yaml") {
+				return nil, nil // Success - file exists
+			}
+			return nil, errors.New("file not found")
+		}
+
+		// When loading secrets providers
+		result := runtime.LoadSecretsProviders()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadSecretsProviders to return the same runtime instance")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+
+		// And Sops provider should be loaded
+		if runtime.SecretsProviders.Sops == nil {
+			t.Error("Expected Sops provider to be loaded when secrets file exists")
+		}
+
+		// And Sops provider should be registered in injector
+		resolvedSops := runtime.Injector.Resolve("sopsSecretsProvider")
+		if resolvedSops == nil {
+			t.Error("Expected Sops provider to be registered in injector")
+		}
+	})
+
+	t.Run("LoadsOnePasswordSDKProviderWhenTokenExists", func(t *testing.T) {
+		// Given a runtime with loaded shell and config handler, OnePassword vaults configured, and SDK token
+		mocks := setupMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/test/config/root", nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetFunc = func(key string) any {
+			if key == "secrets.onepassword.vaults" {
+				return map[string]secretsConfigType.OnePasswordVault{
+					"vault1": {URL: "https://vault1.com", Name: "Vault 1"},
+				}
+			}
+			return nil
+		}
+		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+
+		// Mock Getenv to return SDK token
+		runtime.Shims.Getenv = func(key string) string {
+			if key == "OP_SERVICE_ACCOUNT_TOKEN" {
+				return "test-token"
+			}
+			return ""
+		}
+
+		// When loading secrets providers
+		result := runtime.LoadSecretsProviders()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadSecretsProviders to return the same runtime instance")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+
+		// And OnePassword provider should be loaded
+		if runtime.SecretsProviders.Onepassword == nil {
+			t.Error("Expected OnePassword provider to be loaded when vaults configured and SDK token exists")
+		}
+
+		// And OnePassword provider should be registered in injector
+		resolvedOnePassword := runtime.Injector.Resolve("onePasswordSecretsProvider")
+		if resolvedOnePassword == nil {
+			t.Error("Expected OnePassword provider to be registered in injector")
+		}
+	})
+
+	t.Run("LoadsOnePasswordCLIProviderWhenNoToken", func(t *testing.T) {
+		// Given a runtime with loaded shell and config handler, OnePassword vaults configured, but no SDK token
+		mocks := setupMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/test/config/root", nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetFunc = func(key string) any {
+			if key == "secrets.onepassword.vaults" {
+				return map[string]secretsConfigType.OnePasswordVault{
+					"vault1": {URL: "https://vault1.com", Name: "Vault 1"},
+				}
+			}
+			return nil
+		}
+		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+
+		// Mock Getenv to return no SDK token
+		runtime.Shims.Getenv = func(key string) string {
+			return ""
+		}
+
+		// When loading secrets providers
+		result := runtime.LoadSecretsProviders()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadSecretsProviders to return the same runtime instance")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+
+		// And OnePassword provider should be loaded
+		if runtime.SecretsProviders.Onepassword == nil {
+			t.Error("Expected OnePassword provider to be loaded when vaults configured but no SDK token")
+		}
+
+		// And OnePassword provider should be registered in injector
+		resolvedOnePassword := runtime.Injector.Resolve("onePasswordSecretsProvider")
+		if resolvedOnePassword == nil {
+			t.Error("Expected OnePassword provider to be registered in injector")
+		}
+	})
+
+	t.Run("DoesNotLoadProvidersWhenNoConfig", func(t *testing.T) {
+		// Given a runtime with loaded shell and config handler, but no secrets configuration
+		mocks := setupMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return "/test/config/root", nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetFunc = func(key string) any {
+			return nil // No secrets configuration
+		}
+		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+
+		// Mock Stat to return file not found for secrets files
+		runtime.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, errors.New("file not found")
+		}
+
+		// Mock Getenv to return no SDK token
+		runtime.Shims.Getenv = func(key string) string {
+			return ""
+		}
+
+		// When loading secrets providers
+		result := runtime.LoadSecretsProviders()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadSecretsProviders to return the same runtime instance")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+
+		// And no secrets providers should be loaded
+		if runtime.SecretsProviders.Sops != nil {
+			t.Error("Expected Sops provider to not be loaded when no secrets file exists")
+		}
+		if runtime.SecretsProviders.Onepassword != nil {
+			t.Error("Expected OnePassword provider to not be loaded when no vaults configured")
 		}
 	})
 }

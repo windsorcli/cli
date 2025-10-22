@@ -2,7 +2,9 @@ package runtime
 
 import (
 	"fmt"
+	"path/filepath"
 
+	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
 	"github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/cluster"
@@ -71,7 +73,8 @@ type Dependencies struct {
 // Runtime encapsulates all core Windsor CLI runtime dependencies.
 type Runtime struct {
 	Dependencies
-	err error
+	Shims *Shims
+	err   error
 }
 
 // =============================================================================
@@ -91,6 +94,7 @@ func NewRuntime(deps ...*Dependencies) *Runtime {
 	}
 	return &Runtime{
 		Dependencies: *depsVal,
+		Shims:        NewShims(),
 	}
 }
 
@@ -175,6 +179,57 @@ func (r *Runtime) LoadEnvPrinters() *Runtime {
 		r.EnvPrinters.WindsorEnv = env.NewWindsorEnvPrinter(r.Injector)
 		r.Injector.Register("windsorEnv", r.EnvPrinters.WindsorEnv)
 	}
+	return r
+}
+
+// LoadSecretsProviders loads and initializes the secrets providers using configuration and environment.
+// It detects SOPS and 1Password vaults as in BasePipeline.withSecretsProviders.
+func (r *Runtime) LoadSecretsProviders() *Runtime {
+	if r.err != nil {
+		return r
+	}
+	if r.ConfigHandler == nil {
+		r.err = fmt.Errorf("config handler not loaded - call LoadConfigHandler() first")
+		return r
+	}
+
+	configRoot, err := r.ConfigHandler.GetConfigRoot()
+	if err != nil {
+		r.err = fmt.Errorf("error getting config root: %w", err)
+		return r
+	}
+
+	secretsFilePaths := []string{"secrets.enc.yaml", "secrets.enc.yml"}
+	for _, filePath := range secretsFilePaths {
+		if _, err := r.Shims.Stat(filepath.Join(configRoot, filePath)); err == nil {
+			if r.SecretsProviders.Sops == nil {
+				r.SecretsProviders.Sops = secrets.NewSopsSecretsProvider(configRoot, r.Injector)
+				r.Injector.Register("sopsSecretsProvider", r.SecretsProviders.Sops)
+			}
+			break
+		}
+	}
+
+	vaults, ok := r.ConfigHandler.Get("secrets.onepassword.vaults").(map[string]secretsConfigType.OnePasswordVault)
+	if ok && len(vaults) > 0 {
+		useSDK := r.Shims.Getenv("OP_SERVICE_ACCOUNT_TOKEN") != ""
+
+		for key, vault := range vaults {
+			vaultCopy := vault
+			vaultCopy.ID = key
+
+			if r.SecretsProviders.Onepassword == nil {
+				if useSDK {
+					r.SecretsProviders.Onepassword = secrets.NewOnePasswordSDKSecretsProvider(vaultCopy, r.Injector)
+				} else {
+					r.SecretsProviders.Onepassword = secrets.NewOnePasswordCLISecretsProvider(vaultCopy, r.Injector)
+				}
+				r.Injector.Register("onePasswordSecretsProvider", r.SecretsProviders.Onepassword)
+				break
+			}
+		}
+	}
+
 	return r
 }
 
