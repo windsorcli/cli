@@ -3792,6 +3792,66 @@ func TestBaseBlueprintHandler_SetRenderedKustomizeData(t *testing.T) {
 	})
 }
 
+func TestBlueprintHandler_LoadBlueprint(t *testing.T) {
+	t.Run("LoadsBlueprintSuccessfullyWithLocalTemplates", func(t *testing.T) {
+		// Given a blueprint handler with local templates
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		if err := handler.Initialize(); err != nil {
+			t.Fatalf("Initialize() failed: %v", err)
+		}
+		// Set up shims after initialization
+		handler.shims = mocks.Shims
+
+		// Set up project root and create template root directory
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
+		if err := os.MkdirAll(templateRoot, 0755); err != nil {
+			t.Fatalf("Failed to create template root: %v", err)
+		}
+
+		// Create a basic blueprint.yaml in templates
+		blueprintContent := `apiVersion: v1alpha1
+kind: Blueprint
+metadata:
+  name: test-blueprint
+  description: Test blueprint
+sources: []
+terraformComponents: []
+kustomizations: []`
+
+		blueprintPath := filepath.Join(templateRoot, "blueprint.yaml")
+		if err := os.WriteFile(blueprintPath, []byte(blueprintContent), 0644); err != nil {
+			t.Fatalf("Failed to create blueprint.yaml: %v", err)
+		}
+
+		// Mock config handler to return empty context values
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
+			return "test-context"
+		}
+
+		// When loading blueprint
+		err := handler.LoadBlueprint()
+
+		// Then should succeed
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And blueprint should be loaded
+		metadata := handler.GetMetadata()
+		if metadata.Name != "test-blueprint" {
+			t.Errorf("Expected blueprint name 'test-blueprint', got %s", metadata.Name)
+		}
+	})
+}
+
 func TestBaseBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 	t.Run("CollectsBlueprintAndFeatureFiles", func(t *testing.T) {
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")

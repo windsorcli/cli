@@ -234,9 +234,6 @@ func TestRuntime_PrintContext(t *testing.T) {
 		if output != "test-context" {
 			t.Errorf("Expected output 'test-context', got %q", output)
 		}
-
-		// And GetContext should have been called on the config handler
-		// (We can't easily track this without modifying the mock, so we just verify the output is correct)
 	})
 
 	t.Run("ReturnsErrorWhenConfigHandlerNotLoaded", func(t *testing.T) {
@@ -394,6 +391,112 @@ func TestRuntime_WriteResetToken(t *testing.T) {
 			if runtime.err.Error() != expectedError {
 				t.Errorf("Expected error %q, got %q", expectedError, runtime.err.Error())
 			}
+		}
+	})
+}
+
+func TestRuntime_LoadBlueprint(t *testing.T) {
+	t.Run("LoadsBlueprintSuccessfully", func(t *testing.T) {
+		// Given a runtime with loaded dependencies
+		mocks := setupMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.driver" {
+				return "talos"
+			}
+			return "mock-string"
+		}
+		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler().LoadKubernetes()
+
+		// When loading blueprint
+		result := runtime.LoadBlueprint()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadBlueprint to return the same runtime instance")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+
+		// And blueprint handler should be created and registered
+		if runtime.BlueprintHandler == nil {
+			t.Error("Expected blueprint handler to be created")
+		}
+
+		// And artifact builder should be created and registered
+		if runtime.ArtifactBuilder == nil {
+			t.Error("Expected artifact builder to be created")
+		}
+
+		// And components should be registered in injector
+		if runtime.Injector.Resolve("blueprintHandler") == nil {
+			t.Error("Expected blueprint handler to be registered in injector")
+		}
+
+		if runtime.Injector.Resolve("artifactBuilder") == nil {
+			t.Error("Expected artifact builder to be registered in injector")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenConfigHandlerNotLoaded", func(t *testing.T) {
+		// Given a runtime without loaded config handler
+		runtime := NewRuntime()
+
+		// When loading blueprint
+		result := runtime.LoadBlueprint()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadBlueprint to return the same runtime instance")
+		}
+
+		// And error should be set
+		if runtime.err == nil {
+			t.Error("Expected error when config handler not loaded")
+		}
+
+		expectedError := "config handler not loaded - call LoadConfigHandler() first"
+		if runtime.err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, runtime.err.Error())
+		}
+
+		// And components should not be created
+		if runtime.BlueprintHandler != nil {
+			t.Error("Expected blueprint handler to not be created")
+		}
+
+		if runtime.ArtifactBuilder != nil {
+			t.Error("Expected artifact builder to not be created")
+		}
+	})
+
+	t.Run("ReturnsEarlyOnExistingError", func(t *testing.T) {
+		// Given a runtime with an existing error
+		runtime := NewRuntime()
+		runtime.err = errors.New("existing error")
+
+		// When loading blueprint
+		result := runtime.LoadBlueprint()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadBlueprint to return the same runtime instance")
+		}
+
+		// And original error should be preserved
+		if runtime.err.Error() != "existing error" {
+			t.Errorf("Expected original error to be preserved, got %v", runtime.err)
+		}
+
+		// And components should not be created
+		if runtime.BlueprintHandler != nil {
+			t.Error("Expected blueprint handler to not be created")
+		}
+
+		if runtime.ArtifactBuilder != nil {
+			t.Error("Expected artifact builder to not be created")
 		}
 	})
 }

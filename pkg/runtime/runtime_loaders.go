@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
+	"github.com/windsorcli/cli/pkg/artifact"
+	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/cluster"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/env"
@@ -25,8 +27,8 @@ func (r *Runtime) LoadShell() *Runtime {
 
 	if r.Shell == nil {
 		r.Shell = shell.NewDefaultShell(r.Injector)
-		r.Injector.Register("shell", r.Shell)
 	}
+	r.Injector.Register("shell", r.Shell)
 	return r
 }
 
@@ -42,10 +44,11 @@ func (r *Runtime) LoadConfigHandler() *Runtime {
 
 	if r.ConfigHandler == nil {
 		r.ConfigHandler = config.NewConfigHandler(r.Injector)
-		if err := r.ConfigHandler.Initialize(); err != nil {
-			r.err = fmt.Errorf("failed to initialize config handler: %w", err)
-			return r
-		}
+	}
+	r.Injector.Register("configHandler", r.ConfigHandler)
+	if err := r.ConfigHandler.Initialize(); err != nil {
+		r.err = fmt.Errorf("failed to initialize config handler: %w", err)
+		return r
 	}
 	return r
 }
@@ -143,11 +146,7 @@ func (r *Runtime) LoadSecretsProviders() *Runtime {
 	return r
 }
 
-// LoadKubernetes loads and initializes Kubernetes and cluster client dependencies for the Runtime.
-// It creates and registers the Kubernetes client, cluster client, and Kubernetes manager in the Injector,
-// then initializes the Kubernetes manager to establish connections to Kubernetes API and provider APIs.
-// If any dependency is missing, it is constructed and registered. If initialization fails, it sets r.err and returns.
-// Returns the Runtime instance with updated dependencies and error state.
+// LoadKubernetes loads and initializes Kubernetes and cluster client dependencies.
 func (r *Runtime) LoadKubernetes() *Runtime {
 	if r.err != nil {
 		return r
@@ -161,22 +160,63 @@ func (r *Runtime) LoadKubernetes() *Runtime {
 		r.Injector.Register("kubernetesClient", kubernetesClient)
 	}
 
-	if r.ConfigHandler.GetString("cluster.driver") == "talos" {
+	driver := r.ConfigHandler.GetString("cluster.driver")
+	if driver == "" {
+		return r
+	}
+	if driver == "talos" {
 		if r.ClusterClient == nil {
 			r.ClusterClient = cluster.NewTalosClusterClient(r.Injector)
 			r.Injector.Register("clusterClient", r.ClusterClient)
 		}
 	} else {
-		r.err = fmt.Errorf("unsupported cluster driver: %s", r.ConfigHandler.GetString("cluster.driver"))
+		r.err = fmt.Errorf("unsupported cluster driver: %s", driver)
 		return r
 	}
 
 	if r.K8sManager == nil {
 		r.K8sManager = kubernetes.NewKubernetesManager(r.Injector)
-		r.Injector.Register("kubernetesManager", r.K8sManager)
 	}
+	r.Injector.Register("kubernetesManager", r.K8sManager)
 	if err := r.K8sManager.Initialize(); err != nil {
 		r.err = fmt.Errorf("failed to initialize kubernetes manager: %w", err)
+		return r
+	}
+	return r
+}
+
+// LoadBlueprint initializes and configures all runtime dependencies necessary for blueprint processing.
+// It creates and registers the blueprint handler and artifact builder if they do not already exist,
+// then initializes each component to provide template processing, OCI artifact loading, and blueprint
+// data management. All dependencies are injected and registered as needed. If any error occurs during
+// initialization, the error is set in the runtime and the method returns. Returns the Runtime instance
+// with updated dependencies and error state.
+func (r *Runtime) LoadBlueprint() *Runtime {
+	if r.err != nil {
+		return r
+	}
+	if r.ConfigHandler == nil {
+		r.err = fmt.Errorf("config handler not loaded - call LoadConfigHandler() first")
+		return r
+	}
+	if r.BlueprintHandler == nil {
+		r.BlueprintHandler = blueprint.NewBlueprintHandler(r.Injector)
+		r.Injector.Register("blueprintHandler", r.BlueprintHandler)
+	}
+	if r.ArtifactBuilder == nil {
+		r.ArtifactBuilder = artifact.NewArtifactBuilder()
+		r.Injector.Register("artifactBuilder", r.ArtifactBuilder)
+	}
+	if err := r.BlueprintHandler.Initialize(); err != nil {
+		r.err = fmt.Errorf("failed to initialize blueprint handler: %w", err)
+		return r
+	}
+	if err := r.ArtifactBuilder.Initialize(r.Injector); err != nil {
+		r.err = fmt.Errorf("failed to initialize artifact builder: %w", err)
+		return r
+	}
+	if err := r.BlueprintHandler.LoadBlueprint(); err != nil {
+		r.err = fmt.Errorf("failed to load blueprint data: %w", err)
 		return r
 	}
 	return r

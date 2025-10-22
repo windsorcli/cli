@@ -44,6 +44,7 @@ import (
 
 type BlueprintHandler interface {
 	Initialize() error
+	LoadBlueprint() error
 	LoadConfig() error
 	LoadData(data map[string]any, ociInfo ...*artifact.OCIArtifactInfo) error
 	Write(overwrite ...bool) error
@@ -126,6 +127,81 @@ func (b *BaseBlueprintHandler) Initialize() error {
 
 	if err := b.featureEvaluator.Initialize(); err != nil {
 		return fmt.Errorf("error initializing feature evaluator: %w", err)
+	}
+
+	return nil
+}
+
+// LoadBlueprint loads all blueprint data into memory, establishing defaults from either templates
+// or OCI artifacts, then applies any local blueprint.yaml overrides to ensure the correct precedence.
+// All sources are processed and merged into the in-memory runtime state.
+// Returns an error if any required paths are inaccessible or any loading operation fails.
+func (b *BaseBlueprintHandler) LoadBlueprint() error {
+	if _, err := b.shims.Stat(b.templateRoot); err == nil {
+		if _, err := b.GetLocalTemplateData(); err != nil {
+			return fmt.Errorf("failed to get local template data: %w", err)
+		}
+	} else {
+		effectiveBlueprintURL := constants.GetEffectiveBlueprintURL()
+		ociInfo, err := artifact.ParseOCIReference(effectiveBlueprintURL)
+		if err != nil {
+			return fmt.Errorf("failed to parse default blueprint reference: %w", err)
+		}
+		if ociInfo == nil {
+			return fmt.Errorf("invalid default blueprint reference: %s", effectiveBlueprintURL)
+		}
+		artifactBuilder := b.injector.Resolve("artifactBuilder")
+		if artifactBuilder == nil {
+			return fmt.Errorf("artifact builder not available")
+		}
+		ab, ok := artifactBuilder.(artifact.Artifact)
+		if !ok {
+			return fmt.Errorf("artifact builder has wrong type")
+		}
+		templateData, err := ab.GetTemplateData(ociInfo.URL)
+		if err != nil {
+			return fmt.Errorf("failed to get template data from default blueprint: %w", err)
+		}
+		blueprintData := make(map[string]any)
+		for key, value := range templateData {
+			blueprintData[key] = string(value)
+		}
+		if err := b.LoadData(blueprintData, ociInfo); err != nil {
+			return fmt.Errorf("failed to load default blueprint data: %w", err)
+		}
+	}
+
+	sources := b.GetSources()
+	if len(sources) > 0 {
+		artifactBuilder := b.injector.Resolve("artifactBuilder")
+		if artifactBuilder != nil {
+			if ab, ok := artifactBuilder.(artifact.Artifact); ok {
+				var ociURLs []string
+				for _, source := range sources {
+					if strings.HasPrefix(source.Url, "oci://") {
+						ociURLs = append(ociURLs, source.Url)
+					}
+				}
+				if len(ociURLs) > 0 {
+					_, err := ab.Pull(ociURLs)
+					if err != nil {
+						return fmt.Errorf("failed to load OCI sources: %w", err)
+					}
+				}
+			}
+		}
+	}
+
+	configRoot, err := b.configHandler.GetConfigRoot()
+	if err != nil {
+		return fmt.Errorf("error getting config root: %w", err)
+	}
+
+	blueprintPath := filepath.Join(configRoot, "blueprint.yaml")
+	if _, err := b.shims.Stat(blueprintPath); err == nil {
+		if err := b.LoadConfig(); err != nil {
+			return fmt.Errorf("failed to load blueprint config overrides: %w", err)
+		}
 	}
 
 	return nil
