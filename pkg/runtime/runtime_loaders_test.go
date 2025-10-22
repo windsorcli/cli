@@ -118,23 +118,23 @@ func TestRuntime_LoadShell(t *testing.T) {
 	})
 }
 
-func TestRuntime_LoadConfigHandler(t *testing.T) {
-	t.Run("LoadsConfigHandlerSuccessfully", func(t *testing.T) {
+func TestRuntime_LoadConfig(t *testing.T) {
+	t.Run("LoadsConfigSuccessfully", func(t *testing.T) {
 		// Given a runtime with loaded shell
 		mocks := setupMocks(t)
 		runtime := NewRuntime(mocks).LoadShell()
 
-		// When loading config handler
-		result := runtime.LoadConfigHandler()
+		// When loading config
+		result := runtime.LoadConfig()
 
 		// Then should return the same runtime instance
 		if result != runtime {
 			t.Error("Expected LoadConfigHandler to return the same runtime instance")
 		}
 
-		// And config handler should be loaded
+		// And config should be loaded
 		if runtime.ConfigHandler == nil {
-			t.Error("Expected config handler to be loaded")
+			t.Error("Expected config to be loaded")
 		}
 
 		// And no error should be set
@@ -147,8 +147,8 @@ func TestRuntime_LoadConfigHandler(t *testing.T) {
 		// Given a runtime without loaded shell (no pre-loaded dependencies)
 		runtime := NewRuntime()
 
-		// When loading config handler
-		result := runtime.LoadConfigHandler()
+		// When loading config
+		result := runtime.LoadConfig()
 
 		// Then should return the same runtime instance
 		if result != runtime {
@@ -171,8 +171,8 @@ func TestRuntime_LoadConfigHandler(t *testing.T) {
 		runtime := NewRuntime()
 		runtime.err = errors.New("existing error")
 
-		// When loading config handler
-		result := runtime.LoadConfigHandler()
+		// When loading config
+		result := runtime.LoadConfig()
 
 		// Then should return the same runtime instance
 		if result != runtime {
@@ -196,8 +196,8 @@ func TestRuntime_LoadConfigHandler(t *testing.T) {
 		runtime.Shell = shell.NewMockShell()
 		// Don't register the shell in the injector - this will cause initialization to fail
 
-		// When loading config handler
-		result := runtime.LoadConfigHandler()
+		// When loading config
+		result := runtime.LoadConfig()
 
 		// Then should return the same runtime instance
 		if result != runtime {
@@ -220,7 +220,7 @@ func TestRuntime_LoadEnvPrinters(t *testing.T) {
 	t.Run("LoadsEnvPrintersSuccessfully", func(t *testing.T) {
 		// Given a runtime with loaded shell and config handler
 		mocks := setupMocks(t)
-		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
 
 		// When loading env printers
 		result := runtime.LoadEnvPrinters()
@@ -264,7 +264,7 @@ func TestRuntime_LoadEnvPrinters(t *testing.T) {
 			t.Error("Expected error when config handler not loaded")
 		}
 
-		expectedError := "config handler not loaded - call LoadConfigHandler() first"
+		expectedError := "config handler not loaded - call LoadConfig() first"
 		if runtime.err.Error() != expectedError {
 			t.Errorf("Expected error %q, got %q", expectedError, runtime.err.Error())
 		}
@@ -325,7 +325,7 @@ func TestRuntime_LoadEnvPrinters(t *testing.T) {
 			}
 			return ""
 		}
-		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
 
 		// When loading env printers
 		result := runtime.LoadEnvPrinters()
@@ -371,7 +371,7 @@ func TestRuntime_LoadEnvPrinters(t *testing.T) {
 	t.Run("LoadsWindsorEnvPrinterAlways", func(t *testing.T) {
 		// Given a runtime with loaded shell and config handler
 		mocks := setupMocks(t)
-		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
 
 		// When loading env printers
 		result := runtime.LoadEnvPrinters()
@@ -405,7 +405,7 @@ func TestRuntime_LoadEnvPrinters(t *testing.T) {
 			}
 			return ""
 		}
-		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
 
 		// When loading env printers
 		result := runtime.LoadEnvPrinters()
@@ -439,7 +439,7 @@ func TestRuntime_LoadEnvPrinters(t *testing.T) {
 			}
 			return ""
 		}
-		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
 
 		// When loading env printers
 		result := runtime.LoadEnvPrinters()
@@ -473,7 +473,7 @@ func TestRuntime_LoadEnvPrinters(t *testing.T) {
 			}
 			return false
 		}
-		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
 
 		// When loading env printers
 		result := runtime.LoadEnvPrinters()
@@ -517,7 +517,7 @@ func TestRuntime_LoadEnvPrinters(t *testing.T) {
 			}
 			return false
 		}
-		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
 
 		// When loading env printers
 		result := runtime.LoadEnvPrinters()
@@ -557,7 +557,7 @@ func TestRuntime_LoadSecretsProviders(t *testing.T) {
 		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
 			return "/test/config/root", nil
 		}
-		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
 
 		// When loading secrets providers
 		result := runtime.LoadSecretsProviders()
@@ -590,7 +590,7 @@ func TestRuntime_LoadSecretsProviders(t *testing.T) {
 			t.Error("Expected error when config handler not loaded")
 		}
 
-		expectedError := "config handler not loaded - call LoadConfigHandler() first"
+		expectedError := "config handler not loaded - call LoadConfig() first"
 		if runtime.err.Error() != expectedError {
 			t.Errorf("Expected error %q, got %q", expectedError, runtime.err.Error())
 		}
@@ -629,7 +629,7 @@ func TestRuntime_LoadSecretsProviders(t *testing.T) {
 		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
 			return "", errors.New("config root error")
 		}
-		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
 
 		// When loading secrets providers
 		result := runtime.LoadSecretsProviders()
@@ -656,7 +656,7 @@ func TestRuntime_LoadSecretsProviders(t *testing.T) {
 		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
 			return "/test/config/root", nil
 		}
-		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
 
 		// Mock Stat to return success for secrets.enc.yaml
 		runtime.Shims.Stat = func(name string) (os.FileInfo, error) {
@@ -705,7 +705,7 @@ func TestRuntime_LoadSecretsProviders(t *testing.T) {
 			}
 			return nil
 		}
-		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
 
 		// Mock Getenv to return SDK token
 		runtime.Shims.Getenv = func(key string) string {
@@ -754,7 +754,7 @@ func TestRuntime_LoadSecretsProviders(t *testing.T) {
 			}
 			return nil
 		}
-		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
 
 		// Mock Getenv to return no SDK token
 		runtime.Shims.Getenv = func(key string) string {
@@ -795,7 +795,7 @@ func TestRuntime_LoadSecretsProviders(t *testing.T) {
 		mocks.ConfigHandler.(*config.MockConfigHandler).GetFunc = func(key string) any {
 			return nil // No secrets configuration
 		}
-		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
 
 		// Mock Stat to return file not found for secrets files
 		runtime.Shims.Stat = func(name string) (os.FileInfo, error) {
@@ -834,7 +834,7 @@ func TestRuntime_LoadKubernetes(t *testing.T) {
 	t.Run("LoadsKubernetesSuccessfully", func(t *testing.T) {
 		// Given a runtime with loaded config handler
 		mocks := setupMocks(t)
-		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
 
 		// And mock config handler returns "talos" for cluster driver
 		mockConfigHandler := runtime.ConfigHandler.(*config.MockConfigHandler)
@@ -904,7 +904,7 @@ func TestRuntime_LoadKubernetes(t *testing.T) {
 			t.Error("Expected error when config handler not loaded")
 		}
 
-		expectedError := "config handler not loaded - call LoadConfigHandler() first"
+		expectedError := "config handler not loaded - call LoadConfig() first"
 		if runtime.err.Error() != expectedError {
 			t.Errorf("Expected error %q, got %q", expectedError, runtime.err.Error())
 		}
@@ -921,7 +921,7 @@ func TestRuntime_LoadKubernetes(t *testing.T) {
 	t.Run("ReturnsErrorWhenUnsupportedClusterDriver", func(t *testing.T) {
 		// Given a runtime with loaded config handler
 		mocks := setupMocks(t)
-		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
 
 		// And mock config handler returns unsupported cluster driver
 		mockConfigHandler := runtime.ConfigHandler.(*config.MockConfigHandler)
@@ -989,7 +989,7 @@ func TestRuntime_LoadKubernetes(t *testing.T) {
 	t.Run("ReusesExistingKubernetesClient", func(t *testing.T) {
 		// Given a runtime with loaded config handler
 		mocks := setupMocks(t)
-		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
 
 		// And mock config handler returns "talos" for cluster driver
 		mockConfigHandler := runtime.ConfigHandler.(*config.MockConfigHandler)
@@ -1027,7 +1027,7 @@ func TestRuntime_LoadKubernetes(t *testing.T) {
 	t.Run("ReusesExistingClusterClient", func(t *testing.T) {
 		// Given a runtime with loaded config handler
 		mocks := setupMocks(t)
-		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
 
 		// And mock config handler returns "talos" for cluster driver
 		mockConfigHandler := runtime.ConfigHandler.(*config.MockConfigHandler)
@@ -1064,7 +1064,7 @@ func TestRuntime_LoadKubernetes(t *testing.T) {
 	t.Run("ReusesExistingKubernetesManager", func(t *testing.T) {
 		// Given a runtime with loaded config handler
 		mocks := setupMocks(t)
-		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
 
 		// And mock config handler returns "talos" for cluster driver
 		mockConfigHandler := runtime.ConfigHandler.(*config.MockConfigHandler)
@@ -1101,7 +1101,7 @@ func TestRuntime_LoadKubernetes(t *testing.T) {
 	t.Run("PropagatesKubernetesManagerInitializationError", func(t *testing.T) {
 		// Given a runtime with loaded config handler
 		mocks := setupMocks(t)
-		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
 
 		// And mock config handler returns "talos" for cluster driver
 		mockConfigHandler := runtime.ConfigHandler.(*config.MockConfigHandler)
