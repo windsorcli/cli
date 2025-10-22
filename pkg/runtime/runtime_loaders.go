@@ -5,8 +5,10 @@ import (
 	"path/filepath"
 
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
+	"github.com/windsorcli/cli/pkg/cluster"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/env"
+	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -138,5 +140,44 @@ func (r *Runtime) LoadSecretsProviders() *Runtime {
 		}
 	}
 
+	return r
+}
+
+// LoadKubernetes loads and initializes Kubernetes and cluster client dependencies for the Runtime.
+// It creates and registers the Kubernetes client, cluster client, and Kubernetes manager in the Injector,
+// then initializes the Kubernetes manager to establish connections to Kubernetes API and provider APIs.
+// If any dependency is missing, it is constructed and registered. If initialization fails, it sets r.err and returns.
+// Returns the Runtime instance with updated dependencies and error state.
+func (r *Runtime) LoadKubernetes() *Runtime {
+	if r.err != nil {
+		return r
+	}
+	if r.ConfigHandler == nil {
+		r.err = fmt.Errorf("config handler not loaded - call LoadConfigHandler() first")
+		return r
+	}
+	if r.Injector.Resolve("kubernetesClient") == nil {
+		kubernetesClient := kubernetes.NewDynamicKubernetesClient()
+		r.Injector.Register("kubernetesClient", kubernetesClient)
+	}
+
+	if r.ConfigHandler.GetString("cluster.driver") == "talos" {
+		if r.ClusterClient == nil {
+			r.ClusterClient = cluster.NewTalosClusterClient(r.Injector)
+			r.Injector.Register("clusterClient", r.ClusterClient)
+		}
+	} else {
+		r.err = fmt.Errorf("unsupported cluster driver: %s", r.ConfigHandler.GetString("cluster.driver"))
+		return r
+	}
+
+	if r.K8sManager == nil {
+		r.K8sManager = kubernetes.NewKubernetesManager(r.Injector)
+		r.Injector.Register("kubernetesManager", r.K8sManager)
+	}
+	if err := r.K8sManager.Initialize(); err != nil {
+		r.err = fmt.Errorf("failed to initialize kubernetes manager: %w", err)
+		return r
+	}
 	return r
 }
