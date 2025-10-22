@@ -9,6 +9,7 @@ import (
 // MockBlueprintHandler is a mock implementation of BlueprintHandler interface for testing
 type MockBlueprintHandler struct {
 	InitializeFunc             func() error
+	LoadBlueprintFunc          func() error
 	LoadConfigFunc             func() error
 	LoadDataFunc               func(data map[string]any, ociInfo ...*artifact.OCIArtifactInfo) error
 	WriteFunc                  func(overwrite ...bool) error
@@ -44,6 +45,14 @@ func NewMockBlueprintHandler(injector di.Injector) *MockBlueprintHandler {
 func (m *MockBlueprintHandler) Initialize() error {
 	if m.InitializeFunc != nil {
 		return m.InitializeFunc()
+	}
+	return nil
+}
+
+// LoadBlueprint calls the mock LoadBlueprintFunc if set, otherwise returns nil
+func (m *MockBlueprintHandler) LoadBlueprint() error {
+	if m.LoadBlueprintFunc != nil {
+		return m.LoadBlueprintFunc()
 	}
 	return nil
 }
