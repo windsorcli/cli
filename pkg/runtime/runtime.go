@@ -71,7 +71,8 @@ type Dependencies struct {
 // Runtime encapsulates all core Windsor CLI runtime dependencies.
 type Runtime struct {
 	Dependencies
-	err error
+	Shims *Shims
+	err   error
 }
 
 // =============================================================================
@@ -91,6 +92,7 @@ func NewRuntime(deps ...*Dependencies) *Runtime {
 	}
 	return &Runtime{
 		Dependencies: *depsVal,
+		Shims:        NewShims(),
 	}
 }
 
@@ -101,39 +103,6 @@ func NewRuntime(deps ...*Dependencies) *Runtime {
 // Do returns the cumulative error state from all preceding runtime operations.
 func (r *Runtime) Do() error {
 	return r.err
-}
-
-// LoadShell loads the shell dependency, creating a new default shell if none exists.
-func (r *Runtime) LoadShell() *Runtime {
-	if r.err != nil {
-		return r
-	}
-
-	if r.Shell == nil {
-		r.Shell = shell.NewDefaultShell(r.Injector)
-		r.Injector.Register("shell", r.Shell)
-	}
-	return r
-}
-
-// LoadConfigHandler loads and initializes the configuration handler dependency.
-func (r *Runtime) LoadConfigHandler() *Runtime {
-	if r.err != nil {
-		return r
-	}
-	if r.Shell == nil {
-		r.err = fmt.Errorf("shell not loaded - call LoadShell() first")
-		return r
-	}
-
-	if r.ConfigHandler == nil {
-		r.ConfigHandler = config.NewConfigHandler(r.Injector)
-		if err := r.ConfigHandler.Initialize(); err != nil {
-			r.err = fmt.Errorf("failed to initialize config handler: %w", err)
-			return r
-		}
-	}
-	return r
 }
 
 // InstallHook installs a shell hook for the specified shell type.
