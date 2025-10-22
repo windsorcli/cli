@@ -32,8 +32,13 @@ func (r *Runtime) LoadShell() *Runtime {
 	return r
 }
 
-// LoadConfigHandler loads and initializes the configuration handler dependency.
-func (r *Runtime) LoadConfigHandler() *Runtime {
+// LoadConfig loads and initializes the configuration handler dependency and fully loads
+// all configuration data into memory. It creates a new ConfigHandler if none exists, initializes
+// it with required dependencies, and then loads all configuration sources (schema defaults,
+// root windsor.yaml context section, context-specific windsor.yaml/yml files, and values.yaml)
+// into the internal data map. This method replaces the previous LoadConfigHandler method
+// by combining handler creation/initialization with actual configuration loading.
+func (r *Runtime) LoadConfig() *Runtime {
 	if r.err != nil {
 		return r
 	}
@@ -50,6 +55,10 @@ func (r *Runtime) LoadConfigHandler() *Runtime {
 		r.err = fmt.Errorf("failed to initialize config handler: %w", err)
 		return r
 	}
+	if err := r.ConfigHandler.LoadConfig(); err != nil {
+		r.err = fmt.Errorf("failed to load configuration: %w", err)
+		return r
+	}
 	return r
 }
 
@@ -59,7 +68,7 @@ func (r *Runtime) LoadEnvPrinters() *Runtime {
 		return r
 	}
 	if r.ConfigHandler == nil {
-		r.err = fmt.Errorf("config handler not loaded - call LoadConfigHandler() first")
+		r.err = fmt.Errorf("config handler not loaded - call LoadConfig() first")
 		return r
 	}
 	if r.EnvPrinters.AwsEnv == nil && r.ConfigHandler.GetBool("aws.enabled", false) {
@@ -102,7 +111,7 @@ func (r *Runtime) LoadSecretsProviders() *Runtime {
 		return r
 	}
 	if r.ConfigHandler == nil {
-		r.err = fmt.Errorf("config handler not loaded - call LoadConfigHandler() first")
+		r.err = fmt.Errorf("config handler not loaded - call LoadConfig() first")
 		return r
 	}
 
@@ -152,7 +161,7 @@ func (r *Runtime) LoadKubernetes() *Runtime {
 		return r
 	}
 	if r.ConfigHandler == nil {
-		r.err = fmt.Errorf("config handler not loaded - call LoadConfigHandler() first")
+		r.err = fmt.Errorf("config handler not loaded - call LoadConfig() first")
 		return r
 	}
 	if r.Injector.Resolve("kubernetesClient") == nil {
@@ -196,7 +205,7 @@ func (r *Runtime) LoadBlueprint() *Runtime {
 		return r
 	}
 	if r.ConfigHandler == nil {
-		r.err = fmt.Errorf("config handler not loaded - call LoadConfigHandler() first")
+		r.err = fmt.Errorf("config handler not loaded - call LoadConfig() first")
 		return r
 	}
 	if r.BlueprintHandler == nil {

@@ -25,7 +25,7 @@ var getContextCmd = &cobra.Command{
 
 		if err := runtime.NewRuntime(deps).
 			LoadShell().
-			LoadConfigHandler().
+			LoadConfig().
 			PrintContext(outputFunc).
 			Do(); err != nil {
 			return fmt.Errorf("Error getting context: %w", err)
@@ -47,7 +47,7 @@ var setContextCmd = &cobra.Command{
 		}
 		if err := runtime.NewRuntime(deps).
 			LoadShell().
-			LoadConfigHandler().
+			LoadConfig().
 			WriteResetToken().
 			SetContext(args[0]).
 			Do(); err != nil {

@@ -124,7 +124,7 @@ func (r *Runtime) SetContext(context string) *Runtime {
 		return r
 	}
 	if r.ConfigHandler == nil {
-		r.err = fmt.Errorf("config handler not loaded - call LoadConfigHandler() first")
+		r.err = fmt.Errorf("config handler not loaded - call LoadConfig() first")
 		return r
 	}
 	r.err = r.ConfigHandler.SetContext(context)
@@ -137,7 +137,7 @@ func (r *Runtime) PrintContext(outputFunc func(string)) *Runtime {
 		return r
 	}
 	if r.ConfigHandler == nil {
-		r.err = fmt.Errorf("config handler not loaded - call LoadConfigHandler() first")
+		r.err = fmt.Errorf("config handler not loaded - call LoadConfig() first")
 		return r
 	}
 	context := r.ConfigHandler.GetContext()

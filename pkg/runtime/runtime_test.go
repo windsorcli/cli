@@ -109,7 +109,7 @@ func TestRuntime_SetContext(t *testing.T) {
 	t.Run("SetsContextSuccessfully", func(t *testing.T) {
 		// Given a runtime with loaded config handler
 		mocks := setupMocks(t)
-		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
 
 		// When setting context
 		result := runtime.SetContext("test-context")
@@ -145,7 +145,7 @@ func TestRuntime_SetContext(t *testing.T) {
 			t.Error("Expected error when config handler not loaded")
 		}
 
-		expectedError := "config handler not loaded - call LoadConfigHandler() first"
+		expectedError := "config handler not loaded - call LoadConfig() first"
 		if runtime.err.Error() != expectedError {
 			t.Errorf("Expected error %q, got %q", expectedError, runtime.err.Error())
 		}
@@ -181,7 +181,7 @@ func TestRuntime_SetContext(t *testing.T) {
 		runtime := NewRuntime()
 		runtime.Shell = mockShell
 		runtime.Injector.Register("shell", mockShell)
-		runtime.LoadConfigHandler()
+		runtime.LoadConfig()
 
 		// When setting context
 		result := runtime.SetContext("test-context")
@@ -195,7 +195,7 @@ func TestRuntime_SetContext(t *testing.T) {
 		if runtime.err == nil {
 			t.Error("Expected error to be propagated from config handler")
 		} else {
-			expectedError := "error getting project root"
+			expectedError := "failed to load configuration"
 			if !strings.Contains(runtime.err.Error(), expectedError) {
 				t.Errorf("Expected error to contain %q, got %q", expectedError, runtime.err.Error())
 			}
@@ -210,7 +210,7 @@ func TestRuntime_PrintContext(t *testing.T) {
 		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
 			return "test-context"
 		}
-		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
 
 		var output string
 		outputFunc := func(s string) {
@@ -258,7 +258,7 @@ func TestRuntime_PrintContext(t *testing.T) {
 			t.Error("Expected error when config handler not loaded")
 		}
 
-		expectedError := "config handler not loaded - call LoadConfigHandler() first"
+		expectedError := "config handler not loaded - call LoadConfig() first"
 		if runtime.err.Error() != expectedError {
 			t.Errorf("Expected error %q, got %q", expectedError, runtime.err.Error())
 		}
@@ -405,7 +405,7 @@ func TestRuntime_LoadBlueprint(t *testing.T) {
 			}
 			return "mock-string"
 		}
-		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler().LoadKubernetes()
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig().LoadKubernetes()
 
 		// When loading blueprint
 		result := runtime.LoadBlueprint()
@@ -457,7 +457,7 @@ func TestRuntime_LoadBlueprint(t *testing.T) {
 			t.Error("Expected error when config handler not loaded")
 		}
 
-		expectedError := "config handler not loaded - call LoadConfigHandler() first"
+		expectedError := "config handler not loaded - call LoadConfig() first"
 		if runtime.err.Error() != expectedError {
 			t.Errorf("Expected error %q, got %q", expectedError, runtime.err.Error())
 		}
