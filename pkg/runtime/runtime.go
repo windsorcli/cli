@@ -136,6 +136,48 @@ func (r *Runtime) LoadConfigHandler() *Runtime {
 	return r
 }
 
+// LoadEnvPrinters loads and initializes the environment printers.
+func (r *Runtime) LoadEnvPrinters() *Runtime {
+	if r.err != nil {
+		return r
+	}
+	if r.ConfigHandler == nil {
+		r.err = fmt.Errorf("config handler not loaded - call LoadConfigHandler() first")
+		return r
+	}
+	if r.EnvPrinters.AwsEnv == nil && r.ConfigHandler.GetBool("aws.enabled", false) {
+		r.EnvPrinters.AwsEnv = env.NewAwsEnvPrinter(r.Injector)
+		r.Injector.Register("awsEnv", r.EnvPrinters.AwsEnv)
+	}
+	if r.EnvPrinters.AzureEnv == nil && r.ConfigHandler.GetBool("azure.enabled", false) {
+		r.EnvPrinters.AzureEnv = env.NewAzureEnvPrinter(r.Injector)
+		r.Injector.Register("azureEnv", r.EnvPrinters.AzureEnv)
+	}
+	if r.EnvPrinters.DockerEnv == nil && r.ConfigHandler.GetBool("docker.enabled", false) {
+		r.EnvPrinters.DockerEnv = env.NewDockerEnvPrinter(r.Injector)
+		r.Injector.Register("dockerEnv", r.EnvPrinters.DockerEnv)
+	}
+	if r.EnvPrinters.KubeEnv == nil && r.ConfigHandler.GetBool("cluster.enabled", false) {
+		r.EnvPrinters.KubeEnv = env.NewKubeEnvPrinter(r.Injector)
+		r.Injector.Register("kubeEnv", r.EnvPrinters.KubeEnv)
+	}
+	if r.EnvPrinters.TalosEnv == nil &&
+		(r.ConfigHandler.GetString("cluster.driver", "") == "talos" ||
+			r.ConfigHandler.GetString("cluster.driver", "") == "omni") {
+		r.EnvPrinters.TalosEnv = env.NewTalosEnvPrinter(r.Injector)
+		r.Injector.Register("talosEnv", r.EnvPrinters.TalosEnv)
+	}
+	if r.EnvPrinters.TerraformEnv == nil && r.ConfigHandler.GetBool("terraform.enabled", false) {
+		r.EnvPrinters.TerraformEnv = env.NewTerraformEnvPrinter(r.Injector)
+		r.Injector.Register("terraformEnv", r.EnvPrinters.TerraformEnv)
+	}
+	if r.EnvPrinters.WindsorEnv == nil {
+		r.EnvPrinters.WindsorEnv = env.NewWindsorEnvPrinter(r.Injector)
+		r.Injector.Register("windsorEnv", r.EnvPrinters.WindsorEnv)
+	}
+	return r
+}
+
 // InstallHook installs a shell hook for the specified shell type.
 func (r *Runtime) InstallHook(shellType string) *Runtime {
 	if r.err != nil {

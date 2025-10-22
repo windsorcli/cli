@@ -231,6 +231,340 @@ func TestRuntime_LoadConfigHandler(t *testing.T) {
 	})
 }
 
+func TestRuntime_LoadEnvPrinters(t *testing.T) {
+	t.Run("LoadsEnvPrintersSuccessfully", func(t *testing.T) {
+		// Given a runtime with loaded shell and config handler
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+
+		// When loading env printers
+		result := runtime.LoadEnvPrinters()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadEnvPrinters to return the same runtime instance")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+
+		// And WindsorEnv should always be loaded
+		if runtime.EnvPrinters.WindsorEnv == nil {
+			t.Error("Expected WindsorEnv to be loaded")
+		}
+
+		// And WindsorEnv should be registered in injector
+		resolvedWindsorEnv := runtime.Injector.Resolve("windsorEnv")
+		if resolvedWindsorEnv == nil {
+			t.Error("Expected WindsorEnv to be registered in injector")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenConfigHandlerNotLoaded", func(t *testing.T) {
+		// Given a runtime without loaded config handler (no pre-loaded dependencies)
+		runtime := NewRuntime()
+
+		// When loading env printers
+		result := runtime.LoadEnvPrinters()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadEnvPrinters to return the same runtime instance")
+		}
+
+		// And error should be set
+		if runtime.err == nil {
+			t.Error("Expected error when config handler not loaded")
+		}
+
+		expectedError := "config handler not loaded - call LoadConfigHandler() first"
+		if runtime.err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, runtime.err.Error())
+		}
+	})
+
+	t.Run("ReturnsEarlyOnExistingError", func(t *testing.T) {
+		// Given a runtime with an existing error (no pre-loaded dependencies)
+		runtime := NewRuntime()
+		runtime.err = errors.New("existing error")
+
+		// When loading env printers
+		result := runtime.LoadEnvPrinters()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadEnvPrinters to return the same runtime instance")
+		}
+
+		// And original error should be preserved
+		if runtime.err.Error() != "existing error" {
+			t.Errorf("Expected original error to be preserved, got %v", runtime.err)
+		}
+
+		// And no env printers should be loaded
+		if runtime.EnvPrinters.WindsorEnv != nil {
+			t.Error("Expected no env printers to be loaded when error exists")
+		}
+	})
+
+	t.Run("LoadsOnlyEnabledEnvPrinters", func(t *testing.T) {
+		// Given a runtime with loaded shell and config handler with specific enabled features
+		mocks := setupMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			switch key {
+			case "aws.enabled":
+				return true
+			case "azure.enabled":
+				return false
+			case "docker.enabled":
+				return true
+			case "cluster.enabled":
+				return false
+			case "terraform.enabled":
+				return true
+			default:
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return false
+			}
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.driver" {
+				return "kubernetes"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+
+		// When loading env printers
+		result := runtime.LoadEnvPrinters()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadEnvPrinters to return the same runtime instance")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+
+		// And enabled env printers should be loaded
+		if runtime.EnvPrinters.AwsEnv == nil {
+			t.Error("Expected AwsEnv to be loaded when enabled")
+		}
+		if runtime.EnvPrinters.DockerEnv == nil {
+			t.Error("Expected DockerEnv to be loaded when enabled")
+		}
+		if runtime.EnvPrinters.TerraformEnv == nil {
+			t.Error("Expected TerraformEnv to be loaded when enabled")
+		}
+
+		// And disabled env printers should not be loaded
+		if runtime.EnvPrinters.AzureEnv != nil {
+			t.Error("Expected AzureEnv to not be loaded when disabled")
+		}
+		if runtime.EnvPrinters.KubeEnv != nil {
+			t.Error("Expected KubeEnv to not be loaded when disabled")
+		}
+		if runtime.EnvPrinters.TalosEnv != nil {
+			t.Error("Expected TalosEnv to not be loaded when cluster driver is not talos/omni")
+		}
+
+		// And WindsorEnv should always be loaded
+		if runtime.EnvPrinters.WindsorEnv == nil {
+			t.Error("Expected WindsorEnv to be loaded")
+		}
+	})
+
+	t.Run("LoadsWindsorEnvPrinterAlways", func(t *testing.T) {
+		// Given a runtime with loaded shell and config handler
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+
+		// When loading env printers
+		result := runtime.LoadEnvPrinters()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadEnvPrinters to return the same runtime instance")
+		}
+
+		// And WindsorEnv should always be loaded regardless of config
+		if runtime.EnvPrinters.WindsorEnv == nil {
+			t.Error("Expected WindsorEnv to be loaded")
+		}
+
+		// And WindsorEnv should be registered in injector
+		resolvedWindsorEnv := runtime.Injector.Resolve("windsorEnv")
+		if resolvedWindsorEnv == nil {
+			t.Error("Expected WindsorEnv to be registered in injector")
+		}
+	})
+
+	t.Run("LoadsTalosEnvPrinterForTalosDriver", func(t *testing.T) {
+		// Given a runtime with loaded shell and config handler with talos driver
+		mocks := setupMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.driver" {
+				return "talos"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+
+		// When loading env printers
+		result := runtime.LoadEnvPrinters()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadEnvPrinters to return the same runtime instance")
+		}
+
+		// And TalosEnv should be loaded for talos driver
+		if runtime.EnvPrinters.TalosEnv == nil {
+			t.Error("Expected TalosEnv to be loaded for talos driver")
+		}
+
+		// And TalosEnv should be registered in injector
+		resolvedTalosEnv := runtime.Injector.Resolve("talosEnv")
+		if resolvedTalosEnv == nil {
+			t.Error("Expected TalosEnv to be registered in injector")
+		}
+	})
+
+	t.Run("LoadsTalosEnvPrinterForOmniDriver", func(t *testing.T) {
+		// Given a runtime with loaded shell and config handler with omni driver
+		mocks := setupMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.driver" {
+				return "omni"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+
+		// When loading env printers
+		result := runtime.LoadEnvPrinters()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadEnvPrinters to return the same runtime instance")
+		}
+
+		// And TalosEnv should be loaded for omni driver
+		if runtime.EnvPrinters.TalosEnv == nil {
+			t.Error("Expected TalosEnv to be loaded for omni driver")
+		}
+
+		// And TalosEnv should be registered in injector
+		resolvedTalosEnv := runtime.Injector.Resolve("talosEnv")
+		if resolvedTalosEnv == nil {
+			t.Error("Expected TalosEnv to be registered in injector")
+		}
+	})
+
+	t.Run("LoadsAzureEnvPrinterWhenEnabled", func(t *testing.T) {
+		// Given a runtime with loaded shell and config handler with azure enabled
+		mocks := setupMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "azure.enabled" {
+				return true
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+
+		// When loading env printers
+		result := runtime.LoadEnvPrinters()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadEnvPrinters to return the same runtime instance")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+
+		// And AzureEnv should be loaded when enabled
+		if runtime.EnvPrinters.AzureEnv == nil {
+			t.Error("Expected AzureEnv to be loaded when enabled")
+		}
+
+		// And AzureEnv should be registered in injector
+		resolvedAzureEnv := runtime.Injector.Resolve("azureEnv")
+		if resolvedAzureEnv == nil {
+			t.Error("Expected AzureEnv to be registered in injector")
+		}
+
+		// And WindsorEnv should always be loaded
+		if runtime.EnvPrinters.WindsorEnv == nil {
+			t.Error("Expected WindsorEnv to be loaded")
+		}
+	})
+
+	t.Run("LoadsKubeEnvPrinterWhenEnabled", func(t *testing.T) {
+		// Given a runtime with loaded shell and config handler with cluster enabled
+		mocks := setupMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "cluster.enabled" {
+				return true
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		runtime := NewRuntime(mocks).LoadShell().LoadConfigHandler()
+
+		// When loading env printers
+		result := runtime.LoadEnvPrinters()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected LoadEnvPrinters to return the same runtime instance")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+
+		// And KubeEnv should be loaded when cluster is enabled
+		if runtime.EnvPrinters.KubeEnv == nil {
+			t.Error("Expected KubeEnv to be loaded when cluster is enabled")
+		}
+
+		// And KubeEnv should be registered in injector
+		resolvedKubeEnv := runtime.Injector.Resolve("kubeEnv")
+		if resolvedKubeEnv == nil {
+			t.Error("Expected KubeEnv to be registered in injector")
+		}
+
+		// And WindsorEnv should always be loaded
+		if runtime.EnvPrinters.WindsorEnv == nil {
+			t.Error("Expected WindsorEnv to be loaded")
+		}
+	})
+}
+
 func TestRuntime_InstallHook(t *testing.T) {
 	t.Run("InstallsHookSuccessfully", func(t *testing.T) {
 		// Given a runtime with loaded shell
