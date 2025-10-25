@@ -907,3 +907,192 @@ func TestRuntime_HandleSessionReset(t *testing.T) {
 		os.Unsetenv("NO_CACHE")
 	})
 }
+
+func TestRuntime_CheckTrustedDirectory(t *testing.T) {
+	t.Run("ReturnsEarlyOnExistingError", func(t *testing.T) {
+		// Given a runtime with an existing error
+		runtime := NewRuntime()
+		expectedError := errors.New("existing error")
+		runtime.err = expectedError
+
+		// When checking trusted directory
+		result := runtime.CheckTrustedDirectory()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected CheckTrustedDirectory to return the same runtime instance")
+		}
+
+		// And original error should be preserved
+		if runtime.err != expectedError {
+			t.Errorf("Expected original error to be preserved, got %v", runtime.err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenShellNotLoaded", func(t *testing.T) {
+		// Given a runtime without loaded shell
+		runtime := NewRuntime()
+
+		// When checking trusted directory
+		result := runtime.CheckTrustedDirectory()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected CheckTrustedDirectory to return the same runtime instance")
+		}
+
+		// And error should be set
+		if runtime.err == nil {
+			t.Error("Expected error when shell not loaded")
+		}
+
+		expectedError := "shell not loaded - call LoadShell() first"
+		if runtime.err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, runtime.err.Error())
+		}
+	})
+
+	t.Run("SucceedsWhenDirectoryIsTrusted", func(t *testing.T) {
+		// Given a runtime with loaded shell
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell()
+
+		// Mock CheckTrustedDirectory to succeed
+		mocks.Shell.(*shell.MockShell).CheckTrustedDirectoryFunc = func() error {
+			return nil
+		}
+
+		// When checking trusted directory
+		result := runtime.CheckTrustedDirectory()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected CheckTrustedDirectory to return the same runtime instance")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+	})
+
+	t.Run("PropagatesShellError", func(t *testing.T) {
+		// Given a runtime with loaded shell
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell()
+
+		// Mock CheckTrustedDirectory to return an error
+		expectedError := errors.New("trusted directory check failed")
+		mocks.Shell.(*shell.MockShell).CheckTrustedDirectoryFunc = func() error {
+			return expectedError
+		}
+
+		// When checking trusted directory
+		result := runtime.CheckTrustedDirectory()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected CheckTrustedDirectory to return the same runtime instance")
+		}
+
+		// And error should be set with custom message
+		if runtime.err == nil {
+			t.Error("Expected error to be set")
+		} else {
+			expectedErrorMsg := "not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve"
+			if runtime.err.Error() != expectedErrorMsg {
+				t.Errorf("Expected error %q, got %q", expectedErrorMsg, runtime.err.Error())
+			}
+		}
+	})
+
+	t.Run("PropagatesProjectRootError", func(t *testing.T) {
+		// Given a runtime with loaded shell
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell()
+
+		// Mock CheckTrustedDirectory to return a project root error
+		expectedError := errors.New("Error getting project root directory: getwd failed")
+		mocks.Shell.(*shell.MockShell).CheckTrustedDirectoryFunc = func() error {
+			return expectedError
+		}
+
+		// When checking trusted directory
+		result := runtime.CheckTrustedDirectory()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected CheckTrustedDirectory to return the same runtime instance")
+		}
+
+		// And error should be set with custom message
+		if runtime.err == nil {
+			t.Error("Expected error to be set")
+		} else {
+			expectedErrorMsg := "not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve"
+			if runtime.err.Error() != expectedErrorMsg {
+				t.Errorf("Expected error %q, got %q", expectedErrorMsg, runtime.err.Error())
+			}
+		}
+	})
+
+	t.Run("PropagatesTrustedFileNotExistError", func(t *testing.T) {
+		// Given a runtime with loaded shell
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell()
+
+		// Mock CheckTrustedDirectory to return a trusted file not exist error
+		expectedError := errors.New("Trusted file does not exist")
+		mocks.Shell.(*shell.MockShell).CheckTrustedDirectoryFunc = func() error {
+			return expectedError
+		}
+
+		// When checking trusted directory
+		result := runtime.CheckTrustedDirectory()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected CheckTrustedDirectory to return the same runtime instance")
+		}
+
+		// And error should be set with custom message
+		if runtime.err == nil {
+			t.Error("Expected error to be set")
+		} else {
+			expectedErrorMsg := "not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve"
+			if runtime.err.Error() != expectedErrorMsg {
+				t.Errorf("Expected error %q, got %q", expectedErrorMsg, runtime.err.Error())
+			}
+		}
+	})
+
+	t.Run("PropagatesNotTrustedError", func(t *testing.T) {
+		// Given a runtime with loaded shell
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell()
+
+		// Mock CheckTrustedDirectory to return a not trusted error
+		expectedError := errors.New("Current directory not in the trusted list")
+		mocks.Shell.(*shell.MockShell).CheckTrustedDirectoryFunc = func() error {
+			return expectedError
+		}
+
+		// When checking trusted directory
+		result := runtime.CheckTrustedDirectory()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected CheckTrustedDirectory to return the same runtime instance")
+		}
+
+		// And error should be set with custom message
+		if runtime.err == nil {
+			t.Error("Expected error to be set")
+		} else {
+			expectedErrorMsg := "not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve"
+			if runtime.err.Error() != expectedErrorMsg {
+				t.Errorf("Expected error %q, got %q", expectedErrorMsg, runtime.err.Error())
+			}
+		}
+	})
+}
