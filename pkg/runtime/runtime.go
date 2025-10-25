@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/blueprint"
@@ -155,5 +156,46 @@ func (r *Runtime) WriteResetToken() *Runtime {
 		return r
 	}
 	_, r.err = r.Shell.WriteResetToken()
+	return r
+}
+
+// HandleSessionReset resets managed environment variables if needed before loading new ones.
+// It checks for reset flags, session tokens, and context changes. Errors are recorded in r.err.
+func (r *Runtime) HandleSessionReset() *Runtime {
+	if r.err != nil {
+		return r
+	}
+	if r.Shell == nil {
+		r.err = fmt.Errorf("shell not loaded - call LoadShell() first")
+		return r
+	}
+
+	hasSessionToken := os.Getenv("WINDSOR_SESSION_TOKEN") != ""
+	shouldReset, err := r.Shell.CheckResetFlags()
+	if err != nil {
+		r.err = fmt.Errorf("failed to check reset flags: %w", err)
+		return r
+	}
+	if !hasSessionToken {
+		shouldReset = true
+	}
+
+	if !shouldReset && r.ConfigHandler != nil {
+		currentContext := r.ConfigHandler.GetContext()
+		envContext := os.Getenv("WINDSOR_CONTEXT")
+		if envContext != "" && envContext != currentContext {
+			shouldReset = true
+		}
+	} else if r.ConfigHandler == nil {
+	}
+
+	if shouldReset {
+		r.Shell.Reset()
+		if err := os.Setenv("NO_CACHE", "true"); err != nil {
+			r.err = fmt.Errorf("failed to set NO_CACHE: %w", err)
+			return r
+		}
+	}
+
 	return r
 }

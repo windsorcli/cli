@@ -48,8 +48,8 @@ var setContextCmd = &cobra.Command{
 		if err := runtime.NewRuntime(deps).
 			LoadShell().
 			LoadConfig().
-			WriteResetToken().
 			SetContext(args[0]).
+			WriteResetToken().
 			Do(); err != nil {
 			return fmt.Errorf("Error setting context: %w", err)
 		}

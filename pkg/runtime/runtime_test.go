@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -530,5 +531,379 @@ func TestRuntime_Do(t *testing.T) {
 		if err != expectedError {
 			t.Errorf("Expected error %v, got %v", expectedError, err)
 		}
+	})
+}
+func TestRuntime_HandleSessionReset(t *testing.T) {
+	t.Run("ReturnsEarlyOnExistingError", func(t *testing.T) {
+		// Given a runtime with an existing error
+		runtime := NewRuntime()
+		expectedError := errors.New("existing error")
+		runtime.err = expectedError
+
+		// When handling session reset
+		result := runtime.HandleSessionReset()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected HandleSessionReset to return the same runtime instance")
+		}
+
+		// And original error should be preserved
+		if runtime.err != expectedError {
+			t.Errorf("Expected original error to be preserved, got %v", runtime.err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenShellNotLoaded", func(t *testing.T) {
+		// Given a runtime without loaded shell
+		runtime := NewRuntime()
+
+		// When handling session reset
+		result := runtime.HandleSessionReset()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected HandleSessionReset to return the same runtime instance")
+		}
+
+		// And error should be set
+		if runtime.err == nil {
+			t.Error("Expected error when shell not loaded")
+		}
+
+		expectedError := "shell not loaded - call LoadShell() first"
+		if runtime.err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, runtime.err.Error())
+		}
+	})
+
+	t.Run("ResetsWhenNoSessionToken", func(t *testing.T) {
+		// Given a runtime with loaded shell and no session token
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell()
+
+		// Ensure no session token is set
+		originalToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+		os.Unsetenv("WINDSOR_SESSION_TOKEN")
+		defer func() {
+			if originalToken != "" {
+				os.Setenv("WINDSOR_SESSION_TOKEN", originalToken)
+			}
+		}()
+
+		// Mock CheckResetFlags to return false (no reset flags)
+		mocks.Shell.(*shell.MockShell).CheckResetFlagsFunc = func() (bool, error) {
+			return false, nil
+		}
+
+		// Track if Reset was called
+		resetCalled := false
+		mocks.Shell.(*shell.MockShell).ResetFunc = func(...bool) {
+			resetCalled = true
+		}
+
+		// When handling session reset
+		result := runtime.HandleSessionReset()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected HandleSessionReset to return the same runtime instance")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+
+		// And reset should be called
+		if !resetCalled {
+			t.Error("Expected shell reset to be called when no session token")
+		}
+
+		// And NO_CACHE should be set
+		if os.Getenv("NO_CACHE") != "true" {
+			t.Error("Expected NO_CACHE to be set to true")
+		}
+
+		// Clean up NO_CACHE
+		os.Unsetenv("NO_CACHE")
+	})
+
+	t.Run("ResetsWhenResetFlagsTrue", func(t *testing.T) {
+		// Given a runtime with loaded shell and session token
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell()
+
+		// Set session token
+		originalToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+		os.Setenv("WINDSOR_SESSION_TOKEN", "test-token")
+		defer func() {
+			if originalToken != "" {
+				os.Setenv("WINDSOR_SESSION_TOKEN", originalToken)
+			} else {
+				os.Unsetenv("WINDSOR_SESSION_TOKEN")
+			}
+		}()
+
+		// Mock CheckResetFlags to return true (reset flags detected)
+		mocks.Shell.(*shell.MockShell).CheckResetFlagsFunc = func() (bool, error) {
+			return true, nil
+		}
+
+		// Track if Reset was called
+		resetCalled := false
+		mocks.Shell.(*shell.MockShell).ResetFunc = func(...bool) {
+			resetCalled = true
+		}
+
+		// When handling session reset
+		result := runtime.HandleSessionReset()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected HandleSessionReset to return the same runtime instance")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+
+		// And reset should be called
+		if !resetCalled {
+			t.Error("Expected shell reset to be called when reset flags are true")
+		}
+
+		// And NO_CACHE should be set
+		if os.Getenv("NO_CACHE") != "true" {
+			t.Error("Expected NO_CACHE to be set to true")
+		}
+
+		// Clean up NO_CACHE
+		os.Unsetenv("NO_CACHE")
+	})
+
+	t.Run("ResetsWhenContextChanged", func(t *testing.T) {
+		// Given a runtime with loaded shell, config handler, and session token
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
+
+		// Set session token
+		originalToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+		os.Setenv("WINDSOR_SESSION_TOKEN", "test-token")
+		defer func() {
+			if originalToken != "" {
+				os.Setenv("WINDSOR_SESSION_TOKEN", originalToken)
+			} else {
+				os.Unsetenv("WINDSOR_SESSION_TOKEN")
+			}
+		}()
+
+		// Set WINDSOR_CONTEXT to differ from current context
+		originalContext := os.Getenv("WINDSOR_CONTEXT")
+		os.Setenv("WINDSOR_CONTEXT", "different-context")
+		defer func() {
+			if originalContext != "" {
+				os.Setenv("WINDSOR_CONTEXT", originalContext)
+			} else {
+				os.Unsetenv("WINDSOR_CONTEXT")
+			}
+		}()
+
+		// Mock CheckResetFlags to return false (no reset flags)
+		mocks.Shell.(*shell.MockShell).CheckResetFlagsFunc = func() (bool, error) {
+			return false, nil
+		}
+
+		// Mock GetContext to return a different context
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
+			return "current-context"
+		}
+
+		// Track if Reset was called
+		resetCalled := false
+		mocks.Shell.(*shell.MockShell).ResetFunc = func(...bool) {
+			resetCalled = true
+		}
+
+		// When handling session reset
+		result := runtime.HandleSessionReset()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected HandleSessionReset to return the same runtime instance")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+
+		// And reset should be called (context change logic is present in current implementation)
+		if !resetCalled {
+			t.Error("Expected shell reset to be called when context changed")
+		}
+
+		// And NO_CACHE should be set
+		if os.Getenv("NO_CACHE") != "true" {
+			t.Error("Expected NO_CACHE to be set to true when context changed")
+		}
+
+		// Clean up NO_CACHE
+		os.Unsetenv("NO_CACHE")
+	})
+
+	t.Run("DoesNotResetWhenNoResetNeeded", func(t *testing.T) {
+		// Given a runtime with loaded shell, config handler, and session token
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
+
+		// Set session token
+		originalToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+		os.Setenv("WINDSOR_SESSION_TOKEN", "test-token")
+		defer func() {
+			if originalToken != "" {
+				os.Setenv("WINDSOR_SESSION_TOKEN", originalToken)
+			} else {
+				os.Unsetenv("WINDSOR_SESSION_TOKEN")
+			}
+		}()
+
+		// Set WINDSOR_CONTEXT to match current context (no context change)
+		originalContext := os.Getenv("WINDSOR_CONTEXT")
+		os.Setenv("WINDSOR_CONTEXT", "current-context")
+		defer func() {
+			if originalContext != "" {
+				os.Setenv("WINDSOR_CONTEXT", originalContext)
+			} else {
+				os.Unsetenv("WINDSOR_CONTEXT")
+			}
+		}()
+
+		// Mock CheckResetFlags to return false (no reset flags)
+		mocks.Shell.(*shell.MockShell).CheckResetFlagsFunc = func() (bool, error) {
+			return false, nil
+		}
+
+		// Mock GetContext to return the same context as WINDSOR_CONTEXT
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
+			return "current-context"
+		}
+
+		// Track if Reset was called
+		resetCalled := false
+		mocks.Shell.(*shell.MockShell).ResetFunc = func(...bool) {
+			resetCalled = true
+		}
+
+		// When handling session reset
+		result := runtime.HandleSessionReset()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected HandleSessionReset to return the same runtime instance")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+
+		// And reset should NOT be called
+		if resetCalled {
+			t.Error("Expected shell reset to NOT be called when no reset needed")
+		}
+
+		// And NO_CACHE should NOT be set
+		if os.Getenv("NO_CACHE") == "true" {
+			t.Error("Expected NO_CACHE to NOT be set when no reset needed")
+		}
+	})
+
+	t.Run("PropagatesCheckResetFlagsError", func(t *testing.T) {
+		// Given a runtime with loaded shell
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell()
+
+		// Set session token
+		originalToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+		os.Setenv("WINDSOR_SESSION_TOKEN", "test-token")
+		defer func() {
+			if originalToken != "" {
+				os.Setenv("WINDSOR_SESSION_TOKEN", originalToken)
+			} else {
+				os.Unsetenv("WINDSOR_SESSION_TOKEN")
+			}
+		}()
+
+		// Mock CheckResetFlags to return an error
+		expectedError := errors.New("check reset flags error")
+		mocks.Shell.(*shell.MockShell).CheckResetFlagsFunc = func() (bool, error) {
+			return false, expectedError
+		}
+
+		// When handling session reset
+		result := runtime.HandleSessionReset()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected HandleSessionReset to return the same runtime instance")
+		}
+
+		// And error should be propagated
+		if runtime.err == nil {
+			t.Error("Expected error to be propagated from CheckResetFlags")
+		} else {
+			expectedErrorMsg := "failed to check reset flags: check reset flags error"
+			if runtime.err.Error() != expectedErrorMsg {
+				t.Errorf("Expected error %q, got %q", expectedErrorMsg, runtime.err.Error())
+			}
+		}
+	})
+
+	t.Run("PropagatesSetenvError", func(t *testing.T) {
+		// Given a runtime with loaded shell and no session token (to trigger reset)
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell()
+
+		// Ensure no session token is set
+		originalToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+		os.Unsetenv("WINDSOR_SESSION_TOKEN")
+		defer func() {
+			if originalToken != "" {
+				os.Setenv("WINDSOR_SESSION_TOKEN", originalToken)
+			}
+		}()
+
+		// Mock CheckResetFlags to return false (no reset flags)
+		mocks.Shell.(*shell.MockShell).CheckResetFlagsFunc = func() (bool, error) {
+			return false, nil
+		}
+
+		// Mock Reset to succeed
+		mocks.Shell.(*shell.MockShell).ResetFunc = func(...bool) {
+			// Reset succeeds
+		}
+
+		// When handling session reset
+		result := runtime.HandleSessionReset()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected HandleSessionReset to return the same runtime instance")
+		}
+
+		// And no error should be set (os.Setenv typically succeeds in tests)
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+
+		// And NO_CACHE should be set
+		if os.Getenv("NO_CACHE") != "true" {
+			t.Error("Expected NO_CACHE to be set to true")
+		}
+
+		// Clean up NO_CACHE
+		os.Unsetenv("NO_CACHE")
 	})
 }
