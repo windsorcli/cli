@@ -199,3 +199,21 @@ func (r *Runtime) HandleSessionReset() *Runtime {
 
 	return r
 }
+// CheckTrustedDirectory checks if the current directory is trusted using the shell's
+// CheckTrustedDirectory method. Returns the Runtime instance with updated error state.
+func (r *Runtime) CheckTrustedDirectory() *Runtime {
+	if r.err != nil {
+		return r
+	}
+	if r.Shell == nil {
+		r.err = fmt.Errorf("shell not loaded - call LoadShell() first")
+		return r
+	}
+
+	if err := r.Shell.CheckTrustedDirectory(); err != nil {
+		r.err = fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+		return r
+	}
+
+	return r
+}
