@@ -10,6 +10,7 @@ import (
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/pipelines"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 var (
@@ -52,14 +53,23 @@ var initCmd = &cobra.Command{
 			initProvider = initPlatform
 		}
 
-		ctx = context.WithValue(ctx, "quiet", true)
-		ctx = context.WithValue(ctx, "decrypt", true)
 		ctx = context.WithValue(ctx, "initPipeline", true)
-		envPipeline, err := pipelines.WithPipeline(injector, ctx, "envPipeline")
-		if err != nil {
-			return fmt.Errorf("failed to set up env pipeline: %w", err)
+
+		// Set up environment variables using runtime
+		deps := &runtime.Dependencies{
+			Injector: injector,
 		}
-		if err := envPipeline.Execute(ctx); err != nil {
+		if err := runtime.NewRuntime(deps).
+			LoadShell().
+			CheckTrustedDirectory().
+			LoadConfig().
+			LoadSecretsProviders().
+			LoadEnvVars(runtime.EnvVarsOptions{
+				Decrypt: true,
+				Verbose: verbose,
+			}).
+			ExecutePostEnvHook(verbose).
+			Do(); err != nil {
 			return fmt.Errorf("failed to set up environment: %w", err)
 		}
 

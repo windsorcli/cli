@@ -21,7 +21,6 @@ import (
 // EnvPrinter defines the method for printing environment variables.
 type EnvPrinter interface {
 	Initialize() error
-	Print() error
 	GetEnvVars() (map[string]string, error)
 	GetAlias() (map[string]string, error)
 	PostEnvHook(directory ...string) error
@@ -76,53 +75,10 @@ func (e *BaseEnvPrinter) Initialize() error {
 	return nil
 }
 
-// Print outputs the environment variables to the console.
-// If a map of key:value strings is provided, it prints those instead.
-func (e *BaseEnvPrinter) Print(customVars ...map[string]string) error {
-	var envVars map[string]string
-
-	if len(customVars) > 0 {
-		envVars = customVars[0]
-	} else {
-		envVars = make(map[string]string)
-	}
-
-	for key := range envVars {
-		e.SetManagedEnv(key)
-	}
-
-	e.shell.PrintEnvVars(envVars, true)
-	return nil
-}
-
 // GetEnvVars is a placeholder for retrieving environment variables.
 func (e *BaseEnvPrinter) GetEnvVars() (map[string]string, error) {
 	// Placeholder implementation
 	return map[string]string{}, nil
-}
-
-// PrintAlias retrieves and prints the shell alias.
-// If a map of key:value strings is provided, it prints those instead.
-func (e *BaseEnvPrinter) PrintAlias(customAlias ...map[string]string) error {
-	var aliasMap map[string]string
-
-	if len(customAlias) > 0 {
-		aliasMap = customAlias[0]
-	} else {
-		var err error
-		aliasMap, err = e.GetAlias()
-		if err != nil {
-			// Can't test as it just calls a stub
-			return fmt.Errorf("error getting alias: %w", err)
-		}
-	}
-
-	for key := range aliasMap {
-		e.SetManagedAlias(key)
-	}
-
-	e.shell.PrintAlias(aliasMap)
-	return nil
 }
 
 // GetAlias is a placeholder for creating an alias for a command.

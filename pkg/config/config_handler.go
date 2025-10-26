@@ -630,25 +630,23 @@ func (c *configHandler) GetContext() string {
 
 	envContext := c.shims.Getenv("WINDSOR_CONTEXT")
 	if envContext != "" {
-		c.context = envContext
+		return envContext
 	} else if c.shell != nil {
 		projectRoot, err := c.shell.GetProjectRoot()
 		if err != nil {
-			c.context = contextName
+			return contextName
 		} else {
 			contextFilePath := filepath.Join(projectRoot, windsorDirName, contextFileName)
 			data, err := c.shims.ReadFile(contextFilePath)
 			if err != nil {
-				c.context = contextName
+				return contextName
 			} else {
-				c.context = string(data)
+				return strings.TrimSpace(string(data))
 			}
 		}
 	} else {
-		c.context = contextName
+		return contextName
 	}
-
-	return c.context
 }
 
 // SetContext sets the current context in the file and updates the cache
@@ -673,7 +671,6 @@ func (c *configHandler) SetContext(context string) error {
 		return fmt.Errorf("error setting WINDSOR_CONTEXT environment variable: %w", err)
 	}
 
-	c.context = context
 	return nil
 }
 

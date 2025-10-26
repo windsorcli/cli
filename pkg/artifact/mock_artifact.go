@@ -1,8 +1,6 @@
 package artifact
 
 import (
-	"os"
-
 	"github.com/windsorcli/cli/pkg/di"
 )
 
@@ -18,8 +16,8 @@ import (
 // MockArtifact is a mock implementation of the Artifact interface
 type MockArtifact struct {
 	InitializeFunc      func(injector di.Injector) error
-	AddFileFunc         func(path string, content []byte, mode os.FileMode) error
-	CreateFunc          func(outputPath string, tag string) (string, error)
+	BundleFunc          func() error
+	WriteFunc           func(outputPath string, tag string) (string, error)
 	PushFunc            func(registryBase string, repoName string, tag string) error
 	PullFunc            func(ociRefs []string) (map[string][]byte, error)
 	GetTemplateDataFunc func(ociRef string) (map[string][]byte, error)
@@ -46,18 +44,18 @@ func (m *MockArtifact) Initialize(injector di.Injector) error {
 	return nil
 }
 
-// AddFile calls the mock AddFileFunc if set, otherwise returns nil
-func (m *MockArtifact) AddFile(path string, content []byte, mode os.FileMode) error {
-	if m.AddFileFunc != nil {
-		return m.AddFileFunc(path, content, mode)
+// Bundle calls the mock BundleFunc if set, otherwise returns nil
+func (m *MockArtifact) Bundle() error {
+	if m.BundleFunc != nil {
+		return m.BundleFunc()
 	}
 	return nil
 }
 
-// Create calls the mock CreateFunc if set, otherwise returns empty string and nil error
-func (m *MockArtifact) Create(outputPath string, tag string) (string, error) {
-	if m.CreateFunc != nil {
-		return m.CreateFunc(outputPath, tag)
+// Write calls the mock WriteFunc if set, otherwise returns empty string and nil error
+func (m *MockArtifact) Write(outputPath string, tag string) (string, error) {
+	if m.WriteFunc != nil {
+		return m.WriteFunc(outputPath, tag)
 	}
 	return "", nil
 }

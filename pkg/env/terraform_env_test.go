@@ -444,105 +444,6 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 	})
 }
 
-func TestTerraformEnv_Print(t *testing.T) {
-	setup := func(t *testing.T) (*TerraformEnvPrinter, *Mocks) {
-		t.Helper()
-		mocks := setupTerraformEnvMocks(t)
-		printer := NewTerraformEnvPrinter(mocks.Injector)
-		printer.shims = mocks.Shims
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize printer: %v", err)
-		}
-		return printer, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a TerraformEnvPrinter with mock configuration
-		printer, mocks := setup(t)
-
-		var capturedEnvVars map[string]string
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string, export bool) {
-			capturedEnvVars = envVars
-		}
-
-		// When Print is called
-		err := printer.Print()
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-
-		// Then the expected environment variables should be set
-		expectedOSType := "unix"
-		if mocks.Shims.Goos() == "windows" {
-			expectedOSType = "windows"
-		}
-
-		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
-		if err != nil {
-			t.Fatalf("Failed to get config root: %v", err)
-		}
-
-		expectedEnvVars := map[string]string{
-			"TF_DATA_DIR":      filepath.Join(configRoot, ".terraform/project/path"),
-			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -force-copy -upgrade -backend-config="path=%s"`, filepath.Join(configRoot, ".tfstate/project/path/terraform.tfstate")),
-			"TF_CLI_ARGS_plan": fmt.Sprintf(`-out="%s" -var-file="%s" -var-file="%s"`,
-				filepath.Join(configRoot, ".terraform/project/path/terraform.tfplan"),
-				filepath.Join(configRoot, "terraform/project/path.tfvars"),
-				filepath.Join(configRoot, "terraform/project/path.tfvars.json")),
-			"TF_CLI_ARGS_apply": fmt.Sprintf(`"%s"`, filepath.Join(configRoot, ".terraform/project/path/terraform.tfplan")),
-			"TF_CLI_ARGS_refresh": fmt.Sprintf(`-var-file="%s" -var-file="%s"`,
-				filepath.Join(configRoot, "terraform/project/path.tfvars"),
-				filepath.Join(configRoot, "terraform/project/path.tfvars.json")),
-			"TF_CLI_ARGS_import": fmt.Sprintf(`-var-file="%s" -var-file="%s"`,
-				filepath.Join(configRoot, "terraform/project/path.tfvars"),
-				filepath.Join(configRoot, "terraform/project/path.tfvars.json")),
-			"TF_CLI_ARGS_destroy": fmt.Sprintf(`-var-file="%s" -var-file="%s"`,
-				filepath.Join(configRoot, "terraform/project/path.tfvars"),
-				filepath.Join(configRoot, "terraform/project/path.tfvars.json")),
-			"TF_VAR_context_path": configRoot,
-			"TF_VAR_context_id":   "",
-			"TF_VAR_os_type":      expectedOSType,
-		}
-
-		for k, v := range expectedEnvVars {
-			expectedEnvVars[k] = filepath.ToSlash(v)
-		}
-		for k, v := range capturedEnvVars {
-			capturedEnvVars[k] = filepath.ToSlash(v)
-		}
-
-		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
-			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
-		}
-	})
-
-	t.Run("GetConfigError", func(t *testing.T) {
-		// Given a TerraformEnvPrinter with a failing config handler
-		configHandler := config.NewMockConfigHandler()
-		configHandler.GetConfigRootFunc = func() (string, error) {
-			return "", fmt.Errorf("mock config error")
-		}
-		mocks := setupTerraformEnvMocks(t, &SetupOptions{
-			ConfigHandler: configHandler,
-		})
-		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
-		terraformEnvPrinter.shims = mocks.Shims
-		if err := terraformEnvPrinter.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize printer: %v", err)
-		}
-
-		// When Print is called
-		err := terraformEnvPrinter.Print()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("expected error, got nil")
-		} else if !strings.Contains(err.Error(), "mock config error") {
-			t.Errorf("unexpected error message: %v", err)
-		}
-	})
-}
-
 func TestTerraformEnv_findRelativeTerraformProjectPath(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformEnvPrinter, *Mocks) {
 		t.Helper()
@@ -1383,26 +1284,29 @@ func TestTerraformEnv_DependencyResolution(t *testing.T) {
 	t.Run("ValidDependencyChain", func(t *testing.T) {
 		printer, mocks := setup(t)
 
-		// Get the blueprint handler from the injector and configure it
-		blueprintHandler := mocks.Injector.Resolve("blueprintHandler").(*blueprint.MockBlueprintHandler)
-		blueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{
-				{
-					Path:      "vpc",
-					FullPath:  "/project/.windsor/.tf_modules/vpc",
-					DependsOn: []string{},
-				},
-				{
-					Path:      "subnets",
-					FullPath:  "/project/.windsor/.tf_modules/subnets",
-					DependsOn: []string{"vpc"},
-				},
-				{
-					Path:      "app",
-					FullPath:  "/project/.windsor/.tf_modules/app",
-					DependsOn: []string{"subnets"},
-				},
+		// Mock blueprint.yaml content
+		blueprintYAML := `apiVersion: v1alpha1
+kind: Blueprint
+metadata:
+  name: test-blueprint
+terraform:
+  - path: vpc
+    fullPath: /project/.windsor/.tf_modules/vpc
+    dependsOn: []
+  - path: subnets
+    fullPath: /project/.windsor/.tf_modules/subnets
+    dependsOn: [vpc]
+  - path: app
+    fullPath: /project/.windsor/.tf_modules/app
+    dependsOn: [subnets]`
+
+		// Mock ReadFile to return blueprint.yaml content
+		originalReadFile := mocks.Shims.ReadFile
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
+			if strings.Contains(filename, "blueprint.yaml") {
+				return []byte(blueprintYAML), nil
 			}
+			return originalReadFile(filename)
 		}
 
 		// Mock terraform output for dependencies
@@ -1463,26 +1367,29 @@ func TestTerraformEnv_DependencyResolution(t *testing.T) {
 	t.Run("CircularDependencyDetection", func(t *testing.T) {
 		printer, mocks := setup(t)
 
-		// Get the blueprint handler from the injector and configure it
-		blueprintHandler := mocks.Injector.Resolve("blueprintHandler").(*blueprint.MockBlueprintHandler)
-		blueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{
-				{
-					Path:      "a",
-					FullPath:  "/project/.windsor/.tf_modules/a",
-					DependsOn: []string{"b"},
-				},
-				{
-					Path:      "b",
-					FullPath:  "/project/.windsor/.tf_modules/b",
-					DependsOn: []string{"c"},
-				},
-				{
-					Path:      "c",
-					FullPath:  "/project/.windsor/.tf_modules/c",
-					DependsOn: []string{"a"},
-				},
+		// Mock blueprint.yaml content with circular dependencies
+		blueprintYAML := `apiVersion: v1alpha1
+kind: Blueprint
+metadata:
+  name: test-blueprint
+terraform:
+  - path: a
+    fullPath: /project/.windsor/.tf_modules/a
+    dependsOn: [b]
+  - path: b
+    fullPath: /project/.windsor/.tf_modules/b
+    dependsOn: [c]
+  - path: c
+    fullPath: /project/.windsor/.tf_modules/c
+    dependsOn: [a]`
+
+		// Mock ReadFile to return blueprint.yaml content
+		originalReadFile := mocks.Shims.ReadFile
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
+			if strings.Contains(filename, "blueprint.yaml") {
+				return []byte(blueprintYAML), nil
 			}
+			return originalReadFile(filename)
 		}
 
 		// Set up the current working directory to match one of the components
@@ -1504,16 +1411,23 @@ func TestTerraformEnv_DependencyResolution(t *testing.T) {
 	t.Run("NonExistentDependency", func(t *testing.T) {
 		printer, mocks := setup(t)
 
-		// Get the blueprint handler from the injector and configure it
-		blueprintHandler := mocks.Injector.Resolve("blueprintHandler").(*blueprint.MockBlueprintHandler)
-		blueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{
-				{
-					Path:      "app",
-					FullPath:  "/project/.windsor/.tf_modules/app",
-					DependsOn: []string{"nonexistent"},
-				},
+		// Mock blueprint.yaml content with non-existent dependency
+		blueprintYAML := `apiVersion: v1alpha1
+kind: Blueprint
+metadata:
+  name: test-blueprint
+terraform:
+  - path: app
+    fullPath: /project/.windsor/.tf_modules/app
+    dependsOn: [nonexistent]`
+
+		// Mock ReadFile to return blueprint.yaml content
+		originalReadFile := mocks.Shims.ReadFile
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
+			if strings.Contains(filename, "blueprint.yaml") {
+				return []byte(blueprintYAML), nil
 			}
+			return originalReadFile(filename)
 		}
 
 		// Set up the current working directory to match the component
@@ -1535,21 +1449,26 @@ func TestTerraformEnv_DependencyResolution(t *testing.T) {
 	t.Run("ComponentsWithoutNames", func(t *testing.T) {
 		printer, mocks := setup(t)
 
-		// Get the blueprint handler from the injector and configure it
-		blueprintHandler := mocks.Injector.Resolve("blueprintHandler").(*blueprint.MockBlueprintHandler)
-		blueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{
-				{
-					Path:      "vpc/main",
-					FullPath:  "/project/.windsor/.tf_modules/vpc/main",
-					DependsOn: []string{},
-				},
-				{
-					Path:      "app/frontend",
-					FullPath:  "/project/.windsor/.tf_modules/app/frontend",
-					DependsOn: []string{"vpc/main"},
-				},
+		// Mock blueprint.yaml content with components without names
+		blueprintYAML := `apiVersion: v1alpha1
+kind: Blueprint
+metadata:
+  name: test-blueprint
+terraform:
+  - path: vpc/main
+    fullPath: /project/.windsor/.tf_modules/vpc/main
+    dependsOn: []
+  - path: app/frontend
+    fullPath: /project/.windsor/.tf_modules/app/frontend
+    dependsOn: [vpc/main]`
+
+		// Mock ReadFile to return blueprint.yaml content
+		originalReadFile := mocks.Shims.ReadFile
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
+			if strings.Contains(filename, "blueprint.yaml") {
+				return []byte(blueprintYAML), nil
 			}
+			return originalReadFile(filename)
 		}
 
 		// Mock terraform output
@@ -1708,22 +1627,28 @@ func TestTerraformEnv_GenerateTerraformArgs(t *testing.T) {
 	t.Run("GeneratesCorrectArgsWithParallelism", func(t *testing.T) {
 		mocks := setupTerraformEnvMocks(t)
 
-		// Set up blueprint handler with parallelism component
-		mockBlueprint := blueprint.NewMockBlueprintHandler(mocks.Injector)
-		parallelism := 5
-		mockBlueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{
-				{
-					Path:        "test/path",
-					Parallelism: &parallelism,
-				},
+		// Mock blueprint.yaml content with parallelism
+		blueprintYAML := `apiVersion: v1alpha1
+kind: Blueprint
+metadata:
+  name: test-blueprint
+terraform:
+  - path: test/path
+    parallelism: 5`
+
+		// Mock ReadFile to return blueprint.yaml content
+		originalReadFile := mocks.Shims.ReadFile
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
+			if strings.Contains(filename, "blueprint.yaml") {
+				return []byte(blueprintYAML), nil
 			}
+			return originalReadFile(filename)
 		}
-		mocks.Injector.Register("blueprintHandler", mockBlueprint)
 
 		printer := &TerraformEnvPrinter{
 			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Injector),
 		}
+		printer.shims = mocks.Shims
 
 		if err := printer.Initialize(); err != nil {
 			t.Fatalf("Failed to initialize printer: %v", err)
@@ -1813,22 +1738,19 @@ func TestTerraformEnv_GenerateTerraformArgs(t *testing.T) {
 		}
 	})
 
-	t.Run("HandlesNilBlueprintHandler", func(t *testing.T) {
+	t.Run("HandlesMissingBlueprintFile", func(t *testing.T) {
 		mocks := setupTerraformEnvMocks(t)
 
 		printer := &TerraformEnvPrinter{
 			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Injector),
 		}
 
-		// Initialize with the base dependencies but don't fail on missing blueprint handler
+		// Initialize with the base dependencies
 		if err := printer.BaseEnvPrinter.Initialize(); err != nil {
 			t.Fatalf("Failed to initialize base printer: %v", err)
 		}
 
-		// Set blueprint handler to nil explicitly
-		printer.blueprintHandler = nil
-
-		// When generating terraform args with nil blueprint handler
+		// When generating terraform args without blueprint.yaml file
 		args, err := printer.GenerateTerraformArgs("test/path", "test/module")
 
 		// Then no error should be returned
@@ -1836,10 +1758,10 @@ func TestTerraformEnv_GenerateTerraformArgs(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		// And no parallelism should be applied
+		// And no parallelism should be applied (since no blueprint.yaml exists)
 		for _, arg := range args.ApplyArgs {
 			if strings.Contains(arg, "parallelism") {
-				t.Errorf("Apply args should not contain parallelism with nil blueprint handler: %v", args.ApplyArgs)
+				t.Errorf("Apply args should not contain parallelism without blueprint.yaml: %v", args.ApplyArgs)
 			}
 		}
 	})
@@ -1847,22 +1769,28 @@ func TestTerraformEnv_GenerateTerraformArgs(t *testing.T) {
 	t.Run("CorrectArgumentOrdering", func(t *testing.T) {
 		mocks := setupTerraformEnvMocks(t)
 
-		// Set up blueprint handler with parallelism
-		mockBlueprint := blueprint.NewMockBlueprintHandler(mocks.Injector)
-		parallelism := 3
-		mockBlueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{
-				{
-					Path:        "test/path",
-					Parallelism: &parallelism,
-				},
+		// Mock blueprint.yaml content with parallelism
+		blueprintYAML := `apiVersion: v1alpha1
+kind: Blueprint
+metadata:
+  name: test-blueprint
+terraform:
+  - path: test/path
+    parallelism: 3`
+
+		// Mock ReadFile to return blueprint.yaml content
+		originalReadFile := mocks.Shims.ReadFile
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
+			if strings.Contains(filename, "blueprint.yaml") {
+				return []byte(blueprintYAML), nil
 			}
+			return originalReadFile(filename)
 		}
-		mocks.Injector.Register("blueprintHandler", mockBlueprint)
 
 		printer := &TerraformEnvPrinter{
 			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Injector),
 		}
+		printer.shims = mocks.Shims
 
 		if err := printer.Initialize(); err != nil {
 			t.Fatalf("Failed to initialize printer: %v", err)

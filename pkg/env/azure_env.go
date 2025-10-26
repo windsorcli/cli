@@ -66,12 +66,3 @@ func (e *AzureEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 	return envVars, nil
 }
-
-// Print prints the environment variables for the Azure environment.
-func (e *AzureEnvPrinter) Print() error {
-	envVars, err := e.GetEnvVars()
-	if err != nil {
-		return fmt.Errorf("error getting environment variables: %w", err)
-	}
-	return e.BaseEnvPrinter.Print(envVars)
-}

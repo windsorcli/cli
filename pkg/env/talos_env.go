@@ -51,15 +51,5 @@ func (e *TalosEnvPrinter) GetEnvVars() (map[string]string, error) {
 	return envVars, nil
 }
 
-// Print outputs the environment variables for the Talos environment using the embedded BaseEnvPrinter.
-// Returns an error if environment variable retrieval fails or printing fails.
-func (e *TalosEnvPrinter) Print() error {
-	envVars, err := e.GetEnvVars()
-	if err != nil {
-		return fmt.Errorf("error getting environment variables: %w", err)
-	}
-	return e.BaseEnvPrinter.Print(envVars)
-}
-
 // TalosEnvPrinter implements the EnvPrinter interface.
 var _ EnvPrinter = (*TalosEnvPrinter)(nil)

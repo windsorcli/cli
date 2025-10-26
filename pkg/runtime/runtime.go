@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"fmt"
+	"maps"
 	"os"
 
 	"github.com/windsorcli/cli/pkg/artifact"
@@ -69,11 +70,21 @@ type Dependencies struct {
 	}
 }
 
+// EnvVarsOptions contains options for environment variable operations.
+type EnvVarsOptions struct {
+	Decrypt    bool         // Whether to decrypt secrets
+	Verbose    bool         // Whether to show verbose error output
+	Export     bool         // Whether to use export format (export KEY=value vs KEY=value)
+	OutputFunc func(string) // Callback function for handling output
+}
+
 // Runtime encapsulates all core Windsor CLI runtime dependencies.
 type Runtime struct {
 	Dependencies
-	Shims *Shims
-	err   error
+	Shims      *Shims
+	EnvVars    map[string]string
+	EnvAliases map[string]string
+	err        error
 }
 
 // =============================================================================
@@ -180,15 +191,6 @@ func (r *Runtime) HandleSessionReset() *Runtime {
 		shouldReset = true
 	}
 
-	if !shouldReset && r.ConfigHandler != nil {
-		currentContext := r.ConfigHandler.GetContext()
-		envContext := os.Getenv("WINDSOR_CONTEXT")
-		if envContext != "" && envContext != currentContext {
-			shouldReset = true
-		}
-	} else if r.ConfigHandler == nil {
-	}
-
 	if shouldReset {
 		r.Shell.Reset()
 		if err := os.Setenv("NO_CACHE", "true"); err != nil {
@@ -199,6 +201,79 @@ func (r *Runtime) HandleSessionReset() *Runtime {
 
 	return r
 }
+
+// PrintEnvVars renders and prints the environment variables that were previously collected
+// and stored in r.EnvVars using the shell's RenderEnvVars method. The EnvVarsOptions parameter
+// controls export formatting and provides an output callback. This method should be called
+// after LoadEnvVars to print the collected environment variables.
+func (r *Runtime) PrintEnvVars(opts EnvVarsOptions) *Runtime {
+	if r.err != nil {
+		return r
+	}
+
+	if len(r.EnvVars) > 0 {
+		output := r.Shell.RenderEnvVars(r.EnvVars, opts.Export)
+		opts.OutputFunc(output)
+	}
+
+	return r
+}
+
+// PrintAliases prints all collected aliases using the shell's RenderAliases method.
+// The outputFunc callback is invoked with the rendered aliases string output.
+// If any error occurs during alias retrieval, the Runtime error state is updated
+// and the original instance is returned unmodified.
+func (r *Runtime) PrintAliases(outputFunc func(string)) *Runtime {
+	if r.err != nil {
+		return r
+	}
+
+	allAliases := make(map[string]string)
+	for _, envPrinter := range r.getAllEnvPrinters() {
+		aliases, err := envPrinter.GetAlias()
+		if err != nil {
+			r.err = fmt.Errorf("error getting aliases: %w", err)
+			return r
+		}
+		maps.Copy(allAliases, aliases)
+	}
+
+	if len(allAliases) > 0 {
+		output := r.Shell.RenderAliases(allAliases)
+		outputFunc(output)
+	}
+
+	return r
+}
+
+// ExecutePostEnvHook executes post-environment hooks for all environment printers.
+// The Verbose flag controls whether errors are reported. Returns the Runtime instance
+// with error state updated if any step fails.
+func (r *Runtime) ExecutePostEnvHook(verbose bool) *Runtime {
+	if r.err != nil {
+		return r
+	}
+
+	var firstError error
+
+	printers := r.getAllEnvPrinters()
+
+	for _, printer := range printers {
+		if printer != nil {
+			if err := printer.PostEnvHook(); err != nil && firstError == nil {
+				firstError = err
+			}
+		}
+	}
+
+	if firstError != nil && verbose {
+		r.err = fmt.Errorf("failed to execute post env hooks: %w", firstError)
+		return r
+	}
+
+	return r
+}
+
 // CheckTrustedDirectory checks if the current directory is trusted using the shell's
 // CheckTrustedDirectory method. Returns the Runtime instance with updated error state.
 func (r *Runtime) CheckTrustedDirectory() *Runtime {
@@ -216,4 +291,116 @@ func (r *Runtime) CheckTrustedDirectory() *Runtime {
 	}
 
 	return r
+}
+
+// ArtifactOptions contains options for artifact operations (bundle or push).
+type ArtifactOptions struct {
+	// Bundle options
+	OutputPath string // Output path for bundle (file or directory)
+
+	// Push options
+	RegistryBase string // Registry base URL (e.g., "ghcr.io")
+	RepoName     string // Repository name
+
+	// Common options
+	Tag        string       // Tag/version (overrides metadata.yaml)
+	OutputFunc func(string) // Callback for success output
+}
+
+// ProcessArtifacts builds and processes artifacts (bundle or push) from the project's templates,
+// kustomize, and terraform files. It loads blueprint and artifact handlers, bundles all files,
+// and either archives to a file or pushes to a registry based on ArtifactOptions. Supports both
+// bundle and push operations. If any step fails, the returned Runtime has an updated error state;
+// otherwise, returns the current instance.
+func (r *Runtime) ProcessArtifacts(opts ArtifactOptions) *Runtime {
+	if r.err != nil {
+		return r
+	}
+	if r.Shell == nil {
+		r.err = fmt.Errorf("shell not loaded - call LoadShell() first")
+		return r
+	}
+
+	if r.ArtifactBuilder == nil {
+		if existingArtifactBuilder := r.Injector.Resolve("artifactBuilder"); existingArtifactBuilder != nil {
+			if artifactBuilderInstance, ok := existingArtifactBuilder.(artifact.Artifact); ok {
+				r.ArtifactBuilder = artifactBuilderInstance
+			} else {
+				r.ArtifactBuilder = artifact.NewArtifactBuilder()
+				r.Injector.Register("artifactBuilder", r.ArtifactBuilder)
+			}
+		} else {
+			r.ArtifactBuilder = artifact.NewArtifactBuilder()
+			r.Injector.Register("artifactBuilder", r.ArtifactBuilder)
+		}
+		if err := r.ArtifactBuilder.Initialize(r.Injector); err != nil {
+			r.err = fmt.Errorf("failed to initialize artifact builder: %w", err)
+			return r
+		}
+	}
+
+	if opts.RegistryBase != "" && opts.RepoName != "" {
+		if err := r.ArtifactBuilder.Bundle(); err != nil {
+			r.err = fmt.Errorf("failed to bundle artifacts: %w", err)
+			return r
+		}
+
+		if err := r.ArtifactBuilder.Push(opts.RegistryBase, opts.RepoName, opts.Tag); err != nil {
+			r.err = fmt.Errorf("failed to push artifact: %w", err)
+			return r
+		}
+		registryURL := fmt.Sprintf("%s/%s", opts.RegistryBase, opts.RepoName)
+		if opts.Tag != "" {
+			registryURL = fmt.Sprintf("%s:%s", registryURL, opts.Tag)
+		}
+		if opts.OutputFunc != nil {
+			opts.OutputFunc(registryURL)
+		}
+	} else {
+		actualOutputPath, err := r.ArtifactBuilder.Write(opts.OutputPath, opts.Tag)
+		if err != nil {
+			r.err = fmt.Errorf("failed to bundle and create artifact: %w", err)
+			return r
+		}
+		if opts.OutputFunc != nil {
+			opts.OutputFunc(actualOutputPath)
+		}
+	}
+
+	return r
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// getAllEnvPrinters returns all environment printers in field order, ensuring WindsorEnv is last.
+// This method provides compile-time structure assertions by mirroring the struct layout definition.
+// Panics at runtime if WindsorEnv is not last to guarantee environment variable precedence.
+func (r *Runtime) getAllEnvPrinters() []env.EnvPrinter {
+	const expectedPrinterCount = 7
+	_ = [expectedPrinterCount]struct{}{}
+
+	allPrinters := []env.EnvPrinter{
+		r.EnvPrinters.AwsEnv,
+		r.EnvPrinters.AzureEnv,
+		r.EnvPrinters.DockerEnv,
+		r.EnvPrinters.KubeEnv,
+		r.EnvPrinters.TalosEnv,
+		r.EnvPrinters.TerraformEnv,
+		r.EnvPrinters.WindsorEnv,
+	}
+
+	var printers []env.EnvPrinter
+	for _, printer := range allPrinters {
+		if printer != nil {
+			printers = append(printers, printer)
+		}
+	}
+
+	if len(printers) > 0 && printers[len(printers)-1] != r.EnvPrinters.WindsorEnv {
+		panic("WindsorEnv must be the last printer in the list")
+	}
+
+	return printers
 }

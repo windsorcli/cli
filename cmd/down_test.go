@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 
@@ -34,20 +33,10 @@ type DownMocks struct {
 func setupDownMocks(t *testing.T, opts ...*SetupOptions) *DownMocks {
 	t.Helper()
 
-	// Set up temporary directory and change to it
-	tmpDir := t.TempDir()
-	oldDir, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	t.Cleanup(func() { os.Chdir(oldDir) })
-
-	// Get base mocks
+	// Get base mocks (includes trusted directory setup)
 	baseMocks := setupMocks(t, opts...)
 
-	// Register mock env pipeline in injector (needed since down runs env pipeline first)
-	mockEnvPipeline := pipelines.NewMockBasePipeline()
-	mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-	mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
-	baseMocks.Injector.Register("envPipeline", mockEnvPipeline)
+	// Note: env pipeline is no longer used - environment setup is handled by runtime
 
 	// Register mock init pipeline in injector (needed since down runs init pipeline second)
 	mockInitPipeline := pipelines.NewMockBasePipeline()
@@ -109,51 +98,9 @@ func TestDownCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorSettingUpEnvPipeline", func(t *testing.T) {
-		// Given a down command with failing env pipeline setup
-		mocks := setupDownMocks(t)
-		// Remove env pipeline from injector to cause failure
-		mocks.Injector.Register("envPipeline", nil)
-		cmd := createTestDownCmd()
+	// Note: ErrorSettingUpEnvironment test removed - runtime is self-healing and creates missing dependencies
 
-		// When executing the command
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to set up environment") {
-			t.Errorf("Expected error about env pipeline setup, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorExecutingEnvPipeline", func(t *testing.T) {
-		// Given a down command with failing env pipeline execution
-		mocks := setupDownMocks(t)
-		mockEnvPipeline := pipelines.NewMockBasePipeline()
-		mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error {
-			return fmt.Errorf("env pipeline execution failed")
-		}
-		mocks.Injector.Register("envPipeline", mockEnvPipeline)
-		cmd := createTestDownCmd()
-
-		// When executing the command
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to set up environment") {
-			t.Errorf("Expected error about environment setup, got: %v", err)
-		}
-	})
+	// Note: ErrorExecutingEnvPipeline test removed - env pipeline no longer used
 
 	t.Run("ErrorExecutingInitPipeline", func(t *testing.T) {
 		// Given a down command with failing init pipeline execution
@@ -244,40 +191,7 @@ func TestDownCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("EnvPipelineContextFlags", func(t *testing.T) {
-		// Given a down command with mocks
-		mocks := setupDownMocks(t)
-		var envExecutedContext context.Context
-		mockEnvPipeline := pipelines.NewMockBasePipeline()
-		mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error {
-			envExecutedContext = ctx
-			return nil
-		}
-		mocks.Injector.Register("envPipeline", mockEnvPipeline)
-		cmd := createTestDownCmd()
-
-		// When executing the command
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-
-		// And env pipeline should be executed with quiet and decrypt flags
-		if envExecutedContext == nil {
-			t.Fatal("Expected context to be passed to env pipeline")
-		}
-		if quietValue := envExecutedContext.Value("quiet"); quietValue != true {
-			t.Errorf("Expected quiet flag to be true, got %v", quietValue)
-		}
-		if decryptValue := envExecutedContext.Value("decrypt"); decryptValue != true {
-			t.Errorf("Expected decrypt flag to be true, got %v", decryptValue)
-		}
-	})
+	// Note: EnvPipelineContextFlags test removed - env pipeline no longer used
 
 	t.Run("PipelineOrchestrationOrder", func(t *testing.T) {
 		// Given a down command with mocks
@@ -286,13 +200,7 @@ func TestDownCmd(t *testing.T) {
 		// And pipelines that track execution order
 		executionOrder := []string{}
 
-		mockEnvPipeline := pipelines.NewMockBasePipeline()
-		mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error {
-			executionOrder = append(executionOrder, "env")
-			return nil
-		}
-		mocks.Injector.Register("envPipeline", mockEnvPipeline)
+		// Note: env pipeline no longer used - environment setup handled by runtime
 
 		mockInitPipeline := pipelines.NewMockBasePipeline()
 		mockInitPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
@@ -321,7 +229,7 @@ func TestDownCmd(t *testing.T) {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		expectedOrder := []string{"env", "init", "down"}
+		expectedOrder := []string{"init", "down"}
 		if len(executionOrder) != len(expectedOrder) {
 			t.Errorf("Expected %d pipelines to execute, got %d", len(expectedOrder), len(executionOrder))
 		}

@@ -1,13 +1,12 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/pipelines"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 var envCmd = &cobra.Command{
@@ -16,12 +15,10 @@ var envCmd = &cobra.Command{
 	Long:         "Output commands to set environment variables for the application.",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get shared dependency injector from context
-		injector := cmd.Context().Value(injectorKey).(di.Injector)
-
 		// Get flags
 		hook, _ := cmd.Flags().GetBool("hook")
 		decrypt, _ := cmd.Flags().GetBool("decrypt")
+		verbose, _ := cmd.Flags().GetBool("verbose")
 
 		// Set NO_CACHE=true unless --hook is specified or NO_CACHE is already set
 		if !hook && os.Getenv("NO_CACHE") == "" {
@@ -30,24 +27,45 @@ var envCmd = &cobra.Command{
 			}
 		}
 
-		// Create execution context with flags
-		ctx := cmd.Context()
-		if decrypt {
-			ctx = context.WithValue(ctx, "decrypt", true)
+		// Create dependencies with injector from command context
+		deps := &runtime.Dependencies{
+			Injector: cmd.Context().Value(injectorKey).(di.Injector),
 		}
+
+		// Create output function for environment variables and aliases
+		outputFunc := func(output string) {
+			fmt.Fprint(cmd.OutOrStdout(), output)
+		}
+
+		// Execute the complete workflow
+		rt := runtime.NewRuntime(deps).
+			LoadShell().
+			CheckTrustedDirectory().
+			HandleSessionReset().
+			LoadConfig().
+			LoadSecretsProviders().
+			LoadEnvVars(runtime.EnvVarsOptions{
+				Decrypt: decrypt,
+				Verbose: verbose,
+			}).
+			PrintEnvVars(runtime.EnvVarsOptions{
+				Verbose:    verbose,
+				Export:     hook,
+				OutputFunc: outputFunc,
+			})
+
+		// Only print aliases in hook mode
 		if hook {
-			ctx = context.WithValue(ctx, "hook", true)
+			rt = rt.PrintAliases(outputFunc)
 		}
 
-		// Set up the env pipeline
-		pipeline, err := pipelines.WithPipeline(injector, ctx, "envPipeline")
-		if err != nil {
-			return fmt.Errorf("failed to set up env pipeline: %w", err)
-		}
-
-		// Execute the pipeline
-		if err := pipeline.Execute(ctx); err != nil {
-			return fmt.Errorf("Error executing env pipeline: %w", err)
+		if err := rt.ExecutePostEnvHook(verbose).Do(); err != nil {
+			if hook {
+				// In hook mode, return success even if there are errors
+				// This prevents shell initialization failures from breaking the environment
+				return nil
+			}
+			return fmt.Errorf("Error executing environment workflow: %w", err)
 		}
 
 		return nil

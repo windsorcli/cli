@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
-	bundler "github.com/windsorcli/cli/pkg/artifact"
+	"github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/cluster"
 	"github.com/windsorcli/cli/pkg/config"
@@ -51,16 +51,14 @@ type PipelineConstructor func() Pipeline
 
 // pipelineConstructors maps pipeline names to their constructor functions
 var pipelineConstructors = map[string]PipelineConstructor{
-	"envPipeline":      func() Pipeline { return NewEnvPipeline() },
-	"initPipeline":     func() Pipeline { return NewInitPipeline() },
-	"execPipeline":     func() Pipeline { return NewExecPipeline() },
-	"checkPipeline":    func() Pipeline { return NewCheckPipeline() },
-	"upPipeline":       func() Pipeline { return NewUpPipeline() },
-	"downPipeline":     func() Pipeline { return NewDownPipeline() },
-	"installPipeline":  func() Pipeline { return NewInstallPipeline() },
-	"artifactPipeline": func() Pipeline { return NewArtifactPipeline() },
-	"buildIDPipeline":  func() Pipeline { return NewBuildIDPipeline() },
-	"basePipeline":     func() Pipeline { return NewBasePipeline() },
+	"initPipeline":    func() Pipeline { return NewInitPipeline() },
+	"execPipeline":    func() Pipeline { return NewExecPipeline() },
+	"checkPipeline":   func() Pipeline { return NewCheckPipeline() },
+	"upPipeline":      func() Pipeline { return NewUpPipeline() },
+	"downPipeline":    func() Pipeline { return NewDownPipeline() },
+	"installPipeline": func() Pipeline { return NewInstallPipeline() },
+	"buildIDPipeline": func() Pipeline { return NewBuildIDPipeline() },
+	"basePipeline":    func() Pipeline { return NewBasePipeline() },
 }
 
 // WithPipeline resolves or creates a pipeline instance from the DI container by name.
@@ -97,7 +95,7 @@ type BasePipeline struct {
 	configHandler    config.ConfigHandler
 	shims            *Shims
 	injector         di.Injector
-	artifactBuilder  bundler.Artifact
+	artifactBuilder  artifact.Artifact
 	blueprintHandler blueprint.BlueprintHandler
 }
 
@@ -294,56 +292,16 @@ func (p *BasePipeline) withGenerators() ([]generators.Generator, error) {
 }
 
 // withArtifactBuilder resolves or creates artifact builder from DI container
-func (p *BasePipeline) withArtifactBuilder() bundler.Artifact {
+func (p *BasePipeline) withArtifactBuilder() artifact.Artifact {
 	if existing := p.injector.Resolve("artifactBuilder"); existing != nil {
-		if builder, ok := existing.(bundler.Artifact); ok {
+		if builder, ok := existing.(artifact.Artifact); ok {
 			return builder
 		}
 	}
 
-	builder := bundler.NewArtifactBuilder()
+	builder := artifact.NewArtifactBuilder()
 	p.injector.Register("artifactBuilder", builder)
 	return builder
-}
-
-// withBundlers creates bundlers based on configuration
-func (p *BasePipeline) withBundlers() ([]bundler.Bundler, error) {
-	var bundlerList []bundler.Bundler
-
-	// Template bundler
-	if existing := p.injector.Resolve("templateBundler"); existing != nil {
-		if templateBundler, ok := existing.(bundler.Bundler); ok {
-			bundlerList = append(bundlerList, templateBundler)
-		}
-	} else {
-		templateBundler := bundler.NewTemplateBundler()
-		p.injector.Register("templateBundler", templateBundler)
-		bundlerList = append(bundlerList, templateBundler)
-	}
-
-	// Kustomize bundler
-	if existing := p.injector.Resolve("kustomizeBundler"); existing != nil {
-		if kustomizeBundler, ok := existing.(bundler.Bundler); ok {
-			bundlerList = append(bundlerList, kustomizeBundler)
-		}
-	} else {
-		kustomizeBundler := bundler.NewKustomizeBundler()
-		p.injector.Register("kustomizeBundler", kustomizeBundler)
-		bundlerList = append(bundlerList, kustomizeBundler)
-	}
-
-	// Terraform bundler
-	if existing := p.injector.Resolve("terraformBundler"); existing != nil {
-		if terraformBundler, ok := existing.(bundler.Bundler); ok {
-			bundlerList = append(bundlerList, terraformBundler)
-		}
-	} else {
-		terraformBundler := bundler.NewTerraformBundler()
-		p.injector.Register("terraformBundler", terraformBundler)
-		bundlerList = append(bundlerList, terraformBundler)
-	}
-
-	return bundlerList, nil
 }
 
 // withVirtualMachine resolves or creates virtual machine from DI container
@@ -715,7 +673,7 @@ func (p *BasePipeline) prepareTemplateData(ctx context.Context) (map[string][]by
 
 	if blueprintValue != "" {
 		if p.artifactBuilder != nil {
-			ociInfo, err := bundler.ParseOCIReference(blueprintValue)
+			ociInfo, err := artifact.ParseOCIReference(blueprintValue)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse blueprint reference: %w", err)
 			}
@@ -743,7 +701,7 @@ func (p *BasePipeline) prepareTemplateData(ctx context.Context) (map[string][]by
 
 	if p.artifactBuilder != nil {
 		effectiveBlueprintURL := constants.GetEffectiveBlueprintURL()
-		ociInfo, err := bundler.ParseOCIReference(effectiveBlueprintURL)
+		ociInfo, err := artifact.ParseOCIReference(effectiveBlueprintURL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse default blueprint reference: %w", err)
 		}

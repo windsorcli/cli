@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/pipelines"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 // execCmd represents the exec command
@@ -22,19 +23,26 @@ var execCmd = &cobra.Command{
 			return fmt.Errorf("no command provided")
 		}
 
+		verbose, _ := cmd.Flags().GetBool("verbose")
+
 		// Get shared dependency injector from context
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		// First, run the env pipeline in quiet mode to set up environment variables
-		envPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "envPipeline")
-		if err != nil {
-			return fmt.Errorf("failed to set up env pipeline: %w", err)
+		// First, set up environment variables using runtime
+		deps := &runtime.Dependencies{
+			Injector: injector,
 		}
-
-		// Execute env pipeline in quiet mode (inject environment variables without printing)
-		envCtx := context.WithValue(cmd.Context(), "quiet", true)
-		envCtx = context.WithValue(envCtx, "decrypt", true)
-		if err := envPipeline.Execute(envCtx); err != nil {
+		if err := runtime.NewRuntime(deps).
+			LoadShell().
+			CheckTrustedDirectory().
+			LoadConfig().
+			LoadSecretsProviders().
+			LoadEnvVars(runtime.EnvVarsOptions{
+				Decrypt: true,
+				Verbose: verbose,
+			}).
+			ExecutePostEnvHook(verbose).
+			Do(); err != nil {
 			return fmt.Errorf("failed to set up environment: %w", err)
 		}
 

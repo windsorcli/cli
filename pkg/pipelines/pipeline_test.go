@@ -524,14 +524,12 @@ func TestWithPipeline(t *testing.T) {
 			name         string
 			pipelineType string
 		}{
-			{"EnvPipeline", "envPipeline"},
 			{"InitPipeline", "initPipeline"},
 			{"ExecPipeline", "execPipeline"},
 			{"CheckPipeline", "checkPipeline"},
 			{"UpPipeline", "upPipeline"},
 			{"DownPipeline", "downPipeline"},
 			{"InstallPipeline", "installPipeline"},
-			{"ArtifactPipeline", "artifactPipeline"},
 			{"BasePipeline", "basePipeline"},
 		}
 
@@ -582,7 +580,7 @@ func TestWithPipeline(t *testing.T) {
 		mocks := setupMocks(t)
 
 		// When creating a pipeline with WithPipeline
-		pipeline, err := WithPipeline(mocks.Injector, context.Background(), "envPipeline")
+		pipeline, err := WithPipeline(mocks.Injector, context.Background(), "basePipeline")
 
 		// Then no error should be returned
 		if err != nil {
@@ -595,7 +593,7 @@ func TestWithPipeline(t *testing.T) {
 		}
 
 		// And the pipeline should be registered in the injector
-		registered := mocks.Injector.Resolve("envPipeline")
+		registered := mocks.Injector.Resolve("basePipeline")
 		if registered == nil {
 			t.Error("Expected pipeline to be registered in injector")
 		}
@@ -605,11 +603,11 @@ func TestWithPipeline(t *testing.T) {
 		// Given an injector with existing pipeline
 		injector := di.NewInjector()
 		existingPipeline := NewMockBasePipeline()
-		injector.Register("envPipeline", existingPipeline)
+		injector.Register("initPipeline", existingPipeline)
 		ctx := context.Background()
 
 		// When creating a pipeline with WithPipeline
-		pipeline, err := WithPipeline(injector, ctx, "envPipeline")
+		pipeline, err := WithPipeline(injector, ctx, "initPipeline")
 
 		// Then no error should be returned
 		if err != nil {
@@ -626,11 +624,11 @@ func TestWithPipeline(t *testing.T) {
 		// Given an injector with non-pipeline object
 		injector := di.NewInjector()
 		nonPipeline := "not a pipeline"
-		injector.Register("envPipeline", nonPipeline)
+		injector.Register("initPipeline", nonPipeline)
 		ctx := context.Background()
 
 		// When creating a pipeline with WithPipeline
-		pipeline, err := WithPipeline(injector, ctx, "envPipeline")
+		pipeline, err := WithPipeline(injector, ctx, "initPipeline")
 
 		// Then no error should be returned (it creates a new pipeline)
 		if err != nil {
@@ -649,7 +647,7 @@ func TestWithPipeline(t *testing.T) {
 		ctx := context.WithValue(context.Background(), "testKey", "testValue")
 
 		// When creating a pipeline with WithPipeline
-		pipeline, err := WithPipeline(injector, ctx, "envPipeline")
+		pipeline, err := WithPipeline(injector, ctx, "initPipeline")
 
 		// Then no error should be returned
 		if err != nil {
@@ -674,7 +672,7 @@ func TestWithPipeline(t *testing.T) {
 		}()
 
 		// This should panic due to nil pointer dereference
-		WithPipeline(nil, ctx, "envPipeline")
+		WithPipeline(nil, ctx, "initPipeline")
 
 		// If we reach here, the test should fail
 		t.Error("Expected panic for nil injector, but function returned normally")
@@ -692,7 +690,7 @@ func TestWithPipeline(t *testing.T) {
 		}()
 
 		// This should panic due to nil pointer dereference during initialization
-		WithPipeline(injector, nil, "envPipeline")
+		WithPipeline(injector, nil, "initPipeline")
 
 		// If we reach here, the test should fail
 		t.Error("Expected panic for nil context, but function returned normally")
@@ -722,7 +720,6 @@ func TestWithPipeline(t *testing.T) {
 
 	t.Run("AllSupportedTypes", func(t *testing.T) {
 		supportedTypes := []string{
-			"envPipeline",
 			"initPipeline",
 			"execPipeline",
 			"checkPipeline",
@@ -800,7 +797,7 @@ func TestWithPipeline(t *testing.T) {
 		ctx := context.Background()
 
 		// When creating a pipeline with WithPipeline
-		pipeline, err := WithPipeline(injector, ctx, "envPipeline")
+		pipeline, err := WithPipeline(injector, ctx, "initPipeline")
 
 		// Then no error should be returned
 		if err != nil {
@@ -808,7 +805,7 @@ func TestWithPipeline(t *testing.T) {
 		}
 
 		// And the pipeline should be registered in the injector
-		registered := injector.Resolve("envPipeline")
+		registered := injector.Resolve("initPipeline")
 		if registered == nil {
 			t.Error("Expected pipeline to be registered in injector")
 		}
@@ -823,8 +820,8 @@ func TestWithPipeline(t *testing.T) {
 		ctx := context.Background()
 
 		// When creating multiple pipelines of the same type
-		pipeline1, err1 := WithPipeline(injector, ctx, "envPipeline")
-		pipeline2, err2 := WithPipeline(injector, ctx, "envPipeline")
+		pipeline1, err1 := WithPipeline(injector, ctx, "initPipeline")
+		pipeline2, err2 := WithPipeline(injector, ctx, "initPipeline")
 
 		// Then both calls should succeed
 		if err1 != nil {
@@ -2403,75 +2400,6 @@ contexts:
 	})
 }
 
-func TestBasePipeline_withBundlers(t *testing.T) {
-	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
-		pipeline := NewBasePipeline()
-		mocks := setupMocks(t)
-		return pipeline, mocks
-	}
-
-	t.Run("CreatesBundlers", func(t *testing.T) {
-		// Given a pipeline
-		pipeline, mocks := setup(t)
-		err := pipeline.Initialize(mocks.Injector, context.Background())
-		if err != nil {
-			t.Fatalf("Initialize failed: %v", err)
-		}
-
-		// When getting bundlers
-		bundlers, err := pipeline.withBundlers()
-
-		// Then no error should occur and bundlers should be created
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if len(bundlers) == 0 {
-			t.Error("Expected bundlers to be created")
-		}
-
-		// And bundlers should be registered
-		kustomizeBundler := mocks.Injector.Resolve("kustomizeBundler")
-		if kustomizeBundler == nil {
-			t.Error("Expected kustomize bundler to be registered")
-		}
-		templateBundler := mocks.Injector.Resolve("templateBundler")
-		if templateBundler == nil {
-			t.Error("Expected template bundler to be registered")
-		}
-	})
-
-	t.Run("CreatesTerraformBundlerWhenTerraformEnabled", func(t *testing.T) {
-		// Given a pipeline with terraform enabled
-		pipeline, mocks := setup(t)
-		mocks.ConfigHandler.LoadConfigString(`
-apiVersion: v1alpha1
-contexts:
-  mock-context:
-    terraform:
-      enabled: true`)
-		err := pipeline.Initialize(mocks.Injector, context.Background())
-		if err != nil {
-			t.Fatalf("Initialize failed: %v", err)
-		}
-
-		// When getting bundlers
-		bundlers, err := pipeline.withBundlers()
-
-		// Then no error should occur and terraform bundler should be included
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if len(bundlers) < 3 {
-			t.Error("Expected at least 3 bundlers (kustomize + template + terraform)")
-		}
-
-		// And terraform bundler should be registered
-		registered := mocks.Injector.Resolve("terraformBundler")
-		if registered == nil {
-			t.Error("Expected terraform bundler to be registered")
-		}
-	})
-}
 
 func TestBasePipeline_withToolsManager(t *testing.T) {
 	setup := func(t *testing.T) (*BasePipeline, *Mocks) {

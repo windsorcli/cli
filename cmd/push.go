@@ -1,14 +1,13 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/pipelines"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 // pushCmd represents the push command
@@ -64,18 +63,20 @@ Examples:
 		// Get injector from context
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		// Create context with push mode and registry information
-		ctx := context.WithValue(context.Background(), "artifactMode", "push")
-		ctx = context.WithValue(ctx, "registryBase", registryBase)
-		ctx = context.WithValue(ctx, "repoName", repoName)
-		ctx = context.WithValue(ctx, "tag", tag)
-
-		// Execute the artifact pipeline
-		pipeline, err := pipelines.WithPipeline(injector, ctx, "artifactPipeline")
-		if err != nil {
-			return fmt.Errorf("failed to set up artifact pipeline: %w", err)
-		}
-		if err := pipeline.Execute(ctx); err != nil {
+		// Create runtime instance and push artifacts
+		if err := runtime.NewRuntime(&runtime.Dependencies{
+			Injector: injector,
+		}).
+			LoadShell().
+			ProcessArtifacts(runtime.ArtifactOptions{
+				RegistryBase: registryBase,
+				RepoName:     repoName,
+				Tag:          tag,
+				OutputFunc: func(registryURL string) {
+					fmt.Printf("Blueprint pushed successfully: %s\n", registryURL)
+				},
+			}).
+			Do(); err != nil {
 			if isAuthenticationError(err) {
 				fmt.Fprintf(os.Stderr, "Have you run 'docker login %s'?\nSee https://docs.docker.com/engine/reference/commandline/login/ for details.\n", registryBase)
 				return fmt.Errorf("Authentication failed")

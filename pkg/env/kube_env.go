@@ -136,18 +136,6 @@ func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 	return envVars, nil
 }
 
-// Print prints the environment variables for the Kube environment.
-func (e *KubeEnvPrinter) Print() error {
-	envVars, err := e.GetEnvVars()
-	if err != nil {
-		// Return the error if GetEnvVars fails
-		return fmt.Errorf("error getting environment variables: %w", err)
-	}
-
-	// Call the Print method of the embedded BaseEnvPrinter struct with the retrieved environment variables
-	return e.BaseEnvPrinter.Print(envVars)
-}
-
 // =============================================================================
 // Private Methods
 // =============================================================================

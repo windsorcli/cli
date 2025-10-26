@@ -61,12 +61,6 @@ func setupInitTest(t *testing.T, opts ...*SetupOptions) *InitMocks {
 	baseMocks.Shell.AddCurrentDirToTrustedFileFunc = func() error { return nil }
 	baseMocks.Shell.WriteResetTokenFunc = func() (string, error) { return "test-token", nil }
 
-	// Register mock env pipeline in injector (needed since init now runs env pipeline first)
-	mockEnvPipeline := pipelines.NewMockBasePipeline()
-	mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-	mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
-	baseMocks.Injector.Register("envPipeline", mockEnvPipeline)
-
 	// Register mock init pipeline in injector (following exec_test.go pattern)
 	mockInitPipeline := pipelines.NewMockBasePipeline()
 	mockInitPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
@@ -234,6 +228,19 @@ func TestInitCmd(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 			return fmt.Errorf("failed to set %s", key)
+		}
+		// Set up other methods that the runtime calls
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
 		}
 		mocks.Injector.Register("configHandler", mockConfigHandler)
 
@@ -1068,6 +1075,19 @@ func TestInitCmd(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 			return fmt.Errorf("failed to set %s", key)
+		}
+		// Set up other methods that the runtime calls
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
 		}
 		mocks.Injector.Register("configHandler", mockConfigHandler)
 

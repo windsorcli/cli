@@ -3,10 +3,13 @@ package runtime
 import (
 	"errors"
 	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
@@ -406,7 +409,22 @@ func TestRuntime_LoadBlueprint(t *testing.T) {
 			}
 			return "mock-string"
 		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
 		runtime := NewRuntime(mocks).LoadShell().LoadConfig().LoadKubernetes()
+
+		// Create local template data to avoid OCI download
+		tmpDir := t.TempDir()
+		templateDir := filepath.Join(tmpDir, "contexts", "_template")
+		if err := os.MkdirAll(templateDir, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+
+		// Mock GetProjectRoot to return our temp directory
+		mocks.Shell.(*shell.MockShell).GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
 
 		// When loading blueprint
 		result := runtime.LoadBlueprint()
@@ -426,9 +444,9 @@ func TestRuntime_LoadBlueprint(t *testing.T) {
 			t.Error("Expected blueprint handler to be created")
 		}
 
-		// And artifact builder should be created and registered
-		if runtime.ArtifactBuilder == nil {
-			t.Error("Expected artifact builder to be created")
+		// And artifact builder should NOT be created (separate concern)
+		if runtime.ArtifactBuilder != nil {
+			t.Error("Expected artifact builder to NOT be created by LoadBlueprint")
 		}
 
 		// And components should be registered in injector
@@ -436,8 +454,9 @@ func TestRuntime_LoadBlueprint(t *testing.T) {
 			t.Error("Expected blueprint handler to be registered in injector")
 		}
 
-		if runtime.Injector.Resolve("artifactBuilder") == nil {
-			t.Error("Expected artifact builder to be registered in injector")
+		// Artifact builder should NOT be registered (separate concern)
+		if runtime.Injector.Resolve("artifactBuilder") != nil {
+			t.Error("Expected artifact builder to NOT be registered by LoadBlueprint")
 		}
 	})
 
@@ -683,7 +702,7 @@ func TestRuntime_HandleSessionReset(t *testing.T) {
 		os.Unsetenv("NO_CACHE")
 	})
 
-	t.Run("ResetsWhenContextChanged", func(t *testing.T) {
+	t.Run("DoesNotResetWhenContextChanged", func(t *testing.T) {
 		// Given a runtime with loaded shell, config handler, and session token
 		mocks := setupMocks(t)
 		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
@@ -739,18 +758,15 @@ func TestRuntime_HandleSessionReset(t *testing.T) {
 			t.Errorf("Expected no error, got %v", runtime.err)
 		}
 
-		// And reset should be called (context change logic is present in current implementation)
-		if !resetCalled {
-			t.Error("Expected shell reset to be called when context changed")
+		// And reset should NOT be called
+		if resetCalled {
+			t.Error("Expected shell reset to NOT be called when context changed (logic not present)")
 		}
 
-		// And NO_CACHE should be set
-		if os.Getenv("NO_CACHE") != "true" {
-			t.Error("Expected NO_CACHE to be set to true when context changed")
+		// And NO_CACHE should NOT be set
+		if os.Getenv("NO_CACHE") == "true" {
+			t.Error("Expected NO_CACHE to NOT be set when context changed (logic not present)")
 		}
-
-		// Clean up NO_CACHE
-		os.Unsetenv("NO_CACHE")
 	})
 
 	t.Run("DoesNotResetWhenNoResetNeeded", func(t *testing.T) {
@@ -1093,6 +1109,581 @@ func TestRuntime_CheckTrustedDirectory(t *testing.T) {
 			if runtime.err.Error() != expectedErrorMsg {
 				t.Errorf("Expected error %q, got %q", expectedErrorMsg, runtime.err.Error())
 			}
+		}
+	})
+}
+
+func TestRuntime_PrintEnvVars(t *testing.T) {
+	t.Run("ReturnsEarlyOnExistingError", func(t *testing.T) {
+		// Given a runtime with an existing error
+		runtime := NewRuntime()
+		expectedError := errors.New("existing error")
+		runtime.err = expectedError
+
+		opts := EnvVarsOptions{
+			OutputFunc: func(string) {},
+		}
+
+		// When printing environment variables
+		result := runtime.PrintEnvVars(opts)
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected PrintEnvVars to return the same runtime instance")
+		}
+
+		// And original error should be preserved
+		if runtime.err != expectedError {
+			t.Errorf("Expected original error to be preserved, got %v", runtime.err)
+		}
+	})
+
+	t.Run("PrintsEnvVarsSuccessfully", func(t *testing.T) {
+		// Given a runtime with loaded shell and pre-populated environment variables
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell()
+
+		// Pre-populate r.EnvVars (simulating what LoadEnvVars would do)
+		runtime.EnvVars = map[string]string{
+			"VAR1": "value1",
+			"VAR2": "value2",
+			"VAR3": "value3",
+		}
+
+		// Track output
+		var output string
+		opts := EnvVarsOptions{
+			Export:     true,
+			OutputFunc: func(s string) { output = s },
+		}
+
+		// Mock shell RenderEnvVars
+		expectedEnvVars := map[string]string{
+			"VAR1": "value1",
+			"VAR2": "value2",
+			"VAR3": "value3",
+		}
+		mocks.Shell.(*shell.MockShell).RenderEnvVarsFunc = func(envVars map[string]string, export bool) string {
+			if !reflect.DeepEqual(envVars, expectedEnvVars) {
+				t.Errorf("Expected env vars %v, got %v", expectedEnvVars, envVars)
+			}
+			if !export {
+				t.Error("Expected export to be true")
+			}
+			return "export VAR1=value1\nexport VAR2=value2\nexport VAR3=value3"
+		}
+
+		// When printing environment variables
+		result := runtime.PrintEnvVars(opts)
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected PrintEnvVars to return the same runtime instance")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+
+		// And output should be captured
+		expectedOutput := "export VAR1=value1\nexport VAR2=value2\nexport VAR3=value3"
+		if output != expectedOutput {
+			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("HandlesEmptyEnvVars", func(t *testing.T) {
+		// Given a runtime with loaded shell and no environment printers
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell()
+
+		// Track if output function is called
+		outputCalled := false
+		opts := EnvVarsOptions{
+			OutputFunc: func(string) { outputCalled = true },
+		}
+
+		// When printing environment variables
+		result := runtime.PrintEnvVars(opts)
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected PrintEnvVars to return the same runtime instance")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+
+		// And output function should not be called
+		if outputCalled {
+			t.Error("Expected output function to not be called when no env vars")
+		}
+	})
+
+}
+
+func TestRuntime_PrintAliases(t *testing.T) {
+	t.Run("ReturnsEarlyOnExistingError", func(t *testing.T) {
+		// Given a runtime with an existing error
+		runtime := NewRuntime()
+		expectedError := errors.New("existing error")
+		runtime.err = expectedError
+
+		// When printing aliases
+		result := runtime.PrintAliases(func(string) {})
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected PrintAliases to return the same runtime instance")
+		}
+
+		// And original error should be preserved
+		if runtime.err != expectedError {
+			t.Errorf("Expected original error to be preserved, got %v", runtime.err)
+		}
+	})
+
+	t.Run("PrintsAliasesSuccessfully", func(t *testing.T) {
+		// Given a runtime with loaded shell and environment printers
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell()
+
+		// Set up mock environment printers
+		mockPrinter1 := env.NewMockEnvPrinter()
+		mockPrinter1.GetAliasFunc = func() (map[string]string, error) {
+			return map[string]string{"alias1": "command1", "alias2": "command2"}, nil
+		}
+
+		mockPrinter2 := env.NewMockEnvPrinter()
+		mockPrinter2.GetAliasFunc = func() (map[string]string, error) {
+			return map[string]string{"alias3": "command3"}, nil
+		}
+
+		runtime.EnvPrinters.AwsEnv = mockPrinter1
+		runtime.EnvPrinters.WindsorEnv = mockPrinter2
+
+		// Track output
+		var output string
+		outputFunc := func(s string) { output = s }
+
+		// Mock shell RenderAliases
+		expectedAliases := map[string]string{
+			"alias1": "command1",
+			"alias2": "command2",
+			"alias3": "command3",
+		}
+		mocks.Shell.(*shell.MockShell).RenderAliasesFunc = func(aliases map[string]string) string {
+			if !reflect.DeepEqual(aliases, expectedAliases) {
+				t.Errorf("Expected aliases %v, got %v", expectedAliases, aliases)
+			}
+			return "alias alias1='command1'\nalias alias2='command2'\nalias alias3='command3'"
+		}
+
+		// When printing aliases
+		result := runtime.PrintAliases(outputFunc)
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected PrintAliases to return the same runtime instance")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+
+		// And output should be captured
+		expectedOutput := "alias alias1='command1'\nalias alias2='command2'\nalias alias3='command3'"
+		if output != expectedOutput {
+			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("HandlesEmptyAliases", func(t *testing.T) {
+		// Given a runtime with loaded shell and no environment printers
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell()
+
+		// Track if output function is called
+		outputCalled := false
+		outputFunc := func(string) { outputCalled = true }
+
+		// When printing aliases
+		result := runtime.PrintAliases(outputFunc)
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected PrintAliases to return the same runtime instance")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+
+		// And output function should not be called
+		if outputCalled {
+			t.Error("Expected output function to not be called when no aliases")
+		}
+	})
+
+	t.Run("PropagatesAliasError", func(t *testing.T) {
+		// Given a runtime with loaded shell and environment printer that returns error
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell()
+
+		// Set up mock environment printer that returns error
+		mockPrinter := env.NewMockEnvPrinter()
+		expectedError := errors.New("alias error")
+		mockPrinter.GetAliasFunc = func() (map[string]string, error) {
+			return nil, expectedError
+		}
+
+		// Set up WindsorEnv printer to avoid panic
+		windsorPrinter := env.NewMockEnvPrinter()
+		windsorPrinter.GetAliasFunc = func() (map[string]string, error) {
+			return map[string]string{}, nil
+		}
+
+		runtime.EnvPrinters.AwsEnv = mockPrinter
+		runtime.EnvPrinters.WindsorEnv = windsorPrinter
+
+		// When printing aliases
+		result := runtime.PrintAliases(func(string) {})
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected PrintAliases to return the same runtime instance")
+		}
+
+		// And error should be set
+		if runtime.err == nil {
+			t.Error("Expected error to be set")
+		} else {
+			expectedErrorMsg := "error getting aliases: alias error"
+			if runtime.err.Error() != expectedErrorMsg {
+				t.Errorf("Expected error %q, got %q", expectedErrorMsg, runtime.err.Error())
+			}
+		}
+	})
+}
+
+func TestRuntime_ExecutePostEnvHook(t *testing.T) {
+	t.Run("ReturnsEarlyOnExistingError", func(t *testing.T) {
+		// Given a runtime with an existing error
+		runtime := NewRuntime()
+		expectedError := errors.New("existing error")
+		runtime.err = expectedError
+
+		// When executing post env hook
+		result := runtime.ExecutePostEnvHook(true)
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected ExecutePostEnvHook to return the same runtime instance")
+		}
+
+		// And original error should be preserved
+		if runtime.err != expectedError {
+			t.Errorf("Expected original error to be preserved, got %v", runtime.err)
+		}
+	})
+
+	t.Run("ExecutesPostEnvHooksSuccessfully", func(t *testing.T) {
+		// Given a runtime with environment printers
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks)
+
+		// Set up mock environment printers
+		hook1Called := false
+		hook2Called := false
+
+		mockPrinter1 := env.NewMockEnvPrinter()
+		mockPrinter1.PostEnvHookFunc = func(directory ...string) error {
+			hook1Called = true
+			return nil
+		}
+
+		mockPrinter2 := env.NewMockEnvPrinter()
+		mockPrinter2.PostEnvHookFunc = func(directory ...string) error {
+			hook2Called = true
+			return nil
+		}
+
+		runtime.EnvPrinters.AwsEnv = mockPrinter1
+		runtime.EnvPrinters.WindsorEnv = mockPrinter2
+
+		// When executing post env hook
+		result := runtime.ExecutePostEnvHook(true)
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected ExecutePostEnvHook to return the same runtime instance")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+
+		// And hooks should be called
+		if !hook1Called {
+			t.Error("Expected first hook to be called")
+		}
+		if !hook2Called {
+			t.Error("Expected second hook to be called")
+		}
+	})
+
+	t.Run("HandlesHookErrorWithVerboseTrue", func(t *testing.T) {
+		// Given a runtime with environment printer that returns error
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks)
+
+		// Set up mock environment printer that returns error
+		mockPrinter := env.NewMockEnvPrinter()
+		expectedError := errors.New("hook error")
+		mockPrinter.PostEnvHookFunc = func(directory ...string) error {
+			return expectedError
+		}
+
+		// Set up WindsorEnv printer to avoid panic
+		windsorPrinter := env.NewMockEnvPrinter()
+		windsorPrinter.PostEnvHookFunc = func(directory ...string) error {
+			return nil
+		}
+
+		runtime.EnvPrinters.AwsEnv = mockPrinter
+		runtime.EnvPrinters.WindsorEnv = windsorPrinter
+
+		// When executing post env hook with verbose true
+		result := runtime.ExecutePostEnvHook(true)
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected ExecutePostEnvHook to return the same runtime instance")
+		}
+
+		// And error should be set
+		if runtime.err == nil {
+			t.Error("Expected error to be set")
+		} else {
+			expectedErrorMsg := "failed to execute post env hooks: hook error"
+			if runtime.err.Error() != expectedErrorMsg {
+				t.Errorf("Expected error %q, got %q", expectedErrorMsg, runtime.err.Error())
+			}
+		}
+	})
+
+	t.Run("HandlesHookErrorWithVerboseFalse", func(t *testing.T) {
+		// Given a runtime with environment printer that returns error
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks)
+
+		// Set up mock environment printer that returns error
+		mockPrinter := env.NewMockEnvPrinter()
+		expectedError := errors.New("hook error")
+		mockPrinter.PostEnvHookFunc = func(directory ...string) error {
+			return expectedError
+		}
+
+		// Set up WindsorEnv printer to avoid panic
+		windsorPrinter := env.NewMockEnvPrinter()
+		windsorPrinter.PostEnvHookFunc = func(directory ...string) error {
+			return nil
+		}
+
+		runtime.EnvPrinters.AwsEnv = mockPrinter
+		runtime.EnvPrinters.WindsorEnv = windsorPrinter
+
+		// When executing post env hook with verbose false
+		result := runtime.ExecutePostEnvHook(false)
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected ExecutePostEnvHook to return the same runtime instance")
+		}
+
+		// And no error should be set (verbose false suppresses errors)
+		if runtime.err != nil {
+			t.Errorf("Expected no error when verbose false, got %v", runtime.err)
+		}
+	})
+
+	t.Run("HandlesMultipleHookErrors", func(t *testing.T) {
+		// Given a runtime with multiple environment printers that return errors
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks)
+
+		// Set up mock environment printers that return errors
+		mockPrinter1 := env.NewMockEnvPrinter()
+		error1 := errors.New("hook error 1")
+		mockPrinter1.PostEnvHookFunc = func(directory ...string) error {
+			return error1
+		}
+
+		mockPrinter2 := env.NewMockEnvPrinter()
+		error2 := errors.New("hook error 2")
+		mockPrinter2.PostEnvHookFunc = func(directory ...string) error {
+			return error2
+		}
+
+		runtime.EnvPrinters.AwsEnv = mockPrinter1
+		runtime.EnvPrinters.WindsorEnv = mockPrinter2
+
+		// When executing post env hook
+		result := runtime.ExecutePostEnvHook(true)
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected ExecutePostEnvHook to return the same runtime instance")
+		}
+
+		// And error should be set with first error
+		if runtime.err == nil {
+			t.Error("Expected error to be set")
+		} else {
+			expectedErrorMsg := "failed to execute post env hooks: hook error 1"
+			if runtime.err.Error() != expectedErrorMsg {
+				t.Errorf("Expected error %q, got %q", expectedErrorMsg, runtime.err.Error())
+			}
+		}
+	})
+
+	t.Run("SkipsNilPrinters", func(t *testing.T) {
+		// Given a runtime with some nil environment printers
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks)
+
+		// Set up one mock environment printer
+		hookCalled := false
+		mockPrinter := env.NewMockEnvPrinter()
+		mockPrinter.PostEnvHookFunc = func(directory ...string) error {
+			hookCalled = true
+			return nil
+		}
+
+		// Set up WindsorEnv printer to avoid panic
+		windsorPrinter := env.NewMockEnvPrinter()
+		windsorPrinter.PostEnvHookFunc = func(directory ...string) error {
+			return nil
+		}
+
+		runtime.EnvPrinters.AwsEnv = mockPrinter
+		runtime.EnvPrinters.WindsorEnv = windsorPrinter
+		// Other printers remain nil
+
+		// When executing post env hook
+		result := runtime.ExecutePostEnvHook(true)
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected ExecutePostEnvHook to return the same runtime instance")
+		}
+
+		// And no error should be set
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+
+		// And hook should be called
+		if !hookCalled {
+			t.Error("Expected hook to be called")
+		}
+	})
+}
+
+func TestRuntime_getAllEnvPrinters(t *testing.T) {
+	t.Run("ReturnsAllNonNilPrinters", func(t *testing.T) {
+		// Given a runtime with some environment printers set
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks)
+
+		// Set up some mock environment printers
+		mockPrinter1 := env.NewMockEnvPrinter()
+		mockPrinter2 := env.NewMockEnvPrinter()
+		mockPrinter3 := env.NewMockEnvPrinter()
+
+		runtime.EnvPrinters.AwsEnv = mockPrinter1
+		runtime.EnvPrinters.AzureEnv = mockPrinter2
+		runtime.EnvPrinters.WindsorEnv = mockPrinter3
+		// Other printers remain nil
+
+		// When getting all environment printers
+		printers := runtime.getAllEnvPrinters()
+
+		// Then should return only non-nil printers
+		if len(printers) != 3 {
+			t.Errorf("Expected 3 printers, got %d", len(printers))
+		}
+
+		// And should include the set printers
+		foundAws := false
+		foundAzure := false
+		foundWindsor := false
+
+		for _, printer := range printers {
+			if printer == mockPrinter1 {
+				foundAws = true
+			}
+			if printer == mockPrinter2 {
+				foundAzure = true
+			}
+			if printer == mockPrinter3 {
+				foundWindsor = true
+			}
+		}
+
+		if !foundAws {
+			t.Error("Expected AWS printer to be included")
+		}
+		if !foundAzure {
+			t.Error("Expected Azure printer to be included")
+		}
+		if !foundWindsor {
+			t.Error("Expected Windsor printer to be included")
+		}
+	})
+
+	t.Run("EnsuresWindsorEnvIsLast", func(t *testing.T) {
+		// Given a runtime with WindsorEnv and other printers
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks)
+
+		// Set up mock environment printers
+		mockPrinter1 := env.NewMockEnvPrinter()
+		mockPrinter2 := env.NewMockEnvPrinter()
+		windsorPrinter := env.NewMockEnvPrinter()
+
+		runtime.EnvPrinters.AwsEnv = mockPrinter1
+		runtime.EnvPrinters.AzureEnv = mockPrinter2
+		runtime.EnvPrinters.WindsorEnv = windsorPrinter
+
+		// When getting all environment printers
+		printers := runtime.getAllEnvPrinters()
+
+		// Then WindsorEnv should be last
+		if len(printers) == 0 {
+			t.Error("Expected at least one printer")
+		} else if printers[len(printers)-1] != windsorPrinter {
+			t.Error("Expected WindsorEnv to be the last printer")
+		}
+	})
+
+	t.Run("ReturnsEmptySliceWhenNoPrinters", func(t *testing.T) {
+		// Given a runtime with no environment printers set
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks)
+
+		// When getting all environment printers
+		printers := runtime.getAllEnvPrinters()
+
+		// Then should return empty slice
+		if len(printers) != 0 {
+			t.Errorf("Expected 0 printers, got %d", len(printers))
 		}
 	})
 }

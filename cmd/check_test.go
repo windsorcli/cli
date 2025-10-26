@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -13,6 +14,10 @@ func checkContains(str, substr string) bool {
 }
 
 func TestCheckCmd(t *testing.T) {
+	t.Cleanup(func() {
+		rootCmd.SetContext(context.Background())
+	})
+
 	setup := func(t *testing.T, withConfig bool) (*bytes.Buffer, *bytes.Buffer) {
 		t.Helper()
 
@@ -57,6 +62,9 @@ func TestCheckCmd(t *testing.T) {
 		// Given a directory with proper configuration
 		stdout, stderr := setup(t, true)
 
+		// Reset context for fresh test
+		rootCmd.SetContext(context.Background())
+
 		// When executing the command
 		err := Execute()
 
@@ -79,6 +87,9 @@ func TestCheckCmd(t *testing.T) {
 		// Given a directory with no configuration
 		_, _ = setup(t, false)
 
+		// Reset context for fresh test
+		rootCmd.SetContext(context.Background())
+
 		// When executing the command
 		err := Execute()
 
@@ -96,6 +107,11 @@ func TestCheckCmd(t *testing.T) {
 }
 
 func TestCheckNodeHealthCmd(t *testing.T) {
+	// Cleanup: reset rootCmd context after all subtests complete
+	t.Cleanup(func() {
+		rootCmd.SetContext(context.Background())
+	})
+
 	setup := func(t *testing.T, withConfig bool) (*bytes.Buffer, *bytes.Buffer) {
 		t.Helper()
 
@@ -212,6 +228,9 @@ func TestCheckNodeHealthCmd(t *testing.T) {
 	t.Run("ConfigNotLoaded", func(t *testing.T) {
 		// Given a directory with no configuration
 		_, _ = setup(t, false)
+
+		// Reset context for fresh test
+		rootCmd.SetContext(context.Background())
 
 		// Setup command args
 		rootCmd.SetArgs([]string{"check", "node-health", "--nodes", "10.0.0.1"})
