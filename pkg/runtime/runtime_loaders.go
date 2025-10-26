@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
-	"github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/cluster"
 	"github.com/windsorcli/cli/pkg/config"
@@ -172,12 +171,10 @@ func (r *Runtime) LoadKubernetes() *Runtime {
 	return r
 }
 
-// LoadBlueprint initializes and configures all runtime dependencies necessary for blueprint processing.
-// It creates and registers the blueprint handler and artifact builder if they do not already exist,
-// then initializes each component to provide template processing, OCI artifact loading, and blueprint
-// data management. All dependencies are injected and registered as needed. If any error occurs during
-// initialization, the error is set in the runtime and the method returns. Returns the Runtime instance
-// with updated dependencies and error state.
+// LoadBlueprint initializes and configures the blueprint handler for template processing and blueprint data management.
+// It creates and registers the blueprint handler if it does not already exist, then initializes it and loads blueprint data.
+// All dependencies are injected and registered as needed. If any error occurs during initialization, the error is set
+// in the runtime and the method returns. Returns the Runtime instance with updated dependencies and error state.
 func (r *Runtime) LoadBlueprint() *Runtime {
 	if r.err != nil {
 		return r
@@ -190,16 +187,8 @@ func (r *Runtime) LoadBlueprint() *Runtime {
 		r.BlueprintHandler = blueprint.NewBlueprintHandler(r.Injector)
 		r.Injector.Register("blueprintHandler", r.BlueprintHandler)
 	}
-	if r.ArtifactBuilder == nil {
-		r.ArtifactBuilder = artifact.NewArtifactBuilder()
-		r.Injector.Register("artifactBuilder", r.ArtifactBuilder)
-	}
 	if err := r.BlueprintHandler.Initialize(); err != nil {
 		r.err = fmt.Errorf("failed to initialize blueprint handler: %w", err)
-		return r
-	}
-	if err := r.ArtifactBuilder.Initialize(r.Injector); err != nil {
-		r.err = fmt.Errorf("failed to initialize artifact builder: %w", err)
 		return r
 	}
 	if err := r.BlueprintHandler.LoadBlueprint(); err != nil {

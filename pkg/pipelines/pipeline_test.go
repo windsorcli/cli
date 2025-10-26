@@ -530,7 +530,6 @@ func TestWithPipeline(t *testing.T) {
 			{"UpPipeline", "upPipeline"},
 			{"DownPipeline", "downPipeline"},
 			{"InstallPipeline", "installPipeline"},
-			{"ArtifactPipeline", "artifactPipeline"},
 			{"BasePipeline", "basePipeline"},
 		}
 
@@ -2401,75 +2400,6 @@ contexts:
 	})
 }
 
-func TestBasePipeline_withBundlers(t *testing.T) {
-	setup := func(t *testing.T) (*BasePipeline, *Mocks) {
-		pipeline := NewBasePipeline()
-		mocks := setupMocks(t)
-		return pipeline, mocks
-	}
-
-	t.Run("CreatesBundlers", func(t *testing.T) {
-		// Given a pipeline
-		pipeline, mocks := setup(t)
-		err := pipeline.Initialize(mocks.Injector, context.Background())
-		if err != nil {
-			t.Fatalf("Initialize failed: %v", err)
-		}
-
-		// When getting bundlers
-		bundlers, err := pipeline.withBundlers()
-
-		// Then no error should occur and bundlers should be created
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if len(bundlers) == 0 {
-			t.Error("Expected bundlers to be created")
-		}
-
-		// And bundlers should be registered
-		kustomizeBundler := mocks.Injector.Resolve("kustomizeBundler")
-		if kustomizeBundler == nil {
-			t.Error("Expected kustomize bundler to be registered")
-		}
-		templateBundler := mocks.Injector.Resolve("templateBundler")
-		if templateBundler == nil {
-			t.Error("Expected template bundler to be registered")
-		}
-	})
-
-	t.Run("CreatesTerraformBundlerWhenTerraformEnabled", func(t *testing.T) {
-		// Given a pipeline with terraform enabled
-		pipeline, mocks := setup(t)
-		mocks.ConfigHandler.LoadConfigString(`
-apiVersion: v1alpha1
-contexts:
-  mock-context:
-    terraform:
-      enabled: true`)
-		err := pipeline.Initialize(mocks.Injector, context.Background())
-		if err != nil {
-			t.Fatalf("Initialize failed: %v", err)
-		}
-
-		// When getting bundlers
-		bundlers, err := pipeline.withBundlers()
-
-		// Then no error should occur and terraform bundler should be included
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if len(bundlers) < 3 {
-			t.Error("Expected at least 3 bundlers (kustomize + template + terraform)")
-		}
-
-		// And terraform bundler should be registered
-		registered := mocks.Injector.Resolve("terraformBundler")
-		if registered == nil {
-			t.Error("Expected terraform bundler to be registered")
-		}
-	})
-}
 
 func TestBasePipeline_withToolsManager(t *testing.T) {
 	setup := func(t *testing.T) (*BasePipeline, *Mocks) {

@@ -87,8 +87,8 @@ type BlueprintMetadataInput struct {
 // Artifact defines the interface for artifact creation operations
 type Artifact interface {
 	Initialize(injector di.Injector) error
-	AddFile(path string, content []byte, mode os.FileMode) error
-	Create(outputPath string, tag string) (string, error)
+	Bundle() error
+	Write(outputPath string, tag string) (string, error)
 	Push(registryBase string, repoName string, tag string) error
 	Pull(ociRefs []string) (map[string][]byte, error)
 	GetTemplateData(ociRef string) (map[string][]byte, error)
@@ -102,6 +102,12 @@ type Artifact interface {
 type FileInfo struct {
 	Content []byte
 	Mode    os.FileMode
+}
+
+// PathProcessor defines a processor for files matching a specific path pattern
+type PathProcessor struct {
+	Pattern string
+	Handler func(relPath string, data []byte, mode os.FileMode) error
 }
 
 // ArtifactBuilder implements the Artifact interface
@@ -148,25 +154,17 @@ func (a *ArtifactBuilder) Initialize(injector di.Injector) error {
 	return nil
 }
 
-// AddFile stores a file with the specified path and content in the artifact for later packaging.
-// Files are held in memory until Create() or Push() is called. The path becomes the relative
-// path within the generated tar.gz archive. Multiple calls with the same path will overwrite
-// the previous content. Special handling exists for "_templates/metadata.yaml" during packaging.
-func (a *ArtifactBuilder) AddFile(path string, content []byte, mode os.FileMode) error {
-	a.files[path] = FileInfo{
-		Content: content,
-		Mode:    mode,
-	}
-	return nil
-}
-
-// Create generates a compressed tar.gz artifact file from stored files and metadata with optional tag override.
+// Write bundles all files and creates a compressed tar.gz artifact file with optional tag override.
 // Accepts optional tag in "name:version" format to override metadata.yaml values.
 // Tag takes precedence over existing metadata. If no metadata.yaml exists, tag is required.
 // OutputPath can be file or directory - generates filename from metadata if directory.
 // Creates compressed tar.gz with all files plus generated metadata.yaml at root.
 // Returns the final output path of the created artifact file.
-func (a *ArtifactBuilder) Create(outputPath string, tag string) (string, error) {
+func (a *ArtifactBuilder) Write(outputPath string, tag string) (string, error) {
+	if err := a.Bundle(); err != nil {
+		return "", fmt.Errorf("failed to bundle files: %w", err)
+	}
+
 	finalName, finalVersion, metadata, err := a.parseTagAndResolveMetadata("", tag)
 	if err != nil {
 		return "", err
@@ -184,6 +182,18 @@ func (a *ArtifactBuilder) Create(outputPath string, tag string) (string, error) 
 	a.metadata.Version = finalVersion
 
 	return finalOutputPath, nil
+}
+
+// addFile stores a file with the specified path and content in the artifact for later packaging.
+// Files are held in memory until create() or Push() is called. The path becomes the relative
+// path within the generated tar.gz archive. Multiple calls with the same path will overwrite
+// the previous content. Special handling exists for "_templates/metadata.yaml" during packaging.
+func (a *ArtifactBuilder) addFile(path string, content []byte, mode os.FileMode) error {
+	a.files[path] = FileInfo{
+		Content: content,
+		Mode:    mode,
+	}
+	return nil
 }
 
 // Push uploads the artifact to an OCI registry with explicit blob handling to prevent MANIFEST_BLOB_UNKNOWN errors.
@@ -435,6 +445,45 @@ func (a *ArtifactBuilder) GetTemplateData(ociRef string) (map[string][]byte, err
 	return templateData, nil
 }
 
+// Bundle traverses the project directories and collects all relevant files to be
+// included in the artifact. It applies configurable path-based processors that determine
+// how files from each directory (such as "_template", "kustomize", or "terraform") are
+// incorporated into the artifact. The method supports extensibility by allowing custom
+// handling of different directory structures and types, and skips files in the "terraform"
+// directory based on predefined logic.
+//
+// Returns an error if any file processing or traversal fails.
+func (a *ArtifactBuilder) Bundle() error {
+	processors := []PathProcessor{
+		{
+			Pattern: "contexts/_template",
+			Handler: func(relPath string, data []byte, mode os.FileMode) error {
+				artifactPath := "_template/" + filepath.ToSlash(relPath)
+				return a.addFile(artifactPath, data, mode)
+			},
+		},
+		{
+			Pattern: "kustomize",
+			Handler: func(relPath string, data []byte, mode os.FileMode) error {
+				artifactPath := "kustomize/" + filepath.ToSlash(relPath)
+				return a.addFile(artifactPath, data, mode)
+			},
+		},
+		{
+			Pattern: "terraform",
+			Handler: func(relPath string, data []byte, mode os.FileMode) error {
+				if a.shouldSkipTerraformFile(filepath.Base(relPath)) {
+					return nil
+				}
+				artifactPath := "terraform/" + filepath.ToSlash(relPath)
+				return a.addFile(artifactPath, data, mode)
+			},
+		},
+	}
+
+	return a.walkAndProcessFiles(processors)
+}
+
 // =============================================================================
 // Package Functions
 // =============================================================================
@@ -496,6 +545,104 @@ func ParseOCIReference(ociRef string) (*OCIArtifactInfo, error) {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// walkAndProcessFiles traverses the "contexts", "kustomize", and "terraform" directories and processes
+// all files found using the provided list of PathProcessors. For each file, the method identifies the
+// corresponding processor (if any) by matching patterns and invokes its Handler with the file's relative
+// path, data, and permissions. Non-existent directories are skipped. Any ".terraform" directories are
+// skipped during traversal. If any error occurs while reading files, obtaining relative paths, or while
+// invoking a processor, the error is returned and processing halts.
+func (a *ArtifactBuilder) walkAndProcessFiles(processors []PathProcessor) error {
+	dirSet := make(map[string]bool)
+	for _, processor := range processors {
+		dir := strings.Split(processor.Pattern, "/")[0]
+		dirSet[dir] = true
+	}
+
+	for dir := range dirSet {
+		if _, err := a.shims.Stat(dir); os.IsNotExist(err) {
+			continue
+		}
+
+		if err := a.shims.Walk(dir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if info.IsDir() {
+				if info.Name() == ".terraform" {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+
+			processor := a.findMatchingProcessor(path, processors)
+			if processor == nil {
+				return nil
+			}
+
+			data, err := a.shims.ReadFile(path)
+			if err != nil {
+				return fmt.Errorf("failed to read file %s: %w", path, err)
+			}
+
+			relPath, err := a.shims.FilepathRel(processor.Pattern, path)
+			if err != nil {
+				return fmt.Errorf("failed to get relative path: %w", err)
+			}
+
+			return processor.Handler(relPath, data, info.Mode())
+		}); err != nil {
+			return fmt.Errorf("failed to walk directory %s: %w", dir, err)
+		}
+	}
+
+	return nil
+}
+
+// findMatchingProcessor finds the first processor whose pattern matches the given path
+func (a *ArtifactBuilder) findMatchingProcessor(path string, processors []PathProcessor) *PathProcessor {
+	for _, processor := range processors {
+		if strings.HasPrefix(path, processor.Pattern) {
+			return &processor
+		}
+	}
+	return nil
+}
+
+// shouldSkipTerraformFile determines if a terraform file should be excluded from bundling
+func (a *ArtifactBuilder) shouldSkipTerraformFile(filename string) bool {
+	if strings.HasSuffix(filename, "_override.tf") ||
+		strings.HasSuffix(filename, "_override.tf.json") ||
+		filename == "override.tf" ||
+		filename == "override.tf.json" {
+		return true
+	}
+
+	if strings.HasSuffix(filename, ".tfstate") ||
+		strings.Contains(filename, ".tfstate.") {
+		return true
+	}
+
+	if strings.HasSuffix(filename, ".tfvars") ||
+		strings.HasSuffix(filename, ".tfvars.json") {
+		return true
+	}
+
+	if strings.HasSuffix(filename, ".tfplan") {
+		return true
+	}
+
+	if filename == ".terraformrc" || filename == "terraform.rc" {
+		return true
+	}
+
+	if filename == "crash.log" || (strings.HasPrefix(filename, "crash.") && strings.HasSuffix(filename, ".log")) {
+		return true
+	}
+
+	return false
+}
 
 // parseTagAndResolveMetadata extracts name and version from tag parameter or metadata file and generates final metadata.
 // For Create method (repoName is empty): tag can be "name:version" format or empty to use metadata.yaml

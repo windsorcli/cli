@@ -293,6 +293,83 @@ func (r *Runtime) CheckTrustedDirectory() *Runtime {
 	return r
 }
 
+// ArtifactOptions contains options for artifact operations (bundle or push).
+type ArtifactOptions struct {
+	// Bundle options
+	OutputPath string // Output path for bundle (file or directory)
+
+	// Push options
+	RegistryBase string // Registry base URL (e.g., "ghcr.io")
+	RepoName     string // Repository name
+
+	// Common options
+	Tag        string       // Tag/version (overrides metadata.yaml)
+	OutputFunc func(string) // Callback for success output
+}
+
+// ProcessArtifacts builds and processes artifacts (bundle or push) from the project's templates,
+// kustomize, and terraform files. It loads blueprint and artifact handlers, bundles all files,
+// and either archives to a file or pushes to a registry based on ArtifactOptions. Supports both
+// bundle and push operations. If any step fails, the returned Runtime has an updated error state;
+// otherwise, returns the current instance.
+func (r *Runtime) ProcessArtifacts(opts ArtifactOptions) *Runtime {
+	if r.err != nil {
+		return r
+	}
+	if r.Shell == nil {
+		r.err = fmt.Errorf("shell not loaded - call LoadShell() first")
+		return r
+	}
+
+	if r.ArtifactBuilder == nil {
+		if existingArtifactBuilder := r.Injector.Resolve("artifactBuilder"); existingArtifactBuilder != nil {
+			if artifactBuilderInstance, ok := existingArtifactBuilder.(artifact.Artifact); ok {
+				r.ArtifactBuilder = artifactBuilderInstance
+			} else {
+				r.ArtifactBuilder = artifact.NewArtifactBuilder()
+				r.Injector.Register("artifactBuilder", r.ArtifactBuilder)
+			}
+		} else {
+			r.ArtifactBuilder = artifact.NewArtifactBuilder()
+			r.Injector.Register("artifactBuilder", r.ArtifactBuilder)
+		}
+		if err := r.ArtifactBuilder.Initialize(r.Injector); err != nil {
+			r.err = fmt.Errorf("failed to initialize artifact builder: %w", err)
+			return r
+		}
+	}
+
+	if opts.RegistryBase != "" && opts.RepoName != "" {
+		if err := r.ArtifactBuilder.Bundle(); err != nil {
+			r.err = fmt.Errorf("failed to bundle artifacts: %w", err)
+			return r
+		}
+
+		if err := r.ArtifactBuilder.Push(opts.RegistryBase, opts.RepoName, opts.Tag); err != nil {
+			r.err = fmt.Errorf("failed to push artifact: %w", err)
+			return r
+		}
+		registryURL := fmt.Sprintf("%s/%s", opts.RegistryBase, opts.RepoName)
+		if opts.Tag != "" {
+			registryURL = fmt.Sprintf("%s:%s", registryURL, opts.Tag)
+		}
+		if opts.OutputFunc != nil {
+			opts.OutputFunc(registryURL)
+		}
+	} else {
+		actualOutputPath, err := r.ArtifactBuilder.Write(opts.OutputPath, opts.Tag)
+		if err != nil {
+			r.err = fmt.Errorf("failed to bundle and create artifact: %w", err)
+			return r
+		}
+		if opts.OutputFunc != nil {
+			opts.OutputFunc(actualOutputPath)
+		}
+	}
+
+	return r
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================

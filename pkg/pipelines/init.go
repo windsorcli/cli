@@ -41,7 +41,6 @@ type InitPipeline struct {
 	toolsManager         tools.ToolsManager
 	stack                stack.Stack
 	generators           []generators.Generator
-	bundlers             []artifact.Bundler
 	artifactBuilder      artifact.Artifact
 	services             []services.Service
 	virtualMachine       virt.VirtualMachine
@@ -132,11 +131,6 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 	}
 	p.generators = generators
 
-	bundlers, err := p.withBundlers()
-	if err != nil {
-		return fmt.Errorf("failed to create bundlers: %w", err)
-	}
-	p.bundlers = bundlers
 
 	services, err := p.withServices()
 	if err != nil {
@@ -192,11 +186,6 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 		}
 	}
 
-	for _, bundler := range p.bundlers {
-		if err := bundler.Initialize(p.injector); err != nil {
-			return fmt.Errorf("failed to initialize bundler: %w", err)
-		}
-	}
 
 	for _, service := range p.services {
 		if err := service.Initialize(); err != nil {

@@ -3,6 +3,7 @@ package runtime
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -408,7 +409,22 @@ func TestRuntime_LoadBlueprint(t *testing.T) {
 			}
 			return "mock-string"
 		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
 		runtime := NewRuntime(mocks).LoadShell().LoadConfig().LoadKubernetes()
+
+		// Create local template data to avoid OCI download
+		tmpDir := t.TempDir()
+		templateDir := filepath.Join(tmpDir, "contexts", "_template")
+		if err := os.MkdirAll(templateDir, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+
+		// Mock GetProjectRoot to return our temp directory
+		mocks.Shell.(*shell.MockShell).GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
 
 		// When loading blueprint
 		result := runtime.LoadBlueprint()
@@ -428,9 +444,9 @@ func TestRuntime_LoadBlueprint(t *testing.T) {
 			t.Error("Expected blueprint handler to be created")
 		}
 
-		// And artifact builder should be created and registered
-		if runtime.ArtifactBuilder == nil {
-			t.Error("Expected artifact builder to be created")
+		// And artifact builder should NOT be created (separate concern)
+		if runtime.ArtifactBuilder != nil {
+			t.Error("Expected artifact builder to NOT be created by LoadBlueprint")
 		}
 
 		// And components should be registered in injector
@@ -438,8 +454,9 @@ func TestRuntime_LoadBlueprint(t *testing.T) {
 			t.Error("Expected blueprint handler to be registered in injector")
 		}
 
-		if runtime.Injector.Resolve("artifactBuilder") == nil {
-			t.Error("Expected artifact builder to be registered in injector")
+		// Artifact builder should NOT be registered (separate concern)
+		if runtime.Injector.Resolve("artifactBuilder") != nil {
+			t.Error("Expected artifact builder to NOT be registered by LoadBlueprint")
 		}
 	})
 
