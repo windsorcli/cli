@@ -81,16 +81,5 @@ func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 	return envVars, nil
 }
 
-// Print prints the environment variables for the AWS environment.
-func (e *AwsEnvPrinter) Print() error {
-	envVars, err := e.GetEnvVars()
-	if err != nil {
-		// Return the error if GetEnvVars fails
-		return fmt.Errorf("error getting environment variables: %w", err)
-	}
-	// Call the Print method of the embedded envPrinter struct with the retrieved environment variables
-	return e.BaseEnvPrinter.Print(envVars)
-}
-
 // Ensure AwsEnvPrinter implements the EnvPrinter interface
 var _ EnvPrinter = (*AwsEnvPrinter)(nil)

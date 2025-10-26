@@ -18,8 +18,8 @@ import (
 type MockShell struct {
 	DefaultShell
 	InitializeFunc                 func() error
-	PrintEnvVarsFunc               func(envVars map[string]string, export bool)
-	PrintAliasFunc                 func(envVars map[string]string)
+	RenderEnvVarsFunc              func(envVars map[string]string, export bool) string
+	RenderAliasesFunc              func(aliases map[string]string) string
 	GetProjectRootFunc             func() (string, error)
 	ExecFunc                       func(command string, args ...string) (string, error)
 	ExecSilentFunc                 func(command string, args ...string) (string, error)
@@ -70,18 +70,20 @@ func (s *MockShell) Initialize() error {
 	return nil
 }
 
-// PrintEnvVars calls the custom PrintEnvVarsFunc if provided.
-func (s *MockShell) PrintEnvVars(envVars map[string]string, export bool) {
-	if s.PrintEnvVarsFunc != nil {
-		s.PrintEnvVarsFunc(envVars, export)
+// RenderEnvVars calls the custom RenderEnvVarsFunc if provided.
+func (s *MockShell) RenderEnvVars(envVars map[string]string, export bool) string {
+	if s.RenderEnvVarsFunc != nil {
+		return s.RenderEnvVarsFunc(envVars, export)
 	}
+	return ""
 }
 
-// PrintAlias calls the custom PrintAliasFunc if provided.
-func (s *MockShell) PrintAlias(envVars map[string]string) {
-	if s.PrintAliasFunc != nil {
-		s.PrintAliasFunc(envVars)
+// RenderAliases calls the custom RenderAliasesFunc if provided.
+func (s *MockShell) RenderAliases(aliases map[string]string) string {
+	if s.RenderAliasesFunc != nil {
+		return s.RenderAliasesFunc(aliases)
 	}
+	return ""
 }
 
 // GetProjectRoot calls the custom GetProjectRootFunc if provided.

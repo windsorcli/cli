@@ -46,6 +46,9 @@ func NewMockKubernetesManager(injector di.Injector) *MockKubernetesManager {
 	return &MockKubernetesManager{}
 }
 
+// Ensure MockKubernetesManager implements KubernetesManager interface
+var _ KubernetesManager = (*MockKubernetesManager)(nil)
+
 // =============================================================================
 // Public Methods
 // =============================================================================

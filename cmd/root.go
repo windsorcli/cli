@@ -2,11 +2,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"path/filepath"
-	"slices"
-	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/di"
@@ -22,12 +17,19 @@ const injectorKey = contextKey("injector")
 
 var shims = NewShims()
 
-// The Execute function is the main entry point for the Windsor CLI application.
-// It provides initialization of core dependencies and command execution,
-// establishing the dependency injection container context.
+// Execute is the main entry point for the Windsor CLI application.
+// It initializes core dependencies, establishes the dependency injection container context,
+// and executes the root command. If a context with an injector is already set (such as in tests),
+// it uses the existing context; otherwise, it creates a new injector and context for normal execution.
 func Execute() error {
+	ctx := rootCmd.Context()
+	if ctx != nil {
+		if injector, ok := ctx.Value(injectorKey).(di.Injector); ok && injector != nil {
+			return rootCmd.ExecuteContext(ctx)
+		}
+	}
 	injector := di.NewInjector()
-	ctx := context.WithValue(context.Background(), injectorKey, injector)
+	ctx = context.WithValue(context.Background(), injectorKey, injector)
 	return rootCmd.ExecuteContext(ctx)
 }
 
@@ -45,13 +47,10 @@ func init() {
 }
 
 // commandPreflight orchestrates global CLI preflight checks and context initialization for all commands.
-// Intended for use as cobra.Command.PersistentPreRunE, it ensures the command context is configured and
-// the current directory is authorized for Windsor operations prior to command execution.
+// Intended for use as cobra.Command.PersistentPreRunE, it ensures the command context is configured
+// prior to command execution. Trust checking is now handled by individual commands through the runtime.
 func commandPreflight(cmd *cobra.Command, args []string) error {
 	if err := setupGlobalContext(cmd); err != nil {
-		return err
-	}
-	if err := enforceTrustedDirectory(cmd); err != nil {
 		return err
 	}
 	return nil
@@ -69,57 +68,4 @@ func setupGlobalContext(cmd *cobra.Command) error {
 	}
 	cmd.SetContext(ctx)
 	return nil
-}
-
-// enforceTrustedDirectory checks if the current working directory is trusted for Windsor operations.
-// Enforces trust for a defined set of commands, including "env". For "env" with --hook, exits silently to avoid shell integration noise.
-// Returns an error if the directory is not trusted.
-func enforceTrustedDirectory(cmd *cobra.Command) error {
-	const notTrustedDirMsg = "not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve"
-	enforcedCommands := []string{"up", "down", "exec", "install", "env", "build-id"}
-	cmdName := cmd.Name()
-	shouldEnforce := slices.Contains(enforcedCommands, cmdName)
-
-	if !shouldEnforce {
-		return nil
-	}
-
-	currentDir, err := shims.Getwd()
-	if err != nil {
-		return fmt.Errorf("Error getting current directory: %w", err)
-	}
-
-	homeDir, err := shims.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("Error getting user home directory: %w", err)
-	}
-
-	trustedDirPath := filepath.Join(homeDir, ".config", "windsor")
-	trustedFilePath := filepath.Join(trustedDirPath, ".trusted")
-
-	data, err := shims.ReadFile(trustedFilePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf(notTrustedDirMsg)
-		}
-		return fmt.Errorf(notTrustedDirMsg)
-	}
-
-	iter := strings.SplitSeq(strings.TrimSpace(string(data)), "\n")
-
-	for trustedDir := range iter {
-		trustedDir = strings.TrimSpace(trustedDir)
-		if trustedDir != "" && strings.HasPrefix(currentDir, trustedDir) {
-			return nil
-		}
-	}
-
-	if cmdName == "env" {
-		hook, _ := cmd.Flags().GetBool("hook")
-		if hook {
-			shims.Exit(0)
-		}
-	}
-
-	return fmt.Errorf(notTrustedDirMsg)
 }

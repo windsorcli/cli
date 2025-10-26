@@ -7,11 +7,9 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"runtime"
-	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -19,6 +17,7 @@ import (
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
+	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -103,6 +102,12 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		return false, nil
 	}
 	mockShell.ResetFunc = func(...bool) {}
+	mockShell.GetSessionTokenFunc = func() (string, error) {
+		return "mock-session-token", nil
+	}
+	mockShell.WriteResetTokenFunc = func() (string, error) {
+		return "mock-reset-token", nil
+	}
 	injector.Register("shell", mockShell)
 
 	// Create and register mock secrets provider
@@ -114,9 +119,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 
 	// Create and register mock env printer
 	mockEnvPrinter := env.NewMockEnvPrinter()
-	mockEnvPrinter.PrintFunc = func() error {
-		return nil
-	}
+	// PrintFunc removed - functionality now in runtime
 	mockEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
 		return nil
 	}
@@ -124,18 +127,14 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 
 	// Create and register additional mock env printers
 	mockWindsorEnvPrinter := env.NewMockEnvPrinter()
-	mockWindsorEnvPrinter.PrintFunc = func() error {
-		return nil
-	}
+	// PrintFunc removed - functionality now in runtime
 	mockWindsorEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
 		return nil
 	}
 	injector.Register("windsorEnvPrinter", mockWindsorEnvPrinter)
 
 	mockDockerEnvPrinter := env.NewMockEnvPrinter()
-	mockDockerEnvPrinter.PrintFunc = func() error {
-		return nil
-	}
+	// PrintFunc removed - functionality now in runtime
 	mockDockerEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
 		return nil
 	}
@@ -166,6 +165,13 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 			t.Fatalf("Failed to set context: %v", err)
 		}
 	}
+
+	// Create and register mock kubernetes manager
+	mockKubernetesManager := kubernetes.NewMockKubernetesManager(injector)
+	mockKubernetesManager.InitializeFunc = func() error {
+		return nil
+	}
+	injector.Register("kubernetesManager", mockKubernetesManager)
 
 	// Create mock blueprint handler
 	mockBlueprintHandler := blueprintpkg.NewMockBlueprintHandler(injector)
@@ -269,6 +275,11 @@ func TestRootCmd_PersistentPreRunE(t *testing.T) {
 }
 
 func TestCommandPreflight(t *testing.T) {
+	// Cleanup: reset rootCmd context after all subtests complete
+	t.Cleanup(func() {
+		rootCmd.SetContext(context.Background())
+	})
+
 	// Set up mocks for all tests
 	setupMocks(t)
 
@@ -278,119 +289,49 @@ func TestCommandPreflight(t *testing.T) {
 		}
 	}
 
-	t.Run("SkipsTrustCheckForInitCommand", func(t *testing.T) {
+	t.Run("SucceedsForInitCommand", func(t *testing.T) {
 		// Given an init command
 		cmd := createMockCmd("init")
 
-		// When checking trust
+		// When running preflight
 		err := commandPreflight(cmd, []string{})
 
-		// Then no error should occur (trust check is skipped)
+		// Then no error should occur (preflight only sets up global context)
 		if err != nil {
 			t.Errorf("Expected no error for init command, got: %v", err)
 		}
 	})
 
-	t.Run("SkipsTrustCheckForEnvCommandWithHookFlag", func(t *testing.T) {
+	t.Run("SucceedsForEnvCommandWithHookFlag", func(t *testing.T) {
 		// Given an env command with hook flag
 		cmd := createMockCmd("env")
 		cmd.Flags().Bool("hook", false, "hook flag")
 		cmd.Flags().Set("hook", "true")
 
-		// When checking trust
+		// When running preflight
 		err := commandPreflight(cmd, []string{})
 
-		// Then no error should occur (trust check is skipped for env --hook)
+		// Then no error should occur (preflight only sets up global context)
 		if err != nil {
 			t.Errorf("Expected no error for env --hook, got: %v", err)
 		}
 	})
 
-	t.Run("ChecksTrustForEnvCommandWithoutHookFlag", func(t *testing.T) {
-		// Given an env command without hook flag in an untrusted directory
-		cmd := createMockCmd("env")
-		cmd.Flags().Bool("hook", false, "hook flag")
+	t.Run("SetsUpGlobalContext", func(t *testing.T) {
+		// Given any command
+		cmd := createMockCmd("test")
 
-		// Override shims to return an untrusted directory
-		tmpDir := t.TempDir()
-		origShims := shims
-		defer func() { shims = origShims }()
-
-		shims = &Shims{
-			Exit:        func(int) {},
-			UserHomeDir: func() (string, error) { return t.TempDir(), nil },
-			Getwd:       func() (string, error) { return tmpDir, nil },
-			ReadFile: func(filename string) ([]byte, error) {
-				// Return trusted file content that does NOT include tmpDir
-				return []byte("/test/project\n"), nil
-			},
-		}
-
-		// When checking trust
+		// When running preflight
 		err := commandPreflight(cmd, []string{})
 
-		// Then an error should occur about untrusted directory
-		if err == nil {
-			t.Error("Expected error for untrusted directory, got nil")
-		}
-		if !strings.Contains(err.Error(), "not in a trusted directory") {
-			t.Errorf("Expected trust error message, got: %v", err)
-		}
-	})
-
-	t.Run("PassesTrustCheckForTrustedDirectory", func(t *testing.T) {
-		// Given a command in a trusted directory
-		cmd := createMockCmd("down")
-
-		// Set up a temporary directory structure with trusted file
-		tmpDir := t.TempDir()
-		testDir := filepath.Join(tmpDir, "project")
-		if err := os.MkdirAll(testDir, 0755); err != nil {
-			t.Fatalf("Failed to create test directory: %v", err)
-		}
-
-		// Create trusted file
-		trustedDir := filepath.Join(tmpDir, ".config", "windsor")
-		if err := os.MkdirAll(trustedDir, 0755); err != nil {
-			t.Fatalf("Failed to create trusted directory: %v", err)
-		}
-
-		trustedFile := filepath.Join(trustedDir, ".trusted")
-		realTestDir, _ := filepath.EvalSymlinks(testDir)
-		trustedContent := realTestDir + "\n"
-		if err := os.WriteFile(trustedFile, []byte(trustedContent), 0644); err != nil {
-			t.Fatalf("Failed to create trusted file: %v", err)
-		}
-
-		// Change to test directory
-		originalDir, err := os.Getwd()
+		// Then no error should occur (preflight only sets up global context)
 		if err != nil {
-			t.Fatalf("Failed to get current directory: %v", err)
-		}
-		defer os.Chdir(originalDir)
-
-		if err := os.Chdir(testDir); err != nil {
-			t.Fatalf("Failed to change directory: %v", err)
+			t.Errorf("Expected no error for preflight, got: %v", err)
 		}
 
-		// Mock home directory for cross-platform compatibility
-		var originalHome string
-		if runtime.GOOS == "windows" {
-			originalHome = os.Getenv("USERPROFILE")
-			defer os.Setenv("USERPROFILE", originalHome)
-			os.Setenv("USERPROFILE", tmpDir)
-		} else {
-			originalHome = os.Getenv("HOME")
-			defer os.Setenv("HOME", originalHome)
-			os.Setenv("HOME", tmpDir)
-		}
-
-		// When checking trust
-		err = commandPreflight(cmd, []string{})
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("Expected no error for trusted directory, got: %v", err)
+		// And context should be set
+		if cmd.Context() == nil {
+			t.Error("Expected command context to be set")
 		}
 	})
 

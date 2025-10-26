@@ -51,7 +51,6 @@ type PipelineConstructor func() Pipeline
 
 // pipelineConstructors maps pipeline names to their constructor functions
 var pipelineConstructors = map[string]PipelineConstructor{
-	"envPipeline":      func() Pipeline { return NewEnvPipeline() },
 	"initPipeline":     func() Pipeline { return NewInitPipeline() },
 	"execPipeline":     func() Pipeline { return NewExecPipeline() },
 	"checkPipeline":    func() Pipeline { return NewCheckPipeline() },

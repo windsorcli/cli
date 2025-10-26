@@ -47,8 +47,8 @@ type HookContext struct {
 type Shell interface {
 	Initialize() error
 	SetVerbosity(verbose bool)
-	PrintEnvVars(envVars map[string]string, export bool)
-	PrintAlias(envVars map[string]string)
+	RenderEnvVars(envVars map[string]string, export bool) string
+	RenderAliases(aliases map[string]string) string
 	GetProjectRoot() (string, error)
 	Exec(command string, args ...string) (string, error)
 	ExecSilent(command string, args ...string) (string, error)
@@ -633,6 +633,16 @@ func (s *DefaultShell) ResetSessionToken() {
 	s.sessionToken = ""
 }
 
+// RenderEnvVars returns the rendered environment variables as a string instead of printing them
+// The export parameter controls whether to use OS-specific export commands or plain KEY=value format
+func (s *DefaultShell) RenderEnvVars(envVars map[string]string, export bool) string {
+	if export {
+		return s.renderEnvVarsWithExport(envVars)
+	} else {
+		return s.renderEnvVarsPlain(envVars)
+	}
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================
@@ -668,27 +678,30 @@ func (s *DefaultShell) scrubString(input string) string {
 // The export parameter controls whether to use OS-specific export commands or plain KEY=value format
 func (s *DefaultShell) PrintEnvVars(envVars map[string]string, export bool) {
 	if export {
-		s.printEnvVarsWithExport(envVars)
+		s.renderEnvVarsWithExport(envVars)
 	} else {
-		s.printEnvVarsPlain(envVars)
+		s.renderEnvVarsPlain(envVars)
 	}
 }
 
-// printEnvVarsPlain prints environment variables in plain KEY=value format, sorted by key.
-// If a value is empty, it prints KEY= with no value. Used for non-export output scenarios.
-func (s *DefaultShell) printEnvVarsPlain(envVars map[string]string) {
+// renderEnvVarsPlain returns environment variables in plain KEY=value format as a string, sorted by key.
+// If a value is empty, it returns KEY= with no value. Used for non-export output scenarios.
+func (s *DefaultShell) renderEnvVarsPlain(envVars map[string]string) string {
 	keys := make([]string, 0, len(envVars))
 	for k := range envVars {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+
+	var result strings.Builder
 	for _, k := range keys {
 		if envVars[k] == "" {
-			fmt.Printf("%s=\n", k)
+			result.WriteString(fmt.Sprintf("%s=\n", k))
 		} else {
-			fmt.Printf("%s=%s\n", k, envVars[k])
+			result.WriteString(fmt.Sprintf("%s=%s\n", k, envVars[k]))
 		}
 	}
+	return result.String()
 }
 
 // Ensure DefaultShell implements the Shell interface
