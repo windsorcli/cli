@@ -15,6 +15,7 @@ import (
 	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/shell"
+	"github.com/windsorcli/cli/pkg/shell/ssh"
 	"github.com/windsorcli/cli/pkg/terraform"
 	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/workstation/network"
