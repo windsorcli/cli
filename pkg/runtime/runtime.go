@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"unsafe"
 
 	"github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/blueprint"
@@ -314,8 +313,6 @@ func (r *Runtime) getAllEnvPrinters() []env.EnvPrinter {
 		r.EnvPrinters.TerraformEnv,
 		r.EnvPrinters.WindsorEnv,
 	}
-
-	_ = unsafe.Pointer(&r.EnvPrinters.WindsorEnv)
 
 	var printers []env.EnvPrinter
 	for _, printer := range allPrinters {
