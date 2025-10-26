@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -2891,6 +2892,139 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 	})
 }
 
+// TestArtifactBuilder_Bundle tests the Bundle method of ArtifactBuilder
+func TestArtifactBuilder_Bundle(t *testing.T) {
+	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
+		t.Helper()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder()
+		builder.shims = mocks.Shims
+		if err := builder.Initialize(mocks.Injector); err != nil {
+			t.Fatalf("Failed to initialize builder: %v", err)
+		}
+		return builder, mocks
+	}
+
+	t.Run("SuccessWithAllDirectories", func(t *testing.T) {
+		// Given a builder with mock directories and files
+		builder, mocks := setup(t)
+
+		// Mock directory structure
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == "contexts" || name == "kustomize" || name == "terraform" {
+				return &mockFileInfo{name: name, isDir: true}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shims.Walk = func(root string, fn filepath.WalkFunc) error {
+			switch root {
+			case "contexts":
+				fn("contexts/_template", &mockFileInfo{name: "_template", isDir: true}, nil)
+				fn("contexts/_template/test.jsonnet", &mockFileInfo{name: "test.jsonnet", isDir: false}, nil)
+			case "kustomize":
+				fn("kustomize", &mockFileInfo{name: "kustomize", isDir: true}, nil)
+				fn("kustomize/kustomization.yaml", &mockFileInfo{name: "kustomization.yaml", isDir: false}, nil)
+			case "terraform":
+				fn("terraform", &mockFileInfo{name: "terraform", isDir: true}, nil)
+				fn("terraform/main.tf", &mockFileInfo{name: "main.tf", isDir: false}, nil)
+			default:
+				// No-op for other roots
+			}
+			return nil
+		}
+
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			return []byte("test content"), nil
+		}
+
+		mocks.Shims.FilepathRel = func(basepath, targpath string) (string, error) {
+			if strings.Contains(targpath, "_template") {
+				return strings.TrimPrefix(targpath, "contexts/_template/"), nil
+			}
+			return filepath.Base(targpath), nil
+		}
+
+		// When bundling
+		err := builder.Bundle()
+
+		// Then should succeed
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And should have added files
+		if len(builder.files) == 0 {
+			t.Error("Expected files to be added")
+		}
+	})
+
+	t.Run("SuccessWithMissingDirectories", func(t *testing.T) {
+		// Given a builder with some missing directories
+		builder, mocks := setup(t)
+
+		// Mock only kustomize directory exists
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == "kustomize" {
+				return &mockFileInfo{name: "kustomize", isDir: true}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shims.Walk = func(root string, fn filepath.WalkFunc) error {
+			if root == "kustomize" {
+				fn("kustomize", &mockFileInfo{name: "kustomize", isDir: true}, nil)
+				fn("kustomize/kustomization.yaml", &mockFileInfo{name: "kustomization.yaml", isDir: false}, nil)
+			}
+			return nil
+		}
+
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			return []byte("test content"), nil
+		}
+
+		mocks.Shims.FilepathRel = func(basepath, targpath string) (string, error) {
+			return filepath.Base(targpath), nil
+		}
+
+		// When bundling
+		err := builder.Bundle()
+
+		// Then should succeed
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorOnWalkFailure", func(t *testing.T) {
+		// Given a builder with walk error
+		builder, mocks := setup(t)
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == "kustomize" {
+				return &mockFileInfo{name: "kustomize", isDir: true}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		expectedError := errors.New("walk error")
+		mocks.Shims.Walk = func(root string, fn filepath.WalkFunc) error {
+			return expectedError
+		}
+
+		// When bundling
+		err := builder.Bundle()
+
+		// Then should return error
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to walk directory") {
+			t.Errorf("Expected walk error, got %v", err)
+		}
+	})
+}
+
 type mockReference struct{}
 
 func (m *mockReference) Context() name.Repository   { return name.Repository{} }
@@ -3403,4 +3537,445 @@ func TestParseOCIReference(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestArtifactBuilder_findMatchingProcessor tests the findMatchingProcessor method of ArtifactBuilder
+func TestArtifactBuilder_findMatchingProcessor(t *testing.T) {
+	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
+		t.Helper()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder()
+		builder.shims = mocks.Shims
+		if err := builder.Initialize(mocks.Injector); err != nil {
+			t.Fatalf("Failed to initialize builder: %v", err)
+		}
+		return builder, mocks
+	}
+
+	t.Run("FindsMatchingProcessor", func(t *testing.T) {
+		// Given a builder with processors
+		builder, _ := setup(t)
+
+		processors := []PathProcessor{
+			{Pattern: "contexts/_template"},
+			{Pattern: "kustomize"},
+			{Pattern: "terraform"},
+		}
+
+		// When finding matching processor
+		processor := builder.findMatchingProcessor("kustomize/file.yaml", processors)
+
+		// Then should find the kustomize processor
+		if processor == nil {
+			t.Error("Expected to find matching processor")
+		}
+		if processor.Pattern != "kustomize" {
+			t.Errorf("Expected kustomize pattern, got %s", processor.Pattern)
+		}
+	})
+
+	t.Run("ReturnsNilForNoMatch", func(t *testing.T) {
+		// Given a builder with processors
+		builder, _ := setup(t)
+
+		processors := []PathProcessor{
+			{Pattern: "contexts/_template"},
+			{Pattern: "kustomize"},
+			{Pattern: "terraform"},
+		}
+
+		// When finding matching processor for non-matching path
+		processor := builder.findMatchingProcessor("other/file.txt", processors)
+
+		// Then should return nil
+		if processor != nil {
+			t.Error("Expected no matching processor")
+		}
+	})
+
+	t.Run("MatchesFirstProcessor", func(t *testing.T) {
+		// Given a builder with overlapping processors
+		builder, _ := setup(t)
+
+		processors := []PathProcessor{
+			{Pattern: "test"},
+			{Pattern: "test/sub"},
+		}
+
+		// When finding matching processor
+		processor := builder.findMatchingProcessor("test/file.txt", processors)
+
+		// Then should find the first matching processor
+		if processor == nil {
+			t.Error("Expected to find matching processor")
+		}
+		if processor.Pattern != "test" {
+			t.Errorf("Expected test pattern, got %s", processor.Pattern)
+		}
+	})
+}
+
+// TestArtifactBuilder_shouldSkipTerraformFile tests the shouldSkipTerraformFile method of ArtifactBuilder
+func TestArtifactBuilder_shouldSkipTerraformFile(t *testing.T) {
+	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
+		t.Helper()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder()
+		builder.shims = mocks.Shims
+		if err := builder.Initialize(mocks.Injector); err != nil {
+			t.Fatalf("Failed to initialize builder: %v", err)
+		}
+		return builder, mocks
+	}
+
+	t.Run("SkipsTerraformStateFiles", func(t *testing.T) {
+		// Given a builder
+		builder, _ := setup(t)
+
+		// When checking terraform state files
+		shouldSkip := builder.shouldSkipTerraformFile("terraform.tfstate")
+		shouldSkipBackup := builder.shouldSkipTerraformFile("terraform.tfstate.backup")
+
+		// Then should skip both
+		if !shouldSkip {
+			t.Error("Expected to skip terraform.tfstate")
+		}
+		if !shouldSkipBackup {
+			t.Error("Expected to skip terraform.tfstate.backup")
+		}
+	})
+
+	t.Run("SkipsTerraformOverrideFiles", func(t *testing.T) {
+		// Given a builder
+		builder, _ := setup(t)
+
+		// When checking terraform override files
+		shouldSkip := builder.shouldSkipTerraformFile("override.tf")
+		shouldSkipJson := builder.shouldSkipTerraformFile("override.tf.json")
+		shouldSkipUnderscore := builder.shouldSkipTerraformFile("test_override.tf")
+
+		// Then should skip all
+		if !shouldSkip {
+			t.Error("Expected to skip override.tf")
+		}
+		if !shouldSkipJson {
+			t.Error("Expected to skip override.tf.json")
+		}
+		if !shouldSkipUnderscore {
+			t.Error("Expected to skip test_override.tf")
+		}
+	})
+
+	t.Run("SkipsTerraformVarsFiles", func(t *testing.T) {
+		// Given a builder
+		builder, _ := setup(t)
+
+		// When checking terraform vars files
+		shouldSkip := builder.shouldSkipTerraformFile("terraform.tfvars")
+		shouldSkipJson := builder.shouldSkipTerraformFile("terraform.tfvars.json")
+
+		// Then should skip both
+		if !shouldSkip {
+			t.Error("Expected to skip terraform.tfvars")
+		}
+		if !shouldSkipJson {
+			t.Error("Expected to skip terraform.tfvars.json")
+		}
+	})
+
+	t.Run("SkipsTerraformPlanFiles", func(t *testing.T) {
+		// Given a builder
+		builder, _ := setup(t)
+
+		// When checking terraform plan files
+		shouldSkip := builder.shouldSkipTerraformFile("terraform.tfplan")
+
+		// Then should skip
+		if !shouldSkip {
+			t.Error("Expected to skip terraform.tfplan")
+		}
+	})
+
+	t.Run("SkipsTerraformConfigFiles", func(t *testing.T) {
+		// Given a builder
+		builder, _ := setup(t)
+
+		// When checking terraform config files
+		shouldSkipRc := builder.shouldSkipTerraformFile(".terraformrc")
+		shouldSkipTerraformRc := builder.shouldSkipTerraformFile("terraform.rc")
+
+		// Then should skip both
+		if !shouldSkipRc {
+			t.Error("Expected to skip .terraformrc")
+		}
+		if !shouldSkipTerraformRc {
+			t.Error("Expected to skip terraform.rc")
+		}
+	})
+
+	t.Run("SkipsCrashLogFiles", func(t *testing.T) {
+		// Given a builder
+		builder, _ := setup(t)
+
+		// When checking crash log files
+		shouldSkip := builder.shouldSkipTerraformFile("crash.log")
+		shouldSkipPrefixed := builder.shouldSkipTerraformFile("crash.123.log")
+
+		// Then should skip both
+		if !shouldSkip {
+			t.Error("Expected to skip crash.log")
+		}
+		if !shouldSkipPrefixed {
+			t.Error("Expected to skip crash.123.log")
+		}
+	})
+
+	t.Run("DoesNotSkipRegularFiles", func(t *testing.T) {
+		// Given a builder
+		builder, _ := setup(t)
+
+		// When checking regular terraform files
+		shouldSkip := builder.shouldSkipTerraformFile("main.tf")
+		shouldSkipVar := builder.shouldSkipTerraformFile("variables.tf")
+		shouldSkipOutput := builder.shouldSkipTerraformFile("outputs.tf")
+
+		// Then should not skip any
+		if shouldSkip {
+			t.Error("Expected not to skip main.tf")
+		}
+		if shouldSkipVar {
+			t.Error("Expected not to skip variables.tf")
+		}
+		if shouldSkipOutput {
+			t.Error("Expected not to skip outputs.tf")
+		}
+	})
+}
+
+// TestArtifactBuilder_walkAndProcessFiles tests the walkAndProcessFiles method of ArtifactBuilder
+func TestArtifactBuilder_walkAndProcessFiles(t *testing.T) {
+	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
+		t.Helper()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder()
+		builder.shims = mocks.Shims
+		if err := builder.Initialize(mocks.Injector); err != nil {
+			t.Fatalf("Failed to initialize builder: %v", err)
+		}
+		return builder, mocks
+	}
+
+	t.Run("SuccessWithMatchingFiles", func(t *testing.T) {
+		// Given a builder with processors
+		builder, mocks := setup(t)
+
+		processors := []PathProcessor{
+			{
+				Pattern: "test",
+				Handler: func(relPath string, data []byte, mode os.FileMode) error {
+					return builder.addFile("test/"+relPath, data, mode)
+				},
+			},
+		}
+
+		// Mock directory exists
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == "test" {
+				return &mockFileInfo{name: "test", isDir: true}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock walk function
+		mocks.Shims.Walk = func(root string, fn filepath.WalkFunc) error {
+			if root == "test" {
+				fn("test", &mockFileInfo{name: "test", isDir: true}, nil)
+				fn("test/file.txt", &mockFileInfo{name: "file.txt", isDir: false}, nil)
+			}
+			return nil
+		}
+
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			return []byte("test content"), nil
+		}
+
+		mocks.Shims.FilepathRel = func(basepath, targpath string) (string, error) {
+			return "file.txt", nil
+		}
+
+		// When walking and processing files
+		err := builder.walkAndProcessFiles(processors)
+
+		// Then should succeed
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And should have added files
+		if len(builder.files) == 0 {
+			t.Error("Expected files to be added")
+		}
+	})
+
+	t.Run("SuccessWithNoMatchingFiles", func(t *testing.T) {
+		// Given a builder with processors that don't match
+		builder, mocks := setup(t)
+
+		processors := []PathProcessor{
+			{
+				Pattern: "other",
+				Handler: func(relPath string, data []byte, mode os.FileMode) error {
+					return builder.addFile("other/"+relPath, data, mode)
+				},
+			},
+		}
+
+		// Mock directory exists
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == "test" {
+				return &mockFileInfo{name: "test", isDir: true}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock walk function
+		mocks.Shims.Walk = func(root string, fn filepath.WalkFunc) error {
+			if root == "test" {
+				fn("test", &mockFileInfo{name: "test", isDir: true}, nil)
+				fn("test/file.txt", &mockFileInfo{name: "file.txt", isDir: false}, nil)
+			}
+			return nil
+		}
+
+		// When walking and processing files
+		err := builder.walkAndProcessFiles(processors)
+
+		// Then should succeed
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And should not have added files
+		if len(builder.files) != 0 {
+			t.Error("Expected no files to be added")
+		}
+	})
+
+	t.Run("SuccessWithSkipTerraformDirectory", func(t *testing.T) {
+		// Given a builder with terraform directory
+		builder, mocks := setup(t)
+
+		processors := []PathProcessor{
+			{
+				Pattern: "terraform",
+				Handler: func(relPath string, data []byte, mode os.FileMode) error {
+					return builder.addFile("terraform/"+relPath, data, mode)
+				},
+			},
+		}
+
+		// Mock directory exists
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == "terraform" {
+				return &mockFileInfo{name: "terraform", isDir: true}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock walk function with .terraform directory
+		mocks.Shims.Walk = func(root string, fn filepath.WalkFunc) error {
+			if root == "terraform" {
+				fn("terraform", &mockFileInfo{name: "terraform", isDir: true}, nil)
+				fn("terraform/.terraform", &mockFileInfo{name: ".terraform", isDir: true}, nil)
+				fn("terraform/main.tf", &mockFileInfo{name: "main.tf", isDir: false}, nil)
+			}
+			return nil
+		}
+
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			return []byte("test content"), nil
+		}
+
+		mocks.Shims.FilepathRel = func(basepath, targpath string) (string, error) {
+			return "main.tf", nil
+		}
+
+		// When walking and processing files
+		err := builder.walkAndProcessFiles(processors)
+
+		// Then should succeed
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And should have added files (but not .terraform contents)
+		if len(builder.files) == 0 {
+			t.Error("Expected files to be added")
+		}
+	})
+
+	t.Run("SuccessWithMissingDirectories", func(t *testing.T) {
+		// Given a builder with missing directories
+		builder, mocks := setup(t)
+
+		processors := []PathProcessor{
+			{
+				Pattern: "missing",
+				Handler: func(relPath string, data []byte, mode os.FileMode) error {
+					return builder.addFile("missing/"+relPath, data, mode)
+				},
+			},
+		}
+
+		// Mock directory doesn't exist
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		// When walking and processing files
+		err := builder.walkAndProcessFiles(processors)
+
+		// Then should succeed
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorOnWalkFailure", func(t *testing.T) {
+		// Given a builder with walk error
+		builder, mocks := setup(t)
+
+		processors := []PathProcessor{
+			{
+				Pattern: "test",
+				Handler: func(relPath string, data []byte, mode os.FileMode) error {
+					return builder.addFile("test/"+relPath, data, mode)
+				},
+			},
+		}
+
+		// Mock directory exists
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == "test" {
+				return &mockFileInfo{name: "test", isDir: true}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		expectedError := fmt.Errorf("walk error")
+		mocks.Shims.Walk = func(root string, fn filepath.WalkFunc) error {
+			return expectedError
+		}
+
+		// When walking and processing files
+		err := builder.walkAndProcessFiles(processors)
+
+		// Then should return error
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to walk directory") {
+			t.Errorf("Expected walk error, got %v", err)
+		}
+	})
 }
