@@ -8,7 +8,7 @@ import (
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
-	"github.com/windsorcli/cli/pkg/workstation/ssh"
+	"github.com/windsorcli/cli/pkg/shell/ssh"
 )
 
 // The ColimaNetworkManager is a specialized network manager for Colima-based environments.
