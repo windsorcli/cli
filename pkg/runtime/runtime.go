@@ -20,7 +20,6 @@ import (
 	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/services"
-	"github.com/windsorcli/cli/pkg/workstation/ssh"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
 
