@@ -9,8 +9,8 @@ import (
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
+	"github.com/windsorcli/cli/pkg/shell/ssh"
 	"github.com/windsorcli/cli/pkg/workstation/services"
-	"github.com/windsorcli/cli/pkg/workstation/ssh"
 )
 
 // The NetworkManager is a core component that manages local development network configuration.
