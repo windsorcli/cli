@@ -2,10 +2,17 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"testing"
 )
 
+// TestEnvCmd tests the Windsor CLI 'env' command for correct environment variable output and error handling across success and decrypt scenarios.
+// It ensures proper context management and captures test output for assertion.
 func TestEnvCmd(t *testing.T) {
+	t.Cleanup(func() {
+		rootCmd.SetContext(context.Background())
+	})
+
 	setup := func(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
 		t.Helper()
 		stdout, stderr := captureOutput(t)
@@ -20,7 +27,8 @@ func TestEnvCmd(t *testing.T) {
 
 		// Set up mocks with trusted directory
 		mocks := setupMocks(t)
-		_ = mocks
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"env"})
 
@@ -44,7 +52,8 @@ func TestEnvCmd(t *testing.T) {
 
 		// Set up mocks with trusted directory
 		mocks := setupMocks(t)
-		_ = mocks
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"env", "--decrypt"})
 
@@ -65,7 +74,9 @@ func TestEnvCmd(t *testing.T) {
 	t.Run("SuccessWithHook", func(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setup(t)
-		setupMocks(t)
+		mocks := setupMocks(t)
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"env", "--hook"})
 
@@ -89,7 +100,8 @@ func TestEnvCmd(t *testing.T) {
 
 		// Set up mocks with trusted directory
 		mocks := setupMocks(t)
-		_ = mocks
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"env", "--verbose"})
 
@@ -110,7 +122,9 @@ func TestEnvCmd(t *testing.T) {
 	t.Run("SuccessWithAllFlags", func(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setup(t)
-		setupMocks(t)
+		mocks := setupMocks(t)
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"env", "--decrypt", "--hook", "--verbose"})
 

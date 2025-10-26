@@ -38,11 +38,7 @@ func setupUpTest(t *testing.T, opts ...*SetupOptions) *UpMocks {
 	// Get base mocks
 	baseMocks := setupMocks(t, opts...)
 
-	// Register mock env pipeline in injector (needed since up runs env pipeline first)
-	mockEnvPipeline := pipelines.NewMockBasePipeline()
-	mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-	mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
-	baseMocks.Injector.Register("envPipeline", mockEnvPipeline)
+	// Note: envPipeline no longer used - up now uses runtime.LoadEnvVars
 
 	// Register mock init pipeline in injector (needed since up runs init pipeline second)
 	mockInitPipeline := pipelines.NewMockBasePipeline()
@@ -181,33 +177,7 @@ func TestUpCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("EnvPipelineExecutionError", func(t *testing.T) {
-		// Given a temporary directory with mocked dependencies
-		mocks := setupUpTest(t)
-
-		// And an env pipeline that fails to execute
-		mockEnvPipeline := pipelines.NewMockBasePipeline()
-		mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error {
-			return fmt.Errorf("env pipeline execution failed")
-		}
-		mocks.Injector.Register("envPipeline", mockEnvPipeline)
-
-		// When executing the up command
-		cmd := createTestUpCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to set up environment") {
-			t.Errorf("Expected env pipeline execution error, got: %v", err)
-		}
-	})
+	// Note: EnvPipelineExecutionError test removed - env pipeline no longer used
 
 	t.Run("InitPipelineExecutionError", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
@@ -364,38 +334,7 @@ func TestUpCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("EnvPipelineContextValues", func(t *testing.T) {
-		// Given a temporary directory with mocked dependencies
-		mocks := setupUpTest(t)
-
-		// And an env pipeline that validates its context values
-		envContextValidated := false
-		mockEnvPipeline := pipelines.NewMockBasePipeline()
-		mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error {
-			// Verify that quiet and decrypt flags are set for env pipeline
-			if ctx.Value("quiet") == true && ctx.Value("decrypt") == true {
-				envContextValidated = true
-			}
-			return nil
-		}
-		mocks.Injector.Register("envPipeline", mockEnvPipeline)
-
-		// When executing the up command
-		cmd := createTestUpCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then no error should occur and env context should be validated
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
-		if !envContextValidated {
-			t.Error("Expected env pipeline to receive quiet=true and decrypt=true context values")
-		}
-	})
+	// Note: EnvPipelineContextValues test removed - env pipeline no longer used
 
 	t.Run("MultipleFlagsCombination", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
@@ -422,13 +361,7 @@ func TestUpCmd(t *testing.T) {
 		// And pipelines that track execution order
 		executionOrder := []string{}
 
-		mockEnvPipeline := pipelines.NewMockBasePipeline()
-		mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error {
-			executionOrder = append(executionOrder, "env")
-			return nil
-		}
-		mocks.Injector.Register("envPipeline", mockEnvPipeline)
+		// Note: env pipeline no longer used - environment setup is handled by runtime
 
 		mockInitPipeline := pipelines.NewMockBasePipeline()
 		mockInitPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
@@ -465,7 +398,7 @@ func TestUpCmd(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
-		expectedOrder := []string{"env", "init", "up", "install"}
+		expectedOrder := []string{"init", "up", "install"}
 		if len(executionOrder) != len(expectedOrder) {
 			t.Errorf("Expected %d pipeline executions, got %d", len(expectedOrder), len(executionOrder))
 		}

@@ -6,6 +6,7 @@ package shell
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // The WindowsShell is a platform-specific implementation of shell operations for Windows systems.
@@ -16,47 +17,6 @@ import (
 // =============================================================================
 // Public Methods
 // =============================================================================
-
-// printEnvVarsWithExport sorts and prints environment variables with PowerShell commands. Empty values trigger a removal command.
-func (s *DefaultShell) printEnvVarsWithExport(envVars map[string]string) {
-	keys := make([]string, 0, len(envVars))
-	for k := range envVars {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		if envVars[k] == "" {
-			fmt.Printf("Remove-Item Env:%s\n", k)
-		} else {
-			fmt.Printf("$env:%s='%s'\n", k, envVars[k])
-		}
-	}
-}
-
-// PrintAlias prints the aliases for the shell.
-func (s *DefaultShell) PrintAlias(aliases map[string]string) {
-	// Create a slice to hold the keys of the aliases map
-	keys := make([]string, 0, len(aliases))
-
-	// Append each key from the aliases map to the keys slice
-	for k := range aliases {
-		keys = append(keys, k)
-	}
-
-	// Sort the keys slice to ensure the aliases are printed in order
-	sort.Strings(keys)
-
-	// Iterate over the sorted keys and print the corresponding alias
-	for _, k := range keys {
-		if aliases[k] == "" {
-			// Print command to remove the alias if the value is an empty string
-			fmt.Printf("Remove-Item Alias:%s\n", k)
-		} else {
-			// Print command to set the alias with the key and value
-			fmt.Printf("Set-Alias -Name %s -Value \"%s\"\n", k, aliases[k])
-		}
-	}
-}
 
 // UnsetEnvs generates commands to unset multiple environment variables.
 // For Windows PowerShell, this produces a Remove-Item command for each environment variable.
@@ -82,4 +42,46 @@ func (s *DefaultShell) UnsetAlias(aliases []string) {
 	for _, alias := range aliases {
 		fmt.Printf("Remove-Item Alias:%s\n", alias)
 	}
+}
+
+// RenderAliases returns the rendered aliases as a string using PowerShell syntax
+func (s *DefaultShell) RenderAliases(aliases map[string]string) string {
+	keys := make([]string, 0, len(aliases))
+	for k := range aliases {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var result strings.Builder
+	for _, k := range keys {
+		if aliases[k] == "" {
+			result.WriteString(fmt.Sprintf("Remove-Item Alias:%s\n", k))
+		} else {
+			result.WriteString(fmt.Sprintf("Set-Alias %s '%s'\n", k, aliases[k]))
+		}
+	}
+	return result.String()
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// renderEnvVarsWithExport returns environment variables with PowerShell commands as a string. Empty values trigger a removal command.
+func (s *DefaultShell) renderEnvVarsWithExport(envVars map[string]string) string {
+	keys := make([]string, 0, len(envVars))
+	for k := range envVars {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var result strings.Builder
+	for _, k := range keys {
+		if envVars[k] == "" {
+			result.WriteString(fmt.Sprintf("Remove-Item Env:%s\n", k))
+		} else {
+			result.WriteString(fmt.Sprintf("$env:%s='%s'\n", k, envVars[k]))
+		}
+	}
+	return result.String()
 }

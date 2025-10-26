@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -636,64 +635,6 @@ func TestDockerEnvPrinter_GetAlias(t *testing.T) {
 		// And alias map should be empty
 		if len(aliasMap) != 0 {
 			t.Errorf("aliasMap = %v, want empty map", aliasMap)
-		}
-	})
-}
-
-// TestDockerEnvPrinter_Print tests the Print method of the DockerEnvPrinter
-func TestDockerEnvPrinter_Print(t *testing.T) {
-	// Save original env var and restore after all tests
-	originalDockerHost := os.Getenv("DOCKER_HOST")
-	defer os.Setenv("DOCKER_HOST", originalDockerHost)
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a new DockerEnvPrinter
-		mocks := setupDockerEnvMocks(t)
-		printer := NewDockerEnvPrinter(mocks.Injector)
-		printer.shims = mocks.Shims
-		printer.Initialize()
-
-		// And PrintEnvVarsFunc is mocked
-		var capturedEnvVars map[string]string
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string, export bool) {
-			capturedEnvVars = envVars
-		}
-
-		// When calling Print
-		err := printer.Print()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-
-		// And environment variables should be set correctly
-		expectedEnvVars, _ := printer.GetEnvVars()
-		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
-			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
-		}
-	})
-
-	t.Run("GetEnvVarsError", func(t *testing.T) {
-		// Given a new DockerEnvPrinter with failing user home directory lookup
-		os.Unsetenv("DOCKER_HOST")
-		mocks := setupDockerEnvMocks(t)
-
-		// Override the UserHomeDir shim
-		mocks.Shims.UserHomeDir = func() (string, error) {
-			return "", errors.New("mock error")
-		}
-
-		printer := NewDockerEnvPrinter(mocks.Injector)
-		printer.shims = mocks.Shims
-		printer.Initialize()
-
-		// When calling Print
-		err := printer.Print()
-
-		// Then appropriate error should be returned
-		if err == nil {
-			t.Error("expected an error, got nil")
 		}
 	})
 }

@@ -4,10 +4,8 @@
 package shell
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -19,38 +17,6 @@ import (
 // =============================================================================
 // Test Public Methods
 // =============================================================================
-
-// TestDefaultShell_PrintEnvVars tests the PrintEnvVars method on Unix systems
-func TestDefaultShell_PrintEnvVars(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
-		t.Helper()
-		mocks := setupMocks(t)
-		shell := NewDefaultShell(mocks.Injector)
-		shell.shims = mocks.Shims
-		return shell, mocks
-	}
-
-	t.Run("PrintEnvVars", func(t *testing.T) {
-		// Given a shell with environment variables
-		shell, _ := setup(t)
-		envVars := map[string]string{
-			"VAR2": "value2",
-			"VAR1": "value1",
-			"VAR3": "",
-		}
-		expectedOutput := "export VAR1=\"value1\"\nexport VAR2=\"value2\"\nunset VAR3\n"
-
-		// When capturing the output of PrintEnvVars
-		output := captureStdout(t, func() {
-			shell.PrintEnvVars(envVars, true)
-		})
-
-		// Then the output should match the expected output
-		if output != expectedOutput {
-			t.Errorf("PrintEnvVars() output = %v, want %v", output, expectedOutput)
-		}
-	})
-}
 
 // TestDefaultShell_GetProjectRoot tests the GetProjectRoot method on Unix systems
 func TestDefaultShell_GetProjectRoot(t *testing.T) {
@@ -107,63 +73,6 @@ func TestDefaultShell_GetProjectRoot(t *testing.T) {
 }
 
 // TestDefaultShell_PrintAlias tests the PrintAlias method on Unix systems
-func TestDefaultShell_PrintAlias(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
-		t.Helper()
-		mocks := setupMocks(t)
-		shell := NewDefaultShell(mocks.Injector)
-		shell.shims = mocks.Shims
-		return shell, mocks
-	}
-
-	aliasVars := map[string]string{
-		"ALIAS1": "command1",
-		"ALIAS2": "command2",
-	}
-
-	t.Run("PrintAlias", func(t *testing.T) {
-		// Given a default shell
-		shell, _ := setup(t)
-
-		// When capturing the output of PrintAlias
-		output := captureStdout(t, func() {
-			shell.PrintAlias(aliasVars)
-		})
-
-		// Then the output should contain all expected alias variables
-		for key, value := range aliasVars {
-			expectedLine := fmt.Sprintf("alias %s=\"%s\"\n", key, value)
-			if !strings.Contains(output, expectedLine) {
-				t.Errorf("PrintAlias() output missing expected line: %v", expectedLine)
-			}
-		}
-	})
-
-	t.Run("PrintAliasWithEmptyValue", func(t *testing.T) {
-		// Given a default shell with an alias having an empty value
-		shell, _ := setup(t)
-		aliasVarsWithEmpty := map[string]string{
-			"ALIAS1": "command1",
-			"ALIAS2": "",
-		}
-
-		// When capturing the output of PrintAlias
-		output := captureStdout(t, func() {
-			shell.PrintAlias(aliasVarsWithEmpty)
-		})
-
-		// Then the output should contain the expected alias and unalias commands
-		expectedAliasLine := "alias ALIAS1=\"command1\"\n"
-		expectedUnaliasLine := "unalias ALIAS2\n"
-
-		if !strings.Contains(output, expectedAliasLine) {
-			t.Errorf("PrintAlias() output missing expected line: %v", expectedAliasLine)
-		}
-		if !strings.Contains(output, expectedUnaliasLine) {
-			t.Errorf("PrintAlias() output missing expected line: %v", expectedUnaliasLine)
-		}
-	})
-}
 
 // TestDefaultShell_UnsetEnvs tests the UnsetEnvs method on Unix systems
 func TestDefaultShell_UnsetEnvs(t *testing.T) {

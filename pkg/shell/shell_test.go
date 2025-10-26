@@ -914,7 +914,7 @@ func TestShell_GetSessionToken(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given a shell with session token
+		// Given a shell with session token and no reset flag
 		shell, mocks := setup(t)
 		expectedToken := "test-token"
 		mocks.Shims.Getenv = func(key string) string {
@@ -922,6 +922,16 @@ func TestShell_GetSessionToken(t *testing.T) {
 				return expectedToken
 			}
 			return ""
+		}
+
+		// Mock Stat to return file not found (no reset flag exists)
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		// Mock Glob to return empty slice (no session files)
+		mocks.Shims.Glob = func(pattern string) ([]string, error) {
+			return []string{}, nil
 		}
 
 		// When getting session token
@@ -2260,6 +2270,16 @@ func TestShell_ResetSessionToken(t *testing.T) {
 				b[i] = byte(i % 62)
 			}
 			return len(b), nil
+		}
+
+		// Mock Stat to return file not found (no reset flag exists)
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		// Mock Glob to return empty slice (no session files)
+		mocks.Shims.Glob = func(pattern string) ([]string, error) {
+			return []string{}, nil
 		}
 
 		// When getting session token

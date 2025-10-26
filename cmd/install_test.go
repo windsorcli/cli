@@ -26,11 +26,7 @@ func setupInstallTest(t *testing.T, opts ...*SetupOptions) *InstallMocks {
 	// Setup base mocks
 	baseMocks := setupMocks(t, opts...)
 
-	// Register mock env pipeline in injector (needed since install runs env pipeline first)
-	mockEnvPipeline := pipelines.NewMockBasePipeline()
-	mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-	mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
-	baseMocks.Injector.Register("envPipeline", mockEnvPipeline)
+	// Note: envPipeline no longer used - install now uses runtime.LoadEnvVars
 
 	// Register mock install pipeline in injector
 	mockInstallPipeline := pipelines.NewMockBasePipeline()
@@ -120,33 +116,7 @@ func TestInstallCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsErrorWhenEnvPipelineSetupFails", func(t *testing.T) {
-		// Given a temporary directory with mocked dependencies
-		mocks := setupInstallTest(t)
-
-		// Override env pipeline to return error during execution
-		mockEnvPipeline := pipelines.NewMockBasePipeline()
-		mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error {
-			return fmt.Errorf("env pipeline execution failed")
-		}
-		mocks.Injector.Register("envPipeline", mockEnvPipeline)
-
-		// When executing the install command
-		cmd := createTestInstallCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to set up environment") {
-			t.Errorf("Expected env pipeline setup error, got %q", err.Error())
-		}
-	})
+	// Note: ReturnsErrorWhenEnvPipelineSetupFails test removed - env pipeline no longer used
 
 	t.Run("ReturnsErrorWhenInstallPipelineSetupFails", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies

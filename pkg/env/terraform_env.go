@@ -13,8 +13,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/goccy/go-yaml"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
@@ -40,7 +40,6 @@ type TerraformArgs struct {
 // TerraformEnvPrinter is a struct that implements Terraform environment configuration
 type TerraformEnvPrinter struct {
 	BaseEnvPrinter
-	blueprintHandler blueprint.BlueprintHandler
 }
 
 // =============================================================================
@@ -57,21 +56,6 @@ func NewTerraformEnvPrinter(injector di.Injector) *TerraformEnvPrinter {
 // =============================================================================
 // Public Methods
 // =============================================================================
-
-// Initialize resolves and assigns dependencies including the blueprint handler from the injector.
-func (e *TerraformEnvPrinter) Initialize() error {
-	if err := e.BaseEnvPrinter.Initialize(); err != nil {
-		return err
-	}
-
-	blueprintHandler, ok := e.injector.Resolve("blueprintHandler").(blueprint.BlueprintHandler)
-	if !ok {
-		return fmt.Errorf("error resolving blueprintHandler")
-	}
-	e.blueprintHandler = blueprintHandler
-
-	return nil
-}
 
 // GetEnvVars returns a map of environment variables for Terraform operations.
 // If not in a Terraform project directory, it unsets managed TF_ variables present in the environment.
@@ -122,15 +106,6 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 // PostEnvHook executes operations after setting the environment variables.
 func (e *TerraformEnvPrinter) PostEnvHook(directory ...string) error {
 	return e.generateBackendOverrideTf(directory...)
-}
-
-// Print outputs the environment variables for the Terraform environment.
-func (e *TerraformEnvPrinter) Print() error {
-	envVars, err := e.GetEnvVars()
-	if err != nil {
-		return fmt.Errorf("error getting environment variables: %w", err)
-	}
-	return e.BaseEnvPrinter.Print(envVars)
 }
 
 // GenerateTerraformArgs constructs Terraform CLI arguments and environment variables for given project and module paths.
@@ -193,16 +168,11 @@ func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath stri
 	destroyArgs = append(destroyArgs, varFileArgs...)
 
 	var parallelismArg string
-	if e.blueprintHandler != nil {
-		components := e.blueprintHandler.GetTerraformComponents()
-		for _, component := range components {
-			if component.Path == projectPath && component.Parallelism != nil {
-				parallelismArg = fmt.Sprintf(" -parallelism=%d", *component.Parallelism)
-				applyArgs = append(applyArgs, fmt.Sprintf("-parallelism=%d", *component.Parallelism))
-				destroyArgs = append(destroyArgs, fmt.Sprintf("-parallelism=%d", *component.Parallelism))
-				break
-			}
-		}
+	component := e.getTerraformComponent(projectPath)
+	if component != nil && component.Parallelism != nil {
+		parallelismArg = fmt.Sprintf(" -parallelism=%d", *component.Parallelism)
+		applyArgs = append(applyArgs, fmt.Sprintf("-parallelism=%d", *component.Parallelism))
+		destroyArgs = append(destroyArgs, fmt.Sprintf("-parallelism=%d", *component.Parallelism))
 	}
 
 	applyArgs = append(applyArgs, tfPlanPath)
@@ -246,28 +216,17 @@ func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath stri
 // addDependencyVariables sets dependency outputs as TF_VAR_* environment variables for the specified projectPath.
 // It locates the current component, resolves dependency order, captures outputs from dependencies, and injects them
 // into terraformArgs.TerraformVars using the format TF_VAR_<outputKey>. Non-string outputs are stringified.
-// If blueprintHandler is nil, or the component has no dependencies, the function is a no-op. Errors are returned for
+// If the component has no dependencies, the function is a no-op. Errors are returned for
 // dependency resolution failures; missing outputs are tolerated.
 func (e *TerraformEnvPrinter) addDependencyVariables(projectPath string, terraformArgs *TerraformArgs) error {
-	if e.blueprintHandler == nil {
+	currentComponent := e.getTerraformComponent(projectPath)
+	if currentComponent == nil || len(currentComponent.DependsOn) == 0 {
 		return nil
 	}
 
-	components := e.blueprintHandler.GetTerraformComponents()
-
-	var currentComponent *blueprintv1alpha1.TerraformComponent
-	for _, component := range components {
-		if component.Path == projectPath {
-			currentComponent = &component
-			break
-		}
-	}
-
-	if currentComponent == nil {
-		return nil
-	}
-
-	if len(currentComponent.DependsOn) == 0 {
+	componentsInterface := e.getTerraformComponents()
+	components, ok := componentsInterface.([]blueprintv1alpha1.TerraformComponent)
+	if !ok || len(components) == 0 {
 		return nil
 	}
 
@@ -382,7 +341,11 @@ func (e *TerraformEnvPrinter) resolveTerraformComponentDependencies(components [
 // creates backend_override.tf, runs terraform output, and performs cleanup. Returns an empty map for any error to avoid blocking the env pipeline.
 func (e *TerraformEnvPrinter) captureTerraformOutputs(modulePath string) (map[string]any, error) {
 	var componentPath string
-	components := e.blueprintHandler.GetTerraformComponents()
+	componentsInterface := e.getTerraformComponents()
+	components, ok := componentsInterface.([]blueprintv1alpha1.TerraformComponent)
+	if !ok {
+		return make(map[string]any), nil
+	}
 	for _, component := range components {
 		if component.FullPath == modulePath {
 			componentPath = component.Path
@@ -712,6 +675,73 @@ func (e *TerraformEnvPrinter) findRelativeTerraformProjectPath(directory ...stri
 	}
 
 	return "", nil
+}
+
+// getTerraformComponent finds a Terraform component by path.
+// Returns nil if not found.
+func (e *TerraformEnvPrinter) getTerraformComponent(projectPath string) *blueprintv1alpha1.TerraformComponent {
+	componentsInterface := e.getTerraformComponents()
+	components, ok := componentsInterface.([]blueprintv1alpha1.TerraformComponent)
+	if !ok {
+		return nil
+	}
+	for _, component := range components {
+		if component.Path == projectPath {
+			return &component
+		}
+	}
+	return nil
+}
+
+// getTerraformComponents loads and parses Terraform components from a blueprint.yaml file.
+// If projectPath is provided and not empty, it returns a pointer to the matching TerraformComponent or nil if not found.
+// If projectPath is not provided, it returns a slice of all TerraformComponent structs from blueprint.yaml.
+// For each component, the FullPath field is set to the resolved absolute path for sourced components, or the relative path for local components.
+func (e *TerraformEnvPrinter) getTerraformComponents(projectPath ...string) interface{} {
+	configRoot, err := e.configHandler.GetConfigRoot()
+	if err != nil {
+		if len(projectPath) > 0 {
+			return nil
+		}
+		return []blueprintv1alpha1.TerraformComponent{}
+	}
+
+	blueprintPath := filepath.Join(configRoot, "blueprint.yaml")
+	data, err := e.shims.ReadFile(blueprintPath)
+	if err != nil {
+		if len(projectPath) > 0 {
+			return nil
+		}
+		return []blueprintv1alpha1.TerraformComponent{}
+	}
+
+	var blueprint blueprintv1alpha1.Blueprint
+	if err := yaml.Unmarshal(data, &blueprint); err != nil {
+		if len(projectPath) > 0 {
+			return nil
+		}
+		return []blueprintv1alpha1.TerraformComponent{}
+	}
+
+	for i := range blueprint.TerraformComponents {
+		component := &blueprint.TerraformComponents[i]
+		if component.Source != "" {
+			component.FullPath = filepath.Join(configRoot, "terraform", component.Path)
+		} else {
+			component.FullPath = component.Path
+		}
+	}
+
+	if len(projectPath) > 0 {
+		for i := range blueprint.TerraformComponents {
+			if blueprint.TerraformComponents[i].Path == projectPath[0] {
+				return &blueprint.TerraformComponents[i]
+			}
+		}
+		return nil
+	}
+
+	return blueprint.TerraformComponents
 }
 
 // Ensure TerraformEnvPrinter implements the EnvPrinter interface
