@@ -61,7 +61,6 @@ var initCmd = &cobra.Command{
 		}
 		if err := runtime.NewRuntime(deps).
 			LoadShell().
-			CheckTrustedDirectory().
 			LoadConfig().
 			LoadSecretsProviders().
 			LoadEnvVars(runtime.EnvVarsOptions{
