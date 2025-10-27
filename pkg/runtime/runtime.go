@@ -18,6 +18,8 @@ import (
 	"github.com/windsorcli/cli/pkg/shell/ssh"
 	"github.com/windsorcli/cli/pkg/terraform"
 	"github.com/windsorcli/cli/pkg/tools"
+	"github.com/windsorcli/cli/pkg/types"
+	"github.com/windsorcli/cli/pkg/workstation"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/services"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
@@ -370,9 +372,96 @@ func (r *Runtime) ProcessArtifacts(opts ArtifactOptions) *Runtime {
 	return r
 }
 
+// WorkstationUp starts the workstation environment, including VMs, containers, networking, and services.
+// It returns the Runtime instance, propagating any errors encountered during workstation initialization or startup.
+// This method should be called after configuration, shell, and dependencies are properly loaded.
+func (r *Runtime) WorkstationUp() *Runtime {
+	if r.err != nil {
+		return r
+	}
+	ws, err := r.createWorkstation()
+	if err != nil {
+		r.err = err
+		return r
+	}
+	if err := ws.Up(); err != nil {
+		r.err = fmt.Errorf("failed to start workstation: %w", err)
+		return r
+	}
+	return r
+}
+
+// WorkstationDown stops the workstation environment, ensuring all services, containers, VMs, and associated networking are gracefully shut down.
+// It returns the Runtime instance, propagating any errors encountered during the stopping process.
+// This method should be invoked after workstation operations are complete and a teardown is required.
+func (r *Runtime) WorkstationDown() *Runtime {
+	if r.err != nil {
+		return r
+	}
+
+	ws, err := r.createWorkstation()
+	if err != nil {
+		r.err = err
+		return r
+	}
+
+	if err := ws.Down(); err != nil {
+		r.err = fmt.Errorf("failed to stop workstation: %w", err)
+		return r
+	}
+
+	return r
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// createWorkstation creates and initializes a workstation instance with the correct execution context.
+// It validates that all required dependencies (ConfigHandler, Shell, Injector) are loaded, retrieves the current context,
+// obtains the project root, and assembles an ExecutionContext for workstation operations. It returns a newly created
+// workstation.Workstation or an error if any setup step fails. This method is used internally by both WorkstationUp and WorkstationDown.
+func (r *Runtime) createWorkstation() (*workstation.Workstation, error) {
+	if r.ConfigHandler == nil {
+		return nil, fmt.Errorf("config handler not loaded - call LoadConfig() first")
+	}
+	if r.Shell == nil {
+		return nil, fmt.Errorf("shell not loaded - call LoadShell() first")
+	}
+	if r.Injector == nil {
+		return nil, fmt.Errorf("injector not available")
+	}
+
+	contextName := r.ConfigHandler.GetContext()
+	if contextName == "" {
+		return nil, fmt.Errorf("no context set - call SetContext() first")
+	}
+
+	projectRoot, err := r.Shell.GetProjectRoot()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	execCtx := &types.ExecutionContext{
+		ContextName:   contextName,
+		ProjectRoot:   projectRoot,
+		ConfigRoot:    fmt.Sprintf("%s/contexts/%s", projectRoot, contextName),
+		TemplateRoot:  fmt.Sprintf("%s/contexts/_template", projectRoot),
+		ConfigHandler: r.ConfigHandler,
+		Shell:         r.Shell,
+	}
+
+	workstationCtx := &workstation.WorkstationExecutionContext{
+		ExecutionContext: *execCtx,
+	}
+
+	ws, err := workstation.NewWorkstation(workstationCtx, r.Injector)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create workstation: %w", err)
+	}
+
+	return ws, nil
+}
 
 // getAllEnvPrinters returns all environment printers in field order, ensuring WindsorEnv is last.
 // This method provides compile-time structure assertions by mirroring the struct layout definition.
