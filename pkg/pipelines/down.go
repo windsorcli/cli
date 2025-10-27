@@ -8,7 +8,7 @@ import (
 
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/env"
+	"github.com/windsorcli/cli/pkg/environment/envvars"
 	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
@@ -35,7 +35,7 @@ type DownPipeline struct {
 	blueprintHandler  blueprint.BlueprintHandler
 	kubernetesClient  kubernetes.KubernetesClient
 	kubernetesManager kubernetes.KubernetesManager
-	envPrinters       []env.EnvPrinter
+	envPrinters       []envvars.EnvPrinter
 }
 
 // =============================================================================

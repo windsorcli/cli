@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/env"
+	"github.com/windsorcli/cli/pkg/environment/envvars"
 )
 
 // =============================================================================
@@ -23,7 +23,7 @@ import (
 // WindsorStack is a struct that implements the Stack interface.
 type WindsorStack struct {
 	BaseStack
-	terraformEnv *env.TerraformEnvPrinter
+	terraformEnv *envvars.TerraformEnvPrinter
 }
 
 // =============================================================================
@@ -57,7 +57,7 @@ func (s *WindsorStack) Initialize() error {
 		return fmt.Errorf("terraformEnv not found in dependency injector")
 	}
 
-	terraformEnv, ok := terraformEnvInterface.(*env.TerraformEnvPrinter)
+	terraformEnv, ok := terraformEnvInterface.(*envvars.TerraformEnvPrinter)
 	if !ok {
 		return fmt.Errorf("error resolving terraformEnv")
 	}

@@ -6,10 +6,10 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/env"
+	"github.com/windsorcli/cli/pkg/environment/envvars"
+	"github.com/windsorcli/cli/pkg/environment/tools"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
-	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
@@ -99,7 +99,7 @@ contexts:
 	baseMocks.Injector.Register("stack", mockStack)
 
 	// Setup terraform env mock
-	mockTerraformEnv := env.NewMockEnvPrinter()
+	mockTerraformEnv := envvars.NewMockEnvPrinter()
 	mockTerraformEnv.InitializeFunc = func() error { return nil }
 	mockTerraformEnv.GetEnvVarsFunc = func() (map[string]string, error) { return map[string]string{}, nil }
 	baseMocks.Injector.Register("terraformEnv", mockTerraformEnv)

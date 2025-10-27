@@ -9,7 +9,7 @@ import (
 
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/env"
+	"github.com/windsorcli/cli/pkg/environment/envvars"
 	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
@@ -100,8 +100,8 @@ contexts:
 	baseMocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
 
 	// Setup env printers
-	mockEnvPrinters := []env.EnvPrinter{}
-	windsorEnv := env.NewMockEnvPrinter()
+	mockEnvPrinters := []envvars.EnvPrinter{}
+	windsorEnv := envvars.NewMockEnvPrinter()
 	windsorEnv.InitializeFunc = func() error { return nil }
 	windsorEnv.GetEnvVarsFunc = func() (map[string]string, error) {
 		return map[string]string{"WINDSOR_TEST": "true"}, nil
@@ -305,13 +305,13 @@ func TestDownPipeline_Initialize(t *testing.T) {
 		}
 
 		// Create a failing env printer and register it
-		failingEnvPrinter := env.NewMockEnvPrinter()
+		failingEnvPrinter := envvars.NewMockEnvPrinter()
 		failingEnvPrinter.InitializeFunc = func() error {
 			return fmt.Errorf("env printer initialization failed")
 		}
 
 		// Set the env printers directly to include the failing one
-		pipeline.envPrinters = []env.EnvPrinter{failingEnvPrinter}
+		pipeline.envPrinters = []envvars.EnvPrinter{failingEnvPrinter}
 
 		// When initializing the env printers
 		var initErr error

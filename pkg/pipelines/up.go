@@ -6,10 +6,10 @@ import (
 	"os"
 
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/env"
+	"github.com/windsorcli/cli/pkg/environment/envvars"
+	"github.com/windsorcli/cli/pkg/environment/tools"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
-	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
@@ -32,7 +32,7 @@ type UpPipeline struct {
 	containerRuntime virt.ContainerRuntime
 	networkManager   network.NetworkManager
 	stack            stack.Stack
-	envPrinters      []env.EnvPrinter
+	envPrinters      []envvars.EnvPrinter
 }
 
 // =============================================================================

@@ -11,9 +11,9 @@ import (
 	"github.com/windsorcli/cli/pkg/cluster"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/environment/tools"
 	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/shell"
-	"github.com/windsorcli/cli/pkg/tools"
 )
 
 // mockFileInfo implements os.FileInfo for testing

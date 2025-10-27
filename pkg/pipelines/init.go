@@ -13,12 +13,12 @@ import (
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/env"
+	"github.com/windsorcli/cli/pkg/environment/envvars"
+	"github.com/windsorcli/cli/pkg/environment/tools"
 	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
 	"github.com/windsorcli/cli/pkg/terraform"
-	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/services"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
@@ -118,7 +118,7 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 	p.toolsManager = p.withToolsManager()
 
 	if p.injector.Resolve("terraformEnv") == nil {
-		terraformEnv := env.NewTerraformEnvPrinter(p.injector)
+		terraformEnv := envvars.NewTerraformEnvPrinter(p.injector)
 		p.injector.Register("terraformEnv", terraformEnv)
 	}
 
@@ -130,7 +130,6 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 		return fmt.Errorf("failed to create generators: %w", err)
 	}
 	p.generators = generators
-
 
 	services, err := p.withServices()
 	if err != nil {
@@ -185,7 +184,6 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 			return fmt.Errorf("failed to initialize generator: %w", err)
 		}
 	}
-
 
 	for _, service := range p.services {
 		if err := service.Initialize(); err != nil {

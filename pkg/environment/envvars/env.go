@@ -3,7 +3,7 @@
 // The EnvPrinter acts as the central environment orchestrator for the application,
 // coordinating environment variable management, shell integration, and configuration persistence.
 
-package env
+package envvars
 
 import (
 	"fmt"

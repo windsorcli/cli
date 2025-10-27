@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/env"
+	"github.com/windsorcli/cli/pkg/environment/envvars"
 )
 
 // =============================================================================
@@ -38,7 +38,7 @@ func setupWindsorStackMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	}
 
 	// Register and initialize terraform env printer by default
-	terraformEnv := env.NewTerraformEnvPrinter(mocks.Injector)
+	terraformEnv := envvars.NewTerraformEnvPrinter(mocks.Injector)
 	if err := terraformEnv.Initialize(); err != nil {
 		t.Fatalf("Failed to initialize terraform env printer: %v", err)
 	}
