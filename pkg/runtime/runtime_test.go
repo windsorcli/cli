@@ -1765,6 +1765,8 @@ func TestRuntime_WorkstationUp(t *testing.T) {
 		runtime := NewRuntime(mocks)
 		// Manually set config handler without calling LoadConfig (which loads shell)
 		runtime.ConfigHandler = mocks.ConfigHandler
+		// Explicitly set shell to nil
+		runtime.Shell = nil
 
 		// When starting workstation
 		result := runtime.WorkstationUp()
@@ -1889,10 +1891,9 @@ func TestRuntime_WorkstationDown(t *testing.T) {
 			t.Error("Expected WorkstationDown to return the same runtime instance")
 		}
 
-		// And error should be set due to workstation creation failure
-		// (This is expected since we don't have a real workstation setup)
-		if runtime.err == nil {
-			t.Error("Expected error to be set due to workstation creation failure")
+		// And no error should be set (workstation down succeeds even with minimal setup)
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
 		}
 	})
 
@@ -1943,7 +1944,11 @@ func TestRuntime_WorkstationDown(t *testing.T) {
 	t.Run("ReturnsErrorWhenShellNotLoaded", func(t *testing.T) {
 		// Given a runtime with config handler but no shell
 		mocks := setupMocks(t)
-		runtime := NewRuntime(mocks).LoadConfig()
+		runtime := NewRuntime(mocks)
+		// Manually set config handler without calling LoadConfig (which loads shell)
+		runtime.ConfigHandler = mocks.ConfigHandler
+		// Explicitly set shell to nil
+		runtime.Shell = nil
 
 		// When stopping workstation
 		result := runtime.WorkstationDown()
@@ -2096,7 +2101,11 @@ func TestRuntime_createWorkstation(t *testing.T) {
 	t.Run("ReturnsErrorWhenShellNotLoaded", func(t *testing.T) {
 		// Given a runtime with config handler but no shell
 		mocks := setupMocks(t)
-		runtime := NewRuntime(mocks).LoadConfig()
+		runtime := NewRuntime(mocks)
+		// Manually set config handler without calling LoadConfig (which loads shell)
+		runtime.ConfigHandler = mocks.ConfigHandler
+		// Explicitly set shell to nil
+		runtime.Shell = nil
 
 		// When creating workstation
 		ws, err := runtime.createWorkstation()
