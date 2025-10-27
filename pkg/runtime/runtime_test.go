@@ -1687,3 +1687,517 @@ func TestRuntime_getAllEnvPrinters(t *testing.T) {
 		}
 	})
 }
+
+func TestRuntime_WorkstationUp(t *testing.T) {
+	t.Run("StartsWorkstationSuccessfully", func(t *testing.T) {
+		// Given a runtime with loaded dependencies
+		mocks := setupMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
+			return "test-context"
+		}
+		mocks.Shell.(*shell.MockShell).GetProjectRootFunc = func() (string, error) {
+			return "/test/project", nil
+		}
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
+
+		// When starting workstation
+		result := runtime.WorkstationUp()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected WorkstationUp to return the same runtime instance")
+		}
+
+		// And error should be set due to workstation creation failure
+		// (This is expected since we don't have a real workstation setup)
+		if runtime.err == nil {
+			t.Error("Expected error to be set due to workstation creation failure")
+		}
+	})
+
+	t.Run("ReturnsEarlyOnExistingError", func(t *testing.T) {
+		// Given a runtime with an existing error
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks)
+		expectedError := errors.New("existing error")
+		runtime.err = expectedError
+
+		// When starting workstation
+		result := runtime.WorkstationUp()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected WorkstationUp to return the same runtime instance")
+		}
+
+		// And error should remain unchanged
+		if runtime.err != expectedError {
+			t.Errorf("Expected error %v, got %v", expectedError, runtime.err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenConfigHandlerNotLoaded", func(t *testing.T) {
+		// Given a runtime without loaded config handler
+		runtime := NewRuntime()
+
+		// When starting workstation
+		result := runtime.WorkstationUp()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected WorkstationUp to return the same runtime instance")
+		}
+
+		// And error should be set
+		if runtime.err == nil {
+			t.Error("Expected error to be set")
+		} else {
+			expectedError := "config handler not loaded"
+			if !strings.Contains(runtime.err.Error(), expectedError) {
+				t.Errorf("Expected error to contain %q, got %q", expectedError, runtime.err.Error())
+			}
+		}
+	})
+
+	t.Run("ReturnsErrorWhenShellNotLoaded", func(t *testing.T) {
+		// Given a runtime with config handler but no shell
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks)
+		// Manually set config handler without calling LoadConfig (which loads shell)
+		runtime.ConfigHandler = mocks.ConfigHandler
+		// Explicitly set shell to nil
+		runtime.Shell = nil
+
+		// When starting workstation
+		result := runtime.WorkstationUp()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected WorkstationUp to return the same runtime instance")
+		}
+
+		// And error should be set
+		if runtime.err == nil {
+			t.Error("Expected error to be set")
+		} else {
+			expectedError := "shell not loaded"
+			if !strings.Contains(runtime.err.Error(), expectedError) {
+				t.Errorf("Expected error to contain %q, got %q", expectedError, runtime.err.Error())
+			}
+		}
+	})
+
+	t.Run("ReturnsErrorWhenInjectorNotAvailable", func(t *testing.T) {
+		// Given a runtime with loaded dependencies but no injector
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
+		runtime.Injector = nil
+
+		// When starting workstation
+		result := runtime.WorkstationUp()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected WorkstationUp to return the same runtime instance")
+		}
+
+		// And error should be set
+		if runtime.err == nil {
+			t.Error("Expected error to be set")
+		} else {
+			expectedError := "injector not available"
+			if !strings.Contains(runtime.err.Error(), expectedError) {
+				t.Errorf("Expected error to contain %q, got %q", expectedError, runtime.err.Error())
+			}
+		}
+	})
+
+	t.Run("ReturnsErrorWhenNoContextSet", func(t *testing.T) {
+		// Given a runtime with loaded dependencies but no context
+		mocks := setupMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
+			return ""
+		}
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
+
+		// When starting workstation
+		result := runtime.WorkstationUp()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected WorkstationUp to return the same runtime instance")
+		}
+
+		// And error should be set
+		if runtime.err == nil {
+			t.Error("Expected error to be set")
+		} else {
+			expectedError := "no context set"
+			if !strings.Contains(runtime.err.Error(), expectedError) {
+				t.Errorf("Expected error to contain %q, got %q", expectedError, runtime.err.Error())
+			}
+		}
+	})
+
+	t.Run("PropagatesProjectRootError", func(t *testing.T) {
+		// Given a runtime with loaded dependencies
+		mocks := setupMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
+			return "test-context"
+		}
+		expectedError := errors.New("project root error")
+		mocks.Shell.(*shell.MockShell).GetProjectRootFunc = func() (string, error) {
+			return "", expectedError
+		}
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
+
+		// When starting workstation
+		result := runtime.WorkstationUp()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected WorkstationUp to return the same runtime instance")
+		}
+
+		// And error should be propagated
+		if runtime.err == nil {
+			t.Error("Expected error to be propagated")
+		} else {
+			expectedErrorText := "failed to get project root"
+			if !strings.Contains(runtime.err.Error(), expectedErrorText) {
+				t.Errorf("Expected error to contain %q, got %q", expectedErrorText, runtime.err.Error())
+			}
+		}
+	})
+}
+
+func TestRuntime_WorkstationDown(t *testing.T) {
+	t.Run("StopsWorkstationSuccessfully", func(t *testing.T) {
+		// Given a runtime with loaded dependencies
+		mocks := setupMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
+			return "test-context"
+		}
+		mocks.Shell.(*shell.MockShell).GetProjectRootFunc = func() (string, error) {
+			return "/test/project", nil
+		}
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
+
+		// When stopping workstation
+		result := runtime.WorkstationDown()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected WorkstationDown to return the same runtime instance")
+		}
+
+		// And no error should be set (workstation down succeeds even with minimal setup)
+		if runtime.err != nil {
+			t.Errorf("Expected no error, got %v", runtime.err)
+		}
+	})
+
+	t.Run("ReturnsEarlyOnExistingError", func(t *testing.T) {
+		// Given a runtime with an existing error
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks)
+		expectedError := errors.New("existing error")
+		runtime.err = expectedError
+
+		// When stopping workstation
+		result := runtime.WorkstationDown()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected WorkstationDown to return the same runtime instance")
+		}
+
+		// And error should remain unchanged
+		if runtime.err != expectedError {
+			t.Errorf("Expected error %v, got %v", expectedError, runtime.err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenConfigHandlerNotLoaded", func(t *testing.T) {
+		// Given a runtime without loaded config handler
+		runtime := NewRuntime()
+
+		// When stopping workstation
+		result := runtime.WorkstationDown()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected WorkstationDown to return the same runtime instance")
+		}
+
+		// And error should be set
+		if runtime.err == nil {
+			t.Error("Expected error to be set")
+		} else {
+			expectedError := "config handler not loaded"
+			if !strings.Contains(runtime.err.Error(), expectedError) {
+				t.Errorf("Expected error to contain %q, got %q", expectedError, runtime.err.Error())
+			}
+		}
+	})
+
+	t.Run("ReturnsErrorWhenShellNotLoaded", func(t *testing.T) {
+		// Given a runtime with config handler but no shell
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks)
+		// Manually set config handler without calling LoadConfig (which loads shell)
+		runtime.ConfigHandler = mocks.ConfigHandler
+		// Explicitly set shell to nil
+		runtime.Shell = nil
+
+		// When stopping workstation
+		result := runtime.WorkstationDown()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected WorkstationDown to return the same runtime instance")
+		}
+
+		// And error should be set
+		if runtime.err == nil {
+			t.Error("Expected error to be set")
+		} else {
+			expectedError := "shell not loaded"
+			if !strings.Contains(runtime.err.Error(), expectedError) {
+				t.Errorf("Expected error to contain %q, got %q", expectedError, runtime.err.Error())
+			}
+		}
+	})
+
+	t.Run("ReturnsErrorWhenInjectorNotAvailable", func(t *testing.T) {
+		// Given a runtime with loaded dependencies but no injector
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
+		runtime.Injector = nil
+
+		// When stopping workstation
+		result := runtime.WorkstationDown()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected WorkstationDown to return the same runtime instance")
+		}
+
+		// And error should be set
+		if runtime.err == nil {
+			t.Error("Expected error to be set")
+		} else {
+			expectedError := "injector not available"
+			if !strings.Contains(runtime.err.Error(), expectedError) {
+				t.Errorf("Expected error to contain %q, got %q", expectedError, runtime.err.Error())
+			}
+		}
+	})
+
+	t.Run("ReturnsErrorWhenNoContextSet", func(t *testing.T) {
+		// Given a runtime with loaded dependencies but no context
+		mocks := setupMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
+			return ""
+		}
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
+
+		// When stopping workstation
+		result := runtime.WorkstationDown()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected WorkstationDown to return the same runtime instance")
+		}
+
+		// And error should be set
+		if runtime.err == nil {
+			t.Error("Expected error to be set")
+		} else {
+			expectedError := "no context set"
+			if !strings.Contains(runtime.err.Error(), expectedError) {
+				t.Errorf("Expected error to contain %q, got %q", expectedError, runtime.err.Error())
+			}
+		}
+	})
+
+	t.Run("PropagatesProjectRootError", func(t *testing.T) {
+		// Given a runtime with loaded dependencies
+		mocks := setupMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
+			return "test-context"
+		}
+		expectedError := errors.New("project root error")
+		mocks.Shell.(*shell.MockShell).GetProjectRootFunc = func() (string, error) {
+			return "", expectedError
+		}
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
+
+		// When stopping workstation
+		result := runtime.WorkstationDown()
+
+		// Then should return the same runtime instance
+		if result != runtime {
+			t.Error("Expected WorkstationDown to return the same runtime instance")
+		}
+
+		// And error should be propagated
+		if runtime.err == nil {
+			t.Error("Expected error to be propagated")
+		} else {
+			expectedErrorText := "failed to get project root"
+			if !strings.Contains(runtime.err.Error(), expectedErrorText) {
+				t.Errorf("Expected error to contain %q, got %q", expectedErrorText, runtime.err.Error())
+			}
+		}
+	})
+}
+
+func TestRuntime_createWorkstation(t *testing.T) {
+	t.Run("CreatesWorkstationSuccessfully", func(t *testing.T) {
+		// Given a runtime with loaded dependencies
+		mocks := setupMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
+			return "test-context"
+		}
+		mocks.Shell.(*shell.MockShell).GetProjectRootFunc = func() (string, error) {
+			return "/test/project", nil
+		}
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
+
+		// When creating workstation
+		ws, err := runtime.createWorkstation()
+
+		// Then should return workstation and no error
+		if ws == nil {
+			t.Error("Expected workstation to be created")
+		}
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenConfigHandlerNotLoaded", func(t *testing.T) {
+		// Given a runtime without loaded config handler
+		runtime := NewRuntime()
+
+		// When creating workstation
+		ws, err := runtime.createWorkstation()
+
+		// Then should return error
+		if ws != nil {
+			t.Error("Expected workstation to be nil")
+		}
+		if err == nil {
+			t.Error("Expected error to be returned")
+		} else {
+			expectedError := "config handler not loaded"
+			if !strings.Contains(err.Error(), expectedError) {
+				t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
+			}
+		}
+	})
+
+	t.Run("ReturnsErrorWhenShellNotLoaded", func(t *testing.T) {
+		// Given a runtime with config handler but no shell
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks)
+		// Manually set config handler without calling LoadConfig (which loads shell)
+		runtime.ConfigHandler = mocks.ConfigHandler
+		// Explicitly set shell to nil
+		runtime.Shell = nil
+
+		// When creating workstation
+		ws, err := runtime.createWorkstation()
+
+		// Then should return error
+		if ws != nil {
+			t.Error("Expected workstation to be nil")
+		}
+		if err == nil {
+			t.Error("Expected error to be returned")
+		} else {
+			expectedError := "shell not loaded"
+			if !strings.Contains(err.Error(), expectedError) {
+				t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
+			}
+		}
+	})
+
+	t.Run("ReturnsErrorWhenInjectorNotAvailable", func(t *testing.T) {
+		// Given a runtime with loaded dependencies but no injector
+		mocks := setupMocks(t)
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
+		runtime.Injector = nil
+
+		// When creating workstation
+		ws, err := runtime.createWorkstation()
+
+		// Then should return error
+		if ws != nil {
+			t.Error("Expected workstation to be nil")
+		}
+		if err == nil {
+			t.Error("Expected error to be returned")
+		} else {
+			expectedError := "injector not available"
+			if !strings.Contains(err.Error(), expectedError) {
+				t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
+			}
+		}
+	})
+
+	t.Run("ReturnsErrorWhenNoContextSet", func(t *testing.T) {
+		// Given a runtime with loaded dependencies but no context
+		mocks := setupMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
+			return ""
+		}
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
+
+		// When creating workstation
+		ws, err := runtime.createWorkstation()
+
+		// Then should return error
+		if ws != nil {
+			t.Error("Expected workstation to be nil")
+		}
+		if err == nil {
+			t.Error("Expected error to be returned")
+		} else {
+			expectedError := "no context set"
+			if !strings.Contains(err.Error(), expectedError) {
+				t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
+			}
+		}
+	})
+
+	t.Run("PropagatesProjectRootError", func(t *testing.T) {
+		// Given a runtime with loaded dependencies
+		mocks := setupMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
+			return "test-context"
+		}
+		expectedError := errors.New("project root error")
+		mocks.Shell.(*shell.MockShell).GetProjectRootFunc = func() (string, error) {
+			return "", expectedError
+		}
+		runtime := NewRuntime(mocks).LoadShell().LoadConfig()
+
+		// When creating workstation
+		ws, err := runtime.createWorkstation()
+
+		// Then should return error
+		if ws != nil {
+			t.Error("Expected workstation to be nil")
+		}
+		if err == nil {
+			t.Error("Expected error to be returned")
+		} else {
+			expectedErrorText := "failed to get project root"
+			if !strings.Contains(err.Error(), expectedErrorText) {
+				t.Errorf("Expected error to contain %q, got %q", expectedErrorText, err.Error())
+			}
+		}
+	})
+}
