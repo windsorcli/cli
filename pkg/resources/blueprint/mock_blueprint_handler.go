@@ -26,6 +26,7 @@ type MockBlueprintHandler struct {
 
 	DownFunc                     func() error
 	SetRenderedKustomizeDataFunc func(data map[string]any)
+	GenerateFunc                 func() *blueprintv1alpha1.Blueprint
 }
 
 // =============================================================================
@@ -170,6 +171,14 @@ func (m *MockBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 		return m.GetLocalTemplateDataFunc()
 	}
 	return map[string][]byte{}, nil
+}
+
+// Generate calls the mock GenerateFunc if set, otherwise returns nil
+func (m *MockBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
+	if m.GenerateFunc != nil {
+		return m.GenerateFunc()
+	}
+	return nil
 }
 
 // Ensure MockBlueprintHandler implements BlueprintHandler

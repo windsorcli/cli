@@ -706,3 +706,46 @@ func TestMockBlueprintHandler_LoadData(t *testing.T) {
 		}
 	})
 }
+
+func TestMockBlueprintHandler_Generate(t *testing.T) {
+	setup := func(t *testing.T) *MockBlueprintHandler {
+		t.Helper()
+		injector := di.NewInjector()
+		handler := NewMockBlueprintHandler(injector)
+		return handler
+	}
+
+	t.Run("WithFuncSet", func(t *testing.T) {
+		// Given a mock handler with generate function
+		handler := setup(t)
+		expectedBlueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-generated-blueprint",
+			},
+		}
+		handler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
+			return expectedBlueprint
+		}
+
+		// When generating blueprint
+		generated := handler.Generate()
+
+		// Then expected blueprint should be returned
+		if !reflect.DeepEqual(generated, expectedBlueprint) {
+			t.Errorf("Expected blueprint = %v, got = %v", expectedBlueprint, generated)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a mock handler without generate function
+		handler := setup(t)
+
+		// When generating blueprint
+		generated := handler.Generate()
+
+		// Then nil should be returned
+		if generated != nil {
+			t.Errorf("Expected nil, got %v", generated)
+		}
+	})
+}

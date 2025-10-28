@@ -58,6 +58,7 @@ type BlueprintHandler interface {
 	WaitForKustomizations(message string, names ...string) error
 	GetDefaultTemplateData(contextName string) (map[string][]byte, error)
 	GetLocalTemplateData() (map[string][]byte, error)
+	Generate() *blueprintv1alpha1.Blueprint
 	Down() error
 }
 
@@ -516,6 +517,54 @@ func (b *BaseBlueprintHandler) GetKustomizations() []blueprintv1alpha1.Kustomiza
 	}
 
 	return kustomizations
+}
+
+// Generate returns the fully processed blueprint with all defaults resolved,
+// paths processed, and generation logic applied - equivalent to what would be deployed.
+// It applies the same processing logic as GetKustomizations() but for the entire blueprint structure.
+func (b *BaseBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
+	generated := b.blueprint.DeepCopy()
+
+	// Process kustomizations with the same logic as GetKustomizations()
+	for i := range generated.Kustomizations {
+		if generated.Kustomizations[i].Source == "" {
+			generated.Kustomizations[i].Source = generated.Metadata.Name
+		}
+
+		if generated.Kustomizations[i].Path == "" {
+			generated.Kustomizations[i].Path = "kustomize"
+		} else {
+			generated.Kustomizations[i].Path = "kustomize/" + strings.ReplaceAll(generated.Kustomizations[i].Path, "\\", "/")
+		}
+
+		if generated.Kustomizations[i].Interval == nil || generated.Kustomizations[i].Interval.Duration == 0 {
+			generated.Kustomizations[i].Interval = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL}
+		}
+		if generated.Kustomizations[i].RetryInterval == nil || generated.Kustomizations[i].RetryInterval.Duration == 0 {
+			generated.Kustomizations[i].RetryInterval = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL}
+		}
+		if generated.Kustomizations[i].Timeout == nil || generated.Kustomizations[i].Timeout.Duration == 0 {
+			generated.Kustomizations[i].Timeout = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT}
+		}
+		if generated.Kustomizations[i].Wait == nil {
+			defaultWait := constants.DEFAULT_FLUX_KUSTOMIZATION_WAIT
+			generated.Kustomizations[i].Wait = &defaultWait
+		}
+		if generated.Kustomizations[i].Force == nil {
+			defaultForce := constants.DEFAULT_FLUX_KUSTOMIZATION_FORCE
+			generated.Kustomizations[i].Force = &defaultForce
+		}
+		if generated.Kustomizations[i].Destroy == nil {
+			defaultDestroy := true
+			generated.Kustomizations[i].Destroy = &defaultDestroy
+		}
+	}
+
+	// Process terraform components with source resolution
+	b.resolveComponentSources(generated)
+	b.resolveComponentPaths(generated)
+
+	return generated
 }
 
 // SetRenderedKustomizeData stores rendered kustomize data for use during install.
