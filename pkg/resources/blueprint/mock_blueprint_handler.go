@@ -2,8 +2,8 @@ package blueprint
 
 import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/resources/artifact"
 )
 
 // MockBlueprintHandler is a mock implementation of BlueprintHandler interface for testing
@@ -26,6 +26,7 @@ type MockBlueprintHandler struct {
 
 	DownFunc                     func() error
 	SetRenderedKustomizeDataFunc func(data map[string]any)
+	GenerateFunc                 func() *blueprintv1alpha1.Blueprint
 }
 
 // =============================================================================
@@ -170,6 +171,14 @@ func (m *MockBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 		return m.GetLocalTemplateDataFunc()
 	}
 	return map[string][]byte{}, nil
+}
+
+// Generate calls the mock GenerateFunc if set, otherwise returns nil
+func (m *MockBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
+	if m.GenerateFunc != nil {
+		return m.GenerateFunc()
+	}
+	return nil
 }
 
 // Ensure MockBlueprintHandler implements BlueprintHandler

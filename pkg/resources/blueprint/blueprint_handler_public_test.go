@@ -15,11 +15,11 @@ import (
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"github.com/goccy/go-yaml"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/kubernetes"
+	"github.com/windsorcli/cli/pkg/resources/artifact"
 	"github.com/windsorcli/cli/pkg/shell"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -4554,6 +4554,220 @@ metadata:
 			if strings.Contains(string(composedBlueprint), "test-context") {
 				t.Error("Should not set metadata when blueprint has no components")
 			}
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_Generate(t *testing.T) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		return handler, mocks
+	}
+
+	t.Run("EmptyBlueprint", func(t *testing.T) {
+		// Given a handler with empty blueprint
+		handler, _ := setup(t)
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+		}
+
+		// When generating blueprint
+		generated := handler.Generate()
+
+		// Then should return a copy of the blueprint
+		if generated == nil {
+			t.Fatal("Expected non-nil generated blueprint")
+		}
+		if generated.Metadata.Name != "test-blueprint" {
+			t.Errorf("Expected name 'test-blueprint', got %s", generated.Metadata.Name)
+		}
+	})
+
+	t.Run("KustomizationsWithDefaults", func(t *testing.T) {
+		// Given a handler with kustomizations that need defaults
+		handler, _ := setup(t)
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+					// No Source, Path, or other fields set
+				},
+			},
+		}
+
+		// When generating blueprint
+		generated := handler.Generate()
+
+		// Then kustomizations should have defaults applied
+		if len(generated.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(generated.Kustomizations))
+		}
+
+		kustomization := generated.Kustomizations[0]
+		if kustomization.Name != "test-kustomization" {
+			t.Errorf("Expected name 'test-kustomization', got %s", kustomization.Name)
+		}
+		if kustomization.Source != "test-blueprint" {
+			t.Errorf("Expected source 'test-blueprint', got %s", kustomization.Source)
+		}
+		if kustomization.Path != "kustomize" {
+			t.Errorf("Expected path 'kustomize', got %s", kustomization.Path)
+		}
+		if kustomization.Interval == nil || kustomization.Interval.Duration != constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL {
+			t.Errorf("Expected default interval, got %v", kustomization.Interval)
+		}
+		if kustomization.RetryInterval == nil || kustomization.RetryInterval.Duration != constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL {
+			t.Errorf("Expected default retry interval, got %v", kustomization.RetryInterval)
+		}
+		if kustomization.Timeout == nil || kustomization.Timeout.Duration != constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT {
+			t.Errorf("Expected default timeout, got %v", kustomization.Timeout)
+		}
+		if kustomization.Wait == nil || *kustomization.Wait != constants.DEFAULT_FLUX_KUSTOMIZATION_WAIT {
+			t.Errorf("Expected default wait, got %v", kustomization.Wait)
+		}
+		if kustomization.Force == nil || *kustomization.Force != constants.DEFAULT_FLUX_KUSTOMIZATION_FORCE {
+			t.Errorf("Expected default force, got %v", kustomization.Force)
+		}
+		if kustomization.Destroy == nil || *kustomization.Destroy != true {
+			t.Errorf("Expected default destroy true, got %v", kustomization.Destroy)
+		}
+	})
+
+	t.Run("KustomizationsWithCustomPath", func(t *testing.T) {
+		// Given a handler with kustomization with custom path
+		handler, _ := setup(t)
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+					Path: "custom/path",
+				},
+			},
+		}
+
+		// When generating blueprint
+		generated := handler.Generate()
+
+		// Then path should be prefixed with kustomize/
+		if len(generated.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(generated.Kustomizations))
+		}
+
+		expectedPath := "kustomize/custom/path"
+		if generated.Kustomizations[0].Path != expectedPath {
+			t.Errorf("Expected path '%s', got '%s'", expectedPath, generated.Kustomizations[0].Path)
+		}
+	})
+
+	t.Run("KustomizationsWithBackslashes", func(t *testing.T) {
+		// Given a handler with kustomization with backslashes in path
+		handler, _ := setup(t)
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+					Path: "custom\\path\\with\\backslashes",
+				},
+			},
+		}
+
+		// When generating blueprint
+		generated := handler.Generate()
+
+		// Then backslashes should be replaced with forward slashes
+		if len(generated.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(generated.Kustomizations))
+		}
+
+		expectedPath := "kustomize/custom/path/with/backslashes"
+		if generated.Kustomizations[0].Path != expectedPath {
+			t.Errorf("Expected path '%s', got '%s'", expectedPath, generated.Kustomizations[0].Path)
+		}
+	})
+
+	t.Run("TerraformComponentsWithSourceResolution", func(t *testing.T) {
+		// Given a handler with terraform components
+		handler, _ := setup(t)
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name: "test-source",
+					Url:  "https://github.com/example/terraform-modules",
+				},
+			},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{
+					Source: "test-source",
+					Path:   "modules/example",
+				},
+			},
+		}
+
+		// When generating blueprint
+		generated := handler.Generate()
+
+		// Then terraform components should be processed
+		if len(generated.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 terraform component, got %d", len(generated.TerraformComponents))
+		}
+
+		component := generated.TerraformComponents[0]
+		expectedSource := "https://github.com/example/terraform-modules//terraform/modules/example?ref="
+		if component.Source != expectedSource {
+			t.Errorf("Expected source '%s', got %s", expectedSource, component.Source)
+		}
+		if component.Path != "modules/example" {
+			t.Errorf("Expected path 'modules/example', got %s", component.Path)
+		}
+	})
+
+	t.Run("PreservesOriginalBlueprint", func(t *testing.T) {
+		// Given a handler with blueprint data
+		handler, _ := setup(t)
+		originalBlueprint := blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+				},
+			},
+		}
+		handler.blueprint = originalBlueprint
+
+		// When generating blueprint
+		generated := handler.Generate()
+
+		// Then original blueprint should be unchanged
+		if handler.blueprint.Kustomizations[0].Source != "" {
+			t.Error("Original blueprint should not be modified")
+		}
+
+		// And generated blueprint should have defaults
+		if generated.Kustomizations[0].Source != "test-blueprint" {
+			t.Error("Generated blueprint should have defaults applied")
 		}
 	})
 }

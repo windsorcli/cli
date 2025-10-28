@@ -1,6 +1,7 @@
 package types
 
 import (
+	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/secrets"
@@ -29,6 +30,9 @@ type ExecutionContext struct {
 	// Core dependencies
 	ConfigHandler config.ConfigHandler
 	Shell         shell.Shell
+
+	// Blueprint contains the generated blueprint data from the resources package
+	Blueprint *v1alpha1.Blueprint
 
 	// SecretsProviders contains providers for Sops and 1Password secrets management
 	SecretsProviders struct {

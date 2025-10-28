@@ -3,10 +3,10 @@ package generators
 import (
 	"fmt"
 
-	bundler "github.com/windsorcli/cli/pkg/artifact"
-	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
+	bundler "github.com/windsorcli/cli/pkg/resources/artifact"
+	"github.com/windsorcli/cli/pkg/resources/blueprint"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 

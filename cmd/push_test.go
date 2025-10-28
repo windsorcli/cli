@@ -9,11 +9,11 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/artifact"
-	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/kubernetes"
+	"github.com/windsorcli/cli/pkg/resources/artifact"
+	"github.com/windsorcli/cli/pkg/resources/blueprint"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
