@@ -3,7 +3,7 @@
 // The AwsEnvPrinter handles AWS profile, endpoint, and S3 configuration settings,
 // ensuring proper AWS CLI integration and environment setup for AWS operations.
 
-package env
+package envvars
 
 import (
 	"fmt"

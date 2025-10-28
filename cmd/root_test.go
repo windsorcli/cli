@@ -16,7 +16,7 @@ import (
 	blueprintpkg "github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/env"
+	"github.com/windsorcli/cli/pkg/environment/envvars"
 	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -31,7 +31,7 @@ type Mocks struct {
 	ConfigHandler    config.ConfigHandler
 	Shell            *shell.MockShell
 	SecretsProvider  *secrets.MockSecretsProvider
-	EnvPrinter       *env.MockEnvPrinter
+	EnvPrinter       *envvars.MockEnvPrinter
 	Shims            *Shims
 	BlueprintHandler *blueprintpkg.MockBlueprintHandler
 }
@@ -118,7 +118,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	injector.Register("secretsProvider", mockSecretsProvider)
 
 	// Create and register mock env printer
-	mockEnvPrinter := env.NewMockEnvPrinter()
+	mockEnvPrinter := envvars.NewMockEnvPrinter()
 	// PrintFunc removed - functionality now in runtime
 	mockEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
 		return nil
@@ -126,14 +126,14 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	injector.Register("envPrinter", mockEnvPrinter)
 
 	// Create and register additional mock env printers
-	mockWindsorEnvPrinter := env.NewMockEnvPrinter()
+	mockWindsorEnvPrinter := envvars.NewMockEnvPrinter()
 	// PrintFunc removed - functionality now in runtime
 	mockWindsorEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
 		return nil
 	}
 	injector.Register("windsorEnvPrinter", mockWindsorEnvPrinter)
 
-	mockDockerEnvPrinter := env.NewMockEnvPrinter()
+	mockDockerEnvPrinter := envvars.NewMockEnvPrinter()
 	// PrintFunc removed - functionality now in runtime
 	mockDockerEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
 		return nil

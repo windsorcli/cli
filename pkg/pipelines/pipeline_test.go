@@ -17,11 +17,11 @@ import (
 	"github.com/windsorcli/cli/pkg/cluster"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/env"
+	"github.com/windsorcli/cli/pkg/environment/envvars"
+	"github.com/windsorcli/cli/pkg/environment/tools"
 	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
-	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
 
@@ -192,7 +192,7 @@ network:
 	injector.Register("artifactBuilder", mockArtifactBuilder)
 
 	// Create and register terraformEnv for stack dependency
-	terraformEnv := env.NewTerraformEnvPrinter(injector)
+	terraformEnv := envvars.NewTerraformEnvPrinter(injector)
 	injector.Register("terraformEnv", terraformEnv)
 
 	return &Mocks{
@@ -2399,7 +2399,6 @@ contexts:
 		}
 	})
 }
-
 
 func TestBasePipeline_withToolsManager(t *testing.T) {
 	setup := func(t *testing.T) (*BasePipeline, *Mocks) {

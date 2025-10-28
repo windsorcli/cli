@@ -3,7 +3,7 @@
 // The KubeEnvPrinter handles kubeconfig, context, and persistent volume configuration settings,
 // ensuring proper kubectl integration and environment setup for Kubernetes operations.
 
-package env
+package envvars
 
 import (
 	"context"

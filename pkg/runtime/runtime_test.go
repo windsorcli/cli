@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/env"
+	"github.com/windsorcli/cli/pkg/environment/envvars"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
@@ -1252,12 +1252,12 @@ func TestRuntime_PrintAliases(t *testing.T) {
 		runtime := NewRuntime(mocks).LoadShell()
 
 		// Set up mock environment printers
-		mockPrinter1 := env.NewMockEnvPrinter()
+		mockPrinter1 := envvars.NewMockEnvPrinter()
 		mockPrinter1.GetAliasFunc = func() (map[string]string, error) {
 			return map[string]string{"alias1": "command1", "alias2": "command2"}, nil
 		}
 
-		mockPrinter2 := env.NewMockEnvPrinter()
+		mockPrinter2 := envvars.NewMockEnvPrinter()
 		mockPrinter2.GetAliasFunc = func() (map[string]string, error) {
 			return map[string]string{"alias3": "command3"}, nil
 		}
@@ -1336,14 +1336,14 @@ func TestRuntime_PrintAliases(t *testing.T) {
 		runtime := NewRuntime(mocks).LoadShell()
 
 		// Set up mock environment printer that returns error
-		mockPrinter := env.NewMockEnvPrinter()
+		mockPrinter := envvars.NewMockEnvPrinter()
 		expectedError := errors.New("alias error")
 		mockPrinter.GetAliasFunc = func() (map[string]string, error) {
 			return nil, expectedError
 		}
 
 		// Set up WindsorEnv printer to avoid panic
-		windsorPrinter := env.NewMockEnvPrinter()
+		windsorPrinter := envvars.NewMockEnvPrinter()
 		windsorPrinter.GetAliasFunc = func() (map[string]string, error) {
 			return map[string]string{}, nil
 		}
@@ -1401,13 +1401,13 @@ func TestRuntime_ExecutePostEnvHook(t *testing.T) {
 		hook1Called := false
 		hook2Called := false
 
-		mockPrinter1 := env.NewMockEnvPrinter()
+		mockPrinter1 := envvars.NewMockEnvPrinter()
 		mockPrinter1.PostEnvHookFunc = func(directory ...string) error {
 			hook1Called = true
 			return nil
 		}
 
-		mockPrinter2 := env.NewMockEnvPrinter()
+		mockPrinter2 := envvars.NewMockEnvPrinter()
 		mockPrinter2.PostEnvHookFunc = func(directory ...string) error {
 			hook2Called = true
 			return nil
@@ -1444,14 +1444,14 @@ func TestRuntime_ExecutePostEnvHook(t *testing.T) {
 		runtime := NewRuntime(mocks)
 
 		// Set up mock environment printer that returns error
-		mockPrinter := env.NewMockEnvPrinter()
+		mockPrinter := envvars.NewMockEnvPrinter()
 		expectedError := errors.New("hook error")
 		mockPrinter.PostEnvHookFunc = func(directory ...string) error {
 			return expectedError
 		}
 
 		// Set up WindsorEnv printer to avoid panic
-		windsorPrinter := env.NewMockEnvPrinter()
+		windsorPrinter := envvars.NewMockEnvPrinter()
 		windsorPrinter.PostEnvHookFunc = func(directory ...string) error {
 			return nil
 		}
@@ -1484,14 +1484,14 @@ func TestRuntime_ExecutePostEnvHook(t *testing.T) {
 		runtime := NewRuntime(mocks)
 
 		// Set up mock environment printer that returns error
-		mockPrinter := env.NewMockEnvPrinter()
+		mockPrinter := envvars.NewMockEnvPrinter()
 		expectedError := errors.New("hook error")
 		mockPrinter.PostEnvHookFunc = func(directory ...string) error {
 			return expectedError
 		}
 
 		// Set up WindsorEnv printer to avoid panic
-		windsorPrinter := env.NewMockEnvPrinter()
+		windsorPrinter := envvars.NewMockEnvPrinter()
 		windsorPrinter.PostEnvHookFunc = func(directory ...string) error {
 			return nil
 		}
@@ -1519,13 +1519,13 @@ func TestRuntime_ExecutePostEnvHook(t *testing.T) {
 		runtime := NewRuntime(mocks)
 
 		// Set up mock environment printers that return errors
-		mockPrinter1 := env.NewMockEnvPrinter()
+		mockPrinter1 := envvars.NewMockEnvPrinter()
 		error1 := errors.New("hook error 1")
 		mockPrinter1.PostEnvHookFunc = func(directory ...string) error {
 			return error1
 		}
 
-		mockPrinter2 := env.NewMockEnvPrinter()
+		mockPrinter2 := envvars.NewMockEnvPrinter()
 		error2 := errors.New("hook error 2")
 		mockPrinter2.PostEnvHookFunc = func(directory ...string) error {
 			return error2
@@ -1560,14 +1560,14 @@ func TestRuntime_ExecutePostEnvHook(t *testing.T) {
 
 		// Set up one mock environment printer
 		hookCalled := false
-		mockPrinter := env.NewMockEnvPrinter()
+		mockPrinter := envvars.NewMockEnvPrinter()
 		mockPrinter.PostEnvHookFunc = func(directory ...string) error {
 			hookCalled = true
 			return nil
 		}
 
 		// Set up WindsorEnv printer to avoid panic
-		windsorPrinter := env.NewMockEnvPrinter()
+		windsorPrinter := envvars.NewMockEnvPrinter()
 		windsorPrinter.PostEnvHookFunc = func(directory ...string) error {
 			return nil
 		}
@@ -1603,9 +1603,9 @@ func TestRuntime_getAllEnvPrinters(t *testing.T) {
 		runtime := NewRuntime(mocks)
 
 		// Set up some mock environment printers
-		mockPrinter1 := env.NewMockEnvPrinter()
-		mockPrinter2 := env.NewMockEnvPrinter()
-		mockPrinter3 := env.NewMockEnvPrinter()
+		mockPrinter1 := envvars.NewMockEnvPrinter()
+		mockPrinter2 := envvars.NewMockEnvPrinter()
+		mockPrinter3 := envvars.NewMockEnvPrinter()
 
 		runtime.EnvPrinters.AwsEnv = mockPrinter1
 		runtime.EnvPrinters.AzureEnv = mockPrinter2
@@ -1654,9 +1654,9 @@ func TestRuntime_getAllEnvPrinters(t *testing.T) {
 		runtime := NewRuntime(mocks)
 
 		// Set up mock environment printers
-		mockPrinter1 := env.NewMockEnvPrinter()
-		mockPrinter2 := env.NewMockEnvPrinter()
-		windsorPrinter := env.NewMockEnvPrinter()
+		mockPrinter1 := envvars.NewMockEnvPrinter()
+		mockPrinter2 := envvars.NewMockEnvPrinter()
+		windsorPrinter := envvars.NewMockEnvPrinter()
 
 		runtime.EnvPrinters.AwsEnv = mockPrinter1
 		runtime.EnvPrinters.AzureEnv = mockPrinter2

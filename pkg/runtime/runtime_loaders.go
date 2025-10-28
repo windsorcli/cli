@@ -10,7 +10,7 @@ import (
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/cluster"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/env"
+	"github.com/windsorcli/cli/pkg/environment/envvars"
 	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -214,33 +214,33 @@ func (r *Runtime) LoadEnvVars(opts EnvVarsOptions) *Runtime {
 	}
 
 	if r.EnvPrinters.AwsEnv == nil && r.ConfigHandler.GetBool("aws.enabled", false) {
-		r.EnvPrinters.AwsEnv = env.NewAwsEnvPrinter(r.Injector)
+		r.EnvPrinters.AwsEnv = envvars.NewAwsEnvPrinter(r.Injector)
 		r.Injector.Register("awsEnv", r.EnvPrinters.AwsEnv)
 	}
 	if r.EnvPrinters.AzureEnv == nil && r.ConfigHandler.GetBool("azure.enabled", false) {
-		r.EnvPrinters.AzureEnv = env.NewAzureEnvPrinter(r.Injector)
+		r.EnvPrinters.AzureEnv = envvars.NewAzureEnvPrinter(r.Injector)
 		r.Injector.Register("azureEnv", r.EnvPrinters.AzureEnv)
 	}
 	if r.EnvPrinters.DockerEnv == nil && r.ConfigHandler.GetBool("docker.enabled", false) {
-		r.EnvPrinters.DockerEnv = env.NewDockerEnvPrinter(r.Injector)
+		r.EnvPrinters.DockerEnv = envvars.NewDockerEnvPrinter(r.Injector)
 		r.Injector.Register("dockerEnv", r.EnvPrinters.DockerEnv)
 	}
 	if r.EnvPrinters.KubeEnv == nil && r.ConfigHandler.GetBool("cluster.enabled", false) {
-		r.EnvPrinters.KubeEnv = env.NewKubeEnvPrinter(r.Injector)
+		r.EnvPrinters.KubeEnv = envvars.NewKubeEnvPrinter(r.Injector)
 		r.Injector.Register("kubeEnv", r.EnvPrinters.KubeEnv)
 	}
 	if r.EnvPrinters.TalosEnv == nil &&
 		(r.ConfigHandler.GetString("cluster.driver", "") == "talos" ||
 			r.ConfigHandler.GetString("cluster.driver", "") == "omni") {
-		r.EnvPrinters.TalosEnv = env.NewTalosEnvPrinter(r.Injector)
+		r.EnvPrinters.TalosEnv = envvars.NewTalosEnvPrinter(r.Injector)
 		r.Injector.Register("talosEnv", r.EnvPrinters.TalosEnv)
 	}
 	if r.EnvPrinters.TerraformEnv == nil && r.ConfigHandler.GetBool("terraform.enabled", false) {
-		r.EnvPrinters.TerraformEnv = env.NewTerraformEnvPrinter(r.Injector)
+		r.EnvPrinters.TerraformEnv = envvars.NewTerraformEnvPrinter(r.Injector)
 		r.Injector.Register("terraformEnv", r.EnvPrinters.TerraformEnv)
 	}
 	if r.EnvPrinters.WindsorEnv == nil {
-		r.EnvPrinters.WindsorEnv = env.NewWindsorEnvPrinter(r.Injector)
+		r.EnvPrinters.WindsorEnv = envvars.NewWindsorEnvPrinter(r.Injector)
 		r.Injector.Register("windsorEnv", r.EnvPrinters.WindsorEnv)
 	}
 

@@ -10,14 +10,14 @@ import (
 	"github.com/windsorcli/cli/pkg/cluster"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/env"
+	"github.com/windsorcli/cli/pkg/environment/envvars"
+	"github.com/windsorcli/cli/pkg/environment/tools"
 	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/windsorcli/cli/pkg/kubernetes"
 	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/shell/ssh"
 	"github.com/windsorcli/cli/pkg/terraform"
-	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/types"
 	"github.com/windsorcli/cli/pkg/workstation"
 	"github.com/windsorcli/cli/pkg/workstation/network"
@@ -37,13 +37,13 @@ type Dependencies struct {
 	ConfigHandler config.ConfigHandler
 	ToolsManager  tools.ToolsManager
 	EnvPrinters   struct {
-		AwsEnv       env.EnvPrinter
-		AzureEnv     env.EnvPrinter
-		DockerEnv    env.EnvPrinter
-		KubeEnv      env.EnvPrinter
-		TalosEnv     env.EnvPrinter
-		TerraformEnv env.EnvPrinter
-		WindsorEnv   env.EnvPrinter
+		AwsEnv       envvars.EnvPrinter
+		AzureEnv     envvars.EnvPrinter
+		DockerEnv    envvars.EnvPrinter
+		KubeEnv      envvars.EnvPrinter
+		TalosEnv     envvars.EnvPrinter
+		TerraformEnv envvars.EnvPrinter
+		WindsorEnv   envvars.EnvPrinter
 	}
 	SecretsProviders struct {
 		Sops        secrets.SecretsProvider
@@ -466,11 +466,11 @@ func (r *Runtime) createWorkstation() (*workstation.Workstation, error) {
 // getAllEnvPrinters returns all environment printers in field order, ensuring WindsorEnv is last.
 // This method provides compile-time structure assertions by mirroring the struct layout definition.
 // Panics at runtime if WindsorEnv is not last to guarantee environment variable precedence.
-func (r *Runtime) getAllEnvPrinters() []env.EnvPrinter {
+func (r *Runtime) getAllEnvPrinters() []envvars.EnvPrinter {
 	const expectedPrinterCount = 7
 	_ = [expectedPrinterCount]struct{}{}
 
-	allPrinters := []env.EnvPrinter{
+	allPrinters := []envvars.EnvPrinter{
 		r.EnvPrinters.AwsEnv,
 		r.EnvPrinters.AzureEnv,
 		r.EnvPrinters.DockerEnv,
@@ -480,7 +480,7 @@ func (r *Runtime) getAllEnvPrinters() []env.EnvPrinter {
 		r.EnvPrinters.WindsorEnv,
 	}
 
-	var printers []env.EnvPrinter
+	var printers []envvars.EnvPrinter
 	for _, printer := range allPrinters {
 		if printer != nil {
 			printers = append(printers, printer)
