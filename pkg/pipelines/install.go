@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/windsorcli/cli/pkg/artifact"
-	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/generators"
+	"github.com/windsorcli/cli/pkg/resources/artifact"
+	"github.com/windsorcli/cli/pkg/resources/blueprint"
 )
 
 // The InstallPipeline is a specialized component that manages blueprint installation functionality.

@@ -2,8 +2,8 @@ package blueprint
 
 import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/artifact"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/resources/artifact"
 )
 
 // MockBlueprintHandler is a mock implementation of BlueprintHandler interface for testing
