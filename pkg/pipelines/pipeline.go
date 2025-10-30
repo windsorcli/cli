@@ -7,21 +7,21 @@ import (
 	"path/filepath"
 
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
-	"github.com/windsorcli/cli/pkg/cluster"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 	envpkg "github.com/windsorcli/cli/pkg/environment/envvars"
 	"github.com/windsorcli/cli/pkg/environment/tools"
 	"github.com/windsorcli/cli/pkg/generators"
-	"github.com/windsorcli/cli/pkg/kubernetes"
+	"github.com/windsorcli/cli/pkg/infrastructure/cluster"
+	"github.com/windsorcli/cli/pkg/infrastructure/kubernetes"
+	terraforminfra "github.com/windsorcli/cli/pkg/infrastructure/terraform"
 	"github.com/windsorcli/cli/pkg/resources/artifact"
 	"github.com/windsorcli/cli/pkg/resources/blueprint"
 	"github.com/windsorcli/cli/pkg/resources/terraform"
 	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/shell/ssh"
-	"github.com/windsorcli/cli/pkg/stack"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/services"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
@@ -260,14 +260,14 @@ func (p *BasePipeline) withBlueprintHandler() blueprint.BlueprintHandler {
 }
 
 // withStack resolves or creates stack from DI container
-func (p *BasePipeline) withStack() stack.Stack {
+func (p *BasePipeline) withStack() terraforminfra.Stack {
 	if existing := p.injector.Resolve("stack"); existing != nil {
-		if stack, ok := existing.(stack.Stack); ok {
+		if stack, ok := existing.(terraforminfra.Stack); ok {
 			return stack
 		}
 	}
 
-	stack := stack.NewWindsorStack(p.injector)
+	stack := terraforminfra.NewWindsorStack(p.injector)
 	p.injector.Register("stack", stack)
 	return stack
 }

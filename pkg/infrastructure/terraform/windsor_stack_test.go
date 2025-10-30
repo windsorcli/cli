@@ -1,4 +1,4 @@
-package stack
+package terraform
 
 // The WindsorStackTest provides comprehensive test coverage for the WindsorStack implementation.
 // It provides validation of stack initialization, component management, and infrastructure operations,

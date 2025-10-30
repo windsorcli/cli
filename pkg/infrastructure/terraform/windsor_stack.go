@@ -1,4 +1,4 @@
-package stack
+package terraform
 
 // The WindsorStack is a specialized implementation of the Stack interface for Terraform-based infrastructure.
 // It provides a concrete implementation for managing Terraform components through the Windsor CLI,

@@ -1,4 +1,4 @@
-package stack
+package terraform
 
 import "github.com/windsorcli/cli/pkg/di"
 

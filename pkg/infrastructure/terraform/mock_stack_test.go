@@ -1,4 +1,4 @@
-package stack
+package terraform
 
 // The MockStackTest provides test coverage for the MockStack implementation.
 // It provides validation of the mock's function field behaviors,

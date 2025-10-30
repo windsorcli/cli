@@ -8,8 +8,8 @@ import (
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/environment/envvars"
 	"github.com/windsorcli/cli/pkg/environment/tools"
+	terraforminfra "github.com/windsorcli/cli/pkg/infrastructure/terraform"
 	"github.com/windsorcli/cli/pkg/shell"
-	"github.com/windsorcli/cli/pkg/stack"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
@@ -24,7 +24,7 @@ type UpMocks struct {
 	VirtualMachine   *virt.MockVirt
 	ContainerRuntime *virt.MockVirt
 	NetworkManager   *network.MockNetworkManager
-	Stack            *stack.MockStack
+	Stack            *terraforminfra.MockStack
 }
 
 func setupUpMocks(t *testing.T, opts ...*SetupOptions) *UpMocks {
@@ -93,7 +93,7 @@ contexts:
 	baseMocks.Injector.Register("networkManager", mockNetworkManager)
 
 	// Setup stack mock
-	mockStack := stack.NewMockStack(baseMocks.Injector)
+	mockStack := terraforminfra.NewMockStack(baseMocks.Injector)
 	mockStack.InitializeFunc = func() error { return nil }
 	mockStack.UpFunc = func() error { return nil }
 	baseMocks.Injector.Register("stack", mockStack)

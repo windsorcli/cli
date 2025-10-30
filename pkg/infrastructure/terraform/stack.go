@@ -1,4 +1,4 @@
-package stack
+package terraform
 
 // The Stack is a core component that manages infrastructure component stacks.
 // It provides a unified interface for initializing and managing infrastructure stacks,

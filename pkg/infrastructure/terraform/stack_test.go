@@ -1,4 +1,4 @@
-package stack
+package terraform
 
 // The StackTest provides comprehensive test coverage for the Stack interface implementation.
 // It provides validation of stack initialization, component management, and infrastructure operations,
