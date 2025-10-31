@@ -8,6 +8,8 @@ package terraform
 import (
 	"fmt"
 	"testing"
+
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 )
 
 // =============================================================================
@@ -51,12 +53,13 @@ func TestMockStack_Up(t *testing.T) {
 	t.Run("WithFuncSet", func(t *testing.T) {
 		// Given a new MockStack with a custom UpFunc that returns an error
 		mock := NewMockStack(nil)
-		mock.UpFunc = func() error {
+		mock.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
 			return mockUpErr
 		}
 
 		// When Up is called
-		err := mock.Up()
+		blueprint := &blueprintv1alpha1.Blueprint{}
+		err := mock.Up(blueprint)
 
 		// Then the custom error should be returned
 		if err != mockUpErr {
@@ -69,7 +72,8 @@ func TestMockStack_Up(t *testing.T) {
 		mock := NewMockStack(nil)
 
 		// When Up is called
-		err := mock.Up()
+		blueprint := &blueprintv1alpha1.Blueprint{}
+		err := mock.Up(blueprint)
 
 		// Then no error should be returned
 		if err != nil {
@@ -84,12 +88,13 @@ func TestMockStack_Down(t *testing.T) {
 	t.Run("WithFuncSet", func(t *testing.T) {
 		// Given a new MockStack with a custom DownFunc that returns an error
 		mock := NewMockStack(nil)
-		mock.DownFunc = func() error {
+		mock.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
 			return mockDownErr
 		}
 
 		// When Down is called
-		err := mock.Down()
+		blueprint := &blueprintv1alpha1.Blueprint{}
+		err := mock.Down(blueprint)
 
 		// Then the custom error should be returned
 		if err != mockDownErr {
@@ -102,7 +107,8 @@ func TestMockStack_Down(t *testing.T) {
 		mock := NewMockStack(nil)
 
 		// When Down is called
-		err := mock.Down()
+		blueprint := &blueprintv1alpha1.Blueprint{}
+		err := mock.Down(blueprint)
 
 		// Then no error should be returned
 		if err != nil {

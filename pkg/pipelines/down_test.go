@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/environment/envvars"
 	"github.com/windsorcli/cli/pkg/infrastructure/kubernetes"
@@ -89,7 +90,7 @@ contexts:
 	// Setup stack mock
 	mockStack := terraforminfra.NewMockStack(baseMocks.Injector)
 	mockStack.InitializeFunc = func() error { return nil }
-	mockStack.DownFunc = func() error { return nil }
+	mockStack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error { return nil }
 	baseMocks.Injector.Register("stack", mockStack)
 
 	// Setup blueprint handler mock
@@ -491,7 +492,7 @@ func TestDownPipeline_Execute(t *testing.T) {
 			blueprintDownCalled = true
 			return nil
 		}
-		mocks.Stack.DownFunc = func() error {
+		mocks.Stack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
 			stackDownCalled = true
 			return nil
 		}
@@ -541,7 +542,7 @@ func TestDownPipeline_Execute(t *testing.T) {
 			blueprintDownCalled = true
 			return nil
 		}
-		mocks.Stack.DownFunc = func() error {
+		mocks.Stack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
 			stackDownCalled = true
 			return nil
 		}
@@ -583,7 +584,7 @@ func TestDownPipeline_Execute(t *testing.T) {
 			blueprintDownCalled = true
 			return nil
 		}
-		mocks.Stack.DownFunc = func() error {
+		mocks.Stack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
 			stackDownCalled = true
 			return nil
 		}
@@ -716,7 +717,7 @@ func TestDownPipeline_Execute(t *testing.T) {
 		// Given a down pipeline with failing stack
 		pipeline := NewDownPipeline()
 		mocks := setupDownMocks(t)
-		mocks.Stack.DownFunc = func() error {
+		mocks.Stack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
 			return fmt.Errorf("stack down failed")
 		}
 		err := pipeline.Initialize(mocks.Injector, context.Background())
@@ -918,7 +919,7 @@ func TestDownPipeline_Execute(t *testing.T) {
 			blueprintDownCalled = true
 			return nil
 		}
-		mocks.Stack.DownFunc = func() error {
+		mocks.Stack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
 			stackDownCalled = true
 			return nil
 		}

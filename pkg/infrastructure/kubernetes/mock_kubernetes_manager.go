@@ -10,6 +10,7 @@ import (
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
@@ -35,6 +36,7 @@ type MockKubernetesManager struct {
 	CheckGitRepositoryStatusFunc        func() error
 	WaitForKubernetesHealthyFunc        func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error
 	GetNodeReadyStatusFunc              func(ctx context.Context, nodeNames []string) (map[string]bool, error)
+	ApplyBlueprintFunc                  func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
 }
 
 // =============================================================================
@@ -181,4 +183,12 @@ func (m *MockKubernetesManager) GetNodeReadyStatus(ctx context.Context, nodeName
 		return m.GetNodeReadyStatusFunc(ctx, nodeNames)
 	}
 	return make(map[string]bool), nil
+}
+
+// ApplyBlueprint implements KubernetesManager interface
+func (m *MockKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
+	if m.ApplyBlueprintFunc != nil {
+		return m.ApplyBlueprintFunc(blueprint, namespace)
+	}
+	return nil
 }

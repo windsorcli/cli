@@ -199,7 +199,21 @@ func (p *UpPipeline) Execute(ctx context.Context) error {
 	if p.stack == nil {
 		return fmt.Errorf("No stack found")
 	}
-	if err := p.stack.Up(); err != nil {
+	blueprintHandler := p.withBlueprintHandler()
+	if blueprintHandler == nil {
+		return fmt.Errorf("No blueprint handler found")
+	}
+	if err := blueprintHandler.Initialize(); err != nil {
+		return fmt.Errorf("failed to initialize blueprint handler: %w", err)
+	}
+	if err := blueprintHandler.LoadConfig(); err != nil {
+		return fmt.Errorf("failed to load blueprint config: %w", err)
+	}
+	if err := blueprintHandler.LoadBlueprint(); err != nil {
+		return fmt.Errorf("failed to load blueprint: %w", err)
+	}
+	blueprint := blueprintHandler.Generate()
+	if err := p.stack.Up(blueprint); err != nil {
 		return fmt.Errorf("Error running stack Up command: %w", err)
 	}
 

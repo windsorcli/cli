@@ -8,7 +8,9 @@ import (
 	"slices"
 	"strings"
 
+	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	"github.com/fluxcd/pkg/apis/kustomize"
+	"github.com/windsorcli/cli/pkg/constants"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -589,6 +591,145 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 		Cleanup:       slices.Clone(k.Cleanup),
 		Destroy:       k.Destroy,
 		Substitutions: maps.Clone(k.Substitutions),
+	}
+}
+
+// ToFluxKustomization converts a blueprint Kustomization to a Flux Kustomization.
+// It takes the namespace for the kustomization, the default source name to use if no source is specified,
+// and the list of sources to determine the source kind (GitRepository or OCIRepository).
+func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName string, sources []Source) kustomizev1.Kustomization {
+	dependsOn := make([]kustomizev1.DependencyReference, len(k.DependsOn))
+	for idx, dep := range k.DependsOn {
+		dependsOn[idx] = kustomizev1.DependencyReference{
+			Name:      dep,
+			Namespace: namespace,
+		}
+	}
+
+	sourceName := k.Source
+	if sourceName == "" {
+		sourceName = defaultSourceName
+	}
+
+	sourceKind := "GitRepository"
+	for _, source := range sources {
+		if source.Name == sourceName && strings.HasPrefix(source.Url, "oci://") {
+			sourceKind = "OCIRepository"
+			break
+		}
+	}
+
+	path := k.Path
+	if path == "" {
+		path = "kustomize"
+	} else {
+		path = "kustomize/" + strings.ReplaceAll(path, "\\", "/")
+	}
+
+	interval := metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL}
+	if k.Interval != nil && k.Interval.Duration != 0 {
+		interval = *k.Interval
+	}
+
+	retryInterval := metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL}
+	if k.RetryInterval != nil && k.RetryInterval.Duration != 0 {
+		retryInterval = *k.RetryInterval
+	}
+
+	timeout := metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT}
+	if k.Timeout != nil && k.Timeout.Duration != 0 {
+		timeout = *k.Timeout
+	}
+
+	wait := constants.DEFAULT_FLUX_KUSTOMIZATION_WAIT
+	if k.Wait != nil {
+		wait = *k.Wait
+	}
+
+	force := constants.DEFAULT_FLUX_KUSTOMIZATION_FORCE
+	if k.Force != nil {
+		force = *k.Force
+	}
+
+	prune := true
+	if k.Prune != nil {
+		prune = *k.Prune
+	}
+
+	deletionPolicy := "MirrorPrune"
+	if k.Destroy == nil || *k.Destroy {
+		deletionPolicy = "WaitForTermination"
+	}
+
+	patches := make([]kustomize.Patch, 0, len(k.Patches))
+	for _, p := range k.Patches {
+		if p.Patch != "" {
+			var target *kustomize.Selector
+			if p.Target != nil {
+				target = &kustomize.Selector{
+					Kind:      p.Target.Kind,
+					Name:      p.Target.Name,
+					Namespace: p.Target.Namespace,
+				}
+			}
+			patches = append(patches, kustomize.Patch{
+				Patch:  p.Patch,
+				Target: target,
+			})
+		}
+	}
+
+	var postBuild *kustomizev1.PostBuild
+	substituteFrom := make([]kustomizev1.SubstituteReference, 0)
+
+	substituteFrom = append(substituteFrom, kustomizev1.SubstituteReference{
+		Kind:     "ConfigMap",
+		Name:     "values-common",
+		Optional: false,
+	})
+
+	if len(k.Substitutions) > 0 {
+		configMapName := fmt.Sprintf("values-%s", k.Name)
+		substituteFrom = append(substituteFrom, kustomizev1.SubstituteReference{
+			Kind:     "ConfigMap",
+			Name:     configMapName,
+			Optional: false,
+		})
+	}
+
+	if len(substituteFrom) > 0 {
+		postBuild = &kustomizev1.PostBuild{
+			SubstituteFrom: substituteFrom,
+		}
+	}
+
+	return kustomizev1.Kustomization{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Kustomization",
+			APIVersion: "kustomize.toolkit.fluxcd.io/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      k.Name,
+			Namespace: namespace,
+		},
+		Spec: kustomizev1.KustomizationSpec{
+			SourceRef: kustomizev1.CrossNamespaceSourceReference{
+				Kind: sourceKind,
+				Name: sourceName,
+			},
+			Path:           path,
+			DependsOn:      dependsOn,
+			Interval:       interval,
+			RetryInterval:  &retryInterval,
+			Timeout:        &timeout,
+			Wait:           wait,
+			Force:          force,
+			Prune:          prune,
+			DeletionPolicy: deletionPolicy,
+			Patches:        patches,
+			Components:     k.Components,
+			PostBuild:      postBuild,
+		},
 	}
 }
 

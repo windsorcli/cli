@@ -1,6 +1,9 @@
 package terraform
 
-import "github.com/windsorcli/cli/pkg/di"
+import (
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/di"
+)
 
 // The MockStack is a test implementation of the Stack interface.
 // It provides function fields that can be set to customize behavior in tests,
@@ -14,8 +17,8 @@ import "github.com/windsorcli/cli/pkg/di"
 // MockStack is a mock implementation of the Stack interface for testing.
 type MockStack struct {
 	InitializeFunc func() error
-	UpFunc         func() error
-	DownFunc       func() error
+	UpFunc         func(blueprint *blueprintv1alpha1.Blueprint) error
+	DownFunc       func(blueprint *blueprintv1alpha1.Blueprint) error
 }
 
 // =============================================================================
@@ -40,17 +43,17 @@ func (m *MockStack) Initialize() error {
 }
 
 // Up is a mock implementation of the Up method.
-func (m *MockStack) Up() error {
+func (m *MockStack) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 	if m.UpFunc != nil {
-		return m.UpFunc()
+		return m.UpFunc(blueprint)
 	}
 	return nil
 }
 
 // Down is a mock implementation of the Down method.
-func (m *MockStack) Down() error {
+func (m *MockStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 	if m.DownFunc != nil {
-		return m.DownFunc()
+		return m.DownFunc(blueprint)
 	}
 	return nil
 }

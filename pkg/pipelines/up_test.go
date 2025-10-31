@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/environment/envvars"
 	"github.com/windsorcli/cli/pkg/environment/tools"
@@ -95,7 +96,7 @@ contexts:
 	// Setup stack mock
 	mockStack := terraforminfra.NewMockStack(baseMocks.Injector)
 	mockStack.InitializeFunc = func() error { return nil }
-	mockStack.UpFunc = func() error { return nil }
+	mockStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint) error { return nil }
 	baseMocks.Injector.Register("stack", mockStack)
 
 	// Setup terraform env mock
@@ -648,7 +649,7 @@ func TestUpPipeline_Execute(t *testing.T) {
 			name: "ReturnsErrorWhenStackUpFails",
 			setupMock: func(mocks *UpMocks) {
 				mocks.Shims.Setenv = func(key, value string) error { return nil }
-				mocks.Stack.UpFunc = func() error {
+				mocks.Stack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
 					return fmt.Errorf("stack up failed")
 				}
 			},

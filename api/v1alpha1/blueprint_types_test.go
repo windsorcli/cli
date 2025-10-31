@@ -3,6 +3,11 @@ package v1alpha1
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/fluxcd/pkg/apis/kustomize"
+	"github.com/windsorcli/cli/pkg/constants"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func intPtr(i int) *int {
@@ -794,4 +799,387 @@ func contains(slice []string, value string) bool {
 		}
 	}
 	return false
+}
+
+func TestKustomization_ToFluxKustomization(t *testing.T) {
+	t.Run("BasicConversionWithDefaults", func(t *testing.T) {
+		kustomization := &Kustomization{
+			Name: "test-kustomization",
+			Path: "test/path",
+		}
+
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+
+		if result.Name != "test-kustomization" {
+			t.Errorf("Expected name 'test-kustomization', got '%s'", result.Name)
+		}
+		if result.Namespace != "test-namespace" {
+			t.Errorf("Expected namespace 'test-namespace', got '%s'", result.Namespace)
+		}
+		if result.Spec.SourceRef.Name != "default-source" {
+			t.Errorf("Expected source name 'default-source', got '%s'", result.Spec.SourceRef.Name)
+		}
+		if result.Spec.SourceRef.Kind != "GitRepository" {
+			t.Errorf("Expected source kind 'GitRepository', got '%s'", result.Spec.SourceRef.Kind)
+		}
+		if result.Spec.Path != "kustomize/test/path" {
+			t.Errorf("Expected path 'kustomize/test/path', got '%s'", result.Spec.Path)
+		}
+		if result.Spec.Interval.Duration != constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL {
+			t.Errorf("Expected default interval, got %v", result.Spec.Interval.Duration)
+		}
+		if result.Spec.PostBuild == nil {
+			t.Fatal("Expected PostBuild to be set")
+		}
+		if len(result.Spec.PostBuild.SubstituteFrom) != 1 {
+			t.Fatalf("Expected 1 SubstituteFrom reference, got %d", len(result.Spec.PostBuild.SubstituteFrom))
+		}
+		if result.Spec.PostBuild.SubstituteFrom[0].Name != "values-common" {
+			t.Errorf("Expected values-common ConfigMap reference, got '%s'", result.Spec.PostBuild.SubstituteFrom[0].Name)
+		}
+	})
+
+	t.Run("WithAllFieldsSet", func(t *testing.T) {
+		interval := metav1.Duration{Duration: 5 * time.Minute}
+		retryInterval := metav1.Duration{Duration: 2 * time.Minute}
+		timeout := metav1.Duration{Duration: 10 * time.Minute}
+		wait := true
+		force := false
+		prune := true
+		destroy := false
+
+		kustomization := &Kustomization{
+			Name:          "test-kustomization",
+			Path:          "test/path",
+			Source:        "custom-source",
+			DependsOn:     []string{"dep1", "dep2"},
+			Interval:      &interval,
+			RetryInterval: &retryInterval,
+			Timeout:       &timeout,
+			Wait:          &wait,
+			Force:         &force,
+			Prune:         &prune,
+			Destroy:       &destroy,
+			Components:    []string{"comp1", "comp2"},
+			Patches: []BlueprintPatch{
+				{
+					Patch: "apiVersion: v1\nkind: Service\nmetadata:\n  name: test",
+					Target: &kustomize.Selector{
+						Kind:      "Service",
+						Name:      "test",
+						Namespace: "test-ns",
+					},
+				},
+			},
+		}
+
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+
+		if result.Spec.SourceRef.Name != "custom-source" {
+			t.Errorf("Expected source name 'custom-source', got '%s'", result.Spec.SourceRef.Name)
+		}
+		if len(result.Spec.DependsOn) != 2 {
+			t.Errorf("Expected 2 dependencies, got %d", len(result.Spec.DependsOn))
+		}
+		if result.Spec.DependsOn[0].Name != "dep1" || result.Spec.DependsOn[0].Namespace != "test-namespace" {
+			t.Errorf("Expected dependency dep1 in test-namespace, got %v", result.Spec.DependsOn[0])
+		}
+		if result.Spec.Interval.Duration != 5*time.Minute {
+			t.Errorf("Expected interval 5m, got %v", result.Spec.Interval.Duration)
+		}
+		if result.Spec.RetryInterval.Duration != 2*time.Minute {
+			t.Errorf("Expected retry interval 2m, got %v", result.Spec.RetryInterval.Duration)
+		}
+		if result.Spec.Timeout.Duration != 10*time.Minute {
+			t.Errorf("Expected timeout 10m, got %v", result.Spec.Timeout.Duration)
+		}
+		if result.Spec.Wait != wait {
+			t.Errorf("Expected wait %v, got %v", wait, result.Spec.Wait)
+		}
+		if result.Spec.Force != force {
+			t.Errorf("Expected force %v, got %v", force, result.Spec.Force)
+		}
+		if result.Spec.Prune != prune {
+			t.Errorf("Expected prune %v, got %v", prune, result.Spec.Prune)
+		}
+		if result.Spec.DeletionPolicy != "MirrorPrune" {
+			t.Errorf("Expected deletion policy 'MirrorPrune', got '%s'", result.Spec.DeletionPolicy)
+		}
+		if len(result.Spec.Components) != 2 {
+			t.Errorf("Expected 2 components, got %d", len(result.Spec.Components))
+		}
+		if len(result.Spec.Patches) != 1 {
+			t.Errorf("Expected 1 patch, got %d", len(result.Spec.Patches))
+		}
+		if result.Spec.Patches[0].Target.Kind != "Service" {
+			t.Errorf("Expected patch target kind 'Service', got '%s'", result.Spec.Patches[0].Target.Kind)
+		}
+	})
+
+	t.Run("WithSubstitutions", func(t *testing.T) {
+		kustomization := &Kustomization{
+			Name: "test-kustomization",
+			Path: "test/path",
+			Substitutions: map[string]string{
+				"domain": "example.com",
+			},
+		}
+
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+
+		if result.Spec.PostBuild == nil {
+			t.Fatal("Expected PostBuild to be set")
+		}
+		if len(result.Spec.PostBuild.SubstituteFrom) != 2 {
+			t.Fatalf("Expected 2 SubstituteFrom references, got %d", len(result.Spec.PostBuild.SubstituteFrom))
+		}
+
+		foundValuesCommon := false
+		foundValuesKustomization := false
+		for _, ref := range result.Spec.PostBuild.SubstituteFrom {
+			if ref.Name == "values-common" {
+				foundValuesCommon = true
+			}
+			if ref.Name == "values-test-kustomization" {
+				foundValuesKustomization = true
+			}
+		}
+
+		if !foundValuesCommon {
+			t.Error("Expected values-common ConfigMap reference")
+		}
+		if !foundValuesKustomization {
+			t.Error("Expected values-test-kustomization ConfigMap reference")
+		}
+	})
+
+	t.Run("WithoutSubstitutions", func(t *testing.T) {
+		kustomization := &Kustomization{
+			Name: "test-kustomization",
+			Path: "test/path",
+		}
+
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+
+		if result.Spec.PostBuild == nil {
+			t.Fatal("Expected PostBuild to be set")
+		}
+		if len(result.Spec.PostBuild.SubstituteFrom) != 1 {
+			t.Fatalf("Expected 1 SubstituteFrom reference, got %d", len(result.Spec.PostBuild.SubstituteFrom))
+		}
+		if result.Spec.PostBuild.SubstituteFrom[0].Name != "values-common" {
+			t.Errorf("Expected values-common ConfigMap reference, got '%s'", result.Spec.PostBuild.SubstituteFrom[0].Name)
+		}
+	})
+
+	t.Run("WithOCISource", func(t *testing.T) {
+		kustomization := &Kustomization{
+			Name:   "test-kustomization",
+			Path:   "test/path",
+			Source: "oci-source",
+		}
+
+		sources := []Source{
+			{
+				Name: "oci-source",
+				Url:  "oci://example.com/repo",
+			},
+		}
+
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", sources)
+
+		if result.Spec.SourceRef.Kind != "OCIRepository" {
+			t.Errorf("Expected source kind 'OCIRepository', got '%s'", result.Spec.SourceRef.Kind)
+		}
+		if result.Spec.SourceRef.Name != "oci-source" {
+			t.Errorf("Expected source name 'oci-source', got '%s'", result.Spec.SourceRef.Name)
+		}
+	})
+
+	t.Run("WithGitSource", func(t *testing.T) {
+		kustomization := &Kustomization{
+			Name:   "test-kustomization",
+			Path:   "test/path",
+			Source: "git-source",
+		}
+
+		sources := []Source{
+			{
+				Name: "git-source",
+				Url:  "https://example.com/repo.git",
+			},
+		}
+
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", sources)
+
+		if result.Spec.SourceRef.Kind != "GitRepository" {
+			t.Errorf("Expected source kind 'GitRepository', got '%s'", result.Spec.SourceRef.Kind)
+		}
+		if result.Spec.SourceRef.Name != "git-source" {
+			t.Errorf("Expected source name 'git-source', got '%s'", result.Spec.SourceRef.Name)
+		}
+	})
+
+	t.Run("WithEmptyPath", func(t *testing.T) {
+		kustomization := &Kustomization{
+			Name: "test-kustomization",
+			Path: "",
+		}
+
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+
+		if result.Spec.Path != "kustomize" {
+			t.Errorf("Expected path 'kustomize', got '%s'", result.Spec.Path)
+		}
+	})
+
+	t.Run("WithPathBackslashes", func(t *testing.T) {
+		kustomization := &Kustomization{
+			Name: "test-kustomization",
+			Path: "test\\path\\with\\backslashes",
+		}
+
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+
+		if result.Spec.Path != "kustomize/test/path/with/backslashes" {
+			t.Errorf("Expected path with forward slashes, got '%s'", result.Spec.Path)
+		}
+	})
+
+	t.Run("WithDestroyTrue", func(t *testing.T) {
+		destroy := true
+		kustomization := &Kustomization{
+			Name:    "test-kustomization",
+			Path:    "test/path",
+			Destroy: &destroy,
+		}
+
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+
+		if result.Spec.DeletionPolicy != "WaitForTermination" {
+			t.Errorf("Expected deletion policy 'WaitForTermination', got '%s'", result.Spec.DeletionPolicy)
+		}
+	})
+
+	t.Run("WithDestroyFalse", func(t *testing.T) {
+		destroy := false
+		kustomization := &Kustomization{
+			Name:    "test-kustomization",
+			Path:    "test/path",
+			Destroy: &destroy,
+		}
+
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+
+		if result.Spec.DeletionPolicy != "MirrorPrune" {
+			t.Errorf("Expected deletion policy 'MirrorPrune', got '%s'", result.Spec.DeletionPolicy)
+		}
+	})
+
+	t.Run("WithDestroyNil", func(t *testing.T) {
+		kustomization := &Kustomization{
+			Name:    "test-kustomization",
+			Path:    "test/path",
+			Destroy: nil,
+		}
+
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+
+		if result.Spec.DeletionPolicy != "WaitForTermination" {
+			t.Errorf("Expected deletion policy 'WaitForTermination' when Destroy is nil, got '%s'", result.Spec.DeletionPolicy)
+		}
+	})
+
+	t.Run("WithEmptySourceUsesDefault", func(t *testing.T) {
+		kustomization := &Kustomization{
+			Name:   "test-kustomization",
+			Path:   "test/path",
+			Source: "",
+		}
+
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+
+		if result.Spec.SourceRef.Name != "default-source" {
+			t.Errorf("Expected source name 'default-source', got '%s'", result.Spec.SourceRef.Name)
+		}
+	})
+
+	t.Run("WithZeroIntervalUsesDefault", func(t *testing.T) {
+		zeroInterval := metav1.Duration{Duration: 0}
+		kustomization := &Kustomization{
+			Name:     "test-kustomization",
+			Path:     "test/path",
+			Interval: &zeroInterval,
+		}
+
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+
+		if result.Spec.Interval.Duration != constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL {
+			t.Errorf("Expected default interval, got %v", result.Spec.Interval.Duration)
+		}
+	})
+
+	t.Run("WithPatchesWithoutTarget", func(t *testing.T) {
+		kustomization := &Kustomization{
+			Name: "test-kustomization",
+			Path: "test/path",
+			Patches: []BlueprintPatch{
+				{
+					Patch: "apiVersion: v1\nkind: Service\nmetadata:\n  name: test",
+				},
+			},
+		}
+
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+
+		if len(result.Spec.Patches) != 1 {
+			t.Fatalf("Expected 1 patch, got %d", len(result.Spec.Patches))
+		}
+		if result.Spec.Patches[0].Target != nil {
+			t.Error("Expected patch target to be nil")
+		}
+		if result.Spec.Patches[0].Patch != "apiVersion: v1\nkind: Service\nmetadata:\n  name: test" {
+			t.Errorf("Expected patch content, got '%s'", result.Spec.Patches[0].Patch)
+		}
+	})
+
+	t.Run("WithEmptyPatchIgnored", func(t *testing.T) {
+		kustomization := &Kustomization{
+			Name: "test-kustomization",
+			Path: "test/path",
+			Patches: []BlueprintPatch{
+				{
+					Patch: "",
+				},
+			},
+		}
+
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+
+		if len(result.Spec.Patches) != 0 {
+			t.Errorf("Expected 0 patches (empty patch ignored), got %d", len(result.Spec.Patches))
+		}
+	})
+
+	t.Run("TypeMetaAndObjectMeta", func(t *testing.T) {
+		kustomization := &Kustomization{
+			Name: "test-kustomization",
+			Path: "test/path",
+		}
+
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+
+		if result.Kind != "Kustomization" {
+			t.Errorf("Expected Kind 'Kustomization', got '%s'", result.Kind)
+		}
+		if result.APIVersion != "kustomize.toolkit.fluxcd.io/v1" {
+			t.Errorf("Expected APIVersion 'kustomize.toolkit.fluxcd.io/v1', got '%s'", result.APIVersion)
+		}
+		if result.Name != "test-kustomization" {
+			t.Errorf("Expected Name 'test-kustomization', got '%s'", result.Name)
+		}
+		if result.Namespace != "test-namespace" {
+			t.Errorf("Expected Namespace 'test-namespace', got '%s'", result.Namespace)
+		}
+	})
 }

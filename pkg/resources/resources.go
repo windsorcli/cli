@@ -123,8 +123,6 @@ func (r *Resources) Generate(overwrite ...bool) error {
 		return fmt.Errorf("failed to load blueprint data: %w", err)
 	}
 
-	r.Blueprint = r.BlueprintHandler.Generate()
-
 	if err := r.TerraformResolver.Initialize(); err != nil {
 		return fmt.Errorf("failed to initialize terraform resolver: %w", err)
 	}
