@@ -1,8 +1,8 @@
-package stack
+package terraform
 
-// The WindsorStackTest provides comprehensive test coverage for the WindsorStack implementation.
+// The StackTest provides comprehensive test coverage for the Stack interface implementation.
 // It provides validation of stack initialization, component management, and infrastructure operations,
-// The WindsorStackTest ensures proper dependency injection and component lifecycle management,
+// The StackTest ensures proper dependency injection and component lifecycle management,
 // verifying error handling, mock interactions, and infrastructure state management.
 
 import (
@@ -13,19 +13,191 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/environment/envvars"
+	"github.com/windsorcli/cli/pkg/resources/blueprint"
+	"github.com/windsorcli/cli/pkg/shell"
 )
 
 // =============================================================================
 // Test Setup
 // =============================================================================
 
+// createTestBlueprint creates a test blueprint with terraform components
+func createTestBlueprint() *blueprintv1alpha1.Blueprint {
+	return &blueprintv1alpha1.Blueprint{
+		Metadata: blueprintv1alpha1.Metadata{
+			Name: "test-blueprint",
+		},
+		Sources: []blueprintv1alpha1.Source{
+			{
+				Name: "source1",
+				Url:  "https://github.com/example/example.git",
+				Ref:  blueprintv1alpha1.Reference{Branch: "main"},
+			},
+		},
+		TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+			{
+				Source: "source1",
+				Path:   "remote/path",
+				Inputs: map[string]any{
+					"remote_variable1": "default_value",
+				},
+			},
+			{
+				Source: "",
+				Path:   "local/path",
+				Inputs: map[string]any{
+					"local_variable1": "default_value",
+				},
+			},
+		},
+	}
+}
+
+type Mocks struct {
+	Injector      di.Injector
+	ConfigHandler config.ConfigHandler
+	Shell         *shell.MockShell
+	Blueprint     *blueprint.MockBlueprintHandler
+	Shims         *Shims
+}
+
+type SetupOptions struct {
+	Injector      di.Injector
+	ConfigHandler config.ConfigHandler
+	ConfigStr     string
+}
+
+// setupMocks creates mock components for testing the stack
+func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+	t.Helper()
+
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get working directory: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Failed to change to temp directory: %v", err)
+	}
+
+	os.Setenv("WINDSOR_PROJECT_ROOT", tmpDir)
+
+	options := &SetupOptions{}
+	if len(opts) > 0 && opts[0] != nil {
+		options = opts[0]
+	}
+
+	var injector di.Injector
+	if options.Injector == nil {
+		injector = di.NewMockInjector()
+	} else {
+		injector = options.Injector
+	}
+
+	mockShell := shell.NewMockShell()
+
+	mockBlueprint := blueprint.NewMockBlueprintHandler(injector)
+	mockBlueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+		return []blueprintv1alpha1.TerraformComponent{
+			{
+				Source:   "git::https://github.com/terraform-aws-modules/terraform-aws-vpc.git//terraform/remote/path@v1.0.0",
+				Path:     "remote/path",
+				FullPath: filepath.Join(tmpDir, ".windsor", ".tf_modules", "remote", "path"),
+				Inputs: map[string]any{
+					"remote_variable1": "default_value",
+				},
+			},
+			{
+				Source:   "",
+				Path:     "local/path",
+				FullPath: filepath.Join(tmpDir, "terraform", "local", "path"),
+				Inputs: map[string]any{
+					"local_variable1": "default_value",
+				},
+			},
+		}
+	}
+
+	injector.Register("shell", mockShell)
+	injector.Register("blueprintHandler", mockBlueprint)
+
+	var configHandler config.ConfigHandler
+	if options.ConfigHandler == nil {
+		configHandler = config.NewConfigHandler(injector)
+	} else {
+		configHandler = options.ConfigHandler
+	}
+
+	if err := configHandler.Initialize(); err != nil {
+		t.Fatalf("Failed to initialize config handler: %v", err)
+	}
+	if err := configHandler.SetContext("mock-context"); err != nil {
+		t.Fatalf("Failed to set context: %v", err)
+	}
+
+	defaultConfigStr := `
+contexts:
+  mock-context:
+    dns:
+      domain: mock.domain.com`
+
+	if err := configHandler.LoadConfigString(defaultConfigStr); err != nil {
+		t.Fatalf("Failed to load default config string: %v", err)
+	}
+	if options.ConfigStr != "" {
+		if err := configHandler.LoadConfigString(options.ConfigStr); err != nil {
+			t.Fatalf("Failed to load config string: %v", err)
+		}
+	}
+
+	injector.Register("configHandler", configHandler)
+
+	shims := &Shims{}
+
+	shims.Stat = func(path string) (os.FileInfo, error) {
+		return nil, nil
+	}
+	shims.Chdir = func(_ string) error {
+		return nil
+	}
+	shims.Getwd = func() (string, error) {
+		return tmpDir, nil
+	}
+	shims.Setenv = func(key, value string) error {
+		return os.Setenv(key, value)
+	}
+	shims.Unsetenv = func(key string) error {
+		return os.Unsetenv(key)
+	}
+	shims.Remove = func(_ string) error {
+		return nil
+	}
+
+	t.Cleanup(func() {
+		os.Unsetenv("WINDSOR_PROJECT_ROOT")
+		if err := os.Chdir(origDir); err != nil {
+			t.Logf("Warning: Failed to change back to original directory: %v", err)
+		}
+	})
+
+	return &Mocks{
+		Injector:      injector,
+		ConfigHandler: configHandler,
+		Shell:         mockShell,
+		Blueprint:     mockBlueprint,
+		Shims:         shims,
+	}
+}
+
 // setupWindsorStackMocks creates mock components for testing the WindsorStack
 func setupWindsorStackMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	t.Helper()
 	mocks := setupMocks(t, opts...)
 
-	// Create necessary directories for tests
 	projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 	tfModulesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "remote", "path")
 	if err := os.MkdirAll(tfModulesDir, 0755); err != nil {
@@ -37,16 +209,13 @@ func setupWindsorStackMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		t.Fatalf("Failed to create local directory: %v", err)
 	}
 
-	// Register and initialize terraform env printer by default
 	terraformEnv := envvars.NewTerraformEnvPrinter(mocks.Injector)
 	if err := terraformEnv.Initialize(); err != nil {
 		t.Fatalf("Failed to initialize terraform env printer: %v", err)
 	}
 	mocks.Injector.Register("terraformEnv", terraformEnv)
 
-	// Update shims to handle Windsor-specific paths
 	mocks.Shims.Stat = func(path string) (os.FileInfo, error) {
-		// Return success for both directories
 		if path == tfModulesDir || path == localDir {
 			return os.Stat(path)
 		}
@@ -54,6 +223,164 @@ func setupWindsorStackMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	}
 
 	return mocks
+}
+
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
+func TestStack_NewStack(t *testing.T) {
+	setup := func(t *testing.T) (*BaseStack, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		stack := NewBaseStack(mocks.Injector)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		stack, _ := setup(t)
+
+		if stack == nil {
+			t.Errorf("Expected stack to be non-nil")
+		}
+	})
+}
+
+func TestStack_Initialize(t *testing.T) {
+	setup := func(t *testing.T) (*BaseStack, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		stack := NewBaseStack(mocks.Injector)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		stack, _ := setup(t)
+
+		if err := stack.Initialize(); err != nil {
+			t.Errorf("Expected Initialize to return nil, got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingShell", func(t *testing.T) {
+		mocks := setupMocks(t)
+
+		mocks.Injector.Register("shell", nil)
+
+		stack := NewBaseStack(mocks.Injector)
+		err := stack.Initialize()
+
+		if err == nil {
+			t.Errorf("Expected Initialize to return an error")
+		} else {
+			expectedError := "error resolving shell"
+			if !strings.Contains(err.Error(), expectedError) {
+				t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
+			}
+		}
+	})
+
+	t.Run("ErrorResolvingBlueprintHandler", func(t *testing.T) {
+		mocks := setupMocks(t)
+
+		mocks.Injector.Register("blueprintHandler", nil)
+
+		stack := NewBaseStack(mocks.Injector)
+
+		if err := stack.Initialize(); err == nil {
+			t.Errorf("Expected Initialize to return an error")
+		}
+	})
+}
+
+func TestStack_Up(t *testing.T) {
+	setup := func(t *testing.T) (*BaseStack, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		stack := NewBaseStack(mocks.Injector)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		stack, _ := setup(t)
+
+		if err := stack.Initialize(); err != nil {
+			t.Fatalf("Expected no error during initialization, got %v", err)
+		}
+
+		blueprint := createTestBlueprint()
+		if err := stack.Up(blueprint); err != nil {
+			t.Errorf("Expected Up to return nil, got %v", err)
+		}
+	})
+
+	t.Run("UninitializedStack", func(t *testing.T) {
+		stack, _ := setup(t)
+
+		blueprint := createTestBlueprint()
+		if err := stack.Up(blueprint); err != nil {
+			t.Errorf("Expected Up to return nil even without initialization, got %v", err)
+		}
+	})
+
+	t.Run("NilInjector", func(t *testing.T) {
+		stack := NewBaseStack(nil)
+
+		blueprint := createTestBlueprint()
+		if err := stack.Up(blueprint); err != nil {
+			t.Errorf("Expected Up to return nil even with nil injector, got %v", err)
+		}
+	})
+}
+
+func TestStack_Down(t *testing.T) {
+	setup := func(t *testing.T) (*BaseStack, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		stack := NewBaseStack(mocks.Injector)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		stack, _ := setup(t)
+
+		if err := stack.Initialize(); err != nil {
+			t.Fatalf("Expected no error during initialization, got %v", err)
+		}
+
+		blueprint := createTestBlueprint()
+		if err := stack.Down(blueprint); err != nil {
+			t.Errorf("Expected Down to return nil, got %v", err)
+		}
+	})
+
+	t.Run("UninitializedStack", func(t *testing.T) {
+		stack, _ := setup(t)
+
+		blueprint := createTestBlueprint()
+		if err := stack.Down(blueprint); err != nil {
+			t.Errorf("Expected Down to return nil even without initialization, got %v", err)
+		}
+	})
+
+	t.Run("NilInjector", func(t *testing.T) {
+		stack := NewBaseStack(nil)
+
+		blueprint := createTestBlueprint()
+		if err := stack.Down(blueprint); err != nil {
+			t.Errorf("Expected Down to return nil even with nil injector, got %v", err)
+		}
+	})
+}
+
+func TestStack_Interface(t *testing.T) {
+	t.Run("BaseStackImplementsStack", func(t *testing.T) {
+		var _ Stack = (*BaseStack)(nil)
+	})
 }
 
 // =============================================================================
@@ -71,7 +398,6 @@ func TestWindsorStack_NewWindsorStack(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		stack, _ := setup(t)
 
-		// Then the stack should be non-nil
 		if stack == nil {
 			t.Errorf("Expected stack to be non-nil")
 		}
@@ -89,13 +415,10 @@ func TestWindsorStack_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		stack, _ := setup(t)
 
-		// When a new WindsorStack is initialized
 		if err := stack.Initialize(); err != nil {
-			// Then no error should occur
 			t.Errorf("Expected Initialize to return nil, got %v", err)
 		}
 
-		// And the terraform env should be resolved
 		if stack.terraformEnv == nil {
 			t.Errorf("Expected terraformEnv to be resolved")
 		}
@@ -104,13 +427,10 @@ func TestWindsorStack_Initialize(t *testing.T) {
 	t.Run("ErrorTerraformEnvNotFound", func(t *testing.T) {
 		stack, mocks := setup(t)
 
-		// And the terraformEnv is unregistered
 		mocks.Injector.Register("terraformEnv", nil)
 
-		// When a new WindsorStack is initialized
 		err := stack.Initialize()
 
-		// Then an error should occur
 		if err == nil {
 			t.Errorf("Expected Initialize to return an error")
 		} else {
@@ -124,13 +444,10 @@ func TestWindsorStack_Initialize(t *testing.T) {
 	t.Run("ErrorResolvingTerraformEnv", func(t *testing.T) {
 		stack, mocks := setup(t)
 
-		// And a non-terraform env printer is registered with terraformEnv key
 		mocks.Injector.Register("terraformEnv", "not-a-terraform-env")
 
-		// When a new WindsorStack is initialized
 		err := stack.Initialize()
 
-		// Then an error should occur
 		if err == nil {
 			t.Errorf("Expected Initialize to return an error")
 		} else {
@@ -144,13 +461,10 @@ func TestWindsorStack_Initialize(t *testing.T) {
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
 		stack, mocks := setup(t)
 
-		// And the shell is unregistered to simulate an error
 		mocks.Injector.Register("shell", nil)
 
-		// When a new WindsorStack is initialized
 		err := stack.Initialize()
 
-		// Then an error should occur
 		if err == nil {
 			t.Errorf("Expected Initialize to return an error")
 		} else {
@@ -164,10 +478,8 @@ func TestWindsorStack_Initialize(t *testing.T) {
 	t.Run("ErrorResolvingBlueprintHandler", func(t *testing.T) {
 		stack, mocks := setup(t)
 
-		// And the blueprintHandler is unregistered to simulate an error
 		mocks.Injector.Register("blueprintHandler", nil)
 
-		// Then an error should occur
 		if err := stack.Initialize(); err == nil {
 			t.Errorf("Expected Initialize to return an error")
 		}
@@ -188,10 +500,9 @@ func TestWindsorStack_Up(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		stack, _ := setup(t)
+		blueprint := createTestBlueprint()
 
-		// And when the stack is brought up
-		if err := stack.Up(); err != nil {
-			// Then no error should occur
+		if err := stack.Up(blueprint); err != nil {
 			t.Errorf("Expected Up to return nil, got %v", err)
 		}
 	})
@@ -202,9 +513,8 @@ func TestWindsorStack_Up(t *testing.T) {
 			return "", fmt.Errorf("mock error getting current directory")
 		}
 
-		// And when Up is called
-		err := stack.Up()
-		// Then the expected error is contained in err
+		blueprint := createTestBlueprint()
+		err := stack.Up(blueprint)
 		expectedError := "error getting current directory"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
@@ -217,13 +527,12 @@ func TestWindsorStack_Up(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		// And when Up is called
-		err := stack.Up()
+		blueprint := createTestBlueprint()
+		err := stack.Up(blueprint)
 		if err == nil {
 			t.Fatalf("Expected an error, but got nil")
 		}
 
-		// Then the expected error is contained in err
 		expectedError := "directory"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
@@ -234,9 +543,8 @@ func TestWindsorStack_Up(t *testing.T) {
 		stack, mocks := setup(t)
 		mocks.ConfigHandler.Set("terraform.backend.type", "unsupported")
 
-		// And when Up is called
-		err := stack.Up()
-		// Then the expected error is contained in err
+		blueprint := createTestBlueprint()
+		err := stack.Up(blueprint)
 		expectedError := "error generating terraform args"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
@@ -252,9 +560,8 @@ func TestWindsorStack_Up(t *testing.T) {
 			return "", nil
 		}
 
-		// And when Up is called
-		err := stack.Up()
-		// Then the expected error is contained in err
+		blueprint := createTestBlueprint()
+		err := stack.Up(blueprint)
 		expectedError := "error running terraform init for"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
@@ -270,9 +577,8 @@ func TestWindsorStack_Up(t *testing.T) {
 			return "", nil
 		}
 
-		// And when Up is called
-		err := stack.Up()
-		// Then the expected error is contained in err
+		blueprint := createTestBlueprint()
+		err := stack.Up(blueprint)
 		expectedError := "error running terraform plan for"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
@@ -288,9 +594,8 @@ func TestWindsorStack_Up(t *testing.T) {
 			return "", nil
 		}
 
-		// And when Up is called
-		err := stack.Up()
-		// Then the expected error is contained in err
+		blueprint := createTestBlueprint()
+		err := stack.Up(blueprint)
 		expectedError := "error running terraform apply for"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
@@ -308,7 +613,6 @@ func TestWindsorStack_Down(t *testing.T) {
 			t.Fatalf("Expected no error during initialization, got %v", err)
 		}
 
-		// Set up default components for the blueprint handler
 		mocks.Blueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
 			return []blueprintv1alpha1.TerraformComponent{
 				{
@@ -324,10 +628,9 @@ func TestWindsorStack_Down(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		stack, _ := setup(t)
+		blueprint := createTestBlueprint()
 
-		// And when the stack is brought down
-		if err := stack.Down(); err != nil {
-			// Then no error should occur
+		if err := stack.Down(blueprint); err != nil {
 			t.Errorf("Expected Down to return nil, got %v", err)
 		}
 	})
@@ -338,9 +641,8 @@ func TestWindsorStack_Down(t *testing.T) {
 			return "", fmt.Errorf("mock error getting current directory")
 		}
 
-		// And when Down is called
-		err := stack.Down()
-		// Then the expected error is contained in err
+		blueprint := createTestBlueprint()
+		err := stack.Down(blueprint)
 		expectedError := "error getting current directory"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
@@ -353,9 +655,8 @@ func TestWindsorStack_Down(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		// And when Down is called
-		err := stack.Down()
-		// Then no error should occur since Down continues when directory doesn't exist
+		blueprint := createTestBlueprint()
+		err := stack.Down(blueprint)
 		if err != nil {
 			t.Fatalf("Expected no error when directory doesn't exist, got %v", err)
 		}
@@ -365,9 +666,8 @@ func TestWindsorStack_Down(t *testing.T) {
 		stack, mocks := setup(t)
 		mocks.ConfigHandler.Set("terraform.backend.type", "unsupported")
 
-		// And when Down is called
-		err := stack.Down()
-		// Then the expected error is contained in err
+		blueprint := createTestBlueprint()
+		err := stack.Down(blueprint)
 		expectedError := "error generating terraform args"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
@@ -383,9 +683,8 @@ func TestWindsorStack_Down(t *testing.T) {
 			return "", nil
 		}
 
-		// And when Down is called
-		err := stack.Down()
-		// Then the expected error is contained in err
+		blueprint := createTestBlueprint()
+		err := stack.Down(blueprint)
 		expectedError := "error running terraform plan destroy for"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
@@ -395,26 +694,30 @@ func TestWindsorStack_Down(t *testing.T) {
 	t.Run("SkipComponentsWithDestroyFalse", func(t *testing.T) {
 		stack, mocks := setup(t)
 
-		// Set up components with one having destroy: false
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 		destroyFalse := false
-		mocks.Blueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{
-				{
-					Source:   "source1",
-					Path:     "module/path1",
-					FullPath: filepath.Join(os.Getenv("WINDSOR_PROJECT_ROOT"), ".windsor", ".tf_modules", "remote", "path1"),
-					Destroy:  &destroyFalse, // This component should be skipped
-				},
-				{
-					Source:   "source2",
-					Path:     "module/path2",
-					FullPath: filepath.Join(os.Getenv("WINDSOR_PROJECT_ROOT"), ".windsor", ".tf_modules", "remote", "path2"),
-					// Destroy defaults to true, so this should be destroyed
-				},
-			}
+		blueprint := createTestBlueprint()
+		blueprint.TerraformComponents = []blueprintv1alpha1.TerraformComponent{
+			{
+				Source:   "source1",
+				Path:     "module/path1",
+				FullPath: filepath.Join(projectRoot, ".windsor", ".tf_modules", "remote", "path1"),
+				Destroy:  &destroyFalse,
+			},
+			{
+				Source:   "source2",
+				Path:     "module/path2",
+				FullPath: filepath.Join(projectRoot, ".windsor", ".tf_modules", "remote", "path2"),
+			},
 		}
 
-		// Track terraform commands executed
+		if err := os.MkdirAll(blueprint.TerraformComponents[0].FullPath, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+		if err := os.MkdirAll(blueprint.TerraformComponents[1].FullPath, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+
 		var terraformCommands []string
 		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "terraform" && len(args) > 1 {
@@ -423,13 +726,10 @@ func TestWindsorStack_Down(t *testing.T) {
 			return "", nil
 		}
 
-		// When Down is called
-		if err := stack.Down(); err != nil {
+		if err := stack.Down(blueprint); err != nil {
 			t.Errorf("Expected Down to return nil, got %v", err)
 		}
 
-		// Then only the component without destroy: false should be destroyed
-		// We should see terraform commands for path2 but not path1
 		foundPath1Commands := false
 		foundPath2Commands := false
 
@@ -459,9 +759,8 @@ func TestWindsorStack_Down(t *testing.T) {
 			return "", nil
 		}
 
-		// And when Down is called
-		err := stack.Down()
-		// Then the expected error is contained in err
+		blueprint := createTestBlueprint()
+		err := stack.Down(blueprint)
 		expectedError := "error running terraform destroy for"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())

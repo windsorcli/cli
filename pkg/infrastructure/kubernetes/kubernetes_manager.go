@@ -15,7 +15,9 @@ import (
 	"github.com/briandowns/spinner"
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
+	meta "github.com/fluxcd/pkg/apis/meta"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -47,6 +49,7 @@ type KubernetesManager interface {
 	GetKustomizationStatus(names []string) (map[string]bool, error)
 	WaitForKubernetesHealthy(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error
 	GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error)
+	ApplyBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
 }
 
 // =============================================================================
@@ -575,97 +578,6 @@ func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, en
 	return fmt.Errorf("timeout waiting for Kubernetes API to be healthy")
 }
 
-// waitForNodesReady blocks until all specified nodes exist and are in Ready state or the context deadline is reached.
-// It periodically queries node status, invokes outputFunc on status changes, and returns an error if any nodes are missing or not Ready within the deadline.
-// If the context is cancelled, returns an error immediately.
-func (k *BaseKubernetesManager) waitForNodesReady(ctx context.Context, nodeNames []string, outputFunc func(string)) error {
-	deadline, ok := ctx.Deadline()
-	if !ok {
-		deadline = time.Now().Add(5 * time.Minute)
-	}
-
-	pollInterval := 5 * time.Second
-	lastStatus := make(map[string]string)
-
-	for time.Now().Before(deadline) {
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("context cancelled while waiting for nodes to be ready")
-		default:
-			readyStatus, err := k.client.GetNodeReadyStatus(ctx, nodeNames)
-			if err != nil {
-				time.Sleep(pollInterval)
-				continue
-			}
-
-			var missingNodes []string
-			var notReadyNodes []string
-			var readyNodes []string
-
-			for _, nodeName := range nodeNames {
-				if ready, exists := readyStatus[nodeName]; !exists {
-					missingNodes = append(missingNodes, nodeName)
-				} else if !ready {
-					notReadyNodes = append(notReadyNodes, nodeName)
-				} else {
-					readyNodes = append(readyNodes, nodeName)
-				}
-			}
-
-			if outputFunc != nil {
-				for _, nodeName := range nodeNames {
-					var currentStatus string
-					if ready, exists := readyStatus[nodeName]; !exists {
-						currentStatus = "NOT FOUND"
-					} else if ready {
-						currentStatus = "READY"
-					} else {
-						currentStatus = "NOT READY"
-					}
-
-					if lastStatus[nodeName] != currentStatus {
-						outputFunc(fmt.Sprintf("Node %s: %s", nodeName, currentStatus))
-						lastStatus[nodeName] = currentStatus
-					}
-				}
-			}
-
-			if len(missingNodes) == 0 && len(notReadyNodes) == 0 {
-				return nil
-			}
-
-			time.Sleep(pollInterval)
-		}
-	}
-
-	// Final check to get the current status for error reporting
-	readyStatus, err := k.client.GetNodeReadyStatus(ctx, nodeNames)
-	if err != nil {
-		return fmt.Errorf("timeout waiting for nodes to be ready: failed to get final status: %w", err)
-	}
-
-	var missingNodes []string
-	var notReadyNodes []string
-
-	for _, nodeName := range nodeNames {
-		if ready, exists := readyStatus[nodeName]; !exists {
-			missingNodes = append(missingNodes, nodeName)
-		} else if !ready {
-			notReadyNodes = append(notReadyNodes, nodeName)
-		}
-	}
-
-	if len(missingNodes) > 0 {
-		return fmt.Errorf("timeout waiting for nodes to appear: %s", strings.Join(missingNodes, ", "))
-	}
-
-	if len(notReadyNodes) > 0 {
-		return fmt.Errorf("timeout waiting for nodes to be ready: %s", strings.Join(notReadyNodes, ", "))
-	}
-
-	return fmt.Errorf("timeout waiting for nodes to be ready")
-}
-
 // GetNodeReadyStatus returns a map of node names to their Ready condition status.
 // Returns a map of node names to Ready status (true if Ready, false if NotReady), or an error if listing fails.
 func (k *BaseKubernetesManager) GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error) {
@@ -674,6 +586,53 @@ func (k *BaseKubernetesManager) GetNodeReadyStatus(ctx context.Context, nodeName
 	}
 	return k.client.GetNodeReadyStatus(ctx, nodeNames)
 }
+
+// ApplyBlueprint applies an entire blueprint to the cluster. It creates the namespace, applies all source
+// repositories (Git and OCI), and applies all kustomizations. This method orchestrates the complete
+// blueprint installation process in the correct order.
+func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
+	if err := k.CreateNamespace(namespace); err != nil {
+		return fmt.Errorf("failed to create namespace: %w", err)
+	}
+
+	if blueprint.Repository.Url != "" {
+		source := blueprintv1alpha1.Source{
+			Name:       blueprint.Metadata.Name,
+			Url:        blueprint.Repository.Url,
+			Ref:        blueprint.Repository.Ref,
+			SecretName: blueprint.Repository.SecretName,
+		}
+		if err := k.applyBlueprintSource(source, namespace); err != nil {
+			return fmt.Errorf("failed to apply blueprint repository: %w", err)
+		}
+	}
+
+	for _, source := range blueprint.Sources {
+		if err := k.applyBlueprintSource(source, namespace); err != nil {
+			return fmt.Errorf("failed to apply source %s: %w", source.Name, err)
+		}
+	}
+
+	defaultSourceName := blueprint.Metadata.Name
+	for _, kustomization := range blueprint.Kustomizations {
+		if len(kustomization.Substitutions) > 0 {
+			configMapName := fmt.Sprintf("values-%s", kustomization.Name)
+			if err := k.ApplyConfigMap(configMapName, namespace, kustomization.Substitutions); err != nil {
+				return fmt.Errorf("failed to create ConfigMap for kustomization %s: %w", kustomization.Name, err)
+			}
+		}
+		fluxKustomization := kustomization.ToFluxKustomization(namespace, defaultSourceName, blueprint.Sources)
+		if err := k.ApplyKustomization(fluxKustomization); err != nil {
+			return fmt.Errorf("failed to apply kustomization %s: %w", kustomization.Name, err)
+		}
+	}
+
+	return nil
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
 
 // applyWithRetry applies a resource using SSA with minimal logic
 func (k *BaseKubernetesManager) applyWithRetry(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) error {
@@ -718,6 +677,206 @@ func (k *BaseKubernetesManager) getHelmRelease(name, namespace string) (*helmv2.
 	}
 
 	return &helmRelease, nil
+}
+
+// applyBlueprintSource applies a blueprint Source as a GitRepository or OCIRepository resource.
+// It routes to the appropriate repository type based on the source URL and applies it to the cluster.
+func (k *BaseKubernetesManager) applyBlueprintSource(source blueprintv1alpha1.Source, namespace string) error {
+	if strings.HasPrefix(source.Url, "oci://") {
+		return k.applyBlueprintOCIRepository(source, namespace)
+	}
+	return k.applyBlueprintGitRepository(source, namespace)
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// waitForNodesReady blocks until all specified nodes exist and are in Ready state or the context deadline is reached.
+// It periodically queries node status, invokes outputFunc on status changes, and returns an error if any nodes are missing or not Ready within the deadline.
+// If the context is cancelled, returns an error immediately.
+func (k *BaseKubernetesManager) waitForNodesReady(ctx context.Context, nodeNames []string, outputFunc func(string)) error {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		deadline = time.Now().Add(5 * time.Minute)
+	}
+
+	pollInterval := 5 * time.Second
+	lastStatus := make(map[string]string)
+
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("context cancelled while waiting for nodes to be ready")
+		default:
+			readyStatus, err := k.client.GetNodeReadyStatus(ctx, nodeNames)
+			if err != nil {
+				time.Sleep(pollInterval)
+				continue
+			}
+
+			var missingNodes []string
+			var notReadyNodes []string
+
+			for _, nodeName := range nodeNames {
+				if ready, exists := readyStatus[nodeName]; !exists {
+					missingNodes = append(missingNodes, nodeName)
+				} else if !ready {
+					notReadyNodes = append(notReadyNodes, nodeName)
+				}
+			}
+
+			if outputFunc != nil {
+				for _, nodeName := range nodeNames {
+					var currentStatus string
+					if ready, exists := readyStatus[nodeName]; !exists {
+						currentStatus = "NOT FOUND"
+					} else if ready {
+						currentStatus = "READY"
+					} else {
+						currentStatus = "NOT READY"
+					}
+
+					if lastStatus[nodeName] != currentStatus {
+						outputFunc(fmt.Sprintf("Node %s: %s", nodeName, currentStatus))
+						lastStatus[nodeName] = currentStatus
+					}
+				}
+			}
+
+			if len(missingNodes) == 0 && len(notReadyNodes) == 0 {
+				return nil
+			}
+
+			time.Sleep(pollInterval)
+		}
+	}
+
+	readyStatus, err := k.client.GetNodeReadyStatus(ctx, nodeNames)
+	if err != nil {
+		return fmt.Errorf("timeout waiting for nodes to be ready: failed to get final status: %w", err)
+	}
+
+	var missingNodes []string
+	var notReadyNodes []string
+
+	for _, nodeName := range nodeNames {
+		if ready, exists := readyStatus[nodeName]; !exists {
+			missingNodes = append(missingNodes, nodeName)
+		} else if !ready {
+			notReadyNodes = append(notReadyNodes, nodeName)
+		}
+	}
+
+	if len(missingNodes) > 0 {
+		return fmt.Errorf("timeout waiting for nodes to appear: %s", strings.Join(missingNodes, ", "))
+	}
+
+	if len(notReadyNodes) > 0 {
+		return fmt.Errorf("timeout waiting for nodes to be ready: %s", strings.Join(notReadyNodes, ", "))
+	}
+
+	return fmt.Errorf("timeout waiting for nodes to be ready")
+}
+
+// applyBlueprintGitRepository converts and applies a blueprint Source as a GitRepository.
+func (k *BaseKubernetesManager) applyBlueprintGitRepository(source blueprintv1alpha1.Source, namespace string) error {
+	sourceUrl := source.Url
+	if !strings.HasPrefix(sourceUrl, "http://") && !strings.HasPrefix(sourceUrl, "https://") {
+		sourceUrl = "https://" + sourceUrl
+	}
+
+	gitRepo := &sourcev1.GitRepository{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "GitRepository",
+			APIVersion: "source.toolkit.fluxcd.io/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      source.Name,
+			Namespace: namespace,
+		},
+		Spec: sourcev1.GitRepositorySpec{
+			URL: sourceUrl,
+			Interval: metav1.Duration{
+				Duration: constants.DEFAULT_FLUX_SOURCE_INTERVAL,
+			},
+			Timeout: &metav1.Duration{
+				Duration: constants.DEFAULT_FLUX_SOURCE_TIMEOUT,
+			},
+			Reference: &sourcev1.GitRepositoryRef{
+				Branch: source.Ref.Branch,
+				Tag:    source.Ref.Tag,
+				SemVer: source.Ref.SemVer,
+				Commit: source.Ref.Commit,
+			},
+		},
+	}
+
+	if source.SecretName != "" {
+		gitRepo.Spec.SecretRef = &meta.LocalObjectReference{
+			Name: source.SecretName,
+		}
+	}
+
+	return k.ApplyGitRepository(gitRepo)
+}
+
+// applyBlueprintOCIRepository converts and applies a blueprint Source as an OCIRepository.
+func (k *BaseKubernetesManager) applyBlueprintOCIRepository(source blueprintv1alpha1.Source, namespace string) error {
+	ociURL := source.Url
+	var ref *sourcev1.OCIRepositoryRef
+
+	if lastColon := strings.LastIndex(ociURL, ":"); lastColon > len("oci://") {
+		if tagPart := ociURL[lastColon+1:]; tagPart != "" && !strings.Contains(tagPart, "/") {
+			ociURL = ociURL[:lastColon]
+			ref = &sourcev1.OCIRepositoryRef{
+				Tag: tagPart,
+			}
+		}
+	}
+
+	if ref == nil && (source.Ref.Tag != "" || source.Ref.SemVer != "" || source.Ref.Commit != "") {
+		ref = &sourcev1.OCIRepositoryRef{
+			Tag:    source.Ref.Tag,
+			SemVer: source.Ref.SemVer,
+			Digest: source.Ref.Commit,
+		}
+	}
+
+	if ref == nil {
+		ref = &sourcev1.OCIRepositoryRef{
+			Tag: "latest",
+		}
+	}
+
+	ociRepo := &sourcev1.OCIRepository{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "OCIRepository",
+			APIVersion: "source.toolkit.fluxcd.io/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      source.Name,
+			Namespace: namespace,
+		},
+		Spec: sourcev1.OCIRepositorySpec{
+			URL: ociURL,
+			Interval: metav1.Duration{
+				Duration: constants.DEFAULT_FLUX_SOURCE_INTERVAL,
+			},
+			Timeout: &metav1.Duration{
+				Duration: constants.DEFAULT_FLUX_SOURCE_TIMEOUT,
+			},
+			Reference: ref,
+		},
+	}
+
+	if source.SecretName != "" {
+		ociRepo.Spec.SecretRef = &meta.LocalObjectReference{
+			Name: source.SecretName,
+		}
+	}
+
+	return k.ApplyOCIRepository(ociRepo)
 }
 
 // =============================================================================
@@ -782,14 +941,12 @@ func isImmutableConfigMap(obj *unstructured.Unstructured) bool {
 }
 
 // isNotFoundError checks if an error is a Kubernetes resource not found error
-// This is used during cleanup to ignore errors when resources don't exist
 func isNotFoundError(err error) bool {
 	if err == nil {
 		return false
 	}
 
 	errMsg := strings.ToLower(err.Error())
-	// Check for resource not found errors, but not namespace not found errors
 	return (strings.Contains(errMsg, "resource not found") ||
 		strings.Contains(errMsg, "could not find the requested resource") ||
 		strings.Contains(errMsg, "the server could not find the requested resource") ||

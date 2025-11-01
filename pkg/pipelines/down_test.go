@@ -7,12 +7,13 @@ import (
 	"strings"
 	"testing"
 
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/environment/envvars"
-	"github.com/windsorcli/cli/pkg/kubernetes"
+	"github.com/windsorcli/cli/pkg/infrastructure/kubernetes"
+	terraforminfra "github.com/windsorcli/cli/pkg/infrastructure/terraform"
 	"github.com/windsorcli/cli/pkg/resources/blueprint"
 	"github.com/windsorcli/cli/pkg/shell"
-	"github.com/windsorcli/cli/pkg/stack"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
@@ -26,7 +27,7 @@ type DownMocks struct {
 	VirtualMachine   *virt.MockVirt
 	ContainerRuntime *virt.MockVirt
 	NetworkManager   *network.MockNetworkManager
-	Stack            *stack.MockStack
+	Stack            *terraforminfra.MockStack
 	BlueprintHandler *blueprint.MockBlueprintHandler
 }
 
@@ -87,9 +88,9 @@ contexts:
 	baseMocks.Injector.Register("networkManager", mockNetworkManager)
 
 	// Setup stack mock
-	mockStack := stack.NewMockStack(baseMocks.Injector)
+	mockStack := terraforminfra.NewMockStack(baseMocks.Injector)
 	mockStack.InitializeFunc = func() error { return nil }
-	mockStack.DownFunc = func() error { return nil }
+	mockStack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error { return nil }
 	baseMocks.Injector.Register("stack", mockStack)
 
 	// Setup blueprint handler mock
@@ -491,7 +492,7 @@ func TestDownPipeline_Execute(t *testing.T) {
 			blueprintDownCalled = true
 			return nil
 		}
-		mocks.Stack.DownFunc = func() error {
+		mocks.Stack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
 			stackDownCalled = true
 			return nil
 		}
@@ -541,7 +542,7 @@ func TestDownPipeline_Execute(t *testing.T) {
 			blueprintDownCalled = true
 			return nil
 		}
-		mocks.Stack.DownFunc = func() error {
+		mocks.Stack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
 			stackDownCalled = true
 			return nil
 		}
@@ -583,7 +584,7 @@ func TestDownPipeline_Execute(t *testing.T) {
 			blueprintDownCalled = true
 			return nil
 		}
-		mocks.Stack.DownFunc = func() error {
+		mocks.Stack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
 			stackDownCalled = true
 			return nil
 		}
@@ -716,7 +717,7 @@ func TestDownPipeline_Execute(t *testing.T) {
 		// Given a down pipeline with failing stack
 		pipeline := NewDownPipeline()
 		mocks := setupDownMocks(t)
-		mocks.Stack.DownFunc = func() error {
+		mocks.Stack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
 			return fmt.Errorf("stack down failed")
 		}
 		err := pipeline.Initialize(mocks.Injector, context.Background())
@@ -918,7 +919,7 @@ func TestDownPipeline_Execute(t *testing.T) {
 			blueprintDownCalled = true
 			return nil
 		}
-		mocks.Stack.DownFunc = func() error {
+		mocks.Stack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
 			stackDownCalled = true
 			return nil
 		}

@@ -14,11 +14,11 @@ import (
 	"github.com/windsorcli/cli/pkg/environment/envvars"
 	"github.com/windsorcli/cli/pkg/environment/tools"
 	"github.com/windsorcli/cli/pkg/generators"
+	terraforminfra "github.com/windsorcli/cli/pkg/infrastructure/terraform"
 	"github.com/windsorcli/cli/pkg/resources/artifact"
 	"github.com/windsorcli/cli/pkg/resources/blueprint"
 	"github.com/windsorcli/cli/pkg/resources/terraform"
 	"github.com/windsorcli/cli/pkg/shell"
-	"github.com/windsorcli/cli/pkg/stack"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/services"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
@@ -39,7 +39,7 @@ type InitPipeline struct {
 	BasePipeline
 	blueprintHandler     blueprint.BlueprintHandler
 	toolsManager         tools.ToolsManager
-	stack                stack.Stack
+	stack                terraforminfra.Stack
 	generators           []generators.Generator
 	artifactBuilder      artifact.Artifact
 	services             []services.Service

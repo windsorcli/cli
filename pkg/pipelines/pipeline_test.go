@@ -12,16 +12,16 @@ import (
 	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
-	"github.com/windsorcli/cli/pkg/cluster"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/environment/envvars"
 	"github.com/windsorcli/cli/pkg/environment/tools"
-	"github.com/windsorcli/cli/pkg/kubernetes"
+	"github.com/windsorcli/cli/pkg/infrastructure/cluster"
+	"github.com/windsorcli/cli/pkg/infrastructure/kubernetes"
+	terraforminfra "github.com/windsorcli/cli/pkg/infrastructure/terraform"
 	"github.com/windsorcli/cli/pkg/resources/artifact"
 	"github.com/windsorcli/cli/pkg/resources/blueprint"
 	"github.com/windsorcli/cli/pkg/shell"
-	"github.com/windsorcli/cli/pkg/stack"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
 
@@ -1657,7 +1657,7 @@ func TestBasePipeline_withStack(t *testing.T) {
 	t.Run("ReusesExistingStackWhenRegistered", func(t *testing.T) {
 		// Given a pipeline with existing stack
 		pipeline, mocks := setup(t)
-		existingStack := stack.NewWindsorStack(mocks.Injector)
+		existingStack := terraforminfra.NewWindsorStack(mocks.Injector)
 		pipeline.injector.Register("stack", existingStack)
 
 		// When getting stack

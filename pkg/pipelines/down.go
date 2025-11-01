@@ -8,10 +8,10 @@ import (
 
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/environment/envvars"
-	"github.com/windsorcli/cli/pkg/kubernetes"
+	"github.com/windsorcli/cli/pkg/infrastructure/kubernetes"
+	terraforminfra "github.com/windsorcli/cli/pkg/infrastructure/terraform"
 	"github.com/windsorcli/cli/pkg/resources/blueprint"
 	"github.com/windsorcli/cli/pkg/shell"
-	"github.com/windsorcli/cli/pkg/stack"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
@@ -31,7 +31,7 @@ type DownPipeline struct {
 	virtualMachine    virt.VirtualMachine
 	containerRuntime  virt.ContainerRuntime
 	networkManager    network.NetworkManager
-	stack             stack.Stack
+	stack             terraforminfra.Stack
 	blueprintHandler  blueprint.BlueprintHandler
 	kubernetesClient  kubernetes.KubernetesClient
 	kubernetesManager kubernetes.KubernetesManager
@@ -154,7 +154,18 @@ func (p *DownPipeline) Execute(ctx context.Context) error {
 		if p.stack == nil {
 			return fmt.Errorf("No stack found")
 		}
-		if err := p.stack.Down(); err != nil {
+		if p.blueprintHandler == nil {
+			return fmt.Errorf("No blueprint handler found")
+		}
+		// Load blueprint config if not already loaded (e.g., if skipK8s was true)
+		if err := p.blueprintHandler.LoadConfig(); err != nil {
+			return fmt.Errorf("Error loading blueprint config: %w", err)
+		}
+		if err := p.blueprintHandler.LoadBlueprint(); err != nil {
+			return fmt.Errorf("Error loading blueprint: %w", err)
+		}
+		blueprint := p.blueprintHandler.Generate()
+		if err := p.stack.Down(blueprint); err != nil {
 			return fmt.Errorf("Error running stack Down command: %w", err)
 		}
 	} else {

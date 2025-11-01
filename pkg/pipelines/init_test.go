@@ -12,11 +12,11 @@ import (
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/environment/tools"
-	"github.com/windsorcli/cli/pkg/kubernetes"
+	"github.com/windsorcli/cli/pkg/infrastructure/kubernetes"
+	terraforminfra "github.com/windsorcli/cli/pkg/infrastructure/terraform"
 	"github.com/windsorcli/cli/pkg/resources/artifact"
 	"github.com/windsorcli/cli/pkg/resources/blueprint"
 	"github.com/windsorcli/cli/pkg/shell"
-	"github.com/windsorcli/cli/pkg/stack"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
 
@@ -41,7 +41,7 @@ type InitMocks struct {
 	BlueprintHandler  *blueprint.MockBlueprintHandler
 	KubernetesManager *kubernetes.MockKubernetesManager
 	ToolsManager      *tools.MockToolsManager
-	Stack             *stack.MockStack
+	Stack             *terraforminfra.MockStack
 	VirtualMachine    *virt.MockVirt
 	ContainerRuntime  *virt.MockVirt
 	ArtifactBuilder   *artifact.MockArtifact
@@ -103,7 +103,7 @@ contexts:
 	baseMocks.Injector.Register("toolsManager", mockToolsManager)
 
 	// Setup stack mock
-	mockStack := stack.NewMockStack(baseMocks.Injector)
+	mockStack := terraforminfra.NewMockStack(baseMocks.Injector)
 	mockStack.InitializeFunc = func() error { return nil }
 	baseMocks.Injector.Register("stack", mockStack)
 
