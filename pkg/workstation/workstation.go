@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/windsorcli/cli/pkg/context"
+	"github.com/windsorcli/cli/pkg/context/shell/ssh"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/shell/ssh"
-	"github.com/windsorcli/cli/pkg/types"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/services"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
@@ -25,7 +25,7 @@ import (
 // WorkstationExecutionContext holds the execution context for workstation operations.
 // It embeds the base ExecutionContext and includes all workstation-specific dependencies.
 type WorkstationExecutionContext struct {
-	types.ExecutionContext
+	context.ExecutionContext
 
 	// Workstation-specific dependencies (created as needed)
 	NetworkManager   network.NetworkManager
@@ -47,9 +47,22 @@ type Workstation struct {
 // Constructor
 // =============================================================================
 
+// NewWorkstationExecutionContext creates a WorkstationExecutionContext from a base ExecutionContext.
+// This helper function allows production code to easily create a workstation context from the base context.
+func NewWorkstationExecutionContext(baseCtx *context.ExecutionContext) *WorkstationExecutionContext {
+	if baseCtx == nil {
+		return nil
+	}
+	return &WorkstationExecutionContext{
+		ExecutionContext: *baseCtx,
+	}
+}
+
 // NewWorkstation creates a new Workstation instance with the provided execution context and injector.
 // The execution context should already have ConfigHandler and Shell set.
 // Other dependencies are created only if not already present on the context.
+// For production use, create a WorkstationExecutionContext from a base ExecutionContext using NewWorkstationExecutionContext.
+// For testing, pass a WorkstationExecutionContext with pre-initialized dependencies to override constructor behavior.
 func NewWorkstation(ctx *WorkstationExecutionContext, injector di.Injector) (*Workstation, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("execution context is required")

@@ -5,10 +5,10 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/constants"
+	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/infrastructure/cluster"
 	"github.com/windsorcli/cli/pkg/infrastructure/kubernetes"
 	terraforminfra "github.com/windsorcli/cli/pkg/infrastructure/terraform"
-	"github.com/windsorcli/cli/pkg/types"
 )
 
 // The Infrastructure package provides high-level infrastructure management functionality
@@ -24,7 +24,7 @@ import (
 // InfrastructureExecutionContext holds the execution context for infrastructure operations.
 // It embeds the base ExecutionContext and includes all infrastructure-specific dependencies.
 type InfrastructureExecutionContext struct {
-	types.ExecutionContext
+	context.ExecutionContext
 
 	TerraformStack    terraforminfra.Stack
 	KubernetesManager kubernetes.KubernetesManager

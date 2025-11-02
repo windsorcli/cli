@@ -16,10 +16,10 @@ import (
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	envvars "github.com/windsorcli/cli/pkg/context/env"
+	"github.com/windsorcli/cli/pkg/context/shell"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/environment/envvars"
 	"github.com/windsorcli/cli/pkg/resources/blueprint"
-	"github.com/windsorcli/cli/pkg/shell"
 )
 
 // =============================================================================

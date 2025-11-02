@@ -6,13 +6,13 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/context/config"
+	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/infrastructure/cluster"
 	"github.com/windsorcli/cli/pkg/infrastructure/kubernetes"
 	terraforminfra "github.com/windsorcli/cli/pkg/infrastructure/terraform"
-	"github.com/windsorcli/cli/pkg/shell"
-	"github.com/windsorcli/cli/pkg/types"
+	"github.com/windsorcli/cli/pkg/context/shell"
 )
 
 // =============================================================================
@@ -89,7 +89,7 @@ func setupInfrastructureMocks(t *testing.T) *Mocks {
 	kubernetesClient := kubernetes.NewMockKubernetesClient()
 	clusterClient := cluster.NewMockClusterClient()
 
-	execCtx := &types.ExecutionContext{
+	execCtx := &context.ExecutionContext{
 		ContextName:   "test-context",
 		ProjectRoot:   "/test/project",
 		ConfigRoot:    "/test/project/contexts/test-context",
@@ -669,7 +669,7 @@ func TestInfrastructure_Close(t *testing.T) {
 
 func TestInfrastructureExecutionContext(t *testing.T) {
 	t.Run("CreatesInfrastructureExecutionContext", func(t *testing.T) {
-		execCtx := &types.ExecutionContext{
+		execCtx := &context.ExecutionContext{
 			ContextName:  "test-context",
 			ProjectRoot:  "/test/project",
 			ConfigRoot:   "/test/project/contexts/test-context",

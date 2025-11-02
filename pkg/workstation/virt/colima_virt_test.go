@@ -16,7 +16,7 @@ import (
 	colimaConfig "github.com/abiosoft/colima/config"
 	"github.com/goccy/go-yaml"
 	"github.com/shirou/gopsutil/mem"
-	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/context/config"
 )
 
 // =============================================================================

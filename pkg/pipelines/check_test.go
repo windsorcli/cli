@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/environment/tools"
+	"github.com/windsorcli/cli/pkg/context/tools"
 	"github.com/windsorcli/cli/pkg/infrastructure/cluster"
 	"github.com/windsorcli/cli/pkg/infrastructure/kubernetes"
-	"github.com/windsorcli/cli/pkg/shell"
+	"github.com/windsorcli/cli/pkg/context/shell"
 )
 
 // mockFileInfo implements os.FileInfo for testing

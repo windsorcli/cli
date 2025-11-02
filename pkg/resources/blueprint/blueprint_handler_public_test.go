@@ -15,12 +15,12 @@ import (
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"github.com/goccy/go-yaml"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/infrastructure/kubernetes"
 	"github.com/windsorcli/cli/pkg/resources/artifact"
-	"github.com/windsorcli/cli/pkg/shell"
+	"github.com/windsorcli/cli/pkg/context/shell"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 

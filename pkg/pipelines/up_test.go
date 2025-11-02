@@ -6,11 +6,11 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/environment/envvars"
-	"github.com/windsorcli/cli/pkg/environment/tools"
+	"github.com/windsorcli/cli/pkg/context/config"
+	envvars "github.com/windsorcli/cli/pkg/context/env"
+	"github.com/windsorcli/cli/pkg/context/tools"
 	terraforminfra "github.com/windsorcli/cli/pkg/infrastructure/terraform"
-	"github.com/windsorcli/cli/pkg/shell"
+	"github.com/windsorcli/cli/pkg/context/shell"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
 )

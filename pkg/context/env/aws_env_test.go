@@ -10,7 +10,7 @@ import (
 
 	"github.com/goccy/go-yaml"
 	"github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/context/config"
 )
 
 // =============================================================================

@@ -9,10 +9,10 @@ import (
 	"github.com/expr-lang/expr"
 	"github.com/google/go-jsonnet"
 	"github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/shell"
+	"github.com/windsorcli/cli/pkg/context/shell"
 )
 
 // FeatureEvaluator provides lightweight expression evaluation for blueprint feature conditions.
@@ -314,6 +314,29 @@ func (e *FeatureEvaluator) buildExprEnvironment(config map[string]any, featurePa
 				return e.evaluateFileFunction(path, featurePath)
 			},
 			new(func(string) string),
+		),
+		expr.Function(
+			"split",
+			func(params ...any) (any, error) {
+				if len(params) != 2 {
+					return nil, fmt.Errorf("split() requires exactly 2 arguments, got %d", len(params))
+				}
+				str, ok := params[0].(string)
+				if !ok {
+					return nil, fmt.Errorf("split() first argument must be a string, got %T", params[0])
+				}
+				sep, ok := params[1].(string)
+				if !ok {
+					return nil, fmt.Errorf("split() second argument must be a string, got %T", params[1])
+				}
+				parts := strings.Split(str, sep)
+				result := make([]any, len(parts))
+				for i, part := range parts {
+					result[i] = part
+				}
+				return result, nil
+			},
+			new(func(string, string) []any),
 		),
 	}
 }

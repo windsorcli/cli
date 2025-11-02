@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/secrets"
+	"github.com/windsorcli/cli/pkg/context/secrets"
 )
 
 // =============================================================================
