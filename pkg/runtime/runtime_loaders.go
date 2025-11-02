@@ -9,8 +9,9 @@ import (
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
 	"github.com/windsorcli/cli/pkg/context/config"
 	envvars "github.com/windsorcli/cli/pkg/context/env"
-	"github.com/windsorcli/cli/pkg/infrastructure/cluster"
-	"github.com/windsorcli/cli/pkg/infrastructure/kubernetes"
+	"github.com/windsorcli/cli/pkg/provisioner/cluster"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
+	k8sclient "github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	"github.com/windsorcli/cli/pkg/resources/blueprint"
 	"github.com/windsorcli/cli/pkg/context/secrets"
 	"github.com/windsorcli/cli/pkg/context/shell"
@@ -148,7 +149,7 @@ func (r *Runtime) LoadKubernetes() *Runtime {
 	}
 
 	if r.Injector.Resolve("kubernetesClient") == nil {
-		kubernetesClient := kubernetes.NewDynamicKubernetesClient()
+		kubernetesClient := k8sclient.NewDynamicKubernetesClient()
 		r.Injector.Register("kubernetesClient", kubernetesClient)
 	}
 

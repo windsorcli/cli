@@ -16,7 +16,7 @@ import (
 	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/di"
 	envvars "github.com/windsorcli/cli/pkg/context/env"
-	"github.com/windsorcli/cli/pkg/infrastructure/kubernetes"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	blueprintpkg "github.com/windsorcli/cli/pkg/resources/blueprint"
 	"github.com/windsorcli/cli/pkg/context/secrets"
 	"github.com/windsorcli/cli/pkg/context/shell"

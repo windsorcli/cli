@@ -12,7 +12,7 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/infrastructure/kubernetes"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/context/shell"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )

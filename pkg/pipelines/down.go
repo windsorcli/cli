@@ -8,8 +8,9 @@ import (
 
 	"github.com/windsorcli/cli/pkg/di"
 	envvars "github.com/windsorcli/cli/pkg/context/env"
-	"github.com/windsorcli/cli/pkg/infrastructure/kubernetes"
-	terraforminfra "github.com/windsorcli/cli/pkg/infrastructure/terraform"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
+	k8sclient "github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
+	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/resources/blueprint"
 	"github.com/windsorcli/cli/pkg/context/shell"
 	"github.com/windsorcli/cli/pkg/workstation/network"
@@ -33,7 +34,7 @@ type DownPipeline struct {
 	networkManager    network.NetworkManager
 	stack             terraforminfra.Stack
 	blueprintHandler  blueprint.BlueprintHandler
-	kubernetesClient  kubernetes.KubernetesClient
+	kubernetesClient  k8sclient.KubernetesClient
 	kubernetesManager kubernetes.KubernetesManager
 	envPrinters       []envvars.EnvPrinter
 }

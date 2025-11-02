@@ -21,7 +21,7 @@ import (
 	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/infrastructure/kubernetes"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/resources/artifact"
 	"github.com/windsorcli/cli/pkg/context/shell"
 

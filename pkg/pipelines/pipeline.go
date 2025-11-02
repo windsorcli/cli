@@ -13,9 +13,10 @@ import (
 	envpkg "github.com/windsorcli/cli/pkg/context/env"
 	"github.com/windsorcli/cli/pkg/context/tools"
 	"github.com/windsorcli/cli/pkg/generators"
-	"github.com/windsorcli/cli/pkg/infrastructure/cluster"
-	"github.com/windsorcli/cli/pkg/infrastructure/kubernetes"
-	terraforminfra "github.com/windsorcli/cli/pkg/infrastructure/terraform"
+	"github.com/windsorcli/cli/pkg/provisioner/cluster"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
+	k8sclient "github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
+	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/resources/artifact"
 	"github.com/windsorcli/cli/pkg/resources/blueprint"
 	"github.com/windsorcli/cli/pkg/resources/terraform"
@@ -345,14 +346,14 @@ func (p *BasePipeline) withContainerRuntime() virt.ContainerRuntime {
 }
 
 // withKubernetesClient resolves or creates kubernetes client from DI container
-func (p *BasePipeline) withKubernetesClient() kubernetes.KubernetesClient {
+func (p *BasePipeline) withKubernetesClient() k8sclient.KubernetesClient {
 	if existing := p.injector.Resolve("kubernetesClient"); existing != nil {
-		if kubernetesClient, ok := existing.(kubernetes.KubernetesClient); ok {
+		if kubernetesClient, ok := existing.(k8sclient.KubernetesClient); ok {
 			return kubernetesClient
 		}
 	}
 
-	kubernetesClient := kubernetes.NewDynamicKubernetesClient()
+	kubernetesClient := k8sclient.NewDynamicKubernetesClient()
 	p.injector.Register("kubernetesClient", kubernetesClient)
 	return kubernetesClient
 }

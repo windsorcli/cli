@@ -1,4 +1,4 @@
-package infrastructure
+package provisioner
 
 import (
 	"fmt"
@@ -9,9 +9,10 @@ import (
 	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/infrastructure/cluster"
-	"github.com/windsorcli/cli/pkg/infrastructure/kubernetes"
-	terraforminfra "github.com/windsorcli/cli/pkg/infrastructure/terraform"
+	"github.com/windsorcli/cli/pkg/provisioner/cluster"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
+	k8sclient "github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
+	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/context/shell"
 )
 
@@ -50,18 +51,18 @@ func createTestBlueprint() *blueprintv1alpha1.Blueprint {
 }
 
 type Mocks struct {
-	Injector                       di.Injector
-	ConfigHandler                  config.ConfigHandler
-	Shell                          *shell.MockShell
-	TerraformStack                 *terraforminfra.MockStack
-	KubernetesManager              *kubernetes.MockKubernetesManager
-	KubernetesClient               kubernetes.KubernetesClient
-	ClusterClient                  *cluster.MockClusterClient
-	InfrastructureExecutionContext *InfrastructureExecutionContext
+	Injector                     di.Injector
+	ConfigHandler                config.ConfigHandler
+	Shell                        *shell.MockShell
+	TerraformStack               *terraforminfra.MockStack
+	KubernetesManager            *kubernetes.MockKubernetesManager
+	KubernetesClient             k8sclient.KubernetesClient
+	ClusterClient                *cluster.MockClusterClient
+	ProvisionerExecutionContext  *ProvisionerExecutionContext
 }
 
-// setupInfrastructureMocks creates mock components for testing the Infrastructure
-func setupInfrastructureMocks(t *testing.T) *Mocks {
+// setupProvisionerMocks creates mock components for testing the Provisioner
+func setupProvisionerMocks(t *testing.T) *Mocks {
 	t.Helper()
 
 	injector := di.NewInjector()
@@ -86,7 +87,7 @@ func setupInfrastructureMocks(t *testing.T) *Mocks {
 
 	terraformStack := terraforminfra.NewMockStack(injector)
 	kubernetesManager := kubernetes.NewMockKubernetesManager(injector)
-	kubernetesClient := kubernetes.NewMockKubernetesClient()
+	kubernetesClient := k8sclient.NewMockKubernetesClient()
 	clusterClient := cluster.NewMockClusterClient()
 
 	execCtx := &context.ExecutionContext{
@@ -99,7 +100,7 @@ func setupInfrastructureMocks(t *testing.T) *Mocks {
 		Shell:         mockShell,
 	}
 
-	infraCtx := &InfrastructureExecutionContext{
+	provisionerCtx := &ProvisionerExecutionContext{
 		ExecutionContext:  *execCtx,
 		TerraformStack:    terraformStack,
 		KubernetesManager: kubernetesManager,
@@ -115,14 +116,14 @@ func setupInfrastructureMocks(t *testing.T) *Mocks {
 	injector.Register("clusterClient", clusterClient)
 
 	return &Mocks{
-		Injector:                       injector,
-		ConfigHandler:                  configHandler,
-		Shell:                          mockShell,
-		TerraformStack:                 terraformStack,
-		KubernetesManager:              kubernetesManager,
-		KubernetesClient:               kubernetesClient,
-		ClusterClient:                  clusterClient,
-		InfrastructureExecutionContext: infraCtx,
+		Injector:                    injector,
+		ConfigHandler:               configHandler,
+		Shell:                       mockShell,
+		TerraformStack:              terraformStack,
+		KubernetesManager:           kubernetesManager,
+		KubernetesClient:            kubernetesClient,
+		ClusterClient:               clusterClient,
+		ProvisionerExecutionContext: provisionerCtx,
 	}
 }
 
@@ -130,44 +131,44 @@ func setupInfrastructureMocks(t *testing.T) *Mocks {
 // Test Constructor
 // =============================================================================
 
-func TestNewInfrastructure(t *testing.T) {
-	t.Run("CreatesInfrastructureWithDependencies", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
+func TestNewProvisioner(t *testing.T) {
+	t.Run("CreatesProvisionerWithDependencies", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
 
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
 
-		if infra == nil {
-			t.Fatal("Expected Infrastructure to be created")
+		if provisioner == nil {
+			t.Fatal("Expected Provisioner to be created")
 		}
 
-		if infra.Injector != mocks.Injector {
+		if provisioner.Injector != mocks.Injector {
 			t.Error("Expected injector to be set")
 		}
 
-		if infra.Shell != mocks.Shell {
+		if provisioner.Shell != mocks.Shell {
 			t.Error("Expected shell to be set")
 		}
 
-		if infra.ConfigHandler != mocks.ConfigHandler {
+		if provisioner.ConfigHandler != mocks.ConfigHandler {
 			t.Error("Expected config handler to be set")
 		}
 
-		if infra.TerraformStack == nil {
+		if provisioner.TerraformStack == nil {
 			t.Error("Expected terraform stack to be initialized")
 		}
 
-		if infra.KubernetesManager == nil {
+		if provisioner.KubernetesManager == nil {
 			t.Error("Expected kubernetes manager to be initialized")
 		}
 
-		if infra.KubernetesClient == nil {
+		if provisioner.KubernetesClient == nil {
 			t.Error("Expected kubernetes client to be initialized")
 		}
 	})
 
 	t.Run("CreatesClusterClientForTalos", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		mocks.InfrastructureExecutionContext.ClusterClient = nil
+		mocks := setupProvisionerMocks(t)
+		mocks.ProvisionerExecutionContext.ClusterClient = nil
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -177,16 +178,16 @@ func TestNewInfrastructure(t *testing.T) {
 			return ""
 		}
 
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
 
-		if infra.ClusterClient == nil {
+		if provisioner.ClusterClient == nil {
 			t.Error("Expected cluster client to be created for talos driver")
 		}
 	})
 
 	t.Run("CreatesClusterClientForOmni", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		mocks.InfrastructureExecutionContext.ClusterClient = nil
+		mocks := setupProvisionerMocks(t)
+		mocks.ProvisionerExecutionContext.ClusterClient = nil
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -196,16 +197,16 @@ func TestNewInfrastructure(t *testing.T) {
 			return ""
 		}
 
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
 
-		if infra.ClusterClient == nil {
+		if provisioner.ClusterClient == nil {
 			t.Error("Expected cluster client to be created for omni driver")
 		}
 	})
 
 	t.Run("SkipsClusterClientForOtherDrivers", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		mocks.InfrastructureExecutionContext.ClusterClient = nil
+		mocks := setupProvisionerMocks(t)
+		mocks.ProvisionerExecutionContext.ClusterClient = nil
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -215,31 +216,31 @@ func TestNewInfrastructure(t *testing.T) {
 			return ""
 		}
 
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
 
-		if infra.ClusterClient != nil {
+		if provisioner.ClusterClient != nil {
 			t.Error("Expected cluster client to be nil for non-talos/omni driver")
 		}
 	})
 
 	t.Run("UsesExistingDependencies", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
+		mocks := setupProvisionerMocks(t)
 
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
 
-		if infra.TerraformStack != mocks.TerraformStack {
+		if provisioner.TerraformStack != mocks.TerraformStack {
 			t.Error("Expected existing terraform stack to be used")
 		}
 
-		if infra.KubernetesManager != mocks.KubernetesManager {
+		if provisioner.KubernetesManager != mocks.KubernetesManager {
 			t.Error("Expected existing kubernetes manager to be used")
 		}
 
-		if infra.KubernetesClient != mocks.KubernetesClient {
+		if provisioner.KubernetesClient != mocks.KubernetesClient {
 			t.Error("Expected existing kubernetes client to be used")
 		}
 
-		if infra.ClusterClient != mocks.ClusterClient {
+		if provisioner.ClusterClient != mocks.ClusterClient {
 			t.Error("Expected existing cluster client to be used")
 		}
 	})
@@ -249,10 +250,10 @@ func TestNewInfrastructure(t *testing.T) {
 // Test Public Methods
 // =============================================================================
 
-func TestInfrastructure_Up(t *testing.T) {
+func TestProvisioner_Up(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
 
 		mocks.TerraformStack.InitializeFunc = func() error {
 			return nil
@@ -262,7 +263,7 @@ func TestInfrastructure_Up(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		err := infra.Up(blueprint)
+		err := provisioner.Up(blueprint)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -270,10 +271,10 @@ func TestInfrastructure_Up(t *testing.T) {
 	})
 
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
 
-		err := infra.Up(nil)
+		err := provisioner.Up(nil)
 
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
@@ -285,12 +286,12 @@ func TestInfrastructure_Up(t *testing.T) {
 	})
 
 	t.Run("ErrorNilTerraformStack", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
-		infra.TerraformStack = nil
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
+		provisioner.TerraformStack = nil
 
 		blueprint := createTestBlueprint()
-		err := infra.Up(blueprint)
+		err := provisioner.Up(blueprint)
 
 		if err == nil {
 			t.Error("Expected error for nil terraform stack")
@@ -302,15 +303,15 @@ func TestInfrastructure_Up(t *testing.T) {
 	})
 
 	t.Run("ErrorTerraformStackInitialize", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
 
 		mocks.TerraformStack.InitializeFunc = func() error {
 			return fmt.Errorf("initialize failed")
 		}
 
 		blueprint := createTestBlueprint()
-		err := infra.Up(blueprint)
+		err := provisioner.Up(blueprint)
 
 		if err == nil {
 			t.Error("Expected error for terraform stack initialize failure")
@@ -322,8 +323,8 @@ func TestInfrastructure_Up(t *testing.T) {
 	})
 
 	t.Run("ErrorTerraformStackUp", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
 
 		mocks.TerraformStack.InitializeFunc = func() error {
 			return nil
@@ -333,7 +334,7 @@ func TestInfrastructure_Up(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		err := infra.Up(blueprint)
+		err := provisioner.Up(blueprint)
 
 		if err == nil {
 			t.Error("Expected error for terraform stack up failure")
@@ -345,10 +346,10 @@ func TestInfrastructure_Up(t *testing.T) {
 	})
 }
 
-func TestInfrastructure_Down(t *testing.T) {
+func TestProvisioner_Down(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
 
 		mocks.TerraformStack.InitializeFunc = func() error {
 			return nil
@@ -358,7 +359,7 @@ func TestInfrastructure_Down(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		err := infra.Down(blueprint)
+		err := provisioner.Down(blueprint)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -366,10 +367,10 @@ func TestInfrastructure_Down(t *testing.T) {
 	})
 
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
 
-		err := infra.Down(nil)
+		err := provisioner.Down(nil)
 
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
@@ -381,12 +382,12 @@ func TestInfrastructure_Down(t *testing.T) {
 	})
 
 	t.Run("ErrorNilTerraformStack", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
-		infra.TerraformStack = nil
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
+		provisioner.TerraformStack = nil
 
 		blueprint := createTestBlueprint()
-		err := infra.Down(blueprint)
+		err := provisioner.Down(blueprint)
 
 		if err == nil {
 			t.Error("Expected error for nil terraform stack")
@@ -398,15 +399,15 @@ func TestInfrastructure_Down(t *testing.T) {
 	})
 
 	t.Run("ErrorTerraformStackInitialize", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
 
 		mocks.TerraformStack.InitializeFunc = func() error {
 			return fmt.Errorf("initialize failed")
 		}
 
 		blueprint := createTestBlueprint()
-		err := infra.Down(blueprint)
+		err := provisioner.Down(blueprint)
 
 		if err == nil {
 			t.Error("Expected error for terraform stack initialize failure")
@@ -418,8 +419,8 @@ func TestInfrastructure_Down(t *testing.T) {
 	})
 
 	t.Run("ErrorTerraformStackDown", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
 
 		mocks.TerraformStack.InitializeFunc = func() error {
 			return nil
@@ -429,7 +430,7 @@ func TestInfrastructure_Down(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		err := infra.Down(blueprint)
+		err := provisioner.Down(blueprint)
 
 		if err == nil {
 			t.Error("Expected error for terraform stack down failure")
@@ -441,10 +442,10 @@ func TestInfrastructure_Down(t *testing.T) {
 	})
 }
 
-func TestInfrastructure_Install(t *testing.T) {
+func TestProvisioner_Install(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
 
 		mocks.KubernetesManager.InitializeFunc = func() error {
 			return nil
@@ -454,7 +455,7 @@ func TestInfrastructure_Install(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		err := infra.Install(blueprint)
+		err := provisioner.Install(blueprint)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -462,10 +463,10 @@ func TestInfrastructure_Install(t *testing.T) {
 	})
 
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
 
-		err := infra.Install(nil)
+		err := provisioner.Install(nil)
 
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
@@ -477,12 +478,12 @@ func TestInfrastructure_Install(t *testing.T) {
 	})
 
 	t.Run("ErrorNilKubernetesManager", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
-		infra.KubernetesManager = nil
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
+		provisioner.KubernetesManager = nil
 
 		blueprint := createTestBlueprint()
-		err := infra.Install(blueprint)
+		err := provisioner.Install(blueprint)
 
 		if err == nil {
 			t.Error("Expected error for nil kubernetes manager")
@@ -494,15 +495,15 @@ func TestInfrastructure_Install(t *testing.T) {
 	})
 
 	t.Run("ErrorKubernetesManagerInitialize", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
 
 		mocks.KubernetesManager.InitializeFunc = func() error {
 			return fmt.Errorf("initialize failed")
 		}
 
 		blueprint := createTestBlueprint()
-		err := infra.Install(blueprint)
+		err := provisioner.Install(blueprint)
 
 		if err == nil {
 			t.Error("Expected error for kubernetes manager initialize failure")
@@ -514,8 +515,8 @@ func TestInfrastructure_Install(t *testing.T) {
 	})
 
 	t.Run("ErrorApplyBlueprint", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
 
 		mocks.KubernetesManager.InitializeFunc = func() error {
 			return nil
@@ -525,7 +526,7 @@ func TestInfrastructure_Install(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		err := infra.Install(blueprint)
+		err := provisioner.Install(blueprint)
 
 		if err == nil {
 			t.Error("Expected error for apply blueprint failure")
@@ -537,10 +538,10 @@ func TestInfrastructure_Install(t *testing.T) {
 	})
 }
 
-func TestInfrastructure_Wait(t *testing.T) {
+func TestProvisioner_Wait(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
 
 		mocks.KubernetesManager.InitializeFunc = func() error {
 			return nil
@@ -550,7 +551,7 @@ func TestInfrastructure_Wait(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		err := infra.Wait(blueprint)
+		err := provisioner.Wait(blueprint)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -558,10 +559,10 @@ func TestInfrastructure_Wait(t *testing.T) {
 	})
 
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
 
-		err := infra.Wait(nil)
+		err := provisioner.Wait(nil)
 
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
@@ -573,12 +574,12 @@ func TestInfrastructure_Wait(t *testing.T) {
 	})
 
 	t.Run("ErrorNilKubernetesManager", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
-		infra.KubernetesManager = nil
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
+		provisioner.KubernetesManager = nil
 
 		blueprint := createTestBlueprint()
-		err := infra.Wait(blueprint)
+		err := provisioner.Wait(blueprint)
 
 		if err == nil {
 			t.Error("Expected error for nil kubernetes manager")
@@ -590,15 +591,15 @@ func TestInfrastructure_Wait(t *testing.T) {
 	})
 
 	t.Run("ErrorKubernetesManagerInitialize", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
 
 		mocks.KubernetesManager.InitializeFunc = func() error {
 			return fmt.Errorf("initialize failed")
 		}
 
 		blueprint := createTestBlueprint()
-		err := infra.Wait(blueprint)
+		err := provisioner.Wait(blueprint)
 
 		if err == nil {
 			t.Error("Expected error for kubernetes manager initialize failure")
@@ -610,8 +611,8 @@ func TestInfrastructure_Wait(t *testing.T) {
 	})
 
 	t.Run("ErrorWaitForKustomizations", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
 
 		mocks.KubernetesManager.InitializeFunc = func() error {
 			return nil
@@ -621,7 +622,7 @@ func TestInfrastructure_Wait(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		err := infra.Wait(blueprint)
+		err := provisioner.Wait(blueprint)
 
 		if err == nil {
 			t.Error("Expected error for wait for kustomizations failure")
@@ -633,17 +634,17 @@ func TestInfrastructure_Wait(t *testing.T) {
 	})
 }
 
-func TestInfrastructure_Close(t *testing.T) {
+func TestProvisioner_Close(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
 
 		closeCalled := false
 		mocks.ClusterClient.CloseFunc = func() {
 			closeCalled = true
 		}
 
-		infra.Close()
+		provisioner.Close()
 
 		if !closeCalled {
 			t.Error("Expected ClusterClient.Close to be called")
@@ -651,24 +652,24 @@ func TestInfrastructure_Close(t *testing.T) {
 	})
 
 	t.Run("HandlesNilClusterClient", func(t *testing.T) {
-		mocks := setupInfrastructureMocks(t)
-		infra := NewInfrastructure(mocks.InfrastructureExecutionContext)
-		infra.ClusterClient = nil
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerExecutionContext)
+		provisioner.ClusterClient = nil
 
-		infra.Close()
+		provisioner.Close()
 
-		if infra.ClusterClient != nil {
+		if provisioner.ClusterClient != nil {
 			t.Error("Expected nil cluster client to remain nil after Close")
 		}
 	})
 }
 
 // =============================================================================
-// Test InfrastructureExecutionContext
+// Test ProvisionerExecutionContext
 // =============================================================================
 
-func TestInfrastructureExecutionContext(t *testing.T) {
-	t.Run("CreatesInfrastructureExecutionContext", func(t *testing.T) {
+func TestProvisionerExecutionContext(t *testing.T) {
+	t.Run("CreatesProvisionerExecutionContext", func(t *testing.T) {
 		execCtx := &context.ExecutionContext{
 			ContextName:  "test-context",
 			ProjectRoot:  "/test/project",
@@ -676,24 +677,24 @@ func TestInfrastructureExecutionContext(t *testing.T) {
 			TemplateRoot: "/test/project/contexts/_template",
 		}
 
-		infraCtx := &InfrastructureExecutionContext{
+		provisionerCtx := &ProvisionerExecutionContext{
 			ExecutionContext: *execCtx,
 		}
 
-		if infraCtx.ContextName != "test-context" {
-			t.Errorf("Expected context name 'test-context', got: %s", infraCtx.ContextName)
+		if provisionerCtx.ContextName != "test-context" {
+			t.Errorf("Expected context name 'test-context', got: %s", provisionerCtx.ContextName)
 		}
 
-		if infraCtx.ProjectRoot != "/test/project" {
-			t.Errorf("Expected project root '/test/project', got: %s", infraCtx.ProjectRoot)
+		if provisionerCtx.ProjectRoot != "/test/project" {
+			t.Errorf("Expected project root '/test/project', got: %s", provisionerCtx.ProjectRoot)
 		}
 
-		if infraCtx.ConfigRoot != "/test/project/contexts/test-context" {
-			t.Errorf("Expected config root '/test/project/contexts/test-context', got: %s", infraCtx.ConfigRoot)
+		if provisionerCtx.ConfigRoot != "/test/project/contexts/test-context" {
+			t.Errorf("Expected config root '/test/project/contexts/test-context', got: %s", provisionerCtx.ConfigRoot)
 		}
 
-		if infraCtx.TemplateRoot != "/test/project/contexts/_template" {
-			t.Errorf("Expected template root '/test/project/contexts/_template', got: %s", infraCtx.TemplateRoot)
+		if provisionerCtx.TemplateRoot != "/test/project/contexts/_template" {
+			t.Errorf("Expected template root '/test/project/contexts/_template', got: %s", provisionerCtx.TemplateRoot)
 		}
 	})
 }

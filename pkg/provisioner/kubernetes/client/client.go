@@ -1,8 +1,8 @@
-// Package kubernetes provides Kubernetes resource management functionality
+// Package client provides Kubernetes client functionality for resource operations.
 // It implements server-side apply patterns for managing Kubernetes resources
-// and provides a clean interface for kustomization and resource management
+// and provides a clean interface for Kubernetes resource management.
 
-package kubernetes
+package client
 
 import (
 	"context"

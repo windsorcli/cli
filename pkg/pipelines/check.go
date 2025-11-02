@@ -7,8 +7,8 @@ import (
 
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/context/tools"
-	"github.com/windsorcli/cli/pkg/infrastructure/cluster"
-	"github.com/windsorcli/cli/pkg/infrastructure/kubernetes"
+	"github.com/windsorcli/cli/pkg/provisioner/cluster"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 )
 
 // The CheckPipeline is a specialized component that manages tool version checking and node health checking functionality.
