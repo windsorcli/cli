@@ -495,12 +495,12 @@ func TestInitCmd(t *testing.T) {
 		// If context is "local" and neither provider nor blueprint is set, set both
 		if len(args) > 0 && strings.HasPrefix(args[0], "local") && initProvider == "" && initBlueprint == "" {
 			initProvider = "generic"
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
 
 		// If provider is set and blueprint is not set, set blueprint (covers all providers, including local)
 		if initProvider != "" && initBlueprint == "" {
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
 
 		// If blueprint is set, use it (overrides all)
@@ -517,8 +517,8 @@ func TestInitCmd(t *testing.T) {
 			t.Errorf("Expected blueprint to be set in context for local context")
 		} else if blueprint, ok := blueprintCtx.(string); !ok {
 			t.Errorf("Expected blueprint context value to be a string")
-		} else if blueprint != constants.DEFAULT_OCI_BLUEPRINT_URL {
-			t.Errorf("Expected blueprint to be %s, got %s", constants.DEFAULT_OCI_BLUEPRINT_URL, blueprint)
+		} else if blueprint != constants.DefaultOCIBlueprintURL {
+			t.Errorf("Expected blueprint to be %s, got %s", constants.DefaultOCIBlueprintURL, blueprint)
 		}
 	})
 
@@ -536,12 +536,12 @@ func TestInitCmd(t *testing.T) {
 		// If context is "local" and neither provider nor blueprint is set, set both
 		if len(args) > 0 && strings.HasPrefix(args[0], "local") && initProvider == "" && initBlueprint == "" {
 			initProvider = "generic"
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
 
 		// If provider is set and blueprint is not set, set blueprint (covers all providers, including local)
 		if initProvider != "" && initBlueprint == "" {
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
 
 		// If blueprint is set, use it (overrides all)
@@ -558,8 +558,8 @@ func TestInitCmd(t *testing.T) {
 			t.Errorf("Expected blueprint to be set in context when explicit provider is specified")
 		} else if blueprint, ok := blueprintCtx.(string); !ok {
 			t.Errorf("Expected blueprint context value to be a string")
-		} else if blueprint != constants.DEFAULT_OCI_BLUEPRINT_URL {
-			t.Errorf("Expected blueprint to be %s, got %s", constants.DEFAULT_OCI_BLUEPRINT_URL, blueprint)
+		} else if blueprint != constants.DefaultOCIBlueprintURL {
+			t.Errorf("Expected blueprint to be %s, got %s", constants.DefaultOCIBlueprintURL, blueprint)
 		}
 	})
 
@@ -577,12 +577,12 @@ func TestInitCmd(t *testing.T) {
 		// If context is "local" and neither provider nor blueprint is set, set both
 		if len(args) > 0 && strings.HasPrefix(args[0], "local") && initProvider == "" && initBlueprint == "" {
 			initProvider = "generic"
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
 
 		// If provider is set and blueprint is not set, set blueprint (covers all providers, including local)
 		if initProvider != "" && initBlueprint == "" {
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
 
 		// If blueprint is set, use it (overrides all)
@@ -614,12 +614,12 @@ func TestInitCmd(t *testing.T) {
 		// If context is "local" and neither provider nor blueprint is set, set both
 		if len(args) > 0 && strings.HasPrefix(args[0], "local") && initProvider == "" && initBlueprint == "" {
 			initProvider = "generic"
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
 
 		// If provider is set and blueprint is not set, set blueprint (covers all providers, including local)
 		if initProvider != "" && initBlueprint == "" {
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
 
 		// If blueprint is set, use it (overrides all)
@@ -649,7 +649,7 @@ func TestInitCmd(t *testing.T) {
 
 		// If provider is set and blueprint is not set, set blueprint (covers all providers, including local)
 		if initProvider != "" && initBlueprint == "" {
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
 
 		if initBlueprint != "" {
@@ -661,8 +661,8 @@ func TestInitCmd(t *testing.T) {
 			t.Errorf("Expected blueprint to be set in context when provider is specified")
 		} else if blueprint, ok := blueprintCtx.(string); !ok {
 			t.Errorf("Expected blueprint context value to be a string")
-		} else if blueprint != constants.DEFAULT_OCI_BLUEPRINT_URL {
-			t.Errorf("Expected blueprint to be %s, got %s", constants.DEFAULT_OCI_BLUEPRINT_URL, blueprint)
+		} else if blueprint != constants.DefaultOCIBlueprintURL {
+			t.Errorf("Expected blueprint to be %s, got %s", constants.DefaultOCIBlueprintURL, blueprint)
 		}
 	})
 
@@ -678,7 +678,7 @@ func TestInitCmd(t *testing.T) {
 
 		// If provider is set and blueprint is not set, set blueprint (covers all providers, including local)
 		if initProvider != "" && initBlueprint == "" {
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
 
 		if initBlueprint != "" {
@@ -708,7 +708,7 @@ func TestInitCmd(t *testing.T) {
 
 		// Handle deprecated --platform flag and set blueprint
 		if initPlatform != "" && initProvider == "" && initBlueprint == "" {
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
 
 		if initBlueprint != "" {
@@ -720,8 +720,8 @@ func TestInitCmd(t *testing.T) {
 			t.Errorf("Expected blueprint to be set in context when platform is specified")
 		} else if blueprint, ok := blueprintCtx.(string); !ok {
 			t.Errorf("Expected blueprint context value to be a string")
-		} else if blueprint != constants.DEFAULT_OCI_BLUEPRINT_URL {
-			t.Errorf("Expected blueprint to be %s, got %s", constants.DEFAULT_OCI_BLUEPRINT_URL, blueprint)
+		} else if blueprint != constants.DefaultOCIBlueprintURL {
+			t.Errorf("Expected blueprint to be %s, got %s", constants.DefaultOCIBlueprintURL, blueprint)
 		}
 	})
 
@@ -740,7 +740,7 @@ func TestInitCmd(t *testing.T) {
 				provider:          "",
 				blueprint:         "",
 				expectedProvider:  "local",
-				expectedBlueprint: constants.DEFAULT_OCI_BLUEPRINT_URL,
+				expectedBlueprint: constants.DefaultOCIBlueprintURL,
 			},
 			{
 				name:              "local-dev context with no flags",
@@ -748,7 +748,7 @@ func TestInitCmd(t *testing.T) {
 				provider:          "",
 				blueprint:         "",
 				expectedProvider:  "local",
-				expectedBlueprint: constants.DEFAULT_OCI_BLUEPRINT_URL,
+				expectedBlueprint: constants.DefaultOCIBlueprintURL,
 			},
 			{
 				name:              "local context with explicit provider",
@@ -756,7 +756,7 @@ func TestInitCmd(t *testing.T) {
 				provider:          "aws",
 				blueprint:         "",
 				expectedProvider:  "aws",
-				expectedBlueprint: constants.DEFAULT_OCI_BLUEPRINT_URL,
+				expectedBlueprint: constants.DefaultOCIBlueprintURL,
 			},
 			{
 				name:              "local context with explicit blueprint",
@@ -790,12 +790,12 @@ func TestInitCmd(t *testing.T) {
 				// If context is "local" and neither provider nor blueprint is set, set both
 				if len(tc.args) > 0 && strings.HasPrefix(tc.args[0], "local") && initProvider == "" && initBlueprint == "" {
 					initProvider = "local"
-					initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+					initBlueprint = constants.DefaultOCIBlueprintURL
 				}
 
 				// If provider is set and blueprint is not set, set blueprint (covers all providers, including local)
 				if initProvider != "" && initBlueprint == "" {
-					initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+					initBlueprint = constants.DefaultOCIBlueprintURL
 				}
 
 				// If blueprint is set, use it (overrides all)

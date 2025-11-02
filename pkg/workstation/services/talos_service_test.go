@@ -68,9 +68,9 @@ contexts:
         local_volume_path: "/var/local"
         cpu: %d
         memory: %d
-`, constants.DEFAULT_TALOS_API_PORT,
-			constants.DEFAULT_TALOS_WORKER_CPU,
-			constants.DEFAULT_TALOS_WORKER_RAM)
+`, constants.DefaultTalosAPIPort,
+			constants.DefaultTalosWorkerCPU,
+			constants.DefaultTalosWorkerRAM)
 	}
 
 	if err := mocks.ConfigHandler.LoadConfigString(configToLoad); err != nil {
@@ -127,7 +127,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		t.Helper()
 
 		// Reset package-level variables
-		nextAPIPort = constants.DEFAULT_TALOS_API_PORT + 1
+		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
 		usedHostPorts = make(map[uint32]bool)
 
@@ -153,7 +153,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// And the endpoint should be set correctly
-		expectedEndpoint := fmt.Sprintf("127.0.0.1:%d", constants.DEFAULT_TALOS_API_PORT)
+		expectedEndpoint := fmt.Sprintf("127.0.0.1:%d", constants.DefaultTalosAPIPort)
 		actualEndpoint := mocks.ConfigHandler.GetString("cluster.controlplanes.nodes.controlplane1.endpoint", "")
 		if actualEndpoint != expectedEndpoint {
 			t.Errorf("expected endpoint %s, got %s", expectedEndpoint, actualEndpoint)
@@ -172,7 +172,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DEFAULT_TALOS_API_PORT + 1
+		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
 		usedHostPorts = make(map[uint32]bool)
 
@@ -202,7 +202,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// And the endpoint should be set correctly with an incremented port
-		expectedEndpoint := fmt.Sprintf("127.0.0.1:%d", constants.DEFAULT_TALOS_API_PORT+1)
+		expectedEndpoint := fmt.Sprintf("127.0.0.1:%d", constants.DefaultTalosAPIPort+1)
 		actualEndpoint := mocks.ConfigHandler.GetString("cluster.controlplanes.nodes.controlplane2.endpoint", "")
 		if actualEndpoint != expectedEndpoint {
 			t.Errorf("expected endpoint %s, got %s", expectedEndpoint, actualEndpoint)
@@ -221,7 +221,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DEFAULT_TALOS_API_PORT + 1
+		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
 		usedHostPorts = make(map[uint32]bool)
 
@@ -241,7 +241,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// And the endpoint should be set correctly
-		expectedEndpoint := fmt.Sprintf("127.0.0.1:%d", constants.DEFAULT_TALOS_API_PORT+1)
+		expectedEndpoint := fmt.Sprintf("127.0.0.1:%d", constants.DefaultTalosAPIPort+1)
 		actualEndpoint := mocks.ConfigHandler.GetString("cluster.workers.nodes.worker1.endpoint", "")
 		if actualEndpoint != expectedEndpoint {
 			t.Errorf("expected endpoint %s, got %s", expectedEndpoint, actualEndpoint)
@@ -260,7 +260,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DEFAULT_TALOS_API_PORT + 1
+		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
 		usedHostPorts = make(map[uint32]bool)
 
@@ -317,7 +317,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DEFAULT_TALOS_API_PORT + 1
+		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
 		usedHostPorts = make(map[uint32]bool)
 
@@ -350,7 +350,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DEFAULT_TALOS_API_PORT + 1
+		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
 		usedHostPorts = make(map[uint32]bool)
 
@@ -383,7 +383,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DEFAULT_TALOS_API_PORT + 1
+		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
 		usedHostPorts = make(map[uint32]bool)
 
@@ -437,7 +437,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DEFAULT_TALOS_API_PORT + 1
+		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
 		usedHostPorts = make(map[uint32]bool)
 
@@ -462,7 +462,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// And the endpoint should use the custom TLD
-		expectedEndpoint := fmt.Sprintf("127.0.0.1:%d", constants.DEFAULT_TALOS_API_PORT+1)
+		expectedEndpoint := fmt.Sprintf("127.0.0.1:%d", constants.DefaultTalosAPIPort+1)
 		actualEndpoint := mocks.ConfigHandler.GetString("cluster.workers.nodes.worker1.endpoint", "")
 		if actualEndpoint != expectedEndpoint {
 			t.Errorf("expected endpoint %s, got %s", expectedEndpoint, actualEndpoint)
@@ -481,7 +481,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DEFAULT_TALOS_API_PORT + 1
+		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
 		usedHostPorts = make(map[uint32]bool)
 
@@ -555,7 +555,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DEFAULT_TALOS_API_PORT + 1
+		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
 		usedHostPorts = make(map[uint32]bool)
 
@@ -678,7 +678,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DEFAULT_TALOS_API_PORT + 1
+		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
 		usedHostPorts = make(map[uint32]bool)
 
@@ -733,7 +733,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DEFAULT_TALOS_API_PORT + 1
+		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
 		usedHostPorts = make(map[uint32]bool)
 
@@ -769,7 +769,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DEFAULT_TALOS_API_PORT + 1
+		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
 		usedHostPorts = make(map[uint32]bool)
 
@@ -805,7 +805,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DEFAULT_TALOS_API_PORT + 1
+		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
 		usedHostPorts = make(map[uint32]bool)
 
@@ -894,7 +894,7 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		t.Helper()
 
 		// Reset package-level variables
-		nextAPIPort = constants.DEFAULT_TALOS_API_PORT + 1
+		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
 		usedHostPorts = make(map[uint32]bool)
 
@@ -918,7 +918,7 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		t.Helper()
 
 		// Reset package-level variables
-		nextAPIPort = constants.DEFAULT_TALOS_API_PORT + 1
+		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
 		usedHostPorts = make(map[uint32]bool)
 
@@ -963,8 +963,8 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		if serviceConfig.Name != "controlplane1" {
 			t.Errorf("expected service name controlplane1, got %s", serviceConfig.Name)
 		}
-		if serviceConfig.Image != constants.DEFAULT_TALOS_IMAGE {
-			t.Errorf("expected image %s, got %s", constants.DEFAULT_TALOS_IMAGE, serviceConfig.Image)
+		if serviceConfig.Image != constants.DefaultTalosImage {
+			t.Errorf("expected image %s, got %s", constants.DefaultTalosImage, serviceConfig.Image)
 		}
 		if !serviceConfig.Privileged {
 			t.Error("expected service to be privileged")
@@ -1035,15 +1035,15 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		if serviceConfig.Name != "worker1" {
 			t.Errorf("expected service name worker1, got %s", serviceConfig.Name)
 		}
-		if serviceConfig.Image != constants.DEFAULT_TALOS_IMAGE {
-			t.Errorf("expected image %s, got %s", constants.DEFAULT_TALOS_IMAGE, serviceConfig.Image)
+		if serviceConfig.Image != constants.DefaultTalosImage {
+			t.Errorf("expected image %s, got %s", constants.DefaultTalosImage, serviceConfig.Image)
 		}
 
 		// And the service should have worker-specific CPU and RAM settings
 		if serviceConfig.Environment["TALOSSKU"] == nil {
 			t.Error("expected TALOSSKU environment variable")
 		} else {
-			expectedSKU := fmt.Sprintf("%dCPU-%dRAM", constants.DEFAULT_TALOS_WORKER_CPU, constants.DEFAULT_TALOS_WORKER_RAM*1024)
+			expectedSKU := fmt.Sprintf("%dCPU-%dRAM", constants.DefaultTalosWorkerCPU, constants.DefaultTalosWorkerRAM*1024)
 			if *serviceConfig.Environment["TALOSSKU"] != expectedSKU {
 				t.Errorf("expected TALOSSKU=%s, got %s", expectedSKU, *serviceConfig.Environment["TALOSSKU"])
 			}
@@ -1372,11 +1372,11 @@ contexts:
 		}
 
 		// Check default API port
-		if serviceConfig.Ports[0].Target != uint32(constants.DEFAULT_TALOS_API_PORT) {
-			t.Errorf("expected target port %d, got %d", constants.DEFAULT_TALOS_API_PORT, serviceConfig.Ports[0].Target)
+		if serviceConfig.Ports[0].Target != uint32(constants.DefaultTalosAPIPort) {
+			t.Errorf("expected target port %d, got %d", constants.DefaultTalosAPIPort, serviceConfig.Ports[0].Target)
 		}
-		if serviceConfig.Ports[0].Published != fmt.Sprintf("%d", constants.DEFAULT_TALOS_API_PORT) {
-			t.Errorf("expected published port %d, got %s", constants.DEFAULT_TALOS_API_PORT, serviceConfig.Ports[0].Published)
+		if serviceConfig.Ports[0].Published != fmt.Sprintf("%d", constants.DefaultTalosAPIPort) {
+			t.Errorf("expected published port %d, got %s", constants.DefaultTalosAPIPort, serviceConfig.Ports[0].Published)
 		}
 		if serviceConfig.Ports[0].Protocol != "tcp" {
 			t.Errorf("expected protocol tcp, got %s", serviceConfig.Ports[0].Protocol)
@@ -1469,7 +1469,7 @@ contexts:
 		}
 
 		// Reset defaultAPIPort
-		defaultAPIPort = constants.DEFAULT_TALOS_API_PORT
+		defaultAPIPort = constants.DefaultTalosAPIPort
 	})
 
 	t.Run("SuccessWithEnvVarVolumes", func(t *testing.T) {

@@ -34,12 +34,12 @@ func TestNewBaseClusterClient(t *testing.T) {
 		}
 
 		// Then it should have default timeout values
-		if client.healthCheckTimeout != constants.DEFAULT_NODE_HEALTH_CHECK_TIMEOUT {
-			t.Errorf("Expected healthCheckTimeout %v, got %v", constants.DEFAULT_NODE_HEALTH_CHECK_TIMEOUT, client.healthCheckTimeout)
+		if client.healthCheckTimeout != constants.DefaultNodeHealthCheckTimeout {
+			t.Errorf("Expected healthCheckTimeout %v, got %v", constants.DefaultNodeHealthCheckTimeout, client.healthCheckTimeout)
 		}
 
-		if client.healthCheckPollInterval != constants.DEFAULT_NODE_HEALTH_CHECK_POLL_INTERVAL {
-			t.Errorf("Expected healthCheckPollInterval %v, got %v", constants.DEFAULT_NODE_HEALTH_CHECK_POLL_INTERVAL, client.healthCheckPollInterval)
+		if client.healthCheckPollInterval != constants.DefaultNodeHealthCheckPollInterval {
+			t.Errorf("Expected healthCheckPollInterval %v, got %v", constants.DefaultNodeHealthCheckPollInterval, client.healthCheckPollInterval)
 		}
 	})
 }

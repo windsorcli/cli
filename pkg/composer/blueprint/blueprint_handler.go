@@ -314,7 +314,7 @@ func (b *BaseBlueprintHandler) WaitForKustomizations(message string, names ...st
 	defer spin.Stop()
 
 	timeout := b.shims.TimeAfter(b.calculateMaxWaitTime())
-	ticker := b.shims.NewTicker(constants.DEFAULT_KUSTOMIZATION_WAIT_POLL_INTERVAL)
+	ticker := b.shims.NewTicker(constants.DefaultKustomizationWaitPollInterval)
 	defer b.shims.TickerStop(ticker)
 
 	var kustomizationNames []string
@@ -351,7 +351,7 @@ func (b *BaseBlueprintHandler) WaitForKustomizations(message string, names ...st
 			ready, err := b.checkKustomizationStatus(kustomizationNames)
 			if err != nil {
 				consecutiveFailures++
-				if consecutiveFailures >= constants.DEFAULT_KUSTOMIZATION_WAIT_MAX_FAILURES {
+				if consecutiveFailures >= constants.DefaultKustomizationWaitMaxFailures {
 					spin.Stop()
 					fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 					return fmt.Errorf("%s after %d consecutive failures", err.Error(), consecutiveFailures)
@@ -382,7 +382,7 @@ func (b *BaseBlueprintHandler) Install() error {
 	spin.Start()
 	defer spin.Stop()
 
-	if err := b.kubernetesManager.CreateNamespace(constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+	if err := b.kubernetesManager.CreateNamespace(constants.DefaultFluxSystemNamespace); err != nil {
 		spin.Stop()
 		fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 		return fmt.Errorf("failed to create namespace: %w", err)
@@ -395,7 +395,7 @@ func (b *BaseBlueprintHandler) Install() error {
 			Ref:        b.blueprint.Repository.Ref,
 			SecretName: b.blueprint.Repository.SecretName,
 		}
-		if err := b.applySourceRepository(source, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+		if err := b.applySourceRepository(source, constants.DefaultFluxSystemNamespace); err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 			return fmt.Errorf("failed to apply blueprint repository: %w", err)
@@ -403,7 +403,7 @@ func (b *BaseBlueprintHandler) Install() error {
 	}
 
 	for _, source := range b.blueprint.Sources {
-		if err := b.applySourceRepository(source, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+		if err := b.applySourceRepository(source, constants.DefaultFluxSystemNamespace); err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 			return fmt.Errorf("failed to apply source %s: %w", source.Name, err)
@@ -419,7 +419,7 @@ func (b *BaseBlueprintHandler) Install() error {
 	kustomizations := b.GetKustomizations()
 	kustomizationNames := make([]string, len(kustomizations))
 	for i, k := range kustomizations {
-		if err := b.kubernetesManager.ApplyKustomization(b.toFluxKustomization(k, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)); err != nil {
+		if err := b.kubernetesManager.ApplyKustomization(b.toFluxKustomization(k, constants.DefaultFluxSystemNamespace)); err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 			return fmt.Errorf("failed to apply kustomization %s: %w", k.Name, err)
@@ -493,20 +493,20 @@ func (b *BaseBlueprintHandler) GetKustomizations() []blueprintv1alpha1.Kustomiza
 		}
 
 		if kustomizations[i].Interval == nil || kustomizations[i].Interval.Duration == 0 {
-			kustomizations[i].Interval = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL}
+			kustomizations[i].Interval = &metav1.Duration{Duration: constants.DefaultFluxKustomizationInterval}
 		}
 		if kustomizations[i].RetryInterval == nil || kustomizations[i].RetryInterval.Duration == 0 {
-			kustomizations[i].RetryInterval = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL}
+			kustomizations[i].RetryInterval = &metav1.Duration{Duration: constants.DefaultFluxKustomizationRetryInterval}
 		}
 		if kustomizations[i].Timeout == nil || kustomizations[i].Timeout.Duration == 0 {
-			kustomizations[i].Timeout = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT}
+			kustomizations[i].Timeout = &metav1.Duration{Duration: constants.DefaultFluxKustomizationTimeout}
 		}
 		if kustomizations[i].Wait == nil {
-			defaultWait := constants.DEFAULT_FLUX_KUSTOMIZATION_WAIT
+			defaultWait := constants.DefaultFluxKustomizationWait
 			kustomizations[i].Wait = &defaultWait
 		}
 		if kustomizations[i].Force == nil {
-			defaultForce := constants.DEFAULT_FLUX_KUSTOMIZATION_FORCE
+			defaultForce := constants.DefaultFluxKustomizationForce
 			kustomizations[i].Force = &defaultForce
 		}
 		if kustomizations[i].Destroy == nil {
@@ -538,20 +538,20 @@ func (b *BaseBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
 		}
 
 		if generated.Kustomizations[i].Interval == nil || generated.Kustomizations[i].Interval.Duration == 0 {
-			generated.Kustomizations[i].Interval = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL}
+			generated.Kustomizations[i].Interval = &metav1.Duration{Duration: constants.DefaultFluxKustomizationInterval}
 		}
 		if generated.Kustomizations[i].RetryInterval == nil || generated.Kustomizations[i].RetryInterval.Duration == 0 {
-			generated.Kustomizations[i].RetryInterval = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL}
+			generated.Kustomizations[i].RetryInterval = &metav1.Duration{Duration: constants.DefaultFluxKustomizationRetryInterval}
 		}
 		if generated.Kustomizations[i].Timeout == nil || generated.Kustomizations[i].Timeout.Duration == 0 {
-			generated.Kustomizations[i].Timeout = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT}
+			generated.Kustomizations[i].Timeout = &metav1.Duration{Duration: constants.DefaultFluxKustomizationTimeout}
 		}
 		if generated.Kustomizations[i].Wait == nil {
-			defaultWait := constants.DEFAULT_FLUX_KUSTOMIZATION_WAIT
+			defaultWait := constants.DefaultFluxKustomizationWait
 			generated.Kustomizations[i].Wait = &defaultWait
 		}
 		if generated.Kustomizations[i].Force == nil {
-			defaultForce := constants.DEFAULT_FLUX_KUSTOMIZATION_FORCE
+			defaultForce := constants.DefaultFluxKustomizationForce
 			generated.Kustomizations[i].Force = &defaultForce
 		}
 		if generated.Kustomizations[i].Destroy == nil {
@@ -762,17 +762,17 @@ func (b *BaseBlueprintHandler) destroyKustomizations(ctx context.Context, kustom
 				Source:        k.Source,
 				Components:    k.Cleanup,
 				Timeout:       &metav1.Duration{Duration: 30 * time.Minute},
-				Interval:      &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL},
-				RetryInterval: &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL},
+				Interval:      &metav1.Duration{Duration: constants.DefaultFluxKustomizationInterval},
+				RetryInterval: &metav1.Duration{Duration: constants.DefaultFluxKustomizationRetryInterval},
 				Wait:          func() *bool { b := true; return &b }(),
 				Force:         func() *bool { b := true; return &b }(),
 			}
 
-			if err := b.kubernetesManager.ApplyKustomization(b.toFluxKustomization(*cleanupKustomization, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)); err != nil {
+			if err := b.kubernetesManager.ApplyKustomization(b.toFluxKustomization(*cleanupKustomization, constants.DefaultFluxSystemNamespace)); err != nil {
 				return fmt.Errorf("failed to apply cleanup kustomization for %s: %w", k.Name, err)
 			}
 
-			timeout := b.shims.TimeAfter(constants.DEFAULT_FLUX_CLEANUP_TIMEOUT)
+			timeout := b.shims.TimeAfter(constants.DefaultFluxCleanupTimeout)
 			ticker := b.shims.NewTicker(2 * time.Second)
 			defer b.shims.TickerStop(ticker)
 
@@ -799,14 +799,14 @@ func (b *BaseBlueprintHandler) destroyKustomizations(ctx context.Context, kustom
 			cleanupSpin.Stop()
 
 			if !cleanupReady {
-				fmt.Fprintf(os.Stderr, "Warning: Cleanup kustomization %s did not become ready within %v, proceeding anyway\n", cleanupKustomization.Name, constants.DEFAULT_FLUX_CLEANUP_TIMEOUT)
+				fmt.Fprintf(os.Stderr, "Warning: Cleanup kustomization %s did not become ready within %v, proceeding anyway\n", cleanupKustomization.Name, constants.DefaultFluxCleanupTimeout)
 			}
 			fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🧹 Applying cleanup kustomization for %s - \033[32mDone\033[0m\n", k.Name)
 
 			cleanupDeleteSpin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
 			cleanupDeleteSpin.Suffix = fmt.Sprintf(" 🗑️  Deleting cleanup kustomization %s", cleanupKustomization.Name)
 			cleanupDeleteSpin.Start()
-			if err := b.kubernetesManager.DeleteKustomization(cleanupKustomization.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+			if err := b.kubernetesManager.DeleteKustomization(cleanupKustomization.Name, constants.DefaultFluxSystemNamespace); err != nil {
 				return fmt.Errorf("failed to delete cleanup kustomization %s: %w", cleanupKustomization.Name, err)
 			}
 
@@ -817,7 +817,7 @@ func (b *BaseBlueprintHandler) destroyKustomizations(ctx context.Context, kustom
 		deleteSpin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
 		deleteSpin.Suffix = fmt.Sprintf(" 🗑️  Deleting kustomization %s", k.Name)
 		deleteSpin.Start()
-		if err := b.kubernetesManager.DeleteKustomization(k.Name, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+		if err := b.kubernetesManager.DeleteKustomization(k.Name, constants.DefaultFluxSystemNamespace); err != nil {
 			return fmt.Errorf("failed to delete kustomization %s: %w", k.Name, err)
 		}
 
@@ -1231,10 +1231,10 @@ func (b *BaseBlueprintHandler) applyGitRepository(source blueprintv1alpha1.Sourc
 		Spec: sourcev1.GitRepositorySpec{
 			URL: sourceUrl,
 			Interval: metav1.Duration{
-				Duration: constants.DEFAULT_FLUX_SOURCE_INTERVAL,
+				Duration: constants.DefaultFluxSourceInterval,
 			},
 			Timeout: &metav1.Duration{
-				Duration: constants.DEFAULT_FLUX_SOURCE_TIMEOUT,
+				Duration: constants.DefaultFluxSourceTimeout,
 			},
 			Reference: &sourcev1.GitRepositoryRef{
 				Branch: source.Ref.Branch,
@@ -1296,10 +1296,10 @@ func (b *BaseBlueprintHandler) applyOCIRepository(source blueprintv1alpha1.Sourc
 		Spec: sourcev1.OCIRepositorySpec{
 			URL: ociURL,
 			Interval: metav1.Duration{
-				Duration: constants.DEFAULT_FLUX_SOURCE_INTERVAL,
+				Duration: constants.DefaultFluxSourceInterval,
 			},
 			Timeout: &metav1.Duration{
-				Duration: constants.DEFAULT_FLUX_SOURCE_TIMEOUT,
+				Duration: constants.DefaultFluxSourceTimeout,
 			},
 			Reference: ref,
 		},
@@ -1357,7 +1357,7 @@ func (b *BaseBlueprintHandler) calculateMaxWaitTime() time.Duration {
 		if k.Timeout != nil {
 			timeouts[k.Name] = k.Timeout.Duration
 		} else {
-			timeouts[k.Name] = constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT
+			timeouts[k.Name] = constants.DefaultFluxKustomizationTimeout
 		}
 	}
 
@@ -1804,7 +1804,7 @@ func (b *BaseBlueprintHandler) createConfigMap(values map[string]any, configMapN
 		return fmt.Errorf("failed to flatten values for %s: %w", configMapName, err)
 	}
 
-	if err := b.kubernetesManager.ApplyConfigMap(configMapName, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE, stringValues); err != nil {
+	if err := b.kubernetesManager.ApplyConfigMap(configMapName, constants.DefaultFluxSystemNamespace, stringValues); err != nil {
 		return fmt.Errorf("failed to apply ConfigMap %s: %w", configMapName, err)
 	}
 

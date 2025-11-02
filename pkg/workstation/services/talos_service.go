@@ -24,8 +24,8 @@ import (
 
 // Initialize the global port settings
 var (
-	nextAPIPort        = constants.DEFAULT_TALOS_API_PORT + 1
-	defaultAPIPort     = constants.DEFAULT_TALOS_API_PORT
+	nextAPIPort        = constants.DefaultTalosAPIPort + 1
+	defaultAPIPort     = constants.DefaultTalosAPIPort
 	portLock           sync.Mutex
 	controlPlaneLeader *TalosService
 	usedHostPorts      = make(map[uint32]bool)
@@ -158,11 +158,11 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 	nodeType := "workers"
 	if s.mode == "controlplane" {
 		nodeType = "controlplanes"
-		cpu = s.configHandler.GetInt("cluster.controlplanes.cpu", constants.DEFAULT_TALOS_CONTROL_PLANE_CPU)
-		ram = s.configHandler.GetInt("cluster.controlplanes.memory", constants.DEFAULT_TALOS_CONTROL_PLANE_RAM)
+		cpu = s.configHandler.GetInt("cluster.controlplanes.cpu", constants.DefaultTalosControlPlaneCPU)
+		ram = s.configHandler.GetInt("cluster.controlplanes.memory", constants.DefaultTalosControlPlaneRAM)
 	} else {
-		cpu = s.configHandler.GetInt("cluster.workers.cpu", constants.DEFAULT_TALOS_WORKER_CPU)
-		ram = s.configHandler.GetInt("cluster.workers.memory", constants.DEFAULT_TALOS_WORKER_RAM)
+		cpu = s.configHandler.GetInt("cluster.workers.cpu", constants.DefaultTalosWorkerCPU)
+		ram = s.configHandler.GetInt("cluster.workers.memory", constants.DefaultTalosWorkerRAM)
 	}
 
 	nodeName := s.name
@@ -193,7 +193,7 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 			if clusterImage != "" {
 				image = clusterImage
 			} else {
-				image = constants.DEFAULT_TALOS_IMAGE
+				image = constants.DefaultTalosImage
 			}
 		}
 	}

@@ -1115,14 +1115,14 @@ func TestBlueprintHandler_Install(t *testing.T) {
 		}
 
 		// Verify k5 (default intervals/timeouts)
-		if appliedKustomizations[4].Spec.Interval.Duration != constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL {
-			t.Errorf("Expected k5 interval to be %v, got %v", constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL, appliedKustomizations[4].Spec.Interval.Duration)
+		if appliedKustomizations[4].Spec.Interval.Duration != constants.DefaultFluxKustomizationInterval {
+			t.Errorf("Expected k5 interval to be %v, got %v", constants.DefaultFluxKustomizationInterval, appliedKustomizations[4].Spec.Interval.Duration)
 		}
-		if appliedKustomizations[4].Spec.RetryInterval.Duration != constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL {
-			t.Errorf("Expected k5 retry interval to be %v, got %v", constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL, appliedKustomizations[4].Spec.RetryInterval.Duration)
+		if appliedKustomizations[4].Spec.RetryInterval.Duration != constants.DefaultFluxKustomizationRetryInterval {
+			t.Errorf("Expected k5 retry interval to be %v, got %v", constants.DefaultFluxKustomizationRetryInterval, appliedKustomizations[4].Spec.RetryInterval.Duration)
 		}
-		if appliedKustomizations[4].Spec.Timeout.Duration != constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT {
-			t.Errorf("Expected k5 timeout to be %v, got %v", constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT, appliedKustomizations[4].Spec.Timeout.Duration)
+		if appliedKustomizations[4].Spec.Timeout.Duration != constants.DefaultFluxKustomizationTimeout {
+			t.Errorf("Expected k5 timeout to be %v, got %v", constants.DefaultFluxKustomizationTimeout, appliedKustomizations[4].Spec.Timeout.Duration)
 		}
 
 		// Verify k6 (custom intervals/timeouts)
@@ -4625,19 +4625,19 @@ func TestBaseBlueprintHandler_Generate(t *testing.T) {
 		if kustomization.Path != "kustomize" {
 			t.Errorf("Expected path 'kustomize', got %s", kustomization.Path)
 		}
-		if kustomization.Interval == nil || kustomization.Interval.Duration != constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL {
+		if kustomization.Interval == nil || kustomization.Interval.Duration != constants.DefaultFluxKustomizationInterval {
 			t.Errorf("Expected default interval, got %v", kustomization.Interval)
 		}
-		if kustomization.RetryInterval == nil || kustomization.RetryInterval.Duration != constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL {
+		if kustomization.RetryInterval == nil || kustomization.RetryInterval.Duration != constants.DefaultFluxKustomizationRetryInterval {
 			t.Errorf("Expected default retry interval, got %v", kustomization.RetryInterval)
 		}
-		if kustomization.Timeout == nil || kustomization.Timeout.Duration != constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT {
+		if kustomization.Timeout == nil || kustomization.Timeout.Duration != constants.DefaultFluxKustomizationTimeout {
 			t.Errorf("Expected default timeout, got %v", kustomization.Timeout)
 		}
-		if kustomization.Wait == nil || *kustomization.Wait != constants.DEFAULT_FLUX_KUSTOMIZATION_WAIT {
+		if kustomization.Wait == nil || *kustomization.Wait != constants.DefaultFluxKustomizationWait {
 			t.Errorf("Expected default wait, got %v", kustomization.Wait)
 		}
-		if kustomization.Force == nil || *kustomization.Force != constants.DEFAULT_FLUX_KUSTOMIZATION_FORCE {
+		if kustomization.Force == nil || *kustomization.Force != constants.DefaultFluxKustomizationForce {
 			t.Errorf("Expected default force, got %v", kustomization.Force)
 		}
 		if kustomization.Destroy == nil || *kustomization.Destroy != true {

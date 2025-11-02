@@ -44,14 +44,14 @@ func NewGitLivereloadService(injector di.Injector) *GitLivereloadService {
 // Returns a types.Config pointer containing the service definition, or an error if the project root cannot be determined.
 func (s *GitLivereloadService) GetComposeConfig() (*types.Config, error) {
 	contextName := s.configHandler.GetContext()
-	rsyncInclude := s.configHandler.GetString("git.livereload.rsync_include", constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_INCLUDE)
-	rsyncExclude := s.configHandler.GetString("git.livereload.rsync_exclude", constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE)
-	rsyncProtect := s.configHandler.GetString("git.livereload.rsync_protect", constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_PROTECT)
-	gitUsername := s.configHandler.GetString("git.livereload.username", constants.DEFAULT_GIT_LIVE_RELOAD_USERNAME)
-	gitPassword := s.configHandler.GetString("git.livereload.password", constants.DEFAULT_GIT_LIVE_RELOAD_PASSWORD)
-	webhookUrl := s.configHandler.GetString("git.livereload.webhook_url", constants.DEFAULT_GIT_LIVE_RELOAD_WEBHOOK_URL)
+	rsyncInclude := s.configHandler.GetString("git.livereload.rsync_include", constants.DefaultGitLiveReloadRsyncInclude)
+	rsyncExclude := s.configHandler.GetString("git.livereload.rsync_exclude", constants.DefaultGitLiveReloadRsyncExclude)
+	rsyncProtect := s.configHandler.GetString("git.livereload.rsync_protect", constants.DefaultGitLiveReloadRsyncProtect)
+	gitUsername := s.configHandler.GetString("git.livereload.username", constants.DefaultGitLiveReloadUsername)
+	gitPassword := s.configHandler.GetString("git.livereload.password", constants.DefaultGitLiveReloadPassword)
+	webhookUrl := s.configHandler.GetString("git.livereload.webhook_url", constants.DefaultGitLiveReloadWebhookURL)
 	verifySsl := s.configHandler.GetBool("git.livereload.verify_ssl", false)
-	image := s.configHandler.GetString("git.livereload.image", constants.DEFAULT_GIT_LIVE_RELOAD_IMAGE)
+	image := s.configHandler.GetString("git.livereload.image", constants.DefaultGitLiveReloadImage)
 
 	envVars := map[string]*string{
 		"RSYNC_INCLUDE": ptrString(rsyncInclude),

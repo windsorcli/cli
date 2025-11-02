@@ -53,12 +53,12 @@ var commonDockerConfig = docker.DockerConfig{
 var commonGitConfig = git.GitConfig{
 	Livereload: &git.GitLivereloadConfig{
 		Enabled:      ptrBool(true),
-		RsyncInclude: ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_INCLUDE),
-		RsyncProtect: ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_PROTECT),
-		Username:     ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_USERNAME),
-		Password:     ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_PASSWORD),
-		WebhookUrl:   ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_WEBHOOK_URL),
-		Image:        ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_IMAGE),
+		RsyncInclude: ptrString(constants.DefaultGitLiveReloadRsyncInclude),
+		RsyncProtect: ptrString(constants.DefaultGitLiveReloadRsyncProtect),
+		Username:     ptrString(constants.DefaultGitLiveReloadUsername),
+		Password:     ptrString(constants.DefaultGitLiveReloadPassword),
+		WebhookUrl:   ptrString(constants.DefaultGitLiveReloadWebhookURL),
+		Image:        ptrString(constants.DefaultGitLiveReloadImage),
 		VerifySsl:    ptrBool(false),
 	},
 }
@@ -77,15 +77,15 @@ var commonClusterConfig_NoHostPorts = cluster.ClusterConfig{
 	Driver:  ptrString("talos"),
 	ControlPlanes: cluster.NodeGroupConfig{
 		Count:     ptrInt(1),
-		CPU:       ptrInt(constants.DEFAULT_TALOS_CONTROL_PLANE_CPU),
-		Memory:    ptrInt(constants.DEFAULT_TALOS_CONTROL_PLANE_RAM),
+		CPU:       ptrInt(constants.DefaultTalosControlPlaneCPU),
+		Memory:    ptrInt(constants.DefaultTalosControlPlaneRAM),
 		Nodes:     make(map[string]cluster.NodeConfig),
 		HostPorts: []string{},
 	},
 	Workers: cluster.NodeGroupConfig{
 		Count:     ptrInt(1),
-		CPU:       ptrInt(constants.DEFAULT_TALOS_WORKER_CPU),
-		Memory:    ptrInt(constants.DEFAULT_TALOS_WORKER_RAM),
+		CPU:       ptrInt(constants.DefaultTalosWorkerCPU),
+		Memory:    ptrInt(constants.DefaultTalosWorkerRAM),
 		Nodes:     make(map[string]cluster.NodeConfig),
 		HostPorts: []string{},
 		Volumes:   []string{"${WINDSOR_PROJECT_ROOT}/.volumes:/var/local"},
@@ -99,15 +99,15 @@ var commonClusterConfig_WithHostPorts = cluster.ClusterConfig{
 	Driver:  ptrString("talos"),
 	ControlPlanes: cluster.NodeGroupConfig{
 		Count:     ptrInt(1),
-		CPU:       ptrInt(constants.DEFAULT_TALOS_CONTROL_PLANE_CPU),
-		Memory:    ptrInt(constants.DEFAULT_TALOS_CONTROL_PLANE_RAM),
+		CPU:       ptrInt(constants.DefaultTalosControlPlaneCPU),
+		Memory:    ptrInt(constants.DefaultTalosControlPlaneRAM),
 		Nodes:     make(map[string]cluster.NodeConfig),
 		HostPorts: []string{},
 	},
 	Workers: cluster.NodeGroupConfig{
 		Count:     ptrInt(1),
-		CPU:       ptrInt(constants.DEFAULT_TALOS_WORKER_CPU),
-		Memory:    ptrInt(constants.DEFAULT_TALOS_WORKER_RAM),
+		CPU:       ptrInt(constants.DefaultTalosWorkerCPU),
+		Memory:    ptrInt(constants.DefaultTalosWorkerRAM),
 		Nodes:     make(map[string]cluster.NodeConfig),
 		HostPorts: []string{"8080:30080/tcp", "8443:30443/tcp", "9292:30292/tcp", "8053:30053/udp"},
 		Volumes:   []string{"${WINDSOR_PROJECT_ROOT}/.volumes:/var/local"},
@@ -120,14 +120,14 @@ var commonClusterConfig = cluster.ClusterConfig{
 	Driver:  ptrString("talos"),
 	ControlPlanes: cluster.NodeGroupConfig{
 		Count:  ptrInt(1),
-		CPU:    ptrInt(constants.DEFAULT_TALOS_CONTROL_PLANE_CPU),
-		Memory: ptrInt(constants.DEFAULT_TALOS_CONTROL_PLANE_RAM),
+		CPU:    ptrInt(constants.DefaultTalosControlPlaneCPU),
+		Memory: ptrInt(constants.DefaultTalosControlPlaneRAM),
 		Nodes:  make(map[string]cluster.NodeConfig),
 	},
 	Workers: cluster.NodeGroupConfig{
 		Count:     ptrInt(1),
-		CPU:       ptrInt(constants.DEFAULT_TALOS_WORKER_CPU),
-		Memory:    ptrInt(constants.DEFAULT_TALOS_WORKER_RAM),
+		CPU:       ptrInt(constants.DefaultTalosWorkerCPU),
+		Memory:    ptrInt(constants.DefaultTalosWorkerRAM),
 		Nodes:     make(map[string]cluster.NodeConfig),
 		HostPorts: []string{},
 		Volumes:   []string{"${WINDSOR_PROJECT_ROOT}/.volumes:/var/local"},
@@ -147,7 +147,7 @@ var DefaultConfig_Localhost = v1alpha1.Context{
 	Terraform:   commonTerraformConfig.Copy(),
 	Cluster:     commonClusterConfig_WithHostPorts.Copy(),
 	Network: &network.NetworkConfig{
-		CIDRBlock: ptrString(constants.DEFAULT_NETWORK_CIDR),
+		CIDRBlock: ptrString(constants.DefaultNetworkCIDR),
 	},
 	DNS: &dns.DNSConfig{
 		Enabled: ptrBool(true),
@@ -166,7 +166,7 @@ var DefaultConfig_Full = v1alpha1.Context{
 	Terraform:   commonTerraformConfig.Copy(),
 	Cluster:     commonClusterConfig_NoHostPorts.Copy(),
 	Network: &network.NetworkConfig{
-		CIDRBlock: ptrString(constants.DEFAULT_NETWORK_CIDR),
+		CIDRBlock: ptrString(constants.DefaultNetworkCIDR),
 		LoadBalancerIPs: &struct {
 			Start *string `yaml:"start,omitempty"`
 			End   *string `yaml:"end,omitempty"`

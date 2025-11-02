@@ -74,7 +74,7 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 	corednsConfig := types.ServiceConfig{
 		Name:          serviceName,
 		ContainerName: containerName,
-		Image:         constants.DEFAULT_DNS_IMAGE,
+		Image:         constants.DefaultDNSImage,
 		Restart:       "always",
 		Command:       []string{"-conf", "/etc/coredns/Corefile"},
 		Volumes: []types.ServiceVolumeConfig{

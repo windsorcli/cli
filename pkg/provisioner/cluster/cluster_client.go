@@ -37,8 +37,8 @@ type BaseClusterClient struct {
 // NewBaseClusterClient creates a new BaseClusterClient with default timeouts.
 func NewBaseClusterClient() *BaseClusterClient {
 	return &BaseClusterClient{
-		healthCheckTimeout:      constants.DEFAULT_NODE_HEALTH_CHECK_TIMEOUT,
-		healthCheckPollInterval: constants.DEFAULT_NODE_HEALTH_CHECK_POLL_INTERVAL,
+		healthCheckTimeout:      constants.DefaultNodeHealthCheckTimeout,
+		healthCheckPollInterval: constants.DefaultNodeHealthCheckPollInterval,
 	}
 }
 

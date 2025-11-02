@@ -161,7 +161,7 @@ var queryPersistentVolumeClaims = func(kubeConfigPath string) (*corev1.Persisten
 		return nil, err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), constants.KUBERNETES_SHORT_TIMEOUT)
+	ctx, cancel := context.WithTimeout(context.Background(), constants.KubernetesShortTimeout)
 	defer cancel()
 
 	pvcs, err := clientset.CoreV1().PersistentVolumeClaims("").List(ctx, metav1.ListOptions{})

@@ -143,7 +143,7 @@ func (i *Provisioner) Install(blueprint *blueprintv1alpha1.Blueprint) error {
 		return fmt.Errorf("failed to initialize kubernetes manager: %w", err)
 	}
 
-	if err := i.KubernetesManager.ApplyBlueprint(blueprint, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE); err != nil {
+	if err := i.KubernetesManager.ApplyBlueprint(blueprint, constants.DefaultFluxSystemNamespace); err != nil {
 		return fmt.Errorf("failed to apply blueprint: %w", err)
 	}
 

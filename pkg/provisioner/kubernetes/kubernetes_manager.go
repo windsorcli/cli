@@ -183,7 +183,7 @@ func (k *BaseKubernetesManager) WaitForKustomizations(message string, names ...s
 					Version:  "v1",
 					Resource: "kustomizations",
 				}
-				obj, err := k.client.GetResource(gvr, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE, name)
+				obj, err := k.client.GetResource(gvr, constants.DefaultFluxSystemNamespace, name)
 				if err != nil {
 					allReady = false
 					break
@@ -445,7 +445,7 @@ func (k *BaseKubernetesManager) CheckGitRepositoryStatus() error {
 		Resource: "gitrepositories",
 	}
 
-	gitObjList, err := k.client.ListResources(gitGvr, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)
+	gitObjList, err := k.client.ListResources(gitGvr, constants.DefaultFluxSystemNamespace)
 	if err != nil {
 		return fmt.Errorf("failed to list git repositories: %w", err)
 	}
@@ -469,7 +469,7 @@ func (k *BaseKubernetesManager) CheckGitRepositoryStatus() error {
 		Resource: "ocirepositories",
 	}
 
-	ociObjList, err := k.client.ListResources(ociGvr, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)
+	ociObjList, err := k.client.ListResources(ociGvr, constants.DefaultFluxSystemNamespace)
 	if err != nil {
 		return fmt.Errorf("failed to list oci repositories: %w", err)
 	}
@@ -501,7 +501,7 @@ func (k *BaseKubernetesManager) GetKustomizationStatus(names []string) (map[stri
 		Resource: "kustomizations",
 	}
 
-	objList, err := k.client.ListResources(gvr, constants.DEFAULT_FLUX_SYSTEM_NAMESPACE)
+	objList, err := k.client.ListResources(gvr, constants.DefaultFluxSystemNamespace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list kustomizations: %w", err)
 	}
@@ -799,10 +799,10 @@ func (k *BaseKubernetesManager) applyBlueprintGitRepository(source blueprintv1al
 		Spec: sourcev1.GitRepositorySpec{
 			URL: sourceUrl,
 			Interval: metav1.Duration{
-				Duration: constants.DEFAULT_FLUX_SOURCE_INTERVAL,
+				Duration: constants.DefaultFluxSourceInterval,
 			},
 			Timeout: &metav1.Duration{
-				Duration: constants.DEFAULT_FLUX_SOURCE_TIMEOUT,
+				Duration: constants.DefaultFluxSourceTimeout,
 			},
 			Reference: &sourcev1.GitRepositoryRef{
 				Branch: source.Ref.Branch,
@@ -862,10 +862,10 @@ func (k *BaseKubernetesManager) applyBlueprintOCIRepository(source blueprintv1al
 		Spec: sourcev1.OCIRepositorySpec{
 			URL: ociURL,
 			Interval: metav1.Duration{
-				Duration: constants.DEFAULT_FLUX_SOURCE_INTERVAL,
+				Duration: constants.DefaultFluxSourceInterval,
 			},
 			Timeout: &metav1.Duration{
-				Duration: constants.DEFAULT_FLUX_SOURCE_TIMEOUT,
+				Duration: constants.DefaultFluxSourceTimeout,
 			},
 			Reference: ref,
 		},

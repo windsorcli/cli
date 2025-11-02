@@ -47,9 +47,9 @@ func (s *LocalstackService) GetComposeConfig() (*types.Config, error) {
 	localstackAuthToken := os.Getenv("LOCALSTACK_AUTH_TOKEN")
 
 	// Get the image to use
-	image := constants.DEFAULT_AWS_LOCALSTACK_IMAGE
+	image := constants.DefaultAWSLocalstackImage
 	if localstackAuthToken != "" {
-		image = constants.DEFAULT_AWS_LOCALSTACK_PRO_IMAGE
+		image = constants.DefaultAWSLocalstackProImage
 	}
 
 	// Get the localstack services to enable

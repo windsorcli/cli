@@ -83,7 +83,7 @@
         "/^pkg/constants/constants.go$/"
       ],
       "matchStrings": [
-        "// renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\n\\s*\\w+\\s*=\\s*\"(?<currentValue>[^\"]+)\""
+        "// renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\n.*?(?<currentValue>v?\\d+\\.\\d+\\.\\d+[^\"\\s]*)"
       ],
       "datasourceTemplate": "{{datasource}}",
       "versioningTemplate": "semver"
