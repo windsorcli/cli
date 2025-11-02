@@ -72,7 +72,7 @@ func (n *ColimaNetworkManager) Initialize() error {
 
 	// Set docker.NetworkCIDR to the default value if it's not set
 	if n.configHandler.GetString("network.cidr_block") == "" {
-		return n.configHandler.Set("network.cidr_block", constants.DEFAULT_NETWORK_CIDR)
+		return n.configHandler.Set("network.cidr_block", constants.DefaultNetworkCIDR)
 	}
 
 	return nil

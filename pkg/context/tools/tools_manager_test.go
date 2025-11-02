@@ -80,27 +80,27 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 		switch {
 		case name == "docker" && len(args) >= 2 && args[0] == "version" && args[1] == "--format":
-			return fmt.Sprintf("%s", constants.MINIMUM_VERSION_DOCKER), nil
+			return fmt.Sprintf("%s", constants.MinimumVersionDocker), nil
 		case name == "docker" && args[0] == "version":
-			return fmt.Sprintf("Docker version %s", constants.MINIMUM_VERSION_DOCKER), nil
+			return fmt.Sprintf("Docker version %s", constants.MinimumVersionDocker), nil
 		case name == "docker" && args[0] == "compose" && args[1] == "version":
-			return fmt.Sprintf("Docker Compose version %s", constants.MINIMUM_VERSION_DOCKER_COMPOSE), nil
+			return fmt.Sprintf("Docker Compose version %s", constants.MinimumVersionDockerCompose), nil
 		case name == "docker-compose" && args[0] == "version":
-			return fmt.Sprintf("docker-compose version %s", constants.MINIMUM_VERSION_DOCKER_COMPOSE), nil
+			return fmt.Sprintf("docker-compose version %s", constants.MinimumVersionDockerCompose), nil
 		case name == "colima" && args[0] == "version":
-			return fmt.Sprintf("colima version %s", constants.MINIMUM_VERSION_COLIMA), nil
+			return fmt.Sprintf("colima version %s", constants.MinimumVersionColima), nil
 		case name == "limactl" && args[0] == "--version":
-			return fmt.Sprintf("limactl version %s", constants.MINIMUM_VERSION_LIMA), nil
+			return fmt.Sprintf("limactl version %s", constants.MinimumVersionLima), nil
 		case name == "kubectl" && args[0] == "version" && args[1] == "--client":
-			return fmt.Sprintf("Client Version: v%s", constants.MINIMUM_VERSION_KUBECTL), nil
+			return fmt.Sprintf("Client Version: v%s", constants.MinimumVersionKubectl), nil
 		case name == "talosctl" && args[0] == "version" && args[1] == "--client" && args[2] == "--short":
-			return fmt.Sprintf("v%s", constants.MINIMUM_VERSION_TALOSCTL), nil
+			return fmt.Sprintf("v%s", constants.MinimumVersionTalosctl), nil
 		case name == "terraform" && args[0] == "version":
-			return fmt.Sprintf("Terraform v%s", constants.MINIMUM_VERSION_TERRAFORM), nil
+			return fmt.Sprintf("Terraform v%s", constants.MinimumVersionTerraform), nil
 		case name == "op" && args[0] == "--version":
-			return fmt.Sprintf("1Password CLI %s", constants.MINIMUM_VERSION_1PASSWORD), nil
+			return fmt.Sprintf("1Password CLI %s", constants.MinimumVersion1Password), nil
 		case name == "aws" && args[0] == "--version":
-			return fmt.Sprintf("aws-cli/%s Python/3.13.3 Darwin/24.0.0 exe/x86_64", constants.MINIMUM_VERSION_AWS_CLI), nil
+			return fmt.Sprintf("aws-cli/%s Python/3.13.3 Darwin/24.0.0 exe/x86_64", constants.MinimumVersionAWSCLI), nil
 		}
 		return "", fmt.Errorf("command not found")
 	}
@@ -279,15 +279,15 @@ func TestToolsManager_Check(t *testing.T) {
 				t.Errorf("Failed to get %s version: %v", tool, err)
 				continue
 			}
-			if !strings.Contains(output, constants.MINIMUM_VERSION_DOCKER) &&
-				!strings.Contains(output, constants.MINIMUM_VERSION_DOCKER_COMPOSE) &&
-				!strings.Contains(output, constants.MINIMUM_VERSION_COLIMA) &&
-				!strings.Contains(output, constants.MINIMUM_VERSION_LIMA) &&
-				!strings.Contains(output, constants.MINIMUM_VERSION_KUBECTL) &&
-				!strings.Contains(output, constants.MINIMUM_VERSION_TALOSCTL) &&
-				!strings.Contains(output, constants.MINIMUM_VERSION_TERRAFORM) &&
-				!strings.Contains(output, constants.MINIMUM_VERSION_1PASSWORD) &&
-				!strings.Contains(output, constants.MINIMUM_VERSION_AWS_CLI) {
+			if !strings.Contains(output, constants.MinimumVersionDocker) &&
+				!strings.Contains(output, constants.MinimumVersionDockerCompose) &&
+				!strings.Contains(output, constants.MinimumVersionColima) &&
+				!strings.Contains(output, constants.MinimumVersionLima) &&
+				!strings.Contains(output, constants.MinimumVersionKubectl) &&
+				!strings.Contains(output, constants.MinimumVersionTalosctl) &&
+				!strings.Contains(output, constants.MinimumVersionTerraform) &&
+				!strings.Contains(output, constants.MinimumVersion1Password) &&
+				!strings.Contains(output, constants.MinimumVersionAWSCLI) {
 				t.Errorf("Expected %s version check to pass, got output: %s", tool, output)
 			}
 		}

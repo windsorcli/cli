@@ -68,7 +68,7 @@ var checkNodeHealthCmd = &cobra.Command{
 
 		// If timeout is not set via flag, use default
 		if !cmd.Flags().Changed("timeout") {
-			nodeHealthTimeout = constants.DEFAULT_NODE_HEALTH_CHECK_TIMEOUT
+			nodeHealthTimeout = constants.DefaultNodeHealthCheckTimeout
 		}
 
 		// Create output function

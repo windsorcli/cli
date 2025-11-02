@@ -178,8 +178,8 @@ func (t *BaseToolsManager) checkDocker() error {
 
 	output, _ := t.shell.ExecSilent("docker", "version", "--format", "{{.Client.Version}}")
 	dockerVersion := extractVersion(output)
-	if dockerVersion != "" && compareVersion(dockerVersion, constants.MINIMUM_VERSION_DOCKER) < 0 {
-		return fmt.Errorf("docker version %s is below the minimum required version %s", dockerVersion, constants.MINIMUM_VERSION_DOCKER)
+	if dockerVersion != "" && compareVersion(dockerVersion, constants.MinimumVersionDocker) < 0 {
+		return fmt.Errorf("docker version %s is below the minimum required version %s", dockerVersion, constants.MinimumVersionDocker)
 	}
 
 	var dockerComposeVersion string
@@ -197,10 +197,10 @@ func (t *BaseToolsManager) checkDocker() error {
 
 	// Validate the collected docker-compose version
 	if dockerComposeVersion != "" {
-		if compareVersion(dockerComposeVersion, constants.MINIMUM_VERSION_DOCKER_COMPOSE) >= 0 {
+		if compareVersion(dockerComposeVersion, constants.MinimumVersionDockerCompose) >= 0 {
 			return nil
 		}
-		return fmt.Errorf("docker-compose version %s is below the minimum required version %s", dockerComposeVersion, constants.MINIMUM_VERSION_DOCKER_COMPOSE)
+		return fmt.Errorf("docker-compose version %s is below the minimum required version %s", dockerComposeVersion, constants.MinimumVersionDockerCompose)
 	}
 
 	if _, err := execLookPath("docker-cli-plugin-docker-compose"); err == nil {
@@ -222,8 +222,8 @@ func (t *BaseToolsManager) checkColima() error {
 	if colimaVersion == "" {
 		return fmt.Errorf("failed to extract colima version")
 	}
-	if compareVersion(colimaVersion, constants.MINIMUM_VERSION_COLIMA) < 0 {
-		return fmt.Errorf("colima version %s is below the minimum required version %s", colimaVersion, constants.MINIMUM_VERSION_COLIMA)
+	if compareVersion(colimaVersion, constants.MinimumVersionColima) < 0 {
+		return fmt.Errorf("colima version %s is below the minimum required version %s", colimaVersion, constants.MinimumVersionColima)
 	}
 
 	if _, err := execLookPath("limactl"); err != nil {
@@ -234,8 +234,8 @@ func (t *BaseToolsManager) checkColima() error {
 	if limactlVersion == "" {
 		return fmt.Errorf("failed to extract limactl version")
 	}
-	if compareVersion(limactlVersion, constants.MINIMUM_VERSION_LIMA) < 0 {
-		return fmt.Errorf("limactl version %s is below the minimum required version %s", limactlVersion, constants.MINIMUM_VERSION_LIMA)
+	if compareVersion(limactlVersion, constants.MinimumVersionLima) < 0 {
+		return fmt.Errorf("limactl version %s is below the minimum required version %s", limactlVersion, constants.MinimumVersionLima)
 	}
 
 	return nil
@@ -253,8 +253,8 @@ func (t *BaseToolsManager) checkKubectl() error {
 	if kubectlVersion == "" {
 		return fmt.Errorf("failed to extract kubectl version")
 	}
-	if compareVersion(kubectlVersion, constants.MINIMUM_VERSION_KUBECTL) < 0 {
-		return fmt.Errorf("kubectl version %s is below the minimum required version %s", kubectlVersion, constants.MINIMUM_VERSION_KUBECTL)
+	if compareVersion(kubectlVersion, constants.MinimumVersionKubectl) < 0 {
+		return fmt.Errorf("kubectl version %s is below the minimum required version %s", kubectlVersion, constants.MinimumVersionKubectl)
 	}
 
 	return nil
@@ -272,8 +272,8 @@ func (t *BaseToolsManager) checkTerraform() error {
 	if terraformVersion == "" {
 		return fmt.Errorf("failed to extract terraform version")
 	}
-	if compareVersion(terraformVersion, constants.MINIMUM_VERSION_TERRAFORM) < 0 {
-		return fmt.Errorf("terraform version %s is below the minimum required version %s", terraformVersion, constants.MINIMUM_VERSION_TERRAFORM)
+	if compareVersion(terraformVersion, constants.MinimumVersionTerraform) < 0 {
+		return fmt.Errorf("terraform version %s is below the minimum required version %s", terraformVersion, constants.MinimumVersionTerraform)
 	}
 
 	return nil
@@ -297,8 +297,8 @@ func (t *BaseToolsManager) checkOnePassword() error {
 		return fmt.Errorf("failed to extract 1Password CLI version")
 	}
 
-	if compareVersion(version, constants.MINIMUM_VERSION_1PASSWORD) < 0 {
-		return fmt.Errorf("1Password CLI version %s is below the minimum required version %s", version, constants.MINIMUM_VERSION_1PASSWORD)
+	if compareVersion(version, constants.MinimumVersion1Password) < 0 {
+		return fmt.Errorf("1Password CLI version %s is below the minimum required version %s", version, constants.MinimumVersion1Password)
 	}
 
 	return nil
@@ -323,8 +323,8 @@ func (t *BaseToolsManager) checkAwsCli() error {
 	if awsVersion == "" {
 		return fmt.Errorf("failed to extract aws cli version")
 	}
-	if compareVersion(awsVersion, constants.MINIMUM_VERSION_AWS_CLI) < 0 {
-		return fmt.Errorf("aws cli version %s is below the minimum required version %s", awsVersion, constants.MINIMUM_VERSION_AWS_CLI)
+	if compareVersion(awsVersion, constants.MinimumVersionAWSCLI) < 0 {
+		return fmt.Errorf("aws cli version %s is below the minimum required version %s", awsVersion, constants.MinimumVersionAWSCLI)
 	}
 
 	return nil

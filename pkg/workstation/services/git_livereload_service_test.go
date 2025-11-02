@@ -58,7 +58,7 @@ func TestGitLivereloadService_GetComposeConfig(t *testing.T) {
 
 		// Then verify the configuration contains the expected service
 		expectedName := "git"
-		expectedImage := constants.DEFAULT_GIT_LIVE_RELOAD_IMAGE
+		expectedImage := constants.DefaultGitLiveReloadImage
 		serviceFound := false
 
 		for _, service := range composeConfig.Services {

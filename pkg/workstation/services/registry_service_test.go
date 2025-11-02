@@ -231,7 +231,7 @@ contexts:
 		service.Initialize()
 		service.SetName("registry")
 		// Reset package-level variables
-		registryNextPort = constants.REGISTRY_DEFAULT_HOST_PORT + 1
+		registryNextPort = constants.RegistryDefaultHostPort + 1
 		localRegistry = nil
 		return service, mocks
 	}
@@ -274,7 +274,7 @@ contexts:
 		}
 
 		// And the host port should be set to default
-		expectedHostPort := constants.REGISTRY_DEFAULT_HOST_PORT
+		expectedHostPort := constants.RegistryDefaultHostPort
 		actualHostPort := mocks.ConfigHandler.GetInt("docker.registries.registry.hostport", 0)
 		if actualHostPort != expectedHostPort {
 			t.Errorf("expected host port %d, got %d", expectedHostPort, actualHostPort)
@@ -384,14 +384,14 @@ contexts:
 		}
 
 		// Then the first registry should have default port
-		expectedHostPort1 := constants.REGISTRY_DEFAULT_HOST_PORT
+		expectedHostPort1 := constants.RegistryDefaultHostPort
 		actualHostPort1 := mocks.ConfigHandler.GetInt("docker.registries.registry1.hostport", 0)
 		if actualHostPort1 != expectedHostPort1 {
 			t.Errorf("expected host port %d for first registry, got %d", expectedHostPort1, actualHostPort1)
 		}
 
 		// And the second registry should have incremented port
-		expectedHostPort2 := constants.REGISTRY_DEFAULT_HOST_PORT + 1
+		expectedHostPort2 := constants.RegistryDefaultHostPort + 1
 		actualHostPort2 := mocks.ConfigHandler.GetInt("docker.registries.registry2.hostport", 0)
 		if actualHostPort2 != expectedHostPort2 {
 			t.Errorf("expected host port %d for second registry, got %d", expectedHostPort2, actualHostPort2)
@@ -516,7 +516,7 @@ contexts:
 		service.SetName("registry")
 
 		// Reset package-level variables
-		registryNextPort = constants.REGISTRY_DEFAULT_HOST_PORT + 1
+		registryNextPort = constants.RegistryDefaultHostPort + 1
 		localRegistry = nil
 
 		// And mock configuration

@@ -22,7 +22,7 @@ import (
 // =============================================================================
 
 var (
-	registryNextPort = constants.REGISTRY_DEFAULT_HOST_PORT + 1
+	registryNextPort = constants.RegistryDefaultHostPort + 1
 	registryMu       sync.Mutex
 	localRegistry    *RegistryService
 )
@@ -92,7 +92,7 @@ func (s *RegistryService) SetAddress(address string) error {
 
 		if localRegistry == nil {
 			localRegistry = s
-			hostPort = constants.REGISTRY_DEFAULT_HOST_PORT
+			hostPort = constants.RegistryDefaultHostPort
 			err = s.configHandler.Set("docker.registry_url", hostName)
 			if err != nil {
 				return fmt.Errorf("failed to set registry URL for registry %s: %w", s.name, err)
@@ -130,7 +130,7 @@ func (s *RegistryService) generateRegistryService(registry docker.RegistryConfig
 	service := types.ServiceConfig{
 		Name:          serviceName,
 		ContainerName: containerName,
-		Image:         constants.REGISTRY_DEFAULT_IMAGE,
+		Image:         constants.RegistryDefaultImage,
 		Restart:       "always",
 		Labels: map[string]string{
 			"role":       "registry",

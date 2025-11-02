@@ -825,7 +825,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 		if result.Spec.Path != "kustomize/test/path" {
 			t.Errorf("Expected path 'kustomize/test/path', got '%s'", result.Spec.Path)
 		}
-		if result.Spec.Interval.Duration != constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL {
+		if result.Spec.Interval.Duration != constants.DefaultFluxKustomizationInterval {
 			t.Errorf("Expected default interval, got %v", result.Spec.Interval.Duration)
 		}
 		if result.Spec.PostBuild == nil {
@@ -1114,7 +1114,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 
 		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
 
-		if result.Spec.Interval.Duration != constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL {
+		if result.Spec.Interval.Duration != constants.DefaultFluxKustomizationInterval {
 			t.Errorf("Expected default interval, got %v", result.Spec.Interval.Duration)
 		}
 	})

@@ -626,27 +626,27 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 		path = "kustomize/" + strings.ReplaceAll(path, "\\", "/")
 	}
 
-	interval := metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL}
+	interval := metav1.Duration{Duration: constants.DefaultFluxKustomizationInterval}
 	if k.Interval != nil && k.Interval.Duration != 0 {
 		interval = *k.Interval
 	}
 
-	retryInterval := metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL}
+	retryInterval := metav1.Duration{Duration: constants.DefaultFluxKustomizationRetryInterval}
 	if k.RetryInterval != nil && k.RetryInterval.Duration != 0 {
 		retryInterval = *k.RetryInterval
 	}
 
-	timeout := metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT}
+	timeout := metav1.Duration{Duration: constants.DefaultFluxKustomizationTimeout}
 	if k.Timeout != nil && k.Timeout.Duration != 0 {
 		timeout = *k.Timeout
 	}
 
-	wait := constants.DEFAULT_FLUX_KUSTOMIZATION_WAIT
+	wait := constants.DefaultFluxKustomizationWait
 	if k.Wait != nil {
 		wait = *k.Wait
 	}
 
-	force := constants.DEFAULT_FLUX_KUSTOMIZATION_FORCE
+	force := constants.DefaultFluxKustomizationForce
 	if k.Force != nil {
 		force = *k.Force
 	}
