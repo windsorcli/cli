@@ -20,6 +20,7 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -60,7 +61,7 @@ type KubernetesManager interface {
 type BaseKubernetesManager struct {
 	injector di.Injector
 	shims    *Shims
-	client   KubernetesClient
+	client   client.KubernetesClient
 
 	kustomizationWaitPollInterval time.Duration
 	kustomizationReconcileTimeout time.Duration
@@ -84,11 +85,11 @@ func NewKubernetesManager(injector di.Injector) *BaseKubernetesManager {
 
 // Initialize sets up the BaseKubernetesManager by resolving dependencies
 func (k *BaseKubernetesManager) Initialize() error {
-	client, ok := k.injector.Resolve("kubernetesClient").(KubernetesClient)
+	kubernetesClient, ok := k.injector.Resolve("kubernetesClient").(client.KubernetesClient)
 	if !ok {
 		return fmt.Errorf("error resolving kubernetesClient")
 	}
-	k.client = client
+	k.client = kubernetesClient
 	return nil
 }
 

@@ -16,9 +16,10 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 	envvars "github.com/windsorcli/cli/pkg/context/env"
 	"github.com/windsorcli/cli/pkg/context/tools"
-	"github.com/windsorcli/cli/pkg/infrastructure/cluster"
-	"github.com/windsorcli/cli/pkg/infrastructure/kubernetes"
-	terraforminfra "github.com/windsorcli/cli/pkg/infrastructure/terraform"
+	"github.com/windsorcli/cli/pkg/provisioner/cluster"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
+	k8sclient "github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
+	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/resources/artifact"
 	"github.com/windsorcli/cli/pkg/resources/blueprint"
 	"github.com/windsorcli/cli/pkg/context/shell"
@@ -1995,7 +1996,7 @@ func TestBasePipeline_withKubernetesClient(t *testing.T) {
 	t.Run("ReusesExistingKubernetesClientWhenRegistered", func(t *testing.T) {
 		// Given a pipeline with existing kubernetes client
 		pipeline, _ := setup(t)
-		existingClient := kubernetes.NewDynamicKubernetesClient()
+		existingClient := k8sclient.NewDynamicKubernetesClient()
 		pipeline.injector.Register("kubernetesClient", existingClient)
 
 		// When getting kubernetes client

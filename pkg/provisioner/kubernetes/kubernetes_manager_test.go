@@ -13,6 +13,7 @@ import (
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -42,11 +43,11 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		opts[0].Injector = di.NewMockInjector()
 	}
 
-	client := NewMockKubernetesClient()
-	client.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+	kubernetesClient := client.NewMockKubernetesClient()
+	kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 		return obj, nil
 	}
-	client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+	kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 		return &unstructured.Unstructured{}, nil
 	}
 
@@ -55,7 +56,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		Shims:    setupShims(t),
 	}
 
-	mocks.Injector.Register("kubernetesClient", client)
+	mocks.Injector.Register("kubernetesClient", kubernetesClient)
 
 	return mocks
 }
@@ -161,14 +162,14 @@ func TestBaseKubernetesManager_ApplyKustomization(t *testing.T) {
 
 	t.Run("ApplyWithRetryError", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("apply error")
 		}
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		kustomization := kustomizev1.Kustomization{
 			ObjectMeta: metav1.ObjectMeta{
@@ -204,15 +205,15 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
 		// Mock GetResource to return "not found" immediately to simulate successful deletion
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
 		if err != nil {
@@ -222,11 +223,11 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 
 	t.Run("DeleteError", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return fmt.Errorf("delete error")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
 		if err == nil {
@@ -236,11 +237,11 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 
 	t.Run("KustomizationNotFound", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return fmt.Errorf("the server could not find the requested resource")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
 		if err != nil {
@@ -250,17 +251,17 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 
 	t.Run("UsesCorrectDeleteOptions", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
+		kubernetesClient := client.NewMockKubernetesClient()
 		var capturedOptions metav1.DeleteOptions
-		client.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			capturedOptions = opts
 			return nil
 		}
 		// Mock GetResource to return "not found" immediately to simulate successful deletion
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
 		if err != nil {
@@ -293,8 +294,8 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
 				Object: map[string]any{
 					"status": map[string]any{
@@ -308,7 +309,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.WaitForKustomizations("Waiting for kustomizations", "test-kustomization")
 		if err != nil {
@@ -318,8 +319,8 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 
 	t.Run("Timeout", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
 				Object: map[string]any{
 					"status": map[string]any{
@@ -333,7 +334,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.WaitForKustomizations("Waiting for kustomizations", "test-kustomization")
 		if err == nil {
@@ -343,13 +344,13 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 
 	t.Run("MissingStatus", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
 				Object: map[string]any{},
 			}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.WaitForKustomizations("Waiting for kustomizations", "test-kustomization")
 		if err == nil {
@@ -359,8 +360,8 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 
 	t.Run("FromUnstructuredError", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
 				Object: map[string]any{
 					"status": map[string]any{
@@ -374,7 +375,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return fmt.Errorf("forced conversion error")
@@ -388,15 +389,15 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 
 	t.Run("MissingConditions", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
 				Object: map[string]any{
 					"status": map[string]any{},
 				},
 			}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.WaitForKustomizations("Waiting for kustomizations", "test-kustomization")
 		if err == nil {
@@ -406,8 +407,8 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 
 	t.Run("ConditionTypeNotReady", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
 				Object: map[string]any{
 					"status": map[string]any{
@@ -421,7 +422,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.WaitForKustomizations("Waiting for kustomizations", "test-kustomization")
 		if err == nil {
@@ -431,8 +432,8 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 
 	t.Run("ConditionReadyFalse", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
 				Object: map[string]any{
 					"status": map[string]any{
@@ -446,7 +447,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.WaitForKustomizations("Waiting for kustomizations", "test-kustomization")
 		if err == nil {
@@ -468,14 +469,14 @@ func TestBaseKubernetesManager_CreateNamespace(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return obj, nil
 		}
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.CreateNamespace("test-namespace")
 		if err != nil {
@@ -485,14 +486,14 @@ func TestBaseKubernetesManager_CreateNamespace(t *testing.T) {
 
 	t.Run("ApplyError", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("apply error")
 		}
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.CreateNamespace("test-namespace")
 		if err == nil {
@@ -514,15 +515,15 @@ func TestBaseKubernetesManager_DeleteNamespace(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
 		// Mock GetResource to return "not found" immediately to simulate successful deletion
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.DeleteNamespace("test-namespace")
 		if err != nil {
@@ -532,11 +533,11 @@ func TestBaseKubernetesManager_DeleteNamespace(t *testing.T) {
 
 	t.Run("DeleteError", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return fmt.Errorf("delete error")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.DeleteNamespace("test-namespace")
 		if err == nil {
@@ -546,13 +547,13 @@ func TestBaseKubernetesManager_DeleteNamespace(t *testing.T) {
 
 	t.Run("UsesCorrectDeleteOptions", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
+		kubernetesClient := client.NewMockKubernetesClient()
 		var capturedOptions metav1.DeleteOptions
-		client.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			capturedOptions = opts
 			return nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.DeleteNamespace("test-namespace")
 		if err != nil {
@@ -583,14 +584,14 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return obj, nil
 		}
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		data := map[string]string{
 			"key1": "value1",
@@ -604,8 +605,8 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 
 	t.Run("ImmutableConfigMap", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
 				Object: map[string]any{
 					"kind": "ConfigMap",
@@ -615,13 +616,13 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 				},
 			}, nil
 		}
-		client.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
-		client.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return obj, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		data := map[string]string{
 			"key1": "value1",
@@ -634,14 +635,14 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 
 	t.Run("ApplyError", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		client.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("apply error")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		data := map[string]string{
 			"key1": "value1",
@@ -681,14 +682,14 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 
 	t.Run("GetResourceError_NotFound", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		client.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return obj, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 		// Should not error, just apply
 		err := manager.ApplyConfigMap("test-configmap", "test-namespace", map[string]string{"k": "v"})
 		if err != nil {
@@ -698,14 +699,14 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 
 	t.Run("GetResourceError_Other", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("some error")
 		}
-		client.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return obj, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 		// Should not error, just apply
 		err := manager.ApplyConfigMap("test-configmap", "test-namespace", map[string]string{"k": "v"})
 		if err != nil {
@@ -715,8 +716,8 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 
 	t.Run("DeleteResourceError_ImmutableConfigMap", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
 				Object: map[string]any{
 					"kind": "ConfigMap",
@@ -724,10 +725,10 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 				},
 			}, nil
 		}
-		client.DeleteResourceFunc = func(gvr schema.GroupVersionResource, ns, name string, opts metav1.DeleteOptions) error {
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, ns, name string, opts metav1.DeleteOptions) error {
 			return fmt.Errorf("delete error")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 		err := manager.ApplyConfigMap("test-configmap", "test-namespace", map[string]string{"k": "v"})
 		if err == nil || !strings.Contains(err.Error(), "failed to delete immutable configmap") {
 			t.Errorf("Expected delete error, got %v", err)
@@ -754,8 +755,8 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 			}
 			return manager
 		}(t)
-		client := NewMockKubernetesClient()
-		client.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
@@ -778,7 +779,7 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return fmt.Errorf("forced conversion error")
 		}
@@ -804,8 +805,8 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 			}
 			return manager
 		}(t)
-		client := NewMockKubernetesClient()
-		client.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
@@ -828,7 +829,7 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		status, err := manager.GetKustomizationStatus([]string{"k1"})
 		if err != nil {
@@ -848,8 +849,8 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 			}
 			return manager
 		}(t)
-		client := NewMockKubernetesClient()
-		client.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
@@ -874,7 +875,7 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		status, err := manager.GetKustomizationStatus([]string{"k1"})
 		if err == nil {
@@ -897,8 +898,8 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 			}
 			return manager
 		}(t)
-		client := NewMockKubernetesClient()
-		client.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
@@ -921,7 +922,7 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		status, err := manager.GetKustomizationStatus([]string{"k1", "k2"})
 		if err != nil {
@@ -1111,9 +1112,9 @@ func TestBaseKubernetesManager_GetHelmReleasesForKustomization(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
+		kubernetesClient := client.NewMockKubernetesClient()
 		// Return a Kustomization with a valid HelmRelease inventory entry
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			if gvr.Group == "kustomize.toolkit.fluxcd.io" && gvr.Resource == "kustomizations" {
 				return &unstructured.Unstructured{
 					Object: map[string]any{
@@ -1145,7 +1146,7 @@ func TestBaseKubernetesManager_GetHelmReleasesForKustomization(t *testing.T) {
 			}
 			return nil, fmt.Errorf("unexpected resource request")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		releases, err := manager.GetHelmReleasesForKustomization("test-kustomization", "test-namespace")
 		if err != nil {
@@ -1158,11 +1159,11 @@ func TestBaseKubernetesManager_GetHelmReleasesForKustomization(t *testing.T) {
 
 	t.Run("GetResourceError", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("get resource error")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		releases, err := manager.GetHelmReleasesForKustomization("test-kustomization", "test-namespace")
 		if err == nil {
@@ -1175,11 +1176,11 @@ func TestBaseKubernetesManager_GetHelmReleasesForKustomization(t *testing.T) {
 
 	t.Run("KustomizationNotFound", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		releases, err := manager.GetHelmReleasesForKustomization("test-kustomization", "test-namespace")
 		if err != nil {
@@ -1192,13 +1193,13 @@ func TestBaseKubernetesManager_GetHelmReleasesForKustomization(t *testing.T) {
 
 	t.Run("FromUnstructuredError", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
 				Object: map[string]any{},
 			}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return fmt.Errorf("forced conversion error")
 		}
@@ -1222,15 +1223,15 @@ func TestBaseKubernetesManager_SuspendKustomization(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			expectedPatch := []byte(`{"spec":{"suspend":true}}`)
 			if !bytes.Equal(data, expectedPatch) {
 				t.Errorf("Expected patch %s, got %s", expectedPatch, data)
 			}
 			return &unstructured.Unstructured{}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.SuspendKustomization("test-kustomization", "test-namespace")
 		if err != nil {
@@ -1240,11 +1241,11 @@ func TestBaseKubernetesManager_SuspendKustomization(t *testing.T) {
 
 	t.Run("PatchError", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("patch error")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.SuspendKustomization("test-kustomization", "test-namespace")
 		if err == nil {
@@ -1257,11 +1258,11 @@ func TestBaseKubernetesManager_SuspendKustomization(t *testing.T) {
 
 	t.Run("ResourceNotFound", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("resource not found")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.SuspendKustomization("nonexistent-kustomization", "test-namespace")
 		if err == nil {
@@ -1274,11 +1275,11 @@ func TestBaseKubernetesManager_SuspendKustomization(t *testing.T) {
 
 	t.Run("PatchResourceError", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("namespace not found")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.SuspendKustomization("test-kustomization", "nonexistent-namespace")
 		if err == nil {
@@ -1291,11 +1292,11 @@ func TestBaseKubernetesManager_SuspendKustomization(t *testing.T) {
 
 	t.Run("ServerCouldNotFindResource", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.SuspendKustomization("observability", "test-namespace")
 		if err == nil {
@@ -1320,15 +1321,15 @@ func TestBaseKubernetesManager_SuspendHelmRelease(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			expectedPatch := []byte(`{"spec":{"suspend":true}}`)
 			if !bytes.Equal(data, expectedPatch) {
 				t.Errorf("Expected patch %s, got %s", expectedPatch, data)
 			}
 			return &unstructured.Unstructured{}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.SuspendHelmRelease("test-release", "test-namespace")
 		if err != nil {
@@ -1338,11 +1339,11 @@ func TestBaseKubernetesManager_SuspendHelmRelease(t *testing.T) {
 
 	t.Run("PatchError", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("patch error")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.SuspendHelmRelease("test-release", "test-namespace")
 		if err == nil {
@@ -1355,11 +1356,11 @@ func TestBaseKubernetesManager_SuspendHelmRelease(t *testing.T) {
 
 	t.Run("ResourceNotFound", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("resource not found")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.SuspendHelmRelease("nonexistent-release", "test-namespace")
 		if err == nil {
@@ -1372,11 +1373,11 @@ func TestBaseKubernetesManager_SuspendHelmRelease(t *testing.T) {
 
 	t.Run("PatchResourceError", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("namespace not found")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.SuspendHelmRelease("test-release", "nonexistent-namespace")
 		if err == nil {
@@ -1389,11 +1390,11 @@ func TestBaseKubernetesManager_SuspendHelmRelease(t *testing.T) {
 
 	t.Run("ServerCouldNotFindResource", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.SuspendHelmRelease("observability", "test-namespace")
 		if err == nil {
@@ -1418,14 +1419,14 @@ func TestBaseKubernetesManager_ApplyGitRepository(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return obj, nil
 		}
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		repo := &sourcev1.GitRepository{
 			ObjectMeta: metav1.ObjectMeta{
@@ -1501,14 +1502,14 @@ func TestBaseKubernetesManager_ApplyGitRepository(t *testing.T) {
 
 	t.Run("ApplyWithRetryError", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("apply error")
 		}
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		repo := &sourcev1.GitRepository{
 			ObjectMeta: metav1.ObjectMeta{
@@ -1551,8 +1552,8 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 			}
 			return manager
 		}(t)
-		client := NewMockKubernetesClient()
-		client.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
@@ -1576,7 +1577,7 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.CheckGitRepositoryStatus()
 		if err != nil {
@@ -1593,11 +1594,11 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 			}
 			return manager
 		}(t)
-		client := NewMockKubernetesClient()
-		client.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
 			return nil, fmt.Errorf("list resources error")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.CheckGitRepositoryStatus()
 		if err == nil {
@@ -1617,8 +1618,8 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 			}
 			return manager
 		}(t)
-		client := NewMockKubernetesClient()
-		client.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
@@ -1642,7 +1643,7 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return fmt.Errorf("forced conversion error")
 		}
@@ -1665,8 +1666,8 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 			}
 			return manager
 		}(t)
-		client := NewMockKubernetesClient()
-		client.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
@@ -1690,7 +1691,7 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		err := manager.CheckGitRepositoryStatus()
 		if err == nil {
@@ -1712,8 +1713,8 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 			}
 			return manager
 		}(t)
-		client := NewMockKubernetesClient()
-		client.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
@@ -1736,7 +1737,7 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		status, err := manager.GetKustomizationStatus([]string{"k1"})
 		if err != nil {
@@ -1756,11 +1757,11 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 			}
 			return manager
 		}(t)
-		client := NewMockKubernetesClient()
-		client.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
 			return nil, fmt.Errorf("list resources error")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		status, err := manager.GetKustomizationStatus([]string{"k1"})
 		if err == nil {
@@ -1783,8 +1784,8 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 			}
 			return manager
 		}(t)
-		client := NewMockKubernetesClient()
-		client.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
@@ -1807,7 +1808,7 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return fmt.Errorf("forced conversion error")
 		}
@@ -1833,8 +1834,8 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 			}
 			return manager
 		}(t)
-		client := NewMockKubernetesClient()
-		client.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
@@ -1857,7 +1858,7 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		status, err := manager.GetKustomizationStatus([]string{"k1"})
 		if err != nil {
@@ -1877,8 +1878,8 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 			}
 			return manager
 		}(t)
-		client := NewMockKubernetesClient()
-		client.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
@@ -1903,7 +1904,7 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		status, err := manager.GetKustomizationStatus([]string{"k1"})
 		if err == nil {
@@ -1926,8 +1927,8 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 			}
 			return manager
 		}(t)
-		client := NewMockKubernetesClient()
-		client.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
@@ -1952,7 +1953,7 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		status, err := manager.GetKustomizationStatus([]string{"k1"})
 		if err == nil {
@@ -1975,8 +1976,8 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 			}
 			return manager
 		}(t)
-		client := NewMockKubernetesClient()
-		client.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
 			return &unstructured.UnstructuredList{
 				Items: []unstructured.Unstructured{
 					{
@@ -1999,7 +2000,7 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		status, err := manager.GetKustomizationStatus([]string{"k1", "k2"})
 		if err != nil {
@@ -2027,11 +2028,11 @@ func TestBaseKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.CheckHealthFunc = func(ctx context.Context, endpoint string) error {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.CheckHealthFunc = func(ctx context.Context, endpoint string) error {
 			return nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
@@ -2060,11 +2061,11 @@ func TestBaseKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 
 	t.Run("ContextCancelled", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.CheckHealthFunc = func(ctx context.Context, endpoint string) error {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.CheckHealthFunc = func(ctx context.Context, endpoint string) error {
 			return fmt.Errorf("health check failed")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
@@ -2092,14 +2093,14 @@ func TestBaseKubernetesManager_ApplyOCIRepository(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		client.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return obj, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return map[string]any{
 				"apiVersion": "source.toolkit.fluxcd.io/v1",
@@ -2252,15 +2253,15 @@ func TestBaseKubernetesManager_GetNodeReadyStatus(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
+		kubernetesClient := client.NewMockKubernetesClient()
 		expectedStatus := map[string]bool{
 			"node1": true,
 			"node2": false,
 		}
-		client.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
+		kubernetesClient.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
 			return expectedStatus, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		ctx := context.Background()
 		status, err := manager.GetNodeReadyStatus(ctx, []string{"node1", "node2"})
@@ -2288,11 +2289,11 @@ func TestBaseKubernetesManager_GetNodeReadyStatus(t *testing.T) {
 
 	t.Run("ClientError", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
 			return nil, fmt.Errorf("client error")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		ctx := context.Background()
 		_, err := manager.GetNodeReadyStatus(ctx, []string{"node1"})
@@ -2318,14 +2319,14 @@ func TestBaseKubernetesManager_waitForNodesReady(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
 			return map[string]bool{
 				"node1": true,
 				"node2": true,
 			}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
@@ -2346,14 +2347,14 @@ func TestBaseKubernetesManager_waitForNodesReady(t *testing.T) {
 
 	t.Run("ContextCancelled", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
 			return map[string]bool{
 				"node1": false,
 				"node2": false,
 			}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
@@ -2369,13 +2370,13 @@ func TestBaseKubernetesManager_waitForNodesReady(t *testing.T) {
 
 	t.Run("MissingNodes", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
 			return map[string]bool{
 				"node1": true,
 			}, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
@@ -2404,7 +2405,7 @@ func TestBaseKubernetesManager_getHelmRelease(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
+		kubernetesClient := client.NewMockKubernetesClient()
 		expectedObj := &unstructured.Unstructured{
 			Object: map[string]any{
 				"apiVersion": "helm.toolkit.fluxcd.io/v2",
@@ -2422,10 +2423,10 @@ func TestBaseKubernetesManager_getHelmRelease(t *testing.T) {
 				},
 			},
 		}
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			return expectedObj, nil
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		release, err := manager.getHelmRelease("test-release", "test-namespace")
 		if err != nil {
@@ -2441,11 +2442,11 @@ func TestBaseKubernetesManager_getHelmRelease(t *testing.T) {
 
 	t.Run("GetResourceError", func(t *testing.T) {
 		manager := setup(t)
-		client := NewMockKubernetesClient()
-		client.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("get resource error")
 		}
-		manager.client = client
+		manager.client = kubernetesClient
 
 		_, err := manager.getHelmRelease("test-release", "test-namespace")
 		if err == nil {

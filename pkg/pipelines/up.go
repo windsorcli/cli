@@ -8,7 +8,7 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 	envvars "github.com/windsorcli/cli/pkg/context/env"
 	"github.com/windsorcli/cli/pkg/context/tools"
-	terraforminfra "github.com/windsorcli/cli/pkg/infrastructure/terraform"
+	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/context/shell"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/virt"

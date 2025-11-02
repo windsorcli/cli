@@ -15,7 +15,7 @@ import (
 	"github.com/windsorcli/cli/pkg/context/tools"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/generators"
-	terraforminfra "github.com/windsorcli/cli/pkg/infrastructure/terraform"
+	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/resources/artifact"
 	"github.com/windsorcli/cli/pkg/resources/blueprint"
 	"github.com/windsorcli/cli/pkg/resources/terraform"

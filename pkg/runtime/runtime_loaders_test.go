@@ -9,8 +9,9 @@ import (
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
 	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/infrastructure/cluster"
-	"github.com/windsorcli/cli/pkg/infrastructure/kubernetes"
+	"github.com/windsorcli/cli/pkg/provisioner/cluster"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
+	k8sclient "github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	"github.com/windsorcli/cli/pkg/context/shell"
 )
 
@@ -667,7 +668,7 @@ func TestRuntime_LoadKubernetes(t *testing.T) {
 		}
 
 		// And an existing kubernetes client registered
-		existingClient := kubernetes.NewMockKubernetesClient()
+		existingClient := k8sclient.NewMockKubernetesClient()
 		runtime.Injector.Register("kubernetesClient", existingClient)
 
 		// When loading kubernetes
