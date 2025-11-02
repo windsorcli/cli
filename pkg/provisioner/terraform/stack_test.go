@@ -16,7 +16,7 @@ import (
 	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/di"
 	envvars "github.com/windsorcli/cli/pkg/context/env"
-	"github.com/windsorcli/cli/pkg/resources/blueprint"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/context/shell"
 )
 

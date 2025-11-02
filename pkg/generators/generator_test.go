@@ -11,8 +11,8 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/di"
-	bundler "github.com/windsorcli/cli/pkg/resources/artifact"
-	"github.com/windsorcli/cli/pkg/resources/blueprint"
+	bundler "github.com/windsorcli/cli/pkg/composer/artifact"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/context/shell"
 )
 

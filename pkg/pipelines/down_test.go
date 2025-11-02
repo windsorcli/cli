@@ -12,7 +12,7 @@ import (
 	envvars "github.com/windsorcli/cli/pkg/context/env"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
-	"github.com/windsorcli/cli/pkg/resources/blueprint"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/context/shell"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/virt"

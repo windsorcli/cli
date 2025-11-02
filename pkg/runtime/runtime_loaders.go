@@ -12,7 +12,7 @@ import (
 	"github.com/windsorcli/cli/pkg/provisioner/cluster"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	k8sclient "github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
-	"github.com/windsorcli/cli/pkg/resources/blueprint"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/context/secrets"
 	"github.com/windsorcli/cli/pkg/context/shell"
 )

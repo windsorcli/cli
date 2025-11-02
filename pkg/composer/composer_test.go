@@ -1,4 +1,4 @@
-package resources
+package composer
 
 import (
 	"testing"
@@ -13,8 +13,8 @@ import (
 // Test Setup
 // =============================================================================
 
-// setupResourcesMocks creates mock components for testing the Resources
-func setupResourcesMocks(t *testing.T) *Mocks {
+// setupComposerMocks creates mock components for testing the Composer
+func setupComposerMocks(t *testing.T) *Mocks {
 	t.Helper()
 
 	injector := di.NewInjector()
@@ -32,86 +32,86 @@ func setupResourcesMocks(t *testing.T) *Mocks {
 		Shell:         shell,
 	}
 
-	// Create resources execution context
-	resourcesCtx := &ResourcesExecutionContext{
+	// Create composer execution context
+	composerCtx := &ComposerExecutionContext{
 		ExecutionContext: *execCtx,
 	}
 
 	return &Mocks{
-		Injector:                  injector,
-		ConfigHandler:             configHandler,
-		Shell:                     shell,
-		ResourcesExecutionContext: resourcesCtx,
+		Injector:                injector,
+		ConfigHandler:           configHandler,
+		Shell:                   shell,
+		ComposerExecutionContext: composerCtx,
 	}
 }
 
 // Mocks contains all the mock dependencies for testing
 type Mocks struct {
-	Injector                  di.Injector
-	ConfigHandler             config.ConfigHandler
-	Shell                     shell.Shell
-	ResourcesExecutionContext *ResourcesExecutionContext
+	Injector                di.Injector
+	ConfigHandler           config.ConfigHandler
+	Shell                   shell.Shell
+	ComposerExecutionContext *ComposerExecutionContext
 }
 
 // =============================================================================
 // Test Constructor
 // =============================================================================
 
-func TestNewResources(t *testing.T) {
-	t.Run("CreatesResourcesWithDependencies", func(t *testing.T) {
-		mocks := setupResourcesMocks(t)
+func TestNewComposer(t *testing.T) {
+	t.Run("CreatesComposerWithDependencies", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
 
-		resources := NewResources(mocks.ResourcesExecutionContext)
+		composer := NewComposer(mocks.ComposerExecutionContext)
 
-		if resources == nil {
-			t.Fatal("Expected Resources to be created")
+		if composer == nil {
+			t.Fatal("Expected Composer to be created")
 		}
 
-		if resources.Injector != mocks.Injector {
+		if composer.Injector != mocks.Injector {
 			t.Error("Expected injector to be set")
 		}
 
-		if resources.Shell != mocks.Shell {
+		if composer.Shell != mocks.Shell {
 			t.Error("Expected shell to be set")
 		}
 
-		if resources.ConfigHandler != mocks.ConfigHandler {
+		if composer.ConfigHandler != mocks.ConfigHandler {
 			t.Error("Expected config handler to be set")
 		}
 
-		if resources.ArtifactBuilder == nil {
+		if composer.ArtifactBuilder == nil {
 			t.Error("Expected artifact builder to be initialized")
 		}
 
-		if resources.BlueprintHandler == nil {
+		if composer.BlueprintHandler == nil {
 			t.Error("Expected blueprint handler to be initialized")
 		}
 
-		if resources.TerraformResolver == nil {
+		if composer.TerraformResolver == nil {
 			t.Error("Expected terraform resolver to be initialized")
 		}
 	})
 }
 
-func TestCreateResources(t *testing.T) {
-	t.Run("CreatesResourcesWithDependencies", func(t *testing.T) {
-		mocks := setupResourcesMocks(t)
+func TestCreateComposer(t *testing.T) {
+	t.Run("CreatesComposerWithDependencies", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
 
-		resources := CreateResources(mocks.ResourcesExecutionContext)
+		composer := CreateComposer(mocks.ComposerExecutionContext)
 
-		if resources == nil {
-			t.Fatal("Expected Resources to be created")
+		if composer == nil {
+			t.Fatal("Expected Composer to be created")
 		}
 
-		if resources.Injector != mocks.Injector {
+		if composer.Injector != mocks.Injector {
 			t.Error("Expected injector to be set")
 		}
 
-		if resources.ConfigHandler != mocks.ConfigHandler {
+		if composer.ConfigHandler != mocks.ConfigHandler {
 			t.Error("Expected config handler to be set")
 		}
 
-		if resources.Shell != mocks.Shell {
+		if composer.Shell != mocks.Shell {
 			t.Error("Expected shell to be set")
 		}
 	})
@@ -121,14 +121,14 @@ func TestCreateResources(t *testing.T) {
 // Test Public Methods
 // =============================================================================
 
-func TestResources_Bundle(t *testing.T) {
+func TestComposer_Bundle(t *testing.T) {
 	t.Run("HandlesBundleSuccessfully", func(t *testing.T) {
-		mocks := setupResourcesMocks(t)
-		resources := NewResources(mocks.ResourcesExecutionContext)
+		mocks := setupComposerMocks(t)
+		composer := NewComposer(mocks.ComposerExecutionContext)
 
 		// This test would need proper mocking of the artifact builder
 		// For now, we'll just test that the method exists and handles errors
-		_, err := resources.Bundle("/test/output", "v1.0.0")
+		_, err := composer.Bundle("/test/output", "v1.0.0")
 		// We expect an error here because we don't have proper mocks set up
 		if err == nil {
 			t.Error("Expected error due to missing mocks, but got nil")
@@ -136,14 +136,14 @@ func TestResources_Bundle(t *testing.T) {
 	})
 }
 
-func TestResources_Push(t *testing.T) {
+func TestComposer_Push(t *testing.T) {
 	t.Run("HandlesPushSuccessfully", func(t *testing.T) {
-		mocks := setupResourcesMocks(t)
-		resources := NewResources(mocks.ResourcesExecutionContext)
+		mocks := setupComposerMocks(t)
+		composer := NewComposer(mocks.ComposerExecutionContext)
 
 		// This test would need proper mocking of the artifact builder
 		// For now, we'll just test that the method exists and handles errors
-		_, err := resources.Push("ghcr.io", "test/repo", "latest")
+		_, err := composer.Push("ghcr.io", "test/repo", "latest")
 		// We expect an error here because we don't have proper mocks set up
 		if err == nil {
 			t.Error("Expected error due to missing mocks, but got nil")
@@ -151,14 +151,14 @@ func TestResources_Push(t *testing.T) {
 	})
 }
 
-func TestResources_Generate(t *testing.T) {
+func TestComposer_Generate(t *testing.T) {
 	t.Run("HandlesGenerateSuccessfully", func(t *testing.T) {
-		mocks := setupResourcesMocks(t)
-		resources := NewResources(mocks.ResourcesExecutionContext)
+		mocks := setupComposerMocks(t)
+		composer := NewComposer(mocks.ComposerExecutionContext)
 
 		// This test would need proper mocking of the blueprint handler and terraform resolver
 		// For now, we'll just test that the method exists and handles errors
-		err := resources.Generate()
+		err := composer.Generate()
 		// We expect an error here because we don't have proper mocks set up
 		if err == nil {
 			t.Error("Expected error due to missing mocks, but got nil")
@@ -166,12 +166,12 @@ func TestResources_Generate(t *testing.T) {
 	})
 
 	t.Run("HandlesGenerateWithOverwrite", func(t *testing.T) {
-		mocks := setupResourcesMocks(t)
-		resources := NewResources(mocks.ResourcesExecutionContext)
+		mocks := setupComposerMocks(t)
+		composer := NewComposer(mocks.ComposerExecutionContext)
 
 		// This test would need proper mocking of the blueprint handler and terraform resolver
 		// For now, we'll just test that the method exists and handles errors
-		err := resources.Generate(true)
+		err := composer.Generate(true)
 		// We expect an error here because we don't have proper mocks set up
 		if err == nil {
 			t.Error("Expected error due to missing mocks, but got nil")
@@ -180,11 +180,11 @@ func TestResources_Generate(t *testing.T) {
 }
 
 // =============================================================================
-// Test ResourcesExecutionContext
+// Test ComposerExecutionContext
 // =============================================================================
 
-func TestResourcesExecutionContext(t *testing.T) {
-	t.Run("CreatesResourcesExecutionContext", func(t *testing.T) {
+func TestComposerExecutionContext(t *testing.T) {
+	t.Run("CreatesComposerExecutionContext", func(t *testing.T) {
 		execCtx := &context.ExecutionContext{
 			ContextName:  "test-context",
 			ProjectRoot:  "/test/project",
@@ -192,24 +192,24 @@ func TestResourcesExecutionContext(t *testing.T) {
 			TemplateRoot: "/test/project/contexts/_template",
 		}
 
-		resourcesCtx := &ResourcesExecutionContext{
+		composerCtx := &ComposerExecutionContext{
 			ExecutionContext: *execCtx,
 		}
 
-		if resourcesCtx.ContextName != "test-context" {
-			t.Errorf("Expected context name 'test-context', got: %s", resourcesCtx.ContextName)
+		if composerCtx.ContextName != "test-context" {
+			t.Errorf("Expected context name 'test-context', got: %s", composerCtx.ContextName)
 		}
 
-		if resourcesCtx.ProjectRoot != "/test/project" {
-			t.Errorf("Expected project root '/test/project', got: %s", resourcesCtx.ProjectRoot)
+		if composerCtx.ProjectRoot != "/test/project" {
+			t.Errorf("Expected project root '/test/project', got: %s", composerCtx.ProjectRoot)
 		}
 
-		if resourcesCtx.ConfigRoot != "/test/project/contexts/test-context" {
-			t.Errorf("Expected config root '/test/project/contexts/test-context', got: %s", resourcesCtx.ConfigRoot)
+		if composerCtx.ConfigRoot != "/test/project/contexts/test-context" {
+			t.Errorf("Expected config root '/test/project/contexts/test-context', got: %s", composerCtx.ConfigRoot)
 		}
 
-		if resourcesCtx.TemplateRoot != "/test/project/contexts/_template" {
-			t.Errorf("Expected template root '/test/project/contexts/_template', got: %s", resourcesCtx.TemplateRoot)
+		if composerCtx.TemplateRoot != "/test/project/contexts/_template" {
+			t.Errorf("Expected template root '/test/project/contexts/_template', got: %s", composerCtx.TemplateRoot)
 		}
 	})
 }
