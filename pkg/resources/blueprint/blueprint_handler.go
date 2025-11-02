@@ -18,12 +18,12 @@ import (
 	_ "embed"
 
 	"github.com/goccy/go-yaml"
-	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/infrastructure/kubernetes"
 	"github.com/windsorcli/cli/pkg/resources/artifact"
-	"github.com/windsorcli/cli/pkg/shell"
+	"github.com/windsorcli/cli/pkg/context/shell"
 
 	"github.com/briandowns/spinner"
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"

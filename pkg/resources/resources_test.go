@@ -3,10 +3,10 @@ package resources
 import (
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/context/config"
+	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/shell"
-	"github.com/windsorcli/cli/pkg/types"
+	"github.com/windsorcli/cli/pkg/context/shell"
 )
 
 // =============================================================================
@@ -22,7 +22,7 @@ func setupResourcesMocks(t *testing.T) *Mocks {
 	shell := shell.NewMockShell()
 
 	// Create execution context
-	execCtx := &types.ExecutionContext{
+	execCtx := &context.ExecutionContext{
 		ContextName:   "test-context",
 		ProjectRoot:   "/test/project",
 		ConfigRoot:    "/test/project/contexts/test-context",
@@ -185,7 +185,7 @@ func TestResources_Generate(t *testing.T) {
 
 func TestResourcesExecutionContext(t *testing.T) {
 	t.Run("CreatesResourcesExecutionContext", func(t *testing.T) {
-		execCtx := &types.ExecutionContext{
+		execCtx := &context.ExecutionContext{
 			ContextName:  "test-context",
 			ProjectRoot:  "/test/project",
 			ConfigRoot:   "/test/project/contexts/test-context",

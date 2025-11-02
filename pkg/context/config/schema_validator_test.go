@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/shell"
+	"github.com/windsorcli/cli/pkg/context/shell"
 )
 
 // The SchemaValidatorTest is a comprehensive test suite for the SchemaValidator component.

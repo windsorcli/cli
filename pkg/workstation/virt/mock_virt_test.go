@@ -8,10 +8,10 @@ package virt
 import (
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/workstation/services"
-	"github.com/windsorcli/cli/pkg/shell"
+	"github.com/windsorcli/cli/pkg/context/shell"
 )
 
 // =============================================================================

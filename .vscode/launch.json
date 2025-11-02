@@ -25,7 +25,11 @@
       "request": "launch",
       "mode": "auto",
       "program": "${workspaceFolder}/cmd/windsor/main.go",
-      "args": ["init", "local"]
+      "args": ["init", "local"],
+      "cwd": "/Users/ryanvangundy/Developer/windsorcli/core",
+      "env": {
+        "WINDSOR_CONTEXT": "local",
+      }
     },
     {
       "name": "Windsor Up",

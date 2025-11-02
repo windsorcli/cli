@@ -1,22 +1,21 @@
-package environment
+package context
 
 import (
 	"errors"
 	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/context/config"
+	"github.com/windsorcli/cli/pkg/context/secrets"
+	"github.com/windsorcli/cli/pkg/context/shell"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/secrets"
-	"github.com/windsorcli/cli/pkg/shell"
-	"github.com/windsorcli/cli/pkg/types"
 )
 
 // =============================================================================
 // Test Setup
 // =============================================================================
 
-// setupEnvironmentMocks creates mock components for testing the Environment
+// setupEnvironmentMocks creates mock components for testing the ExecutionContext
 func setupEnvironmentMocks(t *testing.T) *Mocks {
 	t.Helper()
 
@@ -80,7 +79,7 @@ func setupEnvironmentMocks(t *testing.T) *Mocks {
 	injector.Register("contextName", "test-context")
 
 	// Create execution context
-	execCtx := &types.ExecutionContext{
+	execCtx := &ExecutionContext{
 		ContextName:   "test-context",
 		ProjectRoot:   "/test/project",
 		ConfigRoot:    "/test/project/contexts/test-context",
@@ -90,58 +89,58 @@ func setupEnvironmentMocks(t *testing.T) *Mocks {
 		Shell:         shell,
 	}
 
-	// Create environment execution context
-	envCtx := &EnvironmentExecutionContext{
-		ExecutionContext: *execCtx,
+	ctx, err := NewContext(execCtx)
+	if err != nil {
+		t.Fatalf("Failed to create context: %v", err)
 	}
 
 	return &Mocks{
-		Injector:                    injector,
-		ConfigHandler:               configHandler,
-		Shell:                       shell,
-		EnvironmentExecutionContext: envCtx,
+		Injector:         injector,
+		ConfigHandler:    configHandler,
+		Shell:            shell,
+		ExecutionContext: ctx,
 	}
 }
 
 // Mocks contains all the mock dependencies for testing
 type Mocks struct {
-	Injector                    di.Injector
-	ConfigHandler               config.ConfigHandler
-	Shell                       shell.Shell
-	EnvironmentExecutionContext *EnvironmentExecutionContext
+	Injector         di.Injector
+	ConfigHandler    config.ConfigHandler
+	Shell            shell.Shell
+	ExecutionContext *ExecutionContext
 }
 
 // =============================================================================
 // Test Constructor
 // =============================================================================
 
-func TestNewEnvironment(t *testing.T) {
-	t.Run("CreatesEnvironmentWithDependencies", func(t *testing.T) {
+func TestNewContext(t *testing.T) {
+	t.Run("CreatesContextWithDependencies", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
 
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
-		if env == nil {
-			t.Fatal("Expected environment to be created")
+		if ctx == nil {
+			t.Fatal("Expected context to be created")
 		}
 
-		if env.Injector != mocks.Injector {
+		if ctx.Injector != mocks.Injector {
 			t.Error("Expected injector to be set")
 		}
 
-		if env.Shell != mocks.Shell {
+		if ctx.Shell != mocks.Shell {
 			t.Error("Expected shell to be set")
 		}
 
-		if env.ConfigHandler != mocks.ConfigHandler {
+		if ctx.ConfigHandler != mocks.ConfigHandler {
 			t.Error("Expected config handler to be set")
 		}
 
-		if env.envVars == nil {
+		if ctx.envVars == nil {
 			t.Error("Expected envVars map to be initialized")
 		}
 
-		if env.aliases == nil {
+		if ctx.aliases == nil {
 			t.Error("Expected aliases map to be initialized")
 		}
 	})
@@ -151,37 +150,37 @@ func TestNewEnvironment(t *testing.T) {
 // Test LoadEnvironment
 // =============================================================================
 
-func TestEnvironment_LoadEnvironment(t *testing.T) {
+func TestExecutionContext_LoadEnvironment(t *testing.T) {
 	t.Run("LoadsEnvironmentSuccessfully", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
-		err := env.LoadEnvironment(false)
+		err := ctx.LoadEnvironment(false)
 
-		// The environment should load successfully with the default WindsorEnv printer
+		// The context should load successfully with the default WindsorEnv printer
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
 		// Check that the WindsorEnv printer was initialized
-		if env.EnvPrinters.WindsorEnv == nil {
+		if ctx.EnvPrinters.WindsorEnv == nil {
 			t.Error("Expected WindsorEnv printer to be initialized")
 		}
 
 		// Check that environment variables were loaded
-		if len(env.envVars) == 0 {
+		if len(ctx.envVars) == 0 {
 			t.Error("Expected environment variables to be loaded")
 		}
 	})
 
 	t.Run("HandlesConfigHandlerNotLoaded", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
 		// Set config handler to nil to test error handling
-		env.ConfigHandler = nil
+		ctx.ConfigHandler = nil
 
-		err := env.LoadEnvironment(false)
+		err := ctx.LoadEnvironment(false)
 
 		if err == nil {
 			t.Error("Expected error when config handler is not loaded")
@@ -190,18 +189,18 @@ func TestEnvironment_LoadEnvironment(t *testing.T) {
 
 	t.Run("HandlesEnvPrinterInitializationError", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
-		// The WindsorEnv printer should be initialized by default
-		if env.EnvPrinters.WindsorEnv == nil {
-			t.Error("Expected WindsorEnv printer to be initialized")
-		}
-
-		err := env.LoadEnvironment(false)
+		err := ctx.LoadEnvironment(false)
 
 		// This should not error since the default WindsorEnv printer has working initialization
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// The WindsorEnv printer should be initialized after LoadEnvironment
+		if ctx.EnvPrinters.WindsorEnv == nil {
+			t.Error("Expected WindsorEnv printer to be initialized")
 		}
 	})
 }
@@ -210,18 +209,18 @@ func TestEnvironment_LoadEnvironment(t *testing.T) {
 // Test PrintEnvVars
 // =============================================================================
 
-func TestEnvironment_PrintEnvVars(t *testing.T) {
+func TestExecutionContext_PrintEnvVars(t *testing.T) {
 	t.Run("PrintsEnvironmentVariables", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
 		// Set up environment variables
-		env.envVars = map[string]string{
+		ctx.envVars = map[string]string{
 			"TEST_VAR1": "value1",
 			"TEST_VAR2": "value2",
 		}
 
-		output := env.PrintEnvVarsExport()
+		output := ctx.PrintEnvVarsExport()
 
 		if output == "" {
 			t.Error("Expected output to be generated")
@@ -230,9 +229,9 @@ func TestEnvironment_PrintEnvVars(t *testing.T) {
 
 	t.Run("HandlesEmptyEnvironmentVariables", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
-		output := env.PrintEnvVars()
+		output := ctx.PrintEnvVars()
 
 		if output != "" {
 			t.Error("Expected no output for empty environment variables")
@@ -245,18 +244,18 @@ func TestEnvironment_PrintEnvVars(t *testing.T) {
 // Test PrintAliases
 // =============================================================================
 
-func TestEnvironment_PrintAliases(t *testing.T) {
+func TestExecutionContext_PrintAliases(t *testing.T) {
 	t.Run("PrintsAliases", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
 		// Set up aliases
-		env.aliases = map[string]string{
+		ctx.aliases = map[string]string{
 			"test1": "echo test1",
 			"test2": "echo test2",
 		}
 
-		output := env.PrintAliases()
+		output := ctx.PrintAliases()
 
 		if output == "" {
 			t.Error("Expected output to be generated")
@@ -265,9 +264,9 @@ func TestEnvironment_PrintAliases(t *testing.T) {
 
 	t.Run("HandlesEmptyAliases", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
-		output := env.PrintAliases()
+		output := ctx.PrintAliases()
 
 		if output != "" {
 			t.Error("Expected no output for empty aliases")
@@ -280,17 +279,20 @@ func TestEnvironment_PrintAliases(t *testing.T) {
 // Test ExecutePostEnvHooks
 // =============================================================================
 
-func TestEnvironment_ExecutePostEnvHooks(t *testing.T) {
+func TestExecutionContext_ExecutePostEnvHooks(t *testing.T) {
 	t.Run("ExecutesPostEnvHooksSuccessfully", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
-		// The WindsorEnv printer should be initialized by default
-		if env.EnvPrinters.WindsorEnv == nil {
+		// Initialize env printers first
+		ctx.initializeEnvPrinters()
+
+		// The WindsorEnv printer should be initialized after initializeEnvPrinters
+		if ctx.EnvPrinters.WindsorEnv == nil {
 			t.Error("Expected WindsorEnv printer to be initialized")
 		}
 
-		err := env.ExecutePostEnvHooks()
+		err := ctx.ExecutePostEnvHooks()
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -301,15 +303,18 @@ func TestEnvironment_ExecutePostEnvHooks(t *testing.T) {
 
 	t.Run("HandlesPostEnvHookError", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
-		// The WindsorEnv printer should be initialized by default
-		if env.EnvPrinters.WindsorEnv == nil {
+		// Initialize env printers first
+		ctx.initializeEnvPrinters()
+
+		// The WindsorEnv printer should be initialized after initializeEnvPrinters
+		if ctx.EnvPrinters.WindsorEnv == nil {
 			t.Error("Expected WindsorEnv printer to be initialized")
 		}
 
 		// Test that post env hooks work with the default printer
-		err := env.ExecutePostEnvHooks()
+		err := ctx.ExecutePostEnvHooks()
 
 		// This should not error since the default WindsorEnv printer has a working PostEnvHook
 		if err != nil {
@@ -319,15 +324,18 @@ func TestEnvironment_ExecutePostEnvHooks(t *testing.T) {
 
 	t.Run("IgnoresPostEnvHookErrorWhenNotVerbose", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
-		// The WindsorEnv printer should be initialized by default
-		if env.EnvPrinters.WindsorEnv == nil {
+		// Initialize env printers first
+		ctx.initializeEnvPrinters()
+
+		// The WindsorEnv printer should be initialized after initializeEnvPrinters
+		if ctx.EnvPrinters.WindsorEnv == nil {
 			t.Error("Expected WindsorEnv printer to be initialized")
 		}
 
 		// Test that post env hooks work with the default printer
-		err := env.ExecutePostEnvHooks()
+		err := ctx.ExecutePostEnvHooks()
 
 		// This should not error since the default WindsorEnv printer has a working PostEnvHook
 		if err != nil {
@@ -340,18 +348,18 @@ func TestEnvironment_ExecutePostEnvHooks(t *testing.T) {
 // Test Getter Methods
 // =============================================================================
 
-func TestEnvironment_GetEnvVars(t *testing.T) {
+func TestExecutionContext_GetEnvVars(t *testing.T) {
 	t.Run("ReturnsCopyOfEnvVars", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
 		original := map[string]string{
 			"TEST_VAR1": "value1",
 			"TEST_VAR2": "value2",
 		}
-		env.envVars = original
+		ctx.envVars = original
 
-		copy := env.GetEnvVars()
+		copy := ctx.GetEnvVars()
 
 		if len(copy) != len(original) {
 			t.Error("Expected copy to have same length as original")
@@ -361,24 +369,24 @@ func TestEnvironment_GetEnvVars(t *testing.T) {
 		copy["NEW_VAR"] = "new_value"
 
 		// Original should be unchanged
-		if len(env.envVars) != len(original) {
+		if len(ctx.envVars) != len(original) {
 			t.Error("Expected original to be unchanged")
 		}
 	})
 }
 
-func TestEnvironment_GetAliases(t *testing.T) {
+func TestExecutionContext_GetAliases(t *testing.T) {
 	t.Run("ReturnsCopyOfAliases", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
 		original := map[string]string{
 			"test1": "echo test1",
 			"test2": "echo test2",
 		}
-		env.aliases = original
+		ctx.aliases = original
 
-		copy := env.GetAliases()
+		copy := ctx.GetAliases()
 
 		if len(copy) != len(original) {
 			t.Error("Expected copy to have same length as original")
@@ -388,7 +396,7 @@ func TestEnvironment_GetAliases(t *testing.T) {
 		copy["new"] = "echo new"
 
 		// Original should be unchanged
-		if len(env.aliases) != len(original) {
+		if len(ctx.aliases) != len(original) {
 			t.Error("Expected original to be unchanged")
 		}
 	})
@@ -398,19 +406,19 @@ func TestEnvironment_GetAliases(t *testing.T) {
 // Test Private Methods
 // =============================================================================
 
-func TestEnvironment_loadSecrets(t *testing.T) {
+func TestExecutionContext_loadSecrets(t *testing.T) {
 	t.Run("LoadsSecretsSuccessfully", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
 		// Set up mock secrets providers
 		mockSopsProvider := secrets.NewMockSecretsProvider(mocks.Injector)
 		mockOnepasswordProvider := secrets.NewMockSecretsProvider(mocks.Injector)
 
-		env.SecretsProviders.Sops = mockSopsProvider
-		env.SecretsProviders.Onepassword = mockOnepasswordProvider
+		ctx.SecretsProviders.Sops = mockSopsProvider
+		ctx.SecretsProviders.Onepassword = mockOnepasswordProvider
 
-		err := env.loadSecrets()
+		err := ctx.loadSecrets()
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -418,7 +426,7 @@ func TestEnvironment_loadSecrets(t *testing.T) {
 
 	t.Run("HandlesSecretsProviderError", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
 		// Set up mock secrets provider that returns an error
 		mockProvider := secrets.NewMockSecretsProvider(mocks.Injector)
@@ -426,9 +434,9 @@ func TestEnvironment_loadSecrets(t *testing.T) {
 			return errors.New("secrets load failed")
 		}
 
-		env.SecretsProviders.Sops = mockProvider
+		ctx.SecretsProviders.Sops = mockProvider
 
-		err := env.loadSecrets()
+		err := ctx.loadSecrets()
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
@@ -440,13 +448,13 @@ func TestEnvironment_loadSecrets(t *testing.T) {
 
 	t.Run("HandlesNilProviders", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
 		// Leave providers as nil
-		env.SecretsProviders.Sops = nil
-		env.SecretsProviders.Onepassword = nil
+		ctx.SecretsProviders.Sops = nil
+		ctx.SecretsProviders.Onepassword = nil
 
-		err := env.loadSecrets()
+		err := ctx.loadSecrets()
 		if err != nil {
 			t.Fatalf("Expected no error with nil providers, got: %v", err)
 		}
@@ -454,24 +462,24 @@ func TestEnvironment_loadSecrets(t *testing.T) {
 
 	t.Run("HandlesMixedProviders", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
 		// Set up one provider that works and one that's nil
 		mockProvider := secrets.NewMockSecretsProvider(mocks.Injector)
-		env.SecretsProviders.Sops = mockProvider
-		env.SecretsProviders.Onepassword = nil
+		ctx.SecretsProviders.Sops = mockProvider
+		ctx.SecretsProviders.Onepassword = nil
 
-		err := env.loadSecrets()
+		err := ctx.loadSecrets()
 		if err != nil {
 			t.Fatalf("Expected no error with mixed providers, got: %v", err)
 		}
 	})
 }
 
-func TestEnvironment_initializeSecretsProviders(t *testing.T) {
+func TestExecutionContext_initializeSecretsProviders(t *testing.T) {
 	t.Run("InitializesSopsProviderWhenEnabled", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
 		// Enable SOPS in config
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -482,9 +490,9 @@ func TestEnvironment_initializeSecretsProviders(t *testing.T) {
 			return false
 		}
 
-		env.initializeSecretsProviders()
+		ctx.initializeSecretsProviders()
 
-		if env.SecretsProviders.Sops == nil {
+		if ctx.SecretsProviders.Sops == nil {
 			t.Error("Expected SOPS provider to be initialized")
 		}
 
@@ -496,7 +504,7 @@ func TestEnvironment_initializeSecretsProviders(t *testing.T) {
 
 	t.Run("InitializesOnepasswordProviderWhenEnabled", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
 		// Enable 1Password in config
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -507,9 +515,9 @@ func TestEnvironment_initializeSecretsProviders(t *testing.T) {
 			return false
 		}
 
-		env.initializeSecretsProviders()
+		ctx.initializeSecretsProviders()
 
-		if env.SecretsProviders.Onepassword == nil {
+		if ctx.SecretsProviders.Onepassword == nil {
 			t.Error("Expected 1Password provider to be initialized")
 		}
 
@@ -521,7 +529,7 @@ func TestEnvironment_initializeSecretsProviders(t *testing.T) {
 
 	t.Run("SkipsProvidersWhenDisabled", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
 		// Disable both providers
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -529,24 +537,24 @@ func TestEnvironment_initializeSecretsProviders(t *testing.T) {
 			return false
 		}
 
-		env.initializeSecretsProviders()
+		ctx.initializeSecretsProviders()
 
-		if env.SecretsProviders.Sops != nil {
+		if ctx.SecretsProviders.Sops != nil {
 			t.Error("Expected SOPS provider to be nil when disabled")
 		}
 
-		if env.SecretsProviders.Onepassword != nil {
+		if ctx.SecretsProviders.Onepassword != nil {
 			t.Error("Expected 1Password provider to be nil when disabled")
 		}
 	})
 
 	t.Run("DoesNotOverrideExistingProviders", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
 		// Pre-set a provider
 		existingProvider := secrets.NewMockSecretsProvider(mocks.Injector)
-		env.SecretsProviders.Sops = existingProvider
+		ctx.SecretsProviders.Sops = existingProvider
 
 		// Enable SOPS in config
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -557,28 +565,28 @@ func TestEnvironment_initializeSecretsProviders(t *testing.T) {
 			return false
 		}
 
-		env.initializeSecretsProviders()
+		ctx.initializeSecretsProviders()
 
 		// Should still be the same provider
-		if env.SecretsProviders.Sops != existingProvider {
+		if ctx.SecretsProviders.Sops != existingProvider {
 			t.Error("Expected existing provider to be preserved")
 		}
 	})
 }
 
-func TestEnvironment_LoadEnvironment_WithSecrets(t *testing.T) {
+func TestExecutionContext_LoadEnvironment_WithSecrets(t *testing.T) {
 	t.Run("LoadsEnvironmentWithSecretsSuccessfully", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
 		// Set up mock secrets providers
 		mockSopsProvider := secrets.NewMockSecretsProvider(mocks.Injector)
 		mockOnepasswordProvider := secrets.NewMockSecretsProvider(mocks.Injector)
 
-		env.SecretsProviders.Sops = mockSopsProvider
-		env.SecretsProviders.Onepassword = mockOnepasswordProvider
+		ctx.SecretsProviders.Sops = mockSopsProvider
+		ctx.SecretsProviders.Onepassword = mockOnepasswordProvider
 
-		err := env.LoadEnvironment(true) // Enable secrets loading
+		err := ctx.LoadEnvironment(true) // Enable secrets loading
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -586,7 +594,7 @@ func TestEnvironment_LoadEnvironment_WithSecrets(t *testing.T) {
 
 	t.Run("HandlesSecretsLoadError", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
 		// Set up mock secrets provider that returns an error
 		mockProvider := secrets.NewMockSecretsProvider(mocks.Injector)
@@ -594,9 +602,9 @@ func TestEnvironment_LoadEnvironment_WithSecrets(t *testing.T) {
 			return errors.New("secrets load failed")
 		}
 
-		env.SecretsProviders.Sops = mockProvider
+		ctx.SecretsProviders.Sops = mockProvider
 
-		err := env.LoadEnvironment(true) // Enable secrets loading
+		err := ctx.LoadEnvironment(true) // Enable secrets loading
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
@@ -607,14 +615,14 @@ func TestEnvironment_LoadEnvironment_WithSecrets(t *testing.T) {
 	})
 }
 
-func TestEnvironment_PrintEnvVars_EdgeCases(t *testing.T) {
+func TestExecutionContext_PrintEnvVars_EdgeCases(t *testing.T) {
 	t.Run("HandlesNilShell", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
-		env.Shell = nil
+		ctx := mocks.ExecutionContext
+		ctx.Shell = nil
 
 		// This should not panic
-		result := env.PrintEnvVars()
+		result := ctx.PrintEnvVars()
 		if result != "" {
 			t.Errorf("Expected empty string with nil shell, got: %s", result)
 		}
@@ -622,24 +630,24 @@ func TestEnvironment_PrintEnvVars_EdgeCases(t *testing.T) {
 
 	t.Run("HandlesEmptyEnvVars", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
-		env.envVars = make(map[string]string)
+		ctx := mocks.ExecutionContext
+		ctx.envVars = make(map[string]string)
 
-		result := env.PrintEnvVars()
+		result := ctx.PrintEnvVars()
 		if result != "" {
 			t.Errorf("Expected empty string with empty env vars, got: %s", result)
 		}
 	})
 }
 
-func TestEnvironment_PrintEnvVarsExport_EdgeCases(t *testing.T) {
+func TestExecutionContext_PrintEnvVarsExport_EdgeCases(t *testing.T) {
 	t.Run("HandlesNilShell", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
-		env.Shell = nil
+		ctx := mocks.ExecutionContext
+		ctx.Shell = nil
 
 		// This should not panic
-		result := env.PrintEnvVarsExport()
+		result := ctx.PrintEnvVarsExport()
 		if result != "" {
 			t.Errorf("Expected empty string with nil shell, got: %s", result)
 		}
@@ -647,24 +655,24 @@ func TestEnvironment_PrintEnvVarsExport_EdgeCases(t *testing.T) {
 
 	t.Run("HandlesEmptyEnvVars", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
-		env.envVars = make(map[string]string)
+		ctx := mocks.ExecutionContext
+		ctx.envVars = make(map[string]string)
 
-		result := env.PrintEnvVarsExport()
+		result := ctx.PrintEnvVarsExport()
 		if result != "" {
 			t.Errorf("Expected empty string with empty env vars, got: %s", result)
 		}
 	})
 }
 
-func TestEnvironment_PrintAliases_EdgeCases(t *testing.T) {
+func TestExecutionContext_PrintAliases_EdgeCases(t *testing.T) {
 	t.Run("HandlesNilShell", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
-		env.Shell = nil
+		ctx := mocks.ExecutionContext
+		ctx.Shell = nil
 
 		// This should not panic
-		result := env.PrintAliases()
+		result := ctx.PrintAliases()
 		if result != "" {
 			t.Errorf("Expected empty string with nil shell, got: %s", result)
 		}
@@ -672,29 +680,29 @@ func TestEnvironment_PrintAliases_EdgeCases(t *testing.T) {
 
 	t.Run("HandlesEmptyAliases", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
-		env.aliases = make(map[string]string)
+		ctx := mocks.ExecutionContext
+		ctx.aliases = make(map[string]string)
 
-		result := env.PrintAliases()
+		result := ctx.PrintAliases()
 		if result != "" {
 			t.Errorf("Expected empty string with empty aliases, got: %s", result)
 		}
 	})
 }
 
-func TestEnvironment_initializeComponents_EdgeCases(t *testing.T) {
+func TestExecutionContext_initializeComponents_EdgeCases(t *testing.T) {
 	t.Run("HandlesToolsManagerInitializationError", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
 		// Set up a mock tools manager that returns an error
 		mockToolsManager := &MockToolsManager{}
 		mockToolsManager.InitializeFunc = func() error {
 			return errors.New("tools manager init failed")
 		}
-		env.ToolsManager = mockToolsManager
+		ctx.ToolsManager = mockToolsManager
 
-		err := env.initializeComponents()
+		err := ctx.initializeComponents()
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
@@ -706,16 +714,16 @@ func TestEnvironment_initializeComponents_EdgeCases(t *testing.T) {
 
 	t.Run("HandlesEnvPrinterInitializationError", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		env := NewEnvironment(mocks.EnvironmentExecutionContext)
+		ctx := mocks.ExecutionContext
 
 		// Set up a mock env printer that returns an error
 		mockPrinter := &MockEnvPrinter{}
 		mockPrinter.InitializeFunc = func() error {
 			return errors.New("env printer init failed")
 		}
-		env.EnvPrinters.WindsorEnv = mockPrinter
+		ctx.EnvPrinters.WindsorEnv = mockPrinter
 
-		err := env.initializeComponents()
+		err := ctx.initializeComponents()
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}

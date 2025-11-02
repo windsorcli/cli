@@ -5,20 +5,20 @@ import (
 	"maps"
 	"os"
 
-	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/context"
+	"github.com/windsorcli/cli/pkg/context/config"
+	envvars "github.com/windsorcli/cli/pkg/context/env"
+	"github.com/windsorcli/cli/pkg/context/secrets"
+	"github.com/windsorcli/cli/pkg/context/shell"
+	"github.com/windsorcli/cli/pkg/context/shell/ssh"
+	"github.com/windsorcli/cli/pkg/context/tools"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/environment/envvars"
-	"github.com/windsorcli/cli/pkg/environment/tools"
 	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/windsorcli/cli/pkg/infrastructure/cluster"
 	"github.com/windsorcli/cli/pkg/infrastructure/kubernetes"
 	"github.com/windsorcli/cli/pkg/resources/artifact"
 	"github.com/windsorcli/cli/pkg/resources/blueprint"
 	"github.com/windsorcli/cli/pkg/resources/terraform"
-	"github.com/windsorcli/cli/pkg/secrets"
-	"github.com/windsorcli/cli/pkg/shell"
-	"github.com/windsorcli/cli/pkg/shell/ssh"
-	"github.com/windsorcli/cli/pkg/types"
 	"github.com/windsorcli/cli/pkg/workstation"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/services"
@@ -442,19 +442,17 @@ func (r *Runtime) createWorkstation() (*workstation.Workstation, error) {
 		return nil, fmt.Errorf("failed to get project root: %w", err)
 	}
 
-	execCtx := &types.ExecutionContext{
+	execCtx := &context.ExecutionContext{
 		ContextName:   contextName,
 		ProjectRoot:   projectRoot,
 		ConfigRoot:    fmt.Sprintf("%s/contexts/%s", projectRoot, contextName),
 		TemplateRoot:  fmt.Sprintf("%s/contexts/_template", projectRoot),
 		ConfigHandler: r.ConfigHandler,
 		Shell:         r.Shell,
+		Injector:      r.Injector,
 	}
 
-	workstationCtx := &workstation.WorkstationExecutionContext{
-		ExecutionContext: *execCtx,
-	}
-
+	workstationCtx := workstation.NewWorkstationExecutionContext(execCtx)
 	ws, err := workstation.NewWorkstation(workstationCtx, r.Injector)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create workstation: %w", err)

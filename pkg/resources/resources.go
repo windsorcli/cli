@@ -3,10 +3,10 @@ package resources
 import (
 	"fmt"
 
+	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/resources/artifact"
 	"github.com/windsorcli/cli/pkg/resources/blueprint"
 	"github.com/windsorcli/cli/pkg/resources/terraform"
-	"github.com/windsorcli/cli/pkg/types"
 )
 
 // The Resources package provides high-level resource management functionality
@@ -21,7 +21,7 @@ import (
 // ResourcesExecutionContext holds the execution context for resource operations.
 // It embeds the base ExecutionContext and includes all resource-specific dependencies.
 type ResourcesExecutionContext struct {
-	types.ExecutionContext
+	context.ExecutionContext
 
 	// Resource-specific dependencies
 	ArtifactBuilder   artifact.Artifact

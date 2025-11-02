@@ -3,11 +3,11 @@ package generators
 import (
 	"fmt"
 
-	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/di"
 	bundler "github.com/windsorcli/cli/pkg/resources/artifact"
 	"github.com/windsorcli/cli/pkg/resources/blueprint"
-	"github.com/windsorcli/cli/pkg/shell"
+	"github.com/windsorcli/cli/pkg/context/shell"
 )
 
 // The Generator is a core component that provides a unified interface for code generation.

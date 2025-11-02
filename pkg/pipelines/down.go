@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/environment/envvars"
+	envvars "github.com/windsorcli/cli/pkg/context/env"
 	"github.com/windsorcli/cli/pkg/infrastructure/kubernetes"
 	terraforminfra "github.com/windsorcli/cli/pkg/infrastructure/terraform"
 	"github.com/windsorcli/cli/pkg/resources/blueprint"
-	"github.com/windsorcli/cli/pkg/shell"
+	"github.com/windsorcli/cli/pkg/context/shell"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
 )

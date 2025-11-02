@@ -12,8 +12,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/windsorcli/cli/pkg/context/secrets"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/secrets"
 )
 
 // =============================================================================

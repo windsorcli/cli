@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/context/shell"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/shell"
 )
 
 // The ConfigHandler is a core component that manages configuration state and context across the application.
@@ -61,6 +61,7 @@ type configHandler struct {
 	shims           *Shims
 	schemaValidator *SchemaValidator
 	data            map[string]any
+	defaultConfig   *v1alpha1.Context
 }
 
 // =============================================================================
@@ -323,7 +324,30 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 		}
 
 		if !contextExists || shouldOverwrite {
-			contextStruct := c.mapToContext(staticFields)
+			var contextStruct *v1alpha1.Context
+			if !contextExists && c.defaultConfig != nil {
+				defaultCopy := c.defaultConfig.DeepCopy()
+				if len(staticFields) > 0 {
+					overlayStruct := c.mapToContext(staticFields)
+					if overlayStruct != nil {
+						defaultCopy.Merge(overlayStruct)
+					}
+				}
+				contextStruct = defaultCopy
+			} else {
+				mergedStaticFields := staticFields
+				if c.schemaValidator != nil && c.schemaValidator.Schema != nil {
+					defaults, err := c.schemaValidator.GetSchemaDefaults()
+					if err == nil && defaults != nil {
+						defaultsStatic, _ := c.separateStaticAndDynamicFields(defaults)
+						mergedStaticFields = c.deepMerge(defaultsStatic, staticFields)
+					}
+				}
+				contextStruct = c.mapToContext(mergedStaticFields)
+			}
+			if contextStruct == nil {
+				contextStruct = &v1alpha1.Context{}
+			}
 			data, err := c.shims.YamlMarshal(contextStruct)
 			if err != nil {
 				return fmt.Errorf("error marshalling context config: %w", err)
@@ -353,6 +377,8 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 // SetDefault sets the default context configuration in the config handler's internal data.
 // It marshals the given v1alpha1.Context struct to a map and merges it into the handler's data.
 // This method is typically used during initialization when context files do not yet exist.
+// The original default config is stored so it can be used when saving a new config file to ensure
+// all default values are preserved even if they were empty/nil (which would be omitted by omitempty tags).
 func (c *configHandler) SetDefault(context v1alpha1.Context) error {
 	contextData, err := c.shims.YamlMarshal(context)
 	if err != nil {
@@ -365,6 +391,10 @@ func (c *configHandler) SetDefault(context v1alpha1.Context) error {
 	}
 
 	c.data = c.deepMerge(c.data, contextMap)
+
+	contextCopy := context
+	c.defaultConfig = &contextCopy
+
 	return nil
 }
 
@@ -735,6 +765,8 @@ func (c *configHandler) LoadSchemaFromBytes(schemaContent []byte) error {
 // The result provides all configuration values, with schema defaults filled in for missing keys, ensuring
 // downstream consumers (such as blueprint processing) always receive a complete set of config values.
 // If the schema validator or schema is unavailable, only the currently loaded data is returned.
+// It also ensures that cluster.controlplanes.nodes and cluster.workers.nodes are initialized as empty maps
+// even though they are not serialized to YAML, so template expressions can safely evaluate them.
 func (c *configHandler) GetContextValues() (map[string]any, error) {
 	result := make(map[string]any)
 	if c.schemaValidator != nil && c.schemaValidator.Schema != nil {
@@ -744,6 +776,43 @@ func (c *configHandler) GetContextValues() (map[string]any, error) {
 		}
 	}
 	result = c.deepMerge(result, c.data)
+
+	clusterVal, ok := result["cluster"].(map[string]any)
+	if !ok {
+		if _, exists := result["cluster"]; !exists || result["cluster"] == nil {
+			result["cluster"] = map[string]any{
+				"controlplanes": map[string]any{
+					"nodes": make(map[string]any),
+				},
+				"workers": map[string]any{
+					"nodes": make(map[string]any),
+				},
+			}
+			return result, nil
+		}
+		return result, nil
+	}
+
+	if controlplanesVal, ok := clusterVal["controlplanes"].(map[string]any); ok {
+		if _, exists := controlplanesVal["nodes"]; !exists {
+			controlplanesVal["nodes"] = make(map[string]any)
+		}
+	} else {
+		clusterVal["controlplanes"] = map[string]any{
+			"nodes": make(map[string]any),
+		}
+	}
+
+	if workersVal, ok := clusterVal["workers"].(map[string]any); ok {
+		if _, exists := workersVal["nodes"]; !exists {
+			workersVal["nodes"] = make(map[string]any)
+		}
+	} else {
+		clusterVal["workers"] = map[string]any{
+			"nodes": make(map[string]any),
+		}
+	}
+
 	return result, nil
 }
 

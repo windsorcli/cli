@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/environment/envvars"
-	"github.com/windsorcli/cli/pkg/shell"
+	"github.com/windsorcli/cli/pkg/context/config"
+	envvars "github.com/windsorcli/cli/pkg/context/env"
+	"github.com/windsorcli/cli/pkg/context/shell"
 )
 
 // The RuntimeTest is a test suite for the Runtime struct and its chaining methods.

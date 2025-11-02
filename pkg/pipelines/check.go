@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/environment/tools"
+	"github.com/windsorcli/cli/pkg/context/tools"
 	"github.com/windsorcli/cli/pkg/infrastructure/cluster"
 	"github.com/windsorcli/cli/pkg/infrastructure/kubernetes"
 )
