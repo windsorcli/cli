@@ -1,15 +1,15 @@
-package resources
+package composer
 
 import (
 	"fmt"
 
+	"github.com/windsorcli/cli/pkg/composer/artifact"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/composer/terraform"
 	"github.com/windsorcli/cli/pkg/context"
-	"github.com/windsorcli/cli/pkg/resources/artifact"
-	"github.com/windsorcli/cli/pkg/resources/blueprint"
-	"github.com/windsorcli/cli/pkg/resources/terraform"
 )
 
-// The Resources package provides high-level resource management functionality
+// The Composer package provides high-level resource management functionality
 // for artifact, blueprint, and terraform operations. It consolidates the creation
 // and management of these core resources, providing a unified interface for
 // resource lifecycle operations across the Windsor CLI.
@@ -18,9 +18,9 @@ import (
 // Types
 // =============================================================================
 
-// ResourcesExecutionContext holds the execution context for resource operations.
+// ComposerExecutionContext holds the execution context for resource operations.
 // It embeds the base ExecutionContext and includes all resource-specific dependencies.
-type ResourcesExecutionContext struct {
+type ComposerExecutionContext struct {
 	context.ExecutionContext
 
 	// Resource-specific dependencies
@@ -29,36 +29,36 @@ type ResourcesExecutionContext struct {
 	TerraformResolver terraform.ModuleResolver
 }
 
-// Resources manages the lifecycle of all resource types (artifact, blueprint, terraform).
+// Composer manages the lifecycle of all resource types (artifact, blueprint, terraform).
 // It provides a unified interface for creating, initializing, and managing these resources
 // with proper dependency injection and error handling.
-type Resources struct {
-	*ResourcesExecutionContext
+type Composer struct {
+	*ComposerExecutionContext
 }
 
 // =============================================================================
 // Constructor
 // =============================================================================
 
-// NewResources creates and initializes a new Resources instance with the provided execution context.
+// NewComposer creates and initializes a new Composer instance with the provided execution context.
 // It sets up all required resource handlers—artifact builder, blueprint handler, and terraform resolver—
 // and registers each handler with the dependency injector for use throughout the resource lifecycle.
-// Returns a pointer to the fully initialized Resources struct.
-func NewResources(ctx *ResourcesExecutionContext) *Resources {
-	resources := &Resources{
-		ResourcesExecutionContext: ctx,
+// Returns a pointer to the fully initialized Composer struct.
+func NewComposer(ctx *ComposerExecutionContext) *Composer {
+	composer := &Composer{
+		ComposerExecutionContext: ctx,
 	}
 
-	resources.ArtifactBuilder = artifact.NewArtifactBuilder()
-	resources.Injector.Register("artifactBuilder", resources.ArtifactBuilder)
+	composer.ArtifactBuilder = artifact.NewArtifactBuilder()
+	composer.Injector.Register("artifactBuilder", composer.ArtifactBuilder)
 
-	resources.BlueprintHandler = blueprint.NewBlueprintHandler(resources.Injector)
-	resources.Injector.Register("blueprintHandler", resources.BlueprintHandler)
+	composer.BlueprintHandler = blueprint.NewBlueprintHandler(composer.Injector)
+	composer.Injector.Register("blueprintHandler", composer.BlueprintHandler)
 
-	resources.TerraformResolver = terraform.NewStandardModuleResolver(resources.Injector)
-	resources.Injector.Register("terraformResolver", resources.TerraformResolver)
+	composer.TerraformResolver = terraform.NewStandardModuleResolver(composer.Injector)
+	composer.Injector.Register("terraformResolver", composer.TerraformResolver)
 
-	return resources
+	return composer
 }
 
 // =============================================================================
@@ -68,7 +68,7 @@ func NewResources(ctx *ResourcesExecutionContext) *Resources {
 // Bundle creates a complete artifact bundle from the project's templates, kustomize, and terraform files.
 // It initializes the artifact builder and creates a distributable artifact.
 // The outputPath specifies where to save the bundle file. Returns the actual output path or an error.
-func (r *Resources) Bundle(outputPath, tag string) (string, error) {
+func (r *Composer) Bundle(outputPath, tag string) (string, error) {
 	if err := r.ArtifactBuilder.Initialize(r.Injector); err != nil {
 		return "", fmt.Errorf("failed to initialize artifact builder: %w", err)
 	}
@@ -84,7 +84,7 @@ func (r *Resources) Bundle(outputPath, tag string) (string, error) {
 // Push creates and pushes an artifact to a container registry.
 // It bundles all project files and pushes them to the specified registry with the given tag.
 // Returns the registry URL or an error.
-func (r *Resources) Push(registryBase, repoName, tag string) (string, error) {
+func (r *Composer) Push(registryBase, repoName, tag string) (string, error) {
 	if err := r.ArtifactBuilder.Initialize(r.Injector); err != nil {
 		return "", fmt.Errorf("failed to initialize artifact builder: %w", err)
 	}
@@ -110,7 +110,7 @@ func (r *Resources) Push(registryBase, repoName, tag string) (string, error) {
 // for the project. The optional overwrite parameter determines whether existing files
 // should be overwritten during blueprint processing. This is the main deployment method.
 // Returns an error if any initialization or processing step fails.
-func (r *Resources) Generate(overwrite ...bool) error {
+func (r *Composer) Generate(overwrite ...bool) error {
 	shouldOverwrite := false
 	if len(overwrite) > 0 {
 		shouldOverwrite = overwrite[0]
@@ -142,9 +142,9 @@ func (r *Resources) Generate(overwrite ...bool) error {
 // Helper Functions
 // =============================================================================
 
-// CreateResources creates a new Resources instance with all dependencies properly initialized.
-// This is a convenience function that creates a fully configured Resources
+// CreateComposer creates a new Composer instance with all dependencies properly initialized.
+// This is a convenience function that creates a fully configured Composer
 // with the provided execution context.
-func CreateResources(ctx *ResourcesExecutionContext) *Resources {
-	return NewResources(ctx)
+func CreateComposer(ctx *ComposerExecutionContext) *Composer {
+	return NewComposer(ctx)
 }

@@ -16,7 +16,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/context/config"
-	bundler "github.com/windsorcli/cli/pkg/resources/artifact"
+	bundler "github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/zclconf/go-cty/cty"
 )
 
