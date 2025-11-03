@@ -1,13 +1,12 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/pipelines"
-	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 // execCmd represents the exec command
@@ -18,48 +17,59 @@ var execCmd = &cobra.Command{
 	Args:         cobra.MinimumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Safety check for arguments
 		if len(args) == 0 {
 			return fmt.Errorf("no command provided")
 		}
 
 		verbose, _ := cmd.Flags().GetBool("verbose")
 
-		// Get shared dependency injector from context
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		// First, set up environment variables using runtime
-		deps := &runtime.Dependencies{
+		execCtx := &context.ExecutionContext{
 			Injector: injector,
 		}
-		if err := runtime.NewRuntime(deps).
-			LoadShell().
-			CheckTrustedDirectory().
-			LoadConfig().
-			LoadSecretsProviders().
-			LoadEnvVars(runtime.EnvVarsOptions{
-				Decrypt: true,
-				Verbose: verbose,
-			}).
-			ExecutePostEnvHook(verbose).
-			Do(); err != nil {
-			return fmt.Errorf("failed to set up environment: %w", err)
-		}
 
-		// Then, run the exec pipeline to execute the command
-		execPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "execPipeline")
+		execCtx, err := context.NewContext(execCtx)
 		if err != nil {
-			return fmt.Errorf("failed to set up exec pipeline: %w", err)
+			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
-		// Create execution context with command and arguments
-		execCtx := context.WithValue(cmd.Context(), "command", args[0])
+		if err := execCtx.CheckTrustedDirectory(); err != nil {
+			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+		}
+
+		if err := execCtx.HandleSessionReset(); err != nil {
+			return err
+		}
+
+		if err := execCtx.LoadConfig(); err != nil {
+			return err
+		}
+
+		if err := execCtx.LoadEnvironment(true); err != nil {
+			return fmt.Errorf("failed to load environment: %w", err)
+		}
+
+		if err := execCtx.ExecutePostEnvHooks(); err != nil {
+			if !verbose {
+				return nil
+			}
+			return err
+		}
+
+		for key, value := range execCtx.GetEnvVars() {
+			if err := os.Setenv(key, value); err != nil {
+				return fmt.Errorf("failed to set environment variable %s: %w", key, err)
+			}
+		}
+
+		command := args[0]
+		var commandArgs []string
 		if len(args) > 1 {
-			execCtx = context.WithValue(execCtx, "args", args[1:])
+			commandArgs = args[1:]
 		}
 
-		// Execute the command
-		if err := execPipeline.Execute(execCtx); err != nil {
+		if _, err := execCtx.Shell.Exec(command, commandArgs...); err != nil {
 			return fmt.Errorf("failed to execute command: %w", err)
 		}
 
