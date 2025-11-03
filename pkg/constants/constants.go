@@ -71,7 +71,7 @@ const DefaultKustomizationWaitPollInterval = 5 * time.Second
 const DefaultKustomizationWaitMaxFailures = 5
 
 // renovate: datasource=docker depName=localstack/localstack
-const DefaultAWSLocalstackImage = "localstack/localstack:3.8.1"
+const DefaultAWSLocalstackImage = "localstack/localstack:4.10.0"
 
 // renovate: datasource=docker depName=localstack/localstack-pro
 const DefaultAWSLocalstackProImage = "localstack/localstack-pro:3.8.1"
