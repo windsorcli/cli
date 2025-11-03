@@ -875,3 +875,109 @@ func (m *MockEnvPrinter) Reset() {
 		m.ResetFunc()
 	}
 }
+
+// =============================================================================
+// Test CheckTools
+// =============================================================================
+
+func TestExecutionContext_CheckTools(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+
+		mockToolsManager := &MockToolsManager{}
+		mockToolsManager.InitializeFunc = func() error {
+			return nil
+		}
+		mockToolsManager.CheckFunc = func() error {
+			return nil
+		}
+		ctx.ToolsManager = mockToolsManager
+
+		err := ctx.CheckTools()
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("InitializesToolsManagerWhenNil", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+		mockConfigHandler.GetFunc = func(key string) interface{} {
+			return nil
+		}
+
+		ctx.ToolsManager = nil
+
+		err := ctx.CheckTools()
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if ctx.ToolsManager == nil {
+			t.Error("Expected ToolsManager to be initialized")
+		}
+	})
+
+	t.Run("HandlesToolsManagerInitializationError", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+
+		ctx.ToolsManager = nil
+
+		mockToolsManager := &MockToolsManager{}
+		mockToolsManager.InitializeFunc = func() error {
+			return errors.New("initialization failed")
+		}
+		mockToolsManager.CheckFunc = func() error {
+			return nil
+		}
+		mocks.Injector.Register("toolsManager", mockToolsManager)
+
+		err := ctx.CheckTools()
+
+		if err == nil {
+			t.Error("Expected error when ToolsManager initialization fails")
+		}
+
+		if !strings.Contains(err.Error(), "failed to initialize tools manager") {
+			t.Errorf("Expected error about tools manager initialization, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesToolsManagerCheckError", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+
+		mockToolsManager := &MockToolsManager{}
+		mockToolsManager.InitializeFunc = func() error {
+			return nil
+		}
+		mockToolsManager.CheckFunc = func() error {
+			return errors.New("tools check failed")
+		}
+		ctx.ToolsManager = mockToolsManager
+
+		err := ctx.CheckTools()
+
+		if err == nil {
+			t.Error("Expected error when ToolsManager.Check fails")
+		}
+
+		if !strings.Contains(err.Error(), "error checking tools") {
+			t.Errorf("Expected error about tools check, got: %v", err)
+		}
+
+		if !strings.Contains(err.Error(), "tools check failed") {
+			t.Errorf("Expected error to contain original error, got: %v", err)
+		}
+	})
+
+}

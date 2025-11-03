@@ -322,6 +322,28 @@ func (ctx *ExecutionContext) GetAliases() map[string]string {
 	return result
 }
 
+// CheckTools performs tool version checking using the tools manager.
+// It validates that all required tools are installed and meet minimum version requirements.
+// The tools manager must be initialized before calling this method. Returns an error if
+// the tools manager is not available or if tool checking fails.
+func (ctx *ExecutionContext) CheckTools() error {
+	if ctx.ToolsManager == nil {
+		ctx.initializeToolsManager()
+		if ctx.ToolsManager == nil {
+			return fmt.Errorf("tools manager not available")
+		}
+		if err := ctx.ToolsManager.Initialize(); err != nil {
+			return fmt.Errorf("failed to initialize tools manager: %w", err)
+		}
+	}
+
+	if err := ctx.ToolsManager.Check(); err != nil {
+		return fmt.Errorf("error checking tools: %w", err)
+	}
+
+	return nil
+}
+
 // GetBuildID retrieves the current build ID from the .windsor/.build-id file.
 // If no build ID exists, a new one is generated, persisted, and returned.
 // Returns the build ID string or an error if retrieval or persistence fails.
@@ -422,9 +444,16 @@ func (ctx *ExecutionContext) initializeEnvPrinters() {
 }
 
 // initializeToolsManager initializes the tools manager if not already set.
+// It checks the injector for an existing tools manager first, and only creates a new one if not found.
 // It creates a new ToolsManager instance and registers it with the dependency injector.
 func (ctx *ExecutionContext) initializeToolsManager() {
 	if ctx.ToolsManager == nil {
+		if existingManager := ctx.Injector.Resolve("toolsManager"); existingManager != nil {
+			if toolsManager, ok := existingManager.(tools.ToolsManager); ok {
+				ctx.ToolsManager = toolsManager
+				return
+			}
+		}
 		ctx.ToolsManager = tools.NewToolsManager(ctx.Injector)
 		ctx.Injector.Register("toolsManager", ctx.ToolsManager)
 	}

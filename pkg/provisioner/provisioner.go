@@ -1,11 +1,13 @@
 package provisioner
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/context"
+	execcontext "github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/provisioner/cluster"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	k8sclient "github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
@@ -25,7 +27,7 @@ import (
 // ProvisionerExecutionContext holds the execution context for provisioner operations.
 // It embeds the base ExecutionContext and includes all provisioner-specific dependencies.
 type ProvisionerExecutionContext struct {
-	context.ExecutionContext
+	execcontext.ExecutionContext
 
 	TerraformStack    terraforminfra.Stack
 	KubernetesManager kubernetes.KubernetesManager
@@ -175,6 +177,130 @@ func (i *Provisioner) Wait(blueprint *blueprintv1alpha1.Blueprint) error {
 	}
 
 	return nil
+}
+
+// CheckNodeHealth performs health checks for cluster nodes and Kubernetes endpoints.
+// It supports checking node health via cluster client (for Talos/Omni clusters) and/or
+// Kubernetes API health checks. The method handles timeout configuration, version checking,
+// and node readiness verification. Returns an error if any health check fails.
+func (i *Provisioner) CheckNodeHealth(ctx context.Context, options NodeHealthCheckOptions, outputFunc func(string)) error {
+	hasNodeCheck := len(options.Nodes) > 0
+	hasK8sCheck := options.K8SEndpointProvided
+
+	if !hasNodeCheck && !hasK8sCheck {
+		return fmt.Errorf("no health checks specified. Use --nodes and/or --k8s-endpoint flags to specify health checks to perform")
+	}
+
+	if hasNodeCheck && i.ClusterClient == nil && !hasK8sCheck {
+		return fmt.Errorf("no health checks specified. Use --nodes and/or --k8s-endpoint flags to specify health checks to perform")
+	}
+
+	if hasNodeCheck && i.ClusterClient != nil {
+		defer i.ClusterClient.Close()
+
+		var checkCtx context.Context
+		var cancel context.CancelFunc
+		if options.Timeout > 0 {
+			checkCtx, cancel = context.WithTimeout(ctx, options.Timeout)
+		} else {
+			checkCtx, cancel = context.WithCancel(ctx)
+		}
+		defer cancel()
+
+		if err := i.ClusterClient.WaitForNodesHealthy(checkCtx, options.Nodes, options.Version); err != nil {
+			if hasK8sCheck {
+				if outputFunc != nil {
+					outputFunc(fmt.Sprintf("Warning: Cluster client failed (%v), continuing with Kubernetes checks\n", err))
+				}
+			} else {
+				return fmt.Errorf("nodes failed health check: %w", err)
+			}
+		} else {
+			if outputFunc != nil {
+				message := fmt.Sprintf("All %d nodes are healthy", len(options.Nodes))
+				if options.Version != "" {
+					message += fmt.Sprintf(" and running version %s", options.Version)
+				}
+				outputFunc(message)
+			}
+		}
+	}
+
+	if hasK8sCheck {
+		if i.KubernetesManager == nil {
+			return fmt.Errorf("no kubernetes manager found")
+		}
+		if err := i.KubernetesManager.Initialize(); err != nil {
+			return fmt.Errorf("failed to initialize kubernetes manager: %w", err)
+		}
+
+		k8sEndpointStr := options.K8SEndpoint
+		if k8sEndpointStr == "true" {
+			k8sEndpointStr = ""
+		}
+
+		var nodeNames []string
+		if options.CheckNodeReady {
+			if hasNodeCheck {
+				nodeNames = options.Nodes
+			} else {
+				return fmt.Errorf("--ready flag requires --nodes to be specified")
+			}
+		}
+
+		if len(nodeNames) > 0 && outputFunc != nil {
+			outputFunc(fmt.Sprintf("Waiting for %d nodes to be Ready...", len(nodeNames)))
+		}
+
+		if err := i.KubernetesManager.WaitForKubernetesHealthy(ctx, k8sEndpointStr, outputFunc, nodeNames...); err != nil {
+			return fmt.Errorf("kubernetes health check failed: %w", err)
+		}
+
+		if outputFunc != nil {
+			if len(nodeNames) > 0 {
+				readyStatus, err := i.KubernetesManager.GetNodeReadyStatus(ctx, nodeNames)
+				allFoundAndReady := err == nil && len(readyStatus) == len(nodeNames)
+				for _, ready := range readyStatus {
+					if !ready {
+						allFoundAndReady = false
+						break
+					}
+				}
+
+				if allFoundAndReady {
+					if k8sEndpointStr != "" {
+						outputFunc(fmt.Sprintf("Kubernetes API endpoint %s is healthy and all nodes are Ready", k8sEndpointStr))
+					} else {
+						outputFunc("Kubernetes API endpoint (kubeconfig default) is healthy and all nodes are Ready")
+					}
+				} else {
+					if k8sEndpointStr != "" {
+						outputFunc(fmt.Sprintf("Kubernetes API endpoint %s is healthy", k8sEndpointStr))
+					} else {
+						outputFunc("Kubernetes API endpoint (kubeconfig default) is healthy")
+					}
+				}
+			} else {
+				if k8sEndpointStr != "" {
+					outputFunc(fmt.Sprintf("Kubernetes API endpoint %s is healthy", k8sEndpointStr))
+				} else {
+					outputFunc("Kubernetes API endpoint (kubeconfig default) is healthy")
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// NodeHealthCheckOptions contains options for node health checking.
+type NodeHealthCheckOptions struct {
+	Nodes               []string
+	Timeout             time.Duration
+	Version             string
+	K8SEndpoint         string
+	K8SEndpointProvided bool
+	CheckNodeReady      bool
 }
 
 // Close releases resources held by provisioner components.
