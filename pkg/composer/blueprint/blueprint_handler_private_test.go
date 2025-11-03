@@ -255,8 +255,9 @@ func TestBaseBlueprintHandler_applyValuesConfigMaps(t *testing.T) {
 	t.Run("SuccessWithKustomizationSubstitutions", func(t *testing.T) {
 		handler := setup(t)
 
-		configRoot := "/test/config"
-		projectRoot := "/test/project"
+		tmpDir := t.TempDir()
+		configRoot := filepath.Join(tmpDir, "config")
+		projectRoot := filepath.Join(tmpDir, "project")
 
 		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
@@ -1249,26 +1250,21 @@ contexts:
 		t.Fatalf("failed to initialize handler: %v", err)
 	}
 
-	// Set up build ID by mocking the file system
+	// Set up build ID by ensuring project root is writable and creating the build ID file
 	testBuildID := "build-1234567890"
 	projectRoot, err := mocks.Shell.GetProjectRoot()
 	if err != nil {
 		t.Fatalf("failed to get project root: %v", err)
 	}
-	buildIDPath := filepath.Join(projectRoot, ".windsor", ".build-id")
+	buildIDDir := filepath.Join(projectRoot, ".windsor")
+	buildIDPath := filepath.Join(buildIDDir, ".build-id")
 
-	// Mock the file system to return our test build ID
-	handler.shims.Stat = func(path string) (os.FileInfo, error) {
-		if path == buildIDPath {
-			return mockFileInfo{name: ".build-id", isDir: false}, nil
-		}
-		return nil, os.ErrNotExist
+	// Ensure the directory exists and create the build ID file
+	if err := os.MkdirAll(buildIDDir, 0755); err != nil {
+		t.Fatalf("failed to create build ID directory: %v", err)
 	}
-	handler.shims.ReadFile = func(path string) ([]byte, error) {
-		if path == buildIDPath {
-			return []byte(testBuildID), nil
-		}
-		return []byte{}, nil
+	if err := os.WriteFile(buildIDPath, []byte(testBuildID), 0644); err != nil {
+		t.Fatalf("failed to create build ID file: %v", err)
 	}
 
 	// Mock the kubernetes manager to capture the ConfigMap data

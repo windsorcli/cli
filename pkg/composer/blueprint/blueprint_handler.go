@@ -18,12 +18,12 @@ import (
 	_ "embed"
 
 	"github.com/goccy/go-yaml"
-	"github.com/windsorcli/cli/pkg/context/config"
+	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/constants"
+	"github.com/windsorcli/cli/pkg/context/config"
+	"github.com/windsorcli/cli/pkg/context/shell"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
-	"github.com/windsorcli/cli/pkg/composer/artifact"
-	"github.com/windsorcli/cli/pkg/context/shell"
 
 	"github.com/briandowns/spinner"
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
@@ -1683,9 +1683,12 @@ func (b *BaseBlueprintHandler) applyValuesConfigMaps() error {
 	mergedCommonValues["REGISTRY_URL"] = registryURL
 	mergedCommonValues["LOCAL_VOLUME_PATH"] = localVolumePath
 
-	buildID, err := b.getBuildIDFromFile()
-	if err != nil {
-		return fmt.Errorf("failed to get build ID: %w", err)
+	buildID := os.Getenv("BUILD_ID")
+	if buildID == "" && b.projectRoot != "" {
+		buildIDPath := filepath.Join(b.projectRoot, ".windsor", ".build-id")
+		if data, err := b.shims.ReadFile(buildIDPath); err == nil {
+			buildID = strings.TrimSpace(string(data))
+		}
 	}
 	if buildID != "" {
 		mergedCommonValues["BUILD_ID"] = buildID
@@ -1837,30 +1840,6 @@ func (b *BaseBlueprintHandler) flattenValuesToConfigMap(values map[string]any, p
 		}
 	}
 	return nil
-}
-
-// getBuildIDFromFile returns the build ID string from the .windsor/.build-id file in the project root directory.
-// It locates the project root using the shell interface, constructs the build ID file path, and attempts to read the file.
-// If the file does not exist, it returns an empty string and no error. If the file exists, it reads and trims whitespace from the contents.
-// Returns the build ID string or an error if the file cannot be read.
-func (b *BaseBlueprintHandler) getBuildIDFromFile() (string, error) {
-	projectRoot, err := b.shell.GetProjectRoot()
-	if err != nil {
-		return "", fmt.Errorf("failed to get project root: %w", err)
-	}
-
-	buildIDPath := filepath.Join(projectRoot, ".windsor", ".build-id")
-
-	if _, err := b.shims.Stat(buildIDPath); os.IsNotExist(err) {
-		return "", nil
-	}
-
-	data, err := b.shims.ReadFile(buildIDPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read build ID file: %w", err)
-	}
-
-	return strings.TrimSpace(string(data)), nil
 }
 
 // deepMergeMaps returns a new map from a deep merge of base and overlay maps.

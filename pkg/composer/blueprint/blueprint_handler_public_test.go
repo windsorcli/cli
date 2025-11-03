@@ -15,12 +15,12 @@ import (
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"github.com/goccy/go-yaml"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/context/config"
+	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/constants"
+	"github.com/windsorcli/cli/pkg/context/config"
+	"github.com/windsorcli/cli/pkg/context/shell"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
-	"github.com/windsorcli/cli/pkg/composer/artifact"
-	"github.com/windsorcli/cli/pkg/context/shell"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -297,6 +297,9 @@ func setupShims(t *testing.T) *Shims {
 func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	t.Helper()
 
+	// Unset BUILD_ID to ensure tests aren't affected by environment
+	os.Unsetenv("BUILD_ID")
+
 	// Create temporary directory for test
 	tmpDir, err := os.MkdirTemp("", "blueprint-test-*")
 	if err != nil {
@@ -357,9 +360,9 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 
 	// Create mock shell and kubernetes manager
 	mockShell := shell.NewMockShell()
-	// Set default GetProjectRoot implementation
+	// Set default GetProjectRoot implementation to use writable temp directory
 	mockShell.GetProjectRootFunc = func() (string, error) {
-		return "/mock/project", nil
+		return tmpDir, nil
 	}
 
 	mockKubernetesManager := kubernetes.NewMockKubernetesManager(nil)
@@ -444,6 +447,7 @@ contexts:
 	t.Cleanup(func() {
 		os.Unsetenv("WINDSOR_PROJECT_ROOT")
 		os.Unsetenv("WINDSOR_CONTEXT")
+		os.Unsetenv("BUILD_ID")
 		os.Chdir(tmpDir)
 	})
 
