@@ -3,6 +3,8 @@ package context
 import (
 	"fmt"
 	"maps"
+	"os"
+	"path/filepath"
 
 	"github.com/windsorcli/cli/pkg/context/config"
 	envvars "github.com/windsorcli/cli/pkg/context/env"
@@ -72,7 +74,8 @@ type ExecutionContext struct {
 // If ConfigHandler is nil, it creates one using the Injector and initializes it.
 // If Shell is nil, it creates one using the Injector and initializes it.
 // Both are registered in the Injector for use by other components.
-// The context also initializes envVars and aliases maps.
+// The context also initializes envVars and aliases maps, and automatically sets up
+// ContextName, ProjectRoot, ConfigRoot, and TemplateRoot based on the current project state.
 // Returns the ExecutionContext with initialized dependencies or an error if initialization fails.
 func NewContext(ctx *ExecutionContext) (*ExecutionContext, error) {
 	if ctx == nil {
@@ -128,12 +131,73 @@ func NewContext(ctx *ExecutionContext) (*ExecutionContext, error) {
 		ctx.aliases = make(map[string]string)
 	}
 
+	projectRoot, err := ctx.Shell.GetProjectRoot()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	contextName := ctx.ConfigHandler.GetContext()
+	ctx.ContextName = contextName
+	ctx.ProjectRoot = projectRoot
+	ctx.ConfigRoot = filepath.Join(projectRoot, "contexts", contextName)
+	ctx.TemplateRoot = filepath.Join(projectRoot, "contexts", "_template")
+
 	return ctx, nil
 }
 
 // =============================================================================
-// Environment Public Methods
+// Public Methods
 // =============================================================================
+
+// CheckTrustedDirectory verifies that the current directory is in the trusted file list.
+// It delegates to the Shell's CheckTrustedDirectory method. Returns an error if the
+// directory is not trusted or if Shell is not initialized.
+func (ctx *ExecutionContext) CheckTrustedDirectory() error {
+	if ctx.Shell == nil {
+		return fmt.Errorf("shell not initialized")
+	}
+	return ctx.Shell.CheckTrustedDirectory()
+}
+
+// LoadConfig loads configuration from all sources.
+// The context paths (ContextName, ProjectRoot, ConfigRoot, TemplateRoot) are already
+// set up in the constructor, so this method only needs to load the configuration data.
+// Returns an error if configuration loading fails or if required dependencies are missing.
+func (ctx *ExecutionContext) LoadConfig() error {
+	if ctx.ConfigHandler == nil {
+		return fmt.Errorf("config handler not initialized")
+	}
+
+	return ctx.ConfigHandler.LoadConfig()
+}
+
+// HandleSessionReset checks for reset flags and session tokens, then resets managed environment
+// variables if needed. It checks for WINDSOR_SESSION_TOKEN and uses the shell's CheckResetFlags
+// method to determine if a reset should occur. If reset is needed, it calls Shell.Reset() and
+// sets NO_CACHE=true. Returns an error if Shell is not initialized or if reset flag checking fails.
+func (ctx *ExecutionContext) HandleSessionReset() error {
+	if ctx.Shell == nil {
+		return fmt.Errorf("shell not initialized")
+	}
+
+	hasSessionToken := os.Getenv("WINDSOR_SESSION_TOKEN") != ""
+	shouldReset, err := ctx.Shell.CheckResetFlags()
+	if err != nil {
+		return fmt.Errorf("failed to check reset flags: %w", err)
+	}
+	if !hasSessionToken {
+		shouldReset = true
+	}
+
+	if shouldReset {
+		ctx.Shell.Reset()
+		if err := os.Setenv("NO_CACHE", "true"); err != nil {
+			return fmt.Errorf("failed to set NO_CACHE: %w", err)
+		}
+	}
+
+	return nil
+}
 
 // LoadEnvironment loads environment variables and aliases from all configured environment printers.
 // It initializes all necessary components, optionally loads secrets if requested, and aggregates
@@ -211,6 +275,8 @@ func (ctx *ExecutionContext) PrintAliases() string {
 }
 
 // ExecutePostEnvHooks executes post-environment hooks for all environment printers.
+// Returns an error if any hook fails, wrapping the first error encountered with context.
+// Returns nil if all hooks execute successfully.
 func (ctx *ExecutionContext) ExecutePostEnvHooks() error {
 	var firstError error
 
