@@ -1,12 +1,11 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/pipelines"
 )
 
 var buildIdNewFlag bool
@@ -27,26 +26,28 @@ Examples:
   BUILD_ID=$(windsor build-id --new) && docker build -t myapp:$BUILD_ID .`,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get shared dependency injector from context
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		// Set up the build ID pipeline
-		buildIDPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "buildIDPipeline")
+		execCtx := &context.ExecutionContext{
+			Injector: injector,
+		}
+
+		execCtx, err := context.NewContext(execCtx)
 		if err != nil {
-			return fmt.Errorf("failed to set up build ID pipeline: %w", err)
+			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
-		// Create execution context with flags
-		ctx := cmd.Context()
+		var buildID string
 		if buildIdNewFlag {
-			ctx = context.WithValue(ctx, "new", true)
+			buildID, err = execCtx.GenerateBuildID()
+		} else {
+			buildID, err = execCtx.GetBuildID()
+		}
+		if err != nil {
+			return fmt.Errorf("failed to manage build ID: %w", err)
 		}
 
-		// Execute the build ID pipeline
-		if err := buildIDPipeline.Execute(ctx); err != nil {
-			return fmt.Errorf("failed to execute build ID pipeline: %w", err)
-		}
-
+		fmt.Printf("%s\n", buildID)
 		return nil
 	},
 }

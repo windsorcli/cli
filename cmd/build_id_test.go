@@ -21,7 +21,11 @@ func TestBuildIDCmd(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setup(t)
-		setupMocks(t)
+		mocks := setupMocks(t)
+
+		// Set up command context with injector
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"build-id"})
 
@@ -42,7 +46,11 @@ func TestBuildIDCmd(t *testing.T) {
 	t.Run("SuccessWithNewFlag", func(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setup(t)
-		setupMocks(t)
+		mocks := setupMocks(t)
+
+		// Set up command context with injector
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"build-id", "--new"})
 

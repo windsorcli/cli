@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/context/config"
 )
 
@@ -22,13 +20,6 @@ import (
 func setupTerraformEnvMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	// Pass the mock config handler to setupMocks
 	mocks := setupMocks(t, opts...)
-
-	// Create and register mock blueprint handler
-	mockBlueprint := blueprint.NewMockBlueprintHandler(mocks.Injector)
-	mockBlueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-		return []blueprintv1alpha1.TerraformComponent{}
-	}
-	mocks.Injector.Register("blueprintHandler", mockBlueprint)
 
 	mocks.Shims.Getwd = func() (string, error) {
 		// Use platform-agnostic path
@@ -1503,21 +1494,26 @@ terraform:
 	t.Run("EmptyTerraformOutput", func(t *testing.T) {
 		printer, mocks := setup(t)
 
-		// Get the blueprint handler from the injector and configure it
-		blueprintHandler := mocks.Injector.Resolve("blueprintHandler").(*blueprint.MockBlueprintHandler)
-		blueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{
-				{
-					Path:      "base",
-					FullPath:  "/project/.windsor/.tf_modules/base",
-					DependsOn: []string{},
-				},
-				{
-					Path:      "app",
-					FullPath:  "/project/.windsor/.tf_modules/app",
-					DependsOn: []string{"base"},
-				},
+		// Mock blueprint.yaml content
+		configRoot, _ := mocks.ConfigHandler.GetConfigRoot()
+		blueprintPath := filepath.Join(configRoot, "blueprint.yaml")
+		blueprintYAML := `apiVersion: v1alpha1
+kind: Blueprint
+metadata:
+  name: test-blueprint
+terraform:
+  - path: base
+    fullPath: /project/.windsor/.tf_modules/base
+    dependsOn: []
+  - path: app
+    fullPath: /project/.windsor/.tf_modules/app
+    dependsOn: [base]`
+		originalReadFile := mocks.Shims.ReadFile
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
+			if filename == blueprintPath {
+				return []byte(blueprintYAML), nil
 			}
+			return originalReadFile(filename)
 		}
 
 		// Mock terraform output with empty response
@@ -1549,18 +1545,6 @@ terraform:
 
 	t.Run("NoCurrentComponent", func(t *testing.T) {
 		printer, mocks := setup(t)
-
-		// Get the blueprint handler from the injector and configure it
-		blueprintHandler := mocks.Injector.Resolve("blueprintHandler").(*blueprint.MockBlueprintHandler)
-		blueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{
-				{
-					Path:      "vpc",
-					FullPath:  "/project/.windsor/.tf_modules/vpc",
-					DependsOn: []string{},
-				},
-			}
-		}
 
 		// Set up the current working directory to not match any component
 		mocks.Shims.Getwd = func() (string, error) {
@@ -1692,22 +1676,26 @@ terraform:
 	t.Run("ParallelismOnlyAppliedToMatchingComponent", func(t *testing.T) {
 		mocks := setupTerraformEnvMocks(t)
 
-		// Set up blueprint handler with parallelism for different component
-		mockBlueprint := blueprint.NewMockBlueprintHandler(mocks.Injector)
+		// Mock blueprint.yaml with parallelism for different component
 		parallelism := 10
-		mockBlueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{
-				{
-					Path:        "other/path",
-					Parallelism: &parallelism,
-				},
-				{
-					Path: "test/path",
-					// No parallelism set
-				},
+		configRoot, _ := mocks.ConfigHandler.GetConfigRoot()
+		blueprintPath := filepath.Join(configRoot, "blueprint.yaml")
+		blueprintYAML := fmt.Sprintf(`apiVersion: v1alpha1
+kind: Blueprint
+metadata:
+  name: test-blueprint
+terraform:
+  - path: other/path
+    parallelism: %d
+  - path: test/path`, parallelism)
+
+		originalReadFile := mocks.Shims.ReadFile
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
+			if filename == blueprintPath {
+				return []byte(blueprintYAML), nil
 			}
+			return originalReadFile(filename)
 		}
-		mocks.Injector.Register("blueprintHandler", mockBlueprint)
 
 		printer := &TerraformEnvPrinter{
 			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Injector),
