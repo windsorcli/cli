@@ -8,14 +8,14 @@ import (
 	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/context"
+	"github.com/windsorcli/cli/pkg/context/config"
+	"github.com/windsorcli/cli/pkg/context/shell"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/provisioner/cluster"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	k8sclient "github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
-	"github.com/windsorcli/cli/pkg/context/shell"
 )
 
 // =============================================================================
@@ -53,14 +53,14 @@ func createTestBlueprint() *blueprintv1alpha1.Blueprint {
 }
 
 type Mocks struct {
-	Injector                     di.Injector
-	ConfigHandler                config.ConfigHandler
-	Shell                        *shell.MockShell
-	TerraformStack               *terraforminfra.MockStack
-	KubernetesManager            *kubernetes.MockKubernetesManager
-	KubernetesClient             k8sclient.KubernetesClient
-	ClusterClient                *cluster.MockClusterClient
-	ProvisionerExecutionContext  *ProvisionerExecutionContext
+	Injector                    di.Injector
+	ConfigHandler               config.ConfigHandler
+	Shell                       *shell.MockShell
+	TerraformStack              *terraforminfra.MockStack
+	KubernetesManager           *kubernetes.MockKubernetesManager
+	KubernetesClient            k8sclient.KubernetesClient
+	ClusterClient               *cluster.MockClusterClient
+	ProvisionerExecutionContext *ProvisionerExecutionContext
 }
 
 // setupProvisionerMocks creates mock components for testing the Provisioner
