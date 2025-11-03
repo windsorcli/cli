@@ -153,12 +153,21 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return tmpDir, nil
 		}
+		mockShell.InitializeFunc = func() error {
+			return nil
+		}
 		injector.Register("shell", mockShell)
 
 		// Mock config handler
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{}, nil
+		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "test-context"
+		}
+		mockConfigHandler.InitializeFunc = func() error {
+			return nil
 		}
 		injector.Register("configHandler", mockConfigHandler)
 
@@ -174,7 +183,11 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		injector.Register("blueprintHandler", mockBlueprintHandler)
 
 		// Mock artifact builder that fails during bundle
+		// The bundle command checks the injector for an existing artifactBuilder
 		mockArtifactBuilder := artifact.NewMockArtifact()
+		mockArtifactBuilder.InitializeFunc = func(injector di.Injector) error {
+			return nil
+		}
 		mockArtifactBuilder.WriteFunc = func(outputPath string, tag string) (string, error) {
 			return "", fmt.Errorf("artifact bundle failed")
 		}
@@ -203,8 +216,8 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "artifact bundle failed") {
-			t.Errorf("Expected error to contain 'artifact bundle failed', got %v", err)
+		if !strings.Contains(err.Error(), "failed to bundle artifacts") {
+			t.Errorf("Expected error to contain 'failed to bundle artifacts', got %v", err)
 		}
 	})
 }

@@ -4,8 +4,10 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/composer"
+	"github.com/windsorcli/cli/pkg/composer/artifact"
+	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 // bundleCmd represents the bundle command
@@ -31,27 +33,38 @@ Examples:
   windsor bundle`,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get shared dependency injector from context
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		// Get tag and output path from flags
+		execCtx := &context.ExecutionContext{
+			Injector: injector,
+		}
+
+		execCtx, err := context.NewContext(execCtx)
+		if err != nil {
+			return fmt.Errorf("failed to initialize context: %w", err)
+		}
+
+		composerCtx := &composer.ComposerExecutionContext{
+			ExecutionContext: *execCtx,
+		}
+
+		if existingArtifactBuilder := injector.Resolve("artifactBuilder"); existingArtifactBuilder != nil {
+			if artifactBuilder, ok := existingArtifactBuilder.(artifact.Artifact); ok {
+				composerCtx.ArtifactBuilder = artifactBuilder
+			}
+		}
+
+		comp := composer.NewComposer(composerCtx)
+
 		tag, _ := cmd.Flags().GetString("tag")
 		outputPath, _ := cmd.Flags().GetString("output")
 
-		if err := runtime.NewRuntime(&runtime.Dependencies{
-			Injector: injector,
-		}).
-			LoadShell().
-			ProcessArtifacts(runtime.ArtifactOptions{
-				OutputPath: outputPath,
-				Tag:        tag,
-				OutputFunc: func(actualOutputPath string) {
-					fmt.Printf("Blueprint bundled successfully: %s\n", actualOutputPath)
-				},
-			}).
-			Do(); err != nil {
+		actualOutputPath, err := comp.Bundle(outputPath, tag)
+		if err != nil {
 			return fmt.Errorf("failed to bundle artifacts: %w", err)
 		}
+
+		fmt.Printf("Blueprint bundled successfully: %s\n", actualOutputPath)
 
 		return nil
 	},
