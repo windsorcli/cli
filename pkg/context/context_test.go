@@ -2,6 +2,7 @@ package context
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -70,6 +71,16 @@ func setupEnvironmentMocks(t *testing.T) *Mocks {
 		return "mock-session-token", nil
 	}
 
+	// Set up GetProjectRoot mock
+	shell.GetProjectRootFunc = func() (string, error) {
+		return "/test/project", nil
+	}
+
+	// Set up GetContext mock
+	configHandler.GetContextFunc = func() string {
+		return "test-context"
+	}
+
 	// Register dependencies in injector
 	injector.Register("shell", shell)
 	injector.Register("configHandler", configHandler)
@@ -78,15 +89,9 @@ func setupEnvironmentMocks(t *testing.T) *Mocks {
 	injector.Register("projectRoot", "/test/project")
 	injector.Register("contextName", "test-context")
 
-	// Create execution context
+	// Create execution context - paths will be set automatically by NewContext
 	execCtx := &ExecutionContext{
-		ContextName:   "test-context",
-		ProjectRoot:   "/test/project",
-		ConfigRoot:    "/test/project/contexts/test-context",
-		TemplateRoot:  "/test/project/contexts/_template",
-		Injector:      injector,
-		ConfigHandler: configHandler,
-		Shell:         shell,
+		Injector: injector,
 	}
 
 	ctx, err := NewContext(execCtx)
@@ -142,6 +147,24 @@ func TestNewContext(t *testing.T) {
 
 		if ctx.aliases == nil {
 			t.Error("Expected aliases map to be initialized")
+		}
+
+		if ctx.ContextName != "test-context" {
+			t.Errorf("Expected ContextName to be 'test-context', got: %s", ctx.ContextName)
+		}
+
+		if ctx.ProjectRoot != "/test/project" {
+			t.Errorf("Expected ProjectRoot to be '/test/project', got: %s", ctx.ProjectRoot)
+		}
+
+		expectedConfigRoot := filepath.Join("/test/project", "contexts", "test-context")
+		if ctx.ConfigRoot != expectedConfigRoot {
+			t.Errorf("Expected ConfigRoot to be %q, got: %s", expectedConfigRoot, ctx.ConfigRoot)
+		}
+
+		expectedTemplateRoot := filepath.Join("/test/project", "contexts", "_template")
+		if ctx.TemplateRoot != expectedTemplateRoot {
+			t.Errorf("Expected TemplateRoot to be %q, got: %s", expectedTemplateRoot, ctx.TemplateRoot)
 		}
 	})
 }
@@ -322,24 +345,32 @@ func TestExecutionContext_ExecutePostEnvHooks(t *testing.T) {
 		}
 	})
 
-	t.Run("IgnoresPostEnvHookErrorWhenNotVerbose", func(t *testing.T) {
+	t.Run("WrapsErrorWhenPostEnvHookFails", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
 		ctx := mocks.ExecutionContext
 
 		// Initialize env printers first
 		ctx.initializeEnvPrinters()
 
-		// The WindsorEnv printer should be initialized after initializeEnvPrinters
-		if ctx.EnvPrinters.WindsorEnv == nil {
-			t.Error("Expected WindsorEnv printer to be initialized")
+		// Set up a printer that returns an error
+		mockPrinter := &MockEnvPrinter{}
+		mockPrinter.PostEnvHookFunc = func(directory ...string) error {
+			return errors.New("hook error")
 		}
+		ctx.EnvPrinters.WindsorEnv = mockPrinter
 
-		// Test that post env hooks work with the default printer
 		err := ctx.ExecutePostEnvHooks()
 
-		// This should not error since the default WindsorEnv printer has a working PostEnvHook
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
+		if err == nil {
+			t.Fatal("Expected error when hook fails")
+		}
+
+		if !strings.Contains(err.Error(), "failed to execute post env hooks") {
+			t.Errorf("Expected error to be wrapped, got: %v", err)
+		}
+
+		if !strings.Contains(err.Error(), "hook error") {
+			t.Errorf("Expected error to contain original error, got: %v", err)
 		}
 	})
 }
