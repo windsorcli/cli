@@ -1,4 +1,4 @@
-package envvars
+package env
 
 import (
 	"fmt"
@@ -433,8 +433,11 @@ contexts:
 
 		// And no additional variables should be added
 		t.Logf("Environment variables: %v", envVars)
-		if len(envVars) != 6 {
-			t.Errorf("Should have six base environment variables (BUILD_ID excluded when file doesn't exist)")
+		if len(envVars) != 7 {
+			t.Errorf("Should have seven base environment variables (including BUILD_ID which is generated if missing)")
+		}
+		if envVars["BUILD_ID"] == "" {
+			t.Errorf("BUILD_ID should be generated when file doesn't exist")
 		}
 	})
 

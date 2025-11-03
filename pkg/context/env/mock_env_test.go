@@ -1,4 +1,4 @@
-package envvars
+package env
 
 import (
 	"fmt"

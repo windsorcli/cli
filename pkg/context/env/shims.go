@@ -3,7 +3,7 @@
 // It serves as a testing aid by allowing system calls to be intercepted
 // It enables dependency injection and test isolation for system-level operations
 
-package envvars
+package env
 
 import (
 	"crypto/rand"

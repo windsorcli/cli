@@ -357,9 +357,9 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 
 	// Create mock shell and kubernetes manager
 	mockShell := shell.NewMockShell()
-	// Set default GetProjectRoot implementation
+	// Set default GetProjectRoot implementation to use writable temp directory
 	mockShell.GetProjectRootFunc = func() (string, error) {
-		return "/mock/project", nil
+		return tmpDir, nil
 	}
 
 	mockKubernetesManager := kubernetes.NewMockKubernetesManager(nil)

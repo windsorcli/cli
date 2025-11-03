@@ -18,6 +18,7 @@ import (
 	_ "embed"
 
 	"github.com/goccy/go-yaml"
+	contextpkg "github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
@@ -1683,7 +1684,12 @@ func (b *BaseBlueprintHandler) applyValuesConfigMaps() error {
 	mergedCommonValues["REGISTRY_URL"] = registryURL
 	mergedCommonValues["LOCAL_VOLUME_PATH"] = localVolumePath
 
-	buildID, err := b.getBuildIDFromFile()
+	execCtx := &contextpkg.ExecutionContext{
+		Shell:         b.shell,
+		ConfigHandler: b.configHandler,
+		Injector:      b.injector,
+	}
+	buildID, err := execCtx.GetBuildID()
 	if err != nil {
 		return fmt.Errorf("failed to get build ID: %w", err)
 	}
@@ -1839,29 +1845,6 @@ func (b *BaseBlueprintHandler) flattenValuesToConfigMap(values map[string]any, p
 	return nil
 }
 
-// getBuildIDFromFile returns the build ID string from the .windsor/.build-id file in the project root directory.
-// It locates the project root using the shell interface, constructs the build ID file path, and attempts to read the file.
-// If the file does not exist, it returns an empty string and no error. If the file exists, it reads and trims whitespace from the contents.
-// Returns the build ID string or an error if the file cannot be read.
-func (b *BaseBlueprintHandler) getBuildIDFromFile() (string, error) {
-	projectRoot, err := b.shell.GetProjectRoot()
-	if err != nil {
-		return "", fmt.Errorf("failed to get project root: %w", err)
-	}
-
-	buildIDPath := filepath.Join(projectRoot, ".windsor", ".build-id")
-
-	if _, err := b.shims.Stat(buildIDPath); os.IsNotExist(err) {
-		return "", nil
-	}
-
-	data, err := b.shims.ReadFile(buildIDPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read build ID file: %w", err)
-	}
-
-	return strings.TrimSpace(string(data)), nil
-}
 
 // deepMergeMaps returns a new map from a deep merge of base and overlay maps.
 // Overlay values take precedence; nested maps merge recursively. Non-map overlay values replace base values.

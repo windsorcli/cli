@@ -1,11 +1,18 @@
 package context
 
 import (
+	"crypto/rand"
 	"fmt"
 	"maps"
+	"math/big"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/windsorcli/cli/pkg/context/config"
-	envvars "github.com/windsorcli/cli/pkg/context/env"
+	"github.com/windsorcli/cli/pkg/context/env"
 	"github.com/windsorcli/cli/pkg/context/secrets"
 	"github.com/windsorcli/cli/pkg/context/shell"
 	"github.com/windsorcli/cli/pkg/context/tools"
@@ -44,13 +51,13 @@ type ExecutionContext struct {
 
 	// EnvPrinters contains environment printers for various providers and tools
 	EnvPrinters struct {
-		AwsEnv       envvars.EnvPrinter
-		AzureEnv     envvars.EnvPrinter
-		DockerEnv    envvars.EnvPrinter
-		KubeEnv      envvars.EnvPrinter
-		TalosEnv     envvars.EnvPrinter
-		TerraformEnv envvars.EnvPrinter
-		WindsorEnv   envvars.EnvPrinter
+		AwsEnv       env.EnvPrinter
+		AzureEnv     env.EnvPrinter
+		DockerEnv    env.EnvPrinter
+		KubeEnv      env.EnvPrinter
+		TalosEnv     env.EnvPrinter
+		TerraformEnv env.EnvPrinter
+		WindsorEnv   env.EnvPrinter
 	}
 
 	// ToolsManager manages tool installation and configuration
@@ -83,24 +90,6 @@ func NewContext(ctx *ExecutionContext) (*ExecutionContext, error) {
 	}
 	injector := ctx.Injector
 
-	if ctx.ConfigHandler == nil {
-		if existing := injector.Resolve("configHandler"); existing != nil {
-			if configHandler, ok := existing.(config.ConfigHandler); ok {
-				ctx.ConfigHandler = configHandler
-			} else {
-				ctx.ConfigHandler = config.NewConfigHandler(injector)
-				injector.Register("configHandler", ctx.ConfigHandler)
-			}
-		} else {
-			ctx.ConfigHandler = config.NewConfigHandler(injector)
-			injector.Register("configHandler", ctx.ConfigHandler)
-		}
-
-		if err := ctx.ConfigHandler.Initialize(); err != nil {
-			return nil, fmt.Errorf("failed to initialize config handler: %w", err)
-		}
-	}
-
 	if ctx.Shell == nil {
 		if existing := injector.Resolve("shell"); existing != nil {
 			if shellInstance, ok := existing.(shell.Shell); ok {
@@ -121,6 +110,24 @@ func NewContext(ctx *ExecutionContext) (*ExecutionContext, error) {
 		}
 	}
 
+	if ctx.ConfigHandler == nil {
+		if existing := injector.Resolve("configHandler"); existing != nil {
+			if configHandler, ok := existing.(config.ConfigHandler); ok {
+				ctx.ConfigHandler = configHandler
+			} else {
+				ctx.ConfigHandler = config.NewConfigHandler(injector)
+				injector.Register("configHandler", ctx.ConfigHandler)
+			}
+		} else {
+			ctx.ConfigHandler = config.NewConfigHandler(injector)
+			injector.Register("configHandler", ctx.ConfigHandler)
+		}
+
+		if err := ctx.ConfigHandler.Initialize(); err != nil {
+			return nil, fmt.Errorf("failed to initialize config handler: %w", err)
+		}
+	}
+
 	if ctx.envVars == nil {
 		ctx.envVars = make(map[string]string)
 	}
@@ -132,7 +139,7 @@ func NewContext(ctx *ExecutionContext) (*ExecutionContext, error) {
 }
 
 // =============================================================================
-// Environment Public Methods
+// Public Methods
 // =============================================================================
 
 // LoadEnvironment loads environment variables and aliases from all configured environment printers.
@@ -243,8 +250,59 @@ func (ctx *ExecutionContext) GetAliases() map[string]string {
 	return result
 }
 
+// GetBuildID retrieves the current build ID from the .windsor/.build-id file.
+// If no build ID exists, a new one is generated, persisted, and returned.
+// Returns the build ID string or an error if retrieval or persistence fails.
+func (ctx *ExecutionContext) GetBuildID() (string, error) {
+	projectRoot, err := ctx.Shell.GetProjectRoot()
+	if err != nil {
+		return "", fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	buildIDPath := filepath.Join(projectRoot, ".windsor", ".build-id")
+	var buildID string
+
+	if _, err := os.Stat(buildIDPath); os.IsNotExist(err) {
+		buildID = ""
+	} else {
+		data, err := os.ReadFile(buildIDPath)
+		if err != nil {
+			return "", fmt.Errorf("failed to read build ID file: %w", err)
+		}
+		buildID = strings.TrimSpace(string(data))
+	}
+
+	if buildID == "" {
+		newBuildID, err := ctx.generateBuildID()
+		if err != nil {
+			return "", fmt.Errorf("failed to generate build ID: %w", err)
+		}
+		if err := ctx.writeBuildIDToFile(newBuildID); err != nil {
+			return "", fmt.Errorf("failed to set build ID: %w", err)
+		}
+		return newBuildID, nil
+	}
+
+	return buildID, nil
+}
+
+// GenerateBuildID generates a new build ID and persists it to the .windsor/.build-id file,
+// overwriting any existing value. Returns the new build ID or an error if generation or persistence fails.
+func (ctx *ExecutionContext) GenerateBuildID() (string, error) {
+	newBuildID, err := ctx.generateBuildID()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate build ID: %w", err)
+	}
+
+	if err := ctx.writeBuildIDToFile(newBuildID); err != nil {
+		return "", fmt.Errorf("failed to set build ID: %w", err)
+	}
+
+	return newBuildID, nil
+}
+
 // =============================================================================
-// Environment Private Methods
+// Private Methods
 // =============================================================================
 
 // initializeEnvPrinters initializes environment printers based on configuration settings.
@@ -252,33 +310,33 @@ func (ctx *ExecutionContext) GetAliases() map[string]string {
 // based on the current configuration state.
 func (ctx *ExecutionContext) initializeEnvPrinters() {
 	if ctx.EnvPrinters.AwsEnv == nil && ctx.ConfigHandler.GetBool("aws.enabled", false) {
-		ctx.EnvPrinters.AwsEnv = envvars.NewAwsEnvPrinter(ctx.Injector)
+		ctx.EnvPrinters.AwsEnv = env.NewAwsEnvPrinter(ctx.Injector)
 		ctx.Injector.Register("awsEnv", ctx.EnvPrinters.AwsEnv)
 	}
 	if ctx.EnvPrinters.AzureEnv == nil && ctx.ConfigHandler.GetBool("azure.enabled", false) {
-		ctx.EnvPrinters.AzureEnv = envvars.NewAzureEnvPrinter(ctx.Injector)
+		ctx.EnvPrinters.AzureEnv = env.NewAzureEnvPrinter(ctx.Injector)
 		ctx.Injector.Register("azureEnv", ctx.EnvPrinters.AzureEnv)
 	}
 	if ctx.EnvPrinters.DockerEnv == nil && ctx.ConfigHandler.GetBool("docker.enabled", false) {
-		ctx.EnvPrinters.DockerEnv = envvars.NewDockerEnvPrinter(ctx.Injector)
+		ctx.EnvPrinters.DockerEnv = env.NewDockerEnvPrinter(ctx.Injector)
 		ctx.Injector.Register("dockerEnv", ctx.EnvPrinters.DockerEnv)
 	}
 	if ctx.EnvPrinters.KubeEnv == nil && ctx.ConfigHandler.GetBool("cluster.enabled", false) {
-		ctx.EnvPrinters.KubeEnv = envvars.NewKubeEnvPrinter(ctx.Injector)
+		ctx.EnvPrinters.KubeEnv = env.NewKubeEnvPrinter(ctx.Injector)
 		ctx.Injector.Register("kubeEnv", ctx.EnvPrinters.KubeEnv)
 	}
 	if ctx.EnvPrinters.TalosEnv == nil &&
 		(ctx.ConfigHandler.GetString("cluster.driver", "") == "talos" ||
 			ctx.ConfigHandler.GetString("cluster.driver", "") == "omni") {
-		ctx.EnvPrinters.TalosEnv = envvars.NewTalosEnvPrinter(ctx.Injector)
+		ctx.EnvPrinters.TalosEnv = env.NewTalosEnvPrinter(ctx.Injector)
 		ctx.Injector.Register("talosEnv", ctx.EnvPrinters.TalosEnv)
 	}
 	if ctx.EnvPrinters.TerraformEnv == nil && ctx.ConfigHandler.GetBool("terraform.enabled", false) {
-		ctx.EnvPrinters.TerraformEnv = envvars.NewTerraformEnvPrinter(ctx.Injector)
+		ctx.EnvPrinters.TerraformEnv = env.NewTerraformEnvPrinter(ctx.Injector)
 		ctx.Injector.Register("terraformEnv", ctx.EnvPrinters.TerraformEnv)
 	}
 	if ctx.EnvPrinters.WindsorEnv == nil {
-		ctx.EnvPrinters.WindsorEnv = envvars.NewWindsorEnvPrinter(ctx.Injector)
+		ctx.EnvPrinters.WindsorEnv = env.NewWindsorEnvPrinter(ctx.Injector)
 		ctx.Injector.Register("windsorEnv", ctx.EnvPrinters.WindsorEnv)
 	}
 }
@@ -312,8 +370,8 @@ func (ctx *ExecutionContext) initializeSecretsProviders() {
 // getAllEnvPrinters returns all environment printers in a consistent order.
 // This ensures that environment variables are processed in a predictable sequence
 // with WindsorEnv being processed last to take precedence.
-func (ctx *ExecutionContext) getAllEnvPrinters() []envvars.EnvPrinter {
-	return []envvars.EnvPrinter{
+func (ctx *ExecutionContext) getAllEnvPrinters() []env.EnvPrinter {
+	return []env.EnvPrinter{
 		ctx.EnvPrinters.AwsEnv,
 		ctx.EnvPrinters.AzureEnv,
 		ctx.EnvPrinters.DockerEnv,
@@ -361,4 +419,95 @@ func (ctx *ExecutionContext) loadSecrets() error {
 	}
 
 	return nil
+}
+
+// writeBuildIDToFile writes the provided build ID string to the .windsor/.build-id file in the project root.
+// Ensures the .windsor directory exists before writing. Returns an error if directory creation or file write fails.
+func (ctx *ExecutionContext) writeBuildIDToFile(buildID string) error {
+	projectRoot, err := ctx.Shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	buildIDPath := filepath.Join(projectRoot, ".windsor", ".build-id")
+	buildIDDir := filepath.Dir(buildIDPath)
+
+	if err := os.MkdirAll(buildIDDir, 0755); err != nil {
+		return fmt.Errorf("failed to create build ID directory: %w", err)
+	}
+
+	return os.WriteFile(buildIDPath, []byte(buildID), 0644)
+}
+
+// generateBuildID generates and returns a build ID string in the format YYMMDD.RANDOM.#.
+// YYMMDD is the current date (year, month, day), RANDOM is a random three-digit number for collision prevention,
+// and # is a sequential counter incremented for each build on the same day. If a build ID already exists for the current day,
+// the counter is incremented; otherwise, a new build ID is generated with counter set to 1. Ensures global ordering and uniqueness.
+// Returns the build ID string or an error if generation or retrieval fails.
+func (ctx *ExecutionContext) generateBuildID() (string, error) {
+	now := time.Now()
+	yy := now.Year() % 100
+	mm := int(now.Month())
+	dd := now.Day()
+	datePart := fmt.Sprintf("%02d%02d%02d", yy, mm, dd)
+
+	projectRoot, err := ctx.Shell.GetProjectRoot()
+	if err != nil {
+		return "", fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	buildIDPath := filepath.Join(projectRoot, ".windsor", ".build-id")
+	var existingBuildID string
+
+	if _, err := os.Stat(buildIDPath); os.IsNotExist(err) {
+		existingBuildID = ""
+	} else {
+		data, err := os.ReadFile(buildIDPath)
+		if err != nil {
+			return "", fmt.Errorf("failed to read build ID file: %w", err)
+		}
+		existingBuildID = strings.TrimSpace(string(data))
+	}
+
+	if existingBuildID != "" {
+		return ctx.incrementBuildID(existingBuildID, datePart)
+	}
+
+	random, err := rand.Int(rand.Reader, big.NewInt(1000))
+	if err != nil {
+		return "", fmt.Errorf("failed to generate random number: %w", err)
+	}
+	counter := 1
+	randomPart := fmt.Sprintf("%03d", random.Int64())
+	counterPart := fmt.Sprintf("%d", counter)
+
+	return fmt.Sprintf("%s.%s.%s", datePart, randomPart, counterPart), nil
+}
+
+// incrementBuildID parses an existing build ID and increments its counter component.
+// If the date component differs from the current date, generates a new random number and resets the counter to 1.
+// Returns the incremented or reset build ID string, or an error if the input format is invalid.
+func (ctx *ExecutionContext) incrementBuildID(existingBuildID, currentDate string) (string, error) {
+	parts := strings.Split(existingBuildID, ".")
+	if len(parts) != 3 {
+		return "", fmt.Errorf("invalid build ID format: %s", existingBuildID)
+	}
+
+	existingDate := parts[0]
+	existingRandom := parts[1]
+	existingCounter, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return "", fmt.Errorf("invalid counter component: %s", parts[2])
+	}
+
+	if existingDate != currentDate {
+		random, err := rand.Int(rand.Reader, big.NewInt(1000))
+		if err != nil {
+			return "", fmt.Errorf("failed to generate random number: %w", err)
+		}
+		return fmt.Sprintf("%s.%03d.1", currentDate, random.Int64()), nil
+	}
+
+	existingCounter++
+	return fmt.Sprintf("%s.%s.%d", existingDate, existingRandom, existingCounter), nil
 }
