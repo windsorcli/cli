@@ -2,8 +2,15 @@ package cmd
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/context/config"
+	"github.com/windsorcli/cli/pkg/context/shell"
+	"github.com/windsorcli/cli/pkg/di"
 )
 
 func TestContextCmd(t *testing.T) {
@@ -161,6 +168,226 @@ func TestContextCmd(t *testing.T) {
 		// Then no error should occur
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+}
+
+// =============================================================================
+// Test Error Scenarios
+// =============================================================================
+
+func TestContextCmd_ErrorScenarios(t *testing.T) {
+	t.Cleanup(func() {
+		rootCmd.SetContext(context.Background())
+	})
+
+	setup := func(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
+		t.Helper()
+		stdout, stderr := captureOutput(t)
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(stderr)
+		return stdout, stderr
+	}
+
+	t.Run("GetContext_HandlesNewContextError", func(t *testing.T) {
+		setup(t)
+		injector := di.NewInjector()
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("project root error")
+		}
+		mockShell.InitializeFunc = func() error {
+			return nil
+		}
+		injector.Register("shell", mockShell)
+		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		rootCmd.SetContext(ctx)
+
+		rootCmd.SetArgs([]string{"context", "get"})
+
+		err := Execute()
+
+		if err == nil {
+			t.Error("Expected error when NewContext fails")
+		}
+
+		if !strings.Contains(err.Error(), "failed to initialize context") {
+			t.Errorf("Expected error about context initialization, got: %v", err)
+		}
+	})
+
+	t.Run("GetContext_HandlesLoadConfigError", func(t *testing.T) {
+		setup(t)
+		injector := di.NewInjector()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.LoadConfigFunc = func() error {
+			return fmt.Errorf("config load failed")
+		}
+		mockConfigHandler.InitializeFunc = func() error {
+			return nil
+		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "test-context"
+		}
+		injector.Register("configHandler", mockConfigHandler)
+
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return t.TempDir(), nil
+		}
+		mockShell.InitializeFunc = func() error {
+			return nil
+		}
+		injector.Register("shell", mockShell)
+
+		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		rootCmd.SetContext(ctx)
+
+		rootCmd.SetArgs([]string{"context", "get"})
+
+		err := Execute()
+
+		if err == nil {
+			t.Error("Expected error when LoadConfig fails")
+		}
+
+		if !strings.Contains(err.Error(), "failed to load config") {
+			t.Errorf("Expected error about config loading, got: %v", err)
+		}
+	})
+
+	t.Run("SetContext_HandlesNewContextError", func(t *testing.T) {
+		setup(t)
+		injector := di.NewInjector()
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("project root error")
+		}
+		mockShell.InitializeFunc = func() error {
+			return nil
+		}
+		injector.Register("shell", mockShell)
+		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		rootCmd.SetContext(ctx)
+
+		rootCmd.SetArgs([]string{"context", "set", "test-context"})
+
+		err := Execute()
+
+		if err == nil {
+			t.Error("Expected error when NewContext fails")
+		}
+
+		if !strings.Contains(err.Error(), "failed to initialize context") {
+			t.Errorf("Expected error about context initialization, got: %v", err)
+		}
+	})
+
+	t.Run("SetContext_HandlesLoadConfigError", func(t *testing.T) {
+		setup(t)
+		injector := di.NewInjector()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.LoadConfigFunc = func() error {
+			return fmt.Errorf("config load failed")
+		}
+		mockConfigHandler.InitializeFunc = func() error {
+			return nil
+		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "test-context"
+		}
+		injector.Register("configHandler", mockConfigHandler)
+
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return t.TempDir(), nil
+		}
+		mockShell.InitializeFunc = func() error {
+			return nil
+		}
+		injector.Register("shell", mockShell)
+
+		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		rootCmd.SetContext(ctx)
+
+		rootCmd.SetArgs([]string{"context", "set", "test-context"})
+
+		err := Execute()
+
+		if err == nil {
+			t.Error("Expected error when LoadConfig fails")
+		}
+
+		if !strings.Contains(err.Error(), "failed to load config") {
+			t.Errorf("Expected error about config loading, got: %v", err)
+		}
+	})
+
+	t.Run("SetContext_HandlesWriteResetTokenError", func(t *testing.T) {
+		setup(t)
+		mocks := setupMocks(t)
+		mocks.Shell.WriteResetTokenFunc = func() (string, error) {
+			return "", fmt.Errorf("write reset token failed")
+		}
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		rootCmd.SetContext(ctx)
+
+		rootCmd.SetArgs([]string{"context", "set", "test-context"})
+
+		err := Execute()
+
+		if err == nil {
+			t.Error("Expected error when WriteResetToken fails")
+		}
+
+		if !strings.Contains(err.Error(), "failed to write reset token") {
+			t.Errorf("Expected error about reset token, got: %v", err)
+		}
+	})
+
+	t.Run("SetContext_HandlesSetContextError", func(t *testing.T) {
+		setup(t)
+		injector := di.NewInjector()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.LoadConfigFunc = func() error {
+			return nil
+		}
+		mockConfigHandler.InitializeFunc = func() error {
+			return nil
+		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "test-context"
+		}
+		mockConfigHandler.SetContextFunc = func(context string) error {
+			return fmt.Errorf("set context failed")
+		}
+		injector.Register("configHandler", mockConfigHandler)
+
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return t.TempDir(), nil
+		}
+		mockShell.WriteResetTokenFunc = func() (string, error) {
+			return "mock-reset-token", nil
+		}
+		mockShell.InitializeFunc = func() error {
+			return nil
+		}
+		injector.Register("shell", mockShell)
+
+		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		rootCmd.SetContext(ctx)
+
+		rootCmd.SetArgs([]string{"context", "set", "test-context"})
+
+		err := Execute()
+
+		if err == nil {
+			t.Error("Expected error when SetContext fails")
+		}
+
+		if !strings.Contains(err.Error(), "failed to set context") {
+			t.Errorf("Expected error about setting context, got: %v", err)
 		}
 	})
 }

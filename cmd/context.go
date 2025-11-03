@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 // getContextCmd represents the get command
@@ -15,21 +15,24 @@ var getContextCmd = &cobra.Command{
 	Long:         "Retrieve and display the current context from the configuration",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		deps := &runtime.Dependencies{
-			Injector: cmd.Context().Value(injectorKey).(di.Injector),
+		injector := cmd.Context().Value(injectorKey).(di.Injector)
+
+		execCtx := &context.ExecutionContext{
+			Injector: injector,
 		}
 
-		outputFunc := func(output string) {
-			fmt.Fprintln(cmd.OutOrStdout(), output)
+		execCtx, err := context.NewContext(execCtx)
+		if err != nil {
+			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
-		if err := runtime.NewRuntime(deps).
-			LoadShell().
-			LoadConfig().
-			PrintContext(outputFunc).
-			Do(); err != nil {
-			return fmt.Errorf("Error getting context: %w", err)
+		if err := execCtx.LoadConfig(); err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
 		}
+
+		contextName := execCtx.ConfigHandler.GetContext()
+		fmt.Fprintln(cmd.OutOrStdout(), contextName)
+
 		return nil
 	},
 }
@@ -42,17 +45,29 @@ var setContextCmd = &cobra.Command{
 	Args:         cobra.ExactArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		deps := &runtime.Dependencies{
-			Injector: cmd.Context().Value(injectorKey).(di.Injector),
+		injector := cmd.Context().Value(injectorKey).(di.Injector)
+
+		execCtx := &context.ExecutionContext{
+			Injector: injector,
 		}
-		if err := runtime.NewRuntime(deps).
-			LoadShell().
-			LoadConfig().
-			WriteResetToken().
-			SetContext(args[0]).
-			Do(); err != nil {
-			return fmt.Errorf("Error setting context: %w", err)
+
+		execCtx, err := context.NewContext(execCtx)
+		if err != nil {
+			return fmt.Errorf("failed to initialize context: %w", err)
 		}
+
+		if err := execCtx.LoadConfig(); err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+
+		if _, err := execCtx.Shell.WriteResetToken(); err != nil {
+			return fmt.Errorf("failed to write reset token: %w", err)
+		}
+
+		if err := execCtx.ConfigHandler.SetContext(args[0]); err != nil {
+			return fmt.Errorf("failed to set context: %w", err)
+		}
+
 		return nil
 	},
 }
