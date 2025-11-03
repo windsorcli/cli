@@ -2,6 +2,7 @@ package context
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -156,12 +157,14 @@ func TestNewContext(t *testing.T) {
 			t.Errorf("Expected ProjectRoot to be '/test/project', got: %s", ctx.ProjectRoot)
 		}
 
-		if ctx.ConfigRoot != "/test/project/contexts/test-context" {
-			t.Errorf("Expected ConfigRoot to be '/test/project/contexts/test-context', got: %s", ctx.ConfigRoot)
+		expectedConfigRoot := filepath.Join("/test/project", "contexts", "test-context")
+		if ctx.ConfigRoot != expectedConfigRoot {
+			t.Errorf("Expected ConfigRoot to be %q, got: %s", expectedConfigRoot, ctx.ConfigRoot)
 		}
 
-		if ctx.TemplateRoot != "/test/project/contexts/_template" {
-			t.Errorf("Expected TemplateRoot to be '/test/project/contexts/_template', got: %s", ctx.TemplateRoot)
+		expectedTemplateRoot := filepath.Join("/test/project", "contexts", "_template")
+		if ctx.TemplateRoot != expectedTemplateRoot {
+			t.Errorf("Expected TemplateRoot to be %q, got: %s", expectedTemplateRoot, ctx.TemplateRoot)
 		}
 	})
 }
