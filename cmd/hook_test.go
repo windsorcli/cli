@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"testing"
 )
 
@@ -15,8 +17,13 @@ func TestHookCmd(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given proper output capture
+		// Given proper output capture and mock setup
 		_, stderr := setup(t)
+		mocks := setupMocks(t)
+
+		// Set up command context with injector
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"hook", "zsh"})
 
@@ -56,8 +63,21 @@ func TestHookCmd(t *testing.T) {
 	})
 
 	t.Run("UnsupportedShell", func(t *testing.T) {
-		// Given proper output capture
+		// Given proper output capture and mock setup
 		setup(t)
+		mocks := setupMocks(t)
+
+		// Configure mock shell to return error for unsupported shell
+		mocks.Shell.InstallHookFunc = func(shellName string) error {
+			if shellName == "unsupported" {
+				return fmt.Errorf("Unsupported shell: %s", shellName)
+			}
+			return nil
+		}
+
+		// Set up command context with injector
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"hook", "unsupported"})
 
@@ -67,6 +87,7 @@ func TestHookCmd(t *testing.T) {
 		// Then an error should occur
 		if err == nil {
 			t.Error("Expected error, got nil")
+			return
 		}
 
 		// And error should contain unsupported shell message

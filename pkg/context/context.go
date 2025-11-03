@@ -83,24 +83,6 @@ func NewContext(ctx *ExecutionContext) (*ExecutionContext, error) {
 	}
 	injector := ctx.Injector
 
-	if ctx.ConfigHandler == nil {
-		if existing := injector.Resolve("configHandler"); existing != nil {
-			if configHandler, ok := existing.(config.ConfigHandler); ok {
-				ctx.ConfigHandler = configHandler
-			} else {
-				ctx.ConfigHandler = config.NewConfigHandler(injector)
-				injector.Register("configHandler", ctx.ConfigHandler)
-			}
-		} else {
-			ctx.ConfigHandler = config.NewConfigHandler(injector)
-			injector.Register("configHandler", ctx.ConfigHandler)
-		}
-
-		if err := ctx.ConfigHandler.Initialize(); err != nil {
-			return nil, fmt.Errorf("failed to initialize config handler: %w", err)
-		}
-	}
-
 	if ctx.Shell == nil {
 		if existing := injector.Resolve("shell"); existing != nil {
 			if shellInstance, ok := existing.(shell.Shell); ok {
@@ -118,6 +100,24 @@ func NewContext(ctx *ExecutionContext) (*ExecutionContext, error) {
 
 		if err := ctx.Shell.Initialize(); err != nil {
 			return nil, fmt.Errorf("failed to initialize shell: %w", err)
+		}
+	}
+
+	if ctx.ConfigHandler == nil {
+		if existing := injector.Resolve("configHandler"); existing != nil {
+			if configHandler, ok := existing.(config.ConfigHandler); ok {
+				ctx.ConfigHandler = configHandler
+			} else {
+				ctx.ConfigHandler = config.NewConfigHandler(injector)
+				injector.Register("configHandler", ctx.ConfigHandler)
+			}
+		} else {
+			ctx.ConfigHandler = config.NewConfigHandler(injector)
+			injector.Register("configHandler", ctx.ConfigHandler)
+		}
+
+		if err := ctx.ConfigHandler.Initialize(); err != nil {
+			return nil, fmt.Errorf("failed to initialize config handler: %w", err)
 		}
 	}
 
