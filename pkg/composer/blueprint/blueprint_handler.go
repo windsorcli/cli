@@ -18,13 +18,12 @@ import (
 	_ "embed"
 
 	"github.com/goccy/go-yaml"
-	contextpkg "github.com/windsorcli/cli/pkg/context"
-	"github.com/windsorcli/cli/pkg/context/config"
+	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/constants"
+	"github.com/windsorcli/cli/pkg/context/config"
+	"github.com/windsorcli/cli/pkg/context/shell"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
-	"github.com/windsorcli/cli/pkg/composer/artifact"
-	"github.com/windsorcli/cli/pkg/context/shell"
 
 	"github.com/briandowns/spinner"
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
@@ -1684,14 +1683,12 @@ func (b *BaseBlueprintHandler) applyValuesConfigMaps() error {
 	mergedCommonValues["REGISTRY_URL"] = registryURL
 	mergedCommonValues["LOCAL_VOLUME_PATH"] = localVolumePath
 
-	execCtx := &contextpkg.ExecutionContext{
-		Shell:         b.shell,
-		ConfigHandler: b.configHandler,
-		Injector:      b.injector,
-	}
-	buildID, err := execCtx.GetBuildID()
-	if err != nil {
-		return fmt.Errorf("failed to get build ID: %w", err)
+	buildID := os.Getenv("BUILD_ID")
+	if buildID == "" && b.projectRoot != "" {
+		buildIDPath := filepath.Join(b.projectRoot, ".windsor", ".build-id")
+		if data, err := b.shims.ReadFile(buildIDPath); err == nil {
+			buildID = strings.TrimSpace(string(data))
+		}
 	}
 	if buildID != "" {
 		mergedCommonValues["BUILD_ID"] = buildID
@@ -1844,7 +1841,6 @@ func (b *BaseBlueprintHandler) flattenValuesToConfigMap(values map[string]any, p
 	}
 	return nil
 }
-
 
 // deepMergeMaps returns a new map from a deep merge of base and overlay maps.
 // Overlay values take precedence; nested maps merge recursively. Non-map overlay values replace base values.
