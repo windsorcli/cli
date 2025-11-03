@@ -110,6 +110,14 @@ func NewContext(ctx *ExecutionContext) (*ExecutionContext, error) {
 		}
 	}
 
+	projectRoot, err := ctx.Shell.GetProjectRoot()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project root: %w", err)
+	}
+	ctx.ProjectRoot = projectRoot
+	ctx.ConfigRoot = filepath.Join(ctx.ProjectRoot, "contexts", ctx.ContextName)
+	ctx.TemplateRoot = filepath.Join(ctx.ProjectRoot, "contexts", "_template")
+
 	if ctx.ConfigHandler == nil {
 		if existing := injector.Resolve("configHandler"); existing != nil {
 			if configHandler, ok := existing.(config.ConfigHandler); ok {
@@ -254,18 +262,26 @@ func (ctx *ExecutionContext) GetAliases() map[string]string {
 // If no build ID exists, a new one is generated, persisted, and returned.
 // Returns the build ID string or an error if retrieval or persistence fails.
 func (ctx *ExecutionContext) GetBuildID() (string, error) {
-	projectRoot, err := ctx.Shell.GetProjectRoot()
-	if err != nil {
-		return "", fmt.Errorf("failed to get project root: %w", err)
+	projectRoot := ctx.ProjectRoot
+
+	if err := os.MkdirAll(projectRoot, 0750); err != nil {
+		return "", fmt.Errorf("failed to create project root directory: %w", err)
 	}
 
-	buildIDPath := filepath.Join(projectRoot, ".windsor", ".build-id")
+	root, err := os.OpenRoot(projectRoot)
+	if err != nil {
+		return "", fmt.Errorf("failed to open project root: %w", err)
+	}
+	defer root.Close()
+
+	buildIDPath := ".windsor/.build-id"
+
 	var buildID string
 
-	if _, err := os.Stat(buildIDPath); os.IsNotExist(err) {
+	if _, err := root.Stat(buildIDPath); os.IsNotExist(err) {
 		buildID = ""
 	} else {
-		data, err := os.ReadFile(buildIDPath)
+		data, err := root.ReadFile(buildIDPath)
 		if err != nil {
 			return "", fmt.Errorf("failed to read build ID file: %w", err)
 		}
@@ -424,19 +440,26 @@ func (ctx *ExecutionContext) loadSecrets() error {
 // writeBuildIDToFile writes the provided build ID string to the .windsor/.build-id file in the project root.
 // Ensures the .windsor directory exists before writing. Returns an error if directory creation or file write fails.
 func (ctx *ExecutionContext) writeBuildIDToFile(buildID string) error {
-	projectRoot, err := ctx.Shell.GetProjectRoot()
-	if err != nil {
-		return fmt.Errorf("failed to get project root: %w", err)
+	projectRoot := ctx.ProjectRoot
+
+	if err := os.MkdirAll(projectRoot, 0750); err != nil {
+		return fmt.Errorf("failed to create project root directory: %w", err)
 	}
 
-	buildIDPath := filepath.Join(projectRoot, ".windsor", ".build-id")
-	buildIDDir := filepath.Dir(buildIDPath)
+	root, err := os.OpenRoot(projectRoot)
+	if err != nil {
+		return fmt.Errorf("failed to open project root: %w", err)
+	}
+	defer root.Close()
 
-	if err := os.MkdirAll(buildIDDir, 0755); err != nil {
+	buildIDPath := ".windsor/.build-id"
+	buildIDDir := ".windsor"
+
+	if err := root.MkdirAll(buildIDDir, 0750); err != nil {
 		return fmt.Errorf("failed to create build ID directory: %w", err)
 	}
 
-	return os.WriteFile(buildIDPath, []byte(buildID), 0644)
+	return root.WriteFile(buildIDPath, []byte(buildID), 0600)
 }
 
 // generateBuildID generates and returns a build ID string in the format YYMMDD.RANDOM.#.
@@ -451,18 +474,26 @@ func (ctx *ExecutionContext) generateBuildID() (string, error) {
 	dd := now.Day()
 	datePart := fmt.Sprintf("%02d%02d%02d", yy, mm, dd)
 
-	projectRoot, err := ctx.Shell.GetProjectRoot()
-	if err != nil {
-		return "", fmt.Errorf("failed to get project root: %w", err)
+	projectRoot := ctx.ProjectRoot
+
+	if err := os.MkdirAll(projectRoot, 0750); err != nil {
+		return "", fmt.Errorf("failed to create project root directory: %w", err)
 	}
 
-	buildIDPath := filepath.Join(projectRoot, ".windsor", ".build-id")
+	root, err := os.OpenRoot(projectRoot)
+	if err != nil {
+		return "", fmt.Errorf("failed to open project root: %w", err)
+	}
+	defer root.Close()
+
+	buildIDPath := ".windsor/.build-id"
+
 	var existingBuildID string
 
-	if _, err := os.Stat(buildIDPath); os.IsNotExist(err) {
+	if _, err := root.Stat(buildIDPath); os.IsNotExist(err) {
 		existingBuildID = ""
 	} else {
-		data, err := os.ReadFile(buildIDPath)
+		data, err := root.ReadFile(buildIDPath)
 		if err != nil {
 			return "", fmt.Errorf("failed to read build ID file: %w", err)
 		}
