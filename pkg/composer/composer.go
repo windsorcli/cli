@@ -49,7 +49,9 @@ func NewComposer(ctx *ComposerExecutionContext) *Composer {
 		ComposerExecutionContext: ctx,
 	}
 
-	composer.ArtifactBuilder = artifact.NewArtifactBuilder()
+	if composer.ArtifactBuilder == nil {
+		composer.ArtifactBuilder = artifact.NewArtifactBuilder()
+	}
 	composer.Injector.Register("artifactBuilder", composer.ArtifactBuilder)
 
 	composer.BlueprintHandler = blueprint.NewBlueprintHandler(composer.Injector)
