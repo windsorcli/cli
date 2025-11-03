@@ -3,7 +3,7 @@
 // The AzureEnvPrinter handles Azure configuration settings and environment setup,
 // ensuring proper Azure CLI integration and environment setup for operations.
 
-package envvars
+package env
 
 import (
 	"fmt"

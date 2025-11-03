@@ -3,7 +3,7 @@
 // The WindsorEnvPrinter handles context, project root, and secrets management,
 // ensuring proper Windsor CLI integration and environment setup for application operations.
 
-package envvars
+package env
 
 import (
 	"fmt"

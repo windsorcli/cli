@@ -1,4 +1,4 @@
-package envvars
+package env
 
 import (
 	"fmt"
@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/context/config"
 )
 
 // =============================================================================

@@ -3,15 +3,15 @@
 // The EnvPrinter acts as the central environment orchestrator for the application,
 // coordinating environment variable management, shell integration, and configuration persistence.
 
-package envvars
+package env
 
 import (
 	"fmt"
 	"slices"
 
 	"github.com/windsorcli/cli/pkg/context/config"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/context/shell"
+	"github.com/windsorcli/cli/pkg/di"
 )
 
 // =============================================================================

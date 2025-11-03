@@ -3,7 +3,7 @@
 // The TerraformEnvPrinter handles backend configuration, variable files, and state management,
 // ensuring proper Terraform CLI integration and environment setup for infrastructure operations.
 
-package envvars
+package env
 
 import (
 	"fmt"

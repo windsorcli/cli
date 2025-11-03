@@ -3,7 +3,7 @@
 // The MockEnvPrinter enables testing of environment-dependent functionality,
 // allowing for controlled simulation of environment operations in tests.
 
-package envvars
+package env
 
 // =============================================================================
 // Types

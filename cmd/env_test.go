@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/context/config"
-	envvars "github.com/windsorcli/cli/pkg/context/env"
+	"github.com/windsorcli/cli/pkg/context/env"
 	"github.com/windsorcli/cli/pkg/context/shell"
 	"github.com/windsorcli/cli/pkg/di"
 )
@@ -335,7 +335,7 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		injector.Register("shell", mockShell)
 
 		// Create a docker env printer that fails on GetEnvVars
-		mockDockerEnvPrinter := envvars.NewMockEnvPrinter()
+		mockDockerEnvPrinter := env.NewMockEnvPrinter()
 		mockDockerEnvPrinter.InitializeFunc = func() error {
 			return nil
 		}
@@ -367,7 +367,7 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		setup(t)
 		// Use setupMocks but override the WindsorEnv printer to fail on PostEnvHook
 		mocks := setupMocks(t)
-		mockWindsorEnvPrinter := envvars.NewMockEnvPrinter()
+		mockWindsorEnvPrinter := env.NewMockEnvPrinter()
 		mockWindsorEnvPrinter.InitializeFunc = func() error {
 			return nil
 		}
@@ -404,7 +404,7 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		_, stderr := setup(t)
 		mocks := setupMocks(t)
 		// Register a WindsorEnv printer that fails on PostEnvHook
-		mockWindsorEnvPrinter := envvars.NewMockEnvPrinter()
+		mockWindsorEnvPrinter := env.NewMockEnvPrinter()
 		mockWindsorEnvPrinter.InitializeFunc = func() error {
 			return nil
 		}
@@ -439,7 +439,7 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		_, stderr := setup(t)
 		mocks := setupMocks(t)
 		// Register a WindsorEnv printer that fails on PostEnvHook
-		mockWindsorEnvPrinter := envvars.NewMockEnvPrinter()
+		mockWindsorEnvPrinter := env.NewMockEnvPrinter()
 		mockWindsorEnvPrinter.InitializeFunc = func() error {
 			return nil
 		}

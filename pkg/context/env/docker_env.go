@@ -3,7 +3,7 @@
 // The DockerEnvPrinter handles Docker host, context, and registry configuration settings,
 // ensuring proper Docker CLI integration and environment setup for container operations.
 
-package envvars
+package env
 
 import (
 	"fmt"
