@@ -18,8 +18,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/context/shell"
+	"github.com/windsorcli/cli/pkg/di"
 )
 
 // The ArtifactBuilder creates tar.gz artifacts from prepared build directories.
@@ -1070,6 +1070,68 @@ func (a *ArtifactBuilder) downloadOCIArtifact(registry, repository, tag string) 
 	}
 
 	return data, nil
+}
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+// ParseRegistryURL parses a registry URL string into its components.
+// It handles formats like "registry.com/repo:tag", "registry.com/repo", or "oci://registry.com/repo:tag".
+// Returns registryBase, repoName, tag, and an error if parsing fails.
+func ParseRegistryURL(registryURL string) (registryBase, repoName, tag string, err error) {
+	arg := strings.TrimPrefix(registryURL, "oci://")
+
+	if lastColon := strings.LastIndex(arg, ":"); lastColon > 0 && lastColon < len(arg)-1 {
+		tag = arg[lastColon+1:]
+		arg = arg[:lastColon]
+	}
+
+	if firstSlash := strings.Index(arg, "/"); firstSlash >= 0 {
+		registryBase = arg[:firstSlash]
+		repoName = arg[firstSlash+1:]
+	} else {
+		return "", "", "", fmt.Errorf("invalid registry format: must include repository path (e.g., registry.com/namespace/repo)")
+	}
+
+	return registryBase, repoName, tag, nil
+}
+
+// IsAuthenticationError checks if the error is related to authentication failure.
+// It examines common authentication error patterns in error messages to determine
+// if the failure is due to authentication issues rather than other problems.
+func IsAuthenticationError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errStr := err.Error()
+
+	authErrorPatterns := []string{
+		"UNAUTHORIZED",
+		"unauthorized",
+		"authentication required",
+		"authentication failed",
+		"not authorized",
+		"access denied",
+		"login required",
+		"credentials required",
+		"401",
+		"403",
+		"unauthenticated",
+		"User cannot be authenticated",
+		"failed to push artifact",
+		"POST https://",
+		"blobs/uploads",
+	}
+
+	for _, pattern := range authErrorPatterns {
+		if strings.Contains(errStr, pattern) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Ensure ArtifactBuilder implements Artifact interface

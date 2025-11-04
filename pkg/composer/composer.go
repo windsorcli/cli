@@ -85,8 +85,14 @@ func (r *Composer) Bundle(outputPath, tag string) (string, error) {
 
 // Push creates and pushes an artifact to a container registry.
 // It bundles all project files and pushes them to the specified registry with the given tag.
+// The registryURL can be in formats like "registry.com/repo:tag", "registry.com/repo", or "oci://registry.com/repo:tag".
 // Returns the registry URL or an error.
-func (r *Composer) Push(registryBase, repoName, tag string) (string, error) {
+func (r *Composer) Push(registryURL string) (string, error) {
+	registryBase, repoName, tag, err := artifact.ParseRegistryURL(registryURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse registry URL: %w", err)
+	}
+
 	if err := r.ArtifactBuilder.Initialize(r.Injector); err != nil {
 		return "", fmt.Errorf("failed to initialize artifact builder: %w", err)
 	}
@@ -99,12 +105,12 @@ func (r *Composer) Push(registryBase, repoName, tag string) (string, error) {
 		return "", fmt.Errorf("failed to push artifact: %w", err)
 	}
 
-	registryURL := fmt.Sprintf("%s/%s", registryBase, repoName)
+	resultURL := fmt.Sprintf("%s/%s", registryBase, repoName)
 	if tag != "" {
-		registryURL = fmt.Sprintf("%s:%s", registryURL, tag)
+		resultURL = fmt.Sprintf("%s:%s", resultURL, tag)
 	}
 
-	return registryURL, nil
+	return resultURL, nil
 }
 
 // Generate processes and deploys the complete project infrastructure.
@@ -138,15 +144,4 @@ func (r *Composer) Generate(overwrite ...bool) error {
 	}
 
 	return nil
-}
-
-// =============================================================================
-// Helper Functions
-// =============================================================================
-
-// CreateComposer creates a new Composer instance with all dependencies properly initialized.
-// This is a convenience function that creates a fully configured Composer
-// with the provided execution context.
-func CreateComposer(ctx *ComposerExecutionContext) *Composer {
-	return NewComposer(ctx)
 }
