@@ -3,11 +3,12 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/composer"
+	"github.com/windsorcli/cli/pkg/composer/artifact"
+	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 // pushCmd represents the push command
@@ -31,97 +32,49 @@ Examples:
   windsor push registry.example.com/blueprints`,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Parse registry, repository name, and tag from positional argument
 		if len(args) == 0 {
 			return fmt.Errorf("registry is required: windsor push registry/repo[:tag]")
 		}
 
-		var registryBase, repoName, tag string
-		arg := args[0]
-
-		// Strip oci:// prefix if present
-		arg = strings.TrimPrefix(arg, "oci://")
-
-		// First extract tag if present
-		if lastColon := strings.LastIndex(arg, ":"); lastColon > 0 && lastColon < len(arg)-1 {
-			// Has tag in URL format (registry/repo:tag)
-			tag = arg[lastColon+1:]
-			arg = arg[:lastColon] // Remove tag from argument
-		}
-
-		// Now extract repository name and registry base
-		// For URLs like "ghcr.io/windsorcli/core", we want:
-		// registryBase = "ghcr.io"
-		// repoName = "windsorcli/core"
-		if firstSlash := strings.Index(arg, "/"); firstSlash >= 0 {
-			registryBase = arg[:firstSlash]
-			repoName = arg[firstSlash+1:]
-		} else {
-			return fmt.Errorf("invalid registry format: must include repository path (e.g., registry.com/namespace/repo)")
-		}
-
-		// Get injector from context
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		// Create runtime instance and push artifacts
-		if err := runtime.NewRuntime(&runtime.Dependencies{
+		execCtx := &context.ExecutionContext{
 			Injector: injector,
-		}).
-			LoadShell().
-			ProcessArtifacts(runtime.ArtifactOptions{
-				RegistryBase: registryBase,
-				RepoName:     repoName,
-				Tag:          tag,
-				OutputFunc: func(registryURL string) {
-					fmt.Printf("Blueprint pushed successfully: %s\n", registryURL)
-				},
-			}).
-			Do(); err != nil {
-			if isAuthenticationError(err) {
-				fmt.Fprintf(os.Stderr, "Have you run 'docker login %s'?\nSee https://docs.docker.com/engine/reference/commandline/login/ for details.\n", registryBase)
+		}
+
+		execCtx, err := context.NewContext(execCtx)
+		if err != nil {
+			return fmt.Errorf("failed to initialize context: %w", err)
+		}
+
+		composerCtx := &composer.ComposerExecutionContext{
+			ExecutionContext: *execCtx,
+		}
+
+		if existingArtifactBuilder := injector.Resolve("artifactBuilder"); existingArtifactBuilder != nil {
+			if artifactBuilder, ok := existingArtifactBuilder.(artifact.Artifact); ok {
+				composerCtx.ArtifactBuilder = artifactBuilder
+			}
+		}
+
+		comp := composer.NewComposer(composerCtx)
+
+		registryURL, err := comp.Push(args[0])
+		if err != nil {
+			if artifact.IsAuthenticationError(err) {
+				registryBase, _, _, parseErr := artifact.ParseRegistryURL(args[0])
+				if parseErr == nil {
+					fmt.Fprintf(os.Stderr, "Have you run 'docker login %s'?\nSee https://docs.docker.com/engine/reference/commandline/login/ for details.\n", registryBase)
+				}
 				return fmt.Errorf("Authentication failed")
 			}
 			return fmt.Errorf("failed to push artifacts: %w", err)
 		}
 
+		fmt.Printf("Blueprint pushed successfully: %s\n", registryURL)
+
 		return nil
 	},
-}
-
-// isAuthenticationError checks if the error is related to authentication failure
-func isAuthenticationError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	errStr := err.Error()
-
-	// Common authentication error patterns
-	authErrorPatterns := []string{
-		"UNAUTHORIZED",
-		"unauthorized",
-		"authentication required",
-		"authentication failed",
-		"not authorized",
-		"access denied",
-		"login required",
-		"credentials required",
-		"401",
-		"403",
-		"unauthenticated",
-		"User cannot be authenticated",
-		"failed to push artifact",
-		"POST https://",
-		"blobs/uploads",
-	}
-
-	for _, pattern := range authErrorPatterns {
-		if strings.Contains(errStr, pattern) {
-			return true
-		}
-	}
-
-	return false
 }
 
 func init() {

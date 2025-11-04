@@ -3,10 +3,10 @@ package composer
 import (
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/context"
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/context/shell"
+	"github.com/windsorcli/cli/pkg/di"
 )
 
 // =============================================================================
@@ -38,18 +38,18 @@ func setupComposerMocks(t *testing.T) *Mocks {
 	}
 
 	return &Mocks{
-		Injector:                injector,
-		ConfigHandler:           configHandler,
-		Shell:                   shell,
+		Injector:                 injector,
+		ConfigHandler:            configHandler,
+		Shell:                    shell,
 		ComposerExecutionContext: composerCtx,
 	}
 }
 
 // Mocks contains all the mock dependencies for testing
 type Mocks struct {
-	Injector                di.Injector
-	ConfigHandler           config.ConfigHandler
-	Shell                   shell.Shell
+	Injector                 di.Injector
+	ConfigHandler            config.ConfigHandler
+	Shell                    shell.Shell
 	ComposerExecutionContext *ComposerExecutionContext
 }
 
@@ -97,7 +97,7 @@ func TestCreateComposer(t *testing.T) {
 	t.Run("CreatesComposerWithDependencies", func(t *testing.T) {
 		mocks := setupComposerMocks(t)
 
-		composer := CreateComposer(mocks.ComposerExecutionContext)
+		composer := NewComposer(mocks.ComposerExecutionContext)
 
 		if composer == nil {
 			t.Fatal("Expected Composer to be created")
@@ -143,7 +143,7 @@ func TestComposer_Push(t *testing.T) {
 
 		// This test would need proper mocking of the artifact builder
 		// For now, we'll just test that the method exists and handles errors
-		_, err := composer.Push("ghcr.io", "test/repo", "latest")
+		_, err := composer.Push("ghcr.io/test/repo:latest")
 		// We expect an error here because we don't have proper mocks set up
 		if err == nil {
 			t.Error("Expected error due to missing mocks, but got nil")
