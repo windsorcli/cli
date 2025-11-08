@@ -6,9 +6,11 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/context/shell"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -25,6 +27,7 @@ import (
 type ModuleResolver interface {
 	Initialize() error
 	ProcessModules() error
+	GenerateTfvars(overwrite bool) error
 }
 
 // =============================================================================
@@ -36,6 +39,7 @@ type BaseModuleResolver struct {
 	shims            *Shims
 	injector         di.Injector
 	shell            shell.Shell
+	configHandler    config.ConfigHandler
 	blueprintHandler blueprint.BlueprintHandler
 }
 
@@ -56,15 +60,41 @@ func NewBaseModuleResolver(injector di.Injector) *BaseModuleResolver {
 // =============================================================================
 
 // Initialize sets up the base module resolver
+// Initialize sets up the required handlers and shell for the BaseModuleResolver using the dependency injector.
+// It resolves and assigns the shell, config handler, and blueprint handler.
+// Returns an error if any required dependency cannot be resolved.
 func (h *BaseModuleResolver) Initialize() error {
-	shellInterface := h.injector.Resolve("shell")
 	var ok bool
+
+	shellInterface := h.injector.Resolve("shell")
 	h.shell, ok = shellInterface.(shell.Shell)
 	if !ok {
 		return fmt.Errorf("failed to resolve shell")
 	}
 
+	configHandlerInterface := h.injector.Resolve("configHandler")
+	h.configHandler, ok = configHandlerInterface.(config.ConfigHandler)
+	if !ok {
+		return fmt.Errorf("failed to resolve config handler")
+	}
+
+	blueprintHandlerInterface := h.injector.Resolve("blueprintHandler")
+	h.blueprintHandler, ok = blueprintHandlerInterface.(blueprint.BlueprintHandler)
+	if !ok {
+		return fmt.Errorf("failed to resolve blueprint handler")
+	}
+
 	return nil
+}
+
+// GenerateTfvars creates Terraform configuration files, including tfvars files, for all blueprint components.
+// It delegates to the TerraformGenerator to maintain consistency with the existing generator logic.
+func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
+	terraformGenerator := generators.NewTerraformGenerator(h.injector)
+	if err := terraformGenerator.Initialize(); err != nil {
+		return fmt.Errorf("failed to initialize terraform generator: %w", err)
+	}
+	return terraformGenerator.Generate(nil, overwrite)
 }
 
 // =============================================================================

@@ -12,11 +12,11 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/context/config"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/context/shell"
+	"github.com/windsorcli/cli/pkg/di"
 )
 
 // =============================================================================
@@ -870,3 +870,30 @@ func TestShims_NewShims(t *testing.T) {
 		}
 	})
 }
+
+func TestBaseModuleResolver_GenerateTfvars(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mocks := setupMocks(t)
+		resolver := NewBaseModuleResolver(mocks.Injector)
+		resolver.blueprintHandler = mocks.BlueprintHandler
+		if err := resolver.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize: %v", err)
+		}
+
+		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
+		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		if err := os.MkdirAll(variablesDir, 0755); err != nil {
+			t.Fatalf("Failed to create dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(variablesDir, "variables.tf"), []byte(`variable "cluster_name" { type = string }`), 0644); err != nil {
+			t.Fatalf("Failed to write variables.tf: %v", err)
+		}
+
+		err := resolver.GenerateTfvars(false)
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+}
+

@@ -56,6 +56,8 @@ type Shims struct {
 	Copy           func(dst io.Writer, src io.Reader) (int64, error)
 	Chmod          func(name string, mode os.FileMode) error
 	Setenv         func(key, value string) error
+	ReadDir        func(name string) ([]os.DirEntry, error)
+	RemoveAll      func(path string) error
 }
 
 // =============================================================================
@@ -84,9 +86,11 @@ func NewShims() *Shims {
 		TypeDir: func() byte {
 			return tar.TypeDir
 		},
-		Create: os.Create,
-		Copy:   io.Copy,
-		Chmod:  os.Chmod,
-		Setenv: os.Setenv,
+		Create:    os.Create,
+		Copy:      io.Copy,
+		Chmod:     os.Chmod,
+		Setenv:    os.Setenv,
+		ReadDir:   os.ReadDir,
+		RemoveAll: os.RemoveAll,
 	}
 }
