@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/context/config"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/context/shell"
 	"github.com/windsorcli/cli/pkg/context/shell/ssh"
+	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
@@ -251,11 +251,11 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		var setAddressCalls []string
 		mockService1 := mocks.Services[0]
 		mockService2 := mocks.Services[1]
-		mockService1.SetAddressFunc = func(address string) error {
+		mockService1.SetAddressFunc = func(address string, portAllocator *services.PortAllocator) error {
 			setAddressCalls = append(setAddressCalls, address)
 			return nil
 		}
-		mockService2.SetAddressFunc = func(address string) error {
+		mockService2.SetAddressFunc = func(address string, portAllocator *services.PortAllocator) error {
 			setAddressCalls = append(setAddressCalls, address)
 			return nil
 		}
@@ -286,7 +286,7 @@ func TestNetworkManager_Initialize(t *testing.T) {
 	t.Run("SetAddressFailure", func(t *testing.T) {
 		// Given a network manager with service address failure
 		manager, mocks := setup(t)
-		mocks.Services[0].SetAddressFunc = func(address string) error {
+		mocks.Services[0].SetAddressFunc = func(address string, portAllocator *services.PortAllocator) error {
 			return fmt.Errorf("mock error setting address for service")
 		}
 
@@ -370,7 +370,7 @@ func TestNetworkManager_Initialize(t *testing.T) {
 	t.Run("ErrorSettingNetworkCidr", func(t *testing.T) {
 		// Given a network manager with CIDR setting error
 		manager, mocks := setup(t)
-		mocks.Services[0].SetAddressFunc = func(address string) error {
+		mocks.Services[0].SetAddressFunc = func(address string, portAllocator *services.PortAllocator) error {
 			return fmt.Errorf("error setting default network CIDR")
 		}
 
@@ -392,7 +392,7 @@ func TestNetworkManager_Initialize(t *testing.T) {
 	t.Run("ErrorAssigningIPAddresses", func(t *testing.T) {
 		// Given a network manager with IP assignment error
 		manager, mocks := setup(t)
-		mocks.Services[0].SetAddressFunc = func(address string) error {
+		mocks.Services[0].SetAddressFunc = func(address string, portAllocator *services.PortAllocator) error {
 			return fmt.Errorf("mock assign IP addresses error")
 		}
 
@@ -477,18 +477,18 @@ func TestNetworkManager_assignIPAddresses(t *testing.T) {
 		// Given a list of services and a network CIDR
 		_, mocks := setup(t)
 		var setAddressCalls []string
-		mocks.Services[0].SetAddressFunc = func(address string) error {
+		mocks.Services[0].SetAddressFunc = func(address string, portAllocator *services.PortAllocator) error {
 			setAddressCalls = append(setAddressCalls, address)
 			return nil
 		}
-		mocks.Services[1].SetAddressFunc = func(address string) error {
+		mocks.Services[1].SetAddressFunc = func(address string, portAllocator *services.PortAllocator) error {
 			setAddressCalls = append(setAddressCalls, address)
 			return nil
 		}
 		networkCIDR := "10.5.0.0/16"
 
 		// When assigning IP addresses
-		err := assignIPAddresses(toServices(mocks.Services), &networkCIDR)
+		err := assignIPAddresses(toServices(mocks.Services), &networkCIDR, services.NewPortAllocator())
 
 		// Then no error should occur
 		if err != nil {
@@ -510,7 +510,7 @@ func TestNetworkManager_assignIPAddresses(t *testing.T) {
 		networkCIDR := "invalid-cidr"
 
 		// When assigning IP addresses
-		err := assignIPAddresses(toServices(mocks.Services), &networkCIDR)
+		err := assignIPAddresses(toServices(mocks.Services), &networkCIDR, services.NewPortAllocator())
 
 		// Then an error should occur
 		if err == nil {
@@ -526,13 +526,13 @@ func TestNetworkManager_assignIPAddresses(t *testing.T) {
 	t.Run("ErrorSettingAddress", func(t *testing.T) {
 		// Given a service that fails to set address
 		_, mocks := setup(t)
-		mocks.Services[0].SetAddressFunc = func(address string) error {
+		mocks.Services[0].SetAddressFunc = func(address string, portAllocator *services.PortAllocator) error {
 			return fmt.Errorf("error setting address")
 		}
 		networkCIDR := "10.5.0.0/16"
 
 		// When assigning IP addresses
-		err := assignIPAddresses(toServices(mocks.Services[:1]), &networkCIDR)
+		err := assignIPAddresses(toServices(mocks.Services[:1]), &networkCIDR, services.NewPortAllocator())
 
 		// Then an error should occur
 		if err == nil {
@@ -551,7 +551,7 @@ func TestNetworkManager_assignIPAddresses(t *testing.T) {
 		networkCIDR := "10.5.0.0/30"
 
 		// When assigning IP addresses
-		err := assignIPAddresses(toServices(mocks.Services), &networkCIDR)
+		err := assignIPAddresses(toServices(mocks.Services), &networkCIDR, services.NewPortAllocator())
 
 		// Then an error should occur
 		if err == nil {
@@ -570,7 +570,7 @@ func TestNetworkManager_assignIPAddresses(t *testing.T) {
 		var networkCIDR *string
 
 		// When assigning IP addresses
-		err := assignIPAddresses(toServices(mocks.Services[:1]), networkCIDR)
+		err := assignIPAddresses(toServices(mocks.Services[:1]), networkCIDR, services.NewPortAllocator())
 
 		// Then an error should occur
 		if err == nil {

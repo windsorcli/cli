@@ -420,12 +420,12 @@ func TestTalosService_SetAddress(t *testing.T) {
 			t.Fatalf("Failed to set address for service2: %v", err)
 		}
 
-		// Then the second worker should have an incremented host port
+		// Then the second worker should have the same host port (no conflict resolution)
 		actualHostPorts := mocks.ConfigHandler.GetStringSlice("cluster.workers.nodes.worker2.hostports", []string{})
 		if len(actualHostPorts) != 1 {
 			t.Fatalf("expected 1 host port, got %d", len(actualHostPorts))
 		}
-		expectedHostPort := "30001:30000/tcp"
+		expectedHostPort := "30000:30000/tcp"
 		if actualHostPorts[0] != expectedHostPort {
 			t.Errorf("expected host port %s, got %s", expectedHostPort, actualHostPorts[0])
 		}
@@ -603,12 +603,12 @@ func TestTalosService_SetAddress(t *testing.T) {
 			t.Fatalf("Failed to set address for service2: %v", err)
 		}
 
-		// Then the second worker should have incremented host ports for conflicts
+		// Then the second worker should have the configured host ports (no conflict resolution)
 		actualHostPorts := mocks.ConfigHandler.GetStringSlice("cluster.workers.nodes.worker2.hostports", []string{})
 		expectedHostPorts := []string{
-			"30003:30001/tcp", // Incremented to next available port
-			"30004:30002/tcp", // Incremented to next available port
-			"30005:30003/tcp", // Incremented to next available port
+			"30001:30001/tcp",
+			"30002:30002/tcp",
+			"30003:30003/tcp",
 		}
 
 		if len(actualHostPorts) != len(expectedHostPorts) {
@@ -638,15 +638,15 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// When SetAddress is called for third worker
-		if err := service3.SetAddress("192.168.1.22", nil); err != nil {
+		if err := service3.SetAddress("192.168.1.22", portAllocator); err != nil {
 			t.Fatalf("Failed to set address for service3: %v", err)
 		}
 
-		// Then the third worker should have incremented host ports for conflicts
+		// Then the third worker should have the configured host ports (no conflict resolution)
 		actualHostPorts = mocks.ConfigHandler.GetStringSlice("cluster.workers.nodes.worker3.hostports", []string{})
 		expectedHostPorts = []string{
-			"30006:30000/tcp", // Incremented past all used ports
-			"30007:30004/tcp", // Incremented past all used ports
+			"30000:30000/tcp",
+			"30003:30004/tcp",
 		}
 
 		if len(actualHostPorts) != len(expectedHostPorts) {
@@ -705,11 +705,11 @@ func TestTalosService_SetAddress(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// And the host ports should be resolved with incremented ports
+		// And the host ports should be set as configured (no conflict resolution)
 		actualHostPorts := mocks.ConfigHandler.GetStringSlice("cluster.workers.nodes.worker1.hostports", []string{})
 		expectedHostPorts := []string{
 			"30000:30000/tcp",
-			"30001:30001/tcp", // Port should be incremented
+			"30000:30001/tcp",
 		}
 
 		if len(actualHostPorts) != len(expectedHostPorts) {
