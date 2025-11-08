@@ -7,6 +7,7 @@ import (
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/composer/terraform"
 	"github.com/windsorcli/cli/pkg/context"
+	"github.com/windsorcli/cli/pkg/generators"
 )
 
 // The Composer package provides high-level resource management functionality
@@ -143,5 +144,29 @@ func (r *Composer) Generate(overwrite ...bool) error {
 		return fmt.Errorf("failed to process terraform modules: %w", err)
 	}
 
+	if err := r.generateGitignore(); err != nil {
+		return fmt.Errorf("failed to generate .gitignore: %w", err)
+	}
+
+	if r.ConfigHandler.GetBool("terraform.enabled", false) {
+		if err := r.TerraformResolver.GenerateTfvars(shouldOverwrite); err != nil {
+			return fmt.Errorf("failed to generate terraform files: %w", err)
+		}
+	}
+
 	return nil
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// generateGitignore creates or updates the .gitignore file with Windsor-specific entries.
+// It delegates to the GitGenerator to maintain consistency with the existing generator logic.
+func (r *Composer) generateGitignore() error {
+	gitGenerator := generators.NewGitGenerator(r.Injector)
+	if err := gitGenerator.Initialize(); err != nil {
+		return fmt.Errorf("failed to initialize git generator: %w", err)
+	}
+	return gitGenerator.Generate(nil)
 }

@@ -1,17 +1,161 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/composer"
+	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/pipelines"
-	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/provisioner"
+	"github.com/windsorcli/cli/pkg/workstation"
 )
+
+// =============================================================================
+// Shared Init Logic
+// =============================================================================
+
+// runInit performs the common initialization logic for init, up, and down commands.
+// It creates execution contexts, sets up infrastructure dependencies, applies default configs,
+// generates configurations, and persists the config state.
+func runInit(injector di.Injector, contextName string, overwrite bool) error {
+	baseCtx := &context.ExecutionContext{
+		Injector: injector,
+	}
+
+	baseCtx, err := context.NewContext(baseCtx)
+	if err != nil {
+		return fmt.Errorf("failed to initialize context: %w", err)
+	}
+
+	configHandler := baseCtx.ConfigHandler
+
+	if err := configHandler.Initialize(); err != nil {
+		return fmt.Errorf("failed to initialize config handler: %w", err)
+	}
+
+	if err := configHandler.SetContext(contextName); err != nil {
+		return fmt.Errorf("failed to set context: %w", err)
+	}
+
+	if !configHandler.IsLoaded() {
+		existingProvider := configHandler.GetString("provider")
+		isDevMode := configHandler.IsDevMode(contextName)
+
+		if isDevMode {
+			if err := configHandler.Set("dev", true); err != nil {
+				return fmt.Errorf("failed to set dev mode: %w", err)
+			}
+		}
+
+		vmDriver := configHandler.GetString("vm.driver")
+		if isDevMode && vmDriver == "" {
+			switch runtime.GOOS {
+			case "darwin", "windows":
+				vmDriver = "docker-desktop"
+			default:
+				vmDriver = "docker"
+			}
+		}
+
+		if vmDriver == "docker-desktop" {
+			if err := configHandler.SetDefault(config.DefaultConfig_Localhost); err != nil {
+				return fmt.Errorf("failed to set default config: %w", err)
+			}
+		} else if isDevMode {
+			if err := configHandler.SetDefault(config.DefaultConfig_Full); err != nil {
+				return fmt.Errorf("failed to set default config: %w", err)
+			}
+		} else {
+			if err := configHandler.SetDefault(config.DefaultConfig); err != nil {
+				return fmt.Errorf("failed to set default config: %w", err)
+			}
+		}
+
+		if isDevMode && configHandler.GetString("vm.driver") == "" && vmDriver != "" {
+			if err := configHandler.Set("vm.driver", vmDriver); err != nil {
+				return fmt.Errorf("failed to set vm.driver: %w", err)
+			}
+		}
+
+		if existingProvider == "" && isDevMode {
+			if err := configHandler.Set("provider", "generic"); err != nil {
+				return fmt.Errorf("failed to set provider from context name: %w", err)
+			}
+		}
+	}
+
+	provider := configHandler.GetString("provider")
+	if provider != "" {
+		switch provider {
+		case "aws":
+			if err := configHandler.Set("aws.enabled", true); err != nil {
+				return fmt.Errorf("failed to set aws.enabled: %w", err)
+			}
+			if err := configHandler.Set("cluster.driver", "eks"); err != nil {
+				return fmt.Errorf("failed to set cluster.driver: %w", err)
+			}
+		case "azure":
+			if err := configHandler.Set("azure.enabled", true); err != nil {
+				return fmt.Errorf("failed to set azure.enabled: %w", err)
+			}
+			if err := configHandler.Set("cluster.driver", "aks"); err != nil {
+				return fmt.Errorf("failed to set cluster.driver: %w", err)
+			}
+		case "generic":
+			if err := configHandler.Set("cluster.driver", "talos"); err != nil {
+				return fmt.Errorf("failed to set cluster.driver: %w", err)
+			}
+		}
+	}
+
+	provCtx := &provisioner.ProvisionerExecutionContext{
+		ExecutionContext: *baseCtx,
+	}
+	_ = provisioner.NewProvisioner(provCtx)
+
+	if configHandler.IsDevMode(contextName) {
+		workstationCtx := &workstation.WorkstationExecutionContext{
+			ExecutionContext: *baseCtx,
+		}
+		_, err = workstation.NewWorkstation(workstationCtx, injector)
+		if err != nil {
+			return fmt.Errorf("failed to initialize workstation: %w", err)
+		}
+	}
+
+	if err := configHandler.GenerateContextID(); err != nil {
+		return fmt.Errorf("failed to generate context ID: %w", err)
+	}
+
+	if err := configHandler.SaveConfig(); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	if err := configHandler.LoadConfig(); err != nil {
+		return fmt.Errorf("failed to reload context config: %w", err)
+	}
+
+	composerCtx := &composer.ComposerExecutionContext{
+		ExecutionContext: *baseCtx,
+	}
+
+	comp := composer.NewComposer(composerCtx)
+
+	if err := comp.Generate(overwrite); err != nil {
+		return fmt.Errorf("failed to generate infrastructure: %w", err)
+	}
+
+	return nil
+}
+
+// =============================================================================
+// Init Command
+// =============================================================================
 
 var (
 	initReset          bool
@@ -26,7 +170,7 @@ var (
 	initDocker         bool
 	initGitLivereload  bool
 	initProvider       string
-	initPlatform       string // Deprecated: use initProvider instead
+	initPlatform       string
 	initBlueprint      string
 	initEndpoint       string
 	initSetFlags       []string
@@ -40,66 +184,42 @@ var initCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
-		ctx := cmd.Context()
-		if len(args) > 0 {
-			ctx = context.WithValue(ctx, "contextName", args[0])
-		}
-		ctx = context.WithValue(ctx, "reset", initReset)
-		ctx = context.WithValue(ctx, "trust", true)
 
-		// Handle deprecated --platform flag (must come before automatic provider/blueprint setting)
+		baseCtx := &context.ExecutionContext{
+			Injector: injector,
+		}
+
+		baseCtx, err := context.NewContext(baseCtx)
+		if err != nil {
+			return fmt.Errorf("failed to initialize context: %w", err)
+		}
+
+		contextName := "local"
+		if len(args) > 0 {
+			contextName = args[0]
+		} else {
+			currentContext := baseCtx.ConfigHandler.GetContext()
+			if currentContext != "" && currentContext != "local" {
+				contextName = currentContext
+			}
+		}
+
 		if initPlatform != "" {
 			fmt.Fprintf(os.Stderr, "\033[33mWarning: The --platform flag is deprecated and will be removed in a future version. Please use --provider instead.\033[0m\n")
 			initProvider = initPlatform
 		}
 
-		ctx = context.WithValue(ctx, "initPipeline", true)
-
-		// Set up environment variables using runtime
-		deps := &runtime.Dependencies{
-			Injector: injector,
-		}
-		if err := runtime.NewRuntime(deps).
-			LoadShell().
-			LoadConfig().
-			LoadSecretsProviders().
-			LoadEnvVars(runtime.EnvVarsOptions{
-				Decrypt: true,
-				Verbose: verbose,
-			}).
-			ExecutePostEnvHook(verbose).
-			Do(); err != nil {
-			return fmt.Errorf("failed to set up environment: %w", err)
-		}
-
-		// Set provider if context is "local" and no provider is specified
-		if len(args) > 0 && strings.HasPrefix(args[0], "local") && initProvider == "" {
+		if baseCtx.ConfigHandler.IsDevMode(contextName) && initProvider == "" {
 			initProvider = "generic"
 		}
 
-		// Pass blueprint and provider to pipeline for decision logic
-		if initBlueprint != "" {
-			ctx = context.WithValue(ctx, "blueprint", initBlueprint)
-		}
-		if initProvider != "" {
-			ctx = context.WithValue(ctx, "provider", initProvider)
-		}
+		configHandler := baseCtx.ConfigHandler
 
-		configHandler := injector.Resolve("configHandler").(config.ConfigHandler)
-
-		// Initialize the config handler to ensure schema validator is available
-		if err := configHandler.Initialize(); err != nil {
-			return fmt.Errorf("failed to initialize config handler: %w", err)
-		}
-
-		// Set provider in context if it's been set (either via --provider or --platform)
 		if initProvider != "" {
 			if err := configHandler.Set("provider", initProvider); err != nil {
 				return fmt.Errorf("failed to set provider: %w", err)
 			}
 		}
-
-		// Set other configuration values
 		if initBackend != "" {
 			if err := configHandler.Set("terraform.backend.type", initBackend); err != nil {
 				return fmt.Errorf("failed to set terraform.backend.type: %w", err)
@@ -151,7 +271,6 @@ var initCmd = &cobra.Command{
 			}
 		}
 
-		hasSetFlags := len(initSetFlags) > 0
 		for _, setFlag := range initSetFlags {
 			parts := strings.SplitN(setFlag, "=", 2)
 			if len(parts) == 2 {
@@ -161,15 +280,18 @@ var initCmd = &cobra.Command{
 			}
 		}
 
-		ctx = context.WithValue(ctx, "hasSetFlags", hasSetFlags)
-		ctx = context.WithValue(ctx, "quiet", false)
-		ctx = context.WithValue(ctx, "decrypt", false)
-		initPipeline, err := pipelines.WithPipeline(injector, ctx, "initPipeline")
-		if err != nil {
-			return fmt.Errorf("failed to set up init pipeline: %w", err)
+		if err := runInit(injector, contextName, initReset); err != nil {
+			return err
 		}
 
-		return initPipeline.Execute(ctx)
+		hasSetFlags := len(initSetFlags) > 0
+		if err := configHandler.SaveConfig(hasSetFlags); err != nil {
+			return fmt.Errorf("failed to save configuration: %w", err)
+		}
+
+		fmt.Fprintln(os.Stderr, "Initialization successful")
+
+		return nil
 	},
 }
 

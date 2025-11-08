@@ -47,22 +47,9 @@ type Workstation struct {
 // Constructor
 // =============================================================================
 
-// NewWorkstationExecutionContext creates a WorkstationExecutionContext from a base ExecutionContext.
-// This helper function allows production code to easily create a workstation context from the base context.
-func NewWorkstationExecutionContext(baseCtx *context.ExecutionContext) *WorkstationExecutionContext {
-	if baseCtx == nil {
-		return nil
-	}
-	return &WorkstationExecutionContext{
-		ExecutionContext: *baseCtx,
-	}
-}
-
 // NewWorkstation creates a new Workstation instance with the provided execution context and injector.
 // The execution context should already have ConfigHandler and Shell set.
 // Other dependencies are created only if not already present on the context.
-// For production use, create a WorkstationExecutionContext from a base ExecutionContext using NewWorkstationExecutionContext.
-// For testing, pass a WorkstationExecutionContext with pre-initialized dependencies to override constructor behavior.
 func NewWorkstation(ctx *WorkstationExecutionContext, injector di.Injector) (*Workstation, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("execution context is required")
@@ -116,6 +103,11 @@ func NewWorkstation(ctx *WorkstationExecutionContext, injector di.Injector) (*Wo
 	// Create SSHClient if not already set
 	if workstation.SSHClient == nil {
 		workstation.SSHClient = ssh.NewSSHClient()
+	}
+
+	// Initialize NetworkManager to assign IP addresses to services
+	if err := workstation.NetworkManager.Initialize(); err != nil {
+		return nil, fmt.Errorf("failed to initialize network manager: %w", err)
 	}
 
 	return workstation, nil
@@ -206,7 +198,7 @@ func (w *Workstation) Down() error {
 // Private Methods
 // =============================================================================
 
-// createServices creates services based on configuration settings.
+// createServices creates and registers services based on configuration settings.
 func (w *Workstation) createServices() ([]services.Service, error) {
 	var serviceList []services.Service
 
@@ -223,6 +215,7 @@ func (w *Workstation) createServices() ([]services.Service, error) {
 		if err := service.Initialize(); err != nil {
 			return nil, fmt.Errorf("failed to initialize DNS service: %w", err)
 		}
+		w.injector.Register("dnsService", service)
 		serviceList = append(serviceList, service)
 	}
 
@@ -234,6 +227,7 @@ func (w *Workstation) createServices() ([]services.Service, error) {
 		if err := service.Initialize(); err != nil {
 			return nil, fmt.Errorf("failed to initialize Git Livereload service: %w", err)
 		}
+		w.injector.Register("gitLivereloadService", service)
 		serviceList = append(serviceList, service)
 	}
 
@@ -245,6 +239,7 @@ func (w *Workstation) createServices() ([]services.Service, error) {
 		if err := service.Initialize(); err != nil {
 			return nil, fmt.Errorf("failed to initialize Localstack service: %w", err)
 		}
+		w.injector.Register("localstackService", service)
 		serviceList = append(serviceList, service)
 	}
 
@@ -257,6 +252,7 @@ func (w *Workstation) createServices() ([]services.Service, error) {
 			if err := service.Initialize(); err != nil {
 				return nil, fmt.Errorf("failed to initialize Registry service %s: %w", key, err)
 			}
+			w.injector.Register(fmt.Sprintf("registryService.%s", key), service)
 			serviceList = append(serviceList, service)
 		}
 	}
@@ -275,6 +271,7 @@ func (w *Workstation) createServices() ([]services.Service, error) {
 			if err := service.Initialize(); err != nil {
 				return nil, fmt.Errorf("failed to initialize Talos controlplane service %s: %w", serviceName, err)
 			}
+			w.injector.Register(fmt.Sprintf("talosService.%s", serviceName), service)
 			serviceList = append(serviceList, service)
 		}
 
@@ -285,6 +282,7 @@ func (w *Workstation) createServices() ([]services.Service, error) {
 			if err := service.Initialize(); err != nil {
 				return nil, fmt.Errorf("failed to initialize Talos worker service %s: %w", serviceName, err)
 			}
+			w.injector.Register(fmt.Sprintf("talosService.%s", serviceName), service)
 			serviceList = append(serviceList, service)
 		}
 	}

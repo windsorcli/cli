@@ -119,18 +119,16 @@ func TestOCIModuleResolver_Initialize(t *testing.T) {
 	})
 
 	t.Run("HandlesBlueprintHandlerTypeAssertionError", func(t *testing.T) {
-		// Given a resolver with valid artifact builder but wrong blueprint handler type
 		mocks := setupMocks(t, &SetupOptions{})
 		injector := di.NewInjector()
 		injector.Register("shell", mocks.Shell)
+		injector.Register("configHandler", mocks.ConfigHandler)
 		injector.Register("artifactBuilder", artifact.NewMockArtifact())
 		injector.Register("blueprintHandler", "invalid-blueprint-handler-type")
 		resolver := NewOCIModuleResolver(injector)
 
-		// When calling Initialize
 		err := resolver.Initialize()
 
-		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}

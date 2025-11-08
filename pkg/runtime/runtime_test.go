@@ -1878,6 +1878,18 @@ func TestRuntime_WorkstationDown(t *testing.T) {
 		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
 			return "test-context"
 		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "network.cidr_block" {
+				return "10.5.0.0/16"
+			}
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return "mock-string"
+		}
 		mocks.Shell.(*shell.MockShell).GetProjectRootFunc = func() (string, error) {
 			return "/test/project", nil
 		}
@@ -2059,6 +2071,18 @@ func TestRuntime_createWorkstation(t *testing.T) {
 		mocks := setupMocks(t)
 		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
 			return "test-context"
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "network.cidr_block" {
+				return "10.5.0.0/16"
+			}
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return "mock-string"
 		}
 		mocks.Shell.(*shell.MockShell).GetProjectRootFunc = func() (string, error) {
 			return "/test/project", nil

@@ -257,6 +257,12 @@ func (ctx *ExecutionContext) LoadEnvironment(decrypt bool) error {
 	ctx.envVars = allEnvVars
 	ctx.aliases = allAliases
 
+	for key, value := range allEnvVars {
+		if err := os.Setenv(key, value); err != nil {
+			return fmt.Errorf("error setting environment variable %s: %w", key, err)
+		}
+	}
+
 	return nil
 }
 

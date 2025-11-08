@@ -5,6 +5,9 @@ import (
 	"maps"
 	"os"
 
+	"github.com/windsorcli/cli/pkg/composer/artifact"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/composer/terraform"
 	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/context/config"
 	envvars "github.com/windsorcli/cli/pkg/context/env"
@@ -16,9 +19,6 @@ import (
 	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/windsorcli/cli/pkg/provisioner/cluster"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
-	"github.com/windsorcli/cli/pkg/composer/artifact"
-	"github.com/windsorcli/cli/pkg/composer/blueprint"
-	"github.com/windsorcli/cli/pkg/composer/terraform"
 	"github.com/windsorcli/cli/pkg/workstation"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/services"
@@ -452,7 +452,9 @@ func (r *Runtime) createWorkstation() (*workstation.Workstation, error) {
 		Injector:      r.Injector,
 	}
 
-	workstationCtx := workstation.NewWorkstationExecutionContext(execCtx)
+	workstationCtx := &workstation.WorkstationExecutionContext{
+		ExecutionContext: *execCtx,
+	}
 	ws, err := workstation.NewWorkstation(workstationCtx, r.Injector)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create workstation: %w", err)

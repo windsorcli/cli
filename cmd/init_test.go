@@ -2,18 +2,16 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/pipelines"
-	"github.com/windsorcli/cli/pkg/context/shell"
 )
 
 // =============================================================================
@@ -21,10 +19,11 @@ import (
 // =============================================================================
 
 type InitMocks struct {
-	Injector      di.Injector
-	ConfigHandler config.ConfigHandler
-	Shell         *shell.MockShell
-	Shims         *Shims
+	Injector         di.Injector
+	ConfigHandler    config.ConfigHandler
+	Shell            *Mocks
+	Shims            *Shims
+	BlueprintHandler *blueprint.MockBlueprintHandler
 }
 
 func setupInitTest(t *testing.T, opts ...*SetupOptions) *InitMocks {
@@ -61,17 +60,19 @@ func setupInitTest(t *testing.T, opts ...*SetupOptions) *InitMocks {
 	baseMocks.Shell.AddCurrentDirToTrustedFileFunc = func() error { return nil }
 	baseMocks.Shell.WriteResetTokenFunc = func() (string, error) { return "test-token", nil }
 
-	// Register mock init pipeline in injector (following exec_test.go pattern)
-	mockInitPipeline := pipelines.NewMockBasePipeline()
-	mockInitPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-	mockInitPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
-	baseMocks.Injector.Register("initPipeline", mockInitPipeline)
+	// Add blueprint handler mock
+	mockBlueprintHandler := blueprint.NewMockBlueprintHandler(baseMocks.Injector)
+	mockBlueprintHandler.InitializeFunc = func() error { return nil }
+	mockBlueprintHandler.LoadBlueprintFunc = func() error { return nil }
+	mockBlueprintHandler.WriteFunc = func(overwrite ...bool) error { return nil }
+	baseMocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
 
 	return &InitMocks{
-		Injector:      baseMocks.Injector,
-		ConfigHandler: baseMocks.ConfigHandler,
-		Shell:         baseMocks.Shell,
-		Shims:         baseMocks.Shims,
+		Injector:         baseMocks.Injector,
+		ConfigHandler:    baseMocks.ConfigHandler,
+		Shell:            baseMocks,
+		Shims:            baseMocks.Shims,
+		BlueprintHandler: mockBlueprintHandler,
 	}
 }
 
@@ -189,74 +190,6 @@ func TestInitCmd(t *testing.T) {
 		// Then no error should occur
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
-		}
-	})
-
-	t.Run("PipelineExecutionError", func(t *testing.T) {
-		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
-
-		// And a pipeline that fails to execute
-		mockPipeline := pipelines.NewMockBasePipeline()
-		mockPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockPipeline.ExecuteFunc = func(ctx context.Context) error {
-			return fmt.Errorf("pipeline execution failed")
-		}
-		mocks.Injector.Register("initPipeline", mockPipeline)
-
-		// When executing the init command
-		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "pipeline execution failed") {
-			t.Errorf("Expected pipeline execution error, got: %v", err)
-		}
-	})
-
-	t.Run("ConfigHandlerSetError", func(t *testing.T) {
-		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
-
-		// And a config handler that fails to set context values
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
-			return fmt.Errorf("failed to set %s", key)
-		}
-		// Set up other methods that the runtime calls
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return false
-		}
-		mocks.Injector.Register("configHandler", mockConfigHandler)
-
-		// When executing the init command with flags that trigger config setting
-		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{"--backend", "local"})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to set terraform.backend.type") {
-			t.Errorf("Expected config handler error, got: %v", err)
 		}
 	})
 
@@ -1064,74 +997,6 @@ func TestInitCmd(t *testing.T) {
 		// Then no error should occur (invalid format is ignored)
 		if err != nil {
 			t.Errorf("Expected success for invalid set flag format, got error: %v", err)
-		}
-	})
-
-	t.Run("RunEConfigHandlerError", func(t *testing.T) {
-		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
-
-		// And a config handler that fails to set values
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
-			return fmt.Errorf("failed to set %s", key)
-		}
-		// Set up other methods that the runtime calls
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return false
-		}
-		mocks.Injector.Register("configHandler", mockConfigHandler)
-
-		// When executing the init command with flags that trigger config setting
-		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{"--docker"})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error from config handler, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to set docker.enabled") {
-			t.Errorf("Expected config handler error, got: %v", err)
-		}
-	})
-
-	t.Run("RunEPipelineError", func(t *testing.T) {
-		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
-
-		// And a pipeline that fails to execute
-		mockPipeline := pipelines.NewMockBasePipeline()
-		mockPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockPipeline.ExecuteFunc = func(ctx context.Context) error {
-			return fmt.Errorf("pipeline execution failed")
-		}
-		mocks.Injector.Register("initPipeline", mockPipeline)
-
-		// When executing the init command
-		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error from pipeline, got nil")
-		}
-		if !strings.Contains(err.Error(), "pipeline execution failed") {
-			t.Errorf("Expected pipeline error, got: %v", err)
 		}
 	})
 }

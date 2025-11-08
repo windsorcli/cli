@@ -6,6 +6,7 @@ import "github.com/windsorcli/cli/pkg/di"
 type MockModuleResolver struct {
 	InitializeFunc     func() error
 	ProcessModulesFunc func() error
+	GenerateTfvarsFunc func(overwrite bool) error
 }
 
 // =============================================================================
@@ -33,6 +34,14 @@ func (m *MockModuleResolver) Initialize() error {
 func (m *MockModuleResolver) ProcessModules() error {
 	if m.ProcessModulesFunc != nil {
 		return m.ProcessModulesFunc()
+	}
+	return nil
+}
+
+// GenerateTfvars calls the mock GenerateTfvarsFunc if set, otherwise returns nil
+func (m *MockModuleResolver) GenerateTfvars(overwrite bool) error {
+	if m.GenerateTfvarsFunc != nil {
+		return m.GenerateTfvarsFunc(overwrite)
 	}
 	return nil
 }
