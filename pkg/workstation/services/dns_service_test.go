@@ -152,7 +152,7 @@ func TestDNSService_SetAddress(t *testing.T) {
 
 		// When SetAddress is called
 		address := "127.0.0.1"
-		err := service.SetAddress(address)
+		err := service.SetAddress(address, nil)
 
 		setAddress := mocks.ConfigHandler.GetString("dns.address")
 
@@ -180,7 +180,7 @@ func TestDNSService_SetAddress(t *testing.T) {
 
 		// When SetAddress is called
 		address := "127.0.0.1"
-		err := service.SetAddress(address)
+		err := service.SetAddress(address, nil)
 
 		// Then an error should be returned
 		if err == nil {
@@ -329,7 +329,7 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		service, mocks := setup(t)
 
 		// Set the address to localhost to mock IsLocalhost behavior
-		service.SetAddress("127.0.0.1")
+		service.SetAddress("127.0.0.1", nil)
 
 		// Set the DNS domain
 		mocks.ConfigHandler.Set("dns.domain", "test")
@@ -384,7 +384,7 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		}
 
 		service.SetName("test")
-		service.SetAddress("192.168.1.1")
+		service.SetAddress("192.168.1.1", nil)
 
 		// Execute
 		err := service.WriteConfig()
@@ -643,7 +643,7 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		}
 
 		service.SetName("test")
-		service.SetAddress("192.168.1.1")
+		service.SetAddress("192.168.1.1", nil)
 
 		// Execute
 		err := service.WriteConfig()
@@ -840,7 +840,7 @@ func TestDNSService_GetHostname(t *testing.T) {
 	t.Run("ErrorGettingHostname", func(t *testing.T) {
 		// Given a DNSService with no name set
 		service, mocks := setup(t)
-		service.SetName("")                                   // Clear the name
+		service.SetName("")                       // Clear the name
 		mocks.ConfigHandler.Set("dns.domain", "") // Clear the domain
 
 		// When GetHostname is called

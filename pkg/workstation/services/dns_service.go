@@ -57,12 +57,12 @@ func (s *DNSService) Initialize() error {
 }
 
 // SetAddress updates DNS address in config and calls BaseService's SetAddress.
-func (s *DNSService) SetAddress(address string) error {
+func (s *DNSService) SetAddress(address string, portAllocator *PortAllocator) error {
 	err := s.configHandler.Set("dns.address", address)
 	if err != nil {
 		return fmt.Errorf("error setting DNS address: %w", err)
 	}
-	return s.BaseService.SetAddress(address)
+	return s.BaseService.SetAddress(address, portAllocator)
 }
 
 // GetComposeConfig sets up CoreDNS with context and domain, configures ports if localhost.

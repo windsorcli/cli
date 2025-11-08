@@ -127,9 +127,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		t.Helper()
 
 		// Reset package-level variables
-		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
-		usedHostPorts = make(map[uint32]bool)
 
 		mocks := setupTalosServiceMocks(t)
 		service := NewTalosService(mocks.Injector, "controlplane")
@@ -145,7 +143,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		service, mocks := setup(t)
 
 		// When SetAddress is called
-		err := service.SetAddress("192.168.1.10")
+		err := service.SetAddress("192.168.1.10", nil)
 
 		// Then there should be no error
 		if err != nil {
@@ -172,9 +170,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
-		usedHostPorts = make(map[uint32]bool)
 
 		// Create a leader first
 		leader := NewTalosService(mocks.Injector, "controlplane")
@@ -182,7 +178,8 @@ func TestTalosService_SetAddress(t *testing.T) {
 		if err := leader.Initialize(); err != nil {
 			t.Fatalf("Failed to initialize leader service: %v", err)
 		}
-		if err := leader.SetAddress("192.168.1.10"); err != nil {
+		portAllocator := NewPortAllocator()
+		if err := leader.SetAddress("192.168.1.10", portAllocator); err != nil {
 			t.Fatalf("Failed to set leader address: %v", err)
 		}
 
@@ -193,8 +190,13 @@ func TestTalosService_SetAddress(t *testing.T) {
 			t.Fatalf("Failed to initialize service: %v", err)
 		}
 
+		// Enable localhost mode
+		if err := mocks.ConfigHandler.Set("vm.driver", "docker-desktop"); err != nil {
+			t.Fatalf("Failed to set VM driver: %v", err)
+		}
+
 		// When SetAddress is called
-		err := service.SetAddress("192.168.1.11")
+		err := service.SetAddress("192.168.1.11", portAllocator)
 
 		// Then there should be no error
 		if err != nil {
@@ -221,9 +223,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
-		usedHostPorts = make(map[uint32]bool)
 
 		// Create a worker node
 		service := NewTalosService(mocks.Injector, "worker")
@@ -232,8 +232,14 @@ func TestTalosService_SetAddress(t *testing.T) {
 			t.Fatalf("Failed to initialize service: %v", err)
 		}
 
+		// Enable localhost mode
+		if err := mocks.ConfigHandler.Set("vm.driver", "docker-desktop"); err != nil {
+			t.Fatalf("Failed to set VM driver: %v", err)
+		}
+
 		// When SetAddress is called
-		err := service.SetAddress("192.168.1.20")
+		portAllocator := NewPortAllocator()
+		err := service.SetAddress("192.168.1.20", portAllocator)
 
 		// Then there should be no error
 		if err != nil {
@@ -260,9 +266,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
-		usedHostPorts = make(map[uint32]bool)
 
 		// Create a worker node with host ports
 		service := NewTalosService(mocks.Injector, "worker")
@@ -282,7 +286,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// When SetAddress is called
-		err := service.SetAddress("192.168.1.20")
+		err := service.SetAddress("192.168.1.20", nil)
 
 		// Then there should be no error
 		if err != nil {
@@ -317,9 +321,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
-		usedHostPorts = make(map[uint32]bool)
 
 		// Create a worker node
 		service := NewTalosService(mocks.Injector, "worker")
@@ -334,7 +336,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// When SetAddress is called
-		err := service.SetAddress("192.168.1.20")
+		err := service.SetAddress("192.168.1.20", nil)
 
 		// Then there should be an error
 		if err == nil {
@@ -350,9 +352,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
-		usedHostPorts = make(map[uint32]bool)
 
 		// Create a worker node
 		service := NewTalosService(mocks.Injector, "worker")
@@ -367,7 +367,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// When SetAddress is called
-		err := service.SetAddress("192.168.1.20")
+		err := service.SetAddress("192.168.1.20", nil)
 
 		// Then there should be an error
 		if err == nil {
@@ -383,9 +383,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
-		usedHostPorts = make(map[uint32]bool)
 
 		// Create first worker node
 		service1 := NewTalosService(mocks.Injector, "worker")
@@ -400,7 +398,8 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// When SetAddress is called for first worker
-		if err := service1.SetAddress("192.168.1.20"); err != nil {
+		portAllocator := NewPortAllocator()
+		if err := service1.SetAddress("192.168.1.20", portAllocator); err != nil {
 			t.Fatalf("Failed to set address for service1: %v", err)
 		}
 
@@ -417,7 +416,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// When SetAddress is called for second worker
-		if err := service2.SetAddress("192.168.1.21"); err != nil {
+		if err := service2.SetAddress("192.168.1.21", portAllocator); err != nil {
 			t.Fatalf("Failed to set address for service2: %v", err)
 		}
 
@@ -437,9 +436,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
-		usedHostPorts = make(map[uint32]bool)
 
 		// And a custom TLD
 		if err := mocks.ConfigHandler.Set("dns.domain", "custom.local"); err != nil {
@@ -453,8 +450,14 @@ func TestTalosService_SetAddress(t *testing.T) {
 			t.Fatalf("Failed to initialize service: %v", err)
 		}
 
+		// Enable localhost mode
+		if err := mocks.ConfigHandler.Set("vm.driver", "docker-desktop"); err != nil {
+			t.Fatalf("Failed to set VM driver: %v", err)
+		}
+
 		// When SetAddress is called
-		err := service.SetAddress("192.168.1.20")
+		portAllocator := NewPortAllocator()
+		err := service.SetAddress("192.168.1.20", portAllocator)
 
 		// Then there should be no error
 		if err != nil {
@@ -481,9 +484,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
-		usedHostPorts = make(map[uint32]bool)
 
 		// Create a worker node
 		service := NewTalosService(mocks.Injector, "worker")
@@ -501,7 +502,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// When SetAddress is called
-		err := service.SetAddress("192.168.1.20")
+		err := service.SetAddress("192.168.1.20", nil)
 
 		// Then there should be an error
 		if err == nil {
@@ -520,7 +521,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// When SetAddress is called
-		err = service.SetAddress("192.168.1.20")
+		err = service.SetAddress("192.168.1.20", nil)
 
 		// Then there should be an error
 		if err == nil {
@@ -539,7 +540,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// When SetAddress is called
-		err = service.SetAddress("192.168.1.20")
+		err = service.SetAddress("192.168.1.20", nil)
 
 		// Then there should be an error
 		if err == nil {
@@ -555,9 +556,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
-		usedHostPorts = make(map[uint32]bool)
 
 		// Create first worker node
 		service1 := NewTalosService(mocks.Injector, "worker")
@@ -577,7 +576,8 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// When SetAddress is called for first worker
-		if err := service1.SetAddress("192.168.1.20"); err != nil {
+		portAllocator := NewPortAllocator()
+		if err := service1.SetAddress("192.168.1.20", portAllocator); err != nil {
 			t.Fatalf("Failed to set address for service1: %v", err)
 		}
 
@@ -599,7 +599,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// When SetAddress is called for second worker
-		if err := service2.SetAddress("192.168.1.21"); err != nil {
+		if err := service2.SetAddress("192.168.1.21", portAllocator); err != nil {
 			t.Fatalf("Failed to set address for service2: %v", err)
 		}
 
@@ -638,7 +638,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// When SetAddress is called for third worker
-		if err := service3.SetAddress("192.168.1.22"); err != nil {
+		if err := service3.SetAddress("192.168.1.22", nil); err != nil {
 			t.Fatalf("Failed to set address for service3: %v", err)
 		}
 
@@ -665,7 +665,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		service, _ := setup(t)
 
 		// When SetAddress is called with an invalid address
-		err := service.SetAddress("")
+		err := service.SetAddress("", nil)
 
 		// Then there should be an error
 		if err == nil {
@@ -678,9 +678,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
-		usedHostPorts = make(map[uint32]bool)
 
 		// Create a worker node with conflicting host ports
 		service := NewTalosService(mocks.Injector, "worker")
@@ -699,7 +697,8 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// When SetAddress is called
-		err := service.SetAddress("192.168.1.20")
+		portAllocator := NewPortAllocator()
+		err := service.SetAddress("192.168.1.20", portAllocator)
 
 		// Then there should be no error
 		if err != nil {
@@ -733,9 +732,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
-		usedHostPorts = make(map[uint32]bool)
 
 		// Create a worker node with invalid protocol
 		service := NewTalosService(mocks.Injector, "worker")
@@ -753,7 +750,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// When SetAddress is called
-		err := service.SetAddress("192.168.1.20")
+		err := service.SetAddress("192.168.1.20", nil)
 
 		// Then there should be an error
 		if err == nil {
@@ -769,9 +766,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
-		usedHostPorts = make(map[uint32]bool)
 
 		// Create a worker node with invalid host port format
 		service := NewTalosService(mocks.Injector, "worker")
@@ -789,7 +784,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// When SetAddress is called
-		err := service.SetAddress("192.168.1.20")
+		err := service.SetAddress("192.168.1.20", nil)
 
 		// Then there should be an error
 		if err == nil {
@@ -805,9 +800,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// Reset package-level variables
-		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
-		usedHostPorts = make(map[uint32]bool)
 
 		// Create a worker node with invalid port number
 		service := NewTalosService(mocks.Injector, "worker")
@@ -825,7 +818,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// When SetAddress is called
-		err := service.SetAddress("192.168.1.20")
+		err := service.SetAddress("192.168.1.20", nil)
 
 		// Then there should be an error
 		if err == nil {
@@ -894,9 +887,7 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		t.Helper()
 
 		// Reset package-level variables
-		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
-		usedHostPorts = make(map[uint32]bool)
 
 		mocks := setupTalosServiceMocks(t)
 		service := NewTalosService(mocks.Injector, "controlplane")
@@ -918,9 +909,7 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		t.Helper()
 
 		// Reset package-level variables
-		nextAPIPort = constants.DefaultTalosAPIPort + 1
 		controlPlaneLeader = nil
-		usedHostPorts = make(map[uint32]bool)
 
 		mocks := setupTalosServiceMocks(t)
 		service := NewTalosService(mocks.Injector, "worker")
@@ -1454,22 +1443,13 @@ contexts:
 			t.Fatalf("Failed to set VM driver: %v", err)
 		}
 
-		// And an invalid default API port
-		defaultAPIPort = math.MaxUint32 + 1
-
 		// When GetComposeConfig is called
 		_, err := service.GetComposeConfig()
 
-		// Then there should be an error
-		if err == nil {
-			t.Error("expected error for invalid default API port, got nil")
+		// Then there should be no error (defaultAPIPort is now a const, so this test is no longer applicable)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
 		}
-		if !strings.Contains(err.Error(), "defaultAPIPort value out of range") {
-			t.Errorf("expected error about invalid default API port, got %v", err)
-		}
-
-		// Reset defaultAPIPort
-		defaultAPIPort = constants.DefaultTalosAPIPort
 	})
 
 	t.Run("SuccessWithEnvVarVolumes", func(t *testing.T) {

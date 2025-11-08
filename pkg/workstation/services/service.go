@@ -26,7 +26,7 @@ import (
 type Service interface {
 	GetComposeConfig() (*types.Config, error)
 	WriteConfig() error
-	SetAddress(address string) error
+	SetAddress(address string, portAllocator *PortAllocator) error
 	GetAddress() string
 	SetName(name string)
 	GetName() string
@@ -87,8 +87,9 @@ func (s *BaseService) WriteConfig() error {
 	return nil
 }
 
-// SetAddress sets the address if it is a valid IPv4 address
-func (s *BaseService) SetAddress(address string) error {
+// SetAddress sets the address if it is a valid IPv4 address.
+// portAllocator is provided for services that need port allocation (e.g., TalosService).
+func (s *BaseService) SetAddress(address string, portAllocator *PortAllocator) error {
 	if address != "localhost" && (net.ParseIP(address) == nil || net.ParseIP(address).To4() == nil) {
 		return errors.New("invalid IPv4 address")
 	}

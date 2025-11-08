@@ -22,13 +22,13 @@ import (
 // Types
 // =============================================================================
 
-// Initialize the global port settings
+// defaultAPIPort is the default API port for Talos services
+const defaultAPIPort = constants.DefaultTalosAPIPort
+
+// controlPlaneLeader tracks the first controlplane service to be created as the leader
 var (
-	nextAPIPort        = constants.DefaultTalosAPIPort + 1
-	defaultAPIPort     = constants.DefaultTalosAPIPort
-	portLock           sync.Mutex
 	controlPlaneLeader *TalosService
-	usedHostPorts      = make(map[uint32]bool)
+	leaderLock         sync.Mutex
 )
 
 type TalosService struct {
@@ -41,7 +41,7 @@ type TalosService struct {
 // Constructor
 // =============================================================================
 
-// NewTalosService is a constructor for TalosService
+// NewTalosService is a constructor for TalosService.
 func NewTalosService(injector di.Injector, mode string) *TalosService {
 	service := &TalosService{
 		BaseService: *NewBaseService(injector),
@@ -50,8 +50,8 @@ func NewTalosService(injector di.Injector, mode string) *TalosService {
 
 	// Elect a "leader" for the first controlplane
 	if mode == "controlplane" {
-		portLock.Lock()
-		defer portLock.Unlock()
+		leaderLock.Lock()
+		defer leaderLock.Unlock()
 		if controlPlaneLeader == nil {
 			controlPlaneLeader = service
 			service.isLeader = true
@@ -68,11 +68,10 @@ func NewTalosService(injector di.Injector, mode string) *TalosService {
 // SetAddress configures the Talos service's hostname and endpoint using the
 // provided address. It assigns the default API port to the leader controlplane
 // or a unique port if the address is not local. For other nodes, it assigns
-// unique API ports starting from 50001, incrementing for each node. A mutex
-// is used to safely manage concurrent access to the port allocation. Node ports
-// are configured based on the cluster configuration, ensuring no conflicts.
-func (s *TalosService) SetAddress(address string) error {
-	if err := s.BaseService.SetAddress(address); err != nil {
+// unique API ports starting from 50001, incrementing for each node. The portAllocator
+// is used for port allocation if provided; otherwise falls back to global state.
+func (s *TalosService) SetAddress(address string, portAllocator *PortAllocator) error {
+	if err := s.BaseService.SetAddress(address, portAllocator); err != nil {
 		return err
 	}
 
@@ -88,15 +87,11 @@ func (s *TalosService) SetAddress(address string) error {
 		return err
 	}
 
-	portLock.Lock()
-	defer portLock.Unlock()
-
 	var port int
-	if s.isLeader || !s.isLocalhostMode() {
-		port = defaultAPIPort
+	if portAllocator != nil && s.isLocalhostMode() && !s.isLeader {
+		port = portAllocator.NextAvailablePort(defaultAPIPort + 1)
 	} else {
-		port = nextAPIPort
-		nextAPIPort++
+		port = defaultAPIPort
 	}
 
 	endpointAddress := address
@@ -120,12 +115,6 @@ func (s *TalosService) SetAddress(address string) error {
 		if err != nil {
 			return err
 		}
-
-		// Check for conflicts in hostPort
-		for usedHostPorts[hostPort] {
-			hostPort++
-		}
-		usedHostPorts[hostPort] = true
 
 		hostPortsCopy[i] = fmt.Sprintf("%d:%d/%s", hostPort, nodePort, protocol)
 	}
