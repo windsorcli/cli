@@ -35,6 +35,7 @@ type ConfigHandler interface {
 	SetDefault(context v1alpha1.Context) error
 	GetConfig() *v1alpha1.Context
 	GetContext() string
+	IsDevMode(contextName string) bool
 	SetContext(context string) error
 	GetConfigRoot() (string, error)
 	Clean() error
@@ -677,6 +678,18 @@ func (c *configHandler) GetContext() string {
 	} else {
 		return contextName
 	}
+}
+
+// IsDevMode checks if the given context name represents a dev/local environment.
+// It first checks if "dev" is explicitly set in the configuration, which takes precedence.
+// If not set, it falls back to checking if the context name equals "local" or starts with "local-".
+func (c *configHandler) IsDevMode(contextName string) bool {
+	if devValue := c.Get("dev"); devValue != nil {
+		if devBool, ok := devValue.(bool); ok {
+			return devBool
+		}
+	}
+	return contextName == "local" || strings.HasPrefix(contextName, "local-")
 }
 
 // SetContext sets the current context in the file and updates the cache

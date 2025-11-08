@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
 )
@@ -23,6 +24,7 @@ type MockConfigHandler struct {
 	SetDefaultFunc          func(context v1alpha1.Context) error
 	GetConfigFunc           func() *v1alpha1.Context
 	GetContextFunc          func() string
+	IsDevModeFunc           func(contextName string) bool
 	SetContextFunc          func(context string) error
 	GetConfigRootFunc       func() (string, error)
 	CleanFunc               func() error
@@ -178,6 +180,14 @@ func (m *MockConfigHandler) GetContext() string {
 		return m.GetContextFunc()
 	}
 	return "mock-context"
+}
+
+// IsDevMode calls the mock IsDevModeFunc if set, otherwise returns default dev mode logic
+func (m *MockConfigHandler) IsDevMode(contextName string) bool {
+	if m.IsDevModeFunc != nil {
+		return m.IsDevModeFunc(contextName)
+	}
+	return contextName == "local" || strings.HasPrefix(contextName, "local-")
 }
 
 // SetContext calls the mock SetContextFunc if set, otherwise returns nil
