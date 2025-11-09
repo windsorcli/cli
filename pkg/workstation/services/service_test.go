@@ -269,7 +269,7 @@ func TestBaseService_SetAddress(t *testing.T) {
 		service, _ := setup(t)
 
 		// When SetAddress is called with a valid IPv4 address
-		err := service.SetAddress("192.168.1.1")
+		err := service.SetAddress("192.168.1.1", nil)
 
 		// Then the SetAddress should succeed without errors
 		if err != nil {
@@ -288,7 +288,7 @@ func TestBaseService_SetAddress(t *testing.T) {
 		service, _ := setup(t)
 
 		// When SetAddress is called with an invalid IPv4 address
-		err := service.SetAddress("invalid_address")
+		err := service.SetAddress("invalid_address", nil)
 
 		// Then the SetAddress should fail with an error
 		if err == nil {
@@ -315,7 +315,7 @@ func TestBaseService_GetAddress(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new BaseService
 		service, _ := setup(t)
-		service.SetAddress("192.168.1.1")
+		service.SetAddress("192.168.1.1", nil)
 
 		// When GetAddress is called
 		address := service.GetAddress()

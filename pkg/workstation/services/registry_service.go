@@ -69,8 +69,8 @@ func (s *RegistryService) GetComposeConfig() (*types.Config, error) {
 
 // SetAddress configures the registry's address, forms a hostname, and updates the registry config.
 // It assigns the "registry_url" and the default host port for the first non-remote registry, storing it as "localRegistry".
-func (s *RegistryService) SetAddress(address string) error {
-	if err := s.BaseService.SetAddress(address); err != nil {
+func (s *RegistryService) SetAddress(address string, portAllocator *PortAllocator) error {
+	if err := s.BaseService.SetAddress(address, portAllocator); err != nil {
 		return fmt.Errorf("failed to set address for base service: %w", err)
 	}
 

@@ -118,12 +118,12 @@ func TestMockService_SetAddress(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new MockService with SetAddressFunc set
 		mock := NewMockService()
-		mock.SetAddressFunc = func(address string) error {
+		mock.SetAddressFunc = func(address string, portAllocator *PortAllocator) error {
 			return nil
 		}
 
 		// When SetAddress is called
-		err := mock.SetAddress("test-address")
+		err := mock.SetAddress("test-address", nil)
 
 		// Then no error should be returned
 		if err != nil {
@@ -136,7 +136,7 @@ func TestMockService_SetAddress(t *testing.T) {
 		mock := NewMockService()
 
 		// When SetAddress is called
-		err := mock.SetAddress("test-address")
+		err := mock.SetAddress("test-address", nil)
 
 		// Then no error should be returned
 		if err != nil {

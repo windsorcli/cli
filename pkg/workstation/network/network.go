@@ -89,6 +89,9 @@ func (n *BaseNetworkManager) Initialize() error {
 
 	n.services = serviceList
 
+	// Create PortAllocator for this initialization run
+	portAllocator := services.NewPortAllocator()
+
 	networkCIDR := n.configHandler.GetString("network.cidr_block")
 	if networkCIDR == "" {
 		networkCIDR = constants.DefaultNetworkCIDR
@@ -96,7 +99,7 @@ func (n *BaseNetworkManager) Initialize() error {
 			return fmt.Errorf("error setting default network CIDR: %w", err)
 		}
 	}
-	if err := assignIPAddresses(n.services, &networkCIDR); err != nil {
+	if err := assignIPAddresses(n.services, &networkCIDR, portAllocator); err != nil {
 		return fmt.Errorf("error assigning IP addresses: %w", err)
 	}
 
@@ -123,7 +126,7 @@ func (n *BaseNetworkManager) isLocalhostMode() bool {
 // =============================================================================
 
 // assignIPAddresses assigns IP addresses to services based on the network CIDR.
-var assignIPAddresses = func(services []services.Service, networkCIDR *string) error {
+var assignIPAddresses = func(serviceList []services.Service, networkCIDR *string, portAllocator *services.PortAllocator) error {
 	if networkCIDR == nil || *networkCIDR == "" {
 		return fmt.Errorf("network CIDR is not defined")
 	}
@@ -139,8 +142,9 @@ var assignIPAddresses = func(services []services.Service, networkCIDR *string) e
 	// Skip the first IP address
 	ip = incrementIP(ip)
 
-	for i := range services {
-		if err := services[i].SetAddress(ip.String()); err != nil {
+	for i := range serviceList {
+		serviceAddress := ip.String()
+		if err := serviceList[i].SetAddress(serviceAddress, portAllocator); err != nil {
 			return fmt.Errorf("error setting address for service: %w", err)
 		}
 		ip = incrementIP(ip)

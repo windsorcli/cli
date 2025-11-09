@@ -18,7 +18,7 @@ type MockService struct {
 	BaseService
 	GetComposeConfigFunc func() (*types.Config, error)
 	WriteConfigFunc      func() error
-	SetAddressFunc       func(address string) error
+	SetAddressFunc       func(address string, portAllocator *PortAllocator) error
 	GetAddressFunc       func() string
 	InitializeFunc       func() error
 	SetNameFunc          func(name string)
@@ -65,9 +65,9 @@ func (m *MockService) WriteConfig() error {
 }
 
 // SetAddress calls the mock SetAddressFunc if it is set, otherwise returns nil
-func (m *MockService) SetAddress(address string) error {
+func (m *MockService) SetAddress(address string, portAllocator *PortAllocator) error {
 	if m.SetAddressFunc != nil {
-		return m.SetAddressFunc(address)
+		return m.SetAddressFunc(address, portAllocator)
 	}
 	return nil
 }

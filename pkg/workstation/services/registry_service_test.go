@@ -259,7 +259,7 @@ contexts:
 		}
 
 		// When SetAddress is called with localhost
-		err := service.SetAddress("localhost")
+		err := service.SetAddress("localhost", nil)
 
 		// Then there should be no error
 		if err != nil {
@@ -303,7 +303,7 @@ contexts:
 		}
 
 		// When SetAddress is called
-		err := service.SetAddress("192.168.1.1")
+		err := service.SetAddress("192.168.1.1", nil)
 
 		// Then there should be no error
 		if err != nil {
@@ -340,7 +340,7 @@ contexts:
 		}
 
 		// When SetAddress is called
-		err := service.SetAddress("192.168.1.1")
+		err := service.SetAddress("192.168.1.1", nil)
 
 		// Then there should be no error
 		if err != nil {
@@ -366,7 +366,7 @@ contexts:
 		service1.SetName("registry1")
 
 		// When SetAddress is called for first registry
-		err := service1.SetAddress("localhost")
+		err := service1.SetAddress("localhost", nil)
 		if err != nil {
 			t.Fatalf("Failed to set address for first registry: %v", err)
 		}
@@ -378,7 +378,7 @@ contexts:
 		service2.SetName("registry2")
 
 		// When SetAddress is called for second registry
-		err = service2.SetAddress("localhost")
+		err = service2.SetAddress("localhost", nil)
 		if err != nil {
 			t.Fatalf("Failed to set address for second registry: %v", err)
 		}
@@ -411,7 +411,7 @@ contexts:
 		service.SetName("registry")
 
 		// When SetAddress is called with invalid address
-		err := service.SetAddress("invalid-address")
+		err := service.SetAddress("invalid-address", nil)
 
 		// Then there should be an error
 		if err == nil {
@@ -440,7 +440,7 @@ contexts:
 		}
 
 		// When SetAddress is called
-		err := service.SetAddress("localhost")
+		err := service.SetAddress("localhost", nil)
 
 		// Then there should be an error
 		if err == nil {
@@ -492,7 +492,7 @@ contexts:
 		}
 
 		// When SetAddress is called
-		err := service.SetAddress("localhost")
+		err := service.SetAddress("localhost", nil)
 
 		// Then there should be an error
 		if err == nil {
@@ -548,7 +548,7 @@ contexts:
 		}
 
 		// When SetAddress is called
-		err := service.SetAddress("localhost")
+		err := service.SetAddress("localhost", nil)
 
 		// Then there should be an error
 		if err == nil {
