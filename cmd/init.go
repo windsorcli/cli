@@ -32,6 +32,10 @@ func runInit(injector di.Injector, contextName string, overwrite bool) error {
 		return fmt.Errorf("failed to initialize context: %w", err)
 	}
 
+	if err := baseCtx.Shell.AddCurrentDirToTrustedFile(); err != nil {
+		return fmt.Errorf("failed to add current directory to trusted file: %w", err)
+	}
+
 	configHandler := baseCtx.ConfigHandler
 
 	if err := configHandler.Initialize(); err != nil {
