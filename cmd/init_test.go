@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -997,6 +998,63 @@ func TestInitCmd(t *testing.T) {
 		// Then no error should occur (invalid format is ignored)
 		if err != nil {
 			t.Errorf("Expected success for invalid set flag format, got error: %v", err)
+		}
+	})
+
+	t.Run("AddsCurrentDirToTrustedFile", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// And tracking whether AddCurrentDirToTrustedFile is called
+		var addCurrentDirToTrustedFileCalled bool
+		mocks.Shell.Shell.AddCurrentDirToTrustedFileFunc = func() error {
+			addCurrentDirToTrustedFileCalled = true
+			return nil
+		}
+
+		// When executing the init command
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+
+		// And AddCurrentDirToTrustedFile should have been called
+		if !addCurrentDirToTrustedFileCalled {
+			t.Error("Expected AddCurrentDirToTrustedFile to be called, but it was not")
+		}
+	})
+
+	t.Run("HandlesAddCurrentDirToTrustedFileError", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// And AddCurrentDirToTrustedFile returns an error
+		expectedError := fmt.Errorf("failed to add current directory to trusted file")
+		mocks.Shell.Shell.AddCurrentDirToTrustedFileFunc = func() error {
+			return expectedError
+		}
+
+		// When executing the init command
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error when AddCurrentDirToTrustedFile fails, got nil")
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "failed to add current directory to trusted file") {
+			t.Errorf("Expected error message to contain 'failed to add current directory to trusted file', got: %v", err)
 		}
 	})
 }
