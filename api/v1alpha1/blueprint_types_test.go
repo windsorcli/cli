@@ -806,6 +806,9 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 		kustomization := &Kustomization{
 			Name: "test-kustomization",
 			Path: "test/path",
+			Substitutions: map[string]string{
+				"domain": "example.com",
+			},
 		}
 
 		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
@@ -828,14 +831,15 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 		if result.Spec.Interval.Duration != constants.DefaultFluxKustomizationInterval {
 			t.Errorf("Expected default interval, got %v", result.Spec.Interval.Duration)
 		}
+		// PostBuild should have component-specific ConfigMap when substitutions exist
 		if result.Spec.PostBuild == nil {
-			t.Fatal("Expected PostBuild to be set")
+			t.Fatal("Expected PostBuild to be set when substitutions exist")
 		}
 		if len(result.Spec.PostBuild.SubstituteFrom) != 1 {
-			t.Fatalf("Expected 1 SubstituteFrom reference, got %d", len(result.Spec.PostBuild.SubstituteFrom))
+			t.Fatalf("Expected 1 SubstituteFrom reference (values-test-kustomization), got %d", len(result.Spec.PostBuild.SubstituteFrom))
 		}
-		if result.Spec.PostBuild.SubstituteFrom[0].Name != "values-common" {
-			t.Errorf("Expected values-common ConfigMap reference, got '%s'", result.Spec.PostBuild.SubstituteFrom[0].Name)
+		if result.Spec.PostBuild.SubstituteFrom[0].Name != "values-test-kustomization" {
+			t.Errorf("Expected values-test-kustomization ConfigMap reference, got '%s'", result.Spec.PostBuild.SubstituteFrom[0].Name)
 		}
 	})
 
@@ -922,34 +926,22 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 			Path: "test/path",
 			Substitutions: map[string]string{
 				"domain": "example.com",
+				"region": "us-west-2",
 			},
 		}
 
 		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
 
 		if result.Spec.PostBuild == nil {
-			t.Fatal("Expected PostBuild to be set")
+			t.Fatal("Expected PostBuild to be set when there are substitutions")
 		}
-		if len(result.Spec.PostBuild.SubstituteFrom) != 2 {
-			t.Fatalf("Expected 2 SubstituteFrom references, got %d", len(result.Spec.PostBuild.SubstituteFrom))
-		}
-
-		foundValuesCommon := false
-		foundValuesKustomization := false
-		for _, ref := range result.Spec.PostBuild.SubstituteFrom {
-			if ref.Name == "values-common" {
-				foundValuesCommon = true
-			}
-			if ref.Name == "values-test-kustomization" {
-				foundValuesKustomization = true
-			}
+		if len(result.Spec.PostBuild.SubstituteFrom) != 1 {
+			t.Fatalf("Expected 1 SubstituteFrom reference (values-test-kustomization), got %d", len(result.Spec.PostBuild.SubstituteFrom))
 		}
 
-		if !foundValuesCommon {
-			t.Error("Expected values-common ConfigMap reference")
-		}
-		if !foundValuesKustomization {
-			t.Error("Expected values-test-kustomization ConfigMap reference")
+		// Should have component-specific ConfigMap
+		if result.Spec.PostBuild.SubstituteFrom[0].Name != "values-test-kustomization" {
+			t.Errorf("Expected SubstituteFrom to be values-test-kustomization, got '%s'", result.Spec.PostBuild.SubstituteFrom[0].Name)
 		}
 	})
 
@@ -961,14 +953,9 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 
 		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
 
-		if result.Spec.PostBuild == nil {
-			t.Fatal("Expected PostBuild to be set")
-		}
-		if len(result.Spec.PostBuild.SubstituteFrom) != 1 {
-			t.Fatalf("Expected 1 SubstituteFrom reference, got %d", len(result.Spec.PostBuild.SubstituteFrom))
-		}
-		if result.Spec.PostBuild.SubstituteFrom[0].Name != "values-common" {
-			t.Errorf("Expected values-common ConfigMap reference, got '%s'", result.Spec.PostBuild.SubstituteFrom[0].Name)
+		// PostBuild should not be set when there are no substitutions
+		if result.Spec.PostBuild != nil {
+			t.Errorf("Expected PostBuild to be nil when there are no substitutions, got %v", result.Spec.PostBuild)
 		}
 	})
 
@@ -1180,6 +1167,257 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 		}
 		if result.Namespace != "test-namespace" {
 			t.Errorf("Expected Namespace 'test-namespace', got '%s'", result.Namespace)
+		}
+	})
+}
+
+func TestTerraformComponent_DeepCopy(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		component := &TerraformComponent{
+			Source:      "test-source",
+			Path:        "test/path",
+			FullPath:    "/full/test/path",
+			DependsOn:   []string{"dep1", "dep2"},
+			Inputs:      map[string]any{"key1": "value1", "key2": 42},
+			Destroy:     boolPtr(true),
+			Parallelism: intPtr(3),
+		}
+
+		copy := component.DeepCopy()
+
+		if copy.Source != "test-source" {
+			t.Errorf("Expected source 'test-source', got '%s'", copy.Source)
+		}
+		if copy.Path != "test/path" {
+			t.Errorf("Expected path 'test/path', got '%s'", copy.Path)
+		}
+		if copy.FullPath != "/full/test/path" {
+			t.Errorf("Expected full path '/full/test/path', got '%s'", copy.FullPath)
+		}
+		if len(copy.DependsOn) != 2 {
+			t.Errorf("Expected 2 dependencies, got %d", len(copy.DependsOn))
+		}
+		if copy.DependsOn[0] != "dep1" || copy.DependsOn[1] != "dep2" {
+			t.Errorf("Expected dependencies ['dep1', 'dep2'], got %v", copy.DependsOn)
+		}
+		if len(copy.Inputs) != 2 {
+			t.Errorf("Expected 2 inputs, got %d", len(copy.Inputs))
+		}
+		if copy.Inputs["key1"] != "value1" {
+			t.Errorf("Expected input key1='value1', got '%v'", copy.Inputs["key1"])
+		}
+		if copy.Inputs["key2"] != 42 {
+			t.Errorf("Expected input key2=42, got '%v'", copy.Inputs["key2"])
+		}
+		if copy.Destroy == nil || *copy.Destroy != true {
+			t.Errorf("Expected destroy=true, got %v", copy.Destroy)
+		}
+		if copy.Parallelism == nil || *copy.Parallelism != 3 {
+			t.Errorf("Expected parallelism=3, got %v", copy.Parallelism)
+		}
+
+		// Verify it's a deep copy (modifying copy shouldn't affect original)
+		copy.Inputs["key3"] = "new-value"
+		if _, exists := component.Inputs["key3"]; exists {
+			t.Error("Expected modifying copy inputs not to affect original")
+		}
+		copy.DependsOn = append(copy.DependsOn, "dep3")
+		if len(component.DependsOn) != 2 {
+			t.Error("Expected modifying copy dependencies not to affect original")
+		}
+	})
+
+	t.Run("NilComponent", func(t *testing.T) {
+		var component *TerraformComponent
+		copy := component.DeepCopy()
+		if copy != nil {
+			t.Errorf("Expected nil copy, got non-nil")
+		}
+	})
+
+	t.Run("EmptyFields", func(t *testing.T) {
+		component := &TerraformComponent{
+			Source: "test-source",
+			Path:   "test/path",
+		}
+
+		copy := component.DeepCopy()
+
+		if copy.Source != "test-source" {
+			t.Errorf("Expected source 'test-source', got '%s'", copy.Source)
+		}
+		if copy.Path != "test/path" {
+			t.Errorf("Expected path 'test/path', got '%s'", copy.Path)
+		}
+		if len(copy.DependsOn) != 0 {
+			t.Errorf("Expected empty dependsOn, got %v", copy.DependsOn)
+		}
+		if len(copy.Inputs) != 0 {
+			t.Errorf("Expected empty inputs, got %v", copy.Inputs)
+		}
+		if copy.Destroy != nil {
+			t.Errorf("Expected nil destroy, got %v", copy.Destroy)
+		}
+		if copy.Parallelism != nil {
+			t.Errorf("Expected nil parallelism, got %v", copy.Parallelism)
+		}
+	})
+}
+
+func TestKustomization_DeepCopy(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		interval := metav1.Duration{Duration: 5 * time.Minute}
+		retryInterval := metav1.Duration{Duration: 2 * time.Minute}
+		timeout := metav1.Duration{Duration: 10 * time.Minute}
+		wait := true
+		force := false
+		prune := true
+		destroy := false
+
+		kustomization := &Kustomization{
+			Name:          "test-kustomization",
+			Path:          "test/path",
+			Source:        "test-source",
+			DependsOn:     []string{"dep1", "dep2"},
+			Interval:      &interval,
+			RetryInterval: &retryInterval,
+			Timeout:       &timeout,
+			Patches: []BlueprintPatch{
+				{
+					Patch: "test-patch",
+					Target: &kustomize.Selector{
+						Kind: "Service",
+						Name: "test",
+					},
+				},
+			},
+			Wait:          &wait,
+			Force:         &force,
+			Prune:         &prune,
+			Components:    []string{"comp1", "comp2"},
+			Cleanup:       []string{"cleanup1"},
+			Destroy:       &destroy,
+			Substitutions: map[string]string{"key1": "value1", "key2": "value2"},
+		}
+
+		copy := kustomization.DeepCopy()
+
+		if copy.Name != "test-kustomization" {
+			t.Errorf("Expected name 'test-kustomization', got '%s'", copy.Name)
+		}
+		if copy.Path != "test/path" {
+			t.Errorf("Expected path 'test/path', got '%s'", copy.Path)
+		}
+		if copy.Source != "test-source" {
+			t.Errorf("Expected source 'test-source', got '%s'", copy.Source)
+		}
+		if len(copy.DependsOn) != 2 {
+			t.Errorf("Expected 2 dependencies, got %d", len(copy.DependsOn))
+		}
+		if copy.DependsOn[0] != "dep1" || copy.DependsOn[1] != "dep2" {
+			t.Errorf("Expected dependencies ['dep1', 'dep2'], got %v", copy.DependsOn)
+		}
+		if copy.Interval == nil || copy.Interval.Duration != 5*time.Minute {
+			t.Errorf("Expected interval 5m, got %v", copy.Interval)
+		}
+		if copy.RetryInterval == nil || copy.RetryInterval.Duration != 2*time.Minute {
+			t.Errorf("Expected retry interval 2m, got %v", copy.RetryInterval)
+		}
+		if copy.Timeout == nil || copy.Timeout.Duration != 10*time.Minute {
+			t.Errorf("Expected timeout 10m, got %v", copy.Timeout)
+		}
+		if len(copy.Patches) != 1 {
+			t.Errorf("Expected 1 patch, got %d", len(copy.Patches))
+		}
+		if copy.Patches[0].Patch != "test-patch" {
+			t.Errorf("Expected patch 'test-patch', got '%s'", copy.Patches[0].Patch)
+		}
+		if copy.Wait == nil || *copy.Wait != true {
+			t.Errorf("Expected wait=true, got %v", copy.Wait)
+		}
+		if copy.Force == nil || *copy.Force != false {
+			t.Errorf("Expected force=false, got %v", copy.Force)
+		}
+		if copy.Prune == nil || *copy.Prune != true {
+			t.Errorf("Expected prune=true, got %v", copy.Prune)
+		}
+		if len(copy.Components) != 2 {
+			t.Errorf("Expected 2 components, got %d", len(copy.Components))
+		}
+		if copy.Components[0] != "comp1" || copy.Components[1] != "comp2" {
+			t.Errorf("Expected components ['comp1', 'comp2'], got %v", copy.Components)
+		}
+		if len(copy.Cleanup) != 1 {
+			t.Errorf("Expected 1 cleanup, got %d", len(copy.Cleanup))
+		}
+		if copy.Cleanup[0] != "cleanup1" {
+			t.Errorf("Expected cleanup ['cleanup1'], got %v", copy.Cleanup)
+		}
+		if copy.Destroy == nil || *copy.Destroy != false {
+			t.Errorf("Expected destroy=false, got %v", copy.Destroy)
+		}
+		if len(copy.Substitutions) != 2 {
+			t.Errorf("Expected 2 substitutions, got %d", len(copy.Substitutions))
+		}
+		if copy.Substitutions["key1"] != "value1" || copy.Substitutions["key2"] != "value2" {
+			t.Errorf("Expected substitutions map[key1:value1 key2:value2], got %v", copy.Substitutions)
+		}
+
+		// Verify it's a deep copy (modifying copy shouldn't affect original)
+		copy.DependsOn = append(copy.DependsOn, "dep3")
+		if len(kustomization.DependsOn) != 2 {
+			t.Error("Expected modifying copy dependencies not to affect original")
+		}
+		copy.Components = append(copy.Components, "comp3")
+		if len(kustomization.Components) != 2 {
+			t.Error("Expected modifying copy components not to affect original")
+		}
+		copy.Substitutions["key3"] = "value3"
+		if _, exists := kustomization.Substitutions["key3"]; exists {
+			t.Error("Expected modifying copy substitutions not to affect original")
+		}
+	})
+
+	t.Run("NilKustomization", func(t *testing.T) {
+		var kustomization *Kustomization
+		copy := kustomization.DeepCopy()
+		if copy != nil {
+			t.Errorf("Expected nil copy, got non-nil")
+		}
+	})
+
+	t.Run("EmptyFields", func(t *testing.T) {
+		kustomization := &Kustomization{
+			Name:   "test-kustomization",
+			Path:   "test/path",
+			Source: "test-source",
+		}
+
+		copy := kustomization.DeepCopy()
+
+		if copy.Name != "test-kustomization" {
+			t.Errorf("Expected name 'test-kustomization', got '%s'", copy.Name)
+		}
+		if copy.Path != "test/path" {
+			t.Errorf("Expected path 'test/path', got '%s'", copy.Path)
+		}
+		if copy.Source != "test-source" {
+			t.Errorf("Expected source 'test-source', got '%s'", copy.Source)
+		}
+		if len(copy.DependsOn) != 0 {
+			t.Errorf("Expected empty dependsOn, got %v", copy.DependsOn)
+		}
+		if len(copy.Patches) != 0 {
+			t.Errorf("Expected empty patches, got %v", copy.Patches)
+		}
+		if len(copy.Components) != 0 {
+			t.Errorf("Expected empty components, got %v", copy.Components)
+		}
+		if len(copy.Cleanup) != 0 {
+			t.Errorf("Expected empty cleanup, got %v", copy.Cleanup)
+		}
+		if len(copy.Substitutions) != 0 {
+			t.Errorf("Expected empty substitutions, got %v", copy.Substitutions)
 		}
 	})
 }

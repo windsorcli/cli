@@ -11,9 +11,9 @@ import (
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/context/config"
+	"github.com/windsorcli/cli/pkg/context/shell"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
-	"github.com/windsorcli/cli/pkg/context/shell"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -666,11 +666,7 @@ ingress:
 	})
 }
 
-// =============================================================================
-// toFluxKustomization ConfigMap Tests
-// =============================================================================
-
-func TestBaseBlueprintHandler_toFluxKustomization(t *testing.T) {
+func TestBaseBlueprintHandler_prepareAndConvertKustomization(t *testing.T) {
 	// Given a handler with mocks
 	setup := func(t *testing.T) *BaseBlueprintHandler {
 		t.Helper()
@@ -714,7 +710,7 @@ func TestBaseBlueprintHandler_toFluxKustomization(t *testing.T) {
 		}
 
 		// When converting to Flux kustomization
-		result := handler.toFluxKustomization(kustomization, "test-namespace")
+		result := handler.prepareAndConvertKustomization(kustomization, "test-namespace")
 
 		// Then it should have PostBuild with ConfigMap references
 		if result.Spec.PostBuild == nil {
@@ -773,7 +769,7 @@ func TestBaseBlueprintHandler_toFluxKustomization(t *testing.T) {
 		}
 
 		// When converting to Flux kustomization
-		result := handler.toFluxKustomization(kustomization, "test-namespace")
+		result := handler.prepareAndConvertKustomization(kustomization, "test-namespace")
 
 		// Then it should have PostBuild with ConfigMap references
 		if result.Spec.PostBuild == nil {
@@ -838,7 +834,7 @@ func TestBaseBlueprintHandler_toFluxKustomization(t *testing.T) {
 		}
 
 		// When converting to Flux kustomization
-		result := handler.toFluxKustomization(kustomization, "test-namespace")
+		result := handler.prepareAndConvertKustomization(kustomization, "test-namespace")
 
 		// Then it should have PostBuild with only ConfigMap references from feature substitutions
 		if result.Spec.PostBuild == nil {
@@ -885,11 +881,17 @@ func TestBaseBlueprintHandler_toFluxKustomization(t *testing.T) {
 		}
 
 		// When converting to Flux kustomization
-		result := handler.toFluxKustomization(kustomization, "test-namespace")
+		result := handler.prepareAndConvertKustomization(kustomization, "test-namespace")
 
-		// Then it should not have PostBuild since no substitutions
-		if result.Spec.PostBuild != nil && len(result.Spec.PostBuild.SubstituteFrom) > 0 {
-			t.Errorf("expected no SubstituteFrom references without feature substitutions, got %d", len(result.Spec.PostBuild.SubstituteFrom))
+		// Then it should have PostBuild with only values-common (no component-specific ConfigMap)
+		if result.Spec.PostBuild == nil {
+			t.Fatal("expected PostBuild to be set with values-common")
+		}
+		if len(result.Spec.PostBuild.SubstituteFrom) != 1 {
+			t.Errorf("expected 1 SubstituteFrom reference (values-common), got %d", len(result.Spec.PostBuild.SubstituteFrom))
+		}
+		if result.Spec.PostBuild.SubstituteFrom[0].Name != "values-common" {
+			t.Errorf("expected first SubstituteFrom to be values-common, got %s", result.Spec.PostBuild.SubstituteFrom[0].Name)
 		}
 	})
 
@@ -920,11 +922,17 @@ func TestBaseBlueprintHandler_toFluxKustomization(t *testing.T) {
 		}
 
 		// When converting to Flux kustomization
-		result := handler.toFluxKustomization(kustomization, "test-namespace")
+		result := handler.prepareAndConvertKustomization(kustomization, "test-namespace")
 
-		// Then it should not have PostBuild since no substitutions
-		if result.Spec.PostBuild != nil && len(result.Spec.PostBuild.SubstituteFrom) > 0 {
-			t.Errorf("expected no SubstituteFrom references without feature substitutions, got %d", len(result.Spec.PostBuild.SubstituteFrom))
+		// Then it should have PostBuild with only values-common (no component-specific ConfigMap)
+		if result.Spec.PostBuild == nil {
+			t.Fatal("expected PostBuild to be set with values-common")
+		}
+		if len(result.Spec.PostBuild.SubstituteFrom) != 1 {
+			t.Errorf("expected 1 SubstituteFrom reference (values-common), got %d", len(result.Spec.PostBuild.SubstituteFrom))
+		}
+		if result.Spec.PostBuild.SubstituteFrom[0].Name != "values-common" {
+			t.Errorf("expected first SubstituteFrom to be values-common, got %s", result.Spec.PostBuild.SubstituteFrom[0].Name)
 		}
 	})
 
@@ -987,7 +995,7 @@ spec:
 		}
 
 		// When converting to Flux kustomization
-		result := handler.toFluxKustomization(kustomization, "test-namespace")
+		result := handler.prepareAndConvertKustomization(kustomization, "test-namespace")
 
 		// Then patches should be populated
 		if len(result.Spec.Patches) != 1 {
@@ -1053,7 +1061,7 @@ metadata:
 		}
 
 		// When converting to Flux kustomization
-		result := handler.toFluxKustomization(kustomization, "test-namespace")
+		result := handler.prepareAndConvertKustomization(kustomization, "test-namespace")
 
 		// Then patches should be populated
 		if len(result.Spec.Patches) != 1 {
@@ -1135,7 +1143,7 @@ metadata:
 		}
 
 		// When converting to Flux kustomization
-		result := handler.toFluxKustomization(kustomization, "test-namespace")
+		result := handler.prepareAndConvertKustomization(kustomization, "test-namespace")
 
 		// Then multiple patches should be populated
 		if len(result.Spec.Patches) != 2 {
@@ -1204,7 +1212,7 @@ metadata:
 		}
 
 		// When converting to Flux kustomization
-		result := handler.toFluxKustomization(kustomization, "test-namespace")
+		result := handler.prepareAndConvertKustomization(kustomization, "test-namespace")
 
 		// Then patch should be populated
 		if len(result.Spec.Patches) != 1 {

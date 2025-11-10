@@ -623,7 +623,10 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 	if path == "" {
 		path = "kustomize"
 	} else {
-		path = "kustomize/" + strings.ReplaceAll(path, "\\", "/")
+		path = strings.ReplaceAll(path, "\\", "/")
+		if path != "kustomize" && !strings.HasPrefix(path, "kustomize/") {
+			path = "kustomize/" + path
+		}
 	}
 
 	interval := metav1.Duration{Duration: constants.DefaultFluxKustomizationInterval}
@@ -680,24 +683,14 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 	}
 
 	var postBuild *kustomizev1.PostBuild
-	substituteFrom := make([]kustomizev1.SubstituteReference, 0)
-
-	substituteFrom = append(substituteFrom, kustomizev1.SubstituteReference{
-		Kind:     "ConfigMap",
-		Name:     "values-common",
-		Optional: false,
-	})
-
 	if len(k.Substitutions) > 0 {
+		substituteFrom := make([]kustomizev1.SubstituteReference, 0)
 		configMapName := fmt.Sprintf("values-%s", k.Name)
 		substituteFrom = append(substituteFrom, kustomizev1.SubstituteReference{
 			Kind:     "ConfigMap",
 			Name:     configMapName,
 			Optional: false,
 		})
-	}
-
-	if len(substituteFrom) > 0 {
 		postBuild = &kustomizev1.PostBuild{
 			SubstituteFrom: substituteFrom,
 		}
