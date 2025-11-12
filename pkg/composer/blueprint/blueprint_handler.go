@@ -419,7 +419,8 @@ func (b *BaseBlueprintHandler) Install() error {
 	kustomizations := b.GetKustomizations()
 	kustomizationNames := make([]string, len(kustomizations))
 	for i, k := range kustomizations {
-		if err := b.kubernetesManager.ApplyKustomization(b.toFluxKustomization(k, constants.DefaultFluxSystemNamespace)); err != nil {
+		fluxKustomization := b.prepareAndConvertKustomization(k, constants.DefaultFluxSystemNamespace)
+		if err := b.kubernetesManager.ApplyKustomization(fluxKustomization); err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
 			return fmt.Errorf("failed to apply kustomization %s: %w", k.Name, err)
@@ -756,9 +757,10 @@ func (b *BaseBlueprintHandler) destroyKustomizations(ctx context.Context, kustom
 			cleanupSpin.Suffix = fmt.Sprintf(" 🧹 Applying cleanup kustomization for %s", k.Name)
 			cleanupSpin.Start()
 
+			cleanupPath := strings.ReplaceAll(filepath.Join(k.Path, "cleanup"), "\\", "/")
 			cleanupKustomization := &blueprintv1alpha1.Kustomization{
 				Name:          k.Name + "-cleanup",
-				Path:          strings.ReplaceAll(filepath.Join(k.Path, "cleanup"), "\\", "/"),
+				Path:          cleanupPath,
 				Source:        k.Source,
 				Components:    k.Cleanup,
 				Timeout:       &metav1.Duration{Duration: 30 * time.Minute},
@@ -768,7 +770,8 @@ func (b *BaseBlueprintHandler) destroyKustomizations(ctx context.Context, kustom
 				Force:         func() *bool { b := true; return &b }(),
 			}
 
-			if err := b.kubernetesManager.ApplyKustomization(b.toFluxKustomization(*cleanupKustomization, constants.DefaultFluxSystemNamespace)); err != nil {
+			fluxKustomization := b.prepareAndConvertKustomization(*cleanupKustomization, constants.DefaultFluxSystemNamespace)
+			if err := b.kubernetesManager.ApplyKustomization(fluxKustomization); err != nil {
 				return fmt.Errorf("failed to apply cleanup kustomization for %s: %w", k.Name, err)
 			}
 
@@ -1415,112 +1418,48 @@ func (b *BaseBlueprintHandler) calculateMaxWaitTime() time.Duration {
 	return maxPathTime
 }
 
-// toFluxKustomization constructs a Flux Kustomization resource from the given
-// blueprintv1alpha1.Kustomization and namespace. Maps blueprint fields to Flux equivalents,
-// resolves dependencies, processes patch definitions (including reading and decoding patch files
-// to extract selectors), configures post-build variable substitution using ConfigMaps and Secrets,
-// determines the source reference type (GitRepository or OCIRepository), and sets all required
-// Flux Kustomization fields for cluster application.
-func (b *BaseBlueprintHandler) toFluxKustomization(k blueprintv1alpha1.Kustomization, namespace string) kustomizev1.Kustomization {
-	dependsOn := make([]kustomizev1.DependencyReference, len(k.DependsOn))
-	for i, dep := range k.DependsOn {
-		dependsOn[i] = kustomizev1.DependencyReference{
-			Name:      dep,
-			Namespace: namespace,
-		}
-	}
-
-	patches := make([]kustomize.Patch, 0, len(k.Patches))
-	for _, p := range k.Patches {
-		var target *kustomize.Selector
-		var patchContent string
-
-		if p.Path != "" {
-			patchContent, target = b.resolvePatchFromPath(p.Path, namespace)
-		}
-
-		if p.Patch != "" {
-			patchContent = p.Patch
-		}
-		if p.Target != nil {
-			target = &kustomize.Selector{
-				Kind:      p.Target.Kind,
-				Name:      p.Target.Name,
-				Namespace: p.Target.Namespace,
+// prepareAndConvertKustomization prepares a blueprint Kustomization with handler-specific data and converts it to a Flux Kustomization.
+// This includes resolving patches that reference paths to actual patch content, populating substitutions from configured feature substitutions,
+// and invoking the API's ToFluxKustomization with the appropriate context. The original Kustomization is not modified.
+func (b *BaseBlueprintHandler) prepareAndConvertKustomization(k blueprintv1alpha1.Kustomization, namespace string) kustomizev1.Kustomization {
+	kCopy := k
+	for i := range kCopy.Patches {
+		if kCopy.Patches[i].Path != "" {
+			patchContent, target := b.resolvePatchFromPath(kCopy.Patches[i].Path, namespace)
+			if patchContent != "" {
+				kCopy.Patches[i].Patch = patchContent
+			}
+			if target != nil {
+				kCopy.Patches[i].Target = target
 			}
 		}
+	}
+	if substitutions, hasSubstitutions := b.featureSubstitutions[k.Name]; hasSubstitutions && len(substitutions) > 0 {
+		if kCopy.Substitutions == nil {
+			kCopy.Substitutions = make(map[string]string)
+		}
+		maps.Copy(kCopy.Substitutions, substitutions)
+	}
 
-		if patchContent != "" {
-			patches = append(patches, kustomize.Patch{
-				Patch:  patchContent,
-				Target: target,
-			})
+	defaultSourceName := b.blueprint.Metadata.Name
+	fluxKustomization := kCopy.ToFluxKustomization(namespace, defaultSourceName, b.blueprint.Sources)
+
+	if fluxKustomization.Spec.PostBuild == nil {
+		fluxKustomization.Spec.PostBuild = &kustomizev1.PostBuild{
+			SubstituteFrom: []kustomizev1.SubstituteReference{},
 		}
 	}
-
-	var postBuild *kustomizev1.PostBuild
-	substituteFrom := make([]kustomizev1.SubstituteReference, 0)
-
-	if substitutions, hasSubstitutions := b.featureSubstitutions[k.Name]; hasSubstitutions && len(substitutions) > 0 {
-		configMapName := fmt.Sprintf("values-%s", k.Name)
-		substituteFrom = append(substituteFrom, kustomizev1.SubstituteReference{
-			Kind:     "ConfigMap",
-			Name:     configMapName,
-			Optional: false,
-		})
+	valuesCommonRef := kustomizev1.SubstituteReference{
+		Kind:     "ConfigMap",
+		Name:     "values-common",
+		Optional: false,
 	}
+	fluxKustomization.Spec.PostBuild.SubstituteFrom = append(
+		[]kustomizev1.SubstituteReference{valuesCommonRef},
+		fluxKustomization.Spec.PostBuild.SubstituteFrom...,
+	)
 
-	postBuild = &kustomizev1.PostBuild{
-		SubstituteFrom: substituteFrom,
-	}
-
-	interval := metav1.Duration{Duration: k.Interval.Duration}
-	retryInterval := metav1.Duration{Duration: k.RetryInterval.Duration}
-	timeout := metav1.Duration{Duration: k.Timeout.Duration}
-
-	prune := true
-	if k.Prune != nil {
-		prune = *k.Prune
-	}
-
-	deletionPolicy := "MirrorPrune"
-	if k.Destroy == nil || *k.Destroy {
-		deletionPolicy = "WaitForTermination"
-	}
-
-	sourceKind := "GitRepository"
-	if b.isOCISource(k.Source) {
-		sourceKind = "OCIRepository"
-	}
-
-	return kustomizev1.Kustomization{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Kustomization",
-			APIVersion: "kustomize.toolkit.fluxcd.io/v1",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      k.Name,
-			Namespace: namespace,
-		},
-		Spec: kustomizev1.KustomizationSpec{
-			SourceRef: kustomizev1.CrossNamespaceSourceReference{
-				Kind: sourceKind,
-				Name: k.Source,
-			},
-			Path:           k.Path,
-			DependsOn:      dependsOn,
-			Interval:       interval,
-			RetryInterval:  &retryInterval,
-			Timeout:        &timeout,
-			Patches:        patches,
-			Force:          *k.Force,
-			PostBuild:      postBuild,
-			Components:     k.Components,
-			Wait:           *k.Wait,
-			Prune:          prune,
-			DeletionPolicy: deletionPolicy,
-		},
-	}
+	return fluxKustomization
 }
 
 // resolvePatchFromPath yields patch content as YAML string and the target selector for a given patch path.
