@@ -16,7 +16,7 @@ packages:
 - name: siderolabs/omni/omnictl@v1.3.1
 - name: siderolabs/omni/omni@v1.3.1
 - name: kubernetes/kubectl@v1.34.1
-- name: go-task/task@v3.45.4
+- name: go-task/task@v3.45.5
 - name: golang/go@go1.25.4
 - name: getsops/sops@v3.9.0
 - name: abiosoft/colima@v0.9.1
