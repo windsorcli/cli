@@ -10,8 +10,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
-	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/constants"
+	"github.com/windsorcli/cli/pkg/context/config"
+	"github.com/windsorcli/cli/pkg/context/tools"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
@@ -67,6 +68,13 @@ func setupInitTest(t *testing.T, opts ...*SetupOptions) *InitMocks {
 	mockBlueprintHandler.LoadBlueprintFunc = func() error { return nil }
 	mockBlueprintHandler.WriteFunc = func(overwrite ...bool) error { return nil }
 	baseMocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
+
+	// Add mock tools manager (required by runInit)
+	mockToolsManager := tools.NewMockToolsManager()
+	mockToolsManager.InitializeFunc = func() error { return nil }
+	mockToolsManager.CheckFunc = func() error { return nil }
+	mockToolsManager.InstallFunc = func() error { return nil }
+	baseMocks.Injector.Register("toolsManager", mockToolsManager)
 
 	return &InitMocks{
 		Injector:         baseMocks.Injector,

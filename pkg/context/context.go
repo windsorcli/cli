@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -640,4 +641,151 @@ func (ctx *ExecutionContext) incrementBuildID(existingBuildID, currentDate strin
 
 	existingCounter++
 	return fmt.Sprintf("%s.%s.%d", existingDate, existingRandom, existingCounter), nil
+}
+
+// ApplyConfigDefaults sets default configuration values based on context name, dev mode, and VM driver.
+// It determines the appropriate default configuration (localhost, full, or standard) based on the VM driver
+// and dev mode settings. For dev mode, it also sets the provider to "generic" if not already set.
+// This method should be called before loading configuration from disk to ensure defaults are applied first.
+// The context name is read from ctx.ContextName. Returns an error if any configuration operation fails.
+func (ctx *ExecutionContext) ApplyConfigDefaults() error {
+	contextName := ctx.ContextName
+	if contextName == "" {
+		contextName = "local"
+	}
+
+	if ctx.ConfigHandler == nil {
+		return fmt.Errorf("config handler not available")
+	}
+
+	if !ctx.ConfigHandler.IsLoaded() {
+		existingProvider := ctx.ConfigHandler.GetString("provider")
+		contextName := ctx.ContextName
+		if contextName == "" {
+			contextName = "local"
+		}
+		isDevMode := ctx.ConfigHandler.IsDevMode(contextName)
+
+		if isDevMode {
+			if err := ctx.ConfigHandler.Set("dev", true); err != nil {
+				return fmt.Errorf("failed to set dev mode: %w", err)
+			}
+		}
+
+		vmDriver := ctx.ConfigHandler.GetString("vm.driver")
+		if isDevMode && vmDriver == "" {
+			switch runtime.GOOS {
+			case "darwin", "windows":
+				vmDriver = "docker-desktop"
+			default:
+				vmDriver = "docker"
+			}
+		}
+
+		if vmDriver == "docker-desktop" {
+			if err := ctx.ConfigHandler.SetDefault(config.DefaultConfig_Localhost); err != nil {
+				return fmt.Errorf("failed to set default config: %w", err)
+			}
+		} else if isDevMode {
+			if err := ctx.ConfigHandler.SetDefault(config.DefaultConfig_Full); err != nil {
+				return fmt.Errorf("failed to set default config: %w", err)
+			}
+		} else {
+			if err := ctx.ConfigHandler.SetDefault(config.DefaultConfig); err != nil {
+				return fmt.Errorf("failed to set default config: %w", err)
+			}
+		}
+
+		if isDevMode && ctx.ConfigHandler.GetString("vm.driver") == "" && vmDriver != "" {
+			if err := ctx.ConfigHandler.Set("vm.driver", vmDriver); err != nil {
+				return fmt.Errorf("failed to set vm.driver: %w", err)
+			}
+		}
+
+		if existingProvider == "" && isDevMode {
+			if err := ctx.ConfigHandler.Set("provider", "generic"); err != nil {
+				return fmt.Errorf("failed to set provider from context name: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// ApplyProviderDefaults sets provider-specific configuration values based on the provider type.
+// For "aws", it enables AWS and sets the cluster driver to "eks".
+// For "azure", it enables Azure and sets the cluster driver to "aks".
+// For "generic", it sets the cluster driver to "talos".
+// If no provider is set but dev mode is enabled, it defaults the cluster driver to "talos".
+// The context name is read from ctx.ContextName. Returns an error if any configuration operation fails.
+func (ctx *ExecutionContext) ApplyProviderDefaults(providerOverride string) error {
+	if ctx.ConfigHandler == nil {
+		return fmt.Errorf("config handler not available")
+	}
+
+	contextName := ctx.ContextName
+	if contextName == "" {
+		contextName = "local"
+	}
+
+	provider := providerOverride
+	if provider == "" {
+		provider = ctx.ConfigHandler.GetString("provider")
+	}
+
+	if provider != "" {
+		switch provider {
+		case "aws":
+			if err := ctx.ConfigHandler.Set("aws.enabled", true); err != nil {
+				return fmt.Errorf("failed to set aws.enabled: %w", err)
+			}
+			if err := ctx.ConfigHandler.Set("cluster.driver", "eks"); err != nil {
+				return fmt.Errorf("failed to set cluster.driver: %w", err)
+			}
+		case "azure":
+			if err := ctx.ConfigHandler.Set("azure.enabled", true); err != nil {
+				return fmt.Errorf("failed to set azure.enabled: %w", err)
+			}
+			if err := ctx.ConfigHandler.Set("cluster.driver", "aks"); err != nil {
+				return fmt.Errorf("failed to set cluster.driver: %w", err)
+			}
+		case "generic":
+			if err := ctx.ConfigHandler.Set("cluster.driver", "talos"); err != nil {
+				return fmt.Errorf("failed to set cluster.driver: %w", err)
+			}
+		}
+	} else if ctx.ConfigHandler.IsDevMode(contextName) {
+		if ctx.ConfigHandler.GetString("cluster.driver") == "" {
+			if err := ctx.ConfigHandler.Set("cluster.driver", "talos"); err != nil {
+				return fmt.Errorf("failed to set cluster.driver: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// PrepareTools checks and installs required tools using the tools manager.
+// It first checks that all required tools are installed and meet version requirements,
+// then installs any missing or outdated tools. The tools manager must be available.
+// Returns an error if the tools manager is not available or if checking or installation fails.
+func (ctx *ExecutionContext) PrepareTools() error {
+	if ctx.ToolsManager == nil {
+		ctx.initializeToolsManager()
+		if ctx.ToolsManager == nil {
+			return fmt.Errorf("tools manager not available")
+		}
+		if err := ctx.ToolsManager.Initialize(); err != nil {
+			return fmt.Errorf("failed to initialize tools manager: %w", err)
+		}
+	}
+
+	if err := ctx.ToolsManager.Check(); err != nil {
+		return fmt.Errorf("error checking tools: %w", err)
+	}
+	if err := ctx.ToolsManager.Install(); err != nil {
+		return fmt.Errorf("error installing tools: %w", err)
+	}
+
+	return nil
 }

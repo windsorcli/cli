@@ -3,8 +3,10 @@ package provisioner
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
+	"github.com/briandowns/spinner"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/constants"
 	execcontext "github.com/windsorcli/cli/pkg/context"
@@ -58,8 +60,15 @@ func NewProvisioner(ctx *ProvisionerExecutionContext) *Provisioner {
 	}
 
 	if infra.TerraformStack == nil {
-		infra.TerraformStack = terraforminfra.NewWindsorStack(infra.Injector)
-		infra.Injector.Register("terraformStack", infra.TerraformStack)
+		if existing := infra.Injector.Resolve("terraformStack"); existing != nil {
+			if ts, ok := existing.(terraforminfra.Stack); ok {
+				infra.TerraformStack = ts
+			}
+		}
+		if infra.TerraformStack == nil {
+			infra.TerraformStack = terraforminfra.NewWindsorStack(infra.Injector)
+			infra.Injector.Register("terraformStack", infra.TerraformStack)
+		}
 	}
 
 	if infra.KubernetesClient == nil {
@@ -68,8 +77,15 @@ func NewProvisioner(ctx *ProvisionerExecutionContext) *Provisioner {
 	}
 
 	if infra.KubernetesManager == nil {
-		infra.KubernetesManager = kubernetes.NewKubernetesManager(infra.Injector)
-		infra.Injector.Register("kubernetesManager", infra.KubernetesManager)
+		if existing := infra.Injector.Resolve("kubernetesManager"); existing != nil {
+			if km, ok := existing.(kubernetes.KubernetesManager); ok {
+				infra.KubernetesManager = km
+			}
+		}
+		if infra.KubernetesManager == nil {
+			infra.KubernetesManager = kubernetes.NewKubernetesManager(infra.Injector)
+			infra.Injector.Register("kubernetesManager", infra.KubernetesManager)
+		}
 	}
 
 	if infra.ClusterClient == nil {
@@ -145,9 +161,19 @@ func (i *Provisioner) Install(blueprint *blueprintv1alpha1.Blueprint) error {
 		return fmt.Errorf("failed to initialize kubernetes manager: %w", err)
 	}
 
+	message := "📐 Installing blueprint resources"
+	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+	spin.Suffix = " " + message
+	spin.Start()
+
 	if err := i.KubernetesManager.ApplyBlueprint(blueprint, constants.DefaultFluxSystemNamespace); err != nil {
+		spin.Stop()
+		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
 		return fmt.Errorf("failed to apply blueprint: %w", err)
 	}
+
+	spin.Stop()
+	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
 
 	return nil
 }

@@ -2,10 +2,13 @@ package context
 
 import (
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	v1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/context/secrets"
 	"github.com/windsorcli/cli/pkg/context/shell"
@@ -165,6 +168,82 @@ func TestNewContext(t *testing.T) {
 		expectedTemplateRoot := filepath.Join("/test/project", "contexts", "_template")
 		if ctx.TemplateRoot != expectedTemplateRoot {
 			t.Errorf("Expected TemplateRoot to be %q, got: %s", expectedTemplateRoot, ctx.TemplateRoot)
+		}
+	})
+
+	t.Run("ErrorWhenContextIsNil", func(t *testing.T) {
+		_, err := NewContext(nil)
+
+		if err == nil {
+			t.Error("Expected error when context is nil")
+		}
+
+		if !strings.Contains(err.Error(), "execution context is required") {
+			t.Errorf("Expected error about execution context required, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenInjectorIsNil", func(t *testing.T) {
+		ctx := &ExecutionContext{}
+
+		_, err := NewContext(ctx)
+
+		if err == nil {
+			t.Error("Expected error when injector is nil")
+		}
+
+		if !strings.Contains(err.Error(), "injector is required") {
+			t.Errorf("Expected error about injector required, got: %v", err)
+		}
+	})
+
+	t.Run("CreatesShellWhenNotProvided", func(t *testing.T) {
+		injector := di.NewInjector()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextFunc = func() string {
+			return "test"
+		}
+		injector.Register("configHandler", mockConfigHandler)
+
+		ctx := &ExecutionContext{
+			Injector: injector,
+		}
+
+		result, err := NewContext(ctx)
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if result.Shell == nil {
+			t.Error("Expected shell to be created")
+		}
+	})
+
+	t.Run("CreatesConfigHandlerWhenNotProvided", func(t *testing.T) {
+		injector := di.NewInjector()
+		mockShell := shell.NewMockShell()
+		mockShell.InitializeFunc = func() error {
+			return nil
+		}
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/test", nil
+		}
+		injector.Register("shell", mockShell)
+
+		ctx := &ExecutionContext{
+			Injector: injector,
+			Shell:    mockShell,
+		}
+
+		result, err := NewContext(ctx)
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if result.ConfigHandler == nil {
+			t.Error("Expected config handler to be created")
 		}
 	})
 }
@@ -980,4 +1059,1016 @@ func TestExecutionContext_CheckTools(t *testing.T) {
 		}
 	})
 
+}
+
+func TestExecutionContext_CheckTrustedDirectory(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+
+		mockShell := mocks.Shell.(*shell.MockShell)
+		mockShell.CheckTrustedDirectoryFunc = func() error {
+			return nil
+		}
+
+		err := ctx.CheckTrustedDirectory()
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenShellNotInitialized", func(t *testing.T) {
+		ctx := &ExecutionContext{}
+
+		err := ctx.CheckTrustedDirectory()
+
+		if err == nil {
+			t.Error("Expected error when Shell is nil")
+		}
+
+		if !strings.Contains(err.Error(), "shell not initialized") {
+			t.Errorf("Expected error about shell not initialized, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenCheckFails", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+
+		mockShell := mocks.Shell.(*shell.MockShell)
+		mockShell.CheckTrustedDirectoryFunc = func() error {
+			return fmt.Errorf("directory not trusted")
+		}
+
+		err := ctx.CheckTrustedDirectory()
+
+		if err == nil {
+			t.Error("Expected error when check fails")
+		}
+
+		if !strings.Contains(err.Error(), "directory not trusted") {
+			t.Errorf("Expected error about directory not trusted, got: %v", err)
+		}
+	})
+}
+
+func TestExecutionContext_LoadConfig(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.LoadConfigFunc = func() error {
+			return nil
+		}
+
+		err := ctx.LoadConfig()
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenConfigHandlerNotInitialized", func(t *testing.T) {
+		ctx := &ExecutionContext{}
+
+		err := ctx.LoadConfig()
+
+		if err == nil {
+			t.Error("Expected error when ConfigHandler is nil")
+		}
+
+		if !strings.Contains(err.Error(), "config handler not initialized") {
+			t.Errorf("Expected error about config handler not initialized, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenLoadConfigFails", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.LoadConfigFunc = func() error {
+			return fmt.Errorf("load config failed")
+		}
+
+		err := ctx.LoadConfig()
+
+		if err == nil {
+			t.Error("Expected error when LoadConfig fails")
+		}
+
+		if !strings.Contains(err.Error(), "load config failed") {
+			t.Errorf("Expected error about load config failed, got: %v", err)
+		}
+	})
+}
+
+func TestExecutionContext_HandleSessionReset(t *testing.T) {
+	t.Run("ResetsWhenNoSessionToken", func(t *testing.T) {
+		t.Cleanup(func() {
+			os.Unsetenv("NO_CACHE")
+			os.Unsetenv("WINDSOR_SESSION_TOKEN")
+		})
+		os.Unsetenv("WINDSOR_SESSION_TOKEN")
+
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+
+		mockShell := mocks.Shell.(*shell.MockShell)
+		resetCalled := false
+		mockShell.ResetFunc = func(clearSession ...bool) {
+			resetCalled = true
+		}
+		mockShell.CheckResetFlagsFunc = func() (bool, error) {
+			return false, nil
+		}
+
+		err := ctx.HandleSessionReset()
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if !resetCalled {
+			t.Error("Expected Reset to be called when no session token")
+		}
+	})
+
+	t.Run("ResetsWhenResetFlagSet", func(t *testing.T) {
+		t.Cleanup(func() {
+			os.Unsetenv("NO_CACHE")
+		})
+
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+
+		mockShell := mocks.Shell.(*shell.MockShell)
+		resetCalled := false
+		mockShell.ResetFunc = func(clearSession ...bool) {
+			resetCalled = true
+		}
+		mockShell.CheckResetFlagsFunc = func() (bool, error) {
+			return true, nil
+		}
+
+		err := ctx.HandleSessionReset()
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if !resetCalled {
+			t.Error("Expected Reset to be called when reset flag set")
+		}
+	})
+
+	t.Run("SkipsResetWhenSessionTokenAndNoResetFlag", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+
+		t.Setenv("WINDSOR_SESSION_TOKEN", "test-token")
+
+		mockShell := mocks.Shell.(*shell.MockShell)
+		resetCalled := false
+		mockShell.ResetFunc = func(clearSession ...bool) {
+			resetCalled = true
+		}
+		mockShell.CheckResetFlagsFunc = func() (bool, error) {
+			return false, nil
+		}
+
+		err := ctx.HandleSessionReset()
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if resetCalled {
+			t.Error("Expected Reset not to be called when session token exists and no reset flag")
+		}
+	})
+
+	t.Run("ErrorWhenShellNotInitialized", func(t *testing.T) {
+		ctx := &ExecutionContext{}
+
+		err := ctx.HandleSessionReset()
+
+		if err == nil {
+			t.Error("Expected error when Shell is nil")
+		}
+
+		if !strings.Contains(err.Error(), "shell not initialized") {
+			t.Errorf("Expected error about shell not initialized, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenCheckResetFlagsFails", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+
+		mockShell := mocks.Shell.(*shell.MockShell)
+		mockShell.CheckResetFlagsFunc = func() (bool, error) {
+			return false, fmt.Errorf("check reset flags failed")
+		}
+
+		err := ctx.HandleSessionReset()
+
+		if err == nil {
+			t.Error("Expected error when CheckResetFlags fails")
+		}
+
+		if !strings.Contains(err.Error(), "failed to check reset flags") {
+			t.Errorf("Expected error about check reset flags, got: %v", err)
+		}
+	})
+}
+
+func TestExecutionContext_ApplyConfigDefaults(t *testing.T) {
+	t.Run("SkipsWhenConfigAlreadyLoaded", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.IsLoadedFunc = func() bool {
+			return true
+		}
+
+		err := ctx.ApplyConfigDefaults()
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("SetsDefaultsForDevMode", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+		ctx.ContextName = "local"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.IsLoadedFunc = func() bool {
+			return false
+		}
+		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+
+		setDefaultCalled := false
+		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+			setDefaultCalled = true
+			return nil
+		}
+
+		setCalls := make(map[string]interface{})
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			setCalls[key] = value
+			return nil
+		}
+
+		err := ctx.ApplyConfigDefaults()
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if !setDefaultCalled {
+			t.Error("Expected SetDefault to be called")
+		}
+
+		if setCalls["dev"] != true {
+			t.Error("Expected dev to be set to true")
+		}
+
+		if setCalls["provider"] != "generic" {
+			t.Error("Expected provider to be set to generic")
+		}
+	})
+
+	t.Run("ErrorWhenConfigHandlerNotAvailable", func(t *testing.T) {
+		ctx := &ExecutionContext{}
+
+		err := ctx.ApplyConfigDefaults()
+
+		if err == nil {
+			t.Error("Expected error when ConfigHandler is nil")
+		}
+
+		if !strings.Contains(err.Error(), "config handler not available") {
+			t.Errorf("Expected error about config handler not available, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenSetDevFails", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+		ctx.ContextName = "local"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.IsLoadedFunc = func() bool {
+			return false
+		}
+		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			if key == "dev" {
+				return fmt.Errorf("set dev failed")
+			}
+			return nil
+		}
+
+		err := ctx.ApplyConfigDefaults()
+
+		if err == nil {
+			t.Error("Expected error when Set dev fails")
+		}
+
+		if !strings.Contains(err.Error(), "failed to set dev mode") {
+			t.Errorf("Expected error about set dev mode, got: %v", err)
+		}
+	})
+
+	t.Run("SetsDefaultsForNonDevMode", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+		ctx.ContextName = "prod"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.IsLoadedFunc = func() bool {
+			return false
+		}
+		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
+			return false
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+
+		setDefaultCalled := false
+		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+			setDefaultCalled = true
+			return nil
+		}
+
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			return nil
+		}
+
+		err := ctx.ApplyConfigDefaults()
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if !setDefaultCalled {
+			t.Error("Expected SetDefault to be called")
+		}
+	})
+
+	t.Run("SetsVMDriverForDockerDesktop", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+		ctx.ContextName = "local"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.IsLoadedFunc = func() bool {
+			return false
+		}
+		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+
+		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+			return nil
+		}
+
+		setCalls := make(map[string]interface{})
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			setCalls[key] = value
+			return nil
+		}
+
+		err := ctx.ApplyConfigDefaults()
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		vmDriverSet := false
+		for key := range setCalls {
+			if key == "vm.driver" {
+				vmDriverSet = true
+				break
+			}
+		}
+
+		if !vmDriverSet {
+			t.Error("Expected vm.driver to be set")
+		}
+	})
+
+	t.Run("ErrorWhenSetDefaultFails", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+		ctx.ContextName = "local"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.IsLoadedFunc = func() bool {
+			return false
+		}
+		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+
+		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+			return fmt.Errorf("set default failed")
+		}
+
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			return nil
+		}
+
+		err := ctx.ApplyConfigDefaults()
+
+		if err == nil {
+			t.Error("Expected error when SetDefault fails")
+		}
+
+		if !strings.Contains(err.Error(), "failed to set default config") {
+			t.Errorf("Expected error about set default config, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenSetVMDriverFails", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+		ctx.ContextName = "local"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.IsLoadedFunc = func() bool {
+			return false
+		}
+		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+
+		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+			return nil
+		}
+
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			if key == "vm.driver" {
+				return fmt.Errorf("set vm.driver failed")
+			}
+			return nil
+		}
+
+		err := ctx.ApplyConfigDefaults()
+
+		if err == nil {
+			t.Error("Expected error when Set vm.driver fails")
+		}
+
+		if !strings.Contains(err.Error(), "failed to set vm.driver") {
+			t.Errorf("Expected error about set vm.driver, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenSetProviderFails", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+		ctx.ContextName = "local"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.IsLoadedFunc = func() bool {
+			return false
+		}
+		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+
+		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+			return nil
+		}
+
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			if key == "provider" {
+				return fmt.Errorf("set provider failed")
+			}
+			return nil
+		}
+
+		err := ctx.ApplyConfigDefaults()
+
+		if err == nil {
+			t.Error("Expected error when Set provider fails")
+		}
+
+		if !strings.Contains(err.Error(), "failed to set provider") {
+			t.Errorf("Expected error about set provider, got: %v", err)
+		}
+	})
+}
+
+func TestExecutionContext_ApplyProviderDefaults(t *testing.T) {
+	t.Run("SetsAWSDefaults", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+		ctx.ContextName = "prod"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		setCalls := make(map[string]interface{})
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			setCalls[key] = value
+			return nil
+		}
+
+		err := ctx.ApplyProviderDefaults("aws")
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if setCalls["aws.enabled"] != true {
+			t.Error("Expected aws.enabled to be set to true")
+		}
+
+		if setCalls["cluster.driver"] != "eks" {
+			t.Error("Expected cluster.driver to be set to eks")
+		}
+	})
+
+	t.Run("SetsAzureDefaults", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+		ctx.ContextName = "prod"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		setCalls := make(map[string]interface{})
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			setCalls[key] = value
+			return nil
+		}
+
+		err := ctx.ApplyProviderDefaults("azure")
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if setCalls["azure.enabled"] != true {
+			t.Error("Expected azure.enabled to be set to true")
+		}
+
+		if setCalls["cluster.driver"] != "aks" {
+			t.Error("Expected cluster.driver to be set to aks")
+		}
+	})
+
+	t.Run("SetsGenericDefaults", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+		ctx.ContextName = "local"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		setCalls := make(map[string]interface{})
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			setCalls[key] = value
+			return nil
+		}
+
+		err := ctx.ApplyProviderDefaults("generic")
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if setCalls["cluster.driver"] != "talos" {
+			t.Error("Expected cluster.driver to be set to talos")
+		}
+	})
+
+	t.Run("ErrorWhenConfigHandlerNotAvailable", func(t *testing.T) {
+		ctx := &ExecutionContext{}
+
+		err := ctx.ApplyProviderDefaults("aws")
+
+		if err == nil {
+			t.Error("Expected error when ConfigHandler is nil")
+		}
+
+		if !strings.Contains(err.Error(), "config handler not available") {
+			t.Errorf("Expected error about config handler not available, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenSetFails", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+		ctx.ContextName = "prod"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			if key == "aws.enabled" {
+				return fmt.Errorf("set aws.enabled failed")
+			}
+			return nil
+		}
+
+		err := ctx.ApplyProviderDefaults("aws")
+
+		if err == nil {
+			t.Error("Expected error when Set fails")
+		}
+
+		if !strings.Contains(err.Error(), "failed to set aws.enabled") {
+			t.Errorf("Expected error about set aws.enabled, got: %v", err)
+		}
+	})
+
+	t.Run("SetsDefaultsForDevModeWithNoProvider", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+		ctx.ContextName = "local"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "provider" {
+				return ""
+			}
+			if key == "cluster.driver" {
+				return ""
+			}
+			return ""
+		}
+		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+
+		setCalls := make(map[string]interface{})
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			setCalls[key] = value
+			return nil
+		}
+
+		err := ctx.ApplyProviderDefaults("")
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if setCalls["cluster.driver"] != "talos" {
+			t.Error("Expected cluster.driver to be set to talos for dev mode")
+		}
+	})
+
+	t.Run("GetsProviderFromConfig", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+		ctx.ContextName = "prod"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "provider" {
+				return "aws"
+			}
+			return ""
+		}
+
+		setCalls := make(map[string]interface{})
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			setCalls[key] = value
+			return nil
+		}
+
+		err := ctx.ApplyProviderDefaults("")
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if setCalls["aws.enabled"] != true {
+			t.Error("Expected aws.enabled to be set to true")
+		}
+	})
+
+	t.Run("ErrorWhenSetClusterDriverFails", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+		ctx.ContextName = "prod"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
+			return false
+		}
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			if key == "cluster.driver" {
+				return fmt.Errorf("set cluster.driver failed")
+			}
+			return nil
+		}
+
+		err := ctx.ApplyProviderDefaults("generic")
+
+		if err == nil {
+			t.Error("Expected error when Set cluster.driver fails")
+		}
+
+		if !strings.Contains(err.Error(), "failed to set cluster.driver") {
+			t.Errorf("Expected error about set cluster.driver, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenSetAzureDriverFails", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+		ctx.ContextName = "prod"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			if key == "cluster.driver" {
+				return fmt.Errorf("set cluster.driver failed")
+			}
+			return nil
+		}
+
+		err := ctx.ApplyProviderDefaults("azure")
+
+		if err == nil {
+			t.Error("Expected error when Set cluster.driver fails for azure")
+		}
+
+		if !strings.Contains(err.Error(), "failed to set cluster.driver") {
+			t.Errorf("Expected error about set cluster.driver, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenSetDevModeClusterDriverFails", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+		ctx.ContextName = "local"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "provider" {
+				return ""
+			}
+			if key == "cluster.driver" {
+				return ""
+			}
+			return ""
+		}
+		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			if key == "cluster.driver" {
+				return fmt.Errorf("set cluster.driver failed")
+			}
+			return nil
+		}
+
+		err := ctx.ApplyProviderDefaults("")
+
+		if err == nil {
+			t.Error("Expected error when Set cluster.driver fails for dev mode")
+		}
+
+		if !strings.Contains(err.Error(), "failed to set cluster.driver") {
+			t.Errorf("Expected error about set cluster.driver, got: %v", err)
+		}
+	})
+}
+
+func TestExecutionContext_PrepareTools(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+
+		mockToolsManager := &MockToolsManager{}
+		mockToolsManager.CheckFunc = func() error {
+			return nil
+		}
+		mockToolsManager.InstallFunc = func() error {
+			return nil
+		}
+		ctx.ToolsManager = mockToolsManager
+
+		err := ctx.PrepareTools()
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenCheckFails", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+
+		mockToolsManager := &MockToolsManager{}
+		mockToolsManager.CheckFunc = func() error {
+			return fmt.Errorf("tools check failed")
+		}
+		ctx.ToolsManager = mockToolsManager
+
+		err := ctx.PrepareTools()
+
+		if err == nil {
+			t.Error("Expected error when Check fails")
+		}
+
+		if !strings.Contains(err.Error(), "error checking tools") {
+			t.Errorf("Expected error about checking tools, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenInstallFails", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+
+		mockToolsManager := &MockToolsManager{}
+		mockToolsManager.CheckFunc = func() error {
+			return nil
+		}
+		mockToolsManager.InstallFunc = func() error {
+			return fmt.Errorf("tools install failed")
+		}
+		ctx.ToolsManager = mockToolsManager
+
+		err := ctx.PrepareTools()
+
+		if err == nil {
+			t.Error("Expected error when Install fails")
+		}
+
+		if !strings.Contains(err.Error(), "error installing tools") {
+			t.Errorf("Expected error about installing tools, got: %v", err)
+		}
+	})
+}
+
+func TestExecutionContext_GetBuildID(t *testing.T) {
+	t.Run("CreatesNewBuildIDWhenNoneExists", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+
+		tmpDir := t.TempDir()
+		ctx.ProjectRoot = tmpDir
+
+		buildID, err := ctx.GetBuildID()
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if buildID == "" {
+			t.Error("Expected build ID to be generated")
+		}
+	})
+
+	t.Run("ReturnsExistingBuildID", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+
+		tmpDir := t.TempDir()
+		ctx.ProjectRoot = tmpDir
+
+		buildID1, err := ctx.GetBuildID()
+		if err != nil {
+			t.Fatalf("Failed to get initial build ID: %v", err)
+		}
+
+		buildID2, err := ctx.GetBuildID()
+		if err != nil {
+			t.Fatalf("Failed to get second build ID: %v", err)
+		}
+
+		if buildID1 != buildID2 {
+			t.Errorf("Expected build IDs to match, got %s and %s", buildID1, buildID2)
+		}
+	})
+}
+
+func TestExecutionContext_GenerateBuildID(t *testing.T) {
+	t.Run("GeneratesAndSavesBuildID", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+
+		tmpDir := t.TempDir()
+		ctx.ProjectRoot = tmpDir
+
+		buildID, err := ctx.GenerateBuildID()
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if buildID == "" {
+			t.Error("Expected build ID to be generated")
+		}
+	})
+
+	t.Run("IncrementsBuildIDOnSubsequentCalls", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+
+		tmpDir := t.TempDir()
+		ctx.ProjectRoot = tmpDir
+
+		buildID1, err := ctx.GenerateBuildID()
+		if err != nil {
+			t.Fatalf("Failed to generate first build ID: %v", err)
+		}
+
+		buildID2, err := ctx.GenerateBuildID()
+		if err != nil {
+			t.Fatalf("Failed to generate second build ID: %v", err)
+		}
+
+		if buildID1 == buildID2 {
+			t.Error("Expected build IDs to be different")
+		}
+	})
+
+	t.Run("ErrorOnInvalidFormat", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+
+		tmpDir := t.TempDir()
+		ctx.ProjectRoot = tmpDir
+
+		buildID, err := ctx.incrementBuildID("invalid", "251112")
+
+		if err == nil {
+			t.Error("Expected error for invalid format")
+		}
+
+		if buildID != "" {
+			t.Error("Expected empty build ID on error")
+		}
+	})
+
+	t.Run("ErrorOnInvalidCounter", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+
+		tmpDir := t.TempDir()
+		ctx.ProjectRoot = tmpDir
+
+		buildID, err := ctx.incrementBuildID("251112.123.abc", "251112")
+
+		if err == nil {
+			t.Error("Expected error for invalid counter")
+		}
+
+		if buildID != "" {
+			t.Error("Expected empty build ID on error")
+		}
+	})
+
+	t.Run("ResetsCounterOnDateChange", func(t *testing.T) {
+		mocks := setupEnvironmentMocks(t)
+		ctx := mocks.ExecutionContext
+
+		tmpDir := t.TempDir()
+		ctx.ProjectRoot = tmpDir
+
+		buildID, err := ctx.incrementBuildID("251111.123.5", "251112")
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if !strings.HasPrefix(buildID, "251112.") {
+			t.Error("Expected new date in build ID")
+		}
+
+		if !strings.HasSuffix(buildID, ".1") {
+			t.Error("Expected counter to reset to 1")
+		}
+	})
 }
