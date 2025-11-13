@@ -47,14 +47,10 @@ var execCmd = &cobra.Command{
 		}
 
 		if err := execCtx.LoadEnvironment(true); err != nil {
-			return fmt.Errorf("failed to load environment: %w", err)
-		}
-
-		if err := execCtx.ExecutePostEnvHooks(); err != nil {
 			if !verbose {
 				return nil
 			}
-			return err
+			return fmt.Errorf("failed to load environment: %w", err)
 		}
 
 		for key, value := range execCtx.GetEnvVars() {

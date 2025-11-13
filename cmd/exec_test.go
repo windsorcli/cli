@@ -164,6 +164,11 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 		injector.Register("shell", mockShell)
 		ctx := context.WithValue(context.Background(), injectorKey, injector)
 		rootCmd.SetContext(ctx)
+		t.Cleanup(func() {
+			rootCmd.SetContext(context.Background())
+			rootCmd.SetArgs([]string{})
+			verbose = false
+		})
 
 		rootCmd.SetArgs([]string{"exec", "go", "version"})
 
@@ -180,12 +185,20 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("HandlesCheckTrustedDirectoryError", func(t *testing.T) {
 		setup(t)
+		// Reset context and verbose before setting up test
+		rootCmd.SetContext(context.Background())
+		verbose = false
 		mocks := setupMocks(t)
 		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
 			return fmt.Errorf("not trusted")
 		}
 		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
 		rootCmd.SetContext(ctx)
+		t.Cleanup(func() {
+			rootCmd.SetContext(context.Background())
+			rootCmd.SetArgs([]string{})
+			verbose = false
+		})
 
 		rootCmd.SetArgs([]string{"exec", "go", "version"})
 
@@ -202,12 +215,20 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("HandlesHandleSessionResetError", func(t *testing.T) {
 		setup(t)
+		// Reset context and verbose before setting up test
+		rootCmd.SetContext(context.Background())
+		verbose = false
 		mocks := setupMocks(t)
 		mocks.Shell.CheckResetFlagsFunc = func() (bool, error) {
 			return false, fmt.Errorf("reset check failed")
 		}
 		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
 		rootCmd.SetContext(ctx)
+		t.Cleanup(func() {
+			rootCmd.SetContext(context.Background())
+			rootCmd.SetArgs([]string{})
+			verbose = false
+		})
 
 		rootCmd.SetArgs([]string{"exec", "go", "version"})
 
@@ -224,6 +245,9 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("HandlesLoadConfigError", func(t *testing.T) {
 		setup(t)
+		// Reset context and verbose before setting up test
+		rootCmd.SetContext(context.Background())
+		verbose = false
 		injector := di.NewInjector()
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.LoadConfigFunc = func() error {
@@ -254,6 +278,11 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 
 		ctx := context.WithValue(context.Background(), injectorKey, injector)
 		rootCmd.SetContext(ctx)
+		t.Cleanup(func() {
+			rootCmd.SetContext(context.Background())
+			rootCmd.SetArgs([]string{})
+			verbose = false
+		})
 
 		rootCmd.SetArgs([]string{"exec", "go", "version"})
 
@@ -270,6 +299,9 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("HandlesLoadEnvironmentError", func(t *testing.T) {
 		setup(t)
+		// Reset context and verbose before setting up test
+		rootCmd.SetContext(context.Background())
+		verbose = false
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.LoadConfigFunc = func() error {
 			return nil
@@ -305,6 +337,11 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 
 		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
 		rootCmd.SetContext(ctx)
+		t.Cleanup(func() {
+			rootCmd.SetContext(context.Background())
+			rootCmd.SetArgs([]string{})
+			verbose = false
+		})
 
 		rootCmd.SetArgs([]string{"exec", "go", "version"})
 
@@ -317,6 +354,9 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("HandlesExecutePostEnvHooksErrorWithVerbose", func(t *testing.T) {
 		setup(t)
+		// Reset context and verbose before setting up test
+		rootCmd.SetContext(context.Background())
+		verbose = false
 		mocks := setupMocks(t)
 		mockWindsorEnvPrinter := env.NewMockEnvPrinter()
 		mockWindsorEnvPrinter.InitializeFunc = func() error {
@@ -338,6 +378,11 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 
 		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
 		rootCmd.SetContext(ctx)
+		t.Cleanup(func() {
+			rootCmd.SetContext(context.Background())
+			rootCmd.SetArgs([]string{})
+			verbose = false
+		})
 
 		rootCmd.SetArgs([]string{"exec", "--verbose", "go", "version"})
 
@@ -350,6 +395,9 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("SwallowsExecutePostEnvHooksErrorWithoutVerbose", func(t *testing.T) {
 		setup(t)
+		// Reset context and verbose before setting up test
+		rootCmd.SetContext(context.Background())
+		verbose = false
 		mocks := setupMocks(t)
 		mockWindsorEnvPrinter := env.NewMockEnvPrinter()
 		mockWindsorEnvPrinter.InitializeFunc = func() error {
@@ -371,6 +419,11 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 
 		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
 		rootCmd.SetContext(ctx)
+		t.Cleanup(func() {
+			rootCmd.SetContext(context.Background())
+			rootCmd.SetArgs([]string{})
+			verbose = false
+		})
 
 		rootCmd.SetArgs([]string{"exec", "go", "version"})
 
@@ -383,12 +436,20 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("HandlesShellExecError", func(t *testing.T) {
 		setup(t)
+		// Reset context and verbose before setting up test
+		rootCmd.SetContext(context.Background())
+		verbose = false
 		mocks := setupMocks(t)
 		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
 			return "", fmt.Errorf("command execution failed")
 		}
 		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
 		rootCmd.SetContext(ctx)
+		t.Cleanup(func() {
+			rootCmd.SetContext(context.Background())
+			rootCmd.SetArgs([]string{})
+			verbose = false
+		})
 
 		rootCmd.SetArgs([]string{"exec", "go", "version"})
 

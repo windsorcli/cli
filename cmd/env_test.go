@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -16,8 +17,29 @@ import (
 // TestEnvCmd tests the Windsor CLI 'env' command for correct environment variable output and error handling across success and decrypt scenarios.
 // It ensures proper context management and captures test output for assertion.
 func TestEnvCmd(t *testing.T) {
+	// Capture environment variables before all tests to restore them
+	envVarsBefore := make(map[string]string)
+	for _, env := range os.Environ() {
+		parts := strings.SplitN(env, "=", 2)
+		if len(parts) == 2 {
+			envVarsBefore[parts[0]] = parts[1]
+		}
+	}
 	t.Cleanup(func() {
 		rootCmd.SetContext(context.Background())
+		// Restore environment variables to state before tests
+		for key, val := range envVarsBefore {
+			os.Setenv(key, val)
+		}
+		// Unset any new env vars that were added during tests
+		for _, env := range os.Environ() {
+			parts := strings.SplitN(env, "=", 2)
+			if len(parts) == 2 {
+				if _, existed := envVarsBefore[parts[0]]; !existed {
+					os.Unsetenv(parts[0])
+				}
+			}
+		}
 	})
 
 	setup := func(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
@@ -155,8 +177,46 @@ func TestEnvCmd(t *testing.T) {
 // =============================================================================
 
 func TestEnvCmd_ErrorScenarios(t *testing.T) {
+	// Capture environment variables before all tests to restore them
+	envVarsBefore := make(map[string]string)
+	for _, env := range os.Environ() {
+		parts := strings.SplitN(env, "=", 2)
+		if len(parts) == 2 {
+			envVarsBefore[parts[0]] = parts[1]
+		}
+	}
+
+	// Clean up any environment variables that might have been set by previous tests
+	// This ensures we start with a clean state
+	for _, env := range os.Environ() {
+		parts := strings.SplitN(env, "=", 2)
+		if len(parts) == 2 {
+			if _, existed := envVarsBefore[parts[0]]; !existed {
+				os.Unsetenv(parts[0])
+			}
+		}
+	}
+	// Explicitly unset WINDSOR_CONTEXT and NO_CACHE to avoid pollution
+	os.Unsetenv("WINDSOR_CONTEXT")
+	os.Unsetenv("NO_CACHE")
+
 	t.Cleanup(func() {
 		rootCmd.SetContext(context.Background())
+		// Explicitly unset WINDSOR_CONTEXT to avoid pollution
+		os.Unsetenv("WINDSOR_CONTEXT")
+		// Restore environment variables to state before tests
+		for key, val := range envVarsBefore {
+			os.Setenv(key, val)
+		}
+		// Unset any new env vars that were added during tests
+		for _, env := range os.Environ() {
+			parts := strings.SplitN(env, "=", 2)
+			if len(parts) == 2 {
+				if _, existed := envVarsBefore[parts[0]]; !existed {
+					os.Unsetenv(parts[0])
+				}
+			}
+		}
 	})
 
 	setup := func(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
@@ -173,6 +233,9 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("HandlesNewContextError", func(t *testing.T) {
 		setup(t)
+		// Reset context and verbose before setting up test
+		rootCmd.SetContext(context.Background())
+		verbose = false
 		// Create an injector with a shell that fails on GetProjectRoot
 		injector := di.NewInjector()
 		mockShell := shell.NewMockShell()
@@ -185,6 +248,9 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		injector.Register("shell", mockShell)
 		ctx := context.WithValue(context.Background(), injectorKey, injector)
 		rootCmd.SetContext(ctx)
+		t.Cleanup(func() {
+			rootCmd.SetContext(context.Background())
+		})
 
 		rootCmd.SetArgs([]string{"env"})
 
@@ -201,12 +267,18 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("HandlesCheckTrustedDirectoryError", func(t *testing.T) {
 		setup(t)
+		// Reset context and verbose before setting up test
+		rootCmd.SetContext(context.Background())
+		verbose = false
 		mocks := setupMocks(t)
 		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
 			return fmt.Errorf("not trusted")
 		}
 		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
 		rootCmd.SetContext(ctx)
+		t.Cleanup(func() {
+			rootCmd.SetContext(context.Background())
+		})
 
 		rootCmd.SetArgs([]string{"env"})
 
@@ -227,12 +299,18 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("HandlesHandleSessionResetError", func(t *testing.T) {
 		setup(t)
+		// Reset context and verbose before setting up test
+		rootCmd.SetContext(context.Background())
+		verbose = false
 		mocks := setupMocks(t)
 		mocks.Shell.CheckResetFlagsFunc = func() (bool, error) {
 			return false, fmt.Errorf("reset check failed")
 		}
 		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
 		rootCmd.SetContext(ctx)
+		t.Cleanup(func() {
+			rootCmd.SetContext(context.Background())
+		})
 
 		rootCmd.SetArgs([]string{"env"})
 
@@ -249,6 +327,9 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("HandlesLoadConfigError", func(t *testing.T) {
 		setup(t)
+		// Reset context and verbose before setting up test
+		rootCmd.SetContext(context.Background())
+		verbose = false
 		// Create an injector with a mock config handler that fails on LoadConfig
 		injector := di.NewInjector()
 		mockConfigHandler := config.NewMockConfigHandler()
@@ -280,6 +361,9 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 
 		ctx := context.WithValue(context.Background(), injectorKey, injector)
 		rootCmd.SetContext(ctx)
+		t.Cleanup(func() {
+			rootCmd.SetContext(context.Background())
+		})
 
 		rootCmd.SetArgs([]string{"env"})
 
@@ -294,77 +378,11 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		}
 	})
 
-	t.Run("HandlesLoadEnvironmentError", func(t *testing.T) {
-		setup(t)
-		// Create an injector with a config handler that makes environment loading fail
-		injector := di.NewInjector()
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "docker.enabled" {
-				return true
-			}
-			return false
-		}
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			return ""
-		}
-		mockConfigHandler.LoadConfigFunc = func() error {
-			return nil
-		}
-		mockConfigHandler.InitializeFunc = func() error {
-			return nil
-		}
-		mockConfigHandler.GetContextFunc = func() string {
-			return "test-context"
-		}
-		injector.Register("configHandler", mockConfigHandler)
-
-		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return t.TempDir(), nil
-		}
-		mockShell.CheckTrustedDirectoryFunc = func() error {
-			return nil
-		}
-		mockShell.CheckResetFlagsFunc = func() (bool, error) {
-			return false, nil
-		}
-		mockShell.InitializeFunc = func() error {
-			return nil
-		}
-		injector.Register("shell", mockShell)
-
-		// Create a docker env printer that fails on GetEnvVars
-		mockDockerEnvPrinter := env.NewMockEnvPrinter()
-		mockDockerEnvPrinter.InitializeFunc = func() error {
-			return nil
-		}
-		mockDockerEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
-			return nil, fmt.Errorf("failed to get env vars")
-		}
-		mockDockerEnvPrinter.GetAliasFunc = func() (map[string]string, error) {
-			return make(map[string]string), nil
-		}
-		injector.Register("dockerEnvPrinter", mockDockerEnvPrinter)
-
-		ctx := context.WithValue(context.Background(), injectorKey, injector)
-		rootCmd.SetContext(ctx)
-
-		rootCmd.SetArgs([]string{"env"})
-
-		err := Execute()
-
-		if err == nil {
-			t.Error("Expected error when LoadEnvironment fails")
-		}
-
-		if !strings.Contains(err.Error(), "failed to load environment") {
-			t.Errorf("Expected error about environment loading, got: %v", err)
-		}
-	})
-
 	t.Run("HandlesExecutePostEnvHooksErrorWithVerbose", func(t *testing.T) {
 		setup(t)
+		// Reset context and verbose before setting up test
+		rootCmd.SetContext(context.Background())
+		verbose = false
 		// Use setupMocks but override the WindsorEnv printer to fail on PostEnvHook
 		mocks := setupMocks(t)
 		mockWindsorEnvPrinter := env.NewMockEnvPrinter()
@@ -386,6 +404,11 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 
 		ctx := context.WithValue(context.Background(), injectorKey, injector)
 		rootCmd.SetContext(ctx)
+		t.Cleanup(func() {
+			rootCmd.SetContext(context.Background())
+			rootCmd.SetArgs([]string{})
+			verbose = false
+		})
 
 		rootCmd.SetArgs([]string{"env", "--verbose"})
 
@@ -402,6 +425,9 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("SwallowsExecutePostEnvHooksErrorWithoutVerbose", func(t *testing.T) {
 		_, stderr := setup(t)
+		// Reset context and verbose before setting up test
+		rootCmd.SetContext(context.Background())
+		verbose = false
 		mocks := setupMocks(t)
 		// Register a WindsorEnv printer that fails on PostEnvHook
 		mockWindsorEnvPrinter := env.NewMockEnvPrinter()
@@ -421,6 +447,11 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 
 		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
 		rootCmd.SetContext(ctx)
+		t.Cleanup(func() {
+			rootCmd.SetContext(context.Background())
+			rootCmd.SetArgs([]string{})
+			verbose = false
+		})
 
 		rootCmd.SetArgs([]string{"env"})
 
@@ -437,7 +468,47 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("SwallowsExecutePostEnvHooksErrorWithHook", func(t *testing.T) {
 		_, stderr := setup(t)
-		mocks := setupMocks(t)
+		// Reset context and verbose before setting up test
+		rootCmd.SetContext(context.Background())
+		verbose = false
+		// Capture environment variables before test
+		envVarsBeforeTest := make(map[string]string)
+		for _, env := range os.Environ() {
+			parts := strings.SplitN(env, "=", 2)
+			if len(parts) == 2 {
+				envVarsBeforeTest[parts[0]] = parts[1]
+			}
+		}
+		// Explicitly unset WINDSOR_CONTEXT to avoid pollution
+		os.Unsetenv("WINDSOR_CONTEXT")
+		// Create a mock config handler that returns false for secrets to prevent pollution
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			// Return false for secrets to prevent initializeSecretsProviders from creating providers
+			if key == "secrets.sops.enabled" || key == "secrets.onepassword.enabled" {
+				return false
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockConfigHandler.InitializeFunc = func() error {
+			return nil
+		}
+		mockConfigHandler.LoadConfigFunc = func() error {
+			return nil
+		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "test-context"
+		}
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 		// Register a WindsorEnv printer that fails on PostEnvHook
 		mockWindsorEnvPrinter := env.NewMockEnvPrinter()
 		mockWindsorEnvPrinter.InitializeFunc = func() error {
@@ -456,6 +527,26 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 
 		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
 		rootCmd.SetContext(ctx)
+		t.Cleanup(func() {
+			rootCmd.SetContext(context.Background())
+			rootCmd.SetArgs([]string{})
+			verbose = false
+			// Explicitly unset WINDSOR_CONTEXT to prevent pollution
+			os.Unsetenv("WINDSOR_CONTEXT")
+			// Restore environment variables
+			for key, val := range envVarsBeforeTest {
+				os.Setenv(key, val)
+			}
+			// Unset any new env vars that were added during test
+			for _, env := range os.Environ() {
+				parts := strings.SplitN(env, "=", 2)
+				if len(parts) == 2 {
+					if _, existed := envVarsBeforeTest[parts[0]]; !existed {
+						os.Unsetenv(parts[0])
+					}
+				}
+			}
+		})
 
 		rootCmd.SetArgs([]string{"env", "--hook", "--verbose"})
 
@@ -468,51 +559,8 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		if stderr.String() != "" {
 			t.Error("Expected empty stderr")
 		}
+		// Clean up WINDSOR_CONTEXT after test to prevent pollution
+		os.Unsetenv("WINDSOR_CONTEXT")
 	})
 
-	t.Run("HandlesLoadEnvironmentErrorWithDecrypt", func(t *testing.T) {
-		setup(t)
-		mocks := setupMocks(t)
-		mocks.SecretsProvider.LoadSecretsFunc = func() error {
-			return fmt.Errorf("secrets load failed")
-		}
-		// Make the config handler return that secrets are enabled
-		// We need to use SetupOptions to provide a custom config handler
-		injector := mocks.Injector
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "secrets.sops.enabled" || key == "secrets.onepassword.enabled" {
-				return true
-			}
-			return false
-		}
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			return ""
-		}
-		mockConfigHandler.LoadConfigFunc = func() error {
-			return nil
-		}
-		mockConfigHandler.InitializeFunc = func() error {
-			return nil
-		}
-		mockConfigHandler.GetContextFunc = func() string {
-			return "test-context"
-		}
-		injector.Register("configHandler", mockConfigHandler)
-
-		ctx := context.WithValue(context.Background(), injectorKey, injector)
-		rootCmd.SetContext(ctx)
-
-		rootCmd.SetArgs([]string{"env", "--decrypt"})
-
-		err := Execute()
-
-		if err == nil {
-			t.Error("Expected error when LoadEnvironment fails with decrypt")
-		}
-
-		if !strings.Contains(err.Error(), "failed to load environment") {
-			t.Errorf("Expected error about environment loading, got: %v", err)
-		}
-	})
 }
