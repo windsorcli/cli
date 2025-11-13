@@ -3,159 +3,13 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/context"
-	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/provisioner"
-	"github.com/windsorcli/cli/pkg/workstation"
+	"github.com/windsorcli/cli/pkg/project"
 )
-
-// =============================================================================
-// Shared Init Logic
-// =============================================================================
-
-// runInit performs the common initialization logic for init, up, and down commands.
-// It creates execution contexts, sets up infrastructure dependencies, applies default configs,
-// generates configurations, and persists the config state.
-func runInit(injector di.Injector, contextName string, overwrite bool) error {
-	baseCtx := &context.ExecutionContext{
-		Injector: injector,
-	}
-
-	baseCtx, err := context.NewContext(baseCtx)
-	if err != nil {
-		return fmt.Errorf("failed to initialize context: %w", err)
-	}
-
-	if err := baseCtx.Shell.AddCurrentDirToTrustedFile(); err != nil {
-		return fmt.Errorf("failed to add current directory to trusted file: %w", err)
-	}
-
-	configHandler := baseCtx.ConfigHandler
-
-	if err := configHandler.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize config handler: %w", err)
-	}
-
-	if err := configHandler.SetContext(contextName); err != nil {
-		return fmt.Errorf("failed to set context: %w", err)
-	}
-
-	if !configHandler.IsLoaded() {
-		existingProvider := configHandler.GetString("provider")
-		isDevMode := configHandler.IsDevMode(contextName)
-
-		if isDevMode {
-			if err := configHandler.Set("dev", true); err != nil {
-				return fmt.Errorf("failed to set dev mode: %w", err)
-			}
-		}
-
-		vmDriver := configHandler.GetString("vm.driver")
-		if isDevMode && vmDriver == "" {
-			switch runtime.GOOS {
-			case "darwin", "windows":
-				vmDriver = "docker-desktop"
-			default:
-				vmDriver = "docker"
-			}
-		}
-
-		if vmDriver == "docker-desktop" {
-			if err := configHandler.SetDefault(config.DefaultConfig_Localhost); err != nil {
-				return fmt.Errorf("failed to set default config: %w", err)
-			}
-		} else if isDevMode {
-			if err := configHandler.SetDefault(config.DefaultConfig_Full); err != nil {
-				return fmt.Errorf("failed to set default config: %w", err)
-			}
-		} else {
-			if err := configHandler.SetDefault(config.DefaultConfig); err != nil {
-				return fmt.Errorf("failed to set default config: %w", err)
-			}
-		}
-
-		if isDevMode && configHandler.GetString("vm.driver") == "" && vmDriver != "" {
-			if err := configHandler.Set("vm.driver", vmDriver); err != nil {
-				return fmt.Errorf("failed to set vm.driver: %w", err)
-			}
-		}
-
-		if existingProvider == "" && isDevMode {
-			if err := configHandler.Set("provider", "generic"); err != nil {
-				return fmt.Errorf("failed to set provider from context name: %w", err)
-			}
-		}
-	}
-
-	provider := configHandler.GetString("provider")
-	if provider != "" {
-		switch provider {
-		case "aws":
-			if err := configHandler.Set("aws.enabled", true); err != nil {
-				return fmt.Errorf("failed to set aws.enabled: %w", err)
-			}
-			if err := configHandler.Set("cluster.driver", "eks"); err != nil {
-				return fmt.Errorf("failed to set cluster.driver: %w", err)
-			}
-		case "azure":
-			if err := configHandler.Set("azure.enabled", true); err != nil {
-				return fmt.Errorf("failed to set azure.enabled: %w", err)
-			}
-			if err := configHandler.Set("cluster.driver", "aks"); err != nil {
-				return fmt.Errorf("failed to set cluster.driver: %w", err)
-			}
-		case "generic":
-			if err := configHandler.Set("cluster.driver", "talos"); err != nil {
-				return fmt.Errorf("failed to set cluster.driver: %w", err)
-			}
-		}
-	}
-
-	provCtx := &provisioner.ProvisionerExecutionContext{
-		ExecutionContext: *baseCtx,
-	}
-	_ = provisioner.NewProvisioner(provCtx)
-
-	if configHandler.IsDevMode(contextName) {
-		workstationCtx := &workstation.WorkstationExecutionContext{
-			ExecutionContext: *baseCtx,
-		}
-		_, err = workstation.NewWorkstation(workstationCtx, injector)
-		if err != nil {
-			return fmt.Errorf("failed to initialize workstation: %w", err)
-		}
-	}
-
-	if err := configHandler.GenerateContextID(); err != nil {
-		return fmt.Errorf("failed to generate context ID: %w", err)
-	}
-
-	if err := configHandler.SaveConfig(); err != nil {
-		return fmt.Errorf("failed to save config: %w", err)
-	}
-
-	if err := configHandler.LoadConfig(); err != nil {
-		return fmt.Errorf("failed to reload context config: %w", err)
-	}
-
-	composerCtx := &composer.ComposerExecutionContext{
-		ExecutionContext: *baseCtx,
-	}
-
-	comp := composer.NewComposer(composerCtx)
-
-	if err := comp.Generate(overwrite); err != nil {
-		return fmt.Errorf("failed to generate infrastructure: %w", err)
-	}
-
-	return nil
-}
 
 // =============================================================================
 // Init Command
@@ -198,6 +52,10 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
+		if err := baseCtx.Shell.AddCurrentDirToTrustedFile(); err != nil {
+			return fmt.Errorf("failed to add current directory to trusted file: %w", err)
+		}
+
 		contextName := "local"
 		if len(args) > 0 {
 			contextName = args[0]
@@ -213,83 +71,67 @@ var initCmd = &cobra.Command{
 			initProvider = initPlatform
 		}
 
-		if baseCtx.ConfigHandler.IsDevMode(contextName) && initProvider == "" {
-			initProvider = "generic"
-		}
-
-		configHandler := baseCtx.ConfigHandler
-
+		// Build flag overrides map
+		flagOverrides := make(map[string]any)
 		if initProvider != "" {
-			if err := configHandler.Set("provider", initProvider); err != nil {
-				return fmt.Errorf("failed to set provider: %w", err)
-			}
+			flagOverrides["provider"] = initProvider
 		}
 		if initBackend != "" {
-			if err := configHandler.Set("terraform.backend.type", initBackend); err != nil {
-				return fmt.Errorf("failed to set terraform.backend.type: %w", err)
-			}
+			flagOverrides["terraform.backend.type"] = initBackend
 		}
 		if initAwsProfile != "" {
-			if err := configHandler.Set("aws.profile", initAwsProfile); err != nil {
-				return fmt.Errorf("failed to set aws.profile: %w", err)
-			}
+			flagOverrides["aws.profile"] = initAwsProfile
 		}
 		if initAwsEndpointURL != "" {
-			if err := configHandler.Set("aws.endpoint_url", initAwsEndpointURL); err != nil {
-				return fmt.Errorf("failed to set aws.endpoint_url: %w", err)
-			}
+			flagOverrides["aws.endpoint_url"] = initAwsEndpointURL
 		}
 		if initVmDriver != "" {
-			if err := configHandler.Set("vm.driver", initVmDriver); err != nil {
-				return fmt.Errorf("failed to set vm.driver: %w", err)
-			}
+			flagOverrides["vm.driver"] = initVmDriver
 		}
 		if initCpu > 0 {
-			if err := configHandler.Set("vm.cpu", initCpu); err != nil {
-				return fmt.Errorf("failed to set vm.cpu: %w", err)
-			}
+			flagOverrides["vm.cpu"] = initCpu
 		}
 		if initDisk > 0 {
-			if err := configHandler.Set("vm.disk", initDisk); err != nil {
-				return fmt.Errorf("failed to set vm.disk: %w", err)
-			}
+			flagOverrides["vm.disk"] = initDisk
 		}
 		if initMemory > 0 {
-			if err := configHandler.Set("vm.memory", initMemory); err != nil {
-				return fmt.Errorf("failed to set vm.memory: %w", err)
-			}
+			flagOverrides["vm.memory"] = initMemory
 		}
 		if initArch != "" {
-			if err := configHandler.Set("vm.arch", initArch); err != nil {
-				return fmt.Errorf("failed to set vm.arch: %w", err)
-			}
+			flagOverrides["vm.arch"] = initArch
 		}
 		if initDocker {
-			if err := configHandler.Set("docker.enabled", true); err != nil {
-				return fmt.Errorf("failed to set docker.enabled: %w", err)
-			}
+			flagOverrides["docker.enabled"] = true
 		}
 		if initGitLivereload {
-			if err := configHandler.Set("git.livereload.enabled", true); err != nil {
-				return fmt.Errorf("failed to set git.livereload.enabled: %w", err)
-			}
+			flagOverrides["git.livereload.enabled"] = true
 		}
 
 		for _, setFlag := range initSetFlags {
 			parts := strings.SplitN(setFlag, "=", 2)
 			if len(parts) == 2 {
-				if err := configHandler.Set(parts[0], parts[1]); err != nil {
-					return fmt.Errorf("failed to set %s: %w", parts[0], err)
-				}
+				flagOverrides[parts[0]] = parts[1]
 			}
 		}
 
-		if err := runInit(injector, contextName, initReset); err != nil {
+		proj, err := project.NewProject(injector, contextName, baseCtx)
+		if err != nil {
+			return err
+		}
+
+		if err := proj.Configure(flagOverrides); err != nil {
+			return err
+		}
+
+		if err := proj.Initialize(initReset); err != nil {
+			if !verbose {
+				return nil
+			}
 			return err
 		}
 
 		hasSetFlags := len(initSetFlags) > 0
-		if err := configHandler.SaveConfig(hasSetFlags); err != nil {
+		if err := proj.Context.ConfigHandler.SaveConfig(hasSetFlags); err != nil {
 			return fmt.Errorf("failed to save configuration: %w", err)
 		}
 

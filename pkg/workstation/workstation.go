@@ -130,6 +130,9 @@ func (w *Workstation) Up() error {
 		if w.VirtualMachine == nil {
 			return fmt.Errorf("no virtual machine found")
 		}
+		if err := w.VirtualMachine.Initialize(); err != nil {
+			return fmt.Errorf("failed to initialize virtual machine: %w", err)
+		}
 		if err := w.VirtualMachine.Up(); err != nil {
 			return fmt.Errorf("error running virtual machine Up command: %w", err)
 		}
@@ -141,6 +144,12 @@ func (w *Workstation) Up() error {
 		if w.ContainerRuntime == nil {
 			return fmt.Errorf("no container runtime found")
 		}
+		if err := w.ContainerRuntime.Initialize(); err != nil {
+			return fmt.Errorf("failed to initialize container runtime: %w", err)
+		}
+		if err := w.ContainerRuntime.WriteConfig(); err != nil {
+			return fmt.Errorf("failed to write container runtime config: %w", err)
+		}
 		if err := w.ContainerRuntime.Up(); err != nil {
 			return fmt.Errorf("error running container runtime Up command: %w", err)
 		}
@@ -148,14 +157,21 @@ func (w *Workstation) Up() error {
 
 	// Configure networking
 	if w.NetworkManager != nil {
-		if err := w.NetworkManager.ConfigureHostRoute(); err != nil {
-			return fmt.Errorf("error configuring host route: %w", err)
+		// Only configure guest and host routes for colima
+		if vmDriver == "colima" {
+			if err := w.NetworkManager.ConfigureGuest(); err != nil {
+				return fmt.Errorf("error configuring guest: %w", err)
+			}
+			if err := w.NetworkManager.ConfigureHostRoute(); err != nil {
+				return fmt.Errorf("error configuring host route: %w", err)
+			}
 		}
-		if err := w.NetworkManager.ConfigureGuest(); err != nil {
-			return fmt.Errorf("error configuring guest: %w", err)
-		}
-		if err := w.NetworkManager.ConfigureDNS(); err != nil {
-			return fmt.Errorf("error configuring DNS: %w", err)
+
+		// Configure DNS if enabled
+		if dnsEnabled := w.ConfigHandler.GetBool("dns.enabled"); dnsEnabled {
+			if err := w.NetworkManager.ConfigureDNS(); err != nil {
+				return fmt.Errorf("error configuring DNS: %w", err)
+			}
 		}
 	}
 
