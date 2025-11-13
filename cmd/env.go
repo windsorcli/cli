@@ -49,6 +49,9 @@ var envCmd = &cobra.Command{
 		}
 
 		if err := execCtx.LoadEnvironment(decrypt); err != nil {
+			if hook || !verbose {
+				return nil
+			}
 			return fmt.Errorf("failed to load environment: %w", err)
 		}
 
@@ -63,13 +66,6 @@ var envCmd = &cobra.Command{
 			outputFunc(execCtx.PrintAliases())
 		} else {
 			outputFunc(execCtx.PrintEnvVars())
-		}
-
-		if err := execCtx.ExecutePostEnvHooks(); err != nil {
-			if hook || !verbose {
-				return nil
-			}
-			return err
 		}
 
 		return nil

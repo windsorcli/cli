@@ -213,10 +213,11 @@ func (ctx *ExecutionContext) HandleSessionReset() error {
 	return nil
 }
 
-// LoadEnvironment loads environment variables and aliases from all configured environment printers.
-// It initializes all necessary components, optionally loads secrets if requested, and aggregates
-// all environment variables and aliases into the ExecutionContext instance. Returns an error if any required
-// dependency is missing or if any step fails. This method expects the ConfigHandler to be set before invocation.
+// LoadEnvironment loads environment variables and aliases from all configured environment printers,
+// then executes post-environment hooks. It initializes all necessary components, optionally loads
+// secrets if requested, and aggregates all environment variables and aliases into the ExecutionContext
+// instance. Returns an error if any required dependency is missing or if any step fails. This method
+// expects the ConfigHandler to be set before invocation.
 func (ctx *ExecutionContext) LoadEnvironment(decrypt bool) error {
 	if ctx.ConfigHandler == nil {
 		return fmt.Errorf("config handler not loaded")
@@ -264,42 +265,7 @@ func (ctx *ExecutionContext) LoadEnvironment(decrypt bool) error {
 		}
 	}
 
-	return nil
-}
-
-// PrintEnvVars returns all collected environment variables in key=value format.
-// If no environment variables are loaded, returns an empty string.
-func (ctx *ExecutionContext) PrintEnvVars() string {
-	if len(ctx.envVars) > 0 {
-		return ctx.Shell.RenderEnvVars(ctx.envVars, false)
-	}
-	return ""
-}
-
-// PrintEnvVarsExport returns all collected environment variables in export key=value format.
-// If no environment variables are loaded, returns an empty string.
-func (ctx *ExecutionContext) PrintEnvVarsExport() string {
-	if len(ctx.envVars) > 0 {
-		return ctx.Shell.RenderEnvVars(ctx.envVars, true)
-	}
-	return ""
-}
-
-// PrintAliases returns all collected aliases using the shell's RenderAliases method.
-// If no aliases are loaded, returns an empty string.
-func (ctx *ExecutionContext) PrintAliases() string {
-	if len(ctx.aliases) > 0 {
-		return ctx.Shell.RenderAliases(ctx.aliases)
-	}
-	return ""
-}
-
-// ExecutePostEnvHooks executes post-environment hooks for all environment printers.
-// Returns an error if any hook fails, wrapping the first error encountered with context.
-// Returns nil if all hooks execute successfully.
-func (ctx *ExecutionContext) ExecutePostEnvHooks() error {
 	var firstError error
-
 	for _, printer := range ctx.getAllEnvPrinters() {
 		if printer != nil {
 			if err := printer.PostEnvHook(); err != nil && firstError == nil {
@@ -313,6 +279,33 @@ func (ctx *ExecutionContext) ExecutePostEnvHooks() error {
 	}
 
 	return nil
+}
+
+// PrintEnvVars returns all collected environment variables in key=value format.
+// If no environment variables are loaded, returns an empty string.
+func (ctx *ExecutionContext) PrintEnvVars() string {
+	if ctx.Shell == nil || len(ctx.envVars) == 0 {
+		return ""
+	}
+	return ctx.Shell.RenderEnvVars(ctx.envVars, false)
+}
+
+// PrintEnvVarsExport returns all collected environment variables in export key=value format.
+// If no environment variables are loaded, returns an empty string.
+func (ctx *ExecutionContext) PrintEnvVarsExport() string {
+	if ctx.Shell == nil || len(ctx.envVars) == 0 {
+		return ""
+	}
+	return ctx.Shell.RenderEnvVars(ctx.envVars, true)
+}
+
+// PrintAliases returns all collected aliases using the shell's RenderAliases method.
+// If no aliases are loaded, returns an empty string.
+func (ctx *ExecutionContext) PrintAliases() string {
+	if ctx.Shell == nil || len(ctx.aliases) == 0 {
+		return ""
+	}
+	return ctx.Shell.RenderAliases(ctx.aliases)
 }
 
 // GetEnvVars returns a copy of the collected environment variables.
@@ -427,26 +420,61 @@ func (ctx *ExecutionContext) initializeEnvPrinters() {
 		ctx.Injector.Register("azureEnv", ctx.EnvPrinters.AzureEnv)
 	}
 	if ctx.EnvPrinters.DockerEnv == nil && ctx.ConfigHandler.GetBool("docker.enabled", false) {
-		ctx.EnvPrinters.DockerEnv = env.NewDockerEnvPrinter(ctx.Injector)
-		ctx.Injector.Register("dockerEnv", ctx.EnvPrinters.DockerEnv)
+		if existingPrinter := ctx.Injector.Resolve("dockerEnv"); existingPrinter != nil {
+			if printer, ok := existingPrinter.(env.EnvPrinter); ok {
+				ctx.EnvPrinters.DockerEnv = printer
+			}
+		}
+		if ctx.EnvPrinters.DockerEnv == nil {
+			ctx.EnvPrinters.DockerEnv = env.NewDockerEnvPrinter(ctx.Injector)
+			ctx.Injector.Register("dockerEnv", ctx.EnvPrinters.DockerEnv)
+		}
 	}
 	if ctx.EnvPrinters.KubeEnv == nil && ctx.ConfigHandler.GetBool("cluster.enabled", false) {
-		ctx.EnvPrinters.KubeEnv = env.NewKubeEnvPrinter(ctx.Injector)
-		ctx.Injector.Register("kubeEnv", ctx.EnvPrinters.KubeEnv)
+		if existingPrinter := ctx.Injector.Resolve("kubeEnv"); existingPrinter != nil {
+			if printer, ok := existingPrinter.(env.EnvPrinter); ok {
+				ctx.EnvPrinters.KubeEnv = printer
+			}
+		}
+		if ctx.EnvPrinters.KubeEnv == nil {
+			ctx.EnvPrinters.KubeEnv = env.NewKubeEnvPrinter(ctx.Injector)
+			ctx.Injector.Register("kubeEnv", ctx.EnvPrinters.KubeEnv)
+		}
 	}
 	if ctx.EnvPrinters.TalosEnv == nil &&
 		(ctx.ConfigHandler.GetString("cluster.driver", "") == "talos" ||
 			ctx.ConfigHandler.GetString("cluster.driver", "") == "omni") {
-		ctx.EnvPrinters.TalosEnv = env.NewTalosEnvPrinter(ctx.Injector)
-		ctx.Injector.Register("talosEnv", ctx.EnvPrinters.TalosEnv)
+		if existingPrinter := ctx.Injector.Resolve("talosEnv"); existingPrinter != nil {
+			if printer, ok := existingPrinter.(env.EnvPrinter); ok {
+				ctx.EnvPrinters.TalosEnv = printer
+			}
+		}
+		if ctx.EnvPrinters.TalosEnv == nil {
+			ctx.EnvPrinters.TalosEnv = env.NewTalosEnvPrinter(ctx.Injector)
+			ctx.Injector.Register("talosEnv", ctx.EnvPrinters.TalosEnv)
+		}
 	}
 	if ctx.EnvPrinters.TerraformEnv == nil && ctx.ConfigHandler.GetBool("terraform.enabled", false) {
-		ctx.EnvPrinters.TerraformEnv = env.NewTerraformEnvPrinter(ctx.Injector)
-		ctx.Injector.Register("terraformEnv", ctx.EnvPrinters.TerraformEnv)
+		if existingPrinter := ctx.Injector.Resolve("terraformEnv"); existingPrinter != nil {
+			if printer, ok := existingPrinter.(env.EnvPrinter); ok {
+				ctx.EnvPrinters.TerraformEnv = printer
+			}
+		}
+		if ctx.EnvPrinters.TerraformEnv == nil {
+			ctx.EnvPrinters.TerraformEnv = env.NewTerraformEnvPrinter(ctx.Injector)
+			ctx.Injector.Register("terraformEnv", ctx.EnvPrinters.TerraformEnv)
+		}
 	}
 	if ctx.EnvPrinters.WindsorEnv == nil {
-		ctx.EnvPrinters.WindsorEnv = env.NewWindsorEnvPrinter(ctx.Injector)
-		ctx.Injector.Register("windsorEnv", ctx.EnvPrinters.WindsorEnv)
+		if existingPrinter := ctx.Injector.Resolve("windsorEnv"); existingPrinter != nil {
+			if printer, ok := existingPrinter.(env.EnvPrinter); ok {
+				ctx.EnvPrinters.WindsorEnv = printer
+			}
+		}
+		if ctx.EnvPrinters.WindsorEnv == nil {
+			ctx.EnvPrinters.WindsorEnv = env.NewWindsorEnvPrinter(ctx.Injector)
+			ctx.Injector.Register("windsorEnv", ctx.EnvPrinters.WindsorEnv)
+		}
 	}
 }
 
@@ -472,14 +500,28 @@ func (ctx *ExecutionContext) initializeToolsManager() {
 // scenarios. Providers are only initialized if not already present on the context.
 func (ctx *ExecutionContext) initializeSecretsProviders() {
 	if ctx.SecretsProviders.Sops == nil && ctx.ConfigHandler.GetBool("secrets.sops.enabled", false) {
-		configPath := ctx.ConfigRoot
-		ctx.SecretsProviders.Sops = secrets.NewSopsSecretsProvider(configPath, ctx.Injector)
-		ctx.Injector.Register("sopsSecretsProvider", ctx.SecretsProviders.Sops)
+		if existingProvider := ctx.Injector.Resolve("sopsSecretsProvider"); existingProvider != nil {
+			if provider, ok := existingProvider.(secrets.SecretsProvider); ok {
+				ctx.SecretsProviders.Sops = provider
+			}
+		}
+		if ctx.SecretsProviders.Sops == nil {
+			configPath := ctx.ConfigRoot
+			ctx.SecretsProviders.Sops = secrets.NewSopsSecretsProvider(configPath, ctx.Injector)
+			ctx.Injector.Register("sopsSecretsProvider", ctx.SecretsProviders.Sops)
+		}
 	}
 
 	if ctx.SecretsProviders.Onepassword == nil && ctx.ConfigHandler.GetBool("secrets.onepassword.enabled", false) {
-		ctx.SecretsProviders.Onepassword = secrets.NewMockSecretsProvider(ctx.Injector)
-		ctx.Injector.Register("onepasswordSecretsProvider", ctx.SecretsProviders.Onepassword)
+		if existingProvider := ctx.Injector.Resolve("onepasswordSecretsProvider"); existingProvider != nil {
+			if provider, ok := existingProvider.(secrets.SecretsProvider); ok {
+				ctx.SecretsProviders.Onepassword = provider
+			}
+		}
+		if ctx.SecretsProviders.Onepassword == nil {
+			ctx.SecretsProviders.Onepassword = secrets.NewMockSecretsProvider(ctx.Injector)
+			ctx.Injector.Register("onepasswordSecretsProvider", ctx.SecretsProviders.Onepassword)
+		}
 	}
 }
 
