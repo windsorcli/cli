@@ -41,7 +41,8 @@ func NewColimaNetworkManager(rt *runtime.Runtime, sshClient ssh.Client, secureSh
 
 	// Set docker.NetworkCIDR to the default value if it's not set
 	if manager.configHandler.GetString("network.cidr_block") == "" {
-		manager.configHandler.Set("network.cidr_block", constants.DefaultNetworkCIDR)
+		// #nosec G104 - Constructor cannot return error; default setting is best-effort
+		_ = manager.configHandler.Set("network.cidr_block", constants.DefaultNetworkCIDR)
 	}
 
 	return manager
