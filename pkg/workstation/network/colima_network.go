@@ -39,12 +39,6 @@ func NewColimaNetworkManager(rt *runtime.Runtime, sshClient ssh.Client, secureSh
 	manager.sshClient = sshClient
 	manager.secureShell = secureShell
 
-	// Set docker.NetworkCIDR to the default value if it's not set
-	if manager.configHandler.GetString("network.cidr_block") == "" {
-		// #nosec G104 - Constructor cannot return error; default setting is best-effort
-		_ = manager.configHandler.Set("network.cidr_block", constants.DefaultNetworkCIDR)
-	}
-
 	return manager
 }
 
@@ -53,10 +47,7 @@ func NewColimaNetworkManager(rt *runtime.Runtime, sshClient ssh.Client, secureSh
 // It identifies the Docker bridge interface and ensures iptables rules are set.
 // If the rule doesn't exist, it adds a new one to allow traffic forwarding.
 func (n *ColimaNetworkManager) ConfigureGuest() error {
-	networkCIDR := n.configHandler.GetString("network.cidr_block")
-	if networkCIDR == "" {
-		return fmt.Errorf("network CIDR is not configured")
-	}
+	networkCIDR := n.configHandler.GetString("network.cidr_block", constants.DefaultNetworkCIDR)
 
 	guestIP := n.configHandler.GetString("vm.address")
 	if guestIP == "" {

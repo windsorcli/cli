@@ -72,13 +72,9 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		// And configuring the guest
 		err := manager.ConfigureGuest()
 
-		// Then an error should occur
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		expectedError := "network CIDR is not configured"
-		if err.Error() != expectedError {
-			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		// Then no error should occur (default CIDR is used automatically)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 
