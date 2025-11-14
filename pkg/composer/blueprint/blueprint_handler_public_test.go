@@ -412,7 +412,6 @@ contexts:
           - ${WINDSOR_PROJECT_ROOT}/.volumes:/var/local
 `
 
-	configHandler.Initialize()
 	configHandler.SetContext("mock-context")
 
 	if err := configHandler.LoadConfigString(defaultConfigStr); err != nil {
@@ -933,7 +932,7 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 
 		baseHandler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
 			if path == templateDir {
-			return nil, fmt.Errorf("failed to read directory")
+				return nil, fmt.Errorf("failed to read directory")
 			}
 			return nil, os.ErrNotExist
 		}

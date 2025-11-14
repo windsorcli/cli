@@ -55,7 +55,7 @@ contexts:
 	}
 
 	// Create and register mock secrets provider
-	mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Injector)
+	mockSecretsProvider := secrets.NewMockSecretsProvider(di.NewMockInjector())
 	mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 		if strings.Contains(input, "${{secret_name}}") {
 			return "parsed_secret_value", nil
@@ -86,10 +86,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 	setup := func(t *testing.T) (*WindsorEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupWindsorEnvMocks(t)
-		printer := NewWindsorEnvPrinter(mocks.Injector)
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize env: %v", err)
-		}
+		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
@@ -143,10 +140,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		mocks := setupWindsorEnvMocks(t, &SetupOptions{
 			ConfigHandler: mockConfigHandler,
 		})
-		printer := NewWindsorEnvPrinter(mocks.Injector)
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize env: %v", err)
-		}
+		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
 		printer.shims = mocks.Shims
 
 		// When GetEnvVars is called
@@ -194,7 +188,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		t.Setenv("WINDSOR_MANAGED_ENV", "")
 
 		// And mock secrets provider
-		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Injector)
+		mockSecretsProvider := secrets.NewMockSecretsProvider(di.NewMockInjector())
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 			if strings.Contains(input, "{{secret_name}}") {
 				return "parsed_secret_value", nil
@@ -203,10 +197,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		}
 		mocks.Injector.Register("secretsProvider", mockSecretsProvider)
 
-		// And re-initialize printer to pick up new mock
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to re-initialize env: %v", err)
-		}
+		// Re-create printer with updated secrets provider
 
 		// And config with secret variable
 		if err := mocks.ConfigHandler.LoadConfigString(`
@@ -398,10 +389,7 @@ contexts:
 `,
 			Context: "mock-context",
 		})
-		printer := NewWindsorEnvPrinter(mocks.Injector)
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize env: %v", err)
-		}
+		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
 		printer.shims = mocks.Shims
 
 		// Given a WindsorEnvPrinter with empty environment configuration
@@ -794,8 +782,8 @@ contexts:
 func TestWindsorEnv_PostEnvHook(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a WindsorEnvPrinter
-		injector := di.NewMockInjector()
-		windsorEnvPrinter := NewWindsorEnvPrinter(injector)
+		mocks := setupWindsorEnvMocks(t)
+		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
 
 		// When PostEnvHook is called
 		err := windsorEnvPrinter.PostEnvHook()
@@ -812,47 +800,33 @@ func TestWindsorEnv_Initialize(t *testing.T) {
 	setup := func(t *testing.T) (*WindsorEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupWindsorEnvMocks(t)
-		printer := NewWindsorEnvPrinter(mocks.Injector)
+		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
+		printer.shims = mocks.Shims
 		return printer, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		printer, _ := setup(t)
 
-		// When Initialize is called
-		err := printer.Initialize()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Initialize returned error: %v", err)
+		// Then printer should be created
+		if printer == nil {
+			t.Fatal("Expected printer to be created")
 		}
 
-		// And secretsProviders should be populated
-		if len(printer.secretsProviders) != 1 {
-			t.Errorf("Expected 1 secrets provider, got %d", len(printer.secretsProviders))
+		// And secretsProviders should be empty (passed as empty slice)
+		if len(printer.secretsProviders) != 0 {
+			t.Errorf("Expected 0 secrets providers, got %d", len(printer.secretsProviders))
 		}
 	})
 
 	t.Run("ResolveAllError", func(t *testing.T) {
-		// Given a WindsorEnvPrinter with failing ResolveAll
-		injector := di.NewMockInjector()
-		setupWindsorEnvMocks(t, &SetupOptions{
-			Injector: injector,
-		})
+		// Given a WindsorEnvPrinter
+		mocks := setupWindsorEnvMocks(t)
+		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
 
-		// And error set for resolving secrets providers
-		injector.SetResolveAllError((*secrets.SecretsProvider)(nil), fmt.Errorf("mock error"))
-
-		// When Initialize is called
-		printer := NewWindsorEnvPrinter(injector)
-		err := printer.Initialize()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to resolve secrets providers") {
-			t.Errorf("Unexpected error message: %v", err)
+		// Then printer should be created
+		if printer == nil {
+			t.Fatal("Expected printer to be created")
 		}
 	})
 }
@@ -862,19 +836,16 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 	setup := func(t *testing.T) (*WindsorEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupWindsorEnvMocks(t)
-		printer := NewWindsorEnvPrinter(mocks.Injector)
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize env: %v", err)
-		}
+		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		printer, mocks := setup(t)
+		printer, _ := setup(t)
 
 		// Given a mock secrets provider that successfully parses secrets
-		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Injector)
+		mockSecretsProvider := secrets.NewMockSecretsProvider(di.NewMockInjector())
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 			if input == "value with ${{ secrets.mySecret }}" {
 				return "value with resolved-secret", nil
@@ -893,10 +864,10 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 	})
 
 	t.Run("SecretsProviderError", func(t *testing.T) {
-		printer, mocks := setup(t)
+		printer, _ := setup(t)
 
 		// Given a mock secrets provider that fails to parse secrets
-		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Injector)
+		mockSecretsProvider := secrets.NewMockSecretsProvider(di.NewMockInjector())
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 			return "", fmt.Errorf("error parsing secrets")
 		}
@@ -930,10 +901,10 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 	})
 
 	t.Run("UnparsedSecrets", func(t *testing.T) {
-		printer, mocks := setup(t)
+		printer, _ := setup(t)
 
 		// Given a mock secrets provider that doesn't recognize secrets
-		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Injector)
+		mockSecretsProvider := secrets.NewMockSecretsProvider(di.NewMockInjector())
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 			return input, nil
 		}
@@ -952,10 +923,10 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 	})
 
 	t.Run("MultipleUnparsedSecrets", func(t *testing.T) {
-		printer, mocks := setup(t)
+		printer, _ := setup(t)
 
 		// Given a mock secrets provider that doesn't recognize secrets
-		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Injector)
+		mockSecretsProvider := secrets.NewMockSecretsProvider(di.NewMockInjector())
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 			return input, nil
 		}
@@ -978,11 +949,8 @@ func TestWindsorEnv_shouldUseCache(t *testing.T) {
 	setup := func(t *testing.T) (*WindsorEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupWindsorEnvMocks(t)
-		printer := NewWindsorEnvPrinter(mocks.Injector)
+		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
 		printer.shims = mocks.Shims
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize printer: %v", err)
-		}
 		return printer, mocks
 	}
 

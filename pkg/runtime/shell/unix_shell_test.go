@@ -23,7 +23,7 @@ func TestDefaultShell_GetProjectRoot(t *testing.T) {
 	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		shell := NewDefaultShell(mocks.Injector)
+		shell := NewDefaultShell()
 		shell.shims = mocks.Shims
 		return shell, mocks
 	}
@@ -79,7 +79,7 @@ func TestDefaultShell_UnsetEnvs(t *testing.T) {
 	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		shell := NewDefaultShell(mocks.Injector)
+		shell := NewDefaultShell()
 		shell.shims = mocks.Shims
 		return shell, mocks
 	}
@@ -122,7 +122,7 @@ func TestDefaultShell_UnsetAlias(t *testing.T) {
 	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		shell := NewDefaultShell(mocks.Injector)
+		shell := NewDefaultShell()
 		shell.shims = mocks.Shims
 		return shell, mocks
 	}

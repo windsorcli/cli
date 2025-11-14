@@ -14,7 +14,8 @@ import (
 	"strings"
 
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -35,9 +36,9 @@ type KubeEnvPrinter struct {
 // =============================================================================
 
 // NewKubeEnvPrinter creates a new KubeEnvPrinter instance
-func NewKubeEnvPrinter(injector di.Injector) *KubeEnvPrinter {
+func NewKubeEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *KubeEnvPrinter {
 	return &KubeEnvPrinter{
-		BaseEnvPrinter: *NewBaseEnvPrinter(injector),
+		BaseEnvPrinter: *NewBaseEnvPrinter(shell, configHandler),
 	}
 }
 

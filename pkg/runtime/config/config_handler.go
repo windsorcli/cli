@@ -10,7 +10,6 @@ import (
 
 	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 // The ConfigHandler is a core component that manages configuration state and context across the application.
@@ -21,7 +20,6 @@ import (
 // structures with default values and context-specific overrides.
 
 type ConfigHandler interface {
-	Initialize() error
 	LoadConfig() error
 	LoadConfigString(content string) error
 	GetString(key string, defaultValue ...string) string
@@ -55,7 +53,6 @@ const (
 // configHandler is the concrete implementation of the ConfigHandler interface that provides
 // YAML-based configuration management with support for contexts, schemas, and values files.
 type configHandler struct {
-	injector        di.Injector
 	shell           shell.Shell
 	context         string
 	loaded          bool
@@ -70,39 +67,17 @@ type configHandler struct {
 // =============================================================================
 
 // NewConfigHandler creates a new ConfigHandler instance with default context configuration.
-func NewConfigHandler(injector di.Injector) ConfigHandler {
+func NewConfigHandler(shell shell.Shell) ConfigHandler {
 	handler := &configHandler{
-		injector: injector,
-		shims:    NewShims(),
-		data:     make(map[string]any),
+		shell: shell,
+		shims: NewShims(),
+		data:  make(map[string]any),
 	}
+
+	handler.schemaValidator = NewSchemaValidator(shell)
+	handler.schemaValidator.Shims = handler.shims
 
 	return handler
-}
-
-// =============================================================================
-// Public Methods
-// =============================================================================
-
-// Initialize configures the configHandler by resolving and storing the shell dependency from the injector.
-// It also initializes the schema validator and sets its shims field. If the internal data map is nil,
-// Initialize creates a new map to store configuration data. This method must be called before other methods
-// to ensure dependencies and state are properly set up.
-func (c *configHandler) Initialize() error {
-	shell, ok := c.injector.Resolve("shell").(shell.Shell)
-	if !ok {
-		return fmt.Errorf("error resolving shell")
-	}
-	c.shell = shell
-
-	c.schemaValidator = NewSchemaValidator(c.shell)
-	c.schemaValidator.Shims = c.shims
-
-	if c.data == nil {
-		c.data = make(map[string]any)
-	}
-
-	return nil
 }
 
 // LoadConfigString loads YAML configuration directly into the internal data map for testing purposes.

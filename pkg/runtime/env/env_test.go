@@ -49,10 +49,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	t.Helper()
 
 	// Store original directory and create temp dir
-	origDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Failed to get working directory: %v", err)
-	}
+	origDir, _ := os.Getwd()
 
 	tmpDir := t.TempDir()
 	if err := os.Chdir(tmpDir); err != nil {
@@ -93,7 +90,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	// Create config handler
 	var configHandler config.ConfigHandler
 	if options.ConfigHandler == nil {
-		configHandler = config.NewConfigHandler(injector)
+		configHandler = config.NewConfigHandler(mockShell)
 	} else {
 		configHandler = options.ConfigHandler
 	}
@@ -104,8 +101,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 
 	// Setup shims
 	shims := setupShims(t)
-
-	configHandler.Initialize()
 
 	// Register cleanup to restore original state
 	t.Cleanup(func() {
@@ -129,12 +124,12 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 // Test Public Methods
 // =============================================================================
 
-// TestEnv_Initialize tests the Initialize method of the Env struct
-func TestEnv_Initialize(t *testing.T) {
+// TestEnv_NewBaseEnvPrinter tests the NewBaseEnvPrinter constructor
+func TestEnv_NewBaseEnvPrinter(t *testing.T) {
 	setup := func(t *testing.T) (*BaseEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		printer := NewBaseEnvPrinter(mocks.Injector)
+		printer := NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		return printer, mocks
 	}
 
@@ -142,47 +137,20 @@ func TestEnv_Initialize(t *testing.T) {
 		// Given a new BaseEnvPrinter
 		printer, _ := setup(t)
 
-		// When calling Initialize
-		err := printer.Initialize()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
+		// Then it should be created
+		if printer == nil {
+			t.Error("Expected printer to be created")
 		}
 	})
 
-	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		// Given a new BaseEnvPrinter with an invalid shell
-		injector := di.NewMockInjector()
-		injector.Register("shell", "invalid")
-		printer := NewBaseEnvPrinter(injector)
+	t.Run("WithValidDependencies", func(t *testing.T) {
+		// Given a new BaseEnvPrinter with valid shell and configHandler
+		mocks := setupMocks(t)
+		printer := NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 
-		// When calling Initialize
-		err := printer.Initialize()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("expected error, got nil")
-		} else if err.Error() != "error resolving or casting shell to shell.Shell" {
-			t.Errorf("unexpected error: %v", err)
-		}
-	})
-
-	t.Run("ErrorCastingCliConfigHandler", func(t *testing.T) {
-		// Given a new BaseEnvPrinter with an invalid configHandler
-		injector := di.NewMockInjector()
-		injector.Register("shell", shell.NewMockShell())
-		injector.Register("configHandler", struct{}{})
-		printer := NewBaseEnvPrinter(injector)
-
-		// When calling Initialize
-		err := printer.Initialize()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("expected error, got nil")
-		} else if err.Error() != "error resolving or casting configHandler to config.ConfigHandler" {
-			t.Errorf("unexpected error: %v", err)
+		// Then it should be created successfully
+		if printer == nil {
+			t.Error("Expected printer to be created")
 		}
 	})
 }
@@ -192,11 +160,7 @@ func TestBaseEnvPrinter_GetEnvVars(t *testing.T) {
 	setup := func(t *testing.T) (*BaseEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		printer := NewBaseEnvPrinter(mocks.Injector)
-		err := printer.Initialize()
-		if err != nil {
-			t.Errorf("unexpected error during initialization: %v", err)
-		}
+		printer := NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		return printer, mocks
 	}
 
@@ -205,12 +169,9 @@ func TestBaseEnvPrinter_GetEnvVars(t *testing.T) {
 		printer, _ := setup(t)
 
 		// When calling GetEnvVars
-		envVars, err := printer.GetEnvVars()
+		envVars, _ := printer.GetEnvVars()
 
 		// Then no error should be returned and envVars should be empty
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
 		expectedEnvVars := map[string]string{}
 		if !reflect.DeepEqual(envVars, expectedEnvVars) {
 			t.Errorf("envVars = %v, want %v", envVars, expectedEnvVars)
@@ -223,11 +184,7 @@ func TestBaseEnvPrinter_GetManagedEnv(t *testing.T) {
 	setup := func(t *testing.T) (*BaseEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		printer := NewBaseEnvPrinter(mocks.Injector)
-		err := printer.Initialize()
-		if err != nil {
-			t.Errorf("unexpected error during initialization: %v", err)
-		}
+		printer := NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		return printer, mocks
 	}
 
@@ -264,11 +221,7 @@ func TestBaseEnvPrinter_GetManagedAlias(t *testing.T) {
 	setup := func(t *testing.T) (*BaseEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		printer := NewBaseEnvPrinter(mocks.Injector)
-		err := printer.Initialize()
-		if err != nil {
-			t.Errorf("unexpected error during initialization: %v", err)
-		}
+		printer := NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		return printer, mocks
 	}
 
@@ -305,11 +258,7 @@ func TestBaseEnvPrinter_SetManagedEnv(t *testing.T) {
 	setup := func(t *testing.T) (*BaseEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		printer := NewBaseEnvPrinter(mocks.Injector)
-		err := printer.Initialize()
-		if err != nil {
-			t.Errorf("unexpected error during initialization: %v", err)
-		}
+		printer := NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		return printer, mocks
 	}
 
@@ -376,11 +325,7 @@ func TestBaseEnvPrinter_SetManagedAlias(t *testing.T) {
 	setup := func(t *testing.T) (*BaseEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		printer := NewBaseEnvPrinter(mocks.Injector)
-		err := printer.Initialize()
-		if err != nil {
-			t.Errorf("unexpected error during initialization: %v", err)
-		}
+		printer := NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		return printer, mocks
 	}
 
@@ -447,11 +392,7 @@ func TestBaseEnvPrinter_Reset(t *testing.T) {
 	setup := func(t *testing.T) (*BaseEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		printer := NewBaseEnvPrinter(mocks.Injector)
-		err := printer.Initialize()
-		if err != nil {
-			t.Errorf("unexpected error during initialization: %v", err)
-		}
+		printer := NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		return printer, mocks
 	}
 

@@ -40,10 +40,7 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 			return filepath.Join(projectRoot, "contexts", "mock-context"), nil
 		}
 
-		printer := NewTalosEnvPrinter(mocks.Injector)
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize env: %v", err)
-		}
+		printer := NewTalosEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
 		return printer, mocks

@@ -2,8 +2,6 @@ package shell
 
 import (
 	"fmt"
-
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 // The MockShell is a mock implementation of the Shell interface for testing purposes.
@@ -17,7 +15,6 @@ import (
 
 type MockShell struct {
 	DefaultShell
-	InitializeFunc                 func() error
 	RenderEnvVarsFunc              func(envVars map[string]string, export bool) string
 	RenderAliasesFunc              func(aliases map[string]string) string
 	GetProjectRootFunc             func() (string, error)
@@ -42,32 +39,13 @@ type MockShell struct {
 // Constructor
 // =============================================================================
 
-// NewMockShell creates a new instance of MockShell. If injector is provided, it sets the injector on MockShell.
-func NewMockShell(injectors ...di.Injector) *MockShell {
-	var injector di.Injector
-	if len(injectors) > 0 {
-		injector = injectors[0]
-	}
-
+// NewMockShell creates a new instance of MockShell
+func NewMockShell() *MockShell {
 	mockShell := &MockShell{
-		DefaultShell: DefaultShell{
-			injector: injector,
-		},
+		DefaultShell: *NewDefaultShell(),
 	}
 
 	return mockShell
-}
-
-// =============================================================================
-// Public Methods
-// =============================================================================
-
-// Initialize calls the custom InitializeFunc if provided.
-func (s *MockShell) Initialize() error {
-	if s.InitializeFunc != nil {
-		return s.InitializeFunc()
-	}
-	return nil
 }
 
 // RenderEnvVars calls the custom RenderEnvVarsFunc if provided.

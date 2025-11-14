@@ -15,7 +15,8 @@ import (
 
 	"github.com/goccy/go-yaml"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================
@@ -47,9 +48,9 @@ type TerraformEnvPrinter struct {
 // =============================================================================
 
 // NewTerraformEnvPrinter creates a new TerraformEnvPrinter instance
-func NewTerraformEnvPrinter(injector di.Injector) *TerraformEnvPrinter {
+func NewTerraformEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *TerraformEnvPrinter {
 	return &TerraformEnvPrinter{
-		BaseEnvPrinter: *NewBaseEnvPrinter(injector),
+		BaseEnvPrinter: *NewBaseEnvPrinter(shell, configHandler),
 	}
 }
 

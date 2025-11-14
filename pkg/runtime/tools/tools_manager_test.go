@@ -69,13 +69,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		injector = options.Injector
 	}
 
-	var configHandler config.ConfigHandler
-	if options.ConfigHandler == nil {
-		configHandler = config.NewConfigHandler(injector)
-	} else {
-		configHandler = options.ConfigHandler
-	}
-
 	shell := sh.NewMockShell()
 	shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 		switch {
@@ -105,10 +98,16 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		return "", fmt.Errorf("command not found")
 	}
 
+	var configHandler config.ConfigHandler
+	if options.ConfigHandler == nil {
+		configHandler = config.NewConfigHandler(shell)
+	} else {
+		configHandler = options.ConfigHandler
+	}
+
 	injector.Register("configHandler", configHandler)
 	injector.Register("shell", shell)
 
-	configHandler.Initialize()
 	configHandler.SetContext("test")
 
 	if err := configHandler.LoadConfigString(defaultConfig); err != nil {
@@ -169,7 +168,7 @@ func TestToolsManager_NewToolsManager(t *testing.T) {
 		// Given a mock injector
 		mocks := setup(t)
 		// When creating a new tools manager
-		toolsManager := NewToolsManager(mocks.Injector)
+		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
 		// Then the tools manager should be created successfully
 		if toolsManager == nil {
 			t.Errorf("Expected tools manager to be non-nil")
@@ -182,18 +181,16 @@ func TestToolsManager_Initialize(t *testing.T) {
 	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
 		t.Helper()
 		mocks := setupMocks(t)
-		toolsManager := NewToolsManager(mocks.Injector)
+		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
 		return mocks, toolsManager
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a tools manager with mock dependencies
 		_, toolsManager := setup(t)
-		// When initializing the tools manager
-		err := toolsManager.Initialize()
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected Initialize to succeed, but got error: %v", err)
+		// Then it should be created
+		if toolsManager == nil {
+			t.Error("Expected tools manager to be created")
 		}
 	})
 }
@@ -202,8 +199,7 @@ func TestToolsManager_Initialize(t *testing.T) {
 func TestToolsManager_WriteManifest(t *testing.T) {
 	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
 		mocks := setupMocks(t, &SetupOptions{ConfigStr: ""})
-		toolsManager := NewToolsManager(mocks.Injector)
-		toolsManager.Initialize()
+		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
 		return mocks, toolsManager
 	}
 
@@ -224,8 +220,7 @@ func TestToolsManager_Install(t *testing.T) {
 	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
 		t.Helper()
 		mocks := setupMocks(t)
-		toolsManager := NewToolsManager(mocks.Injector)
-		toolsManager.Initialize()
+		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
 		return mocks, toolsManager
 	}
 
@@ -246,8 +241,7 @@ func TestToolsManager_Check(t *testing.T) {
 	setup := func(t *testing.T, configStr string) (*Mocks, *BaseToolsManager) {
 		t.Helper()
 		mocks := setupMocks(t, &SetupOptions{ConfigStr: configStr})
-		toolsManager := NewToolsManager(mocks.Injector)
-		toolsManager.Initialize()
+		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
 		return mocks, toolsManager
 	}
 
@@ -496,8 +490,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
 		t.Helper()
 		mocks := setupMocks(t)
-		toolsManager := NewToolsManager(mocks.Injector)
-		toolsManager.Initialize()
+		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
 		return mocks, toolsManager
 	}
 
@@ -631,8 +624,7 @@ func TestToolsManager_checkColima(t *testing.T) {
 	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
 		t.Helper()
 		mocks := setupMocks(t)
-		toolsManager := NewToolsManager(mocks.Injector)
-		toolsManager.Initialize()
+		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
 		return mocks, toolsManager
 	}
 
@@ -774,8 +766,7 @@ func TestToolsManager_checkKubectl(t *testing.T) {
 	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
 		t.Helper()
 		mocks := setupMocks(t)
-		toolsManager := NewToolsManager(mocks.Injector)
-		toolsManager.Initialize()
+		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
 		return mocks, toolsManager
 	}
 
@@ -827,8 +818,7 @@ func TestToolsManager_checkTerraform(t *testing.T) {
 	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
 		t.Helper()
 		mocks := setupMocks(t)
-		toolsManager := NewToolsManager(mocks.Injector)
-		toolsManager.Initialize()
+		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
 		return mocks, toolsManager
 	}
 
@@ -900,8 +890,7 @@ func TestToolsManager_checkOnePassword(t *testing.T) {
 	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
 		t.Helper()
 		mocks := setupMocks(t)
-		toolsManager := NewToolsManager(mocks.Injector)
-		toolsManager.Initialize()
+		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
 		return mocks, toolsManager
 	}
 
@@ -989,8 +978,7 @@ func TestToolsManager_checkAwsCli(t *testing.T) {
 	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
 		t.Helper()
 		mocks := setupMocks(t)
-		toolsManager := NewToolsManager(mocks.Injector)
-		toolsManager.Initialize()
+		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
 		return mocks, toolsManager
 	}
 

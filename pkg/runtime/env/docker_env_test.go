@@ -83,9 +83,8 @@ contexts:
 `,
 		})
 
-		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
-		printer.Initialize()
 
 		// When getting environment variables
 		envVars, err := printer.GetEnvVars()
@@ -136,9 +135,8 @@ contexts:
 `,
 		})
 
-		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
-		printer.Initialize()
 
 		// When getting environment variables
 		envVars, err := printer.GetEnvVars()
@@ -211,9 +209,8 @@ contexts:
 			return nil
 		}
 
-		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
-		printer.Initialize()
 
 		// When getting environment variables
 		envVars, err := printer.GetEnvVars()
@@ -279,9 +276,8 @@ contexts:
 `,
 		})
 
-		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
-		printer.Initialize()
 
 		// When getting environment variables
 		envVars, err := printer.GetEnvVars()
@@ -319,9 +315,8 @@ contexts:
 			return "", errors.New("mock user home dir error")
 		}
 
-		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
-		printer.Initialize()
 
 		// When getting environment variables
 		_, err := printer.GetEnvVars()
@@ -344,9 +339,8 @@ contexts:
 			return errors.New("mock mkdirAll error")
 		}
 
-		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
-		printer.Initialize()
 
 		// When getting environment variables
 		_, err := printer.GetEnvVars()
@@ -369,9 +363,8 @@ contexts:
 			return errors.New("mock writeFile error")
 		}
 
-		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
-		printer.Initialize()
 
 		// When getting environment variables
 		_, err := printer.GetEnvVars()
@@ -429,9 +422,8 @@ contexts:
 					return tc.os
 				}
 
-				printer := NewDockerEnvPrinter(mocks.Injector)
+				printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 				printer.shims = mocks.Shims
-				printer.Initialize()
 
 				// When getting environment variables
 				envVars, err := printer.GetEnvVars()
@@ -475,9 +467,8 @@ contexts:
 			return "", false
 		}
 
-		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
-		printer.Initialize()
 
 		// When getting environment variables
 		envVars, err := printer.GetEnvVars()
@@ -514,9 +505,8 @@ contexts:
 			return "", false
 		}
 
-		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
-		printer.Initialize()
 
 		// When getting environment variables
 		envVars, err := printer.GetEnvVars()
@@ -561,9 +551,8 @@ contexts:
 			return "", false
 		}
 
-		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
-		printer.Initialize()
 
 		// When getting environment variables
 		envVars, err := printer.GetEnvVars()
@@ -594,9 +583,8 @@ func TestDockerEnvPrinter_GetAlias(t *testing.T) {
 			return "", fmt.Errorf("not found")
 		}
 
-		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
-		printer.Initialize()
 
 		// When getting aliases
 		aliasMap, err := printer.GetAlias()
@@ -620,9 +608,8 @@ func TestDockerEnvPrinter_GetAlias(t *testing.T) {
 			return "", fmt.Errorf("not found")
 		}
 
-		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
-		printer.Initialize()
 
 		// When getting aliases
 		aliasMap, err := printer.GetAlias()
@@ -645,11 +632,8 @@ func TestDockerEnvPrinter_getRegistryURL(t *testing.T) {
 	setup := func(t *testing.T, opts ...*SetupOptions) (*DockerEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupDockerEnvMocks(t, opts...)
-		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize printer: %v", err)
-		}
 		return printer, mocks
 	}
 

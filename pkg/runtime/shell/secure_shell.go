@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime/shell/ssh"
 )
 
@@ -28,27 +27,12 @@ type SecureShell struct {
 // =============================================================================
 
 // NewSecureShell creates a new instance of SecureShell.
-func NewSecureShell(injector di.Injector) *SecureShell {
-	defaultShell := NewDefaultShell(injector)
+func NewSecureShell(sshClient ssh.Client) *SecureShell {
+	defaultShell := NewDefaultShell()
 	return &SecureShell{
 		DefaultShell: *defaultShell,
+		sshClient:    sshClient,
 	}
-}
-
-// =============================================================================
-// Public Methods
-// =============================================================================
-
-// Initialize initializes the SecureShell instance.
-func (s *SecureShell) Initialize() error {
-	// Get the SSH client first
-	sshClient, ok := s.injector.Resolve("sshClient").(ssh.Client)
-	if !ok {
-		return fmt.Errorf("failed to resolve SSH client")
-	}
-	s.sshClient = sshClient
-
-	return nil
 }
 
 // Exec executes a command on the remote host via SSH and returns its output as a string.
@@ -97,3 +81,4 @@ func (s *SecureShell) ExecSilent(command string, args ...string) (string, error)
 
 // Ensure SecureShell implements the Shell interface
 var _ Shell = (*SecureShell)(nil)
+

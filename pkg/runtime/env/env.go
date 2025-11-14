@@ -6,12 +6,10 @@
 package env
 
 import (
-	"fmt"
 	"slices"
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 // =============================================================================
@@ -20,7 +18,6 @@ import (
 
 // EnvPrinter defines the method for printing environment variables.
 type EnvPrinter interface {
-	Initialize() error
 	GetEnvVars() (map[string]string, error)
 	GetAlias() (map[string]string, error)
 	PostEnvHook(directory ...string) error
@@ -34,7 +31,6 @@ type EnvPrinter interface {
 // BaseEnvPrinter is a base implementation of the EnvPrinter interface
 type BaseEnvPrinter struct {
 	EnvPrinter
-	injector      di.Injector
 	shell         shell.Shell
 	configHandler config.ConfigHandler
 	shims         *Shims
@@ -47,32 +43,12 @@ type BaseEnvPrinter struct {
 // =============================================================================
 
 // NewBaseEnvPrinter creates a new BaseEnvPrinter instance
-func NewBaseEnvPrinter(injector di.Injector) *BaseEnvPrinter {
+func NewBaseEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *BaseEnvPrinter {
 	return &BaseEnvPrinter{
-		injector: injector,
-		shims:    NewShims(),
+		shell:         shell,
+		configHandler: configHandler,
+		shims:         NewShims(),
 	}
-}
-
-// =============================================================================
-// Public Methods
-// =============================================================================
-
-// Initialize resolves and assigns the shell and configHandler from the injector.
-func (e *BaseEnvPrinter) Initialize() error {
-	shell, ok := e.injector.Resolve("shell").(shell.Shell)
-	if !ok {
-		return fmt.Errorf("error resolving or casting shell to shell.Shell")
-	}
-	e.shell = shell
-
-	configInterface, ok := e.injector.Resolve("configHandler").(config.ConfigHandler)
-	if !ok {
-		return fmt.Errorf("error resolving or casting configHandler to config.ConfigHandler")
-	}
-	e.configHandler = configInterface
-
-	return nil
 }
 
 // GetEnvVars is a placeholder for retrieving environment variables.

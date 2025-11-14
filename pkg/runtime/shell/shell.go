@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/briandowns/spinner"
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 // The Shell package is a unified interface for shell operations across different platforms.
@@ -45,7 +44,6 @@ type HookContext struct {
 
 // Shell is the interface that defines shell operations.
 type Shell interface {
-	Initialize() error
 	SetVerbosity(verbose bool)
 	RenderEnvVars(envVars map[string]string, export bool) string
 	RenderAliases(aliases map[string]string) string
@@ -70,7 +68,6 @@ type Shell interface {
 type DefaultShell struct {
 	Shell
 	projectRoot  string
-	injector     di.Injector
 	verbose      bool
 	sessionToken string
 	shims        *Shims
@@ -82,21 +79,11 @@ type DefaultShell struct {
 // =============================================================================
 
 // NewDefaultShell creates a new instance of DefaultShell
-func NewDefaultShell(injector di.Injector) *DefaultShell {
+func NewDefaultShell() *DefaultShell {
 	return &DefaultShell{
-		injector: injector,
-		shims:    NewShims(),
-		verbose:  false,
+		shims:   NewShims(),
+		verbose: false,
 	}
-}
-
-// =============================================================================
-// Public Methods
-// =============================================================================
-
-// Initialize initializes the shell
-func (s *DefaultShell) Initialize() error {
-	return nil
 }
 
 // SetVerbosity sets the verbosity flag

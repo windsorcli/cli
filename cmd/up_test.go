@@ -49,7 +49,6 @@ func setupUpTest(t *testing.T, opts ...*SetupOptions) *UpMocks {
 
 	// Create mock config handler to control IsDevMode
 	mockConfigHandler := config.NewMockConfigHandler()
-	mockConfigHandler.InitializeFunc = func() error { return nil }
 	mockConfigHandler.GetContextFunc = func() string { return "test-context" }
 	mockConfigHandler.IsDevModeFunc = func(contextName string) bool { return false }
 	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -112,7 +111,7 @@ func setupUpTest(t *testing.T, opts ...*SetupOptions) *UpMocks {
 	baseMocks.Injector.Register("kubernetesManager", mockKubernetesManager)
 
 	// Add terraform env printer (required by terraform stack)
-	terraformEnvPrinter := envvars.NewTerraformEnvPrinter(baseMocks.Injector)
+	terraformEnvPrinter := envvars.NewTerraformEnvPrinter(baseMocks.Shell, baseMocks.ConfigHandler)
 	baseMocks.Injector.Register("terraformEnv", terraformEnvPrinter)
 
 	// Add mock tools manager (required by runInit)

@@ -79,13 +79,10 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	if len(opts) > 0 && opts[0].ConfigHandler != nil {
 		configHandler = opts[0].ConfigHandler
 	} else {
-		configHandler = config.NewConfigHandler(injector)
+		configHandler = config.NewConfigHandler(mockShell)
 	}
 	injector.Register("configHandler", configHandler)
 
-	if err := configHandler.Initialize(); err != nil {
-		t.Fatalf("Failed to initialize config handler: %v", err)
-	}
 	configHandler.SetContext("mock-context")
 
 	defaultConfigStr := `

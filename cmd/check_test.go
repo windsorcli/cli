@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/provisioner/cluster"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/provisioner/cluster"
 )
 
 func TestCheckCmd(t *testing.T) {
@@ -69,9 +69,6 @@ func TestCheckCmd(t *testing.T) {
 		mockConfigHandler.LoadConfigFunc = func() error {
 			return nil
 		}
-		mockConfigHandler.InitializeFunc = func() error {
-			return nil
-		}
 		mockConfigHandler.GetContextFunc = func() string {
 			return "test-context"
 		}
@@ -108,9 +105,6 @@ func TestCheckCmd(t *testing.T) {
 		// Set up mocks with trusted directory but no config loaded
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.LoadConfigFunc = func() error {
-			return nil
-		}
-		mockConfigHandler.InitializeFunc = func() error {
 			return nil
 		}
 		mockConfigHandler.GetContextFunc = func() string {
@@ -163,9 +157,6 @@ func TestCheckCmd_ErrorScenarios(t *testing.T) {
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("project root error")
 		}
-		mockShell.InitializeFunc = func() error {
-			return nil
-		}
 		injector.Register("shell", mockShell)
 
 		ctx := stdcontext.WithValue(stdcontext.Background(), injectorKey, injector)
@@ -214,9 +205,6 @@ func TestCheckCmd_ErrorScenarios(t *testing.T) {
 		mockConfigHandler.LoadConfigFunc = func() error {
 			return fmt.Errorf("config load failed")
 		}
-		mockConfigHandler.InitializeFunc = func() error {
-			return nil
-		}
 		mockConfigHandler.GetContextFunc = func() string {
 			return "test-context"
 		}
@@ -227,9 +215,6 @@ func TestCheckCmd_ErrorScenarios(t *testing.T) {
 			return t.TempDir(), nil
 		}
 		mockShell.CheckTrustedDirectoryFunc = func() error {
-			return nil
-		}
-		mockShell.InitializeFunc = func() error {
 			return nil
 		}
 		injector.Register("shell", mockShell)
@@ -254,9 +239,6 @@ func TestCheckCmd_ErrorScenarios(t *testing.T) {
 		setup(t)
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.LoadConfigFunc = func() error {
-			return nil
-		}
-		mockConfigHandler.InitializeFunc = func() error {
 			return nil
 		}
 		mockConfigHandler.GetContextFunc = func() string {
@@ -355,9 +337,6 @@ func TestCheckNodeHealthCmd(t *testing.T) {
 		// Set up mocks
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.LoadConfigFunc = func() error {
-			return nil
-		}
-		mockConfigHandler.InitializeFunc = func() error {
 			return nil
 		}
 		mockConfigHandler.GetContextFunc = func() string {
@@ -481,9 +460,6 @@ func TestCheckNodeHealthCmd_ErrorScenarios(t *testing.T) {
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("project root error")
 		}
-		mockShell.InitializeFunc = func() error {
-			return nil
-		}
 		injector.Register("shell", mockShell)
 
 		ctx := stdcontext.WithValue(stdcontext.Background(), injectorKey, injector)
@@ -532,9 +508,6 @@ func TestCheckNodeHealthCmd_ErrorScenarios(t *testing.T) {
 		mockConfigHandler.LoadConfigFunc = func() error {
 			return fmt.Errorf("config load failed")
 		}
-		mockConfigHandler.InitializeFunc = func() error {
-			return nil
-		}
 		mockConfigHandler.GetContextFunc = func() string {
 			return "test-context"
 		}
@@ -545,9 +518,6 @@ func TestCheckNodeHealthCmd_ErrorScenarios(t *testing.T) {
 			return t.TempDir(), nil
 		}
 		mockShell.CheckTrustedDirectoryFunc = func() error {
-			return nil
-		}
-		mockShell.InitializeFunc = func() error {
 			return nil
 		}
 		injector.Register("shell", mockShell)
@@ -572,9 +542,6 @@ func TestCheckNodeHealthCmd_ErrorScenarios(t *testing.T) {
 		setup(t)
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.LoadConfigFunc = func() error {
-			return nil
-		}
-		mockConfigHandler.InitializeFunc = func() error {
 			return nil
 		}
 		mockConfigHandler.GetContextFunc = func() string {

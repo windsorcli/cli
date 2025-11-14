@@ -108,10 +108,7 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 	setup := func(t *testing.T) (*KubeEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupKubeEnvMocks(t)
-		printer := NewKubeEnvPrinter(mocks.Injector)
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize printer: %v", err)
-		}
+		printer := NewKubeEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
@@ -209,11 +206,8 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 
 		// And a KubeEnvPrinter with the mock ConfigHandler
 		mocks := setupKubeEnvMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
-		printer := NewKubeEnvPrinter(mocks.Injector)
+		printer := NewKubeEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize printer: %v", err)
-		}
 
 		// When getting environment variables
 		envVars, err := printer.GetEnvVars()

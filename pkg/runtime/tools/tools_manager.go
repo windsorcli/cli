@@ -10,10 +10,8 @@ import (
 
 	"github.com/briandowns/spinner"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	sh "github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // The ToolsManager is a core component that manages development tools and dependencies
@@ -26,7 +24,6 @@ import (
 // tool installations, with built-in version checking and compatibility validation.
 
 type ToolsManager interface {
-	Initialize() error
 	WriteManifest() error
 	Install() error
 	Check() error
@@ -34,7 +31,6 @@ type ToolsManager interface {
 
 // BaseToolsManager is the base implementation of the ToolsManager interface.
 type BaseToolsManager struct {
-	injector      di.Injector
 	configHandler config.ConfigHandler
 	shell         shell.Shell
 }
@@ -43,26 +39,12 @@ type BaseToolsManager struct {
 // Constructor
 // =============================================================================
 
-// Creates a new ToolsManager instance with the given injector.
-func NewToolsManager(injector di.Injector) *BaseToolsManager {
+// NewToolsManager creates a new ToolsManager instance with the given config handler and shell.
+func NewToolsManager(configHandler config.ConfigHandler, shell shell.Shell) *BaseToolsManager {
 	return &BaseToolsManager{
-		injector: injector,
+		configHandler: configHandler,
+		shell:         shell,
 	}
-}
-
-// =============================================================================
-// Public Methods
-// =============================================================================
-
-// Initialize the tools manager by resolving the config handler and shell.
-func (t *BaseToolsManager) Initialize() error {
-	configHandler := t.injector.Resolve("configHandler")
-	t.configHandler = configHandler.(config.ConfigHandler)
-
-	shell := t.injector.Resolve("shell")
-	t.shell = shell.(sh.Shell)
-
-	return nil
 }
 
 // WriteManifest writes the tools manifest to the project root.

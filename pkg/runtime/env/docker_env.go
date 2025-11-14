@@ -11,7 +11,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================
@@ -28,9 +29,9 @@ type DockerEnvPrinter struct {
 // =============================================================================
 
 // NewDockerEnvPrinter creates a new DockerEnvPrinter instance
-func NewDockerEnvPrinter(injector di.Injector) *DockerEnvPrinter {
+func NewDockerEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *DockerEnvPrinter {
 	return &DockerEnvPrinter{
-		BaseEnvPrinter: *NewBaseEnvPrinter(injector),
+		BaseEnvPrinter: *NewBaseEnvPrinter(shell, configHandler),
 	}
 }
 
