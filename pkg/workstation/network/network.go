@@ -32,15 +32,15 @@ type NetworkManager interface {
 
 // BaseNetworkManager is a concrete implementation of NetworkManager
 type BaseNetworkManager struct {
-	runtime                   *runtime.Runtime
-	sshClient                 ssh.Client
-	shell                     shell.Shell
-	secureShell               shell.Shell
-	configHandler             config.ConfigHandler
-	services                  []services.Service
-	shims                     *Shims
-	networkInterfaceProvider  NetworkInterfaceProvider
-	portAllocator             *services.PortAllocator
+	runtime                  *runtime.Runtime
+	sshClient                ssh.Client
+	shell                    shell.Shell
+	secureShell              shell.Shell
+	configHandler            config.ConfigHandler
+	services                 []services.Service
+	shims                    *Shims
+	networkInterfaceProvider NetworkInterfaceProvider
+	portAllocator            *services.PortAllocator
 }
 
 // =============================================================================
