@@ -127,7 +127,11 @@ func (s *WindsorStack) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 			return fmt.Errorf("directory %s does not exist", component.FullPath)
 		}
 
-		terraformArgs, err := s.terraformEnv.GenerateTerraformArgs(component.Path, component.FullPath)
+		terraformEnv := s.getTerraformEnv()
+		if terraformEnv == nil {
+			return fmt.Errorf("terraform environment printer not available")
+		}
+		terraformArgs, err := terraformEnv.GenerateTerraformArgs(component.Path, component.FullPath)
 		if err != nil {
 			return fmt.Errorf("error generating terraform args for %s: %w", component.Path, err)
 		}
@@ -147,7 +151,7 @@ func (s *WindsorStack) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 			}
 		}
 
-		if err := s.terraformEnv.PostEnvHook(component.FullPath); err != nil {
+		if err := terraformEnv.PostEnvHook(component.FullPath); err != nil {
 			return fmt.Errorf("error creating backend override file for %s: %w", component.Path, err)
 		}
 
@@ -223,7 +227,11 @@ func (s *WindsorStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 			continue
 		}
 
-		terraformArgs, err := s.terraformEnv.GenerateTerraformArgs(component.Path, component.FullPath)
+		terraformEnv := s.getTerraformEnv()
+		if terraformEnv == nil {
+			return fmt.Errorf("terraform environment printer not available")
+		}
+		terraformArgs, err := terraformEnv.GenerateTerraformArgs(component.Path, component.FullPath)
 		if err != nil {
 			return fmt.Errorf("error generating terraform args for %s: %w", component.Path, err)
 		}
@@ -243,7 +251,7 @@ func (s *WindsorStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 			}
 		}
 
-		if err := s.terraformEnv.PostEnvHook(component.FullPath); err != nil {
+		if err := terraformEnv.PostEnvHook(component.FullPath); err != nil {
 			return fmt.Errorf("error creating backend override file for %s: %w", component.Path, err)
 		}
 
@@ -385,6 +393,20 @@ func (s *WindsorStack) isOCISource(sourceNameOrURL string, blueprint *blueprintv
 		}
 	}
 	return false
+}
+
+// getTerraformEnv returns the terraform environment printer, checking the runtime if not set on the stack.
+func (s *WindsorStack) getTerraformEnv() *envvars.TerraformEnvPrinter {
+	if s.terraformEnv != nil {
+		return s.terraformEnv
+	}
+	if s.runtime.EnvPrinters.TerraformEnv != nil {
+		if terraformEnv, ok := s.runtime.EnvPrinters.TerraformEnv.(*envvars.TerraformEnvPrinter); ok {
+			s.terraformEnv = terraformEnv
+			return terraformEnv
+		}
+	}
+	return nil
 }
 
 // Ensure BaseStack implements Stack

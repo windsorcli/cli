@@ -59,10 +59,15 @@ func setupUpTest(t *testing.T, opts ...*SetupOptions) *UpMocks {
 		return ""
 	}
 	mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-		if len(defaultValue) > 0 {
-			return defaultValue[0]
+		switch key {
+		case "terraform.enabled":
+			return true
+		default:
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
 		}
-		return false
 	}
 	mockConfigHandler.IsLoadedFunc = func() bool { return true }
 	mockConfigHandler.LoadConfigFunc = func() error { return nil }

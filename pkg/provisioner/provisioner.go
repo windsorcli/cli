@@ -78,7 +78,9 @@ func NewProvisioner(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHan
 	}
 
 	if provisioner.TerraformStack == nil {
-		provisioner.TerraformStack = terraforminfra.NewWindsorStack(rt, blueprintHandler)
+		if rt.ConfigHandler != nil && rt.ConfigHandler.GetBool("terraform.enabled", false) {
+			provisioner.TerraformStack = terraforminfra.NewWindsorStack(rt, blueprintHandler)
+		}
 	}
 
 	if provisioner.ClusterClient == nil {

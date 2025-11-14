@@ -143,6 +143,10 @@ func (p *Project) Configure(flagOverrides map[string]any) error {
 		}
 	}
 
+	if err := p.Runtime.LoadEnvironment(false); err != nil {
+		return fmt.Errorf("failed to load environment: %w", err)
+	}
+
 	return nil
 }
 

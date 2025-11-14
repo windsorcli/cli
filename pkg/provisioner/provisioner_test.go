@@ -85,6 +85,18 @@ func setupProvisionerMocks(t *testing.T) *Mocks {
 		}
 	}
 
+	configHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+		switch key {
+		case "terraform.enabled":
+			return true
+		default:
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+	}
+
 	mockShell.GetProjectRootFunc = func() (string, error) {
 		return "/test/project", nil
 	}

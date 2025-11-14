@@ -191,8 +191,6 @@ func (w *Workstation) Up() error {
 		}
 	}
 
-	fmt.Fprintln(os.Stderr, "Windsor environment set up successfully.")
-
 	return nil
 }
 
