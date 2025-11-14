@@ -9,7 +9,7 @@ import (
 	"github.com/briandowns/spinner"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/constants"
-	execcontext "github.com/windsorcli/cli/pkg/context"
+	execcontext "github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/provisioner/cluster"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	k8sclient "github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
@@ -26,10 +26,10 @@ import (
 // Types
 // =============================================================================
 
-// ProvisionerExecutionContext holds the execution context for provisioner operations.
-// It embeds the base ExecutionContext and includes all provisioner-specific dependencies.
-type ProvisionerExecutionContext struct {
-	execcontext.ExecutionContext
+// ProvisionerRuntime holds the execution context for provisioner operations.
+// It embeds the base Runtime and includes all provisioner-specific dependencies.
+type ProvisionerRuntime struct {
+	execcontext.Runtime
 
 	TerraformStack    terraforminfra.Stack
 	KubernetesManager kubernetes.KubernetesManager
@@ -41,7 +41,7 @@ type ProvisionerExecutionContext struct {
 // It provides a unified interface for creating, initializing, and managing these infrastructure components
 // with proper dependency injection and error handling.
 type Provisioner struct {
-	*ProvisionerExecutionContext
+	*ProvisionerRuntime
 }
 
 // =============================================================================
@@ -54,9 +54,9 @@ type Provisioner struct {
 // provisioner lifecycle. The cluster client is created based on the cluster driver configuration (talos/omni).
 // Components are initialized lazily when needed by the Up() and Down() methods.
 // Returns a pointer to the Provisioner struct.
-func NewProvisioner(ctx *ProvisionerExecutionContext) *Provisioner {
+func NewProvisioner(ctx *ProvisionerRuntime) *Provisioner {
 	infra := &Provisioner{
-		ProvisionerExecutionContext: ctx,
+		ProvisionerRuntime: ctx,
 	}
 
 	if infra.TerraformStack == nil {

@@ -3,10 +3,10 @@ package composer
 import (
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/context"
-	"github.com/windsorcli/cli/pkg/context/config"
-	"github.com/windsorcli/cli/pkg/context/shell"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================
@@ -22,7 +22,7 @@ func setupComposerMocks(t *testing.T) *Mocks {
 	shell := shell.NewMockShell()
 
 	// Create execution context
-	execCtx := &context.ExecutionContext{
+	execCtx := &runtime.Runtime{
 		ContextName:   "test-context",
 		ProjectRoot:   "/test/project",
 		ConfigRoot:    "/test/project/contexts/test-context",
@@ -33,24 +33,24 @@ func setupComposerMocks(t *testing.T) *Mocks {
 	}
 
 	// Create composer execution context
-	composerCtx := &ComposerExecutionContext{
-		ExecutionContext: *execCtx,
+	composerCtx := &ComposerRuntime{
+		Runtime: *execCtx,
 	}
 
 	return &Mocks{
-		Injector:                 injector,
-		ConfigHandler:            configHandler,
-		Shell:                    shell,
-		ComposerExecutionContext: composerCtx,
+		Injector:        injector,
+		ConfigHandler:   configHandler,
+		Shell:           shell,
+		ComposerRuntime: composerCtx,
 	}
 }
 
 // Mocks contains all the mock dependencies for testing
 type Mocks struct {
-	Injector                 di.Injector
-	ConfigHandler            config.ConfigHandler
-	Shell                    shell.Shell
-	ComposerExecutionContext *ComposerExecutionContext
+	Injector        di.Injector
+	ConfigHandler   config.ConfigHandler
+	Shell           shell.Shell
+	ComposerRuntime *ComposerRuntime
 }
 
 // =============================================================================
@@ -61,7 +61,7 @@ func TestNewComposer(t *testing.T) {
 	t.Run("CreatesComposerWithDependencies", func(t *testing.T) {
 		mocks := setupComposerMocks(t)
 
-		composer := NewComposer(mocks.ComposerExecutionContext)
+		composer := NewComposer(mocks.ComposerRuntime)
 
 		if composer == nil {
 			t.Fatal("Expected Composer to be created")
@@ -97,7 +97,7 @@ func TestCreateComposer(t *testing.T) {
 	t.Run("CreatesComposerWithDependencies", func(t *testing.T) {
 		mocks := setupComposerMocks(t)
 
-		composer := NewComposer(mocks.ComposerExecutionContext)
+		composer := NewComposer(mocks.ComposerRuntime)
 
 		if composer == nil {
 			t.Fatal("Expected Composer to be created")
@@ -124,7 +124,7 @@ func TestCreateComposer(t *testing.T) {
 func TestComposer_Bundle(t *testing.T) {
 	t.Run("HandlesBundleSuccessfully", func(t *testing.T) {
 		mocks := setupComposerMocks(t)
-		composer := NewComposer(mocks.ComposerExecutionContext)
+		composer := NewComposer(mocks.ComposerRuntime)
 
 		// This test would need proper mocking of the artifact builder
 		// For now, we'll just test that the method exists and handles errors
@@ -139,7 +139,7 @@ func TestComposer_Bundle(t *testing.T) {
 func TestComposer_Push(t *testing.T) {
 	t.Run("HandlesPushSuccessfully", func(t *testing.T) {
 		mocks := setupComposerMocks(t)
-		composer := NewComposer(mocks.ComposerExecutionContext)
+		composer := NewComposer(mocks.ComposerRuntime)
 
 		// This test would need proper mocking of the artifact builder
 		// For now, we'll just test that the method exists and handles errors
@@ -154,7 +154,7 @@ func TestComposer_Push(t *testing.T) {
 func TestComposer_Generate(t *testing.T) {
 	t.Run("HandlesGenerateSuccessfully", func(t *testing.T) {
 		mocks := setupComposerMocks(t)
-		composer := NewComposer(mocks.ComposerExecutionContext)
+		composer := NewComposer(mocks.ComposerRuntime)
 
 		// This test would need proper mocking of the blueprint handler and terraform resolver
 		// For now, we'll just test that the method exists and handles errors
@@ -167,7 +167,7 @@ func TestComposer_Generate(t *testing.T) {
 
 	t.Run("HandlesGenerateWithOverwrite", func(t *testing.T) {
 		mocks := setupComposerMocks(t)
-		composer := NewComposer(mocks.ComposerExecutionContext)
+		composer := NewComposer(mocks.ComposerRuntime)
 
 		// This test would need proper mocking of the blueprint handler and terraform resolver
 		// For now, we'll just test that the method exists and handles errors
@@ -180,20 +180,20 @@ func TestComposer_Generate(t *testing.T) {
 }
 
 // =============================================================================
-// Test ComposerExecutionContext
+// Test ComposerRuntime
 // =============================================================================
 
-func TestComposerExecutionContext(t *testing.T) {
-	t.Run("CreatesComposerExecutionContext", func(t *testing.T) {
-		execCtx := &context.ExecutionContext{
+func TestComposerRuntime(t *testing.T) {
+	t.Run("CreatesComposerRuntime", func(t *testing.T) {
+		execCtx := &runtime.Runtime{
 			ContextName:  "test-context",
 			ProjectRoot:  "/test/project",
 			ConfigRoot:   "/test/project/contexts/test-context",
 			TemplateRoot: "/test/project/contexts/_template",
 		}
 
-		composerCtx := &ComposerExecutionContext{
-			ExecutionContext: *execCtx,
+		composerCtx := &ComposerRuntime{
+			Runtime: *execCtx,
 		}
 
 		if composerCtx.ContextName != "test-context" {

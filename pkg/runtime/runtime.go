@@ -1,4 +1,4 @@
-package context
+package runtime
 
 import (
 	"crypto/rand"
@@ -12,19 +12,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/windsorcli/cli/pkg/context/config"
-	"github.com/windsorcli/cli/pkg/context/env"
-	"github.com/windsorcli/cli/pkg/context/secrets"
-	"github.com/windsorcli/cli/pkg/context/shell"
-	"github.com/windsorcli/cli/pkg/context/tools"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/env"
+	"github.com/windsorcli/cli/pkg/runtime/secrets"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
-// ExecutionContext holds common execution values and core dependencies used across the Windsor CLI.
+// Runtime holds common execution values and core dependencies used across the Windsor CLI.
 // These fields are set during various initialization steps rather than computed on-demand.
 // Includes secret providers for Sops and 1Password, enabling access to secrets across all contexts.
 // Also includes environment printers, tools manager, and environment variable/alias storage.
-type ExecutionContext struct {
+type Runtime struct {
 	// ContextName is the current context name
 	ContextName string
 
@@ -75,15 +75,15 @@ type ExecutionContext struct {
 // Constructor
 // =============================================================================
 
-// NewContext creates a new ExecutionContext with ConfigHandler and Shell initialized if not already present.
+// NewRuntime creates a new Runtime with ConfigHandler and Shell initialized if not already present.
 // This is the base constructor that ensures core dependencies are available.
 // If ConfigHandler is nil, it creates one using the Injector and initializes it.
 // If Shell is nil, it creates one using the Injector and initializes it.
 // Both are registered in the Injector for use by other components.
 // The context also initializes envVars and aliases maps, and automatically sets up
 // ContextName, ProjectRoot, ConfigRoot, and TemplateRoot based on the current project state.
-// Returns the ExecutionContext with initialized dependencies or an error if initialization fails.
-func NewContext(ctx *ExecutionContext) (*ExecutionContext, error) {
+// Returns the Runtime with initialized dependencies or an error if initialization fails.
+func NewRuntime(ctx *Runtime) (*Runtime, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("execution context is required")
 	}
@@ -166,7 +166,7 @@ func NewContext(ctx *ExecutionContext) (*ExecutionContext, error) {
 // CheckTrustedDirectory verifies that the current directory is in the trusted file list.
 // It delegates to the Shell's CheckTrustedDirectory method. Returns an error if the
 // directory is not trusted or if Shell is not initialized.
-func (ctx *ExecutionContext) CheckTrustedDirectory() error {
+func (ctx *Runtime) CheckTrustedDirectory() error {
 	if ctx.Shell == nil {
 		return fmt.Errorf("shell not initialized")
 	}
@@ -177,7 +177,7 @@ func (ctx *ExecutionContext) CheckTrustedDirectory() error {
 // The context paths (ContextName, ProjectRoot, ConfigRoot, TemplateRoot) are already
 // set up in the constructor, so this method only needs to load the configuration data.
 // Returns an error if configuration loading fails or if required dependencies are missing.
-func (ctx *ExecutionContext) LoadConfig() error {
+func (ctx *Runtime) LoadConfig() error {
 	if ctx.ConfigHandler == nil {
 		return fmt.Errorf("config handler not initialized")
 	}
@@ -189,7 +189,7 @@ func (ctx *ExecutionContext) LoadConfig() error {
 // variables if needed. It checks for WINDSOR_SESSION_TOKEN and uses the shell's CheckResetFlags
 // method to determine if a reset should occur. If reset is needed, it calls Shell.Reset() and
 // sets NO_CACHE=true. Returns an error if Shell is not initialized or if reset flag checking fails.
-func (ctx *ExecutionContext) HandleSessionReset() error {
+func (ctx *Runtime) HandleSessionReset() error {
 	if ctx.Shell == nil {
 		return fmt.Errorf("shell not initialized")
 	}
@@ -215,10 +215,10 @@ func (ctx *ExecutionContext) HandleSessionReset() error {
 
 // LoadEnvironment loads environment variables and aliases from all configured environment printers,
 // then executes post-environment hooks. It initializes all necessary components, optionally loads
-// secrets if requested, and aggregates all environment variables and aliases into the ExecutionContext
+// secrets if requested, and aggregates all environment variables and aliases into the Runtime
 // instance. Returns an error if any required dependency is missing or if any step fails. This method
 // expects the ConfigHandler to be set before invocation.
-func (ctx *ExecutionContext) LoadEnvironment(decrypt bool) error {
+func (ctx *Runtime) LoadEnvironment(decrypt bool) error {
 	if ctx.ConfigHandler == nil {
 		return fmt.Errorf("config handler not loaded")
 	}
@@ -283,7 +283,7 @@ func (ctx *ExecutionContext) LoadEnvironment(decrypt bool) error {
 
 // PrintEnvVars returns all collected environment variables in key=value format.
 // If no environment variables are loaded, returns an empty string.
-func (ctx *ExecutionContext) PrintEnvVars() string {
+func (ctx *Runtime) PrintEnvVars() string {
 	if ctx.Shell == nil || len(ctx.envVars) == 0 {
 		return ""
 	}
@@ -292,7 +292,7 @@ func (ctx *ExecutionContext) PrintEnvVars() string {
 
 // PrintEnvVarsExport returns all collected environment variables in export key=value format.
 // If no environment variables are loaded, returns an empty string.
-func (ctx *ExecutionContext) PrintEnvVarsExport() string {
+func (ctx *Runtime) PrintEnvVarsExport() string {
 	if ctx.Shell == nil || len(ctx.envVars) == 0 {
 		return ""
 	}
@@ -301,7 +301,7 @@ func (ctx *ExecutionContext) PrintEnvVarsExport() string {
 
 // PrintAliases returns all collected aliases using the shell's RenderAliases method.
 // If no aliases are loaded, returns an empty string.
-func (ctx *ExecutionContext) PrintAliases() string {
+func (ctx *Runtime) PrintAliases() string {
 	if ctx.Shell == nil || len(ctx.aliases) == 0 {
 		return ""
 	}
@@ -309,14 +309,14 @@ func (ctx *ExecutionContext) PrintAliases() string {
 }
 
 // GetEnvVars returns a copy of the collected environment variables.
-func (ctx *ExecutionContext) GetEnvVars() map[string]string {
+func (ctx *Runtime) GetEnvVars() map[string]string {
 	result := make(map[string]string)
 	maps.Copy(result, ctx.envVars)
 	return result
 }
 
 // GetAliases returns a copy of the collected aliases.
-func (ctx *ExecutionContext) GetAliases() map[string]string {
+func (ctx *Runtime) GetAliases() map[string]string {
 	result := make(map[string]string)
 	maps.Copy(result, ctx.aliases)
 	return result
@@ -326,7 +326,7 @@ func (ctx *ExecutionContext) GetAliases() map[string]string {
 // It validates that all required tools are installed and meet minimum version requirements.
 // The tools manager must be initialized before calling this method. Returns an error if
 // the tools manager is not available or if tool checking fails.
-func (ctx *ExecutionContext) CheckTools() error {
+func (ctx *Runtime) CheckTools() error {
 	if ctx.ToolsManager == nil {
 		ctx.initializeToolsManager()
 		if ctx.ToolsManager == nil {
@@ -347,7 +347,7 @@ func (ctx *ExecutionContext) CheckTools() error {
 // GetBuildID retrieves the current build ID from the .windsor/.build-id file.
 // If no build ID exists, a new one is generated, persisted, and returned.
 // Returns the build ID string or an error if retrieval or persistence fails.
-func (ctx *ExecutionContext) GetBuildID() (string, error) {
+func (ctx *Runtime) GetBuildID() (string, error) {
 	projectRoot := ctx.ProjectRoot
 
 	if err := os.MkdirAll(projectRoot, 0750); err != nil {
@@ -390,7 +390,7 @@ func (ctx *ExecutionContext) GetBuildID() (string, error) {
 
 // GenerateBuildID generates a new build ID and persists it to the .windsor/.build-id file,
 // overwriting any existing value. Returns the new build ID or an error if generation or persistence fails.
-func (ctx *ExecutionContext) GenerateBuildID() (string, error) {
+func (ctx *Runtime) GenerateBuildID() (string, error) {
 	newBuildID, err := ctx.generateBuildID()
 	if err != nil {
 		return "", fmt.Errorf("failed to generate build ID: %w", err)
@@ -410,7 +410,7 @@ func (ctx *ExecutionContext) GenerateBuildID() (string, error) {
 // initializeEnvPrinters initializes environment printers based on configuration settings.
 // It creates and registers the appropriate environment printers with the dependency injector
 // based on the current configuration state.
-func (ctx *ExecutionContext) initializeEnvPrinters() {
+func (ctx *Runtime) initializeEnvPrinters() {
 	if ctx.EnvPrinters.AwsEnv == nil && ctx.ConfigHandler.GetBool("aws.enabled", false) {
 		ctx.EnvPrinters.AwsEnv = env.NewAwsEnvPrinter(ctx.Injector)
 		ctx.Injector.Register("awsEnv", ctx.EnvPrinters.AwsEnv)
@@ -481,7 +481,7 @@ func (ctx *ExecutionContext) initializeEnvPrinters() {
 // initializeToolsManager initializes the tools manager if not already set.
 // It checks the injector for an existing tools manager first, and only creates a new one if not found.
 // It creates a new ToolsManager instance and registers it with the dependency injector.
-func (ctx *ExecutionContext) initializeToolsManager() {
+func (ctx *Runtime) initializeToolsManager() {
 	if ctx.ToolsManager == nil {
 		if existingManager := ctx.Injector.Resolve("toolsManager"); existingManager != nil {
 			if toolsManager, ok := existingManager.(tools.ToolsManager); ok {
@@ -498,7 +498,7 @@ func (ctx *ExecutionContext) initializeToolsManager() {
 // based on current configuration settings. The method sets up the SOPS provider if enabled with the
 // context's config root path, and sets up the 1Password provider if enabled, using a mock in test
 // scenarios. Providers are only initialized if not already present on the context.
-func (ctx *ExecutionContext) initializeSecretsProviders() {
+func (ctx *Runtime) initializeSecretsProviders() {
 	if ctx.SecretsProviders.Sops == nil && ctx.ConfigHandler.GetBool("secrets.sops.enabled", false) {
 		if existingProvider := ctx.Injector.Resolve("sopsSecretsProvider"); existingProvider != nil {
 			if provider, ok := existingProvider.(secrets.SecretsProvider); ok {
@@ -528,7 +528,7 @@ func (ctx *ExecutionContext) initializeSecretsProviders() {
 // getAllEnvPrinters returns all environment printers in a consistent order.
 // This ensures that environment variables are processed in a predictable sequence
 // with WindsorEnv being processed last to take precedence.
-func (ctx *ExecutionContext) getAllEnvPrinters() []env.EnvPrinter {
+func (ctx *Runtime) getAllEnvPrinters() []env.EnvPrinter {
 	return []env.EnvPrinter{
 		ctx.EnvPrinters.AwsEnv,
 		ctx.EnvPrinters.AzureEnv,
@@ -544,7 +544,7 @@ func (ctx *ExecutionContext) getAllEnvPrinters() []env.EnvPrinter {
 // This includes initializing the tools manager (if present) and all configured environment printers.
 // Each component's Initialize method is called if the component is non-nil.
 // Returns an error if any initialization fails, otherwise returns nil.
-func (ctx *ExecutionContext) initializeComponents() error {
+func (ctx *Runtime) initializeComponents() error {
 	if ctx.ToolsManager != nil {
 		if err := ctx.ToolsManager.Initialize(); err != nil {
 			return fmt.Errorf("failed to initialize tools manager: %w", err)
@@ -562,7 +562,7 @@ func (ctx *ExecutionContext) initializeComponents() error {
 
 // loadSecrets loads secrets from configured secrets providers.
 // It attempts to load secrets from both SOPS and 1Password providers if they are available.
-func (ctx *ExecutionContext) loadSecrets() error {
+func (ctx *Runtime) loadSecrets() error {
 	providers := []secrets.SecretsProvider{
 		ctx.SecretsProviders.Sops,
 		ctx.SecretsProviders.Onepassword,
@@ -581,7 +581,7 @@ func (ctx *ExecutionContext) loadSecrets() error {
 
 // writeBuildIDToFile writes the provided build ID string to the .windsor/.build-id file in the project root.
 // Ensures the .windsor directory exists before writing. Returns an error if directory creation or file write fails.
-func (ctx *ExecutionContext) writeBuildIDToFile(buildID string) error {
+func (ctx *Runtime) writeBuildIDToFile(buildID string) error {
 	projectRoot := ctx.ProjectRoot
 
 	if err := os.MkdirAll(projectRoot, 0750); err != nil {
@@ -609,7 +609,7 @@ func (ctx *ExecutionContext) writeBuildIDToFile(buildID string) error {
 // and # is a sequential counter incremented for each build on the same day. If a build ID already exists for the current day,
 // the counter is incremented; otherwise, a new build ID is generated with counter set to 1. Ensures global ordering and uniqueness.
 // Returns the build ID string or an error if generation or retrieval fails.
-func (ctx *ExecutionContext) generateBuildID() (string, error) {
+func (ctx *Runtime) generateBuildID() (string, error) {
 	now := time.Now()
 	yy := now.Year() % 100
 	mm := int(now.Month())
@@ -660,7 +660,7 @@ func (ctx *ExecutionContext) generateBuildID() (string, error) {
 // incrementBuildID parses an existing build ID and increments its counter component.
 // If the date component differs from the current date, generates a new random number and resets the counter to 1.
 // Returns the incremented or reset build ID string, or an error if the input format is invalid.
-func (ctx *ExecutionContext) incrementBuildID(existingBuildID, currentDate string) (string, error) {
+func (ctx *Runtime) incrementBuildID(existingBuildID, currentDate string) (string, error) {
 	parts := strings.Split(existingBuildID, ".")
 	if len(parts) != 3 {
 		return "", fmt.Errorf("invalid build ID format: %s", existingBuildID)
@@ -690,7 +690,7 @@ func (ctx *ExecutionContext) incrementBuildID(existingBuildID, currentDate strin
 // and dev mode settings. For dev mode, it also sets the provider to "generic" if not already set.
 // This method should be called before loading configuration from disk to ensure defaults are applied first.
 // The context name is read from ctx.ContextName. Returns an error if any configuration operation fails.
-func (ctx *ExecutionContext) ApplyConfigDefaults() error {
+func (ctx *Runtime) ApplyConfigDefaults() error {
 	contextName := ctx.ContextName
 	if contextName == "" {
 		contextName = "local"
@@ -760,7 +760,7 @@ func (ctx *ExecutionContext) ApplyConfigDefaults() error {
 // For "generic", it sets the cluster driver to "talos".
 // If no provider is set but dev mode is enabled, it defaults the cluster driver to "talos".
 // The context name is read from ctx.ContextName. Returns an error if any configuration operation fails.
-func (ctx *ExecutionContext) ApplyProviderDefaults(providerOverride string) error {
+func (ctx *Runtime) ApplyProviderDefaults(providerOverride string) error {
 	if ctx.ConfigHandler == nil {
 		return fmt.Errorf("config handler not available")
 	}
@@ -811,7 +811,7 @@ func (ctx *ExecutionContext) ApplyProviderDefaults(providerOverride string) erro
 // It first checks that all required tools are installed and meet version requirements,
 // then installs any missing or outdated tools. The tools manager must be available.
 // Returns an error if the tools manager is not available or if checking or installation fails.
-func (ctx *ExecutionContext) PrepareTools() error {
+func (ctx *Runtime) PrepareTools() error {
 	if ctx.ToolsManager == nil {
 		ctx.initializeToolsManager()
 		if ctx.ToolsManager == nil {

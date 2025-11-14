@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/context/config"
-	"github.com/windsorcli/cli/pkg/context/shell"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/di"
 )
 

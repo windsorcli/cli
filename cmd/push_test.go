@@ -9,12 +9,12 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/context/config"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
-	"github.com/windsorcli/cli/pkg/context/shell"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================

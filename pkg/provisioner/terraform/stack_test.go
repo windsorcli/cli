@@ -13,11 +13,11 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/context/config"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/di"
-	envvars "github.com/windsorcli/cli/pkg/context/env"
+	envvars "github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
-	"github.com/windsorcli/cli/pkg/context/shell"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================

@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/goccy/go-yaml"
-	"github.com/windsorcli/cli/pkg/context/shell"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // The SchemaValidator is a JSON Schema validation component for Windsor blueprints.

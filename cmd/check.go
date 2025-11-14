@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/context"
+	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/provisioner"
 )
@@ -27,11 +27,11 @@ var checkCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		execCtx := &context.ExecutionContext{
+		execCtx := &runtime.Runtime{
 			Injector: injector,
 		}
 
-		execCtx, err := context.NewContext(execCtx)
+		execCtx, err := runtime.NewRuntime(execCtx)
 		if err != nil {
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}
@@ -72,11 +72,11 @@ var checkNodeHealthCmd = &cobra.Command{
 			nodeHealthTimeout = constants.DefaultNodeHealthCheckTimeout
 		}
 
-		execCtx := &context.ExecutionContext{
+		execCtx := &runtime.Runtime{
 			Injector: injector,
 		}
 
-		execCtx, err := context.NewContext(execCtx)
+		execCtx, err := runtime.NewRuntime(execCtx)
 		if err != nil {
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}
@@ -93,8 +93,8 @@ var checkNodeHealthCmd = &cobra.Command{
 			return fmt.Errorf("Nothing to check. Have you run \033[1mwindsor init\033[0m?")
 		}
 
-		provisionerCtx := &provisioner.ProvisionerExecutionContext{
-			ExecutionContext: *execCtx,
+		provisionerCtx := &provisioner.ProvisionerRuntime{
+			Runtime: *execCtx,
 		}
 
 		prov := provisioner.NewProvisioner(provisionerCtx)

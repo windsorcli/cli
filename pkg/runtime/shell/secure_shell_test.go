@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/context/shell/ssh"
+	"github.com/windsorcli/cli/pkg/runtime/shell/ssh"
 )
 
 // The SecureShellTest is a test suite for the SecureShell implementation.

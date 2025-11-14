@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/context/config"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
-	sh "github.com/windsorcli/cli/pkg/context/shell"
+	sh "github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================

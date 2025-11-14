@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
-	"github.com/windsorcli/cli/pkg/context"
+	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
@@ -38,17 +38,17 @@ Examples:
 
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		execCtx := &context.ExecutionContext{
+		execCtx := &runtime.Runtime{
 			Injector: injector,
 		}
 
-		execCtx, err := context.NewContext(execCtx)
+		execCtx, err := runtime.NewRuntime(execCtx)
 		if err != nil {
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
-		composerCtx := &composer.ComposerExecutionContext{
-			ExecutionContext: *execCtx,
+		composerCtx := &composer.ComposerRuntime{
+			Runtime: *execCtx,
 		}
 
 		if existingArtifactBuilder := injector.Resolve("artifactBuilder"); existingArtifactBuilder != nil {

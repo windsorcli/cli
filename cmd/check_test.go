@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/context/config"
-	"github.com/windsorcli/cli/pkg/context/shell"
-	"github.com/windsorcli/cli/pkg/context/tools"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/provisioner/cluster"
 )
@@ -156,7 +156,7 @@ func TestCheckCmd_ErrorScenarios(t *testing.T) {
 		return stdout, stderr
 	}
 
-	t.Run("HandlesNewContextError", func(t *testing.T) {
+	t.Run("HandlesNewRuntimeError", func(t *testing.T) {
 		setup(t)
 		injector := di.NewInjector()
 		mockShell := shell.NewMockShell()
@@ -176,7 +176,7 @@ func TestCheckCmd_ErrorScenarios(t *testing.T) {
 		err := Execute()
 
 		if err == nil {
-			t.Error("Expected error when NewContext fails")
+			t.Error("Expected error when NewRuntime fails")
 		}
 
 		if !strings.Contains(err.Error(), "failed to initialize context") {
@@ -474,7 +474,7 @@ func TestCheckNodeHealthCmd_ErrorScenarios(t *testing.T) {
 		return stdout, stderr
 	}
 
-	t.Run("HandlesNewContextError", func(t *testing.T) {
+	t.Run("HandlesNewRuntimeError", func(t *testing.T) {
 		setup(t)
 		injector := di.NewInjector()
 		mockShell := shell.NewMockShell()
@@ -494,7 +494,7 @@ func TestCheckNodeHealthCmd_ErrorScenarios(t *testing.T) {
 		err := Execute()
 
 		if err == nil {
-			t.Error("Expected error when NewContext fails")
+			t.Error("Expected error when NewRuntime fails")
 		}
 
 		if !strings.Contains(err.Error(), "failed to initialize context") {

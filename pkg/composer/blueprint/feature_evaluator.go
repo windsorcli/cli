@@ -9,10 +9,10 @@ import (
 	"github.com/expr-lang/expr"
 	"github.com/google/go-jsonnet"
 	"github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/context/config"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/context/shell"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // FeatureEvaluator provides lightweight expression evaluation for blueprint feature conditions.

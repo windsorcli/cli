@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/context"
+	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
@@ -17,11 +17,11 @@ var hookCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		execCtx := &context.ExecutionContext{
+		execCtx := &runtime.Runtime{
 			Injector: injector,
 		}
 
-		execCtx, err := context.NewContext(execCtx)
+		execCtx, err := runtime.NewRuntime(execCtx)
 		if err != nil {
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}

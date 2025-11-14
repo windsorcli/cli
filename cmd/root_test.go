@@ -14,10 +14,10 @@ import (
 
 	"github.com/spf13/cobra"
 	blueprintpkg "github.com/windsorcli/cli/pkg/composer/blueprint"
-	"github.com/windsorcli/cli/pkg/context/config"
-	envvars "github.com/windsorcli/cli/pkg/context/env"
-	"github.com/windsorcli/cli/pkg/context/secrets"
-	"github.com/windsorcli/cli/pkg/context/shell"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	envvars "github.com/windsorcli/cli/pkg/runtime/env"
+	"github.com/windsorcli/cli/pkg/runtime/secrets"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 )

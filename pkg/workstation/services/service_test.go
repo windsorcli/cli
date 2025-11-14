@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/windsorcli/cli/pkg/context/config"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/context/shell"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // The ServiceTest is a test suite for the Service interface and BaseService implementation

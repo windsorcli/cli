@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/windsorcli/cli/pkg/context/secrets"
+	"github.com/windsorcli/cli/pkg/runtime/secrets"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
