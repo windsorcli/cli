@@ -51,6 +51,7 @@ type KubernetesManager interface {
 	WaitForKubernetesHealthy(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error
 	GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error)
 	ApplyBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
+	DeleteBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
 }
 
 // =============================================================================
@@ -625,6 +626,115 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 		fluxKustomization := kustomization.ToFluxKustomization(namespace, defaultSourceName, blueprint.Sources)
 		if err := k.ApplyKustomization(fluxKustomization); err != nil {
 			return fmt.Errorf("failed to apply kustomization %s: %w", kustomization.Name, err)
+		}
+	}
+
+	return nil
+}
+
+// DeleteBlueprint deletes all kustomizations from the blueprint and handles cleanup kustomizations.
+// It first deletes all main kustomizations, then for each kustomization with cleanup paths, it applies
+// cleanup kustomizations and then deletes them. This method orchestrates the complete blueprint
+// teardown process in the correct order.
+func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
+	defaultSourceName := blueprint.Metadata.Name
+
+	for _, kustomization := range blueprint.Kustomizations {
+		if kustomization.Destroy != nil && !*kustomization.Destroy {
+			continue
+		}
+
+		if err := k.DeleteKustomization(kustomization.Name, namespace); err != nil {
+			return fmt.Errorf("failed to delete kustomization %s: %w", kustomization.Name, err)
+		}
+
+		if len(kustomization.Cleanup) > 0 {
+			sourceName := kustomization.Source
+			if sourceName == "" {
+				sourceName = defaultSourceName
+			}
+
+			sourceKind := "GitRepository"
+			for _, source := range blueprint.Sources {
+				if source.Name == sourceName && strings.HasPrefix(source.Url, "oci://") {
+					sourceKind = "OCIRepository"
+					break
+				}
+			}
+
+			basePath := kustomization.Path
+			if basePath == "" {
+				basePath = "kustomize"
+			} else {
+				basePath = strings.ReplaceAll(basePath, "\\", "/")
+				if basePath != "kustomize" && !strings.HasPrefix(basePath, "kustomize/") {
+					basePath = "kustomize/" + basePath
+				}
+			}
+
+			for i, cleanupPath := range kustomization.Cleanup {
+				cleanupPathNormalized := strings.ReplaceAll(cleanupPath, "\\", "/")
+				fullCleanupPath := basePath + "/" + cleanupPathNormalized
+
+				cleanupKustomizationName := fmt.Sprintf("%s-cleanup-%d", kustomization.Name, i)
+
+				interval := metav1.Duration{Duration: constants.DefaultFluxKustomizationInterval}
+				if kustomization.Interval != nil && kustomization.Interval.Duration != 0 {
+					interval = *kustomization.Interval
+				}
+
+				retryInterval := metav1.Duration{Duration: constants.DefaultFluxKustomizationRetryInterval}
+				if kustomization.RetryInterval != nil && kustomization.RetryInterval.Duration != 0 {
+					retryInterval = *kustomization.RetryInterval
+				}
+
+				timeout := metav1.Duration{Duration: constants.DefaultFluxKustomizationTimeout}
+				if kustomization.Timeout != nil && kustomization.Timeout.Duration != 0 {
+					timeout = *kustomization.Timeout
+				}
+
+				wait := constants.DefaultFluxKustomizationWait
+				if kustomization.Wait != nil {
+					wait = *kustomization.Wait
+				}
+
+				force := constants.DefaultFluxKustomizationForce
+				if kustomization.Force != nil {
+					force = *kustomization.Force
+				}
+
+				cleanupKustomization := kustomizev1.Kustomization{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "Kustomization",
+						APIVersion: "kustomize.toolkit.fluxcd.io/v1",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      cleanupKustomizationName,
+						Namespace: namespace,
+					},
+					Spec: kustomizev1.KustomizationSpec{
+						SourceRef: kustomizev1.CrossNamespaceSourceReference{
+							Kind: sourceKind,
+							Name: sourceName,
+						},
+						Path:          fullCleanupPath,
+						Interval:      interval,
+						RetryInterval: &retryInterval,
+						Timeout:       &timeout,
+						Wait:          wait,
+						Force:         force,
+						Prune:         true,
+					},
+				}
+
+				if err := k.ApplyKustomization(cleanupKustomization); err != nil {
+					return fmt.Errorf("failed to apply cleanup kustomization %s: %w", cleanupKustomizationName, err)
+				}
+
+				if err := k.DeleteKustomization(cleanupKustomizationName, namespace); err != nil {
+					return fmt.Errorf("failed to delete cleanup kustomization %s: %w", cleanupKustomizationName, err)
+				}
+			}
 		}
 	}
 

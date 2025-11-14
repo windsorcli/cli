@@ -13,6 +13,7 @@ import (
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 )
 
 // =============================================================================
@@ -461,6 +462,82 @@ func TestMockKubernetesManager_GetNodeReadyStatus(t *testing.T) {
 		}
 		if len(status) != 0 {
 			t.Errorf("Expected empty map, got %v", status)
+		}
+	})
+}
+
+func TestMockKubernetesManager_ApplyBlueprint(t *testing.T) {
+	setup := func(t *testing.T) *MockKubernetesManager {
+		t.Helper()
+		return NewMockKubernetesManager(nil)
+	}
+	blueprint := &blueprintv1alpha1.Blueprint{
+		Metadata: blueprintv1alpha1.Metadata{
+			Name: "test-blueprint",
+		},
+	}
+	namespace := "test-namespace"
+
+	t.Run("FuncSet", func(t *testing.T) {
+		manager := setup(t)
+		manager.ApplyBlueprintFunc = func(b *blueprintv1alpha1.Blueprint, ns string) error {
+			if b != blueprint {
+				t.Errorf("Expected blueprint %v, got %v", blueprint, b)
+			}
+			if ns != namespace {
+				t.Errorf("Expected namespace %s, got %s", namespace, ns)
+			}
+			return fmt.Errorf("err")
+		}
+		err := manager.ApplyBlueprint(blueprint, namespace)
+		if err == nil || err.Error() != "err" {
+			t.Errorf("Expected error 'err', got %v", err)
+		}
+	})
+
+	t.Run("FuncNotSet", func(t *testing.T) {
+		manager := setup(t)
+		err := manager.ApplyBlueprint(blueprint, namespace)
+		if err != nil {
+			t.Errorf("Expected nil, got %v", err)
+		}
+	})
+}
+
+func TestMockKubernetesManager_DeleteBlueprint(t *testing.T) {
+	setup := func(t *testing.T) *MockKubernetesManager {
+		t.Helper()
+		return NewMockKubernetesManager(nil)
+	}
+	blueprint := &blueprintv1alpha1.Blueprint{
+		Metadata: blueprintv1alpha1.Metadata{
+			Name: "test-blueprint",
+		},
+	}
+	namespace := "test-namespace"
+
+	t.Run("FuncSet", func(t *testing.T) {
+		manager := setup(t)
+		manager.DeleteBlueprintFunc = func(b *blueprintv1alpha1.Blueprint, ns string) error {
+			if b != blueprint {
+				t.Errorf("Expected blueprint %v, got %v", blueprint, b)
+			}
+			if ns != namespace {
+				t.Errorf("Expected namespace %s, got %s", namespace, ns)
+			}
+			return fmt.Errorf("err")
+		}
+		err := manager.DeleteBlueprint(blueprint, namespace)
+		if err == nil || err.Error() != "err" {
+			t.Errorf("Expected error 'err', got %v", err)
+		}
+	})
+
+	t.Run("FuncNotSet", func(t *testing.T) {
+		manager := setup(t)
+		err := manager.DeleteBlueprint(blueprint, namespace)
+		if err != nil {
+			t.Errorf("Expected nil, got %v", err)
 		}
 	})
 }

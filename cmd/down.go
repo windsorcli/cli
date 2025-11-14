@@ -45,7 +45,8 @@ var downCmd = &cobra.Command{
 		}
 
 		if !skipK8sFlag {
-			if err := proj.Composer.BlueprintHandler.Down(); err != nil {
+			blueprint := proj.Composer.BlueprintHandler.Generate()
+			if err := proj.Provisioner.Uninstall(blueprint); err != nil {
 				return fmt.Errorf("error running blueprint cleanup: %w", err)
 			}
 		} else {

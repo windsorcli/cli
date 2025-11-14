@@ -9,11 +9,11 @@ import (
 	"github.com/briandowns/spinner"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/constants"
-	execcontext "github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/provisioner/cluster"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	k8sclient "github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
+	execcontext "github.com/windsorcli/cli/pkg/runtime"
 )
 
 // The Provisioner package provides high-level infrastructure provisioning functionality
@@ -201,6 +201,39 @@ func (i *Provisioner) Wait(blueprint *blueprintv1alpha1.Blueprint) error {
 	if err := i.KubernetesManager.WaitForKustomizations("⏳ Waiting for kustomizations to be ready", kustomizationNames...); err != nil {
 		return fmt.Errorf("failed waiting for kustomizations: %w", err)
 	}
+
+	return nil
+}
+
+// Uninstall orchestrates the high-level kustomization teardown process from the blueprint.
+// It initializes the kubernetes manager and deletes all blueprint kustomizations, including
+// handling cleanup kustomizations. The blueprint must be provided as a parameter.
+// Returns an error if any step fails.
+func (i *Provisioner) Uninstall(blueprint *blueprintv1alpha1.Blueprint) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+
+	if i.KubernetesManager == nil {
+		return fmt.Errorf("kubernetes manager not configured")
+	}
+	if err := i.KubernetesManager.Initialize(); err != nil {
+		return fmt.Errorf("failed to initialize kubernetes manager: %w", err)
+	}
+
+	message := "🗑️  Uninstalling blueprint resources"
+	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+	spin.Suffix = " " + message
+	spin.Start()
+
+	if err := i.KubernetesManager.DeleteBlueprint(blueprint, constants.DefaultFluxSystemNamespace); err != nil {
+		spin.Stop()
+		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
+		return fmt.Errorf("failed to delete blueprint: %w", err)
+	}
+
+	spin.Stop()
+	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
 
 	return nil
 }
