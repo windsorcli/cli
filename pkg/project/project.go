@@ -84,10 +84,7 @@ func NewProject(injector di.Injector, contextName string, opts ...*Project) (*Pr
 		if overrides != nil && overrides.Workstation != nil {
 			ws = overrides.Workstation
 		} else {
-			workstationCtx := &workstation.WorkstationRuntime{
-				Runtime: *rt,
-			}
-			ws, err = workstation.NewWorkstation(workstationCtx, rt.Injector)
+			ws, err = workstation.NewWorkstation(rt)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create workstation: %w", err)
 			}
@@ -157,8 +154,8 @@ func (p *Project) Configure(flagOverrides map[string]any) error {
 // if any step fails.
 func (p *Project) Initialize(overwrite bool) error {
 	if p.Workstation != nil && p.Workstation.NetworkManager != nil {
-		if err := p.Workstation.NetworkManager.Initialize(p.Workstation.Services); err != nil {
-			return fmt.Errorf("failed to initialize network manager: %w", err)
+		if err := p.Workstation.NetworkManager.AssignIPs(p.Workstation.Services); err != nil {
+			return fmt.Errorf("failed to assign IPs to network manager: %w", err)
 		}
 	}
 

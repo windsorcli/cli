@@ -6,10 +6,10 @@ import (
 	"sort"
 
 	"github.com/windsorcli/cli/pkg/constants"
+	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/runtime/shell/ssh"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
@@ -24,7 +24,7 @@ import (
 
 // NetworkManager handles configuring the local development network
 type NetworkManager interface {
-	Initialize(services []services.Service) error
+	AssignIPs(services []services.Service) error
 	ConfigureHostRoute() error
 	ConfigureGuest() error
 	ConfigureDNS() error
@@ -32,14 +32,15 @@ type NetworkManager interface {
 
 // BaseNetworkManager is a concrete implementation of NetworkManager
 type BaseNetworkManager struct {
-	injector                 di.Injector
-	sshClient                ssh.Client
-	shell                    shell.Shell
-	secureShell              shell.Shell
-	configHandler            config.ConfigHandler
-	services                 []services.Service
-	shims                    *Shims
-	networkInterfaceProvider NetworkInterfaceProvider
+	runtime                   *runtime.Runtime
+	sshClient                 ssh.Client
+	shell                     shell.Shell
+	secureShell               shell.Shell
+	configHandler             config.ConfigHandler
+	services                  []services.Service
+	shims                     *Shims
+	networkInterfaceProvider  NetworkInterfaceProvider
+	portAllocator             *services.PortAllocator
 }
 
 // =============================================================================
@@ -47,10 +48,13 @@ type BaseNetworkManager struct {
 // =============================================================================
 
 // NewNetworkManager creates a new NetworkManager
-func NewBaseNetworkManager(injector di.Injector) *BaseNetworkManager {
+func NewBaseNetworkManager(rt *runtime.Runtime) *BaseNetworkManager {
 	return &BaseNetworkManager{
-		injector: injector,
-		shims:    NewShims(),
+		runtime:       rt,
+		shell:         rt.Shell,
+		configHandler: rt.ConfigHandler,
+		shims:         NewShims(),
+		portAllocator: services.NewPortAllocator(),
 	}
 }
 
@@ -58,30 +62,15 @@ func NewBaseNetworkManager(injector di.Injector) *BaseNetworkManager {
 // Public Methods
 // =============================================================================
 
-// Initialize resolves dependencies, sorts services, and assigns IPs based on network CIDR.
+// AssignIPs sorts services and assigns IPs based on network CIDR.
 // Services are passed explicitly from Workstation to ensure we work with the same instances.
-func (n *BaseNetworkManager) Initialize(serviceList []services.Service) error {
-	shellInterface, ok := n.injector.Resolve("shell").(shell.Shell)
-	if !ok {
-		return fmt.Errorf("resolved shell instance is not of type shell.Shell")
-	}
-	n.shell = shellInterface
-
-	configHandler, ok := n.injector.Resolve("configHandler").(config.ConfigHandler)
-	if !ok {
-		return fmt.Errorf("error resolving configHandler")
-	}
-	n.configHandler = configHandler
-
+func (n *BaseNetworkManager) AssignIPs(serviceList []services.Service) error {
 	// Sort services by name for consistent IP assignment
 	sort.Slice(serviceList, func(i, j int) bool {
 		return serviceList[i].GetName() < serviceList[j].GetName()
 	})
 
 	n.services = serviceList
-
-	// Create PortAllocator for this initialization run
-	portAllocator := services.NewPortAllocator()
 
 	networkCIDR := n.configHandler.GetString("network.cidr_block")
 	if networkCIDR == "" {
@@ -90,7 +79,7 @@ func (n *BaseNetworkManager) Initialize(serviceList []services.Service) error {
 			return fmt.Errorf("error setting default network CIDR: %w", err)
 		}
 	}
-	if err := assignIPAddresses(n.services, &networkCIDR, portAllocator); err != nil {
+	if err := assignIPAddresses(n.services, &networkCIDR, n.portAllocator); err != nil {
 		return fmt.Errorf("error assigning IP addresses: %w", err)
 	}
 

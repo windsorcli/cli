@@ -10,13 +10,12 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/compose-spec/compose-go/v2/types"
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
@@ -35,52 +34,25 @@ type DockerVirt struct {
 // Constructor
 // =============================================================================
 
-// NewDockerVirt creates a new instance of DockerVirt using a DI injector
-func NewDockerVirt(injector di.Injector) *DockerVirt {
-	return &DockerVirt{
-		BaseVirt: *NewBaseVirt(injector),
-	}
-}
-
-// =============================================================================
-// Public Methods
-// =============================================================================
-
-// Initialize resolves all dependencies for DockerVirt, including services from the DI
-// container, Docker configuration status, and determines the appropriate docker compose
-// command to use. It alphabetizes services and verifies Docker is enabled.
-func (v *DockerVirt) Initialize() error {
-	if err := v.BaseVirt.Initialize(); err != nil {
-		return fmt.Errorf("error initializing base: %w", err)
-	}
-
-	resolvedServices, err := v.injector.ResolveAll((*services.Service)(nil))
-	if err != nil {
-		return fmt.Errorf("error resolving services: %w", err)
-	}
-
+// NewDockerVirt creates a new instance of DockerVirt
+func NewDockerVirt(rt *runtime.Runtime, serviceList []services.Service) *DockerVirt {
 	var serviceSlice []services.Service
-	for _, service := range resolvedServices {
-		if s, ok := service.(services.Service); ok && s != nil {
-			serviceSlice = append(serviceSlice, s)
+	if serviceList != nil {
+		// Filter out nil services and copy non-nil ones
+		for _, service := range serviceList {
+			if service != nil {
+				serviceSlice = append(serviceSlice, service)
+			}
 		}
+		sort.Slice(serviceSlice, func(i, j int) bool {
+			return serviceSlice[i].GetName() < serviceSlice[j].GetName()
+		})
 	}
 
-	sort.Slice(serviceSlice, func(i, j int) bool {
-		return serviceSlice[i].GetName() < serviceSlice[j].GetName()
-	})
-
-	if !v.configHandler.GetBool("docker.enabled") {
-		return fmt.Errorf("Docker configuration is not defined")
+	return &DockerVirt{
+		BaseVirt: *NewBaseVirt(rt),
+		services: serviceSlice,
 	}
-
-	v.services = serviceSlice
-
-	if err := v.determineComposeCommand(); err != nil {
-		return fmt.Errorf("error determining docker compose command: %w", err)
-	}
-
-	return nil
 }
 
 // Up starts Docker Compose in detached mode with retry logic. It checks if Docker is enabled,
@@ -94,16 +66,17 @@ func (v *DockerVirt) Up() error {
 			return fmt.Errorf("Docker daemon is not running: %w", err)
 		}
 
+		if err := v.determineComposeCommand(); err != nil {
+			return fmt.Errorf("failed to determine compose command: %w", err)
+		}
+
 		if v.configHandler.GetString("vm.driver") == "colima" {
 			if err := v.WriteConfig(); err != nil {
 				return fmt.Errorf("error regenerating docker compose config: %w", err)
 			}
 		}
 
-		projectRoot, err := v.shell.GetProjectRoot()
-		if err != nil {
-			return fmt.Errorf("error retrieving project root: %w", err)
-		}
+		projectRoot := v.runtime.ProjectRoot
 		composeFilePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
 
 		if err := v.shims.Setenv("COMPOSE_FILE", composeFilePath); err != nil {
@@ -118,14 +91,14 @@ func (v *DockerVirt) Up() error {
 			message := "📦 Running docker compose up"
 
 			if i == 0 {
-				output, err := v.shell.ExecProgress(message, v.composeCommand, args...)
+				output, err := v.execComposeCommand(message, args...)
 				if err == nil {
 					return nil
 				}
 				lastErr = err
 				lastOutput = output
 			} else {
-				output, err := v.shell.ExecSilent(v.composeCommand, args...)
+				output, err := v.execComposeCommandSilent(args...)
 				if err == nil {
 					return nil
 				}
@@ -154,10 +127,11 @@ func (v *DockerVirt) Down() error {
 			return fmt.Errorf("Docker daemon is not running: %w", err)
 		}
 
-		projectRoot, err := v.shell.GetProjectRoot()
-		if err != nil {
-			return fmt.Errorf("error retrieving project root: %w", err)
+		if err := v.determineComposeCommand(); err != nil {
+			return fmt.Errorf("failed to determine compose command: %w", err)
 		}
+
+		projectRoot := v.runtime.ProjectRoot
 		composeFilePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
 
 		if _, err := v.shims.Stat(composeFilePath); os.IsNotExist(err) {
@@ -169,7 +143,7 @@ func (v *DockerVirt) Down() error {
 			return fmt.Errorf("error setting COMPOSE_FILE environment variable: %w", err)
 		}
 
-		output, err := v.shell.ExecProgress("📦 Running docker compose down", v.composeCommand, "down", "--remove-orphans", "--volumes")
+		output, err := v.execComposeCommand("📦 Running docker compose down", "down", "--remove-orphans", "--volumes")
 		if err != nil {
 			return fmt.Errorf("Error executing command %s down: %w\n%s", v.composeCommand, err, output)
 		}
@@ -182,10 +156,7 @@ func (v *DockerVirt) Down() error {
 // the full compose configuration, serializes it to YAML, and writes it to the .windsor
 // directory with appropriate permissions.
 func (v *DockerVirt) WriteConfig() error {
-	projectRoot, err := v.shell.GetProjectRoot()
-	if err != nil {
-		return fmt.Errorf("error retrieving project root: %w", err)
-	}
+	projectRoot := v.runtime.ProjectRoot
 	composeFilePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
 
 	if err := v.shims.MkdirAll(filepath.Dir(composeFilePath), 0755); err != nil {
@@ -210,77 +181,6 @@ func (v *DockerVirt) WriteConfig() error {
 	return nil
 }
 
-// getContainerInfo retrieves detailed information about Docker containers managed by
-// Windsor, including their names, IP addresses, and labels. It filters containers
-// by Windsor-managed labels and context, and optionally by service name if provided.
-// For each container, it retrieves network settings to determine IP addresses.
-func (v *DockerVirt) getContainerInfo(name ...string) ([]ContainerInfo, error) {
-	contextName := v.configHandler.GetContext()
-
-	command := "docker"
-	args := []string{"ps", "--filter", "label=managed_by=windsor", "--filter", fmt.Sprintf("label=context=%s", contextName), "--format", "{{.ID}}"}
-	out, err := v.shell.ExecSilent(command, args...)
-	if err != nil {
-		return nil, err
-	}
-
-	containerIDs := strings.Split(strings.TrimSpace(out), "\n")
-	var containerInfos []ContainerInfo
-
-	for _, containerID := range containerIDs {
-		if containerID == "" {
-			continue
-		}
-		inspectArgs := []string{"inspect", containerID, "--format", "{{json .Config.Labels}}"}
-		inspectOut, err := v.shell.ExecSilent(command, inspectArgs...)
-		if err != nil {
-			return nil, err
-		}
-
-		var labels map[string]string
-		if err := v.shims.UnmarshalJSON([]byte(inspectOut), &labels); err != nil {
-			return nil, fmt.Errorf("error unmarshaling container labels: %w", err)
-		}
-
-		serviceName, _ := labels["com.docker.compose.service"]
-
-		networkInspectArgs := []string{"inspect", containerID, "--format", "{{json .NetworkSettings.Networks}}"}
-		networkInspectOut, err := v.shell.ExecSilent(command, networkInspectArgs...)
-		if err != nil {
-			return nil, fmt.Errorf("error inspecting container networks: %w", err)
-		}
-
-		var networks map[string]struct {
-			IPAddress string `json:"IPAddress"`
-		}
-		if err := v.shims.UnmarshalJSON([]byte(networkInspectOut), &networks); err != nil {
-			return nil, fmt.Errorf("error unmarshaling container networks: %w", err)
-		}
-
-		var ipAddress string
-		networkKey := fmt.Sprintf("windsor-%s", contextName)
-		if network, exists := networks[networkKey]; exists {
-			ipAddress = network.IPAddress
-		}
-
-		containerInfo := ContainerInfo{
-			Name:    serviceName,
-			Address: ipAddress,
-			Labels:  labels,
-		}
-
-		if len(name) > 0 {
-			if slices.Contains(name, serviceName) {
-				containerInfos = append(containerInfos, containerInfo)
-			}
-		} else {
-			containerInfos = append(containerInfos, containerInfo)
-		}
-	}
-
-	return containerInfos, nil
-}
-
 // Ensure DockerVirt implements ContainerRuntime
 var _ ContainerRuntime = (*DockerVirt)(nil)
 
@@ -294,12 +194,42 @@ var _ ContainerRuntime = (*DockerVirt)(nil)
 func (v *DockerVirt) determineComposeCommand() error {
 	commands := []string{"docker-compose", "docker-cli-plugin-docker-compose", "docker compose"}
 	for _, cmd := range commands {
-		if _, err := v.shell.ExecSilent(cmd, "--version"); err == nil {
+		cmdParts := strings.Fields(cmd)
+		if len(cmdParts) == 0 {
+			continue
+		}
+		command := cmdParts[0]
+		args := append(cmdParts[1:], "--version")
+		if _, err := v.shell.ExecSilent(command, args...); err == nil {
 			v.composeCommand = cmd
 			return nil
 		}
 	}
 	return nil
+}
+
+// execComposeCommand executes the compose command with progress indicator, handling
+// commands that may contain spaces (e.g., "docker compose").
+func (v *DockerVirt) execComposeCommand(message string, args ...string) (string, error) {
+	cmdParts := strings.Fields(v.composeCommand)
+	if len(cmdParts) == 0 {
+		return "", fmt.Errorf("compose command is empty")
+	}
+	command := cmdParts[0]
+	allArgs := append(cmdParts[1:], args...)
+	return v.shell.ExecProgress(message, command, allArgs...)
+}
+
+// execComposeCommandSilent executes the compose command silently, handling
+// commands that may contain spaces (e.g., "docker compose").
+func (v *DockerVirt) execComposeCommandSilent(args ...string) (string, error) {
+	cmdParts := strings.Fields(v.composeCommand)
+	if len(cmdParts) == 0 {
+		return "", fmt.Errorf("compose command is empty")
+	}
+	command := cmdParts[0]
+	allArgs := append(cmdParts[1:], args...)
+	return v.shell.ExecSilent(command, allArgs...)
 }
 
 // checkDockerDaemon verifies that the Docker daemon is running and accessible by

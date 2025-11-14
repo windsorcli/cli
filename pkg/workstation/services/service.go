@@ -2,13 +2,12 @@ package services
 
 import (
 	"errors"
-	"fmt"
 	"net"
 	"strings"
 
 	"github.com/compose-spec/compose-go/v2/types"
+	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -30,7 +29,6 @@ type Service interface {
 	GetAddress() string
 	SetName(name string)
 	GetName() string
-	Initialize() error
 	SupportsWildcard() bool
 	GetHostname() string
 }
@@ -41,7 +39,7 @@ type Service interface {
 
 // BaseService is a base implementation of the Service interface
 type BaseService struct {
-	injector      di.Injector
+	runtime      *runtime.Runtime
 	configHandler config.ConfigHandler
 	shell         shell.Shell
 	address       string
@@ -54,31 +52,13 @@ type BaseService struct {
 // =============================================================================
 
 // NewBaseService is a constructor for BaseService
-func NewBaseService(injector di.Injector) *BaseService {
+func NewBaseService(rt *runtime.Runtime) *BaseService {
 	return &BaseService{
-		injector: injector,
-		shims:    NewShims(),
+		runtime:      rt,
+		configHandler: rt.ConfigHandler,
+		shell:         rt.Shell,
+		shims:         NewShims(),
 	}
-}
-
-// =============================================================================
-// Public Methods
-// =============================================================================
-
-func (s *BaseService) Initialize() error {
-	configHandler, ok := s.injector.Resolve("configHandler").(config.ConfigHandler)
-	if !ok {
-		return fmt.Errorf("error resolving configHandler")
-	}
-	s.configHandler = configHandler
-
-	shell, ok := s.injector.Resolve("shell").(shell.Shell)
-	if !ok {
-		return fmt.Errorf("error resolving shell")
-	}
-	s.shell = shell
-
-	return nil
 }
 
 // WriteConfig is a no-op for the Service interface

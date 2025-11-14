@@ -7,7 +7,7 @@ import (
 
 	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 // The DNSService is a core component that manages DNS configuration and resolution
@@ -30,9 +30,9 @@ type DNSService struct {
 // =============================================================================
 
 // NewDNSService creates a new DNSService
-func NewDNSService(injector di.Injector) *DNSService {
+func NewDNSService(rt *runtime.Runtime) *DNSService {
 	return &DNSService{
-		BaseService: *NewBaseService(injector),
+		BaseService: *NewBaseService(rt),
 	}
 }
 
@@ -40,20 +40,9 @@ func NewDNSService(injector di.Injector) *DNSService {
 // Public Methods
 // =============================================================================
 
-// Initialize sets up DNSService by resolving dependencies via DI.
-func (s *DNSService) Initialize() error {
-	if err := s.BaseService.Initialize(); err != nil {
-		return err
-	}
-	resolvedServices, err := s.injector.ResolveAll(new(Service))
-	if err != nil {
-		return fmt.Errorf("error resolving services: %w", err)
-	}
-	for _, serviceInterface := range resolvedServices {
-		service, _ := serviceInterface.(Service)
-		s.services = append(s.services, service)
-	}
-	return nil
+// SetServices sets the services list for DNS service
+func (s *DNSService) SetServices(services []Service) {
+	s.services = services
 }
 
 // SetAddress updates DNS address in config and calls BaseService's SetAddress.
@@ -115,10 +104,7 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 // In localhost mode, it uses a template for local DNS resolution and sets up forwarding rules for DNS queries.
 // The generated Corefile is saved in the .windsor directory for CoreDNS to manage project DNS queries.
 func (s *DNSService) WriteConfig() error {
-	projectRoot, err := s.shell.GetProjectRoot()
-	if err != nil {
-		return fmt.Errorf("error retrieving project root: %w", err)
-	}
+	projectRoot := s.runtime.ProjectRoot
 
 	tld := s.configHandler.GetString("dns.domain", "test")
 

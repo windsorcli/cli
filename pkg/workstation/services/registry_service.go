@@ -9,7 +9,7 @@ import (
 	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 // The RegistryService is a service component that manages Docker registry integration
@@ -38,9 +38,9 @@ type RegistryService struct {
 // =============================================================================
 
 // NewRegistryService is a constructor for RegistryService
-func NewRegistryService(injector di.Injector) *RegistryService {
+func NewRegistryService(rt *runtime.Runtime) *RegistryService {
 	return &RegistryService{
-		BaseService: *NewBaseService(injector),
+		BaseService: *NewBaseService(rt),
 	}
 }
 
@@ -157,10 +157,7 @@ func (s *RegistryService) generateRegistryService(registry docker.RegistryConfig
 	// Always set environment, even if empty
 	service.Environment = env
 
-	projectRoot, err := s.shell.GetProjectRoot()
-	if err != nil {
-		return types.ServiceConfig{}, fmt.Errorf("error retrieving project root: %w", err)
-	}
+	projectRoot := s.runtime.ProjectRoot
 	cacheDir := projectRoot + "/.windsor/.docker-cache"
 	if err := s.shims.MkdirAll(cacheDir, os.ModePerm); err != nil {
 		return service, fmt.Errorf("error creating .docker-cache directory: %w", err)

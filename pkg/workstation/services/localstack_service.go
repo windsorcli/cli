@@ -6,7 +6,7 @@ import (
 
 	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 // The LocalstackService is a service component that manages AWS Localstack integration
@@ -28,9 +28,9 @@ type LocalstackService struct {
 // =============================================================================
 
 // NewLocalstackService is a constructor for LocalstackService
-func NewLocalstackService(injector di.Injector) *LocalstackService {
+func NewLocalstackService(rt *runtime.Runtime) *LocalstackService {
 	return &LocalstackService{
-		BaseService: *NewBaseService(injector),
+		BaseService: *NewBaseService(rt),
 	}
 }
 
@@ -54,7 +54,7 @@ func (s *LocalstackService) GetComposeConfig() (*types.Config, error) {
 
 	// Get the localstack services to enable
 	servicesList := ""
-	if contextConfig.AWS.Localstack.Services != nil {
+	if contextConfig != nil && contextConfig.AWS != nil && contextConfig.AWS.Localstack != nil && contextConfig.AWS.Localstack.Services != nil {
 		servicesList = strings.Join(contextConfig.AWS.Localstack.Services, ",")
 	}
 

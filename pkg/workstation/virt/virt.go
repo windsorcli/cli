@@ -6,11 +6,9 @@
 package virt
 
 import (
-	"fmt"
-
 	"os"
 
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -46,7 +44,7 @@ type ContainerInfo struct {
 }
 
 type BaseVirt struct {
-	injector      di.Injector
+	runtime       *runtime.Runtime
 	shell         shell.Shell
 	configHandler config.ConfigHandler
 	shims         *Shims
@@ -58,7 +56,6 @@ type BaseVirt struct {
 
 // Virt defines methods for the virt operations
 type Virt interface {
-	Initialize() error
 	Up() error
 	Down() error
 	WriteConfig() error
@@ -79,32 +76,13 @@ type ContainerRuntime interface {
 // =============================================================================
 
 // NewBaseVirt creates a new BaseVirt instance
-func NewBaseVirt(injector di.Injector) *BaseVirt {
+func NewBaseVirt(rt *runtime.Runtime) *BaseVirt {
 	return &BaseVirt{
-		injector: injector,
-		shims:    NewShims(),
+		runtime:       rt,
+		shell:         rt.Shell,
+		configHandler: rt.ConfigHandler,
+		shims:         NewShims(),
 	}
-}
-
-// =============================================================================
-// Public Methods
-// =============================================================================
-
-// Initialize is a method that initializes the virt environment
-func (v *BaseVirt) Initialize() error {
-	shellInstance, ok := v.injector.Resolve("shell").(shell.Shell)
-	if !ok {
-		return fmt.Errorf("error resolving shell")
-	}
-	v.shell = shellInstance
-
-	configHandler, ok := v.injector.Resolve("configHandler").(config.ConfigHandler)
-	if !ok {
-		return fmt.Errorf("error resolving configHandler")
-	}
-	v.configHandler = configHandler
-
-	return nil
 }
 
 // setShims sets the shims for testing purposes

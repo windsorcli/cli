@@ -16,7 +16,7 @@ import (
 	"time"
 
 	colimaConfig "github.com/abiosoft/colima/config"
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 // Test hook to force memory overflow
@@ -38,10 +38,10 @@ type ColimaVirt struct {
 // Constructor
 // =============================================================================
 
-// NewColimaVirt creates a new instance of ColimaVirt using a DI injector
-func NewColimaVirt(injector di.Injector) *ColimaVirt {
+// NewColimaVirt creates a new instance of ColimaVirt
+func NewColimaVirt(rt *runtime.Runtime) *ColimaVirt {
 	return &ColimaVirt{
-		BaseVirt: NewBaseVirt(injector),
+		BaseVirt: NewBaseVirt(rt),
 	}
 }
 
@@ -223,14 +223,17 @@ func (v *ColimaVirt) WriteConfig() error {
 // Maps the Go architecture to the Colima architecture format
 // Handles special cases for amd64 and arm64 architectures
 // Returns the architecture string in the format expected by Colima
+// getArch returns the system architecture string formatted for Colima configuration,
+// mapping standard Go architectures to their Colima equivalents using a tagged switch.
 func (v *ColimaVirt) getArch() string {
-	arch := v.BaseVirt.shims.GOARCH()
-	if arch == "amd64" {
+	switch arch := v.shims.GOARCH(); arch {
+	case "amd64":
 		return "x86_64"
-	} else if arch == "arm64" {
+	case "arm64":
 		return "aarch64"
+	default:
+		return arch
 	}
-	return arch
 }
 
 // getDefaultValues retrieves the default values for the VM properties

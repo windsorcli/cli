@@ -13,69 +13,30 @@ import (
 // Test Public Methods
 // =============================================================================
 
-func TestColimaNetworkManager_Initialize(t *testing.T) {
+func TestColimaNetworkManager_AssignIPs(t *testing.T) {
 	setup := func(t *testing.T) (*ColimaNetworkManager, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		manager := NewColimaNetworkManager(mocks.Injector)
+		manager := NewColimaNetworkManager(mocks.Runtime, mocks.SSHClient, mocks.SecureShell, mocks.NetworkInterfaceProvider)
 		manager.shims = mocks.Shims
 		return manager, mocks
 	}
 
-	t.Run("ErrorResolvingSecureShell", func(t *testing.T) {
-		// Given a network manager with invalid secure shell
-		manager, mocks := setup(t)
-		mocks.Injector.Register("secureShell", "invalid")
+	t.Run("Success", func(t *testing.T) {
+		// Given a properly configured network manager
+		manager, _ := setup(t)
 
-		// When initializing the network manager
-		err := manager.Initialize([]services.Service{})
+		// When assigning IPs to services
+		err := manager.AssignIPs([]services.Service{})
 
-		// Then an error should occur
-		if err == nil {
-			t.Fatalf("expected an error during Initialize, got nil")
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("expected no error during AssignIPs, got %v", err)
 		}
 
-		// And the error should be about secure shell type
-		if err.Error() != "resolved secure shell instance is not of type shell.Shell" {
-			t.Fatalf("unexpected error message: got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingSSHClient", func(t *testing.T) {
-		// Given a network manager with invalid SSH client
-		manager, mocks := setup(t)
-		mocks.Injector.Register("sshClient", "invalid")
-
-		// When initializing the network manager
-		err := manager.Initialize([]services.Service{})
-
-		// Then an error should occur
-		if err == nil {
-			t.Fatalf("expected an error during Initialize, got nil")
-		}
-
-		// And the error should be about SSH client type
-		if err.Error() != "resolved ssh client instance is not of type ssh.Client" {
-			t.Fatalf("unexpected error message: got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingNetworkInterfaceProvider", func(t *testing.T) {
-		// Given a network manager with invalid network interface provider
-		manager, mocks := setup(t)
-		mocks.Injector.Register("networkInterfaceProvider", "invalid")
-
-		// When initializing the network manager
-		err := manager.Initialize([]services.Service{})
-
-		// Then an error should occur
-		if err == nil {
-			t.Fatalf("expected an error during Initialize, got nil")
-		}
-
-		// And the error should be about network interface provider type
-		if err.Error() != "failed to resolve network interface provider" {
-			t.Fatalf("unexpected error message: got %v", err)
+		// And services should be set
+		if manager.services == nil {
+			t.Fatalf("expected services to be set")
 		}
 	})
 }
@@ -84,9 +45,9 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	setup := func(t *testing.T) (*ColimaNetworkManager, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		manager := NewColimaNetworkManager(mocks.Injector)
+		manager := NewColimaNetworkManager(mocks.Runtime, mocks.SSHClient, mocks.SecureShell, mocks.NetworkInterfaceProvider)
 		manager.shims = mocks.Shims
-		manager.Initialize([]services.Service{})
+		manager.AssignIPs([]services.Service{})
 		return manager, mocks
 	}
 
@@ -150,7 +111,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		}
 
 		// When initializing the network manager
-		err := manager.Initialize([]services.Service{})
+		err := manager.AssignIPs([]services.Service{})
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -176,7 +137,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		}
 
 		// When initializing the network manager
-		err := manager.Initialize([]services.Service{})
+		err := manager.AssignIPs([]services.Service{})
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -205,7 +166,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		}
 
 		// When initializing the network manager
-		err := manager.Initialize([]services.Service{})
+		err := manager.AssignIPs([]services.Service{})
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -234,7 +195,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		}
 
 		// When initializing the network manager
-		err := manager.Initialize([]services.Service{})
+		err := manager.AssignIPs([]services.Service{})
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -269,7 +230,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		}
 
 		// When initializing the network manager
-		err := manager.Initialize([]services.Service{})
+		err := manager.AssignIPs([]services.Service{})
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -295,7 +256,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		}
 
 		// When initializing the network manager
-		err := manager.Initialize([]services.Service{})
+		err := manager.AssignIPs([]services.Service{})
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -324,7 +285,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		}
 
 		// When initializing the network manager
-		err := manager.Initialize([]services.Service{})
+		err := manager.AssignIPs([]services.Service{})
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -346,8 +307,8 @@ func TestColimaNetworkManager_getHostIP(t *testing.T) {
 	setup := func(t *testing.T) (*ColimaNetworkManager, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		manager := NewColimaNetworkManager(mocks.Injector)
-		manager.Initialize([]services.Service{})
+		manager := NewColimaNetworkManager(mocks.Runtime, mocks.SSHClient, mocks.SecureShell, mocks.NetworkInterfaceProvider)
+		manager.AssignIPs([]services.Service{})
 		return manager, mocks
 	}
 

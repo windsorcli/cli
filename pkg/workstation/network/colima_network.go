@@ -6,10 +6,9 @@ import (
 	"strings"
 
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/runtime/shell/ssh"
-	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
 // The ColimaNetworkManager is a specialized network manager for Colima-based environments.
@@ -32,51 +31,20 @@ type ColimaNetworkManager struct {
 // =============================================================================
 
 // NewColimaNetworkManager creates a new ColimaNetworkManager
-func NewColimaNetworkManager(injector di.Injector) *ColimaNetworkManager {
+func NewColimaNetworkManager(rt *runtime.Runtime, sshClient ssh.Client, secureShell shell.Shell, networkInterfaceProvider NetworkInterfaceProvider) *ColimaNetworkManager {
 	manager := &ColimaNetworkManager{
-		BaseNetworkManager: *NewBaseNetworkManager(injector),
+		BaseNetworkManager:       *NewBaseNetworkManager(rt),
+		networkInterfaceProvider: networkInterfaceProvider,
 	}
-	if provider, ok := injector.Resolve("networkInterfaceProvider").(NetworkInterfaceProvider); ok {
-		manager.networkInterfaceProvider = provider
-	}
-	return manager
-}
-
-// =============================================================================
-// Public Methods
-// =============================================================================
-
-// Initialize sets up the ColimaNetworkManager by resolving dependencies for
-// sshClient, shell, and secureShell from the injector.
-func (n *ColimaNetworkManager) Initialize(services []services.Service) error {
-	if err := n.BaseNetworkManager.Initialize(services); err != nil {
-		return err
-	}
-
-	sshClient, ok := n.injector.Resolve("sshClient").(ssh.Client)
-	if !ok {
-		return fmt.Errorf("resolved ssh client instance is not of type ssh.Client")
-	}
-	n.sshClient = sshClient
-
-	secureShell, ok := n.injector.Resolve("secureShell").(shell.Shell)
-	if !ok {
-		return fmt.Errorf("resolved secure shell instance is not of type shell.Shell")
-	}
-	n.secureShell = secureShell
-
-	networkInterfaceProvider, ok := n.injector.Resolve("networkInterfaceProvider").(NetworkInterfaceProvider)
-	if !ok {
-		return fmt.Errorf("failed to resolve network interface provider")
-	}
-	n.networkInterfaceProvider = networkInterfaceProvider
+	manager.sshClient = sshClient
+	manager.secureShell = secureShell
 
 	// Set docker.NetworkCIDR to the default value if it's not set
-	if n.configHandler.GetString("network.cidr_block") == "" {
-		return n.configHandler.Set("network.cidr_block", constants.DefaultNetworkCIDR)
+	if manager.configHandler.GetString("network.cidr_block") == "" {
+		manager.configHandler.Set("network.cidr_block", constants.DefaultNetworkCIDR)
 	}
 
-	return nil
+	return manager
 }
 
 // ConfigureGuest sets up forwarding of guest traffic to the container network.
