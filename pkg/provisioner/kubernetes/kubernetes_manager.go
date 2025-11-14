@@ -19,7 +19,6 @@ import (
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -34,7 +33,6 @@ import (
 
 // KubernetesManager defines methods for Kubernetes resource management
 type KubernetesManager interface {
-	Initialize() error
 	ApplyKustomization(kustomization kustomizev1.Kustomization) error
 	DeleteKustomization(name, namespace string) error
 	WaitForKustomizations(message string, names ...string) error
@@ -60,9 +58,8 @@ type KubernetesManager interface {
 
 // BaseKubernetesManager implements KubernetesManager interface
 type BaseKubernetesManager struct {
-	injector di.Injector
-	shims    *Shims
-	client   client.KubernetesClient
+	shims  *Shims
+	client client.KubernetesClient
 
 	kustomizationWaitPollInterval time.Duration
 	kustomizationReconcileTimeout time.Duration
@@ -70,29 +67,21 @@ type BaseKubernetesManager struct {
 }
 
 // NewKubernetesManager creates a new instance of BaseKubernetesManager
-func NewKubernetesManager(injector di.Injector) *BaseKubernetesManager {
-	return &BaseKubernetesManager{
-		injector:                      injector,
+func NewKubernetesManager(kubernetesClient client.KubernetesClient) *BaseKubernetesManager {
+	manager := &BaseKubernetesManager{
+		client:                        kubernetesClient,
 		shims:                         NewShims(),
 		kustomizationWaitPollInterval: 2 * time.Second,
 		kustomizationReconcileTimeout: 5 * time.Minute,
 		kustomizationReconcileSleep:   2 * time.Second,
 	}
+
+	return manager
 }
 
 // =============================================================================
 // Public Methods
 // =============================================================================
-
-// Initialize sets up the BaseKubernetesManager by resolving dependencies
-func (k *BaseKubernetesManager) Initialize() error {
-	kubernetesClient, ok := k.injector.Resolve("kubernetesClient").(client.KubernetesClient)
-	if !ok {
-		return fmt.Errorf("error resolving kubernetesClient")
-	}
-	k.client = kubernetesClient
-	return nil
-}
 
 // ApplyKustomization creates or updates a Kustomization resource using SSA
 func (k *BaseKubernetesManager) ApplyKustomization(kustomization kustomizev1.Kustomization) error {

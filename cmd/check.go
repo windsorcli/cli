@@ -5,10 +5,11 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/provisioner"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 var (
@@ -93,11 +94,8 @@ var checkNodeHealthCmd = &cobra.Command{
 			return fmt.Errorf("Nothing to check. Have you run \033[1mwindsor init\033[0m?")
 		}
 
-		provisionerCtx := &provisioner.ProvisionerRuntime{
-			Runtime: *rt,
-		}
-
-		prov := provisioner.NewProvisioner(provisionerCtx)
+		comp := composer.NewComposer(rt)
+		prov := provisioner.NewProvisioner(rt, comp.BlueprintHandler)
 
 		outputFunc := func(output string) {
 			fmt.Fprintln(cmd.OutOrStdout(), output)

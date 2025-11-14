@@ -8,12 +8,13 @@ import (
 
 	"github.com/briandowns/spinner"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/cluster"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	k8sclient "github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
-	execcontext "github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 // The Provisioner package provides high-level infrastructure provisioning functionality
@@ -26,10 +27,11 @@ import (
 // Types
 // =============================================================================
 
-// ProvisionerRuntime holds the execution context for provisioner operations.
-// It embeds the base Runtime and includes all provisioner-specific dependencies.
-type ProvisionerRuntime struct {
-	execcontext.Runtime
+// Provisioner manages the lifecycle of all infrastructure components (terraform, kubernetes, clusters).
+// It provides a unified interface for creating, initializing, and managing these infrastructure components
+// with proper dependency injection and error handling.
+type Provisioner struct {
+	*runtime.Runtime
 
 	TerraformStack    terraforminfra.Stack
 	KubernetesManager kubernetes.KubernetesManager
@@ -37,66 +39,58 @@ type ProvisionerRuntime struct {
 	ClusterClient     cluster.ClusterClient
 }
 
-// Provisioner manages the lifecycle of all infrastructure components (terraform, kubernetes, clusters).
-// It provides a unified interface for creating, initializing, and managing these infrastructure components
-// with proper dependency injection and error handling.
-type Provisioner struct {
-	*ProvisionerRuntime
-}
-
 // =============================================================================
 // Constructor
 // =============================================================================
 
-// NewProvisioner creates a new Provisioner instance with the provided execution context.
+// NewProvisioner creates a new Provisioner instance with the provided runtime and blueprint handler.
 // It sets up all required provisioner handlers—terraform stack, kubernetes manager, kubernetes client,
-// and cluster client—and registers each handler with the dependency injector for use throughout the
-// provisioner lifecycle. The cluster client is created based on the cluster driver configuration (talos/omni).
+// and cluster client. The cluster client is created based on the cluster driver configuration (talos/omni).
 // Components are initialized lazily when needed by the Up() and Down() methods.
 // Returns a pointer to the Provisioner struct.
-func NewProvisioner(ctx *ProvisionerRuntime) *Provisioner {
-	infra := &Provisioner{
-		ProvisionerRuntime: ctx,
+func NewProvisioner(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler, opts ...*Provisioner) *Provisioner {
+	provisioner := &Provisioner{
+		Runtime: rt,
 	}
 
-	if infra.TerraformStack == nil {
-		if existing := infra.Injector.Resolve("terraformStack"); existing != nil {
-			if ts, ok := existing.(terraforminfra.Stack); ok {
-				infra.TerraformStack = ts
-			}
+	if len(opts) > 0 && opts[0] != nil {
+		overrides := opts[0]
+		if overrides.TerraformStack != nil {
+			provisioner.TerraformStack = overrides.TerraformStack
 		}
-		if infra.TerraformStack == nil {
-			infra.TerraformStack = terraforminfra.NewWindsorStack(infra.Injector)
-			infra.Injector.Register("terraformStack", infra.TerraformStack)
+		if overrides.KubernetesManager != nil {
+			provisioner.KubernetesManager = overrides.KubernetesManager
 		}
-	}
-
-	if infra.KubernetesClient == nil {
-		infra.KubernetesClient = k8sclient.NewDynamicKubernetesClient()
-		infra.Injector.Register("kubernetesClient", infra.KubernetesClient)
-	}
-
-	if infra.KubernetesManager == nil {
-		if existing := infra.Injector.Resolve("kubernetesManager"); existing != nil {
-			if km, ok := existing.(kubernetes.KubernetesManager); ok {
-				infra.KubernetesManager = km
-			}
+		if overrides.KubernetesClient != nil {
+			provisioner.KubernetesClient = overrides.KubernetesClient
 		}
-		if infra.KubernetesManager == nil {
-			infra.KubernetesManager = kubernetes.NewKubernetesManager(infra.Injector)
-			infra.Injector.Register("kubernetesManager", infra.KubernetesManager)
+		if overrides.ClusterClient != nil {
+			provisioner.ClusterClient = overrides.ClusterClient
 		}
 	}
 
-	if infra.ClusterClient == nil {
-		clusterDriver := infra.ConfigHandler.GetString("cluster.driver", "")
+	if provisioner.KubernetesClient == nil {
+		provisioner.KubernetesClient = k8sclient.NewDynamicKubernetesClient()
+	}
+
+	if provisioner.KubernetesManager == nil {
+		provisioner.KubernetesManager = kubernetes.NewKubernetesManager(provisioner.KubernetesClient)
+	}
+
+	if provisioner.TerraformStack == nil {
+		if rt.ConfigHandler != nil && rt.ConfigHandler.GetBool("terraform.enabled", false) {
+			provisioner.TerraformStack = terraforminfra.NewWindsorStack(rt, blueprintHandler)
+		}
+	}
+
+	if provisioner.ClusterClient == nil {
+		clusterDriver := rt.ConfigHandler.GetString("cluster.driver", "")
 		if clusterDriver == "talos" || clusterDriver == "omni" {
-			infra.ClusterClient = cluster.NewTalosClusterClient(infra.Injector)
-			infra.Injector.Register("clusterClient", infra.ClusterClient)
+			provisioner.ClusterClient = cluster.NewTalosClusterClient()
 		}
 	}
 
-	return infra
+	return provisioner
 }
 
 // =============================================================================
@@ -106,17 +100,14 @@ func NewProvisioner(ctx *ProvisionerRuntime) *Provisioner {
 // Up orchestrates the high-level infrastructure deployment process. It executes terraform apply operations
 // for all components in the stack. This method coordinates terraform, kubernetes, and cluster operations
 // to bring up the complete infrastructure. Initializes components as needed. The blueprint parameter is required.
-// Returns an error if any step fails.
+// If terraform is disabled (terraform.enabled is false), terraform operations are skipped. Returns an error if any step fails.
 func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
 
 	if i.TerraformStack == nil {
-		return fmt.Errorf("terraform stack not configured")
-	}
-	if err := i.TerraformStack.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize terraform stack: %w", err)
+		return nil
 	}
 	if err := i.TerraformStack.Up(blueprint); err != nil {
 		return fmt.Errorf("failed to run terraform up: %w", err)
@@ -127,17 +118,15 @@ func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 // Down orchestrates the high-level infrastructure teardown process. It executes terraform destroy operations
 // for all components in the stack in reverse dependency order. Components with Destroy set to false are skipped.
 // This method coordinates terraform, kubernetes, and cluster operations to tear down the infrastructure.
-// Initializes components as needed. The blueprint parameter is required. Returns an error if any destroy operation fails.
+// Initializes components as needed. The blueprint parameter is required. If terraform is disabled (terraform.enabled is false),
+// terraform operations are skipped. Returns an error if any destroy operation fails.
 func (i *Provisioner) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
 
 	if i.TerraformStack == nil {
-		return fmt.Errorf("terraform stack not configured")
-	}
-	if err := i.TerraformStack.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize terraform stack: %w", err)
+		return nil
 	}
 	if err := i.TerraformStack.Down(blueprint); err != nil {
 		return fmt.Errorf("failed to run terraform down: %w", err)
@@ -156,9 +145,6 @@ func (i *Provisioner) Install(blueprint *blueprintv1alpha1.Blueprint) error {
 
 	if i.KubernetesManager == nil {
 		return fmt.Errorf("kubernetes manager not configured")
-	}
-	if err := i.KubernetesManager.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize kubernetes manager: %w", err)
 	}
 
 	message := "📐 Installing blueprint resources"
@@ -189,9 +175,6 @@ func (i *Provisioner) Wait(blueprint *blueprintv1alpha1.Blueprint) error {
 	if i.KubernetesManager == nil {
 		return fmt.Errorf("kubernetes manager not configured")
 	}
-	if err := i.KubernetesManager.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize kubernetes manager: %w", err)
-	}
 
 	kustomizationNames := make([]string, len(blueprint.Kustomizations))
 	for i, k := range blueprint.Kustomizations {
@@ -216,9 +199,6 @@ func (i *Provisioner) Uninstall(blueprint *blueprintv1alpha1.Blueprint) error {
 
 	if i.KubernetesManager == nil {
 		return fmt.Errorf("kubernetes manager not configured")
-	}
-	if err := i.KubernetesManager.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize kubernetes manager: %w", err)
 	}
 
 	message := "🗑️  Uninstalling blueprint resources"
@@ -288,9 +268,6 @@ func (i *Provisioner) CheckNodeHealth(ctx context.Context, options NodeHealthChe
 	if hasK8sCheck {
 		if i.KubernetesManager == nil {
 			return fmt.Errorf("no kubernetes manager found")
-		}
-		if err := i.KubernetesManager.Initialize(); err != nil {
-			return fmt.Errorf("failed to initialize kubernetes manager: %w", err)
 		}
 
 		k8sEndpointStr := options.K8SEndpoint

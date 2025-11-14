@@ -47,16 +47,7 @@ Examples:
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
-		var override *composer.Composer
-		if existingArtifactBuilder := injector.Resolve("artifactBuilder"); existingArtifactBuilder != nil {
-			if artifactBuilder, ok := existingArtifactBuilder.(artifact.Artifact); ok {
-				override = &composer.Composer{
-					ArtifactBuilder: artifactBuilder,
-				}
-			}
-		}
-
-		comp := composer.NewComposer(rt, override)
+		comp := composer.NewComposer(rt)
 
 		registryURL, err := comp.Push(args[0])
 		if err != nil {

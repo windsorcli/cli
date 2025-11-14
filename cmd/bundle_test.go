@@ -9,12 +9,14 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/runtime/config"
-	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
+	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
+	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================
@@ -183,15 +185,22 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		injector.Register("blueprintHandler", mockBlueprintHandler)
 
 		// Mock artifact builder that fails during bundle
-		// The bundle command checks the injector for an existing artifactBuilder
 		mockArtifactBuilder := artifact.NewMockArtifact()
-		mockArtifactBuilder.InitializeFunc = func(injector di.Injector) error {
-			return nil
-		}
 		mockArtifactBuilder.WriteFunc = func(outputPath string, tag string) (string, error) {
 			return "", fmt.Errorf("artifact bundle failed")
 		}
-		injector.Register("artifactBuilder", mockArtifactBuilder)
+
+		// Create runtime and composer with mock artifact builder override
+		rt := &runtime.Runtime{
+			Injector: injector,
+		}
+		rt, err := runtime.NewRuntime(rt)
+		if err != nil {
+			t.Fatalf("Failed to create runtime: %v", err)
+		}
+		mockComposer := composer.NewComposer(rt, &composer.Composer{
+			ArtifactBuilder: mockArtifactBuilder,
+		})
 
 		// Create test command
 		cmd := &cobra.Command{
@@ -202,19 +211,21 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		cmd.Flags().StringP("output", "o", ".", "Output path for bundle archive")
 		cmd.Flags().StringP("tag", "t", "", "Tag in 'name:version' format")
 
-		// Set up context
+		// Set up context with composer overrides
 		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		ctx = context.WithValue(ctx, composerOverridesKey, mockComposer)
 		cmd.SetContext(ctx)
 
 		// Set arguments
 		cmd.SetArgs([]string{"--tag", "test:v1.0.0"})
 
 		// Execute command
-		err := cmd.Execute()
+		err = cmd.Execute()
 
 		// Verify error
 		if err == nil {
 			t.Error("Expected error, got nil")
+			return
 		}
 		if !strings.Contains(err.Error(), "failed to bundle artifacts") {
 			t.Errorf("Expected error to contain 'failed to bundle artifacts', got %v", err)

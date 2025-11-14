@@ -114,7 +114,9 @@ var initCmd = &cobra.Command{
 			}
 		}
 
-		proj, err := project.NewProject(injector, contextName, rt)
+		proj, err := project.NewProject(injector, contextName, &project.Project{
+			Runtime: rt,
+		})
 		if err != nil {
 			return err
 		}

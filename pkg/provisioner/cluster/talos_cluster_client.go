@@ -12,8 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/windsorcli/cli/pkg/di"
-
 	"github.com/siderolabs/talos/pkg/machinery/client"
 	clientconfig "github.com/siderolabs/talos/pkg/machinery/client/config"
 )
@@ -25,10 +23,9 @@ import (
 // TalosClusterClient implements ClusterClient for Talos clusters
 type TalosClusterClient struct {
 	*BaseClusterClient
-	injector di.Injector
-	shims    *Shims
-	config   *clientconfig.Config
-	client   *client.Client
+	shims  *Shims
+	config *clientconfig.Config
+	client *client.Client
 }
 
 // =============================================================================
@@ -36,10 +33,9 @@ type TalosClusterClient struct {
 // =============================================================================
 
 // NewTalosClusterClient creates a new TalosClusterClient instance with default configuration
-func NewTalosClusterClient(injector di.Injector) *TalosClusterClient {
+func NewTalosClusterClient() *TalosClusterClient {
 	return &TalosClusterClient{
 		BaseClusterClient: NewBaseClusterClient(),
-		injector:          injector,
 		shims:             NewShims(),
 	}
 }

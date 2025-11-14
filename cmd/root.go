@@ -14,6 +14,8 @@ var verbose bool
 type contextKey string
 
 const injectorKey = contextKey("injector")
+const projectOverridesKey = contextKey("projectOverrides")
+const composerOverridesKey = contextKey("composerOverrides")
 
 var shims = NewShims()
 

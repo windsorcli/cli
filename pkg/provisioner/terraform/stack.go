@@ -16,10 +16,9 @@ import (
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	envvars "github.com/windsorcli/cli/pkg/runtime/env"
-	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/runtime"
+	envvars "github.com/windsorcli/cli/pkg/runtime/env"
 )
 
 // =============================================================================
@@ -28,7 +27,6 @@ import (
 
 // Stack is an interface that represents a stack of components.
 type Stack interface {
-	Initialize() error
 	Up(blueprint *blueprintv1alpha1.Blueprint) error
 	Down(blueprint *blueprintv1alpha1.Blueprint) error
 }
@@ -39,9 +37,8 @@ type Stack interface {
 
 // BaseStack is a struct that implements the Stack interface.
 type BaseStack struct {
-	injector         di.Injector
+	runtime          *runtime.Runtime
 	blueprintHandler blueprint.BlueprintHandler
-	shell            shell.Shell
 	shims            *Shims
 }
 
@@ -56,42 +53,38 @@ type WindsorStack struct {
 // =============================================================================
 
 // NewBaseStack creates a new base stack of components.
-func NewBaseStack(injector di.Injector) *BaseStack {
+func NewBaseStack(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler) *BaseStack {
 	return &BaseStack{
-		injector: injector,
-		shims:    NewShims(),
+		runtime:          rt,
+		blueprintHandler: blueprintHandler,
+		shims:            NewShims(),
 	}
 }
 
 // NewWindsorStack creates a new WindsorStack.
-func NewWindsorStack(injector di.Injector) *WindsorStack {
-	return &WindsorStack{
+func NewWindsorStack(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler, opts ...*WindsorStack) *WindsorStack {
+	stack := &WindsorStack{
 		BaseStack: BaseStack{
-			injector: injector,
-			shims:    NewShims(),
+			runtime:          rt,
+			blueprintHandler: blueprintHandler,
+			shims:            NewShims(),
 		},
 	}
-}
 
-// =============================================================================
-// Public Methods
-// =============================================================================
-
-// Initialize initializes the stack of components.
-func (s *BaseStack) Initialize() error {
-	shell, ok := s.injector.Resolve("shell").(shell.Shell)
-	if !ok {
-		return fmt.Errorf("error resolving shell")
+	if len(opts) > 0 && opts[0] != nil {
+		overrides := opts[0]
+		if overrides.terraformEnv != nil {
+			stack.terraformEnv = overrides.terraformEnv
+		}
 	}
-	s.shell = shell
 
-	blueprintHandler, ok := s.injector.Resolve("blueprintHandler").(blueprint.BlueprintHandler)
-	if !ok {
-		return fmt.Errorf("error resolving blueprintHandler")
+	if stack.terraformEnv == nil && rt.EnvPrinters.TerraformEnv != nil {
+		if terraformEnv, ok := rt.EnvPrinters.TerraformEnv.(*envvars.TerraformEnvPrinter); ok {
+			stack.terraformEnv = terraformEnv
+		}
 	}
-	s.blueprintHandler = blueprintHandler
 
-	return nil
+	return stack
 }
 
 // Up creates a new stack of components.
@@ -101,26 +94,6 @@ func (s *BaseStack) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 
 // Down destroys a stack of components.
 func (s *BaseStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
-	return nil
-}
-
-// Initialize initializes the WindsorStack by calling the base Initialize and resolving terraform environment.
-func (s *WindsorStack) Initialize() error {
-	if err := s.BaseStack.Initialize(); err != nil {
-		return err
-	}
-
-	terraformEnvInterface := s.injector.Resolve("terraformEnv")
-	if terraformEnvInterface == nil {
-		return fmt.Errorf("terraformEnv not found in dependency injector")
-	}
-
-	terraformEnv, ok := terraformEnvInterface.(*envvars.TerraformEnvPrinter)
-	if !ok {
-		return fmt.Errorf("error resolving terraformEnv")
-	}
-	s.terraformEnv = terraformEnv
-
 	return nil
 }
 
@@ -143,9 +116,9 @@ func (s *WindsorStack) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 		_ = s.shims.Chdir(currentDir)
 	}()
 
-	projectRoot, err := s.shell.GetProjectRoot()
-	if err != nil {
-		return fmt.Errorf("error getting project root: %w", err)
+	projectRoot := s.runtime.ProjectRoot
+	if projectRoot == "" {
+		return fmt.Errorf("error getting project root: project root is empty")
 	}
 	components := s.resolveTerraformComponents(blueprint, projectRoot)
 
@@ -154,7 +127,11 @@ func (s *WindsorStack) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 			return fmt.Errorf("directory %s does not exist", component.FullPath)
 		}
 
-		terraformArgs, err := s.terraformEnv.GenerateTerraformArgs(component.Path, component.FullPath)
+		terraformEnv := s.getTerraformEnv()
+		if terraformEnv == nil {
+			return fmt.Errorf("terraform environment printer not available")
+		}
+		terraformArgs, err := terraformEnv.GenerateTerraformArgs(component.Path, component.FullPath)
 		if err != nil {
 			return fmt.Errorf("error generating terraform args for %s: %w", component.Path, err)
 		}
@@ -174,31 +151,31 @@ func (s *WindsorStack) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 			}
 		}
 
-		if err := s.terraformEnv.PostEnvHook(component.FullPath); err != nil {
+		if err := terraformEnv.PostEnvHook(component.FullPath); err != nil {
 			return fmt.Errorf("error creating backend override file for %s: %w", component.Path, err)
 		}
 
 		initArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "init"}
 		initArgs = append(initArgs, terraformArgs.InitArgs...)
-		_, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Initializing Terraform in %s", component.Path), "terraform", initArgs...)
+		_, err = s.runtime.Shell.ExecProgress(fmt.Sprintf("🌎 Initializing Terraform in %s", component.Path), "terraform", initArgs...)
 		if err != nil {
 			return fmt.Errorf("error running terraform init for %s: %w", component.Path, err)
 		}
 
 		refreshArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "refresh"}
 		refreshArgs = append(refreshArgs, terraformArgs.RefreshArgs...)
-		_, _ = s.shell.ExecProgress(fmt.Sprintf("🔄 Refreshing Terraform state in %s", component.Path), "terraform", refreshArgs...)
+		_, _ = s.runtime.Shell.ExecProgress(fmt.Sprintf("🔄 Refreshing Terraform state in %s", component.Path), "terraform", refreshArgs...)
 
 		planArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "plan"}
 		planArgs = append(planArgs, terraformArgs.PlanArgs...)
-		_, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Planning Terraform changes in %s", component.Path), "terraform", planArgs...)
+		_, err = s.runtime.Shell.ExecProgress(fmt.Sprintf("🌎 Planning Terraform changes in %s", component.Path), "terraform", planArgs...)
 		if err != nil {
 			return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
 		}
 
 		applyArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "apply"}
 		applyArgs = append(applyArgs, terraformArgs.ApplyArgs...)
-		_, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Applying Terraform changes in %s", component.Path), "terraform", applyArgs...)
+		_, err = s.runtime.Shell.ExecProgress(fmt.Sprintf("🌎 Applying Terraform changes in %s", component.Path), "terraform", applyArgs...)
 		if err != nil {
 			return fmt.Errorf("error running terraform apply for %s: %w", component.Path, err)
 		}
@@ -233,9 +210,9 @@ func (s *WindsorStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 		_ = s.shims.Chdir(currentDir)
 	}()
 
-	projectRoot, err := s.shell.GetProjectRoot()
-	if err != nil {
-		return fmt.Errorf("error getting project root: %w", err)
+	projectRoot := s.runtime.ProjectRoot
+	if projectRoot == "" {
+		return fmt.Errorf("error getting project root: project root is empty")
 	}
 	components := s.resolveTerraformComponents(blueprint, projectRoot)
 
@@ -250,7 +227,11 @@ func (s *WindsorStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 			continue
 		}
 
-		terraformArgs, err := s.terraformEnv.GenerateTerraformArgs(component.Path, component.FullPath)
+		terraformEnv := s.getTerraformEnv()
+		if terraformEnv == nil {
+			return fmt.Errorf("terraform environment printer not available")
+		}
+		terraformArgs, err := terraformEnv.GenerateTerraformArgs(component.Path, component.FullPath)
 		if err != nil {
 			return fmt.Errorf("error generating terraform args for %s: %w", component.Path, err)
 		}
@@ -270,23 +251,23 @@ func (s *WindsorStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 			}
 		}
 
-		if err := s.terraformEnv.PostEnvHook(component.FullPath); err != nil {
+		if err := terraformEnv.PostEnvHook(component.FullPath); err != nil {
 			return fmt.Errorf("error creating backend override file for %s: %w", component.Path, err)
 		}
 
 		refreshArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "refresh"}
 		refreshArgs = append(refreshArgs, terraformArgs.RefreshArgs...)
-		_, _ = s.shell.ExecProgress(fmt.Sprintf("🔄 Refreshing Terraform state in %s", component.Path), "terraform", refreshArgs...)
+		_, _ = s.runtime.Shell.ExecProgress(fmt.Sprintf("🔄 Refreshing Terraform state in %s", component.Path), "terraform", refreshArgs...)
 
 		planArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "plan"}
 		planArgs = append(planArgs, terraformArgs.PlanDestroyArgs...)
-		if _, err := s.shell.ExecProgress(fmt.Sprintf("🗑️  Planning terraform destroy for %s", component.Path), "terraform", planArgs...); err != nil {
+		if _, err := s.runtime.Shell.ExecProgress(fmt.Sprintf("🗑️  Planning terraform destroy for %s", component.Path), "terraform", planArgs...); err != nil {
 			return fmt.Errorf("error running terraform plan destroy for %s: %w", component.Path, err)
 		}
 
 		destroyArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "destroy"}
 		destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
-		if _, err := s.shell.ExecProgress(fmt.Sprintf("🗑️  Destroying terraform for %s", component.Path), "terraform", destroyArgs...); err != nil {
+		if _, err := s.runtime.Shell.ExecProgress(fmt.Sprintf("🗑️  Destroying terraform for %s", component.Path), "terraform", destroyArgs...); err != nil {
 			return fmt.Errorf("error running terraform destroy for %s: %w", component.Path, err)
 		}
 
@@ -412,6 +393,20 @@ func (s *WindsorStack) isOCISource(sourceNameOrURL string, blueprint *blueprintv
 		}
 	}
 	return false
+}
+
+// getTerraformEnv returns the terraform environment printer, checking the runtime if not set on the stack.
+func (s *WindsorStack) getTerraformEnv() *envvars.TerraformEnvPrinter {
+	if s.terraformEnv != nil {
+		return s.terraformEnv
+	}
+	if s.runtime.EnvPrinters.TerraformEnv != nil {
+		if terraformEnv, ok := s.runtime.EnvPrinters.TerraformEnv.(*envvars.TerraformEnvPrinter); ok {
+			s.terraformEnv = terraformEnv
+			return terraformEnv
+		}
+	}
+	return nil
 }
 
 // Ensure BaseStack implements Stack

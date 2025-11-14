@@ -22,11 +22,12 @@ import (
 // Types
 // =============================================================================
 
-// Composer manages the lifecycle of all resource types (artifact, blueprint, terraform).
-// It provides a unified interface for creating, initializing, and managing these resources
-// with proper dependency injection and error handling.
+// Composer holds the execution context for resource operations.
+// It embeds the base Runtime and includes all resource-specific dependencies.
 type Composer struct {
-	Runtime           *runtime.Runtime
+	runtime.Runtime
+
+	// Resource-specific dependencies
 	ArtifactBuilder   artifact.Artifact
 	BlueprintHandler  blueprint.BlueprintHandler
 	TerraformResolver terraform.ModuleResolver
@@ -42,7 +43,7 @@ type Composer struct {
 // Returns a pointer to the fully initialized Composer struct.
 func NewComposer(rt *runtime.Runtime, opts ...*Composer) *Composer {
 	composer := &Composer{
-		Runtime: rt,
+		Runtime: *rt,
 	}
 
 	if len(opts) > 0 && opts[0] != nil {

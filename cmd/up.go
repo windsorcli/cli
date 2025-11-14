@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/di"
@@ -21,7 +22,12 @@ var upCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		proj, err := project.NewProject(injector, "")
+		var opts []*project.Project
+		if overridesVal := cmd.Context().Value(projectOverridesKey); overridesVal != nil {
+			opts = []*project.Project{overridesVal.(*project.Project)}
+		}
+
+		proj, err := project.NewProject(injector, "", opts...)
 		if err != nil {
 			return err
 		}
@@ -66,6 +72,8 @@ var upCmd = &cobra.Command{
 				}
 			}
 		}
+
+		fmt.Fprintln(os.Stderr, "Windsor environment set up successfully.")
 
 		return nil
 	},
