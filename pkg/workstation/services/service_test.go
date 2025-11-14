@@ -5,8 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -32,14 +33,13 @@ func (m *mockFileInfo) IsDir() bool        { return m.isDir }
 func (m *mockFileInfo) Sys() interface{}   { return nil }
 
 type Mocks struct {
-	Injector      di.Injector
+	Runtime       *runtime.Runtime
 	ConfigHandler config.ConfigHandler
 	Shell         *shell.MockShell
 	Shims         *Shims
 }
 
 type SetupOptions struct {
-	Injector      di.Injector
 	ConfigHandler config.ConfigHandler
 	ConfigStr     string
 }
@@ -115,33 +115,25 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		}
 	})
 
-	// Create injector if not provided
-	var injector di.Injector
-	if len(opts) > 0 && opts[0].Injector != nil {
-		injector = opts[0].Injector
-	} else {
-		injector = di.NewInjector()
-	}
-
-	// Create and register mock shell first
-	mockShell := shell.NewMockShell(injector)
+	// Create mock shell
+	mockShell := shell.NewMockShell(nil)
 	mockShell.GetProjectRootFunc = func() (string, error) {
 		return tmpDir, nil
 	}
-	injector.Register("shell", mockShell)
 
 	// Create config handler if not provided
 	var configHandler config.ConfigHandler
 	if len(opts) > 0 && opts[0].ConfigHandler != nil {
 		configHandler = opts[0].ConfigHandler
 	} else {
+		// Create minimal injector for config handler initialization
+		injector := di.NewInjector()
+		injector.Register("shell", mockShell)
 		configHandler = config.NewConfigHandler(injector)
-	}
-	injector.Register("configHandler", configHandler)
-
-	// Initialize config handler
-	if err := configHandler.Initialize(); err != nil {
-		t.Fatalf("Failed to initialize config handler: %v", err)
+		// Initialize config handler
+		if err := configHandler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize config handler: %v", err)
+		}
 	}
 
 	configHandler.SetContext("mock-context")
@@ -175,8 +167,17 @@ contexts:
 		}
 	}
 
+	rt := &runtime.Runtime{
+		ProjectRoot:   tmpDir,
+		ConfigRoot:    tmpDir,
+		TemplateRoot:  tmpDir,
+		ContextName:   "mock-context",
+		ConfigHandler: configHandler,
+		Shell:         mockShell,
+	}
+
 	return &Mocks{
-		Injector:      injector,
+		Runtime:       rt,
 		ConfigHandler: configHandler,
 		Shell:         mockShell,
 		Shims:         setupShims(t),
@@ -187,57 +188,39 @@ contexts:
 // Test Public Methods
 // =============================================================================
 
-func TestBaseService_Initialize(t *testing.T) {
+func TestBaseService_NewBaseService(t *testing.T) {
 	setup := func(t *testing.T) (*BaseService, *Mocks) {
 		mocks := setupMocks(t)
-		service := NewBaseService(mocks.Injector)
+		service := NewBaseService(mocks.Runtime)
 		return service, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a set of mock components
-		service, _ := setup(t)
+		service, mocks := setup(t)
 
-		// When a new BaseService is created and initialized
-		err := service.Initialize()
-
-		// Then the initialization should succeed without errors
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
-
-		// And the resolved dependencies should be set correctly
+		// Then the service should be created with dependencies set correctly
 		if service.configHandler == nil {
 			t.Fatalf("expected configHandler to be set, got nil")
 		}
 		if service.shell == nil {
 			t.Fatalf("expected shell to be set, got nil")
 		}
-	})
-
-	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		// Given a set of mock components
-		service, mocks := setup(t)
-
-		// And the injector is set to return nil for the shell dependency
-		mocks.Injector.Register("shell", nil)
-
-		// When a new BaseService is created and initialized
-		err := service.Initialize()
-
-		// Then the initialization should fail with an error
-		if err == nil {
-			t.Fatalf("expected an error during initialization, got nil")
+		if service.configHandler != mocks.ConfigHandler {
+			t.Fatalf("expected configHandler to match mocks")
+		}
+		if service.shell != mocks.Shell {
+			t.Fatalf("expected shell to match mocks")
 		}
 	})
+
 }
 
 func TestBaseService_WriteConfig(t *testing.T) {
 	setup := func(t *testing.T) (*BaseService, *Mocks) {
 		mocks := setupMocks(t)
-		service := NewBaseService(mocks.Injector)
+		service := NewBaseService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 		return service, mocks
 	}
 
@@ -258,9 +241,8 @@ func TestBaseService_WriteConfig(t *testing.T) {
 func TestBaseService_SetAddress(t *testing.T) {
 	setup := func(t *testing.T) (*BaseService, *Mocks) {
 		mocks := setupMocks(t)
-		service := NewBaseService(mocks.Injector)
+		service := NewBaseService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 		return service, mocks
 	}
 
@@ -306,9 +288,8 @@ func TestBaseService_SetAddress(t *testing.T) {
 func TestBaseService_GetAddress(t *testing.T) {
 	setup := func(t *testing.T) (*BaseService, *Mocks) {
 		mocks := setupMocks(t)
-		service := NewBaseService(mocks.Injector)
+		service := NewBaseService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 		return service, mocks
 	}
 
@@ -331,9 +312,8 @@ func TestBaseService_GetAddress(t *testing.T) {
 func TestBaseService_GetName(t *testing.T) {
 	setup := func(t *testing.T) (*BaseService, *Mocks) {
 		mocks := setupMocks(t)
-		service := NewBaseService(mocks.Injector)
+		service := NewBaseService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 		return service, mocks
 	}
 
@@ -356,9 +336,8 @@ func TestBaseService_GetName(t *testing.T) {
 func TestBaseService_GetHostname(t *testing.T) {
 	setup := func(t *testing.T) (*BaseService, *Mocks) {
 		mocks := setupMocks(t)
-		service := NewBaseService(mocks.Injector)
+		service := NewBaseService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 		return service, mocks
 	}
 
@@ -397,9 +376,8 @@ func TestBaseService_GetHostname(t *testing.T) {
 func TestBaseService_IsLocalhostMode(t *testing.T) {
 	setup := func(t *testing.T) (*BaseService, *Mocks) {
 		mocks := setupMocks(t)
-		service := NewBaseService(mocks.Injector)
+		service := NewBaseService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 		return service, mocks
 	}
 
@@ -439,9 +417,8 @@ func TestBaseService_IsLocalhostMode(t *testing.T) {
 func TestBaseService_SupportsWildcard(t *testing.T) {
 	setup := func(t *testing.T) (*BaseService, *Mocks) {
 		mocks := setupMocks(t)
-		service := NewBaseService(mocks.Injector)
+		service := NewBaseService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 		return service, mocks
 	}
 
@@ -471,9 +448,8 @@ func TestBaseService_GetContainerName(t *testing.T) {
 		mocks := setupMocks(t, &SetupOptions{
 			ConfigHandler: mockConfigHandler,
 		})
-		service := NewBaseService(mocks.Injector)
+		service := NewBaseService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 		return service, mocks
 	}
 

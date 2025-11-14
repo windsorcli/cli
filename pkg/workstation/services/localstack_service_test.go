@@ -13,9 +13,8 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 	setup := func(t *testing.T) (*LocalstackService, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		service := NewLocalstackService(mocks.Injector)
+		service := NewLocalstackService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 		service.SetName("aws")
 
 		return service, mocks
@@ -35,10 +34,6 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 			t.Fatalf("failed to set localstack services: %v", err)
 		}
 
-		// Initialize the service
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
 
 		// When: GetComposeConfig is called
 		composeConfig, err := service.GetComposeConfig()
@@ -80,10 +75,6 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 			t.Fatalf("failed to set localstack services: %v", err)
 		}
 
-		// Initialize the service
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
 
 		// When: GetComposeConfig is called
 		composeConfig, err := service.GetComposeConfig()
@@ -111,9 +102,8 @@ func TestLocalstackService_SupportsWildcard(t *testing.T) {
 	setup := func(t *testing.T) (*LocalstackService, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		service := NewLocalstackService(mocks.Injector)
+		service := NewLocalstackService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 		service.SetName("aws")
 
 		return service, mocks

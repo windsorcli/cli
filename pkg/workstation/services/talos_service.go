@@ -10,7 +10,7 @@ import (
 
 	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 // The TalosService is a service component that manages Talos Linux node configuration
@@ -42,9 +42,9 @@ type TalosService struct {
 // =============================================================================
 
 // NewTalosService is a constructor for TalosService.
-func NewTalosService(injector di.Injector, mode string) *TalosService {
+func NewTalosService(rt *runtime.Runtime, mode string) *TalosService {
 	service := &TalosService{
-		BaseService: *NewBaseService(injector),
+		BaseService: *NewBaseService(rt),
 		mode:        mode,
 	}
 

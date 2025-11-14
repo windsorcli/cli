@@ -18,7 +18,7 @@ import (
 // MockNetworkManager is a struct that simulates a network manager for testing purposes.
 type MockNetworkManager struct {
 	NetworkManager
-	InitializeFunc         func([]services.Service) error
+	AssignIPsFunc          func([]services.Service) error
 	ConfigureHostRouteFunc func() error
 	ConfigureGuestFunc     func() error
 	ConfigureDNSFunc       func() error
@@ -37,10 +37,10 @@ func NewMockNetworkManager() *MockNetworkManager {
 // Public Methods
 // =============================================================================
 
-// Initialize calls the custom InitializeFunc if provided.
-func (m *MockNetworkManager) Initialize(services []services.Service) error {
-	if m.InitializeFunc != nil {
-		return m.InitializeFunc(services)
+// AssignIPs calls the custom AssignIPsFunc if provided.
+func (m *MockNetworkManager) AssignIPs(services []services.Service) error {
+	if m.AssignIPsFunc != nil {
+		return m.AssignIPsFunc(services)
 	}
 	return nil
 }

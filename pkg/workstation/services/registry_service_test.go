@@ -21,24 +21,18 @@ func TestRegistryService_NewRegistryService(t *testing.T) {
 	setup := func(t *testing.T) (*RegistryService, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		service := NewRegistryService(mocks.Injector)
+		service := NewRegistryService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 		return service, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a set of mock components
-		service, mocks := setup(t)
+		service, _ := setup(t)
 
 		// Then the RegistryService should not be nil
 		if service == nil {
 			t.Fatalf("expected RegistryService, got nil")
-		}
-
-		// And: the RegistryService should have the correct injector
-		if service.injector != mocks.Injector {
-			t.Errorf("expected injector %v, got %v", mocks.Injector, service.injector)
 		}
 	})
 }
@@ -51,9 +45,8 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 	setup := func(t *testing.T) (*RegistryService, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		service := NewRegistryService(mocks.Injector)
+		service := NewRegistryService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 		service.SetName("registry")
 		return service, mocks
 	}
@@ -129,24 +122,6 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("ProjectRootRetrievalFailure", func(t *testing.T) {
-		// Given a mock config handler, shell, context, and service
-		service, mocks := setup(t)
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "", fmt.Errorf("mock error getting project root")
-		}
-
-		// When a new RegistryService is created and initialized
-		service.SetName("registry")
-
-		// When GetComposeConfig is called
-		_, err := service.GetComposeConfig()
-
-		// Then an error should be returned indicating project root retrieval failure
-		if err == nil || !strings.Contains(err.Error(), "mock error getting project root") {
-			t.Fatalf("expected error indicating project root retrieval failure, got %v", err)
-		}
-	})
 
 	t.Run("LocalRegistry", func(t *testing.T) {
 		// Given a mock config handler, shell, context, and service
@@ -226,9 +201,8 @@ contexts:
 			t.Fatalf("Config not loaded correctly, dns.domain = '%s', expected 'test'", domain)
 		}
 
-		service := NewRegistryService(mocks.Injector)
+		service := NewRegistryService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 		service.SetName("registry")
 		// Reset package-level variables
 		registryNextPort = constants.RegistryDefaultHostPort + 1
@@ -372,9 +346,8 @@ contexts:
 		}
 
 		// Create second registry
-		service2 := NewRegistryService(mocks.Injector)
+		service2 := NewRegistryService(mocks.Runtime)
 		service2.shims = mocks.Shims
-		service2.Initialize()
 		service2.SetName("registry2")
 
 		// When SetAddress is called for second registry
@@ -405,9 +378,8 @@ contexts:
 			ConfigHandler: mockConfigHandler,
 		})
 
-		service := NewRegistryService(mocks.Injector)
+		service := NewRegistryService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 		service.SetName("registry")
 
 		// When SetAddress is called with invalid address
@@ -429,9 +401,8 @@ contexts:
 			ConfigHandler: mockConfigHandler,
 		})
 
-		service := NewRegistryService(mocks.Injector)
+		service := NewRegistryService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 		service.SetName("registry")
 
 		// And mock error when setting hostname
@@ -458,9 +429,8 @@ contexts:
 			ConfigHandler: mockConfigHandler,
 		})
 
-		service := NewRegistryService(mocks.Injector)
+		service := NewRegistryService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 		service.SetName("registry")
 
 		// And mock configuration
@@ -510,9 +480,8 @@ contexts:
 			ConfigHandler: mockConfigHandler,
 		})
 
-		service := NewRegistryService(mocks.Injector)
+		service := NewRegistryService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 		service.SetName("registry")
 
 		// Reset package-level variables
@@ -572,8 +541,7 @@ func TestRegistryService_GetHostname(t *testing.T) {
 		mocks := setupMocks(t, &SetupOptions{
 			ConfigHandler: mockConfigHandler,
 		})
-		service := NewRegistryService(mocks.Injector)
-		service.Initialize()
+		service := NewRegistryService(mocks.Runtime)
 		return service, mocks
 	}
 
@@ -649,8 +617,7 @@ func TestRegistryService_GetContainerName(t *testing.T) {
 		mocks := setupMocks(t, &SetupOptions{
 			ConfigHandler: mockConfigHandler,
 		})
-		service := NewRegistryService(mocks.Injector)
-		service.Initialize()
+		service := NewRegistryService(mocks.Runtime)
 		return service, mocks
 	}
 
@@ -674,9 +641,8 @@ func TestRegistryService_GetName(t *testing.T) {
 	setup := func(t *testing.T) (*RegistryService, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		service := NewRegistryService(mocks.Injector)
+		service := NewRegistryService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 		service.SetName("registry")
 		return service, mocks
 	}
@@ -695,9 +661,8 @@ func TestRegistryService_SupportsWildcard(t *testing.T) {
 	setup := func(t *testing.T) (*RegistryService, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		service := NewRegistryService(mocks.Injector)
+		service := NewRegistryService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 		service.SetName("registry")
 		return service, mocks
 	}

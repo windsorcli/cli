@@ -95,7 +95,7 @@ func TestTalosService_NewTalosService(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// When a new TalosService is created
-		service := NewTalosService(mocks.Injector, "worker")
+		service := NewTalosService(mocks.Runtime, "worker")
 
 		// Then the TalosService should not be nil
 		if service == nil {
@@ -108,7 +108,7 @@ func TestTalosService_NewTalosService(t *testing.T) {
 		mocks := setupTalosServiceMocks(t)
 
 		// When a new TalosService is created
-		service := NewTalosService(mocks.Injector, "controlplane")
+		service := NewTalosService(mocks.Runtime, "controlplane")
 
 		// Then the TalosService should not be nil
 		if service == nil {
@@ -130,11 +130,8 @@ func TestTalosService_SetAddress(t *testing.T) {
 		controlPlaneLeader = nil
 
 		mocks := setupTalosServiceMocks(t)
-		service := NewTalosService(mocks.Injector, "controlplane")
+		service := NewTalosService(mocks.Runtime, "controlplane")
 		service.SetName("controlplane1")
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize service: %v", err)
-		}
 		return service, mocks
 	}
 
@@ -173,22 +170,16 @@ func TestTalosService_SetAddress(t *testing.T) {
 		controlPlaneLeader = nil
 
 		// Create a leader first
-		leader := NewTalosService(mocks.Injector, "controlplane")
+		leader := NewTalosService(mocks.Runtime, "controlplane")
 		leader.SetName("controlplane1")
-		if err := leader.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize leader service: %v", err)
-		}
 		portAllocator := NewPortAllocator()
 		if err := leader.SetAddress("192.168.1.10", portAllocator); err != nil {
 			t.Fatalf("Failed to set leader address: %v", err)
 		}
 
 		// Create a non-leader control plane
-		service := NewTalosService(mocks.Injector, "controlplane")
+		service := NewTalosService(mocks.Runtime, "controlplane")
 		service.SetName("controlplane2")
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize service: %v", err)
-		}
 
 		// Enable localhost mode
 		if err := mocks.ConfigHandler.Set("vm.driver", "docker-desktop"); err != nil {
@@ -226,11 +217,8 @@ func TestTalosService_SetAddress(t *testing.T) {
 		controlPlaneLeader = nil
 
 		// Create a worker node
-		service := NewTalosService(mocks.Injector, "worker")
+		service := NewTalosService(mocks.Runtime, "worker")
 		service.SetName("worker1")
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize service: %v", err)
-		}
 
 		// Enable localhost mode
 		if err := mocks.ConfigHandler.Set("vm.driver", "docker-desktop"); err != nil {
@@ -269,11 +257,8 @@ func TestTalosService_SetAddress(t *testing.T) {
 		controlPlaneLeader = nil
 
 		// Create a worker node with host ports
-		service := NewTalosService(mocks.Injector, "worker")
+		service := NewTalosService(mocks.Runtime, "worker")
 		service.SetName("worker1")
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize service: %v", err)
-		}
 
 		// Configure host ports
 		hostPorts := []string{
@@ -324,11 +309,8 @@ func TestTalosService_SetAddress(t *testing.T) {
 		controlPlaneLeader = nil
 
 		// Create a worker node
-		service := NewTalosService(mocks.Injector, "worker")
+		service := NewTalosService(mocks.Runtime, "worker")
 		service.SetName("worker1")
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize service: %v", err)
-		}
 
 		// And invalid host port format in config
 		if err := mocks.ConfigHandler.Set("cluster.workers.hostports", []string{"invalid:format:extra"}); err != nil {
@@ -355,11 +337,8 @@ func TestTalosService_SetAddress(t *testing.T) {
 		controlPlaneLeader = nil
 
 		// Create a worker node
-		service := NewTalosService(mocks.Injector, "worker")
+		service := NewTalosService(mocks.Runtime, "worker")
 		service.SetName("worker1")
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize service: %v", err)
-		}
 
 		// And invalid protocol in config
 		if err := mocks.ConfigHandler.Set("cluster.workers.hostports", []string{"30000:30000/invalid"}); err != nil {
@@ -386,11 +365,8 @@ func TestTalosService_SetAddress(t *testing.T) {
 		controlPlaneLeader = nil
 
 		// Create first worker node
-		service1 := NewTalosService(mocks.Injector, "worker")
+		service1 := NewTalosService(mocks.Runtime, "worker")
 		service1.SetName("worker1")
-		if err := service1.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize service1: %v", err)
-		}
 
 		// Set host ports for first worker
 		if err := mocks.ConfigHandler.Set("cluster.workers.hostports", []string{"30000:30000"}); err != nil {
@@ -404,11 +380,8 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// Create second worker node
-		service2 := NewTalosService(mocks.Injector, "worker")
+		service2 := NewTalosService(mocks.Runtime, "worker")
 		service2.SetName("worker2")
-		if err := service2.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize service2: %v", err)
-		}
 
 		// Set same host ports for second worker
 		if err := mocks.ConfigHandler.Set("cluster.workers.hostports", []string{"30000:30000"}); err != nil {
@@ -444,11 +417,8 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// Create a worker node
-		service := NewTalosService(mocks.Injector, "worker")
+		service := NewTalosService(mocks.Runtime, "worker")
 		service.SetName("worker1")
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize service: %v", err)
-		}
 
 		// Enable localhost mode
 		if err := mocks.ConfigHandler.Set("vm.driver", "docker-desktop"); err != nil {
@@ -487,11 +457,8 @@ func TestTalosService_SetAddress(t *testing.T) {
 		controlPlaneLeader = nil
 
 		// Create a worker node
-		service := NewTalosService(mocks.Injector, "worker")
+		service := NewTalosService(mocks.Runtime, "worker")
 		service.SetName("worker1")
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize service: %v", err)
-		}
 
 		// And invalid host port format in config
 		hostPorts := []string{
@@ -559,11 +526,8 @@ func TestTalosService_SetAddress(t *testing.T) {
 		controlPlaneLeader = nil
 
 		// Create first worker node
-		service1 := NewTalosService(mocks.Injector, "worker")
+		service1 := NewTalosService(mocks.Runtime, "worker")
 		service1.SetName("worker1")
-		if err := service1.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize service1: %v", err)
-		}
 
 		// Set multiple host ports for first worker
 		hostPorts1 := []string{
@@ -582,11 +546,8 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// Create second worker node
-		service2 := NewTalosService(mocks.Injector, "worker")
+		service2 := NewTalosService(mocks.Runtime, "worker")
 		service2.SetName("worker2")
-		if err := service2.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize service2: %v", err)
-		}
 
 		// Set overlapping host ports for second worker
 		hostPorts2 := []string{
@@ -622,11 +583,8 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// Create third worker node
-		service3 := NewTalosService(mocks.Injector, "worker")
+		service3 := NewTalosService(mocks.Runtime, "worker")
 		service3.SetName("worker3")
-		if err := service3.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize service3: %v", err)
-		}
 
 		// Set overlapping host ports for third worker
 		hostPorts3 := []string{
@@ -681,11 +639,8 @@ func TestTalosService_SetAddress(t *testing.T) {
 		controlPlaneLeader = nil
 
 		// Create a worker node with conflicting host ports
-		service := NewTalosService(mocks.Injector, "worker")
+		service := NewTalosService(mocks.Runtime, "worker")
 		service.SetName("worker1")
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize service: %v", err)
-		}
 
 		// Configure host ports with a conflict
 		hostPorts := []string{
@@ -735,11 +690,8 @@ func TestTalosService_SetAddress(t *testing.T) {
 		controlPlaneLeader = nil
 
 		// Create a worker node with invalid protocol
-		service := NewTalosService(mocks.Injector, "worker")
+		service := NewTalosService(mocks.Runtime, "worker")
 		service.SetName("worker1")
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize service: %v", err)
-		}
 
 		// Configure host ports with invalid protocol
 		hostPorts := []string{
@@ -769,11 +721,8 @@ func TestTalosService_SetAddress(t *testing.T) {
 		controlPlaneLeader = nil
 
 		// Create a worker node with invalid host port format
-		service := NewTalosService(mocks.Injector, "worker")
+		service := NewTalosService(mocks.Runtime, "worker")
 		service.SetName("worker1")
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize service: %v", err)
-		}
 
 		// Configure host ports with invalid format
 		hostPorts := []string{
@@ -803,11 +752,8 @@ func TestTalosService_SetAddress(t *testing.T) {
 		controlPlaneLeader = nil
 
 		// Create a worker node with invalid port number
-		service := NewTalosService(mocks.Injector, "worker")
+		service := NewTalosService(mocks.Runtime, "worker")
 		service.SetName("worker1")
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize service: %v", err)
-		}
 
 		// Configure host ports with invalid port number
 		hostPorts := []string{
@@ -890,12 +836,9 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		controlPlaneLeader = nil
 
 		mocks := setupTalosServiceMocks(t)
-		service := NewTalosService(mocks.Injector, "controlplane")
+		service := NewTalosService(mocks.Runtime, "controlplane")
 		service.shims = mocks.Shims
 		service.SetName("controlplane1")
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize service: %v", err)
-		}
 
 		// Mock MkdirAll to always succeed
 		service.shims.MkdirAll = func(path string, perm os.FileMode) error {
@@ -912,12 +855,9 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		controlPlaneLeader = nil
 
 		mocks := setupTalosServiceMocks(t)
-		service := NewTalosService(mocks.Injector, "worker")
+		service := NewTalosService(mocks.Runtime, "worker")
 		service.shims = mocks.Shims
 		service.SetName("worker1")
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize service: %v", err)
-		}
 
 		// Mock MkdirAll to always succeed
 		service.shims.MkdirAll = func(path string, perm os.FileMode) error {
@@ -1121,12 +1061,9 @@ contexts:
 `,
 		}
 		mocks := setupTalosServiceMocks(t, emptyConfig)
-		service := NewTalosService(mocks.Injector, "controlplane")
+		service := NewTalosService(mocks.Runtime, "controlplane")
 		service.shims = mocks.Shims
 		service.SetName("controlplane1")
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize service: %v", err)
-		}
 
 		// When GetComposeConfig is called
 		config, err := service.GetComposeConfig()
@@ -1159,12 +1096,9 @@ contexts:
 `,
 		}
 		mocks := setupTalosServiceMocks(t, emptyConfig)
-		service := NewTalosService(mocks.Injector, "controlplane")
+		service := NewTalosService(mocks.Runtime, "controlplane")
 		service.shims = mocks.Shims
 		service.SetName("controlplane1")
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize service: %v", err)
-		}
 
 		// When GetComposeConfig is called
 		config, err := service.GetComposeConfig()
@@ -1286,11 +1220,8 @@ contexts:
 		mocks.ConfigHandler.Set("dns.address", "192.168.1.1")
 
 		// Create a worker node
-		service := NewTalosService(mocks.Injector, "worker")
+		service := NewTalosService(mocks.Runtime, "worker")
 		service.SetName("worker1")
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize service: %v", err)
-		}
 
 		// Mock MkdirAll to always succeed
 		service.shims.MkdirAll = func(path string, perm os.FileMode) error {

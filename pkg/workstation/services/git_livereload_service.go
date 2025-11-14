@@ -6,7 +6,7 @@ import (
 
 	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 // The GitLivereloadService is a service component that manages Git repository synchronization
@@ -28,9 +28,9 @@ type GitLivereloadService struct {
 // =============================================================================
 
 // NewGitLivereloadService is a constructor for GitLivereloadService
-func NewGitLivereloadService(injector di.Injector) *GitLivereloadService {
+func NewGitLivereloadService(rt *runtime.Runtime) *GitLivereloadService {
 	return &GitLivereloadService{
-		BaseService: *NewBaseService(injector),
+		BaseService: *NewBaseService(rt),
 	}
 }
 
@@ -66,10 +66,7 @@ func (s *GitLivereloadService) GetComposeConfig() (*types.Config, error) {
 		envVars["WEBHOOK_URL"] = ptrString(webhookUrl)
 	}
 
-	projectRoot, err := s.shell.GetProjectRoot()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving project root: %w", err)
-	}
+	projectRoot := s.runtime.ProjectRoot
 
 	gitFolderName := filepath.Base(projectRoot)
 	serviceName := s.name

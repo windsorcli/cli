@@ -8,7 +8,6 @@ import (
 
 	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/windsorcli/cli/pkg/runtime/config"
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 // =============================================================================
@@ -21,11 +20,6 @@ func setupDnsMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 
 	// Create base mocks using setupMocks
 	mocks := setupMocks(t, opts...)
-
-	// Create a generic mock service
-	mockService := NewMockService()
-	mockService.Initialize()
-	mocks.Injector.Register("dockerService", mockService)
 
 	// Set up shell project root
 	mocks.Shell.GetProjectRootFunc = func() (string, error) {
@@ -43,7 +37,7 @@ func TestNewDNSService(t *testing.T) {
 	setup := func(t *testing.T) (*DNSService, *Mocks) {
 		t.Helper()
 		mocks := setupDnsMocks(t)
-		service := NewDNSService(mocks.Injector)
+		service := NewDNSService(mocks.Runtime)
 		service.shims = mocks.Shims
 
 		return service, mocks
@@ -68,7 +62,7 @@ func TestDNSService_Initialize(t *testing.T) {
 	setup := func(t *testing.T) (*DNSService, *Mocks) {
 		t.Helper()
 		mocks := setupDnsMocks(t)
-		service := NewDNSService(mocks.Injector)
+		service := NewDNSService(mocks.Runtime)
 		service.shims = mocks.Shims
 
 		return service, mocks
@@ -78,59 +72,9 @@ func TestDNSService_Initialize(t *testing.T) {
 		// Given a DNSService with mock components
 		service, _ := setup(t)
 
-		// When Initialize is called
-		err := service.Initialize()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		// Given a DNSService with mock components
-		service, mocks := setup(t)
-
-		// And the configHandler is registered as invalid
-		mocks.Injector.Register("configHandler", "invalid")
-
-		// When Initialize is called
-		err := service.Initialize()
-
-		// Then an error should be returned with the expected message
-		if err == nil {
-			t.Fatalf("Expected error resolving configHandler, got nil")
-		}
-		expectedErrorMessage := "error resolving configHandler"
-		if err.Error() != expectedErrorMessage {
-			t.Errorf("Expected error message '%s', got %v", expectedErrorMessage, err)
-		}
-	})
-
-	t.Run("ErrorResolvingServices", func(t *testing.T) {
-		// Given a mock injector
-		mockInjector := di.NewMockInjector()
-
-		// And the injector is configured to return an error for services
-		mockInjector.SetResolveAllError(new(Service), fmt.Errorf("error resolving services"))
-
-		// And a DNSService with the mock injector
-		mocks := setupDnsMocks(t, &SetupOptions{
-			Injector: mockInjector,
-		})
-		service := NewDNSService(mocks.Injector)
-		service.shims = mocks.Shims
-
-		// When Initialize is called
-		err := service.Initialize()
-
-		// Then an error should be returned with the expected message
-		if err == nil {
-			t.Fatalf("Expected error resolving services, got nil")
-		}
-		expectedErrorMessage := "error resolving services: error resolving services"
-		if err.Error() != expectedErrorMessage {
-			t.Errorf("Expected error message '%s', got %v", expectedErrorMessage, err)
+		// Then the service should be properly initialized
+		if service == nil {
+			t.Fatalf("service should not be nil")
 		}
 	})
 }
@@ -139,9 +83,8 @@ func TestDNSService_SetAddress(t *testing.T) {
 	setup := func(t *testing.T) (*DNSService, *Mocks) {
 		t.Helper()
 		mocks := setupDnsMocks(t)
-		service := NewDNSService(mocks.Injector)
+		service := NewDNSService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 
 		return service, mocks
 	}
@@ -174,9 +117,8 @@ func TestDNSService_SetAddress(t *testing.T) {
 		mocks := setupDnsMocks(t, &SetupOptions{
 			ConfigHandler: mockConfigHandler,
 		})
-		service := NewDNSService(mocks.Injector)
+		service := NewDNSService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 
 		// When SetAddress is called
 		address := "127.0.0.1"
@@ -197,10 +139,9 @@ func TestDNSService_GetComposeConfig(t *testing.T) {
 	setup := func(t *testing.T) (*DNSService, *Mocks) {
 		t.Helper()
 		mocks := setupDnsMocks(t)
-		service := NewDNSService(mocks.Injector)
+		service := NewDNSService(mocks.Runtime)
 		service.SetName("dns")
 		service.shims = mocks.Shims
-		service.Initialize()
 
 		return service, mocks
 	}
@@ -278,9 +219,8 @@ func TestDNSService_WriteConfig(t *testing.T) {
 	setup := func(t *testing.T) (*DNSService, *Mocks) {
 		t.Helper()
 		mocks := setupDnsMocks(t)
-		service := NewDNSService(mocks.Injector)
+		service := NewDNSService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 
 		return service, mocks
 	}
@@ -426,8 +366,7 @@ func TestDNSService_WriteConfig(t *testing.T) {
 			return false
 		}
 
-		// Register the mock service
-		mocks.Injector.Register("test-service", mockService)
+		// Set the mock service directly
 		service.services = []Service{mockService}
 
 		// Mock the writeFile function to capture the content written
@@ -479,8 +418,7 @@ func TestDNSService_WriteConfig(t *testing.T) {
 			return true
 		}
 
-		// Register the mock service
-		mocks.Injector.Register("test-service", mockService)
+		// Set the mock service directly
 		service.services = []Service{mockService}
 
 		// Mock the writeFile function to capture the content written
@@ -555,8 +493,6 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		}
 
 		// Register the mock services
-		mocks.Injector.Register("test-service-no-name", mockServiceNoName)
-		mocks.Injector.Register("test-service-no-address", mockServiceNoAddress)
 		service.services = []Service{mockServiceNoName, mockServiceNoAddress}
 
 		// Mock the writeFile function to capture the content written
@@ -659,28 +595,6 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorRetrievingProjectRoot", func(t *testing.T) {
-		// Given a DNSService with mock components
-		service, mocks := setup(t)
-
-		// Set up mock to fail when getting project root
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "", fmt.Errorf("error getting project root")
-		}
-
-		// When WriteConfig is called
-		err := service.WriteConfig()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("WriteConfig() expected error, got nil")
-		}
-
-		// And the error should contain the expected message
-		if !strings.Contains(err.Error(), "error retrieving project root") {
-			t.Errorf("Expected error to contain 'error retrieving project root', got: %v", err)
-		}
-	})
 
 	t.Run("SuccessRemovingCorefileDirectory", func(t *testing.T) {
 		// Given a DNSService with mock components
@@ -731,9 +645,8 @@ func TestDNSService_SetName(t *testing.T) {
 	setup := func(t *testing.T) (*DNSService, *Mocks) {
 		t.Helper()
 		mocks := setupDnsMocks(t)
-		service := NewDNSService(mocks.Injector)
+		service := NewDNSService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 
 		return service, mocks
 	}
@@ -757,9 +670,8 @@ func TestDNSService_GetName(t *testing.T) {
 	setupSuccess := func(t *testing.T) (*DNSService, *Mocks) {
 		t.Helper()
 		mocks := setupDnsMocks(t)
-		service := NewDNSService(mocks.Injector)
+		service := NewDNSService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 		service.SetName("dns") // Set the name to "dns"
 
 		return service, mocks
@@ -768,9 +680,8 @@ func TestDNSService_GetName(t *testing.T) {
 	setupError := func(t *testing.T) (*DNSService, *Mocks) {
 		t.Helper()
 		mocks := setupDnsMocks(t)
-		service := NewDNSService(mocks.Injector)
+		service := NewDNSService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 		// Don't set the name
 
 		return service, mocks
@@ -812,9 +723,8 @@ func TestDNSService_GetHostname(t *testing.T) {
 	setup := func(t *testing.T) (*DNSService, *Mocks) {
 		t.Helper()
 		mocks := setupDnsMocks(t)
-		service := NewDNSService(mocks.Injector)
+		service := NewDNSService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 		service.SetName("test")
 
 		// Set the dns.domain configuration value
@@ -857,9 +767,8 @@ func TestDNSService_SupportsWildcard(t *testing.T) {
 	setup := func(t *testing.T) (*DNSService, *Mocks) {
 		t.Helper()
 		mocks := setupDnsMocks(t)
-		service := NewDNSService(mocks.Injector)
+		service := NewDNSService(mocks.Runtime)
 		service.shims = mocks.Shims
-		service.Initialize()
 		service.SetName("test")
 
 		return service, mocks

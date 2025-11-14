@@ -20,9 +20,9 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 	setup := func(t *testing.T) (*BaseNetworkManager, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		manager := NewBaseNetworkManager(mocks.Injector)
+		manager := NewBaseNetworkManager(mocks.Runtime)
 		manager.shims = mocks.Shims
-		manager.Initialize([]services.Service{})
+		manager.AssignIPs([]services.Service{})
 		return manager, mocks
 	}
 
@@ -169,9 +169,9 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 	setup := func(t *testing.T) (*BaseNetworkManager, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		manager := NewBaseNetworkManager(mocks.Injector)
+		manager := NewBaseNetworkManager(mocks.Runtime)
 		manager.shims = mocks.Shims
-		manager.Initialize([]services.Service{})
+		manager.AssignIPs([]services.Service{})
 		return manager, mocks
 	}
 

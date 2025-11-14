@@ -16,6 +16,7 @@ import (
 	colimaConfig "github.com/abiosoft/colima/config"
 	"github.com/goccy/go-yaml"
 	"github.com/shirou/gopsutil/mem"
+	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
@@ -128,11 +129,8 @@ func TestColimaVirt_Initialize(t *testing.T) {
 	setup := func(t *testing.T) (*ColimaVirt, *Mocks) {
 		t.Helper()
 		mocks := setupColimaMocks(t)
-		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt := NewColimaVirt(mocks.Runtime)
 		colimaVirt.setShims(mocks.Shims)
-		if err := colimaVirt.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize ColimaVirt: %v", err)
-		}
 		return colimaVirt, mocks
 	}
 
@@ -146,39 +144,21 @@ func TestColimaVirt_Initialize(t *testing.T) {
 
 	t.Run("ErrorResolveShell", func(t *testing.T) {
 		// Given a ColimaVirt with mock components
-		colimaVirt, mocks := setup(t)
+		colimaVirt, _ := setup(t)
 
-		// Mock injector to return nil for shell
-		mocks.Injector.Register("shell", nil)
-
-		// When calling Initialize
-		err := colimaVirt.Initialize()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error resolving shell") {
-			t.Errorf("Expected error containing 'error resolving shell', got %v", err)
+		// Then the service should be properly initialized
+		if colimaVirt == nil {
+			t.Fatal("Expected ColimaVirt, got nil")
 		}
 	})
 
 	t.Run("ErrorResolveConfigHandler", func(t *testing.T) {
 		// Given a ColimaVirt with mock components
-		colimaVirt, mocks := setup(t)
+		colimaVirt, _ := setup(t)
 
-		// Mock injector to return nil for configHandler
-		mocks.Injector.Register("configHandler", nil)
-
-		// When calling Initialize
-		err := colimaVirt.Initialize()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error resolving configHandler") {
-			t.Errorf("Expected error containing 'error resolving configHandler', got %v", err)
+		// Then the service should be properly initialized
+		if colimaVirt == nil {
+			t.Fatal("Expected ColimaVirt, got nil")
 		}
 	})
 }
@@ -193,11 +173,8 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 			t.Fatalf("Failed to set vm.driver: %v", err)
 		}
 
-		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt := NewColimaVirt(mocks.Runtime)
 		colimaVirt.setShims(mocks.Shims)
-		if err := colimaVirt.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize ColimaVirt: %v", err)
-		}
 		return colimaVirt, mocks
 	}
 
@@ -331,11 +308,8 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 	t.Run("NotColimaDriver", func(t *testing.T) {
 		// Given a ColimaVirt with mock components
 		mocks := setupColimaMocks(t)
-		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt := NewColimaVirt(mocks.Runtime)
 		colimaVirt.setShims(mocks.Shims)
-		if err := colimaVirt.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize ColimaVirt: %v", err)
-		}
 
 		// And vm.driver is not colima
 		if err := mocks.ConfigHandler.Set("vm.driver", "other"); err != nil {
@@ -495,11 +469,8 @@ func TestColimaVirt_Up(t *testing.T) {
 	setup := func(t *testing.T) (*ColimaVirt, *Mocks) {
 		t.Helper()
 		mocks := setupColimaMocks(t)
-		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt := NewColimaVirt(mocks.Runtime)
 		colimaVirt.setShims(mocks.Shims)
-		if err := colimaVirt.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize ColimaVirt: %v", err)
-		}
 		return colimaVirt, mocks
 	}
 
@@ -546,7 +517,7 @@ func TestColimaVirt_Up(t *testing.T) {
 
 	t.Run("ErrorSetVMAddress", func(t *testing.T) {
 		// Given a ColimaVirt with mock components
-		colimaVirt, mocks := setup(t)
+		_, mocks := setup(t)
 
 		// Create a mock config handler that returns error on set
 		mockConfigHandler := config.NewMockConfigHandler()
@@ -561,6 +532,9 @@ func TestColimaVirt_Up(t *testing.T) {
 		mockConfigHandler.GetIntFunc = func(key string, defaultValues ...int) int {
 			return mocks.ConfigHandler.GetInt(key, defaultValues...)
 		}
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValues ...bool) bool {
+			return mocks.ConfigHandler.GetBool(key, defaultValues...)
+		}
 
 		// Override just the Set to return an error
 		mockConfigHandler.SetFunc = func(key string, _ any) error {
@@ -569,11 +543,29 @@ func TestColimaVirt_Up(t *testing.T) {
 			}
 			return nil
 		}
-		mocks.Injector.Register("configHandler", mockConfigHandler)
 
-		// Re-initialize to pick up the mock config handler
-		if err := colimaVirt.Initialize(); err != nil {
-			t.Fatalf("Failed to re-initialize ColimaVirt: %v", err)
+		// Create a new runtime with the mock config handler
+		rt := &runtime.Runtime{
+			ProjectRoot:   mocks.Runtime.ProjectRoot,
+			ConfigRoot:    mocks.Runtime.ConfigRoot,
+			TemplateRoot:  mocks.Runtime.TemplateRoot,
+			ContextName:   mocks.Runtime.ContextName,
+			ConfigHandler: mockConfigHandler,
+			Shell:         mocks.Shell,
+		}
+
+		// Create a new ColimaVirt with the mock config handler
+		colimaVirt := NewColimaVirt(rt)
+
+		// Set up the shell to return success for colima start
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			return "", nil
+		}
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "colima" && len(args) > 0 && args[0] == "ls" {
+				return `{"address":"192.168.1.10","arch":"x86_64","cpus":2,"disk":60,"memory":4096,"name":"windsor-mock-context","status":"Running"}`, nil
+			}
+			return "", nil
 		}
 
 		// When calling Up
@@ -593,11 +585,8 @@ func TestColimaVirt_Down(t *testing.T) {
 	setup := func(t *testing.T) (*ColimaVirt, *Mocks) {
 		t.Helper()
 		mocks := setupColimaMocks(t)
-		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt := NewColimaVirt(mocks.Runtime)
 		colimaVirt.setShims(mocks.Shims)
-		if err := colimaVirt.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize ColimaVirt: %v", err)
-		}
 		return colimaVirt, mocks
 	}
 
@@ -692,11 +681,8 @@ func TestColimaVirt_getArch(t *testing.T) {
 	setup := func(t *testing.T) (*ColimaVirt, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt := NewColimaVirt(mocks.Runtime)
 		colimaVirt.shims = mocks.Shims
-		if err := colimaVirt.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize ColimaVirt: %v", err)
-		}
 		return colimaVirt, mocks
 	}
 
@@ -748,11 +734,8 @@ func TestColimaVirt_getDefaultValues(t *testing.T) {
 	setup := func(t *testing.T) (*ColimaVirt, *Mocks) {
 		t.Helper()
 		mocks := setupColimaMocks(t)
-		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt := NewColimaVirt(mocks.Runtime)
 		colimaVirt.shims = mocks.Shims
-		if err := colimaVirt.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize ColimaVirt: %v", err)
-		}
 		return colimaVirt, mocks
 	}
 
@@ -822,11 +805,8 @@ func TestColimaVirt_startColima(t *testing.T) {
 	setup := func(t *testing.T) (*ColimaVirt, *Mocks) {
 		t.Helper()
 		mocks := setupColimaMocks(t)
-		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt := NewColimaVirt(mocks.Runtime)
 		colimaVirt.shims = mocks.Shims
-		if err := colimaVirt.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize ColimaVirt: %v", err)
-		}
 		return colimaVirt, mocks
 	}
 

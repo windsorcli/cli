@@ -10,16 +10,16 @@ import (
 // Test Public Methods
 // =============================================================================
 
-func TestMockNetworkManager_Initialize(t *testing.T) {
+func TestMockNetworkManager_AssignIPs(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a mock network manager with successful initialization
+		// Given a mock network manager with successful IP assignment
 		mockManager := NewMockNetworkManager()
-		mockManager.InitializeFunc = func([]services.Service) error {
+		mockManager.AssignIPsFunc = func([]services.Service) error {
 			return nil
 		}
 
-		// When initializing the manager
-		err := mockManager.Initialize([]services.Service{})
+		// When assigning IPs
+		err := mockManager.AssignIPs([]services.Service{})
 
 		// Then no error should occur
 		if err != nil {
@@ -28,11 +28,11 @@ func TestMockNetworkManager_Initialize(t *testing.T) {
 	})
 
 	t.Run("NoFuncSet", func(t *testing.T) {
-		// Given a mock network manager with no initialization function
+		// Given a mock network manager with no IP assignment function
 		mockManager := NewMockNetworkManager()
 
-		// When initializing the manager
-		err := mockManager.Initialize([]services.Service{})
+		// When assigning IPs
+		err := mockManager.AssignIPs([]services.Service{})
 
 		// Then no error should occur
 		if err != nil {
