@@ -287,6 +287,7 @@ func TestUpCmd(t *testing.T) {
 		// Then an error should occur
 		if err == nil {
 			t.Error("Expected error, got nil")
+			return
 		}
 		if !strings.Contains(err.Error(), "error installing blueprint") {
 			t.Errorf("Expected install error, got: %v", err)

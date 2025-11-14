@@ -25,35 +25,35 @@ var execCmd = &cobra.Command{
 
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		execCtx := &runtime.Runtime{
+		rt := &runtime.Runtime{
 			Injector: injector,
 		}
 
-		execCtx, err := runtime.NewRuntime(execCtx)
+		rt, err := runtime.NewRuntime(rt)
 		if err != nil {
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
-		if err := execCtx.Shell.CheckTrustedDirectory(); err != nil {
+		if err := rt.Shell.CheckTrustedDirectory(); err != nil {
 			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
 		}
 
-		if err := execCtx.HandleSessionReset(); err != nil {
+		if err := rt.HandleSessionReset(); err != nil {
 			return err
 		}
 
-		if err := execCtx.ConfigHandler.LoadConfig(); err != nil {
+		if err := rt.ConfigHandler.LoadConfig(); err != nil {
 			return err
 		}
 
-		if err := execCtx.LoadEnvironment(true); err != nil {
+		if err := rt.LoadEnvironment(true); err != nil {
 			if !verbose {
 				return nil
 			}
 			return fmt.Errorf("failed to load environment: %w", err)
 		}
 
-		for key, value := range execCtx.GetEnvVars() {
+		for key, value := range rt.GetEnvVars() {
 			if err := os.Setenv(key, value); err != nil {
 				return fmt.Errorf("failed to set environment variable %s: %w", key, err)
 			}
@@ -65,7 +65,7 @@ var execCmd = &cobra.Command{
 			commandArgs = args[1:]
 		}
 
-		if _, err := execCtx.Shell.Exec(command, commandArgs...); err != nil {
+		if _, err := rt.Shell.Exec(command, commandArgs...); err != nil {
 			return fmt.Errorf("failed to execute command: %w", err)
 		}
 

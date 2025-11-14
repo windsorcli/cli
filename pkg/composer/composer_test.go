@@ -22,7 +22,7 @@ func setupComposerMocks(t *testing.T) *Mocks {
 	shell := shell.NewMockShell()
 
 	// Create execution context
-	execCtx := &runtime.Runtime{
+	rt := &runtime.Runtime{
 		ContextName:   "test-context",
 		ProjectRoot:   "/test/project",
 		ConfigRoot:    "/test/project/contexts/test-context",
@@ -32,25 +32,20 @@ func setupComposerMocks(t *testing.T) *Mocks {
 		Shell:         shell,
 	}
 
-	// Create composer execution context
-	composerCtx := &ComposerRuntime{
-		Runtime: *execCtx,
-	}
-
 	return &Mocks{
-		Injector:        injector,
-		ConfigHandler:   configHandler,
-		Shell:           shell,
-		ComposerRuntime: composerCtx,
+		Injector:      injector,
+		ConfigHandler: configHandler,
+		Shell:         shell,
+		Runtime:       rt,
 	}
 }
 
 // Mocks contains all the mock dependencies for testing
 type Mocks struct {
-	Injector        di.Injector
-	ConfigHandler   config.ConfigHandler
-	Shell           shell.Shell
-	ComposerRuntime *ComposerRuntime
+	Injector      di.Injector
+	ConfigHandler config.ConfigHandler
+	Shell         shell.Shell
+	Runtime       *runtime.Runtime
 }
 
 // =============================================================================
@@ -61,21 +56,21 @@ func TestNewComposer(t *testing.T) {
 	t.Run("CreatesComposerWithDependencies", func(t *testing.T) {
 		mocks := setupComposerMocks(t)
 
-		composer := NewComposer(mocks.ComposerRuntime)
+		composer := NewComposer(mocks.Runtime)
 
 		if composer == nil {
 			t.Fatal("Expected Composer to be created")
 		}
 
-		if composer.Injector != mocks.Injector {
+		if composer.Runtime.Injector != mocks.Injector {
 			t.Error("Expected injector to be set")
 		}
 
-		if composer.Shell != mocks.Shell {
+		if composer.Runtime.Shell != mocks.Shell {
 			t.Error("Expected shell to be set")
 		}
 
-		if composer.ConfigHandler != mocks.ConfigHandler {
+		if composer.Runtime.ConfigHandler != mocks.ConfigHandler {
 			t.Error("Expected config handler to be set")
 		}
 
@@ -97,21 +92,21 @@ func TestCreateComposer(t *testing.T) {
 	t.Run("CreatesComposerWithDependencies", func(t *testing.T) {
 		mocks := setupComposerMocks(t)
 
-		composer := NewComposer(mocks.ComposerRuntime)
+		composer := NewComposer(mocks.Runtime)
 
 		if composer == nil {
 			t.Fatal("Expected Composer to be created")
 		}
 
-		if composer.Injector != mocks.Injector {
+		if composer.Runtime.Injector != mocks.Injector {
 			t.Error("Expected injector to be set")
 		}
 
-		if composer.ConfigHandler != mocks.ConfigHandler {
+		if composer.Runtime.ConfigHandler != mocks.ConfigHandler {
 			t.Error("Expected config handler to be set")
 		}
 
-		if composer.Shell != mocks.Shell {
+		if composer.Runtime.Shell != mocks.Shell {
 			t.Error("Expected shell to be set")
 		}
 	})
@@ -124,7 +119,7 @@ func TestCreateComposer(t *testing.T) {
 func TestComposer_Push(t *testing.T) {
 	t.Run("HandlesPushSuccessfully", func(t *testing.T) {
 		mocks := setupComposerMocks(t)
-		composer := NewComposer(mocks.ComposerRuntime)
+		composer := NewComposer(mocks.Runtime)
 
 		// This test would need proper mocking of the artifact builder
 		// For now, we'll just test that the method exists and handles errors
@@ -139,7 +134,7 @@ func TestComposer_Push(t *testing.T) {
 func TestComposer_Generate(t *testing.T) {
 	t.Run("HandlesGenerateSuccessfully", func(t *testing.T) {
 		mocks := setupComposerMocks(t)
-		composer := NewComposer(mocks.ComposerRuntime)
+		composer := NewComposer(mocks.Runtime)
 
 		// This test would need proper mocking of the blueprint handler and terraform resolver
 		// For now, we'll just test that the method exists and handles errors
@@ -152,7 +147,7 @@ func TestComposer_Generate(t *testing.T) {
 
 	t.Run("HandlesGenerateWithOverwrite", func(t *testing.T) {
 		mocks := setupComposerMocks(t)
-		composer := NewComposer(mocks.ComposerRuntime)
+		composer := NewComposer(mocks.Runtime)
 
 		// This test would need proper mocking of the blueprint handler and terraform resolver
 		// For now, we'll just test that the method exists and handles errors
@@ -165,36 +160,32 @@ func TestComposer_Generate(t *testing.T) {
 }
 
 // =============================================================================
-// Test ComposerRuntime
+// Test Runtime
 // =============================================================================
 
-func TestComposerRuntime(t *testing.T) {
-	t.Run("CreatesComposerRuntime", func(t *testing.T) {
-		execCtx := &runtime.Runtime{
+func TestRuntime(t *testing.T) {
+	t.Run("CreatesRuntime", func(t *testing.T) {
+		rt := &runtime.Runtime{
 			ContextName:  "test-context",
 			ProjectRoot:  "/test/project",
 			ConfigRoot:   "/test/project/contexts/test-context",
 			TemplateRoot: "/test/project/contexts/_template",
 		}
 
-		composerCtx := &ComposerRuntime{
-			Runtime: *execCtx,
+		if rt.ContextName != "test-context" {
+			t.Errorf("Expected context name 'test-context', got: %s", rt.ContextName)
 		}
 
-		if composerCtx.ContextName != "test-context" {
-			t.Errorf("Expected context name 'test-context', got: %s", composerCtx.ContextName)
+		if rt.ProjectRoot != "/test/project" {
+			t.Errorf("Expected project root '/test/project', got: %s", rt.ProjectRoot)
 		}
 
-		if composerCtx.ProjectRoot != "/test/project" {
-			t.Errorf("Expected project root '/test/project', got: %s", composerCtx.ProjectRoot)
+		if rt.ConfigRoot != "/test/project/contexts/test-context" {
+			t.Errorf("Expected config root '/test/project/contexts/test-context', got: %s", rt.ConfigRoot)
 		}
 
-		if composerCtx.ConfigRoot != "/test/project/contexts/test-context" {
-			t.Errorf("Expected config root '/test/project/contexts/test-context', got: %s", composerCtx.ConfigRoot)
-		}
-
-		if composerCtx.TemplateRoot != "/test/project/contexts/_template" {
-			t.Errorf("Expected template root '/test/project/contexts/_template', got: %s", composerCtx.TemplateRoot)
+		if rt.TemplateRoot != "/test/project/contexts/_template" {
+			t.Errorf("Expected template root '/test/project/contexts/_template', got: %s", rt.TemplateRoot)
 		}
 	})
 }

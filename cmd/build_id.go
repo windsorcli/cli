@@ -28,20 +28,20 @@ Examples:
 	RunE: func(cmd *cobra.Command, args []string) error {
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		execCtx := &runtime.Runtime{
+		rt := &runtime.Runtime{
 			Injector: injector,
 		}
 
-		execCtx, err := runtime.NewRuntime(execCtx)
+		rt, err := runtime.NewRuntime(rt)
 		if err != nil {
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
 		var buildID string
 		if buildIdNewFlag {
-			buildID, err = execCtx.GenerateBuildID()
+			buildID, err = rt.GenerateBuildID()
 		} else {
-			buildID, err = execCtx.GetBuildID()
+			buildID, err = rt.GetBuildID()
 		}
 		if err != nil {
 			return fmt.Errorf("failed to manage build ID: %w", err)

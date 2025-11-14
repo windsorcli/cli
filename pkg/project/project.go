@@ -29,58 +29,55 @@ type Project struct {
 // a new context will be created. Returns the initialized Project or an error if any step fails.
 // After creation, call Configure() to apply flag overrides if needed.
 func NewProject(injector di.Injector, contextName string, existingCtx ...*runtime.Runtime) (*Project, error) {
-	var baseCtx *runtime.Runtime
+	var rt *runtime.Runtime
 	var err error
 
 	if len(existingCtx) > 0 && existingCtx[0] != nil {
-		baseCtx = existingCtx[0]
+		rt = existingCtx[0]
 	} else {
-		baseCtx = &runtime.Runtime{
+		rt = &runtime.Runtime{
 			Injector: injector,
 		}
-		baseCtx, err = runtime.NewRuntime(baseCtx)
+		rt, err = runtime.NewRuntime(rt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize context: %w", err)
 		}
 	}
 
 	if contextName == "" {
-		contextName = baseCtx.ConfigHandler.GetContext()
+		contextName = rt.ConfigHandler.GetContext()
 		if contextName == "" {
 			contextName = "local"
 		}
 	}
 
-	baseCtx.ContextName = contextName
-	baseCtx.ConfigRoot = filepath.Join(baseCtx.ProjectRoot, "contexts", contextName)
+	rt.ContextName = contextName
+	rt.ConfigRoot = filepath.Join(rt.ProjectRoot, "contexts", contextName)
 
-	if err := baseCtx.ApplyConfigDefaults(); err != nil {
+	if err := rt.ApplyConfigDefaults(); err != nil {
 		return nil, err
 	}
 
 	provCtx := &provisioner.ProvisionerRuntime{
-		Runtime: *baseCtx,
+		Runtime: *rt,
 	}
 	prov := provisioner.NewProvisioner(provCtx)
 
-	composerCtx := &composer.ComposerRuntime{
-		Runtime: *baseCtx,
-	}
-	comp := composer.NewComposer(composerCtx)
+	comp := composer.NewComposer(rt)
 
 	var ws *workstation.Workstation
-	if baseCtx.ConfigHandler.IsDevMode(baseCtx.ContextName) {
+	if rt.ConfigHandler.IsDevMode(rt.ContextName) {
 		workstationCtx := &workstation.WorkstationRuntime{
-			Runtime: *baseCtx,
+			Runtime: *rt,
 		}
-		ws, err = workstation.NewWorkstation(workstationCtx, baseCtx.Injector)
+		ws, err = workstation.NewWorkstation(workstationCtx, rt.Injector)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create workstation: %w", err)
 		}
 	}
 
 	return &Project{
-		Context:     baseCtx,
+		Context:     rt,
 		Provisioner: prov,
 		Composer:    comp,
 		Workstation: ws,

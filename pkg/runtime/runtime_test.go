@@ -9,10 +9,10 @@ import (
 	"testing"
 
 	v1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/secrets"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 // =============================================================================
@@ -93,29 +93,29 @@ func setupEnvironmentMocks(t *testing.T) *Mocks {
 	injector.Register("contextName", "test-context")
 
 	// Create execution context - paths will be set automatically by NewRuntime
-	execCtx := &Runtime{
+	rt := &Runtime{
 		Injector: injector,
 	}
 
-	ctx, err := NewRuntime(execCtx)
+	ctx, err := NewRuntime(rt)
 	if err != nil {
 		t.Fatalf("Failed to create context: %v", err)
 	}
 
 	return &Mocks{
-		Injector:         injector,
-		ConfigHandler:    configHandler,
-		Shell:            shell,
-		Runtime: ctx,
+		Injector:      injector,
+		ConfigHandler: configHandler,
+		Shell:         shell,
+		Runtime:       ctx,
 	}
 }
 
 // Mocks contains all the mock dependencies for testing
 type Mocks struct {
-	Injector         di.Injector
-	ConfigHandler    config.ConfigHandler
-	Shell            shell.Shell
-	Runtime *Runtime
+	Injector      di.Injector
+	ConfigHandler config.ConfigHandler
+	Shell         shell.Shell
+	Runtime       *Runtime
 }
 
 // =============================================================================
@@ -306,7 +306,6 @@ func TestRuntime_LoadEnvironment(t *testing.T) {
 		}
 	})
 }
-
 
 // =============================================================================
 
@@ -580,7 +579,6 @@ func TestRuntime_LoadEnvironment_WithSecrets(t *testing.T) {
 		}
 	})
 }
-
 
 func TestRuntime_initializeComponents_EdgeCases(t *testing.T) {
 	t.Run("HandlesToolsManagerInitializationError", func(t *testing.T) {

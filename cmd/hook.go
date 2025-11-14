@@ -17,16 +17,16 @@ var hookCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		execCtx := &runtime.Runtime{
+		rt := &runtime.Runtime{
 			Injector: injector,
 		}
 
-		execCtx, err := runtime.NewRuntime(execCtx)
+		rt, err := runtime.NewRuntime(rt)
 		if err != nil {
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
-		if err := execCtx.Shell.InstallHook(args[0]); err != nil {
+		if err := rt.Shell.InstallHook(args[0]); err != nil {
 			return fmt.Errorf("error installing hook: %w", err)
 		}
 

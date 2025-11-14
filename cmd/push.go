@@ -7,8 +7,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
-	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 // pushCmd represents the push command
@@ -38,26 +38,25 @@ Examples:
 
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		execCtx := &runtime.Runtime{
+		rt := &runtime.Runtime{
 			Injector: injector,
 		}
 
-		execCtx, err := runtime.NewRuntime(execCtx)
+		rt, err := runtime.NewRuntime(rt)
 		if err != nil {
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
-		composerCtx := &composer.ComposerRuntime{
-			Runtime: *execCtx,
-		}
-
+		var override *composer.Composer
 		if existingArtifactBuilder := injector.Resolve("artifactBuilder"); existingArtifactBuilder != nil {
 			if artifactBuilder, ok := existingArtifactBuilder.(artifact.Artifact); ok {
-				composerCtx.ArtifactBuilder = artifactBuilder
+				override = &composer.Composer{
+					ArtifactBuilder: artifactBuilder,
+				}
 			}
 		}
 
-		comp := composer.NewComposer(composerCtx)
+		comp := composer.NewComposer(rt, override)
 
 		registryURL, err := comp.Push(args[0])
 		if err != nil {

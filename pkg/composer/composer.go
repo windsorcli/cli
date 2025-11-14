@@ -10,7 +10,7 @@ import (
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/composer/terraform"
-	context "github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 // The Composer package provides high-level resource management functionality
@@ -22,22 +22,14 @@ import (
 // Types
 // =============================================================================
 
-// ComposerRuntime holds the execution context for resource operations.
-// It embeds the base Runtime and includes all resource-specific dependencies.
-type ComposerRuntime struct {
-	context.Runtime
-
-	// Resource-specific dependencies
-	ArtifactBuilder   artifact.Artifact
-	BlueprintHandler  blueprint.BlueprintHandler
-	TerraformResolver terraform.ModuleResolver
-}
-
 // Composer manages the lifecycle of all resource types (artifact, blueprint, terraform).
 // It provides a unified interface for creating, initializing, and managing these resources
 // with proper dependency injection and error handling.
 type Composer struct {
-	*ComposerRuntime
+	Runtime           *runtime.Runtime
+	ArtifactBuilder   artifact.Artifact
+	BlueprintHandler  blueprint.BlueprintHandler
+	TerraformResolver terraform.ModuleResolver
 }
 
 // =============================================================================
@@ -45,24 +37,47 @@ type Composer struct {
 // =============================================================================
 
 // NewComposer creates and initializes a new Composer instance with the provided execution context.
-// It sets up all required resource handlers—artifact builder, blueprint handler, and terraform resolver—
-// and registers each handler with the dependency injector for use throughout the resource lifecycle.
+// It sets up all required resource handlers—artifact builder, blueprint handler, and terraform resolver.
+// If overrides are provided, any non-nil component in the override Composer will be used instead of creating a default.
 // Returns a pointer to the fully initialized Composer struct.
-func NewComposer(ctx *ComposerRuntime) *Composer {
+func NewComposer(rt *runtime.Runtime, opts ...*Composer) *Composer {
 	composer := &Composer{
-		ComposerRuntime: ctx,
+		Runtime: rt,
+	}
+
+	if len(opts) > 0 && opts[0] != nil {
+		overrides := opts[0]
+		if overrides.ArtifactBuilder != nil {
+			composer.ArtifactBuilder = overrides.ArtifactBuilder
+		}
+		if overrides.BlueprintHandler != nil {
+			composer.BlueprintHandler = overrides.BlueprintHandler
+		}
+		if overrides.TerraformResolver != nil {
+			composer.TerraformResolver = overrides.TerraformResolver
+		}
 	}
 
 	if composer.ArtifactBuilder == nil {
 		composer.ArtifactBuilder = artifact.NewArtifactBuilder()
 	}
-	composer.Injector.Register("artifactBuilder", composer.ArtifactBuilder)
+	if rt.Injector != nil {
+		rt.Injector.Register("artifactBuilder", composer.ArtifactBuilder)
+	}
 
-	composer.BlueprintHandler = blueprint.NewBlueprintHandler(composer.Injector)
-	composer.Injector.Register("blueprintHandler", composer.BlueprintHandler)
+	if composer.BlueprintHandler == nil {
+		composer.BlueprintHandler = blueprint.NewBlueprintHandler(rt.Injector)
+	}
+	if rt.Injector != nil {
+		rt.Injector.Register("blueprintHandler", composer.BlueprintHandler)
+	}
 
-	composer.TerraformResolver = terraform.NewStandardModuleResolver(composer.Injector)
-	composer.Injector.Register("terraformResolver", composer.TerraformResolver)
+	if composer.TerraformResolver == nil {
+		composer.TerraformResolver = terraform.NewStandardModuleResolver(rt.Injector)
+	}
+	if rt.Injector != nil {
+		rt.Injector.Register("terraformResolver", composer.TerraformResolver)
+	}
 
 	return composer
 }
@@ -75,7 +90,7 @@ func NewComposer(ctx *ComposerRuntime) *Composer {
 // It initializes the artifact builder and creates a distributable artifact.
 // The outputPath specifies where to save the bundle file. Returns the actual output path or an error.
 func (r *Composer) Bundle(outputPath, tag string) (string, error) {
-	if err := r.ArtifactBuilder.Initialize(r.Injector); err != nil {
+	if err := r.ArtifactBuilder.Initialize(r.Runtime.Injector); err != nil {
 		return "", fmt.Errorf("failed to initialize artifact builder: %w", err)
 	}
 
@@ -97,7 +112,7 @@ func (r *Composer) Push(registryURL string) (string, error) {
 		return "", fmt.Errorf("failed to parse registry URL: %w", err)
 	}
 
-	if err := r.ArtifactBuilder.Initialize(r.Injector); err != nil {
+	if err := r.ArtifactBuilder.Initialize(r.Runtime.Injector); err != nil {
 		return "", fmt.Errorf("failed to initialize artifact builder: %w", err)
 	}
 
@@ -151,7 +166,7 @@ func (r *Composer) Generate(overwrite ...bool) error {
 		return fmt.Errorf("failed to generate .gitignore: %w", err)
 	}
 
-	if r.ConfigHandler.GetBool("terraform.enabled", false) {
+	if r.Runtime.ConfigHandler.GetBool("terraform.enabled", false) {
 		if err := r.TerraformResolver.GenerateTfvars(shouldOverwrite); err != nil {
 			return fmt.Errorf("failed to generate terraform files: %w", err)
 		}
@@ -194,7 +209,7 @@ func (r *Composer) generateGitignore() error {
 		"contexts/**/.azure/",
 	}
 
-	projectRoot, err := r.Shell.GetProjectRoot()
+	projectRoot, err := r.Runtime.Shell.GetProjectRoot()
 	if err != nil {
 		return fmt.Errorf("failed to get project root: %w", err)
 	}
