@@ -5,10 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/windsorcli/cli/pkg/runtime/config"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
-	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 // The StandardModuleResolver is a terraform module resolver for standard source types.
@@ -29,51 +27,22 @@ type TerraformInitOutput struct {
 // StandardModuleResolver handles standard terraform module sources (git, local paths, etc.)
 type StandardModuleResolver struct {
 	*BaseModuleResolver
-	configHandler config.ConfigHandler
-	reset         bool
+	reset bool
 }
 
 // =============================================================================
 // Constructor
 // =============================================================================
 
-// NewStandardModuleResolver creates a new standard module resolver
-func NewStandardModuleResolver(injector di.Injector) *StandardModuleResolver {
-	base := NewBaseModuleResolver(injector)
-	return &StandardModuleResolver{
-		BaseModuleResolver: base,
+// NewStandardModuleResolver creates a new standard module resolver with the provided dependencies.
+// If overrides are provided, any non-nil component in the override StandardModuleResolver will be used instead of creating a default.
+func NewStandardModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler) *StandardModuleResolver {
+	resolver := &StandardModuleResolver{
+		BaseModuleResolver: NewBaseModuleResolver(rt, blueprintHandler),
 		reset:              false,
 	}
-}
 
-// Initialize sets up the StandardModuleResolver by resolving and assigning required dependencies.
-// It initializes the base resolver, then resolves and assigns the blueprint handler, shell, and config handler
-// from the dependency injector. Returns an error if any dependency cannot be resolved.
-func (h *StandardModuleResolver) Initialize() error {
-	if err := h.BaseModuleResolver.Initialize(); err != nil {
-		return err
-	}
-
-	blueprintHandlerInterface := h.injector.Resolve("blueprintHandler")
-	var ok bool
-	h.blueprintHandler, ok = blueprintHandlerInterface.(blueprint.BlueprintHandler)
-	if !ok {
-		return fmt.Errorf("failed to resolve blueprint handler")
-	}
-
-	shellInterface := h.injector.Resolve("shell")
-	h.shell, ok = shellInterface.(shell.Shell)
-	if !ok {
-		return fmt.Errorf("failed to resolve shell")
-	}
-
-	configHandlerInterface := h.injector.Resolve("configHandler")
-	h.configHandler, ok = configHandlerInterface.(config.ConfigHandler)
-	if !ok {
-		return fmt.Errorf("failed to resolve config handler")
-	}
-
-	return nil
+	return resolver
 }
 
 // =============================================================================
@@ -114,9 +83,9 @@ func (h *StandardModuleResolver) ProcessModules() error {
 			return fmt.Errorf("failed to change to module directory for %s: %w", component.Path, err)
 		}
 
-		contextPath, err := h.configHandler.GetConfigRoot()
-		if err != nil {
-			return fmt.Errorf("failed to get config root for %s: %w", component.Path, err)
+		contextPath := h.runtime.ConfigRoot
+		if contextPath == "" {
+			return fmt.Errorf("failed to get config root: config root is empty")
 		}
 
 		tfDataDir := filepath.Join(contextPath, ".terraform", component.Path)
@@ -124,7 +93,7 @@ func (h *StandardModuleResolver) ProcessModules() error {
 			return fmt.Errorf("failed to set TF_DATA_DIR for %s: %w", component.Path, err)
 		}
 
-		output, err := h.shell.ExecProgress(
+		output, err := h.runtime.Shell.ExecProgress(
 			fmt.Sprintf("📥 Loading component %s", component.Path),
 			"terraform",
 			"init",

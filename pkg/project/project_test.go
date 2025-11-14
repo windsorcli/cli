@@ -145,8 +145,8 @@ func TestNewProject(t *testing.T) {
 			t.Fatal("Expected Project to be created")
 		}
 
-		if proj.Context == nil {
-			t.Error("Expected Context to be set")
+		if proj.Runtime == nil {
+			t.Error("Expected Runtime to be set")
 		}
 
 		if proj.Provisioner == nil {
@@ -157,8 +157,8 @@ func TestNewProject(t *testing.T) {
 			t.Error("Expected Composer to be set")
 		}
 
-		if proj.Context.ContextName != "test-context" {
-			t.Errorf("Expected ContextName to be 'test-context', got: %s", proj.Context.ContextName)
+		if proj.Runtime.ContextName != "test-context" {
+			t.Errorf("Expected ContextName to be 'test-context', got: %s", proj.Runtime.ContextName)
 		}
 	})
 
@@ -171,8 +171,8 @@ func TestNewProject(t *testing.T) {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		if proj.Context.ContextName != "custom-context" {
-			t.Errorf("Expected ContextName to be 'custom-context', got: %s", proj.Context.ContextName)
+		if proj.Runtime.ContextName != "custom-context" {
+			t.Errorf("Expected ContextName to be 'custom-context', got: %s", proj.Runtime.ContextName)
 		}
 	})
 
@@ -185,8 +185,8 @@ func TestNewProject(t *testing.T) {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		if proj.Context.ContextName != "test-context" {
-			t.Errorf("Expected ContextName to be 'test-context', got: %s", proj.Context.ContextName)
+		if proj.Runtime.ContextName != "test-context" {
+			t.Errorf("Expected ContextName to be 'test-context', got: %s", proj.Runtime.ContextName)
 		}
 	})
 
@@ -203,8 +203,8 @@ func TestNewProject(t *testing.T) {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		if proj.Context.ContextName != "local" {
-			t.Errorf("Expected ContextName to be 'local', got: %s", proj.Context.ContextName)
+		if proj.Runtime.ContextName != "local" {
+			t.Errorf("Expected ContextName to be 'local', got: %s", proj.Runtime.ContextName)
 		}
 	})
 

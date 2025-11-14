@@ -1,6 +1,8 @@
 package composer
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/di"
@@ -17,16 +19,28 @@ import (
 func setupComposerMocks(t *testing.T) *Mocks {
 	t.Helper()
 
+	// Create temporary directory for test
+	tmpDir := t.TempDir()
+
 	injector := di.NewInjector()
 	configHandler := config.NewMockConfigHandler()
+	// Set up GetConfigRoot to return temp directory
+	configHandler.GetConfigRootFunc = func() (string, error) {
+		return tmpDir, nil
+	}
+
 	shell := shell.NewMockShell()
+	// Set up GetProjectRoot to return temp directory
+	shell.GetProjectRootFunc = func() (string, error) {
+		return tmpDir, nil
+	}
 
 	// Create execution context
 	rt := &runtime.Runtime{
 		ContextName:   "test-context",
-		ProjectRoot:   "/test/project",
-		ConfigRoot:    "/test/project/contexts/test-context",
-		TemplateRoot:  "/test/project/contexts/_template",
+		ProjectRoot:   tmpDir,
+		ConfigRoot:    filepath.Join(tmpDir, "contexts", "test-context"),
+		TemplateRoot:  filepath.Join(tmpDir, "contexts", "_template"),
 		Injector:      injector,
 		ConfigHandler: configHandler,
 		Shell:         shell,
@@ -134,27 +148,39 @@ func TestComposer_Push(t *testing.T) {
 func TestComposer_Generate(t *testing.T) {
 	t.Run("HandlesGenerateSuccessfully", func(t *testing.T) {
 		mocks := setupComposerMocks(t)
+		// Create empty TemplateRoot directory so LoadBlueprint tries to load from template
+		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
+			t.Fatalf("Failed to create TemplateRoot: %v", err)
+		}
 		composer := NewComposer(mocks.Runtime)
+		if composer == nil {
+			t.Fatal("Expected non-nil composer")
+		}
 
-		// This test would need proper mocking of the blueprint handler and terraform resolver
-		// For now, we'll just test that the method exists and handles errors
+		// Generate will fail because blueprint.yaml doesn't exist in ConfigRoot and template is empty
 		err := composer.Generate()
-		// We expect an error here because we don't have proper mocks set up
+		// We expect an error because blueprint.yaml doesn't exist in the test setup
 		if err == nil {
-			t.Error("Expected error due to missing mocks, but got nil")
+			t.Error("Expected error due to missing blueprint.yaml, but got nil")
 		}
 	})
 
 	t.Run("HandlesGenerateWithOverwrite", func(t *testing.T) {
 		mocks := setupComposerMocks(t)
+		// Create empty TemplateRoot directory so LoadBlueprint tries to load from template
+		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
+			t.Fatalf("Failed to create TemplateRoot: %v", err)
+		}
 		composer := NewComposer(mocks.Runtime)
+		if composer == nil {
+			t.Fatal("Expected non-nil composer")
+		}
 
-		// This test would need proper mocking of the blueprint handler and terraform resolver
-		// For now, we'll just test that the method exists and handles errors
+		// Generate will fail because blueprint.yaml doesn't exist in ConfigRoot and template is empty
 		err := composer.Generate(true)
-		// We expect an error here because we don't have proper mocks set up
+		// We expect an error because blueprint.yaml doesn't exist in the test setup
 		if err == nil {
-			t.Error("Expected error due to missing mocks, but got nil")
+			t.Error("Expected error due to missing blueprint.yaml, but got nil")
 		}
 	})
 }

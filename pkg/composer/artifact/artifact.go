@@ -18,8 +18,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 // The ArtifactBuilder creates tar.gz artifacts from prepared build directories.
@@ -86,7 +86,6 @@ type BlueprintMetadataInput struct {
 
 // Artifact defines the interface for artifact creation operations
 type Artifact interface {
-	Initialize(injector di.Injector) error
 	Bundle() error
 	Write(outputPath string, tag string) (string, error)
 	Push(registryBase string, repoName string, tag string) error
@@ -117,42 +116,30 @@ type ArtifactBuilder struct {
 	shell       shell.Shell
 	tarballPath string
 	metadata    BlueprintMetadataInput
-	ociCache    map[string][]byte // Cache for downloaded OCI artifacts
+	ociCache    map[string][]byte
 }
 
 // =============================================================================
 // Constructor
 // =============================================================================
 
-// NewArtifactBuilder creates a new ArtifactBuilder instance with default configuration.
-// Initializes an empty file map for storing artifact contents and sets up default shims
-// for system operations. The returned builder is ready for dependency injection and file operations.
-func NewArtifactBuilder() *ArtifactBuilder {
-	return &ArtifactBuilder{
+// NewArtifactBuilder creates a new ArtifactBuilder instance with the provided shell dependency.
+// If overrides are provided, any non-nil component in the override ArtifactBuilder will be used instead of creating a default.
+// The shell is used for retrieving git provenance and builder information during metadata generation.
+func NewArtifactBuilder(rt *runtime.Runtime) *ArtifactBuilder {
+	builder := &ArtifactBuilder{
 		shims:    NewShims(),
 		files:    make(map[string]FileInfo),
 		ociCache: make(map[string][]byte),
+		shell:    rt.Shell,
 	}
+
+	return builder
 }
 
 // =============================================================================
 // Public Methods
 // =============================================================================
-
-// Initialize sets up the ArtifactBuilder with dependency injection and resolves required dependencies.
-// Extracts the shell dependency from the injector for git operations and command execution.
-// The shell is used for retrieving git provenance and builder information during metadata generation.
-// Returns an error if the shell cannot be resolved from the injector.
-func (a *ArtifactBuilder) Initialize(injector di.Injector) error {
-	if injector != nil {
-		shell, ok := injector.Resolve("shell").(shell.Shell)
-		if !ok {
-			return fmt.Errorf("failed to resolve shell from injector")
-		}
-		a.shell = shell
-	}
-	return nil
-}
 
 // Write bundles all files and creates a compressed tar.gz artifact file with optional tag override.
 // Accepts optional tag in "name:version" format to override metadata.yaml values.

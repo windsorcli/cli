@@ -7,7 +7,8 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/composer/artifact"
+	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -15,10 +16,19 @@ import (
 func TestBaseBlueprintHandler_resolvePatchFromPath(t *testing.T) {
 	setup := func(t *testing.T) *BaseBlueprintHandler {
 		t.Helper()
-		injector := di.NewInjector()
-		handler := NewBlueprintHandler(injector)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockShell := shell.NewMockShell()
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		rt := &runtime.Runtime{
+			ConfigHandler: mockConfigHandler,
+			Shell:         mockShell,
+		}
+		handler, err := NewBlueprintHandler(rt, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		handler.shims = NewShims()
-		handler.configHandler = config.NewMockConfigHandler()
+		handler.runtime.ConfigHandler = config.NewMockConfigHandler()
 		return handler
 	}
 
@@ -64,7 +74,7 @@ func TestBaseBlueprintHandler_resolvePatchFromPath(t *testing.T) {
 	t.Run("WithNoData", func(t *testing.T) {
 		// Given a handler with no data
 		handler := setup(t)
-		handler.configHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+		handler.runtime.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("config root error")
 		}
 		// When resolving patch from path
@@ -146,9 +156,7 @@ func TestBaseBlueprintHandler_resolvePatchFromPath(t *testing.T) {
 				},
 			},
 		}
-		handler.configHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
-			return "/test/config", nil
-		}
+		handler.runtime.ConfigRoot = "/test/config"
 		handler.shims.ReadFile = func(name string) ([]byte, error) {
 			return []byte(`apiVersion: v1
 kind: ConfigMap
@@ -197,8 +205,17 @@ data:
 func TestBaseBlueprintHandler_extractTargetFromPatchData(t *testing.T) {
 	setup := func(t *testing.T) *BaseBlueprintHandler {
 		t.Helper()
-		injector := di.NewInjector()
-		handler := NewBlueprintHandler(injector)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockShell := shell.NewMockShell()
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		rt := &runtime.Runtime{
+			ConfigHandler: mockConfigHandler,
+			Shell:         mockShell,
+		}
+		handler, err := NewBlueprintHandler(rt, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		return handler
 	}
 
@@ -353,8 +370,17 @@ func TestBaseBlueprintHandler_extractTargetFromPatchData(t *testing.T) {
 func TestBaseBlueprintHandler_extractTargetFromPatchContent(t *testing.T) {
 	setup := func(t *testing.T) *BaseBlueprintHandler {
 		t.Helper()
-		injector := di.NewInjector()
-		handler := NewBlueprintHandler(injector)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockShell := shell.NewMockShell()
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		rt := &runtime.Runtime{
+			ConfigHandler: mockConfigHandler,
+			Shell:         mockShell,
+		}
+		handler, err := NewBlueprintHandler(rt, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		return handler
 	}
 
@@ -443,8 +469,17 @@ kind: ConfigMap
 func TestBaseBlueprintHandler_deepMergeMaps(t *testing.T) {
 	setup := func(t *testing.T) *BaseBlueprintHandler {
 		t.Helper()
-		injector := di.NewInjector()
-		handler := NewBlueprintHandler(injector)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockShell := shell.NewMockShell()
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		rt := &runtime.Runtime{
+			ConfigHandler: mockConfigHandler,
+			Shell:         mockShell,
+		}
+		handler, err := NewBlueprintHandler(rt, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		return handler
 	}
 
@@ -989,7 +1024,11 @@ func TestBaseBlueprintHandler_parseFeature(t *testing.T) {
 	setup := func(t *testing.T) *BaseBlueprintHandler {
 		t.Helper()
 		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		handler.shims = mocks.Shims
 		return handler
 	}
@@ -1139,7 +1178,11 @@ func TestBaseBlueprintHandler_loadFeatures(t *testing.T) {
 	setup := func(t *testing.T) *BaseBlueprintHandler {
 		t.Helper()
 		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		handler.shims = mocks.Shims
 		return handler
 	}
@@ -1309,7 +1352,11 @@ func TestBaseBlueprintHandler_processFeatures(t *testing.T) {
 	setup := func(t *testing.T) *BaseBlueprintHandler {
 		t.Helper()
 		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		handler.shims = mocks.Shims
 		return handler
 	}
@@ -1811,10 +1858,14 @@ func TestBaseBlueprintHandler_setRepositoryDefaults(t *testing.T) {
 	setup := func(t *testing.T) *BaseBlueprintHandler {
 		t.Helper()
 		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		handler.shims = mocks.Shims
-		handler.configHandler = mocks.ConfigHandler
-		handler.shell = mocks.Shell
+		handler.runtime.ConfigHandler = mocks.ConfigHandler
+		handler.runtime.Shell = mocks.Shell
 		return handler
 	}
 
@@ -1822,7 +1873,7 @@ func TestBaseBlueprintHandler_setRepositoryDefaults(t *testing.T) {
 		handler := setup(t)
 		handler.blueprint.Repository.Url = "https://github.com/existing/repo"
 
-		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler := handler.runtime.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			if key == "dev" {
 				return false
@@ -1843,7 +1894,7 @@ func TestBaseBlueprintHandler_setRepositoryDefaults(t *testing.T) {
 	t.Run("UsesDevelopmentURLWhenDevFlagEnabled", func(t *testing.T) {
 		handler := setup(t)
 
-		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler := handler.runtime.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			if key == "dev" {
 				return true
@@ -1857,10 +1908,7 @@ func TestBaseBlueprintHandler_setRepositoryDefaults(t *testing.T) {
 			return ""
 		}
 
-		mockShell := handler.shell.(*shell.MockShell)
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/path/to/my-project", nil
-		}
+		handler.runtime.ProjectRoot = "/path/to/my-project"
 
 		handler.shims.FilepathBase = func(path string) string {
 			return "my-project"
@@ -1880,12 +1928,12 @@ func TestBaseBlueprintHandler_setRepositoryDefaults(t *testing.T) {
 	t.Run("FallsBackToGitRemoteOrigin", func(t *testing.T) {
 		handler := setup(t)
 
-		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler := handler.runtime.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			return false
 		}
 
-		mockShell := handler.shell.(*shell.MockShell)
+		mockShell := handler.runtime.Shell.(*shell.MockShell)
 		mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "git" && len(args) == 3 && args[0] == "config" && args[2] == "remote.origin.url" {
 				return "https://github.com/user/repo.git\n", nil
@@ -1907,12 +1955,12 @@ func TestBaseBlueprintHandler_setRepositoryDefaults(t *testing.T) {
 	t.Run("PreservesSSHGitRemoteOrigin", func(t *testing.T) {
 		handler := setup(t)
 
-		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler := handler.runtime.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			return false
 		}
 
-		mockShell := handler.shell.(*shell.MockShell)
+		mockShell := handler.runtime.Shell.(*shell.MockShell)
 		mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "git" && len(args) == 3 && args[0] == "config" && args[2] == "remote.origin.url" {
 				return "git@github.com:windsorcli/core.git\n", nil
@@ -1934,12 +1982,12 @@ func TestBaseBlueprintHandler_setRepositoryDefaults(t *testing.T) {
 	t.Run("HandlesGitRemoteOriginError", func(t *testing.T) {
 		handler := setup(t)
 
-		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler := handler.runtime.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			return false
 		}
 
-		mockShell := handler.shell.(*shell.MockShell)
+		mockShell := handler.runtime.Shell.(*shell.MockShell)
 		mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			return "", fmt.Errorf("not a git repository")
 		}
@@ -1957,12 +2005,12 @@ func TestBaseBlueprintHandler_setRepositoryDefaults(t *testing.T) {
 	t.Run("HandlesEmptyGitRemoteOriginOutput", func(t *testing.T) {
 		handler := setup(t)
 
-		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler := handler.runtime.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			return false
 		}
 
-		mockShell := handler.shell.(*shell.MockShell)
+		mockShell := handler.runtime.Shell.(*shell.MockShell)
 		mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			return "", nil
 		}
@@ -1980,7 +2028,7 @@ func TestBaseBlueprintHandler_setRepositoryDefaults(t *testing.T) {
 	t.Run("DevModeFallsBackToGitWhenDevelopmentURLFails", func(t *testing.T) {
 		handler := setup(t)
 
-		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler := handler.runtime.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			if key == "dev" {
 				return true
@@ -1991,7 +2039,7 @@ func TestBaseBlueprintHandler_setRepositoryDefaults(t *testing.T) {
 			return ""
 		}
 
-		mockShell := handler.shell.(*shell.MockShell)
+		mockShell := handler.runtime.Shell.(*shell.MockShell)
 		mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "git" {
 				return "https://github.com/fallback/repo.git", nil
@@ -2016,7 +2064,11 @@ func TestBaseBlueprintHandler_normalizeGitURL(t *testing.T) {
 	setup := func(t *testing.T) *BaseBlueprintHandler {
 		t.Helper()
 		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		return handler
 	}
 
@@ -2073,17 +2125,21 @@ func TestBaseBlueprintHandler_getDevelopmentRepositoryURL(t *testing.T) {
 	setup := func(t *testing.T) *BaseBlueprintHandler {
 		t.Helper()
 		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		handler.shims = mocks.Shims
-		handler.configHandler = mocks.ConfigHandler
-		handler.shell = mocks.Shell
+		handler.runtime.ConfigHandler = mocks.ConfigHandler
+		handler.runtime.Shell = mocks.Shell
 		return handler
 	}
 
 	t.Run("GeneratesCorrectDevelopmentURL", func(t *testing.T) {
 		handler := setup(t)
 
-		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler := handler.runtime.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "dns.domain" {
 				return "dev.example.com"
@@ -2091,10 +2147,7 @@ func TestBaseBlueprintHandler_getDevelopmentRepositoryURL(t *testing.T) {
 			return ""
 		}
 
-		mockShell := handler.shell.(*shell.MockShell)
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/home/user/projects/my-awesome-project", nil
-		}
+		handler.runtime.ProjectRoot = "/home/user/projects/my-awesome-project"
 
 		handler.shims.FilepathBase = func(path string) string {
 			return "my-awesome-project"
@@ -2111,7 +2164,7 @@ func TestBaseBlueprintHandler_getDevelopmentRepositoryURL(t *testing.T) {
 	t.Run("UsesDefaultDomainWhenNotSet", func(t *testing.T) {
 		handler := setup(t)
 
-		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler := handler.runtime.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "dns.domain" && len(defaultValue) > 0 {
 				return defaultValue[0]
@@ -2119,10 +2172,7 @@ func TestBaseBlueprintHandler_getDevelopmentRepositoryURL(t *testing.T) {
 			return ""
 		}
 
-		mockShell := handler.shell.(*shell.MockShell)
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/home/user/projects/my-project", nil
-		}
+		handler.runtime.ProjectRoot = "/home/user/projects/my-project"
 
 		handler.shims.FilepathBase = func(path string) string {
 			return "my-project"
@@ -2139,7 +2189,7 @@ func TestBaseBlueprintHandler_getDevelopmentRepositoryURL(t *testing.T) {
 	t.Run("ReturnsEmptyWhenProjectRootFails", func(t *testing.T) {
 		handler := setup(t)
 
-		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler := handler.runtime.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "dns.domain" {
 				return "example.com"
@@ -2147,10 +2197,7 @@ func TestBaseBlueprintHandler_getDevelopmentRepositoryURL(t *testing.T) {
 			return ""
 		}
 
-		mockShell := handler.shell.(*shell.MockShell)
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "", fmt.Errorf("project root not found")
-		}
+		handler.runtime.ProjectRoot = ""
 
 		url := handler.getDevelopmentRepositoryURL()
 
@@ -2162,7 +2209,7 @@ func TestBaseBlueprintHandler_getDevelopmentRepositoryURL(t *testing.T) {
 	t.Run("ReturnsEmptyWhenFolderNameEmpty", func(t *testing.T) {
 		handler := setup(t)
 
-		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler := handler.runtime.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "dns.domain" {
 				return "example.com"
@@ -2170,10 +2217,7 @@ func TestBaseBlueprintHandler_getDevelopmentRepositoryURL(t *testing.T) {
 			return ""
 		}
 
-		mockShell := handler.shell.(*shell.MockShell)
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/home/user/projects/", nil
-		}
+		handler.runtime.ProjectRoot = "/home/user/projects/"
 
 		handler.shims.FilepathBase = func(path string) string {
 			return ""
@@ -2189,7 +2233,7 @@ func TestBaseBlueprintHandler_getDevelopmentRepositoryURL(t *testing.T) {
 	t.Run("HandlesComplexProjectPaths", func(t *testing.T) {
 		handler := setup(t)
 
-		mockConfigHandler := handler.configHandler.(*config.MockConfigHandler)
+		mockConfigHandler := handler.runtime.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "dns.domain" {
 				return "staging.example.io"
@@ -2197,10 +2241,7 @@ func TestBaseBlueprintHandler_getDevelopmentRepositoryURL(t *testing.T) {
 			return ""
 		}
 
-		mockShell := handler.shell.(*shell.MockShell)
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/var/www/projects/nested/deep/project-with-dashes", nil
-		}
+		handler.runtime.ProjectRoot = "/var/www/projects/nested/deep/project-with-dashes"
 
 		handler.shims.FilepathBase = func(path string) string {
 			return "project-with-dashes"
@@ -2219,14 +2260,14 @@ func TestBlueprintHandler_getSources(t *testing.T) {
 	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		handler.shims = mocks.Shims
 		handler.blueprint = blueprintv1alpha1.Blueprint{
 			Sources: []blueprintv1alpha1.Source{},
-		}
-		err := handler.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
 		}
 		return handler, mocks
 	}
@@ -2269,9 +2310,12 @@ func TestBlueprintHandler_getRepository(t *testing.T) {
 	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		handler.shims = mocks.Shims
-		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
@@ -2319,9 +2363,12 @@ func TestBlueprintHandler_loadConfig(t *testing.T) {
 	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		handler.shims = mocks.Shims
-		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
@@ -2331,6 +2378,7 @@ func TestBlueprintHandler_loadConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a blueprint handler
 		handler, _ := setup(t)
+		handler.runtime.ConfigRoot = "/test/config"
 
 		// When loading the config
 		err := handler.loadConfig()
@@ -2350,6 +2398,7 @@ func TestBlueprintHandler_loadConfig(t *testing.T) {
 	t.Run("CustomPathOverride", func(t *testing.T) {
 		// Given a blueprint handler
 		handler, _ := setup(t)
+		handler.runtime.ConfigRoot = "/test/config"
 
 		// And a mock file system that tracks checked paths
 		var checkedPaths []string
@@ -2399,6 +2448,7 @@ func TestBlueprintHandler_loadConfig(t *testing.T) {
 	t.Run("DefaultBlueprint", func(t *testing.T) {
 		// Given a blueprint handler
 		handler, _ := setup(t)
+		handler.runtime.ConfigRoot = "/test/config"
 
 		// And a mock file system that returns no existing files
 		handler.shims.Stat = func(name string) (os.FileInfo, error) {
@@ -2450,33 +2500,33 @@ func TestBlueprintHandler_loadConfig(t *testing.T) {
 	t.Run("ErrorGettingConfigRoot", func(t *testing.T) {
 		// Given a mock config handler that returns an error
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "", fmt.Errorf("error getting config root")
-		}
 		opts := &SetupOptions{
 			ConfigHandler: mockConfigHandler,
 		}
 		mocks := setupMocks(t, opts)
+		mocks.Runtime.ConfigRoot = ""
 
 		// And a blueprint handler using that config handler
-		handler := NewBlueprintHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-		if err := handler.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
 		}
+		handler.shims = mocks.Shims
 
 		// When loading the config
-		err := handler.loadConfig()
+		err = handler.loadConfig()
 
 		// Then an error should be returned
-		if err == nil || !strings.Contains(err.Error(), "error getting config root") {
-			t.Errorf("Expected error containing 'error getting config root', got: %v", err)
+		if err == nil || !strings.Contains(err.Error(), "config root is empty") {
+			t.Errorf("Expected error containing 'config root is empty', got: %v", err)
 		}
 	})
 
 	t.Run("ErrorReadingYamlFile", func(t *testing.T) {
 		// Given a blueprint handler
 		handler, _ := setup(t)
+		handler.runtime.ConfigRoot = "/test/config"
 
 		// And a mock file system that finds yaml file but fails to read it
 		handler.shims.Stat = func(name string) (os.FileInfo, error) {
@@ -2504,6 +2554,7 @@ func TestBlueprintHandler_loadConfig(t *testing.T) {
 	t.Run("ErrorLoadingYamlFile", func(t *testing.T) {
 		// Given a blueprint handler
 		handler, _ := setup(t)
+		handler.runtime.ConfigRoot = "/test/config"
 
 		// And a mock file system that returns an error for yaml files
 		handler.shims.Stat = func(name string) (os.FileInfo, error) {
@@ -2531,6 +2582,7 @@ func TestBlueprintHandler_loadConfig(t *testing.T) {
 	t.Run("ErrorUnmarshallingYamlBlueprint", func(t *testing.T) {
 		// Given a blueprint handler
 		handler, _ := setup(t)
+		handler.runtime.ConfigRoot = "/test/config"
 
 		// And a mock file system with a yaml file
 		handler.shims.Stat = func(name string) (os.FileInfo, error) {
@@ -2564,6 +2616,7 @@ func TestBlueprintHandler_loadConfig(t *testing.T) {
 	t.Run("EmptyEvaluatedJsonnet", func(t *testing.T) {
 		// Given a blueprint handler with local context
 		handler, mocks := setup(t)
+		handler.runtime.ConfigRoot = "/test/config"
 		mocks.ConfigHandler.SetContext("local")
 
 		// And a mock jsonnet VM that returns empty result
@@ -2624,13 +2677,8 @@ func TestBlueprintHandler_loadConfig(t *testing.T) {
 			}
 			return false
 		}
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "/tmp/test-config", nil
-		}
-
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "/Users/test/project/cli", nil
-		}
+		mocks.Runtime.ConfigRoot = "/tmp/test-config"
+		mocks.Runtime.ProjectRoot = "/Users/test/project/cli"
 
 		handler.shims.FilepathBase = func(path string) string {
 			if path == "/Users/test/project/cli" {

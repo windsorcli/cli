@@ -59,24 +59,19 @@ func NewComposer(rt *runtime.Runtime, opts ...*Composer) *Composer {
 	}
 
 	if composer.ArtifactBuilder == nil {
-		composer.ArtifactBuilder = artifact.NewArtifactBuilder()
-	}
-	if rt.Injector != nil {
-		rt.Injector.Register("artifactBuilder", composer.ArtifactBuilder)
+		composer.ArtifactBuilder = artifact.NewArtifactBuilder(rt)
 	}
 
 	if composer.BlueprintHandler == nil {
-		composer.BlueprintHandler = blueprint.NewBlueprintHandler(rt.Injector)
-	}
-	if rt.Injector != nil {
-		rt.Injector.Register("blueprintHandler", composer.BlueprintHandler)
+		var err error
+		composer.BlueprintHandler, err = blueprint.NewBlueprintHandler(rt, composer.ArtifactBuilder)
+		if err != nil {
+			return nil
+		}
 	}
 
 	if composer.TerraformResolver == nil {
-		composer.TerraformResolver = terraform.NewStandardModuleResolver(rt.Injector)
-	}
-	if rt.Injector != nil {
-		rt.Injector.Register("terraformResolver", composer.TerraformResolver)
+		composer.TerraformResolver = terraform.NewStandardModuleResolver(rt, composer.BlueprintHandler)
 	}
 
 	return composer
@@ -87,13 +82,9 @@ func NewComposer(rt *runtime.Runtime, opts ...*Composer) *Composer {
 // =============================================================================
 
 // Bundle creates a complete artifact bundle from the project's templates, kustomize, and terraform files.
-// It initializes the artifact builder and creates a distributable artifact.
+// It creates a distributable artifact.
 // The outputPath specifies where to save the bundle file. Returns the actual output path or an error.
 func (r *Composer) Bundle(outputPath, tag string) (string, error) {
-	if err := r.ArtifactBuilder.Initialize(r.Runtime.Injector); err != nil {
-		return "", fmt.Errorf("failed to initialize artifact builder: %w", err)
-	}
-
 	actualOutputPath, err := r.ArtifactBuilder.Write(outputPath, tag)
 	if err != nil {
 		return "", fmt.Errorf("failed to create artifact bundle: %w", err)
@@ -110,10 +101,6 @@ func (r *Composer) Push(registryURL string) (string, error) {
 	registryBase, repoName, tag, err := artifact.ParseRegistryURL(registryURL)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse registry URL: %w", err)
-	}
-
-	if err := r.ArtifactBuilder.Initialize(r.Runtime.Injector); err != nil {
-		return "", fmt.Errorf("failed to initialize artifact builder: %w", err)
 	}
 
 	if err := r.ArtifactBuilder.Bundle(); err != nil {
@@ -143,15 +130,8 @@ func (r *Composer) Generate(overwrite ...bool) error {
 		shouldOverwrite = overwrite[0]
 	}
 
-	if err := r.BlueprintHandler.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize blueprint handler: %w", err)
-	}
 	if err := r.BlueprintHandler.LoadBlueprint(); err != nil {
 		return fmt.Errorf("failed to load blueprint data: %w", err)
-	}
-
-	if err := r.TerraformResolver.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize terraform resolver: %w", err)
 	}
 
 	if err := r.BlueprintHandler.Write(shouldOverwrite); err != nil {
@@ -179,9 +159,6 @@ func (r *Composer) Generate(overwrite ...bool) error {
 // It initializes the blueprint handler if needed and loads the blueprint data before generating.
 // Returns the generated blueprint or an error if initialization or loading fails.
 func (r *Composer) GenerateBlueprint() (*blueprintv1alpha1.Blueprint, error) {
-	if err := r.BlueprintHandler.Initialize(); err != nil {
-		return nil, fmt.Errorf("failed to initialize blueprint handler: %w", err)
-	}
 	if err := r.BlueprintHandler.LoadBlueprint(); err != nil {
 		return nil, fmt.Errorf("failed to load blueprint data: %w", err)
 	}
@@ -209,10 +186,7 @@ func (r *Composer) generateGitignore() error {
 		"contexts/**/.azure/",
 	}
 
-	projectRoot, err := r.Runtime.Shell.GetProjectRoot()
-	if err != nil {
-		return fmt.Errorf("failed to get project root: %w", err)
-	}
+	projectRoot := r.Runtime.ProjectRoot
 
 	gitignorePath := filepath.Join(projectRoot, ".gitignore")
 

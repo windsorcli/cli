@@ -14,9 +14,10 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 // =============================================================================
@@ -29,6 +30,7 @@ type Mocks struct {
 	ConfigHandler    config.ConfigHandler
 	BlueprintHandler *blueprint.MockBlueprintHandler
 	Shims            *Shims
+	Runtime          *runtime.Runtime
 }
 
 type SetupOptions struct {
@@ -135,12 +137,20 @@ contexts:
 
 	shims := setupShims(t)
 
+	// Create runtime
+	rt := &runtime.Runtime{
+		Injector:      injector,
+		ConfigHandler: configHandler,
+		Shell:         mockShell,
+	}
+
 	return &Mocks{
 		Injector:         injector,
 		Shell:            mockShell,
 		ConfigHandler:    configHandler,
 		BlueprintHandler: mockBlueprintHandler,
 		Shims:            shims,
+		Runtime:          rt,
 	}
 }
 
@@ -237,21 +247,16 @@ func setupShims(t *testing.T) *Shims {
 // =============================================================================
 
 func TestBaseModuleResolver_NewBaseModuleResolver(t *testing.T) {
-	t.Run("CreatesResolverWithInjector", func(t *testing.T) {
-		// Given an injector
+	t.Run("CreatesResolverWithDependencies", func(t *testing.T) {
+		// Given mocks
 		mocks := setupMocks(t)
 
 		// When creating a new base module resolver
-		resolver := NewBaseModuleResolver(mocks.Injector)
+		resolver := NewBaseModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
 
 		// Then the resolver should be properly initialized
 		if resolver == nil {
 			t.Fatal("Expected non-nil resolver")
-		}
-
-		// And basic fields should be set
-		if resolver.injector == nil {
-			t.Error("Expected injector to be set")
 		}
 
 		// And shims should be initialized
@@ -259,56 +264,15 @@ func TestBaseModuleResolver_NewBaseModuleResolver(t *testing.T) {
 			t.Error("Expected shims to be initialized")
 		}
 
-		// And dependency fields should be nil until Initialize() is called
-		if resolver.shell != nil {
-			t.Error("Expected shell to be nil before Initialize()")
+		// And dependency fields should be set
+		if resolver.runtime.Shell == nil {
+			t.Error("Expected shell to be set")
 		}
-		if resolver.blueprintHandler != nil {
-			t.Error("Expected blueprintHandler to be nil before Initialize()")
+		if resolver.blueprintHandler == nil {
+			t.Error("Expected blueprintHandler to be set")
 		}
-	})
-}
-
-func TestBaseModuleResolver_Initialize(t *testing.T) {
-	setup := func(t *testing.T) (*BaseModuleResolver, *Mocks) {
-		t.Helper()
-		mocks := setupMocks(t)
-		resolver := NewBaseModuleResolver(mocks.Injector)
-		return resolver, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a resolver
-		resolver, _ := setup(t)
-
-		// When calling Initialize
-		err := resolver.Initialize()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected nil error, got %v", err)
-		}
-
-		// And dependencies should be injected
-		if resolver.shell == nil {
-			t.Error("Expected shell to be set after Initialize()")
-		}
-	})
-
-	t.Run("HandlesMissingShellDependency", func(t *testing.T) {
-		// Given a resolver with injector that doesn't have shell
-		injector := di.NewInjector()
-		resolver := NewBaseModuleResolver(injector)
-
-		// When calling Initialize
-		err := resolver.Initialize()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to resolve shell") {
-			t.Errorf("Expected error about shell resolution, got: %v", err)
+		if resolver.runtime.ConfigHandler == nil {
+			t.Error("Expected configHandler to be set")
 		}
 	})
 }
@@ -317,11 +281,7 @@ func TestBaseModuleResolver_writeShimMainTf(t *testing.T) {
 	setup := func(t *testing.T) (*BaseModuleResolver, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		resolver := NewBaseModuleResolver(mocks.Injector)
-		err := resolver.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize resolver: %v", err)
-		}
+		resolver := NewBaseModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
 		return resolver, mocks
 	}
 
@@ -403,11 +363,7 @@ func TestBaseModuleResolver_writeShimVariablesTf(t *testing.T) {
 	setup := func(t *testing.T) (*BaseModuleResolver, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		resolver := NewBaseModuleResolver(mocks.Injector)
-		err := resolver.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize resolver: %v", err)
-		}
+		resolver := NewBaseModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
 		return resolver, mocks
 	}
 
@@ -561,11 +517,7 @@ func TestBaseModuleResolver_writeShimOutputsTf(t *testing.T) {
 	setup := func(t *testing.T) (*BaseModuleResolver, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		resolver := NewBaseModuleResolver(mocks.Injector)
-		err := resolver.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize resolver: %v", err)
-		}
+		resolver := NewBaseModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
 		return resolver, mocks
 	}
 
@@ -874,11 +826,7 @@ func TestShims_NewShims(t *testing.T) {
 func TestBaseModuleResolver_GenerateTfvars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupMocks(t)
-		resolver := NewBaseModuleResolver(mocks.Injector)
-		resolver.blueprintHandler = mocks.BlueprintHandler
-		if err := resolver.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize: %v", err)
-		}
+		resolver := NewBaseModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
 		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
@@ -896,4 +844,3 @@ func TestBaseModuleResolver_GenerateTfvars(t *testing.T) {
 		}
 	})
 }
-

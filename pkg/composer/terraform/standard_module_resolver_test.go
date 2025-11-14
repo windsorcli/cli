@@ -10,9 +10,6 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime/config"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/composer/blueprint"
-	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // The StandardModuleResolverTest is a test suite for the StandardModuleResolver implementation
@@ -26,8 +23,8 @@ import (
 
 func TestStandardModuleResolver_NewStandardModuleResolver(t *testing.T) {
 	t.Run("CreatesStandardModuleResolver", func(t *testing.T) {
-		injector := di.NewInjector()
-		resolver := NewStandardModuleResolver(injector)
+		mocks := setupMocks(t, &SetupOptions{})
+		resolver := NewStandardModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
 		if resolver == nil {
 			t.Fatal("Expected non-nil standard module resolver")
 		}
@@ -40,11 +37,11 @@ func TestStandardModuleResolver_NewStandardModuleResolver(t *testing.T) {
 	})
 }
 
-func TestStandardModuleResolver_Initialize(t *testing.T) {
+func TestStandardModuleResolver_NewStandardModuleResolverWithDependencies(t *testing.T) {
 	setup := func(t *testing.T) (*StandardModuleResolver, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t, &SetupOptions{})
-		resolver := NewStandardModuleResolver(mocks.Injector)
+		resolver := NewStandardModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
 		return resolver, mocks
 	}
 
@@ -52,174 +49,15 @@ func TestStandardModuleResolver_Initialize(t *testing.T) {
 		// Given a standard module resolver with valid dependencies
 		resolver, _ := setup(t)
 
-		// When Initialize is called
-		err := resolver.Initialize()
-
-		// Then no error is returned and all handlers are set
-		if err != nil {
-			t.Errorf("Expected nil error, got %v", err)
+		// Then all handlers are set
+		if resolver.BaseModuleResolver.blueprintHandler == nil {
+			t.Error("Expected blueprintHandler to be set")
 		}
-		if resolver.blueprintHandler == nil {
-			t.Error("Expected blueprintHandler to be set after Initialize()")
+		if resolver.BaseModuleResolver.runtime.Shell == nil {
+			t.Error("Expected shell to be set")
 		}
-		if resolver.shell == nil {
-			t.Error("Expected shell to be set after Initialize()")
-		}
-		if resolver.configHandler == nil {
-			t.Error("Expected configHandler to be set after Initialize()")
-		}
-	})
-
-	t.Run("HandlesBaseInitializeError", func(t *testing.T) {
-		// Given a resolver with an injector missing shell dependency
-		injector := di.NewInjector()
-		resolver := NewStandardModuleResolver(injector)
-
-		// When Initialize is called
-		err := resolver.Initialize()
-
-		// Then an error is returned indicating shell resolution failure
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if err == nil || !strings.Contains(err.Error(), "failed to resolve shell") {
-			t.Errorf("Expected shell resolution error, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesMissingBlueprintHandler", func(t *testing.T) {
-		// Given a resolver with blueprintHandler explicitly set to nil in injector
-		resolver, mocks := setup(t)
-		mocks.Injector.Register("blueprintHandler", nil)
-
-		// When Initialize is called
-		err := resolver.Initialize()
-
-		// Then an error is returned indicating blueprint handler resolution failure
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if err == nil || !strings.Contains(err.Error(), "failed to resolve blueprint handler") {
-			t.Errorf("Expected blueprint handler resolution error, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesMissingConfigHandler", func(t *testing.T) {
-		// Given a resolver with configHandler explicitly set to nil in injector
-		resolver, mocks := setup(t)
-		mocks.Injector.Register("configHandler", nil)
-
-		// When Initialize is called
-		err := resolver.Initialize()
-
-		// Then an error is returned indicating config handler resolution failure
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if err == nil || !strings.Contains(err.Error(), "failed to resolve config handler") {
-			t.Errorf("Expected config handler resolution error, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesShellTypeAssertionError", func(t *testing.T) {
-		// Given a resolver with shell registered as an invalid type
-		resolver, mocks := setup(t)
-		mocks.Injector.Register("shell", "invalid-shell-type")
-
-		// When Initialize is called
-		err := resolver.Initialize()
-
-		// Then an error is returned indicating shell type assertion failure
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to resolve shell") {
-			t.Errorf("Expected shell type assertion error, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesBlueprintHandlerTypeAssertionError", func(t *testing.T) {
-		// Given a resolver with blueprintHandler registered as an invalid type
-		resolver, mocks := setup(t)
-		mocks.Injector.Register("blueprintHandler", "invalid-blueprint-handler-type")
-
-		// When Initialize is called
-		err := resolver.Initialize()
-
-		// Then an error is returned indicating blueprint handler type assertion failure
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to resolve blueprint handler") {
-			t.Errorf("Expected blueprint handler type assertion error, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesConfigHandlerTypeAssertionError", func(t *testing.T) {
-		// Given a resolver with configHandler registered as an invalid type
-		resolver, mocks := setup(t)
-		mocks.Injector.Register("configHandler", "invalid-config-handler-type")
-
-		// When Initialize is called
-		err := resolver.Initialize()
-
-		// Then an error is returned indicating config handler type assertion failure
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to resolve config handler") {
-			t.Errorf("Expected config handler type assertion error, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesNilShellResolution", func(t *testing.T) {
-		// Given a resolver with shell registered as nil interface
-		resolver, mocks := setup(t)
-		mocks.Injector.Register("shell", (*shell.Shell)(nil))
-
-		// When Initialize is called
-		err := resolver.Initialize()
-
-		// Then an error is returned indicating shell resolution failure
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to resolve shell") {
-			t.Errorf("Expected shell resolution error, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesNilBlueprintHandlerResolution", func(t *testing.T) {
-		// Given a resolver with blueprintHandler registered as nil interface
-		resolver, mocks := setup(t)
-		mocks.Injector.Register("blueprintHandler", (*blueprint.BlueprintHandler)(nil))
-
-		// When Initialize is called
-		err := resolver.Initialize()
-
-		// Then an error is returned indicating blueprint handler resolution failure
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to resolve blueprint handler") {
-			t.Errorf("Expected blueprint handler resolution error, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesNilConfigHandlerResolution", func(t *testing.T) {
-		// Given a resolver with configHandler registered as nil interface
-		resolver, mocks := setup(t)
-		mocks.Injector.Register("configHandler", (*config.ConfigHandler)(nil))
-
-		// When Initialize is called
-		err := resolver.Initialize()
-
-		// Then an error is returned indicating config handler resolution failure
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to resolve config handler") {
-			t.Errorf("Expected config handler resolution error, got: %v", err)
+		if resolver.BaseModuleResolver.runtime.ConfigHandler == nil {
+			t.Error("Expected configHandler to be set")
 		}
 	})
 }
@@ -228,21 +66,18 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 	setup := func(t *testing.T) (*StandardModuleResolver, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t, &SetupOptions{})
-		resolver := NewStandardModuleResolver(mocks.Injector)
-		err := resolver.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize resolver: %v", err)
-		}
-		resolver.shims = mocks.Shims
+		resolver := NewStandardModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
+		resolver.BaseModuleResolver.shims = mocks.Shims
 		return resolver, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a resolver with proper JSON unmarshaling for complete path coverage
 		resolver, mocks := setup(t)
+		resolver.BaseModuleResolver.runtime.ConfigRoot = "/test/config"
 
 		// Use real JSON unmarshaling to exercise the parsing logic
-		resolver.shims.JsonUnmarshal = func(data []byte, v any) error {
+		resolver.BaseModuleResolver.shims.JsonUnmarshal = func(data []byte, v any) error {
 			return json.Unmarshal(data, v)
 		}
 
@@ -266,7 +101,7 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 	t.Run("HandlesNilBlueprintHandler", func(t *testing.T) {
 		// Given a resolver with nil blueprint handler
 		resolver, _ := setup(t)
-		resolver.blueprintHandler = nil
+		resolver.BaseModuleResolver.blueprintHandler = nil
 
 		// When ProcessModules is called
 		err := resolver.ProcessModules()
@@ -280,7 +115,7 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 	t.Run("HandlesMkdirAllError", func(t *testing.T) {
 		// Given a resolver with MkdirAll shim returning error
 		resolver, _ := setup(t)
-		resolver.shims.MkdirAll = func(path string, perm os.FileMode) error {
+		resolver.BaseModuleResolver.shims.MkdirAll = func(path string, perm os.FileMode) error {
 			return errors.New("mkdir error")
 		}
 
@@ -296,7 +131,7 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 	t.Run("HandlesChdirError", func(t *testing.T) {
 		// Given a resolver with Chdir shim returning error
 		resolver, _ := setup(t)
-		resolver.shims.Chdir = func(path string) error {
+		resolver.BaseModuleResolver.shims.Chdir = func(path string) error {
 			return errors.New("chdir error")
 		}
 
@@ -313,17 +148,15 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 		// Given a resolver with config handler GetConfigRoot returning error
 		resolver, mocks := setup(t)
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "", errors.New("config root error")
-		}
 		mocks.Injector.Register("configHandler", mockConfigHandler)
-		resolver.configHandler = mockConfigHandler
+		resolver.BaseModuleResolver.runtime.ConfigHandler = mockConfigHandler
+		resolver.BaseModuleResolver.runtime.ConfigRoot = ""
 
 		// When ProcessModules is called
 		err := resolver.ProcessModules()
 
 		// Then an error is returned indicating failure to get config root
-		if err == nil || !strings.Contains(err.Error(), "failed to get config root") {
+		if err == nil || !strings.Contains(err.Error(), "config root is empty") {
 			t.Errorf("Expected config root error, got: %v", err)
 		}
 	})
@@ -332,12 +165,10 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 		// Given a resolver with Setenv shim returning error for TF_DATA_DIR
 		resolver, mocks := setup(t)
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
-		}
 		mocks.Injector.Register("configHandler", mockConfigHandler)
-		resolver.configHandler = mockConfigHandler
-		resolver.shims.Setenv = func(key, value string) error {
+		resolver.BaseModuleResolver.runtime.ConfigHandler = mockConfigHandler
+		resolver.BaseModuleResolver.runtime.ConfigRoot = "/mock/config/root"
+		resolver.BaseModuleResolver.shims.Setenv = func(key, value string) error {
 			if key == "TF_DATA_DIR" {
 				return errors.New("setenv error")
 			}
@@ -356,6 +187,7 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 	t.Run("HandlesTerraformInitError", func(t *testing.T) {
 		// Given a resolver with Shell.ExecProgressFunc returning error for terraform init
 		resolver, mocks := setup(t)
+		resolver.BaseModuleResolver.runtime.ConfigRoot = "/test/config"
 		mocks.Shell.ExecProgressFunc = func(msg, cmd string, args ...string) (string, error) {
 			if cmd == "terraform" && len(args) > 0 && args[0] == "init" {
 				return "", errors.New("terraform init error")
@@ -375,7 +207,7 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 	t.Run("HandlesWriteShimMainTfError", func(t *testing.T) {
 		// Given a resolver with WriteFile shim returning error for main.tf
 		resolver, _ := setup(t)
-		resolver.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		resolver.BaseModuleResolver.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			if strings.HasSuffix(path, "main.tf") {
 				return errors.New("write main.tf error")
 			}
@@ -394,7 +226,8 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 	t.Run("HandlesWriteShimVariablesTfError", func(t *testing.T) {
 		// Given a resolver with WriteFile shim returning error for variables.tf
 		resolver, _ := setup(t)
-		resolver.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		resolver.BaseModuleResolver.runtime.ConfigRoot = "/test/config"
+		resolver.BaseModuleResolver.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			if strings.HasSuffix(path, "variables.tf") {
 				return errors.New("write variables.tf error")
 			}
@@ -413,7 +246,8 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 	t.Run("HandlesWriteShimOutputsTfError", func(t *testing.T) {
 		// Given a resolver with WriteFile shim returning error for outputs.tf
 		resolver, _ := setup(t)
-		resolver.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		resolver.BaseModuleResolver.runtime.ConfigRoot = "/test/config"
+		resolver.BaseModuleResolver.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			if strings.HasSuffix(path, "outputs.tf") {
 				return errors.New("write outputs.tf error")
 			}
@@ -474,7 +308,8 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 	t.Run("HandlesTerraformInitOutputParsing", func(t *testing.T) {
 		// Given a resolver with custom JsonUnmarshal and Stat shims for output parsing edge cases
 		resolver, mocks := setup(t)
-		resolver.shims.JsonUnmarshal = func(data []byte, v any) error {
+		resolver.BaseModuleResolver.runtime.ConfigRoot = "/test/config"
+		resolver.BaseModuleResolver.shims.JsonUnmarshal = func(data []byte, v any) error {
 			if initOutput, ok := v.(*TerraformInitOutput); ok {
 				jsonStr := string(data)
 				if strings.Contains(jsonStr, `"empty_line"`) {
@@ -517,7 +352,7 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 		}
 
 		// And Stat shim only succeeds for /valid/path
-		resolver.shims.Stat = func(path string) (os.FileInfo, error) {
+		resolver.BaseModuleResolver.shims.Stat = func(path string) (os.FileInfo, error) {
 			if path == "/valid/path" {
 				return nil, nil
 			}
@@ -554,11 +389,7 @@ func TestStandardModuleResolver_shouldHandle(t *testing.T) {
 	setup := func(t *testing.T) *StandardModuleResolver {
 		t.Helper()
 		mocks := setupMocks(t, &SetupOptions{})
-		resolver := NewStandardModuleResolver(mocks.Injector)
-		err := resolver.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize resolver: %v", err)
-		}
+		resolver := NewStandardModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
 		resolver.shims = mocks.Shims
 		return resolver
 	}
@@ -756,11 +587,7 @@ func TestStandardModuleResolver_isTerraformRegistryModule(t *testing.T) {
 	setup := func(t *testing.T) *StandardModuleResolver {
 		t.Helper()
 		mocks := setupMocks(t, &SetupOptions{})
-		resolver := NewStandardModuleResolver(mocks.Injector)
-		err := resolver.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize resolver: %v", err)
-		}
+		resolver := NewStandardModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
 		resolver.shims = mocks.Shims
 		return resolver
 	}

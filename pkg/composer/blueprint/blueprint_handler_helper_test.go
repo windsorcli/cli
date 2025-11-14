@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
@@ -17,9 +18,11 @@ func TestBaseBlueprintHandler_getKustomizations(t *testing.T) {
 	t.Run("NoKustomizations", func(t *testing.T) {
 		// Given a blueprint handler with no kustomizations
 		handler := &BaseBlueprintHandler{
-			shims:         NewShims(),
-			configHandler: config.NewMockConfigHandler(),
-			projectRoot:   "/tmp",
+			shims: NewShims(),
+			runtime: &runtime.Runtime{
+				ProjectRoot:   "/tmp",
+				ConfigHandler: config.NewMockConfigHandler(),
+			},
 			blueprint: blueprintv1alpha1.Blueprint{
 				Kustomizations: nil,
 			},
@@ -37,9 +40,11 @@ func TestBaseBlueprintHandler_getKustomizations(t *testing.T) {
 	t.Run("KustomizationWithNoPatches", func(t *testing.T) {
 		// Given a blueprint handler with a kustomization that has no patches
 		handler := &BaseBlueprintHandler{
-			shims:         NewShims(),
-			configHandler: config.NewMockConfigHandler(),
-			projectRoot:   "/tmp",
+			shims: NewShims(),
+			runtime: &runtime.Runtime{
+				ProjectRoot:   "/tmp",
+				ConfigHandler: config.NewMockConfigHandler(),
+			},
 			blueprint: blueprintv1alpha1.Blueprint{
 				Metadata: blueprintv1alpha1.Metadata{
 					Name: "test-blueprint",
@@ -81,9 +86,11 @@ func TestBaseBlueprintHandler_getKustomizations(t *testing.T) {
 			},
 		}
 		handler := &BaseBlueprintHandler{
-			shims:         NewShims(),
-			configHandler: config.NewMockConfigHandler(),
-			projectRoot:   "/tmp",
+			shims: NewShims(),
+			runtime: &runtime.Runtime{
+				ProjectRoot:   "/tmp",
+				ConfigHandler: config.NewMockConfigHandler(),
+			},
 			blueprint: blueprintv1alpha1.Blueprint{
 				Metadata: blueprintv1alpha1.Metadata{
 					Name: "test-blueprint",
@@ -115,9 +122,11 @@ func TestBaseBlueprintHandler_getKustomizations(t *testing.T) {
 	t.Run("KustomizationWithDiscoveredPatches", func(t *testing.T) {
 		// Given a blueprint handler with a kustomization that will have discovered patches
 		handler := &BaseBlueprintHandler{
-			shims:         NewShims(),
-			configHandler: config.NewMockConfigHandler(),
-			projectRoot:   "/tmp",
+			shims: NewShims(),
+			runtime: &runtime.Runtime{
+				ProjectRoot:   "/tmp",
+				ConfigHandler: config.NewMockConfigHandler(),
+			},
 			blueprint: blueprintv1alpha1.Blueprint{
 				Metadata: blueprintv1alpha1.Metadata{
 					Name: "test-blueprint",
@@ -161,7 +170,7 @@ data:
 		}
 
 		// Override project root for this test
-		handler.projectRoot = tempDir
+		handler.runtime.ProjectRoot = tempDir
 
 		// When getting kustomizations
 		result := handler.getKustomizations()
@@ -186,9 +195,11 @@ data:
 			},
 		}
 		handler := &BaseBlueprintHandler{
-			shims:         NewShims(),
-			configHandler: config.NewMockConfigHandler(),
-			projectRoot:   "/tmp",
+			shims: NewShims(),
+			runtime: &runtime.Runtime{
+				ProjectRoot:   "/tmp",
+				ConfigHandler: config.NewMockConfigHandler(),
+			},
 			blueprint: blueprintv1alpha1.Blueprint{
 				Metadata: blueprintv1alpha1.Metadata{
 					Name: "test-blueprint",
@@ -222,7 +233,7 @@ data:
 		}
 
 		// Override project root for this test
-		handler.projectRoot = tempDir
+		handler.runtime.ProjectRoot = tempDir
 
 		// When getting kustomizations
 		result := handler.getKustomizations()
@@ -246,9 +257,11 @@ data:
 	t.Run("KustomizationWithPatchDiscoveryError", func(t *testing.T) {
 		// Given a blueprint handler with a kustomization that will have patch discovery errors
 		handler := &BaseBlueprintHandler{
-			shims:         NewShims(),
-			configHandler: config.NewMockConfigHandler(),
-			projectRoot:   "/tmp",
+			shims: NewShims(),
+			runtime: &runtime.Runtime{
+				ProjectRoot:   "/tmp",
+				ConfigHandler: config.NewMockConfigHandler(),
+			},
 			blueprint: blueprintv1alpha1.Blueprint{
 				Metadata: blueprintv1alpha1.Metadata{
 					Name: "test-blueprint",
@@ -279,7 +292,7 @@ data:
 		}
 
 		// Override project root for this test
-		handler.projectRoot = tempDir
+		handler.runtime.ProjectRoot = tempDir
 
 		// When getting kustomizations
 		result := handler.getKustomizations()
@@ -296,9 +309,11 @@ data:
 	t.Run("MultipleKustomizations", func(t *testing.T) {
 		// Given a blueprint handler with multiple kustomizations
 		handler := &BaseBlueprintHandler{
-			shims:         NewShims(),
-			configHandler: config.NewMockConfigHandler(),
-			projectRoot:   "/tmp",
+			shims: NewShims(),
+			runtime: &runtime.Runtime{
+				ProjectRoot:   "/tmp",
+				ConfigHandler: config.NewMockConfigHandler(),
+			},
 			blueprint: blueprintv1alpha1.Blueprint{
 				Metadata: blueprintv1alpha1.Metadata{
 					Name: "test-blueprint",
@@ -339,7 +354,7 @@ data:
 		}
 
 		// Override project root for this test
-		handler.projectRoot = tempDir
+		handler.runtime.ProjectRoot = tempDir
 
 		// When getting kustomizations
 		result := handler.getKustomizations()

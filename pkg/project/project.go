@@ -16,7 +16,7 @@ import (
 // It coordinates context, provisioner, composer, and workstation managers
 // to provide a unified interface for project initialization and management.
 type Project struct {
-	Context     *runtime.Runtime
+	Runtime     *runtime.Runtime
 	Provisioner *provisioner.Provisioner
 	Composer    *composer.Composer
 	Workstation *workstation.Workstation
@@ -28,12 +28,12 @@ type Project struct {
 // is in dev mode. If an existing context is provided, it will be reused; otherwise,
 // a new context will be created. Returns the initialized Project or an error if any step fails.
 // After creation, call Configure() to apply flag overrides if needed.
-func NewProject(injector di.Injector, contextName string, existingCtx ...*runtime.Runtime) (*Project, error) {
+func NewProject(injector di.Injector, contextName string, existingRuntime ...*runtime.Runtime) (*Project, error) {
 	var rt *runtime.Runtime
 	var err error
 
-	if len(existingCtx) > 0 && existingCtx[0] != nil {
-		rt = existingCtx[0]
+	if len(existingRuntime) > 0 && existingRuntime[0] != nil {
+		rt = existingRuntime[0]
 	} else {
 		rt = &runtime.Runtime{
 			Injector: injector,
@@ -77,7 +77,7 @@ func NewProject(injector di.Injector, contextName string, existingCtx ...*runtim
 	}
 
 	return &Project{
-		Context:     rt,
+		Runtime:     rt,
 		Provisioner: prov,
 		Composer:    comp,
 		Workstation: ws,
@@ -88,17 +88,17 @@ func NewProject(injector di.Injector, contextName string, existingCtx ...*runtim
 // This should be called after NewProject if command flags need to override
 // configuration values. Returns an error if loading or applying overrides fails.
 func (p *Project) Configure(flagOverrides map[string]any) error {
-	contextName := p.Context.ContextName
+	contextName := p.Runtime.ContextName
 	if contextName == "" {
 		contextName = "local"
 	}
 
-	if p.Context.ConfigHandler.IsDevMode(contextName) {
+	if p.Runtime.ConfigHandler.IsDevMode(contextName) {
 		if flagOverrides == nil {
 			flagOverrides = make(map[string]any)
 		}
 		if _, exists := flagOverrides["provider"]; !exists {
-			if p.Context.ConfigHandler.GetString("provider") == "" {
+			if p.Runtime.ConfigHandler.GetString("provider") == "" {
 				flagOverrides["provider"] = "generic"
 			}
 		}
@@ -111,16 +111,16 @@ func (p *Project) Configure(flagOverrides map[string]any) error {
 		}
 	}
 
-	if err := p.Context.ApplyProviderDefaults(providerOverride); err != nil {
+	if err := p.Runtime.ApplyProviderDefaults(providerOverride); err != nil {
 		return err
 	}
 
-	if err := p.Context.ConfigHandler.LoadConfig(); err != nil {
+	if err := p.Runtime.ConfigHandler.LoadConfig(); err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	for key, value := range flagOverrides {
-		if err := p.Context.ConfigHandler.Set(key, value); err != nil {
+		if err := p.Runtime.ConfigHandler.Set(key, value); err != nil {
 			return fmt.Errorf("failed to set %s: %w", key, err)
 		}
 	}
@@ -140,10 +140,10 @@ func (p *Project) Initialize(overwrite bool) error {
 		}
 	}
 
-	if err := p.Context.ConfigHandler.GenerateContextID(); err != nil {
+	if err := p.Runtime.ConfigHandler.GenerateContextID(); err != nil {
 		return fmt.Errorf("failed to generate context ID: %w", err)
 	}
-	if err := p.Context.ConfigHandler.SaveConfig(overwrite); err != nil {
+	if err := p.Runtime.ConfigHandler.SaveConfig(overwrite); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
@@ -151,11 +151,11 @@ func (p *Project) Initialize(overwrite bool) error {
 		return fmt.Errorf("failed to generate infrastructure: %w", err)
 	}
 
-	if err := p.Context.PrepareTools(); err != nil {
+	if err := p.Runtime.PrepareTools(); err != nil {
 		return err
 	}
 
-	if err := p.Context.LoadEnvironment(true); err != nil {
+	if err := p.Runtime.LoadEnvironment(true); err != nil {
 		return fmt.Errorf("failed to load environment: %w", err)
 	}
 
@@ -167,26 +167,26 @@ func (p *Project) Initialize(overwrite bool) error {
 // saved state, then deletes the .volumes directory, .windsor/.tf_modules directory,
 // .windsor/Corefile, and .windsor/docker-compose.yaml. Returns an error if any cleanup step fails.
 func (p *Project) PerformCleanup() error {
-	if err := p.Context.ConfigHandler.Clean(); err != nil {
+	if err := p.Runtime.ConfigHandler.Clean(); err != nil {
 		return fmt.Errorf("error cleaning up context specific artifacts: %w", err)
 	}
 
-	volumesPath := filepath.Join(p.Context.ProjectRoot, ".volumes")
+	volumesPath := filepath.Join(p.Runtime.ProjectRoot, ".volumes")
 	if err := os.RemoveAll(volumesPath); err != nil {
 		return fmt.Errorf("error deleting .volumes folder: %w", err)
 	}
 
-	tfModulesPath := filepath.Join(p.Context.ProjectRoot, ".windsor", ".tf_modules")
+	tfModulesPath := filepath.Join(p.Runtime.ProjectRoot, ".windsor", ".tf_modules")
 	if err := os.RemoveAll(tfModulesPath); err != nil {
 		return fmt.Errorf("error deleting .windsor/.tf_modules folder: %w", err)
 	}
 
-	corefilePath := filepath.Join(p.Context.ProjectRoot, ".windsor", "Corefile")
+	corefilePath := filepath.Join(p.Runtime.ProjectRoot, ".windsor", "Corefile")
 	if err := os.RemoveAll(corefilePath); err != nil {
 		return fmt.Errorf("error deleting .windsor/Corefile: %w", err)
 	}
 
-	dockerComposePath := filepath.Join(p.Context.ProjectRoot, ".windsor", "docker-compose.yaml")
+	dockerComposePath := filepath.Join(p.Runtime.ProjectRoot, ".windsor", "docker-compose.yaml")
 	if err := os.RemoveAll(dockerComposePath); err != nil {
 		return fmt.Errorf("error deleting .windsor/docker-compose.yaml: %w", err)
 	}

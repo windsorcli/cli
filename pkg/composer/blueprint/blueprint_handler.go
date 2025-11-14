@@ -15,9 +15,7 @@ import (
 	"github.com/goccy/go-yaml"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/runtime/config"
-	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime"
 
 	"github.com/fluxcd/pkg/apis/kustomize"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -32,7 +30,6 @@ import (
 // infrastructure definitions, enabling consistent and reproducible infrastructure deployments.
 
 type BlueprintHandler interface {
-	Initialize() error
 	LoadBlueprint() error
 	Write(overwrite ...bool) error
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
@@ -42,12 +39,9 @@ type BlueprintHandler interface {
 
 type BaseBlueprintHandler struct {
 	BlueprintHandler
-	injector             di.Injector
-	configHandler        config.ConfigHandler
-	shell                shell.Shell
+	runtime              *runtime.Runtime
+	artifactBuilder      artifact.Artifact
 	blueprint            blueprintv1alpha1.Blueprint
-	projectRoot          string
-	templateRoot         string
 	featureEvaluator     *FeatureEvaluator
 	shims                *Shims
 	kustomizeData        map[string]any
@@ -55,62 +49,61 @@ type BaseBlueprintHandler struct {
 	configLoaded         bool
 }
 
-// NewBlueprintHandler creates a new instance of BaseBlueprintHandler.
-// It initializes the handler with the provided dependency injector.
-func NewBlueprintHandler(injector di.Injector) *BaseBlueprintHandler {
-	return &BaseBlueprintHandler{
-		injector:             injector,
-		featureEvaluator:     NewFeatureEvaluator(injector),
+// NewBlueprintHandler creates a new instance of BaseBlueprintHandler with the provided dependencies.
+// If overrides are provided, any non-nil component in the override BaseBlueprintHandler will be used instead of creating a default.
+func NewBlueprintHandler(rt *runtime.Runtime, artifactBuilder artifact.Artifact, opts ...*BaseBlueprintHandler) (*BaseBlueprintHandler, error) {
+	handler := &BaseBlueprintHandler{
+		runtime:              rt,
+		artifactBuilder:      artifactBuilder,
+		featureEvaluator:     NewFeatureEvaluator(rt),
 		shims:                NewShims(),
 		kustomizeData:        make(map[string]any),
 		featureSubstitutions: make(map[string]map[string]string),
 	}
+
+	if len(opts) > 0 && opts[0] != nil {
+		overrides := opts[0]
+		if overrides.featureEvaluator != nil {
+			handler.featureEvaluator = overrides.featureEvaluator
+		}
+	}
+
+	return handler, nil
 }
 
 // =============================================================================
 // Public Methods
 // =============================================================================
 
-// Initialize resolves and assigns dependencies for BaseBlueprintHandler using the provided dependency injector.
-// It sets configHandler and shell, determines the project root directory.
-// Returns an error if any dependency resolution or initialization step fails.
-func (b *BaseBlueprintHandler) Initialize() error {
-	configHandler, ok := b.injector.Resolve("configHandler").(config.ConfigHandler)
-	if !ok {
-		return fmt.Errorf("error resolving configHandler")
-	}
-	b.configHandler = configHandler
-
-	shell, ok := b.injector.Resolve("shell").(shell.Shell)
-	if !ok {
-		return fmt.Errorf("error resolving shell")
-	}
-	b.shell = shell
-
-	projectRoot, err := b.shell.GetProjectRoot()
-	if err != nil {
-		return fmt.Errorf("error getting project root: %w", err)
-	}
-	b.projectRoot = projectRoot
-	b.templateRoot = filepath.Join(projectRoot, "contexts", "_template")
-
-	if err := b.featureEvaluator.Initialize(); err != nil {
-		return fmt.Errorf("error initializing feature evaluator: %w", err)
-	}
-
-	return nil
-}
-
 // LoadBlueprint loads all blueprint data into memory, establishing defaults from either templates
 // or OCI artifacts, then applies any local blueprint.yaml overrides to ensure the correct precedence.
 // All sources are processed and merged into the in-memory runtime state.
 // Returns an error if any required paths are inaccessible or any loading operation fails.
 func (b *BaseBlueprintHandler) LoadBlueprint() error {
-	if _, err := b.shims.Stat(b.templateRoot); err == nil {
-		if _, err := b.GetLocalTemplateData(); err != nil {
+	if _, err := b.shims.Stat(b.runtime.TemplateRoot); err == nil {
+		templateData, err := b.GetLocalTemplateData()
+		if err != nil {
 			return fmt.Errorf("failed to get local template data: %w", err)
 		}
+		if len(templateData) == 0 {
+			configRoot := b.runtime.ConfigRoot
+			if configRoot == "" {
+				return fmt.Errorf("blueprint.yaml not found at %s", filepath.Join(configRoot, "blueprint.yaml"))
+			}
+			blueprintPath := filepath.Join(configRoot, "blueprint.yaml")
+			if _, err := b.shims.Stat(blueprintPath); err != nil {
+				return fmt.Errorf("blueprint.yaml not found at %s", blueprintPath)
+			}
+		}
 	} else {
+		configRoot := b.runtime.ConfigRoot
+		blueprintPath := filepath.Join(configRoot, "blueprint.yaml")
+		if _, err := b.shims.Stat(blueprintPath); err == nil {
+			if err := b.loadConfig(); err != nil {
+				return fmt.Errorf("failed to load blueprint config: %w", err)
+			}
+			return nil
+		}
 		effectiveBlueprintURL := constants.GetEffectiveBlueprintURL()
 		ociInfo, err := artifact.ParseOCIReference(effectiveBlueprintURL)
 		if err != nil {
@@ -119,17 +112,12 @@ func (b *BaseBlueprintHandler) LoadBlueprint() error {
 		if ociInfo == nil {
 			return fmt.Errorf("invalid default blueprint reference: %s", effectiveBlueprintURL)
 		}
-		artifactBuilder := b.injector.Resolve("artifactBuilder")
-		if artifactBuilder == nil {
-			return fmt.Errorf("artifact builder not available")
+		if b.artifactBuilder == nil {
+			return fmt.Errorf("blueprint.yaml not found at %s and artifact builder not available", blueprintPath)
 		}
-		ab, ok := artifactBuilder.(artifact.Artifact)
-		if !ok {
-			return fmt.Errorf("artifact builder has wrong type")
-		}
-		templateData, err := ab.GetTemplateData(ociInfo.URL)
+		templateData, err := b.artifactBuilder.GetTemplateData(ociInfo.URL)
 		if err != nil {
-			return fmt.Errorf("failed to get template data from default blueprint: %w", err)
+			return fmt.Errorf("blueprint.yaml not found at %s and failed to get template data from default blueprint: %w", blueprintPath, err)
 		}
 		blueprintData := make(map[string]any)
 		for key, value := range templateData {
@@ -142,29 +130,23 @@ func (b *BaseBlueprintHandler) LoadBlueprint() error {
 
 	sources := b.getSources()
 	if len(sources) > 0 {
-		artifactBuilder := b.injector.Resolve("artifactBuilder")
-		if artifactBuilder != nil {
-			if ab, ok := artifactBuilder.(artifact.Artifact); ok {
-				var ociURLs []string
-				for _, source := range sources {
-					if strings.HasPrefix(source.Url, "oci://") {
-						ociURLs = append(ociURLs, source.Url)
-					}
+		if b.artifactBuilder != nil {
+			var ociURLs []string
+			for _, source := range sources {
+				if strings.HasPrefix(source.Url, "oci://") {
+					ociURLs = append(ociURLs, source.Url)
 				}
-				if len(ociURLs) > 0 {
-					_, err := ab.Pull(ociURLs)
-					if err != nil {
-						return fmt.Errorf("failed to load OCI sources: %w", err)
-					}
+			}
+			if len(ociURLs) > 0 {
+				_, err := b.artifactBuilder.Pull(ociURLs)
+				if err != nil {
+					return fmt.Errorf("failed to load OCI sources: %w", err)
 				}
 			}
 		}
 	}
 
-	configRoot, err := b.configHandler.GetConfigRoot()
-	if err != nil {
-		return fmt.Errorf("error getting config root: %w", err)
-	}
+	configRoot := b.runtime.ConfigRoot
 
 	blueprintPath := filepath.Join(configRoot, "blueprint.yaml")
 	if _, err := b.shims.Stat(blueprintPath); err == nil {
@@ -187,9 +169,9 @@ func (b *BaseBlueprintHandler) Write(overwrite ...bool) error {
 		shouldOverwrite = overwrite[0]
 	}
 
-	configRoot, err := b.configHandler.GetConfigRoot()
-	if err != nil {
-		return fmt.Errorf("error getting config root: %w", err)
+	configRoot := b.runtime.ConfigRoot
+	if configRoot == "" {
+		return fmt.Errorf("error getting config root: config root is empty")
 	}
 
 	yamlPath := filepath.Join(configRoot, "blueprint.yaml")
@@ -290,22 +272,22 @@ func (b *BaseBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
 // values taking precedence. Returns nil if no templates exist. Keys are relative file paths,
 // values are file contents.
 func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error) {
-	if _, err := b.shims.Stat(b.templateRoot); os.IsNotExist(err) {
+	if _, err := b.shims.Stat(b.runtime.TemplateRoot); os.IsNotExist(err) {
 		return nil, nil
 	}
 
 	templateData := make(map[string][]byte)
-	if err := b.walkAndCollectTemplates(b.templateRoot, templateData); err != nil {
+	if err := b.walkAndCollectTemplates(b.runtime.TemplateRoot, templateData); err != nil {
 		return nil, fmt.Errorf("failed to collect templates: %w", err)
 	}
 
 	if schemaData, exists := templateData["schema"]; exists {
-		if err := b.configHandler.LoadSchemaFromBytes(schemaData); err != nil {
+		if err := b.runtime.ConfigHandler.LoadSchemaFromBytes(schemaData); err != nil {
 			return nil, fmt.Errorf("failed to load schema: %w", err)
 		}
 	}
 
-	contextValues, err := b.configHandler.GetContextValues()
+	contextValues, err := b.runtime.ConfigHandler.GetContextValues()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load context values: %w", err)
 	}
@@ -322,7 +304,7 @@ func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 	}
 
 	if len(b.blueprint.TerraformComponents) > 0 || len(b.blueprint.Kustomizations) > 0 {
-		contextName := b.configHandler.GetContext()
+		contextName := b.runtime.ConfigHandler.GetContext()
 		if contextName != "" {
 			b.blueprint.Metadata.Name = contextName
 			b.blueprint.Metadata.Description = fmt.Sprintf("Blueprint for %s context", contextName)
@@ -362,9 +344,9 @@ func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 // Returns an error if blueprint.yaml does not exist.
 // Template processing is now handled by the pkg/template package.
 func (b *BaseBlueprintHandler) loadConfig() error {
-	configRoot, err := b.configHandler.GetConfigRoot()
-	if err != nil {
-		return fmt.Errorf("error getting config root: %w", err)
+	configRoot := b.runtime.ConfigRoot
+	if configRoot == "" {
+		return fmt.Errorf("error getting config root: config root is empty")
 	}
 
 	yamlPath := filepath.Join(configRoot, "blueprint.yaml")
@@ -501,7 +483,7 @@ func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir string, templ
 		} else if strings.HasSuffix(entry.Name(), ".jsonnet") ||
 			entry.Name() == "schema.yaml" ||
 			entry.Name() == "blueprint.yaml" ||
-			(strings.HasPrefix(filepath.Dir(entryPath), filepath.Join(b.templateRoot, "features")) && strings.HasSuffix(entry.Name(), ".yaml")) {
+			(strings.HasPrefix(filepath.Dir(entryPath), filepath.Join(b.runtime.TemplateRoot, "features")) && strings.HasSuffix(entry.Name(), ".yaml")) {
 			content, err := b.shims.ReadFile(filepath.Clean(entryPath))
 			if err != nil {
 				return fmt.Errorf("failed to read template file %s: %w", entryPath, err)
@@ -512,7 +494,7 @@ func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir string, templ
 			} else if entry.Name() == "blueprint.yaml" {
 				templateData["blueprint"] = content
 			} else {
-				relPath, err := filepath.Rel(b.templateRoot, entryPath)
+				relPath, err := filepath.Rel(b.runtime.TemplateRoot, entryPath)
 				if err != nil {
 					return fmt.Errorf("failed to calculate relative path for %s: %w", entryPath, err)
 				}
@@ -546,7 +528,7 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 		return nil
 	}
 
-	evaluator := NewFeatureEvaluator(b.injector)
+	evaluator := b.featureEvaluator
 
 	sort.Slice(features, func(i, j int) bool {
 		return features[i].Metadata.Name < features[j].Metadata.Name
@@ -660,7 +642,7 @@ func (b *BaseBlueprintHandler) loadFeatures(templateData map[string][]byte) ([]b
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse feature %s: %w", path, err)
 			}
-			feature.Path = filepath.Join(b.templateRoot, path)
+			feature.Path = filepath.Join(b.runtime.TemplateRoot, path)
 			features = append(features, *feature)
 		}
 	}
@@ -743,7 +725,7 @@ func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *blueprintv1alp
 // for local modules. It processes all components in the blueprint, checking source types to
 // determine appropriate path resolution strategies and updating component paths accordingly.
 func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *blueprintv1alpha1.Blueprint) {
-	projectRoot := b.projectRoot
+	projectRoot := b.runtime.ProjectRoot
 
 	resolvedComponents := make([]blueprintv1alpha1.TerraformComponent, len(blueprint.TerraformComponents))
 	copy(resolvedComponents, blueprint.TerraformComponents)
@@ -878,8 +860,8 @@ func (b *BaseBlueprintHandler) resolvePatchFromPath(patchPath, defaultNamespace 
 		}
 	}
 
-	configRoot, err := b.configHandler.GetConfigRoot()
-	if err == nil {
+	configRoot := b.runtime.ConfigRoot
+	if configRoot != "" {
 		patchFilePath := filepath.Join(configRoot, "kustomize", patchPath)
 		if data, err := b.shims.ReadFile(patchFilePath); err == nil {
 			if basePatchData == nil {
@@ -889,7 +871,7 @@ func (b *BaseBlueprintHandler) resolvePatchFromPath(patchPath, defaultNamespace 
 
 			var userPatchData map[string]any
 			if err := b.shims.YamlUnmarshal(data, &userPatchData); err == nil {
-				maps.Copy(basePatchData, userPatchData)
+				basePatchData = b.deepMergeMaps(basePatchData, userPatchData)
 			} else {
 				target = b.extractTargetFromPatchContent(string(data), defaultNamespace)
 				return string(data), target
@@ -1058,7 +1040,7 @@ func (b *BaseBlueprintHandler) deepMergeMaps(base, overlay map[string]any) map[s
 // Uses development URL if dev flag is enabled, otherwise falls back to git remote origin URL.
 // In dev mode, always overrides the URL even if it's already set.
 func (b *BaseBlueprintHandler) setRepositoryDefaults() error {
-	devMode := b.configHandler.GetBool("dev")
+	devMode := b.runtime.ConfigHandler.GetBool("dev")
 
 	if devMode {
 		url := b.getDevelopmentRepositoryURL()
@@ -1073,7 +1055,7 @@ func (b *BaseBlueprintHandler) setRepositoryDefaults() error {
 		return nil
 	}
 
-	gitURL, err := b.shell.ExecSilent("git", "config", "--get", "remote.origin.url")
+	gitURL, err := b.runtime.Shell.ExecSilent("git", "config", "--get", "remote.origin.url")
 	if err == nil && gitURL != "" {
 		b.blueprint.Repository.Url = b.normalizeGitURL(strings.TrimSpace(gitURL))
 		return nil
@@ -1087,7 +1069,7 @@ func (b *BaseBlueprintHandler) setRepositoryDefaults() error {
 // All evaluated values are converted to strings as required by Flux postBuild substitution.
 func (b *BaseBlueprintHandler) evaluateSubstitutions(substitutions map[string]string, config map[string]any, featurePath string) (map[string]string, error) {
 	result := make(map[string]string)
-	evaluator := NewFeatureEvaluator(b.injector)
+	evaluator := b.featureEvaluator
 
 	for key, value := range substitutions {
 		if strings.Contains(value, "${") {
@@ -1125,18 +1107,17 @@ func (b *BaseBlueprintHandler) normalizeGitURL(url string) string {
 // getDevelopmentRepositoryURL generates a development repository URL from configuration.
 // Returns URL in format: http://git.<domain>/git/<folder>
 func (b *BaseBlueprintHandler) getDevelopmentRepositoryURL() string {
-	domain := b.configHandler.GetString("dns.domain", "test")
+	domain := b.runtime.ConfigHandler.GetString("dns.domain", "test")
 	if domain == "" {
 		return ""
 	}
 
-	projectRoot, err := b.shell.GetProjectRoot()
-	if err != nil {
+	if b.runtime.ProjectRoot == "" {
 		return ""
 	}
 
-	folder := b.shims.FilepathBase(projectRoot)
-	if folder == "" {
+	folder := b.shims.FilepathBase(b.runtime.ProjectRoot)
+	if folder == "" || folder == "." {
 		return ""
 	}
 

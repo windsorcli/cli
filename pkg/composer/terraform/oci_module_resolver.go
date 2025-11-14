@@ -9,9 +9,9 @@ import (
 
 	"github.com/briandowns/spinner"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 // The OCIModuleResolver is a terraform module resolver for OCI artifact sources.
@@ -33,38 +33,18 @@ type OCIModuleResolver struct {
 // Constructor
 // =============================================================================
 
-// NewOCIModuleResolver creates a new OCI module resolver
-func NewOCIModuleResolver(injector di.Injector) *OCIModuleResolver {
+// NewOCIModuleResolver creates a new OCI module resolver with the provided dependencies.
+func NewOCIModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler, artifactBuilder artifact.Artifact) *OCIModuleResolver {
 	return &OCIModuleResolver{
-		BaseModuleResolver: NewBaseModuleResolver(injector),
+		BaseModuleResolver: NewBaseModuleResolver(rt, blueprintHandler),
+		artifactBuilder:    artifactBuilder,
 	}
-}
-
-// Initialize sets up the OCI module resolver with required dependencies
-func (h *OCIModuleResolver) Initialize() error {
-	if err := h.BaseModuleResolver.Initialize(); err != nil {
-		return err
-	}
-
-	artifactBuilderInterface := h.injector.Resolve("artifactBuilder")
-	var ok bool
-	h.artifactBuilder, ok = artifactBuilderInterface.(artifact.Artifact)
-	if !ok {
-		return fmt.Errorf("failed to resolve artifact builder")
-	}
-
-	blueprintHandlerInterface := h.injector.Resolve("blueprintHandler")
-	h.blueprintHandler, ok = blueprintHandlerInterface.(blueprint.BlueprintHandler)
-	if !ok {
-		return fmt.Errorf("failed to resolve blueprint handler")
-	}
-
-	return nil
 }
 
 // =============================================================================
 // Public Methods
 // =============================================================================
+
 // shouldHandle determines if this resolver should handle the given source by checking
 // if the source is an OCI artifact URL. Returns true only for sources that begin with
 // the "oci://" protocol prefix, indicating they are OCI registry artifacts.
@@ -195,9 +175,9 @@ func (h *OCIModuleResolver) extractOCIModule(resolvedSource, componentPath strin
 
 	cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
 
-	projectRoot, err := h.shell.GetProjectRoot()
-	if err != nil {
-		return "", fmt.Errorf("failed to get project root: %w", err)
+	projectRoot := h.runtime.ProjectRoot
+	if projectRoot == "" {
+		return "", fmt.Errorf("failed to get project root: project root is empty")
 	}
 
 	extractionKey := fmt.Sprintf("%s-%s-%s", registry, repository, tag)
@@ -223,9 +203,9 @@ func (h *OCIModuleResolver) extractOCIModule(resolvedSource, componentPath strin
 // under the project root, preserving file permissions and handling executable scripts. Returns an error if
 // extraction fails at any step, including directory creation, file writing, or permission setting.
 func (h *OCIModuleResolver) extractModuleFromArtifact(artifactData []byte, modulePath, extractionKey string) error {
-	projectRoot, err := h.shell.GetProjectRoot()
-	if err != nil {
-		return fmt.Errorf("failed to get project root: %w", err)
+	projectRoot := h.runtime.ProjectRoot
+	if projectRoot == "" {
+		return fmt.Errorf("failed to get project root: project root is empty")
 	}
 
 	reader := h.shims.NewBytesReader(artifactData)

@@ -12,9 +12,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/runtime/config"
-	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -29,7 +27,6 @@ import (
 
 // ModuleResolver processes terraform module sources and generates appropriate module configurations
 type ModuleResolver interface {
-	Initialize() error
 	ProcessModules() error
 	GenerateTfvars(overwrite bool) error
 }
@@ -41,9 +38,7 @@ type ModuleResolver interface {
 // BaseModuleResolver provides common functionality for all module resolvers
 type BaseModuleResolver struct {
 	shims            *Shims
-	injector         di.Injector
-	shell            shell.Shell
-	configHandler    config.ConfigHandler
+	runtime          *runtime.Runtime
 	blueprintHandler blueprint.BlueprintHandler
 	reset            bool
 }
@@ -52,44 +47,23 @@ type BaseModuleResolver struct {
 // Constructor
 // =============================================================================
 
-// NewBaseModuleResolver creates a new base module resolver
-func NewBaseModuleResolver(injector di.Injector) *BaseModuleResolver {
-	return &BaseModuleResolver{
-		shims:    NewShims(),
-		injector: injector,
-	}
-}
-
-// =============================================================================
-// Public Methods
-// =============================================================================
-
-// Initialize sets up the base module resolver
-// Initialize sets up the required handlers and shell for the BaseModuleResolver using the dependency injector.
-// It resolves and assigns the shell, config handler, and blueprint handler.
-// Returns an error if any required dependency cannot be resolved.
-func (h *BaseModuleResolver) Initialize() error {
-	var ok bool
-
-	shellInterface := h.injector.Resolve("shell")
-	h.shell, ok = shellInterface.(shell.Shell)
-	if !ok {
-		return fmt.Errorf("failed to resolve shell")
+// NewBaseModuleResolver creates a new base module resolver with the provided dependencies.
+// If overrides are provided, any non-nil component in the override BaseModuleResolver will be used instead of creating a default.
+func NewBaseModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler, opts ...*BaseModuleResolver) *BaseModuleResolver {
+	resolver := &BaseModuleResolver{
+		shims:            NewShims(),
+		runtime:          rt,
+		blueprintHandler: blueprintHandler,
 	}
 
-	configHandlerInterface := h.injector.Resolve("configHandler")
-	h.configHandler, ok = configHandlerInterface.(config.ConfigHandler)
-	if !ok {
-		return fmt.Errorf("failed to resolve config handler")
+	if len(opts) > 0 && opts[0] != nil {
+		overrides := opts[0]
+		if overrides.shims != nil {
+			resolver.shims = overrides.shims
+		}
 	}
 
-	blueprintHandlerInterface := h.injector.Resolve("blueprintHandler")
-	h.blueprintHandler, ok = blueprintHandlerInterface.(blueprint.BlueprintHandler)
-	if !ok {
-		return fmt.Errorf("failed to resolve blueprint handler")
-	}
-
-	return nil
+	return resolver
 }
 
 // GenerateTfvars creates Terraform configuration files, including tfvars files, for all blueprint components.
@@ -102,15 +76,8 @@ func (h *BaseModuleResolver) Initialize() error {
 func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 	h.reset = overwrite
 
-	contextPath, err := h.configHandler.GetConfigRoot()
-	if err != nil {
-		return fmt.Errorf("failed to get config root: %w", err)
-	}
-
-	projectRoot, err := h.shell.GetProjectRoot()
-	if err != nil {
-		return fmt.Errorf("failed to get project root: %w", err)
-	}
+	contextPath := h.runtime.ConfigRoot
+	projectRoot := h.runtime.ProjectRoot
 
 	components := h.blueprintHandler.GetTerraformComponents()
 

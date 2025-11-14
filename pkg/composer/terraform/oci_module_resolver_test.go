@@ -9,9 +9,7 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
-	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // MockTarReader provides a mock implementation for TarReader interface
@@ -40,11 +38,12 @@ func (m *MockTarReader) Read(p []byte) (int, error) {
 
 func TestOCIModuleResolver_NewOCIModuleResolver(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a dependency injector
-		injector := di.NewInjector()
+		// Given dependencies
+		mocks := setupMocks(t, &SetupOptions{})
+		mockArtifactBuilder := artifact.NewMockArtifact()
 
 		// When creating a new OCI module resolver
-		resolver := NewOCIModuleResolver(injector)
+		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
 
 		// Then it should be created successfully
 		if resolver == nil {
@@ -53,87 +52,29 @@ func TestOCIModuleResolver_NewOCIModuleResolver(t *testing.T) {
 		if resolver.BaseModuleResolver == nil {
 			t.Error("Expected BaseModuleResolver to be set")
 		}
+		if resolver.artifactBuilder == nil {
+			t.Error("Expected artifactBuilder to be set")
+		}
 	})
 }
 
-func TestOCIModuleResolver_Initialize(t *testing.T) {
+func TestOCIModuleResolver_NewOCIModuleResolverWithDependencies(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a resolver with all required dependencies
 		mocks := setupMocks(t, &SetupOptions{})
-		resolver := NewOCIModuleResolver(mocks.Injector)
-		resolver.shims = mocks.Shims
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
+		resolver.BaseModuleResolver.shims = mocks.Shims
 
-		// When calling Initialize
-		err := resolver.Initialize()
-
-		// Then no error should be returned and dependencies should be injected
-		if err != nil {
-			t.Errorf("Expected nil error, got %v", err)
-		}
-		if resolver.shell == nil {
-			t.Error("Expected shell to be set after Initialize()")
+		// Then dependencies should be set
+		if resolver.BaseModuleResolver.runtime.Shell == nil {
+			t.Error("Expected shell to be set")
 		}
 		if resolver.artifactBuilder == nil {
-			t.Error("Expected artifactBuilder to be set after Initialize()")
+			t.Error("Expected artifactBuilder to be set")
 		}
-		if resolver.blueprintHandler == nil {
-			t.Error("Expected blueprintHandler to be set after Initialize()")
-		}
-	})
-
-	t.Run("HandlesInitializationErrors", func(t *testing.T) {
-		// Given a resolver with missing dependencies
-		injector := di.NewInjector()
-		resolver := NewOCIModuleResolver(injector)
-
-		// When calling Initialize
-		err := resolver.Initialize()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to resolve") {
-			t.Errorf("Expected dependency resolution error, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesArtifactBuilderTypeAssertionError", func(t *testing.T) {
-		// Given a resolver with wrong artifact builder type
-		injector := di.NewInjector()
-		injector.Register("shell", "invalid-shell-type")
-		injector.Register("artifactBuilder", "invalid-artifact-builder-type")
-		injector.Register("blueprintHandler", "invalid-blueprint-handler-type")
-		resolver := NewOCIModuleResolver(injector)
-
-		// When calling Initialize
-		err := resolver.Initialize()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to resolve") {
-			t.Errorf("Expected artifact builder type assertion error, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesBlueprintHandlerTypeAssertionError", func(t *testing.T) {
-		mocks := setupMocks(t, &SetupOptions{})
-		injector := di.NewInjector()
-		injector.Register("shell", mocks.Shell)
-		injector.Register("configHandler", mocks.ConfigHandler)
-		injector.Register("artifactBuilder", artifact.NewMockArtifact())
-		injector.Register("blueprintHandler", "invalid-blueprint-handler-type")
-		resolver := NewOCIModuleResolver(injector)
-
-		err := resolver.Initialize()
-
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to resolve blueprint handler") {
-			t.Errorf("Expected blueprint handler type assertion error, got: %v", err)
+		if resolver.BaseModuleResolver.blueprintHandler == nil {
+			t.Error("Expected blueprintHandler to be set")
 		}
 	})
 }
@@ -142,12 +83,9 @@ func TestOCIModuleResolver_shouldHandle(t *testing.T) {
 	t.Run("HandlesOCIAndRejectsNonOCI", func(t *testing.T) {
 		// Given a resolver
 		mocks := setupMocks(t, &SetupOptions{})
-		resolver := NewOCIModuleResolver(mocks.Injector)
-		err := resolver.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize resolver: %v", err)
-		}
-		resolver.shims = mocks.Shims
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
+		resolver.BaseModuleResolver.shims = mocks.Shims
 
 		// When checking various source types
 		testCases := []struct {
@@ -175,12 +113,9 @@ func TestOCIModuleResolver_ProcessModules(t *testing.T) {
 	setup := func(t *testing.T) (*OCIModuleResolver, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t, &SetupOptions{})
-		resolver := NewOCIModuleResolver(mocks.Injector)
-		err := resolver.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize resolver: %v", err)
-		}
-		resolver.shims = mocks.Shims
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
+		resolver.BaseModuleResolver.shims = mocks.Shims
 		return resolver, mocks
 	}
 
@@ -197,15 +132,33 @@ func TestOCIModuleResolver_ProcessModules(t *testing.T) {
 			}
 		}
 
+		// Set up artifact builder to return mock data with correct cache key
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		mockArtifactBuilder.PullFunc = func(refs []string) (map[string][]byte, error) {
+			artifacts := make(map[string][]byte)
+			for _, ref := range refs {
+				// Cache key format is registry/repository:tag (without oci:// prefix)
+				if strings.HasPrefix(ref, "oci://") {
+					cacheKey := strings.TrimPrefix(ref, "oci://")
+					artifacts[cacheKey] = []byte("mock artifact data")
+				} else {
+					artifacts[ref] = []byte("mock artifact data")
+				}
+			}
+			return artifacts, nil
+		}
+		resolver.artifactBuilder = mockArtifactBuilder
+
 		// Mock tar reader for successful extraction
 		mockTarReader := &MockTarReader{
 			NextFunc: func() (*tar.Header, error) {
 				return nil, io.EOF
 			},
 		}
-		resolver.shims.NewTarReader = func(r io.Reader) TarReader {
+		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
 			return mockTarReader
 		}
+		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 
 		// When processing modules
 		err := resolver.ProcessModules()
@@ -307,7 +260,7 @@ func TestOCIModuleResolver_ProcessModules(t *testing.T) {
 		}
 
 		// Mock MkdirAll to fail for component processing
-		resolver.shims.MkdirAll = func(path string, perm os.FileMode) error {
+		resolver.BaseModuleResolver.shims.MkdirAll = func(path string, perm os.FileMode) error {
 			return errors.New("mkdir error")
 		}
 
@@ -328,12 +281,9 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 	t.Run("ParsesValidReferences", func(t *testing.T) {
 		// Given a resolver
 		mocks := setupMocks(t, &SetupOptions{})
-		resolver := NewOCIModuleResolver(mocks.Injector)
-		err := resolver.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize resolver: %v", err)
-		}
-		resolver.shims = mocks.Shims
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
+		resolver.BaseModuleResolver.shims = mocks.Shims
 
 		// When parsing various valid OCI references
 		testCases := []struct {
@@ -367,12 +317,9 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 	t.Run("HandlesInvalidReferences", func(t *testing.T) {
 		// Given a resolver
 		mocks := setupMocks(t, &SetupOptions{})
-		resolver := NewOCIModuleResolver(mocks.Injector)
-		err := resolver.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize resolver: %v", err)
-		}
-		resolver.shims = mocks.Shims
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
+		resolver.BaseModuleResolver.shims = mocks.Shims
 
 		// When parsing invalid OCI references
 		testCases := []string{
@@ -393,12 +340,9 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 	t.Run("HandlesEdgeCases", func(t *testing.T) {
 		// Given a resolver
 		mocks := setupMocks(t, &SetupOptions{})
-		resolver := NewOCIModuleResolver(mocks.Injector)
-		err := resolver.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize resolver: %v", err)
-		}
-		resolver.shims = mocks.Shims
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
+		resolver.BaseModuleResolver.shims = mocks.Shims
 
 		// When parsing edge case OCI references
 		errorCases := []struct {
@@ -433,12 +377,9 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 	t.Run("HandlesComplexValidReferences", func(t *testing.T) {
 		// Given a resolver
 		mocks := setupMocks(t, &SetupOptions{})
-		resolver := NewOCIModuleResolver(mocks.Injector)
-		err := resolver.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize resolver: %v", err)
-		}
-		resolver.shims = mocks.Shims
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
+		resolver.BaseModuleResolver.shims = mocks.Shims
 
 		// When parsing complex but valid OCI references
 		testCases := []struct {
@@ -476,12 +417,9 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 	setup := func(t *testing.T) *OCIModuleResolver {
 		t.Helper()
 		mocks := setupMocks(t, &SetupOptions{})
-		resolver := NewOCIModuleResolver(mocks.Injector)
-		err := resolver.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize resolver: %v", err)
-		}
-		resolver.shims = mocks.Shims
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
+		resolver.BaseModuleResolver.shims = mocks.Shims
 		return resolver
 	}
 
@@ -500,9 +438,10 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 				return nil, io.EOF
 			},
 		}
-		resolver.shims.NewTarReader = func(r io.Reader) TarReader {
+		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
 			return mockTarReader
 		}
+		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 
 		// When extracting OCI module
 		path, err := resolver.extractOCIModule(resolvedSource, componentPath, ociArtifacts)
@@ -526,9 +465,10 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 		}
 
 		// Mock Stat to return success (cache hit)
-		resolver.shims.Stat = func(path string) (os.FileInfo, error) {
+		resolver.BaseModuleResolver.shims.Stat = func(path string) (os.FileInfo, error) {
 			return nil, nil
 		}
+		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 
 		// When extracting OCI module
 		path, err := resolver.extractOCIModule(resolvedSource, componentPath, ociArtifacts)
@@ -577,6 +517,10 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 		}
 
 		for _, tc := range errorCases {
+			// Set ProjectRoot for cases that need it
+			if tc.name != "InvalidOCISourceFormat" && tc.name != "MissingPathSeparator" {
+				resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
+			}
 			// When extracting OCI module with error conditions
 			_, err := resolver.extractOCIModule(tc.resolvedSource, tc.componentPath, tc.ociArtifacts)
 
@@ -599,10 +543,8 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 			"registry.example.com/module:latest": []byte("mock artifact data"),
 		}
 
-		// Mock shell to return error
-		resolver.shell.(*shell.MockShell).GetProjectRootFunc = func() (string, error) {
-			return "", errors.New("project root error")
-		}
+		// Set ProjectRoot to empty to trigger error
+		resolver.BaseModuleResolver.runtime.ProjectRoot = ""
 
 		// When extracting OCI module
 		_, err := resolver.extractOCIModule(resolvedSource, componentPath, ociArtifacts)
@@ -644,10 +586,8 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 			"registry.example.com/module:latest": []byte("mock artifact data"),
 		}
 
-		// Mock shell to return error during extraction
-		resolver.shell.(*shell.MockShell).GetProjectRootFunc = func() (string, error) {
-			return "", errors.New("project root error during extraction")
-		}
+		// Set ProjectRoot to empty to trigger error during extraction
+		resolver.BaseModuleResolver.runtime.ProjectRoot = ""
 
 		// When extracting OCI module
 		_, err := resolver.extractOCIModule(resolvedSource, componentPath, ociArtifacts)
@@ -666,18 +606,16 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 	setup := func(t *testing.T) *OCIModuleResolver {
 		t.Helper()
 		mocks := setupMocks(t, &SetupOptions{})
-		resolver := NewOCIModuleResolver(mocks.Injector)
-		err := resolver.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize resolver: %v", err)
-		}
-		resolver.shims = mocks.Shims
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
+		resolver.BaseModuleResolver.shims = mocks.Shims
 		return resolver
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a resolver with valid artifact data
 		resolver := setup(t)
+		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 		artifactData := []byte("mock artifact data")
 		modulePath := "terraform/test-module"
 		extractionKey := "registry-module-latest"
@@ -707,7 +645,7 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 				return 0, io.EOF
 			},
 		}
-		resolver.shims.NewTarReader = func(r io.Reader) TarReader {
+		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
 			return mockTarReader
 		}
 
@@ -769,6 +707,8 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 		}
 
 		for _, tc := range errorCases {
+			// Set ProjectRoot for tests that need it
+			resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 			// When extracting with error conditions
 			tc.setupMocks(resolver)
 			err := resolver.extractModuleFromArtifact(artifactData, modulePath, extractionKey)
@@ -790,10 +730,8 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 		modulePath := "terraform/test-module"
 		extractionKey := "registry-module-latest"
 
-		// Mock shell to return error
-		resolver.shell.(*shell.MockShell).GetProjectRootFunc = func() (string, error) {
-			return "", errors.New("project root error")
-		}
+		// Set ProjectRoot to empty to trigger error
+		resolver.BaseModuleResolver.runtime.ProjectRoot = ""
 
 		// When extracting module from artifact
 		err := resolver.extractModuleFromArtifact(artifactData, modulePath, extractionKey)
@@ -810,6 +748,7 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 	t.Run("HandlesFileCreationError", func(t *testing.T) {
 		// Given a resolver with file creation error
 		resolver := setup(t)
+		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 		artifactData := []byte("mock artifact data")
 		modulePath := "terraform/test-module"
 		extractionKey := "registry-module-latest"
@@ -824,12 +763,12 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 				}, nil
 			},
 		}
-		resolver.shims.NewTarReader = func(r io.Reader) TarReader {
+		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
 			return mockTarReader
 		}
 
 		// Mock Create to return error
-		resolver.shims.Create = func(name string) (*os.File, error) {
+		resolver.BaseModuleResolver.shims.Create = func(name string) (*os.File, error) {
 			return nil, errors.New("file creation error")
 		}
 
@@ -848,6 +787,7 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 	t.Run("HandlesCopyError", func(t *testing.T) {
 		// Given a resolver with copy error
 		resolver := setup(t)
+		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 		artifactData := []byte("mock artifact data")
 		modulePath := "terraform/test-module"
 		extractionKey := "registry-module-latest"
@@ -862,12 +802,12 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 				}, nil
 			},
 		}
-		resolver.shims.NewTarReader = func(r io.Reader) TarReader {
+		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
 			return mockTarReader
 		}
 
 		// Mock Copy to return error
-		resolver.shims.Copy = func(dst io.Writer, src io.Reader) (int64, error) {
+		resolver.BaseModuleResolver.shims.Copy = func(dst io.Writer, src io.Reader) (int64, error) {
 			return 0, errors.New("copy error")
 		}
 
@@ -886,6 +826,7 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 	t.Run("HandlesChmodError", func(t *testing.T) {
 		// Given a resolver with chmod error
 		resolver := setup(t)
+		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 		artifactData := []byte("mock artifact data")
 		modulePath := "terraform/test-module"
 		extractionKey := "registry-module-latest"
@@ -900,12 +841,12 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 				}, nil
 			},
 		}
-		resolver.shims.NewTarReader = func(r io.Reader) TarReader {
+		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
 			return mockTarReader
 		}
 
 		// Mock Chmod to return error
-		resolver.shims.Chmod = func(name string, mode os.FileMode) error {
+		resolver.BaseModuleResolver.shims.Chmod = func(name string, mode os.FileMode) error {
 			return errors.New("chmod error")
 		}
 
@@ -924,6 +865,7 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 	t.Run("HandlesParentDirectoryCreationError", func(t *testing.T) {
 		// Given a resolver with parent directory creation error
 		resolver := setup(t)
+		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 		artifactData := []byte("mock artifact data")
 		modulePath := "terraform/test-module"
 		extractionKey := "registry-module-latest"
@@ -938,13 +880,13 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 				}, nil
 			},
 		}
-		resolver.shims.NewTarReader = func(r io.Reader) TarReader {
+		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
 			return mockTarReader
 		}
 
 		// Mock MkdirAll to return error for parent directory creation
 		callCount := 0
-		resolver.shims.MkdirAll = func(path string, perm os.FileMode) error {
+		resolver.BaseModuleResolver.shims.MkdirAll = func(path string, perm os.FileMode) error {
 			callCount++
 			if callCount > 1 { // First call succeeds, second fails
 				return errors.New("parent directory creation error")
@@ -969,12 +911,9 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 	setup := func(t *testing.T) *OCIModuleResolver {
 		t.Helper()
 		mocks := setupMocks(t, &SetupOptions{})
-		resolver := NewOCIModuleResolver(mocks.Injector)
-		err := resolver.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize resolver: %v", err)
-		}
-		resolver.shims = mocks.Shims
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
+		resolver.BaseModuleResolver.shims = mocks.Shims
 		return resolver
 	}
 
@@ -996,9 +935,10 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 				return nil, io.EOF
 			},
 		}
-		resolver.shims.NewTarReader = func(r io.Reader) TarReader {
+		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
 			return mockTarReader
 		}
+		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 
 		// When processing component
 		err := resolver.processComponent(component, ociArtifacts)
@@ -1022,7 +962,7 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 		}
 
 		// Mock MkdirAll to return error
-		resolver.shims.MkdirAll = func(path string, perm os.FileMode) error {
+		resolver.BaseModuleResolver.shims.MkdirAll = func(path string, perm os.FileMode) error {
 			return errors.New("mkdir error")
 		}
 
@@ -1078,12 +1018,13 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 				return nil, io.EOF
 			},
 		}
-		resolver.shims.NewTarReader = func(r io.Reader) TarReader {
+		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
 			return mockTarReader
 		}
+		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 
 		// Mock FilepathRel to return error
-		resolver.shims.FilepathRel = func(basepath, targpath string) (string, error) {
+		resolver.BaseModuleResolver.shims.FilepathRel = func(basepath, targpath string) (string, error) {
 			return "", errors.New("filepath rel error")
 		}
 
@@ -1117,12 +1058,13 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 				return nil, io.EOF
 			},
 		}
-		resolver.shims.NewTarReader = func(r io.Reader) TarReader {
+		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
 			return mockTarReader
 		}
+		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 
 		// Mock WriteFile to return error for main.tf
-		resolver.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		resolver.BaseModuleResolver.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			if strings.HasSuffix(path, "main.tf") {
 				return errors.New("write main.tf error")
 			}
@@ -1159,12 +1101,13 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 				return nil, io.EOF
 			},
 		}
-		resolver.shims.NewTarReader = func(r io.Reader) TarReader {
+		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
 			return mockTarReader
 		}
+		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 
 		// Mock WriteFile to return error for variables.tf
-		resolver.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		resolver.BaseModuleResolver.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			if strings.HasSuffix(path, "variables.tf") {
 				return errors.New("write variables.tf error")
 			}
@@ -1201,12 +1144,13 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 				return nil, io.EOF
 			},
 		}
-		resolver.shims.NewTarReader = func(r io.Reader) TarReader {
+		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
 			return mockTarReader
 		}
+		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 
 		// Mock WriteFile to return error for outputs.tf
-		resolver.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		resolver.BaseModuleResolver.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			if strings.HasSuffix(path, "outputs.tf") {
 				return errors.New("write outputs.tf error")
 			}

@@ -22,7 +22,7 @@ var installCmd = &cobra.Command{
 			return err
 		}
 
-		if err := proj.Context.Shell.CheckTrustedDirectory(); err != nil {
+		if err := proj.Runtime.Shell.CheckTrustedDirectory(); err != nil {
 			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
 		}
 

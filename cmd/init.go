@@ -6,9 +6,9 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/project"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 // =============================================================================
@@ -131,7 +131,7 @@ var initCmd = &cobra.Command{
 		}
 
 		hasSetFlags := len(initSetFlags) > 0
-		if err := proj.Context.ConfigHandler.SaveConfig(hasSetFlags); err != nil {
+		if err := proj.Runtime.ConfigHandler.SaveConfig(hasSetFlags); err != nil {
 			return fmt.Errorf("failed to save configuration: %w", err)
 		}
 
