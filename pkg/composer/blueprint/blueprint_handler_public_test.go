@@ -5,7 +5,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -609,7 +608,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		}
 
 		// And the metadata should be correctly loaded
-		metadata := handler.GetMetadata()
+		metadata := handler.getMetadata()
 		if metadata.Name != "test-blueprint" {
 			t.Errorf("Expected name to be test-blueprint, got %s", metadata.Name)
 		}
@@ -864,7 +863,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		handler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
 			{Name: "k1", Path: "foo\\bar\\baz"},
 		}
-		ks := handler.GetKustomizations()
+		ks := handler.getKustomizations()
 		if ks[0].Path != "kustomize/foo/bar/baz" {
 			t.Errorf("expected normalized path, got %q", ks[0].Path)
 		}
@@ -960,106 +959,6 @@ kustomize: []`
 		expectedURL := "http://git.test/git/cli"
 		if handler.blueprint.Repository.Url != expectedURL {
 			t.Errorf("Expected repository URL to be %s after Write(), got %s", expectedURL, handler.blueprint.Repository.Url)
-		}
-	})
-}
-
-func TestBlueprintHandler_GetRepository(t *testing.T) {
-	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
-		t.Helper()
-		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-		err := handler.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
-		}
-		return handler, mocks
-	}
-
-	t.Run("ReturnsExpectedRepository", func(t *testing.T) {
-		// Given a blueprint handler with a set repository
-		handler, _ := setup(t)
-		expectedRepo := blueprintv1alpha1.Repository{
-			Url: "git::https://example.com/repo.git",
-			Ref: blueprintv1alpha1.Reference{Branch: "main"},
-		}
-		handler.blueprint.Repository = expectedRepo
-
-		// When getting the repository
-		repo := handler.GetRepository()
-
-		// Then the expected repository should be returned
-		if repo != expectedRepo {
-			t.Errorf("Expected repository %+v, got %+v", expectedRepo, repo)
-		}
-	})
-
-	t.Run("ReturnsDefaultValues", func(t *testing.T) {
-		// Given a blueprint handler with an empty repository
-		handler, _ := setup(t)
-		handler.blueprint.Repository = blueprintv1alpha1.Repository{}
-
-		// When getting the repository
-		repo := handler.GetRepository()
-
-		// Then default values should be set
-		expectedRepo := blueprintv1alpha1.Repository{
-			Url: "",
-			Ref: blueprintv1alpha1.Reference{Branch: "main"},
-		}
-		if repo != expectedRepo {
-			t.Errorf("Expected repository %+v, got %+v", expectedRepo, repo)
-		}
-	})
-}
-
-func TestBlueprintHandler_GetSources(t *testing.T) {
-	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
-		t.Helper()
-		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-		handler.blueprint = blueprintv1alpha1.Blueprint{
-			Sources: []blueprintv1alpha1.Source{},
-		}
-		err := handler.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
-		}
-		return handler, mocks
-	}
-
-	t.Run("ReturnsExpectedSources", func(t *testing.T) {
-		// Given a blueprint handler with a set of sources
-		handler, _ := setup(t)
-		expectedSources := []blueprintv1alpha1.Source{
-			{
-				Name:       "source1",
-				Url:        "git::https://example.com/source1.git",
-				Ref:        blueprintv1alpha1.Reference{Branch: "main"},
-				PathPrefix: "/source1",
-			},
-			{
-				Name:       "source2",
-				Url:        "git::https://example.com/source2.git",
-				Ref:        blueprintv1alpha1.Reference{Branch: "develop"},
-				PathPrefix: "/source2",
-			},
-		}
-		handler.blueprint.Sources = expectedSources
-
-		// When getting sources
-		sources := handler.GetSources()
-
-		// Then the returned sources should match the expected sources
-		if len(sources) != len(expectedSources) {
-			t.Fatalf("Expected %d sources, got %d", len(expectedSources), len(sources))
-		}
-		for i := range expectedSources {
-			if sources[i] != expectedSources[i] {
-				t.Errorf("Source[%d] = %+v, want %+v", i, sources[i], expectedSources[i])
-			}
 		}
 	})
 }
@@ -1248,46 +1147,6 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 		expectedPath := filepath.FromSlash(filepath.Join(projectRoot, ".windsor", ".tf_modules", "cluster/talos"))
 		if resolvedComponents[0].FullPath != expectedPath {
 			t.Errorf("Expected path %q, got %q", expectedPath, resolvedComponents[0].FullPath)
-		}
-	})
-}
-
-func TestBlueprintHandler_GetDefaultTemplateData(t *testing.T) {
-	setup := func(t *testing.T) (BlueprintHandler, *Mocks) {
-		t.Helper()
-		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-		err := handler.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
-		}
-		return handler, mocks
-	}
-
-	t.Run("ReturnsDefaultTemplate", func(t *testing.T) {
-		// Given a blueprint handler
-		handler, _ := setup(t)
-
-		// When getting default template data
-		result, err := handler.GetDefaultTemplateData("local")
-
-		// Then no error should occur
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		// And result should contain blueprint.jsonnet
-		if len(result) != 1 {
-			t.Fatalf("Expected 1 template file, got: %d", len(result))
-		}
-
-		if _, exists := result["blueprint.jsonnet"]; !exists {
-			t.Error("Expected blueprint.jsonnet to exist in result")
-		}
-
-		if len(result["blueprint.jsonnet"]) == 0 {
-			t.Error("Expected blueprint.jsonnet to have content")
 		}
 	})
 }
@@ -2109,7 +1968,7 @@ func TestBlueprintHandler_LoadData(t *testing.T) {
 		}
 
 		// And the metadata should be correctly loaded
-		metadata := handler.GetMetadata()
+		metadata := handler.getMetadata()
 		if metadata.Name != "test-blueprint" {
 			t.Errorf("Expected name to be test-blueprint, got %s", metadata.Name)
 		}
@@ -2117,7 +1976,7 @@ func TestBlueprintHandler_LoadData(t *testing.T) {
 			t.Errorf("Expected description to be 'A test blueprint from data', got %s", metadata.Description)
 		}
 		// And the sources should be loaded
-		sources := handler.GetSources()
+		sources := handler.getSources()
 		if len(sources) != 1 {
 			t.Errorf("Expected 1 source, got %d", len(sources))
 		}
@@ -2216,7 +2075,7 @@ func TestBlueprintHandler_LoadData(t *testing.T) {
 		}
 
 		// And the metadata should be correctly loaded
-		metadata := handler.GetMetadata()
+		metadata := handler.getMetadata()
 		if metadata.Name != "oci-blueprint" {
 			t.Errorf("Expected name to be oci-blueprint, got %s", metadata.Name)
 		}
@@ -2236,7 +2095,7 @@ func TestBlueprintHandler_LoadData(t *testing.T) {
 		}
 
 		// Get the original metadata
-		originalMetadata := handler.GetMetadata()
+		originalMetadata := handler.getMetadata()
 
 		// And different blueprint data that would overwrite the config
 		differentData := map[string]any{
@@ -2257,7 +2116,7 @@ func TestBlueprintHandler_LoadData(t *testing.T) {
 		}
 
 		// But the metadata should remain unchanged (LoadData should be ignored)
-		currentMetadata := handler.GetMetadata()
+		currentMetadata := handler.getMetadata()
 		if currentMetadata.Name != originalMetadata.Name {
 			t.Errorf("Expected metadata to remain unchanged, but name changed from %s to %s", originalMetadata.Name, currentMetadata.Name)
 		}
@@ -2605,89 +2464,6 @@ func TestBlueprintHandler_Write(t *testing.T) {
 	})
 }
 
-func TestBaseBlueprintHandler_SetRenderedKustomizeData(t *testing.T) {
-	setup := func(t *testing.T) *BaseBlueprintHandler {
-		t.Helper()
-		injector := di.NewInjector()
-		handler := NewBlueprintHandler(injector)
-		return handler
-	}
-
-	t.Run("SetData", func(t *testing.T) {
-		// Given a handler with no existing data
-		handler := setup(t)
-		data := map[string]any{
-			"key1": "value1",
-			"key2": 42,
-		}
-		// When setting rendered kustomize data
-		handler.SetRenderedKustomizeData(data)
-		// Then data should be stored
-		if !reflect.DeepEqual(handler.kustomizeData, data) {
-			t.Errorf("Expected kustomizeData = %v, got = %v", data, handler.kustomizeData)
-		}
-	})
-
-	t.Run("OverwriteData", func(t *testing.T) {
-		// Given a handler with existing data
-		handler := setup(t)
-		handler.kustomizeData = map[string]any{
-			"existing": "data",
-		}
-		newData := map[string]any{
-			"new": "data",
-		}
-		// When setting new rendered kustomize data
-		handler.SetRenderedKustomizeData(newData)
-		// Then new data should overwrite existing data
-		if !reflect.DeepEqual(handler.kustomizeData, newData) {
-			t.Errorf("Expected kustomizeData = %v, got = %v", newData, handler.kustomizeData)
-		}
-	})
-
-	t.Run("EmptyData", func(t *testing.T) {
-		// Given a handler with existing data
-		handler := setup(t)
-		handler.kustomizeData = map[string]any{
-			"existing": "data",
-		}
-		emptyData := map[string]any{}
-		// When setting empty rendered kustomize data
-		handler.SetRenderedKustomizeData(emptyData)
-		// Then empty data should be stored
-		if !reflect.DeepEqual(handler.kustomizeData, emptyData) {
-			t.Errorf("Expected kustomizeData = %v, got = %v", emptyData, handler.kustomizeData)
-		}
-	})
-
-	t.Run("ComplexData", func(t *testing.T) {
-		// Given a handler with no existing data
-		handler := setup(t)
-		complexData := map[string]any{
-			"nested": map[string]any{
-				"level1": map[string]any{
-					"level2": []any{
-						"string1",
-						123,
-						map[string]any{"key": "value"},
-					},
-				},
-			},
-			"array": []any{
-				"item1",
-				456,
-				map[string]any{"nested": "data"},
-			},
-		}
-		// When setting complex rendered kustomize data
-		handler.SetRenderedKustomizeData(complexData)
-		// Then complex data should be stored
-		if !reflect.DeepEqual(handler.kustomizeData, complexData) {
-			t.Errorf("Expected kustomizeData = %v, got = %v", complexData, handler.kustomizeData)
-		}
-	})
-}
-
 func TestBlueprintHandler_LoadBlueprint(t *testing.T) {
 	t.Run("LoadsBlueprintSuccessfullyWithLocalTemplates", func(t *testing.T) {
 		// Given a blueprint handler with local templates
@@ -2741,7 +2517,7 @@ kustomizations: []`
 		}
 
 		// And blueprint should be loaded
-		metadata := handler.GetMetadata()
+		metadata := handler.getMetadata()
 		if metadata.Name != "test-blueprint" {
 			t.Errorf("Expected blueprint name 'test-blueprint', got %s", metadata.Name)
 		}

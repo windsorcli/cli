@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -2209,6 +2210,106 @@ func TestBaseBlueprintHandler_getDevelopmentRepositoryURL(t *testing.T) {
 		expectedURL := "http://git.staging.example.io/git/project-with-dashes"
 		if url != expectedURL {
 			t.Errorf("Expected URL to be %s, got %s", expectedURL, url)
+		}
+	})
+}
+
+func TestBlueprintHandler_getSources(t *testing.T) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{},
+		}
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		return handler, mocks
+	}
+
+	t.Run("ReturnsExpectedSources", func(t *testing.T) {
+		// Given a blueprint handler with a set of sources
+		handler, _ := setup(t)
+		expectedSources := []blueprintv1alpha1.Source{
+			{
+				Name:       "source1",
+				Url:        "git::https://example.com/source1.git",
+				Ref:        blueprintv1alpha1.Reference{Branch: "main"},
+				PathPrefix: "/source1",
+			},
+			{
+				Name:       "source2",
+				Url:        "git::https://example.com/source2.git",
+				Ref:        blueprintv1alpha1.Reference{Branch: "develop"},
+				PathPrefix: "/source2",
+			},
+		}
+		handler.blueprint.Sources = expectedSources
+
+		// When getting sources
+		sources := handler.getSources()
+
+		// Then the returned sources should match the expected sources
+		if len(sources) != len(expectedSources) {
+			t.Fatalf("Expected %d sources, got %d", len(expectedSources), len(sources))
+		}
+		for i := range expectedSources {
+			if sources[i] != expectedSources[i] {
+				t.Errorf("Source[%d] = %+v, want %+v", i, sources[i], expectedSources[i])
+			}
+		}
+	})
+}
+
+func TestBlueprintHandler_getRepository(t *testing.T) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize handler: %v", err)
+		}
+		return handler, mocks
+	}
+
+	t.Run("ReturnsExpectedRepository", func(t *testing.T) {
+		// Given a blueprint handler with a set repository
+		handler, _ := setup(t)
+		expectedRepo := blueprintv1alpha1.Repository{
+			Url: "git::https://example.com/repo.git",
+			Ref: blueprintv1alpha1.Reference{Branch: "main"},
+		}
+		handler.blueprint.Repository = expectedRepo
+
+		// When getting the repository
+		repo := handler.getRepository()
+
+		// Then the expected repository should be returned
+		if repo != expectedRepo {
+			t.Errorf("Expected repository %+v, got %+v", expectedRepo, repo)
+		}
+	})
+
+	t.Run("ReturnsDefaultValues", func(t *testing.T) {
+		// Given a blueprint handler with an empty repository
+		handler, _ := setup(t)
+		handler.blueprint.Repository = blueprintv1alpha1.Repository{}
+
+		// When getting the repository
+		repo := handler.getRepository()
+
+		// Then default values should be set
+		expectedRepo := blueprintv1alpha1.Repository{
+			Url: "",
+			Ref: blueprintv1alpha1.Reference{Branch: "main"},
+		}
+		if repo != expectedRepo {
+			t.Errorf("Expected repository %+v, got %+v", expectedRepo, repo)
 		}
 	})
 }

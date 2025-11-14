@@ -37,19 +37,10 @@ type BlueprintHandler interface {
 	LoadConfig() error
 	LoadData(data map[string]any, ociInfo ...*artifact.OCIArtifactInfo) error
 	Write(overwrite ...bool) error
-	SetRenderedKustomizeData(data map[string]any)
-	GetMetadata() blueprintv1alpha1.Metadata
-	GetSources() []blueprintv1alpha1.Source
-	GetRepository() blueprintv1alpha1.Repository
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
-	GetKustomizations() []blueprintv1alpha1.Kustomization
-	GetDefaultTemplateData(contextName string) (map[string][]byte, error)
 	GetLocalTemplateData() (map[string][]byte, error)
 	Generate() *blueprintv1alpha1.Blueprint
 }
-
-//go:embed templates/default.jsonnet
-var defaultJsonnetTemplate string
 
 type BaseBlueprintHandler struct {
 	BlueprintHandler
@@ -151,7 +142,7 @@ func (b *BaseBlueprintHandler) LoadBlueprint() error {
 		}
 	}
 
-	sources := b.GetSources()
+	sources := b.getSources()
 	if len(sources) > 0 {
 		artifactBuilder := b.injector.Resolve("artifactBuilder")
 		if artifactBuilder != nil {
@@ -284,15 +275,15 @@ func (b *BaseBlueprintHandler) Write(overwrite ...bool) error {
 	return nil
 }
 
-// GetMetadata retrieves the current blueprint's metadata.
-func (b *BaseBlueprintHandler) GetMetadata() blueprintv1alpha1.Metadata {
+// getMetadata retrieves the current blueprint's metadata.
+func (b *BaseBlueprintHandler) getMetadata() blueprintv1alpha1.Metadata {
 	resolvedBlueprint := b.blueprint
 	return resolvedBlueprint.Metadata
 }
 
-// GetRepository retrieves the current blueprint's repository configuration, ensuring
+// getRepository retrieves the current blueprint's repository configuration, ensuring
 // default values are set for empty fields.
-func (b *BaseBlueprintHandler) GetRepository() blueprintv1alpha1.Repository {
+func (b *BaseBlueprintHandler) getRepository() blueprintv1alpha1.Repository {
 	resolvedBlueprint := b.blueprint
 	repository := resolvedBlueprint.Repository
 
@@ -306,8 +297,8 @@ func (b *BaseBlueprintHandler) GetRepository() blueprintv1alpha1.Repository {
 	return repository
 }
 
-// GetSources retrieves the current blueprint's source configurations.
-func (b *BaseBlueprintHandler) GetSources() []blueprintv1alpha1.Source {
+// getSources retrieves the current blueprint's source configurations.
+func (b *BaseBlueprintHandler) getSources() []blueprintv1alpha1.Source {
 	resolvedBlueprint := b.blueprint
 	return resolvedBlueprint.Sources
 }
@@ -323,11 +314,11 @@ func (b *BaseBlueprintHandler) GetTerraformComponents() []blueprintv1alpha1.Terr
 	return resolvedBlueprint.TerraformComponents
 }
 
-// GetKustomizations returns the current blueprint's kustomization configurations with all default values resolved.
+// getKustomizations returns the current blueprint's kustomization configurations with all default values resolved.
 // It copies the kustomizations from the blueprint, sets default values for Source, Path, Interval, RetryInterval,
 // Timeout, Wait, Force, and Destroy fields if unset, discovers and appends patches, and sets the PostBuild configuration.
 // This method ensures all kustomization fields are fully populated for downstream processing.
-func (b *BaseBlueprintHandler) GetKustomizations() []blueprintv1alpha1.Kustomization {
+func (b *BaseBlueprintHandler) getKustomizations() []blueprintv1alpha1.Kustomization {
 	resolvedBlueprint := b.blueprint
 	kustomizations := make([]blueprintv1alpha1.Kustomization, len(resolvedBlueprint.Kustomizations))
 	copy(kustomizations, resolvedBlueprint.Kustomizations)
@@ -372,11 +363,11 @@ func (b *BaseBlueprintHandler) GetKustomizations() []blueprintv1alpha1.Kustomiza
 
 // Generate returns the fully processed blueprint with all defaults resolved,
 // paths processed, and generation logic applied - equivalent to what would be deployed.
-// It applies the same processing logic as GetKustomizations() but for the entire blueprint structure.
+// It applies the same processing logic as getKustomizations() but for the entire blueprint structure.
 func (b *BaseBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
 	generated := b.blueprint.DeepCopy()
 
-	// Process kustomizations with the same logic as GetKustomizations()
+	// Process kustomizations with the same logic as getKustomizations()
 	for i := range generated.Kustomizations {
 		if generated.Kustomizations[i].Source == "" {
 			generated.Kustomizations[i].Source = generated.Metadata.Name
@@ -416,21 +407,6 @@ func (b *BaseBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
 	b.resolveComponentPaths(generated)
 
 	return generated
-}
-
-// SetRenderedKustomizeData stores rendered kustomize data for use during install.
-// This includes values and patches from template processing that should be composed with user-defined files.
-func (b *BaseBlueprintHandler) SetRenderedKustomizeData(data map[string]any) {
-	b.kustomizeData = data
-}
-
-// GetDefaultTemplateData generates default template data based on the provider configuration.
-// It uses the embedded default template to create a map of template files that can be
-// used by the init pipeline for generating context-specific configurations.
-func (b *BaseBlueprintHandler) GetDefaultTemplateData(contextName string) (map[string][]byte, error) {
-	return map[string][]byte{
-		"blueprint.jsonnet": []byte(defaultJsonnetTemplate),
-	}, nil
 }
 
 // GetLocalTemplateData returns template files from contexts/_template, merging values.yaml from

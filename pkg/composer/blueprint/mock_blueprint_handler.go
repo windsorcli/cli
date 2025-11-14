@@ -2,8 +2,8 @@ package blueprint
 
 import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
+	"github.com/windsorcli/cli/pkg/di"
 )
 
 // MockBlueprintHandler is a mock implementation of BlueprintHandler interface for testing
@@ -13,16 +13,15 @@ type MockBlueprintHandler struct {
 	LoadConfigFunc             func() error
 	LoadDataFunc               func(data map[string]any, ociInfo ...*artifact.OCIArtifactInfo) error
 	WriteFunc                  func(overwrite ...bool) error
-	GetMetadataFunc            func() blueprintv1alpha1.Metadata
-	GetSourcesFunc             func() []blueprintv1alpha1.Source
+	getSourcesFunc             func() []blueprintv1alpha1.Source
 	GetTerraformComponentsFunc func() []blueprintv1alpha1.TerraformComponent
-	GetKustomizationsFunc      func() []blueprintv1alpha1.Kustomization
+	getKustomizationsFunc      func() []blueprintv1alpha1.Kustomization
 
 	WaitForKustomizationsFunc  func(message string, names ...string) error
-	GetDefaultTemplateDataFunc func(contextName string) (map[string][]byte, error)
+	getDefaultTemplateDataFunc func(contextName string) (map[string][]byte, error)
 	GetLocalTemplateDataFunc   func() (map[string][]byte, error)
 	InstallFunc                func() error
-	GetRepositoryFunc          func() blueprintv1alpha1.Repository
+	getRepositoryFunc          func() blueprintv1alpha1.Repository
 
 	DownFunc                     func() error
 	SetRenderedKustomizeDataFunc func(data map[string]any)
@@ -82,20 +81,11 @@ func (m *MockBlueprintHandler) Write(overwrite ...bool) error {
 	return nil
 }
 
-// GetMetadata calls the mock GetMetadataFunc if set, otherwise returns a reasonable default
-// MetadataV1Alpha1
-func (m *MockBlueprintHandler) GetMetadata() blueprintv1alpha1.Metadata {
-	if m.GetMetadataFunc != nil {
-		return m.GetMetadataFunc()
-	}
-	return blueprintv1alpha1.Metadata{}
-}
-
-// GetSources calls the mock GetSourcesFunc if set, otherwise returns a reasonable default
+// getSources calls the mock getSourcesFunc if set, otherwise returns a reasonable default
 // slice of SourceV1Alpha1
-func (m *MockBlueprintHandler) GetSources() []blueprintv1alpha1.Source {
-	if m.GetSourcesFunc != nil {
-		return m.GetSourcesFunc()
+func (m *MockBlueprintHandler) getSources() []blueprintv1alpha1.Source {
+	if m.getSourcesFunc != nil {
+		return m.getSourcesFunc()
 	}
 	return []blueprintv1alpha1.Source{}
 }
@@ -109,11 +99,11 @@ func (m *MockBlueprintHandler) GetTerraformComponents() []blueprintv1alpha1.Terr
 	return []blueprintv1alpha1.TerraformComponent{}
 }
 
-// GetKustomizations calls the mock GetKustomizationsFunc if set, otherwise returns a reasonable
+// getKustomizations calls the mock getKustomizationsFunc if set, otherwise returns a reasonable
 // default slice of kustomizev1.Kustomization
-func (m *MockBlueprintHandler) GetKustomizations() []blueprintv1alpha1.Kustomization {
-	if m.GetKustomizationsFunc != nil {
-		return m.GetKustomizationsFunc()
+func (m *MockBlueprintHandler) getKustomizations() []blueprintv1alpha1.Kustomization {
+	if m.getKustomizationsFunc != nil {
+		return m.getKustomizationsFunc()
 	}
 	return []blueprintv1alpha1.Kustomization{}
 }
@@ -126,10 +116,10 @@ func (m *MockBlueprintHandler) Install() error {
 	return nil
 }
 
-// GetRepository calls the mock GetRepositoryFunc if set, otherwise returns empty Repository
-func (m *MockBlueprintHandler) GetRepository() blueprintv1alpha1.Repository {
-	if m.GetRepositoryFunc != nil {
-		return m.GetRepositoryFunc()
+// getRepository calls the mock getRepositoryFunc if set, otherwise returns empty Repository
+func (m *MockBlueprintHandler) getRepository() blueprintv1alpha1.Repository {
+	if m.getRepositoryFunc != nil {
+		return m.getRepositoryFunc()
 	}
 	return blueprintv1alpha1.Repository{}
 }
@@ -157,10 +147,10 @@ func (m *MockBlueprintHandler) WaitForKustomizations(message string, names ...st
 	return nil
 }
 
-// GetDefaultTemplateData calls the mock GetDefaultTemplateDataFunc if set, otherwise returns empty map
-func (m *MockBlueprintHandler) GetDefaultTemplateData(contextName string) (map[string][]byte, error) {
-	if m.GetDefaultTemplateDataFunc != nil {
-		return m.GetDefaultTemplateDataFunc(contextName)
+// getDefaultTemplateData calls the mock getDefaultTemplateDataFunc if set, otherwise returns empty map
+func (m *MockBlueprintHandler) getDefaultTemplateData(contextName string) (map[string][]byte, error) {
+	if m.getDefaultTemplateDataFunc != nil {
+		return m.getDefaultTemplateDataFunc(contextName)
 	}
 	return map[string][]byte{}, nil
 }
