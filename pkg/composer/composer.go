@@ -187,6 +187,7 @@ func (r *Composer) generateGitignore() error {
 
 	gitignorePath := filepath.Join(projectRoot, ".gitignore")
 
+	// #nosec G304 - gitignorePath is constructed from trusted project root
 	content, err := os.ReadFile(gitignorePath)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to read .gitignore: %w", err)
@@ -239,6 +240,7 @@ func (r *Composer) generateGitignore() error {
 		finalContent += "\n"
 	}
 
+	// #nosec G306 - .gitignore files are standard 0644 permissions (world-readable, owner-writable)
 	if err := os.WriteFile(gitignorePath, []byte(finalContent), 0644); err != nil {
 		return fmt.Errorf("failed to write to .gitignore: %w", err)
 	}
