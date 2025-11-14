@@ -751,8 +751,8 @@ func TestDockerVirt_Down(t *testing.T) {
 	})
 }
 
-// TestDockerVirt_PrintInfo tests the PrintInfo method of the DockerVirt component.
-func TestDockerVirt_PrintInfo(t *testing.T) {
+// TestDockerVirt_GetContainerInfo tests the GetContainerInfo method of the DockerVirt component.
+func TestDockerVirt_GetContainerInfo(t *testing.T) {
 	setup := func(t *testing.T) (*DockerVirt, *Mocks) {
 		t.Helper()
 		mocks := setupDockerMocks(t)
@@ -763,67 +763,6 @@ func TestDockerVirt_PrintInfo(t *testing.T) {
 		}
 		return dockerVirt, mocks
 	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a docker virt instance with valid mocks
-		dockerVirt, _ := setup(t)
-
-		// When calling PrintInfo
-		err := dockerVirt.PrintInfo()
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("NoContainersRunning", func(t *testing.T) {
-		// Given a docker virt instance with valid mocks
-		dockerVirt, mocks := setup(t)
-
-		// And no containers are running
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "ps" {
-				return "", nil
-			}
-			return "", fmt.Errorf("unexpected command: %s %v", command, args)
-		}
-
-		// When calling PrintInfo
-		err := dockerVirt.PrintInfo()
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorGettingContainerInfo", func(t *testing.T) {
-		// Given a docker virt instance with valid mocks
-		dockerVirt, mocks := setup(t)
-
-		// And an error occurs when getting container info
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "ps" {
-				return "", fmt.Errorf("mock error getting container info")
-			}
-			return "", fmt.Errorf("unexpected command: %s %v", command, args)
-		}
-
-		// When calling PrintInfo
-		err := dockerVirt.PrintInfo()
-
-		// Then an error should occur
-		if err == nil {
-			t.Errorf("expected error, got none")
-		}
-
-		// And the error should contain the expected message
-		expectedErrorSubstring := "error retrieving container info"
-		if !strings.Contains(err.Error(), expectedErrorSubstring) {
-			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
-		}
-	})
 
 	t.Run("ErrorInspectLabels", func(t *testing.T) {
 		// Given a docker virt instance with failing inspect
@@ -998,20 +937,6 @@ func TestDockerVirt_PrintInfo(t *testing.T) {
 			t.Error("expected container for service2 to be excluded")
 		}
 	})
-}
-
-// TestDockerVirt_GetContainerInfo tests the GetContainerInfo method of the DockerVirt component.
-func TestDockerVirt_GetContainerInfo(t *testing.T) {
-	setup := func(t *testing.T) (*DockerVirt, *Mocks) {
-		t.Helper()
-		mocks := setupDockerMocks(t)
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.shims = mocks.Shims
-		if err := dockerVirt.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize DockerVirt: %v", err)
-		}
-		return dockerVirt, mocks
-	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a docker virt instance with valid mocks

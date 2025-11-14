@@ -215,22 +215,6 @@ func (v *ColimaVirt) WriteConfig() error {
 	return nil
 }
 
-// PrintInfo prints the information about the Colima VM
-// Retrieves the VM information and formats it in a tabular display
-// Shows the VM name, architecture, CPU count, memory, disk size, and IP address
-// Returns an error if the VM information cannot be retrieved
-func (v *ColimaVirt) PrintInfo() error {
-	info, err := v.GetVMInfo()
-	if err != nil {
-		return fmt.Errorf("error retrieving VM info: %w", err)
-	}
-	fmt.Printf("%-15s %-10s %-10s %-10s %-10s %-15s\n", "VM NAME", "ARCH", "CPUS", "MEMORY", "DISK", "ADDRESS")
-	fmt.Printf("%-15s %-10s %-10d %-10s %-10s %-15s\n", info.Name, info.Arch, info.CPUs, fmt.Sprintf("%dGiB", info.Memory), fmt.Sprintf("%dGiB", info.Disk), info.Address)
-	fmt.Println()
-
-	return nil
-}
-
 // =============================================================================
 // Private Methods
 // =============================================================================

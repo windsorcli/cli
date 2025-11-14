@@ -10,8 +10,8 @@ import (
 
 	"os"
 
-	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -61,7 +61,6 @@ type Virt interface {
 	Initialize() error
 	Up() error
 	Down() error
-	PrintInfo() error
 	WriteConfig() error
 }
 

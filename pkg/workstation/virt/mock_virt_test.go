@@ -8,10 +8,10 @@ package virt
 import (
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/workstation/services"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
 // =============================================================================
@@ -137,38 +137,6 @@ func TestMockVirt_Down(t *testing.T) {
 
 		// When calling Down
 		err := mockVirt.Down()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-	})
-}
-
-// TestMockVirt_PrintInfo tests the PrintInfo method of MockVirt.
-func TestMockVirt_PrintInfo(t *testing.T) {
-	t.Run("PrintInfoFuncImplemented", func(t *testing.T) {
-		// Given a MockVirt with a custom PrintInfoFunc
-		mockVirt := NewMockVirt()
-		mockVirt.PrintInfoFunc = func() error {
-			return nil
-		}
-
-		// When calling PrintInfo
-		err := mockVirt.PrintInfo()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("PrintInfoFuncNotImplemented", func(t *testing.T) {
-		// Given a MockVirt without a custom PrintInfoFunc
-		mockVirt := NewMockVirt()
-
-		// When calling PrintInfo
-		err := mockVirt.PrintInfo()
 
 		// Then no error should be returned
 		if err != nil {

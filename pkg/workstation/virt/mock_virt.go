@@ -14,7 +14,6 @@ type MockVirt struct {
 	InitializeFunc       func() error
 	UpFunc               func(verbose ...bool) error
 	DownFunc             func() error
-	PrintInfoFunc        func() error
 	WriteConfigFunc      func() error
 	GetVMInfoFunc        func() (VMInfo, error)
 	GetContainerInfoFunc func(name ...string) ([]ContainerInfo, error)
@@ -56,15 +55,6 @@ func (m *MockVirt) Up() error {
 func (m *MockVirt) Down() error {
 	if m.DownFunc != nil {
 		return m.DownFunc()
-	}
-	return nil
-}
-
-// PrintInfo prints information about the mock virt.
-// If a custom PrintInfoFunc is provided, it will use that function instead.
-func (m *MockVirt) PrintInfo() error {
-	if m.PrintInfoFunc != nil {
-		return m.PrintInfoFunc()
 	}
 	return nil
 }

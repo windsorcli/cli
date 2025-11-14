@@ -802,60 +802,6 @@ func TestColimaVirt_Down(t *testing.T) {
 	})
 }
 
-// TestColimaVirt_PrintInfo tests the PrintInfo method of the ColimaVirt component.
-func TestColimaVirt_PrintInfo(t *testing.T) {
-	setup := func(t *testing.T) (*ColimaVirt, *Mocks) {
-		t.Helper()
-		mocks := setupColimaMocks(t)
-		colimaVirt := NewColimaVirt(mocks.Injector)
-		colimaVirt.shims = mocks.Shims
-		if err := colimaVirt.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize ColimaVirt: %v", err)
-		}
-		return colimaVirt, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a colima virt instance with valid mocks
-		colimaVirt, _ := setup(t)
-
-		// When calling PrintInfo
-		err := colimaVirt.PrintInfo()
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorGettingVMInfo", func(t *testing.T) {
-		// Given a colima virt instance with valid mocks
-		colimaVirt, mocks := setup(t)
-
-		// And mock GetVMInfo returns an error
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "colima" && len(args) > 0 && args[0] == "ls" {
-				return "", fmt.Errorf("mock error getting VM info")
-			}
-			return "", fmt.Errorf("unexpected command: %s %v", command, args)
-		}
-
-		// When calling PrintInfo
-		err := colimaVirt.PrintInfo()
-
-		// Then an error should occur
-		if err == nil {
-			t.Error("expected error, got none")
-		}
-
-		// And the error should contain the expected message
-		expectedErrorSubstring := "error retrieving VM info"
-		if !strings.Contains(err.Error(), expectedErrorSubstring) {
-			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
-		}
-	})
-}
-
 // TestColimaVirt_getArch tests the getArch method of the ColimaVirt component.
 func TestColimaVirt_getArch(t *testing.T) {
 	setup := func(t *testing.T) (*ColimaVirt, *Mocks) {
