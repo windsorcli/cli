@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================
@@ -21,10 +22,10 @@ type TalosEnvPrinter struct {
 // Constructor
 // =============================================================================
 
-// NewTalosEnvPrinter creates and returns a new TalosEnvPrinter instance using the provided injector.
-func NewTalosEnvPrinter(injector di.Injector) *TalosEnvPrinter {
+// NewTalosEnvPrinter creates and returns a new TalosEnvPrinter instance.
+func NewTalosEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *TalosEnvPrinter {
 	return &TalosEnvPrinter{
-		BaseEnvPrinter: *NewBaseEnvPrinter(injector),
+		BaseEnvPrinter: *NewBaseEnvPrinter(shell, configHandler),
 	}
 }
 

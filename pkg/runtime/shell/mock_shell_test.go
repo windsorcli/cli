@@ -3,8 +3,6 @@ package shell
 import (
 	"fmt"
 	"testing"
-
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 // The MockShellTest is a test suite for the MockShell implementation.
@@ -20,11 +18,8 @@ import (
 func setupMockShellMocks(t *testing.T) *MockShell {
 	t.Helper()
 
-	// Create injector
-	injector := di.NewMockInjector()
-
 	// Create mock shell
-	mockShell := NewMockShell(injector)
+	mockShell := NewMockShell()
 
 	return mockShell
 }
@@ -47,53 +42,34 @@ func TestMockShell_NewMockShell(t *testing.T) {
 }
 
 // TestMockShell_Initialize tests the Initialize method of MockShell
-func TestMockShell_Initialize(t *testing.T) {
+func TestMockShell(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a mock shell with InitializeFunc set
+		// Given a mock shell
 		mockShell := setupMockShellMocks(t)
-		mockShell.InitializeFunc = func() error {
-			return nil
-		}
 
-		// When calling Initialize
-		err := mockShell.Initialize()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
+		// Then it should be created
+		if mockShell == nil {
+			t.Error("Expected mock shell to be created")
 		}
 	})
 
-	t.Run("Error", func(t *testing.T) {
-		// Given a mock shell with InitializeFunc set to return an error
+	t.Run("Created", func(t *testing.T) {
+		// Given a mock shell
 		mockShell := setupMockShellMocks(t)
-		expectedError := fmt.Errorf("mock initialize error")
-		mockShell.InitializeFunc = func() error {
-			return expectedError
-		}
 
-		// When calling Initialize
-		err := mockShell.Initialize()
-
-		// Then the expected error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if err.Error() != expectedError.Error() {
-			t.Errorf("Expected error %v, got %v", expectedError, err)
+		// Then it should be created
+		if mockShell == nil {
+			t.Error("Expected mock shell to be created")
 		}
 	})
 
 	t.Run("NotImplemented", func(t *testing.T) {
-		// Given a mock shell with InitializeFunc not set
+		// Given a mock shell
 		mockShell := setupMockShellMocks(t)
 
-		// When calling Initialize
-		err := mockShell.Initialize()
-
-		// Then no error should be returned (default implementation)
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
+		// Then it should be created
+		if mockShell == nil {
+			t.Error("Expected mock shell to be created")
 		}
 	})
 }

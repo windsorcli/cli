@@ -130,14 +130,11 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 
 	var configHandler config.ConfigHandler
 	if options.ConfigHandler == nil {
-		configHandler = config.NewConfigHandler(injector)
+		configHandler = config.NewConfigHandler(mockShell)
 	} else {
 		configHandler = options.ConfigHandler
 	}
 
-	if err := configHandler.Initialize(); err != nil {
-		t.Fatalf("Failed to initialize config handler: %v", err)
-	}
 	if err := configHandler.SetContext("mock-context"); err != nil {
 		t.Fatalf("Failed to set context: %v", err)
 	}
@@ -223,19 +220,15 @@ func setupWindsorStackMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		t.Fatalf("Failed to create local directory: %v", err)
 	}
 
-	terraformEnv := envvars.NewTerraformEnvPrinter(mocks.Injector)
-	if err := terraformEnv.Initialize(); err != nil {
-		t.Fatalf("Failed to initialize terraform env printer: %v", err)
-	}
-	mocks.Injector.Register("terraformEnv", terraformEnv)
-	mocks.Runtime.EnvPrinters.TerraformEnv = terraformEnv
-
 	mocks.Shims.Stat = func(path string) (os.FileInfo, error) {
 		if path == tfModulesDir || path == localDir {
 			return os.Stat(path)
 		}
 		return nil, nil
 	}
+
+	terraformEnv := envvars.NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+	mocks.Runtime.EnvPrinters.TerraformEnv = terraformEnv
 
 	return mocks
 }

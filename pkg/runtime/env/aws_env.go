@@ -10,7 +10,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================
@@ -27,9 +28,9 @@ type AwsEnvPrinter struct {
 // =============================================================================
 
 // NewAwsEnvPrinter creates a new AwsEnvPrinter instance
-func NewAwsEnvPrinter(injector di.Injector) *AwsEnvPrinter {
+func NewAwsEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *AwsEnvPrinter {
 	return &AwsEnvPrinter{
-		BaseEnvPrinter: *NewBaseEnvPrinter(injector),
+		BaseEnvPrinter: *NewBaseEnvPrinter(shell, configHandler),
 	}
 }
 

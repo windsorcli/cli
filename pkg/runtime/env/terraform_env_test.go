@@ -69,11 +69,8 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
-		printer := NewTerraformEnvPrinter(mocks.Injector)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize printer: %v", err)
-		}
 		return printer, mocks
 	}
 
@@ -216,11 +213,8 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		mocks := setupTerraformEnvMocks(t, &SetupOptions{
 			ConfigHandler: configHandler,
 		})
-		printer := NewTerraformEnvPrinter(mocks.Injector)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize printer: %v", err)
-		}
 
 		// When GetEnvVars is called
 		_, err := printer.GetEnvVars()
@@ -344,11 +338,8 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
-		printer := NewTerraformEnvPrinter(mocks.Injector)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize printer: %v", err)
-		}
 		return printer, mocks
 	}
 
@@ -439,11 +430,8 @@ func TestTerraformEnv_findRelativeTerraformProjectPath(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
-		printer := NewTerraformEnvPrinter(mocks.Injector)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize printer: %v", err)
-		}
 		return printer, mocks
 	}
 
@@ -593,11 +581,8 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
-		printer := NewTerraformEnvPrinter(mocks.Injector)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize printer: %v", err)
-		}
 		return printer, mocks
 	}
 
@@ -912,11 +897,8 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
-		printer := NewTerraformEnvPrinter(mocks.Injector)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize printer: %v", err)
-		}
 		return printer, mocks
 	}
 
@@ -1173,11 +1155,8 @@ func TestTerraformEnv_processBackendConfig(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
-		printer := NewTerraformEnvPrinter(mocks.Injector)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize printer: %v", err)
-		}
 		return printer, mocks
 	}
 
@@ -1264,11 +1243,8 @@ func TestTerraformEnv_DependencyResolution(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
-		printer := NewTerraformEnvPrinter(mocks.Injector)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize printer: %v", err)
-		}
 		return printer, mocks
 	}
 
@@ -1573,11 +1549,7 @@ func TestTerraformEnv_GenerateTerraformArgs(t *testing.T) {
 		mocks := setupTerraformEnvMocks(t)
 
 		printer := &TerraformEnvPrinter{
-			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Injector),
-		}
-
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize printer: %v", err)
+			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler),
 		}
 
 		// When generating terraform args without parallelism
@@ -1630,13 +1602,9 @@ terraform:
 		}
 
 		printer := &TerraformEnvPrinter{
-			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Injector),
+			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler),
 		}
 		printer.shims = mocks.Shims
-
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize printer: %v", err)
-		}
 
 		// When generating terraform args with parallelism
 		args, err := printer.GenerateTerraformArgs("test/path", "test/module")
@@ -1698,11 +1666,7 @@ terraform:
 		}
 
 		printer := &TerraformEnvPrinter{
-			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Injector),
-		}
-
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize printer: %v", err)
+			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler),
 		}
 
 		// When generating terraform args for component without parallelism
@@ -1730,12 +1694,7 @@ terraform:
 		mocks := setupTerraformEnvMocks(t)
 
 		printer := &TerraformEnvPrinter{
-			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Injector),
-		}
-
-		// Initialize with the base dependencies
-		if err := printer.BaseEnvPrinter.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize base printer: %v", err)
+			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler),
 		}
 
 		// When generating terraform args without blueprint.yaml file
@@ -1776,13 +1735,9 @@ terraform:
 		}
 
 		printer := &TerraformEnvPrinter{
-			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Injector),
+			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler),
 		}
 		printer.shims = mocks.Shims
-
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize printer: %v", err)
-		}
 
 		// When generating terraform args
 		args, err := printer.GenerateTerraformArgs("test/path", "test/module")

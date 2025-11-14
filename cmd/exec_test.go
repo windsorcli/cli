@@ -8,10 +8,10 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 func TestExecCmd(t *testing.T) {
@@ -158,9 +158,6 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("project root error")
 		}
-		mockShell.InitializeFunc = func() error {
-			return nil
-		}
 		injector.Register("shell", mockShell)
 		ctx := context.WithValue(context.Background(), injectorKey, injector)
 		rootCmd.SetContext(ctx)
@@ -253,9 +250,6 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 		mockConfigHandler.LoadConfigFunc = func() error {
 			return fmt.Errorf("config load failed")
 		}
-		mockConfigHandler.InitializeFunc = func() error {
-			return nil
-		}
 		mockConfigHandler.GetContextFunc = func() string {
 			return "test-context"
 		}
@@ -270,9 +264,6 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 		}
 		mockShell.CheckResetFlagsFunc = func() (bool, error) {
 			return false, nil
-		}
-		mockShell.InitializeFunc = func() error {
-			return nil
 		}
 		injector.Register("shell", mockShell)
 
@@ -304,9 +295,6 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 		verbose = false
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.LoadConfigFunc = func() error {
-			return nil
-		}
-		mockConfigHandler.InitializeFunc = func() error {
 			return nil
 		}
 		mockConfigHandler.GetContextFunc = func() string {

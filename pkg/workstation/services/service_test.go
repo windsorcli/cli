@@ -116,7 +116,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	})
 
 	// Create mock shell
-	mockShell := shell.NewMockShell(nil)
+	mockShell := shell.NewMockShell()
 	mockShell.GetProjectRootFunc = func() (string, error) {
 		return tmpDir, nil
 	}
@@ -129,11 +129,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		// Create minimal injector for config handler initialization
 		injector := di.NewInjector()
 		injector.Register("shell", mockShell)
-		configHandler = config.NewConfigHandler(injector)
-		// Initialize config handler
-		if err := configHandler.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize config handler: %v", err)
-		}
+		configHandler = config.NewConfigHandler(mockShell)
 	}
 
 	configHandler.SetContext("mock-context")

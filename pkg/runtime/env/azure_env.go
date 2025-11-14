@@ -9,7 +9,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================
@@ -26,9 +27,9 @@ type AzureEnvPrinter struct {
 // =============================================================================
 
 // NewAzureEnvPrinter creates a new AzureEnvPrinter instance
-func NewAzureEnvPrinter(injector di.Injector) *AzureEnvPrinter {
+func NewAzureEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *AzureEnvPrinter {
 	return &AzureEnvPrinter{
-		BaseEnvPrinter: *NewBaseEnvPrinter(injector),
+		BaseEnvPrinter: *NewBaseEnvPrinter(shell, configHandler),
 	}
 }
 

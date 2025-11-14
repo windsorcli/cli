@@ -16,8 +16,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/secrets"
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================
@@ -43,6 +44,7 @@ var WindsorPrefixedVars = []string{
 type WindsorEnvPrinter struct {
 	BaseEnvPrinter
 	secretsProviders []secrets.SecretsProvider
+	allEnvPrinters   []EnvPrinter
 }
 
 // =============================================================================
@@ -50,38 +52,12 @@ type WindsorEnvPrinter struct {
 // =============================================================================
 
 // NewWindsorEnvPrinter creates a new WindsorEnvPrinter instance
-func NewWindsorEnvPrinter(injector di.Injector) *WindsorEnvPrinter {
+func NewWindsorEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler, secretsProviders []secrets.SecretsProvider, allEnvPrinters []EnvPrinter) *WindsorEnvPrinter {
 	return &WindsorEnvPrinter{
-		BaseEnvPrinter: *NewBaseEnvPrinter(injector),
+		BaseEnvPrinter:   *NewBaseEnvPrinter(shell, configHandler),
+		secretsProviders: secretsProviders,
+		allEnvPrinters:   allEnvPrinters,
 	}
-}
-
-// =============================================================================
-// Public Methods
-// =============================================================================
-
-// Initialize performs dependency injection setup, resolves shell and configuration components,
-// and initializes base functionality. It resolves secrets providers from the dependency injection
-// container and handles environment variable management setup with proper error handling and validation.
-func (e *WindsorEnvPrinter) Initialize() error {
-	if err := e.BaseEnvPrinter.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize BaseEnvPrinter: %w", err)
-	}
-
-	// Resolve secrets providers using dependency injection
-	instances, err := e.injector.ResolveAll((*secrets.SecretsProvider)(nil))
-	if err != nil {
-		return fmt.Errorf("failed to resolve secrets providers: %w", err)
-	}
-	secretsProviders := make([]secrets.SecretsProvider, 0, len(instances))
-
-	for _, instance := range instances {
-		secretsProviders = append(secretsProviders, instance.(secrets.SecretsProvider))
-	}
-
-	e.secretsProviders = secretsProviders
-
-	return nil
 }
 
 // GetEnvVars constructs a map of Windsor-specific environment variables by retrieving
@@ -145,11 +121,6 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 	}
 
 	// Collect managed envs and aliases from all env printers
-	instances, err := e.injector.ResolveAll((*EnvPrinter)(nil))
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve env printers: %w", err)
-	}
-
 	var allManagedEnv []string
 	var allManagedAlias []string
 
@@ -158,8 +129,8 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 	allManagedAlias = append(allManagedAlias, e.GetManagedAlias()...)
 
 	// Collect from other env printers
-	for _, instance := range instances {
-		if printer, ok := instance.(EnvPrinter); ok && printer != e {
+	for _, printer := range e.allEnvPrinters {
+		if printer != nil && printer != e {
 			allManagedEnv = append(allManagedEnv, printer.GetManagedEnv()...)
 			allManagedAlias = append(allManagedAlias, printer.GetManagedAlias()...)
 		}

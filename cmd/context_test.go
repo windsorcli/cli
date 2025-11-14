@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 func TestContextCmd(t *testing.T) {
@@ -196,9 +196,6 @@ func TestContextCmd_ErrorScenarios(t *testing.T) {
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("project root error")
 		}
-		mockShell.InitializeFunc = func() error {
-			return nil
-		}
 		injector.Register("shell", mockShell)
 		ctx := context.WithValue(context.Background(), injectorKey, injector)
 		rootCmd.SetContext(ctx)
@@ -223,9 +220,6 @@ func TestContextCmd_ErrorScenarios(t *testing.T) {
 		mockConfigHandler.LoadConfigFunc = func() error {
 			return fmt.Errorf("config load failed")
 		}
-		mockConfigHandler.InitializeFunc = func() error {
-			return nil
-		}
 		mockConfigHandler.GetContextFunc = func() string {
 			return "test-context"
 		}
@@ -234,9 +228,6 @@ func TestContextCmd_ErrorScenarios(t *testing.T) {
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return t.TempDir(), nil
-		}
-		mockShell.InitializeFunc = func() error {
-			return nil
 		}
 		injector.Register("shell", mockShell)
 
@@ -263,9 +254,6 @@ func TestContextCmd_ErrorScenarios(t *testing.T) {
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("project root error")
 		}
-		mockShell.InitializeFunc = func() error {
-			return nil
-		}
 		injector.Register("shell", mockShell)
 		ctx := context.WithValue(context.Background(), injectorKey, injector)
 		rootCmd.SetContext(ctx)
@@ -290,9 +278,6 @@ func TestContextCmd_ErrorScenarios(t *testing.T) {
 		mockConfigHandler.LoadConfigFunc = func() error {
 			return fmt.Errorf("config load failed")
 		}
-		mockConfigHandler.InitializeFunc = func() error {
-			return nil
-		}
 		mockConfigHandler.GetContextFunc = func() string {
 			return "test-context"
 		}
@@ -301,9 +286,6 @@ func TestContextCmd_ErrorScenarios(t *testing.T) {
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return t.TempDir(), nil
-		}
-		mockShell.InitializeFunc = func() error {
-			return nil
 		}
 		injector.Register("shell", mockShell)
 
@@ -352,9 +334,6 @@ func TestContextCmd_ErrorScenarios(t *testing.T) {
 		mockConfigHandler.LoadConfigFunc = func() error {
 			return nil
 		}
-		mockConfigHandler.InitializeFunc = func() error {
-			return nil
-		}
 		mockConfigHandler.GetContextFunc = func() string {
 			return "test-context"
 		}
@@ -369,9 +348,6 @@ func TestContextCmd_ErrorScenarios(t *testing.T) {
 		}
 		mockShell.WriteResetTokenFunc = func() (string, error) {
 			return "mock-reset-token", nil
-		}
-		mockShell.InitializeFunc = func() error {
-			return nil
 		}
 		injector.Register("shell", mockShell)
 

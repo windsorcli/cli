@@ -55,10 +55,7 @@ func TestAzureEnv_GetEnvVars(t *testing.T) {
 	setup := func(t *testing.T, opts ...*SetupOptions) (*AzureEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupAzureEnvMocks(t, opts...)
-		printer := NewAzureEnvPrinter(mocks.Injector)
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize env: %v", err)
-		}
+		printer := NewAzureEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
@@ -93,11 +90,7 @@ func TestAzureEnv_GetEnvVars(t *testing.T) {
 		mocks := setupAzureEnvMocks(t, &SetupOptions{
 			ConfigHandler: mockConfigHandler,
 		})
-		printer := NewAzureEnvPrinter(mocks.Injector)
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize env: %v", err)
-		}
-		printer.shims = mocks.Shims
+		printer := NewAzureEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		_, err := printer.GetEnvVars()
 		if err == nil {
 			t.Error("Expected error, got nil")

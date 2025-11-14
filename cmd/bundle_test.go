@@ -155,9 +155,6 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return tmpDir, nil
 		}
-		mockShell.InitializeFunc = func() error {
-			return nil
-		}
 		injector.Register("shell", mockShell)
 
 		// Mock config handler
@@ -167,9 +164,6 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		}
 		mockConfigHandler.GetContextFunc = func() string {
 			return "test-context"
-		}
-		mockConfigHandler.InitializeFunc = func() error {
-			return nil
 		}
 		injector.Register("configHandler", mockConfigHandler)
 

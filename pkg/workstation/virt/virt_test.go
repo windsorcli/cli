@@ -16,8 +16,8 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
-	"github.com/windsorcli/cli/pkg/workstation/services"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
 // =============================================================================
@@ -132,11 +132,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		// Create minimal injector for config handler initialization
 		injector := di.NewInjector()
 		injector.Register("shell", mockShell)
-		configHandler = config.NewConfigHandler(injector)
-		// Initialize config handler
-		if err := configHandler.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize config handler: %v", err)
-		}
+		configHandler = config.NewConfigHandler(mockShell)
 	} else {
 		configHandler = options.ConfigHandler
 	}

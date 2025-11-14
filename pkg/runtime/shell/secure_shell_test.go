@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime/shell/ssh"
 )
 
@@ -80,36 +79,16 @@ func (s *MockSpinner) Stop()  {}
 // Test Public Methods
 // =============================================================================
 
-// TestSecureShell_Initialize tests the Initialize method of SecureShell
-func TestSecureShell_Initialize(t *testing.T) {
+// TestSecureShell_NewSecureShell tests the NewSecureShell constructor
+func TestSecureShell_NewSecureShell(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a secure shell with valid injector
+		// Given a secure shell with valid SSH client
 		mocks := setupSecureShellMocks(t)
-		shell := NewSecureShell(mocks.Injector)
+		shell := NewSecureShell(mocks.Client)
 
-		// When initializing
-		err := shell.Initialize()
-
-		// Then it should succeed
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingSSHClient", func(t *testing.T) {
-		// Given a secure shell with invalid injector
-		injector := di.NewMockInjector()
-		shell := NewSecureShell(injector)
-
-		// When initializing
-		err := shell.Initialize()
-
-		// Then it should return error
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to resolve SSH client") {
-			t.Errorf("Expected error about SSH client, got %v", err)
+		// Then it should be created
+		if shell == nil {
+			t.Error("Expected shell to be created")
 		}
 	})
 }
@@ -119,10 +98,7 @@ func TestSecureShell_Exec(t *testing.T) {
 	setup := func(t *testing.T) (*SecureShell, *SecureMocks) {
 		t.Helper()
 		mocks := setupSecureShellMocks(t)
-		shell := NewSecureShell(mocks.Injector)
-		if err := shell.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize secure shell: %v", err)
-		}
+		shell := NewSecureShell(mocks.Client)
 		return shell, mocks
 	}
 
@@ -235,10 +211,7 @@ func TestSecureShell_ExecProgress(t *testing.T) {
 	setup := func(t *testing.T) (*SecureShell, *SecureMocks) {
 		t.Helper()
 		mocks := setupSecureShellMocks(t)
-		shell := NewSecureShell(mocks.Injector)
-		if err := shell.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize secure shell: %v", err)
-		}
+		shell := NewSecureShell(mocks.Client)
 		return shell, mocks
 	}
 
@@ -280,10 +253,7 @@ func TestSecureShell_ExecSilent(t *testing.T) {
 	setup := func(t *testing.T) (*SecureShell, *SecureMocks) {
 		t.Helper()
 		mocks := setupSecureShellMocks(t)
-		shell := NewSecureShell(mocks.Injector)
-		if err := shell.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize secure shell: %v", err)
-		}
+		shell := NewSecureShell(mocks.Client)
 		return shell, mocks
 	}
 

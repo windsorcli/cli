@@ -14,12 +14,12 @@ import (
 
 	"github.com/spf13/cobra"
 	blueprintpkg "github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	envvars "github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/runtime/secrets"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 )
 
 // =============================================================================
@@ -147,7 +147,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	// Create config handler
 	var configHandler config.ConfigHandler
 	if options.ConfigHandler == nil {
-		configHandler = config.NewConfigHandler(injector)
+		configHandler = config.NewConfigHandler(mockShell)
 	} else {
 		configHandler = options.ConfigHandler
 		// If it's a mock config handler, set GetConfigRootFunc to use tmpDir
@@ -162,11 +162,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 
 	// Register config handler
 	injector.Register("configHandler", configHandler)
-
-	// Initialize config handler
-	if err := configHandler.Initialize(); err != nil {
-		t.Fatalf("Failed to initialize config handler: %v", err)
-	}
 
 	// Load config if ConfigStr is provided
 	if options.ConfigStr != "" {

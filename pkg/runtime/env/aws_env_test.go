@@ -62,9 +62,7 @@ contexts:
 		ConfigHandler: mockConfigHandler,
 	})
 
-	if err := mocks.ConfigHandler.Initialize(); err != nil {
-		t.Fatalf("Failed to initialize config handler: %v", err)
-	}
+	// ConfigHandler is now fully initialized in constructor
 	if err := mocks.ConfigHandler.SetContext("test-context"); err != nil {
 		t.Fatalf("Failed to set context: %v", err)
 	}
@@ -88,10 +86,7 @@ contexts:
 func TestAwsEnv_GetEnvVars(t *testing.T) {
 	setup := func() (*AwsEnvPrinter, *Mocks) {
 		mocks := setupAwsEnvMocks(t)
-		env := NewAwsEnvPrinter(mocks.Injector)
-		if err := env.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize env: %v", err)
-		}
+		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		env.shims = mocks.Shims
 		return env, mocks
 	}
@@ -150,10 +145,7 @@ contexts:
   test-context: {}
 `,
 		})
-		env := NewAwsEnvPrinter(mocks.Injector)
-		if err := env.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize env: %v", err)
-		}
+		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 
 		_, err := env.GetEnvVars()
 		if err == nil {
@@ -181,10 +173,7 @@ contexts:
 			return "", fmt.Errorf("error retrieving configuration root directory")
 		}
 
-		env := NewAwsEnvPrinter(mocks.Injector)
-		if err := env.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize env: %v", err)
-		}
+		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 
 		_, err := env.GetEnvVars()
 		if err == nil {

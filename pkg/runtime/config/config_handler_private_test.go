@@ -25,8 +25,7 @@ func setupPrivateTestHandler(t *testing.T) (*configHandler, string) {
 	}
 	injector.Register("shell", mockShell)
 
-	handler := NewConfigHandler(injector).(*configHandler)
-	handler.Initialize()
+	handler := NewConfigHandler(mockShell).(*configHandler)
 
 	return handler, tmpDir
 }

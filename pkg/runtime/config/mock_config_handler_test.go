@@ -48,54 +48,15 @@ func TestMockConfigHandler_NewMockConfigHandler(t *testing.T) {
 	})
 }
 
-// TestMockConfigHandler_Initialize tests the Initialize method of MockConfigHandler
-func TestMockConfigHandler_Initialize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a mock config handler with InitializeFunc set
-		mockConfigHandler := setupMockConfigHandlerMocks(t)
-		mockConfigHandler.InitializeFunc = func() error {
-			return nil
-		}
-
-		// When calling Initialize
-		err := mockConfigHandler.Initialize()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("Error", func(t *testing.T) {
-		// Given a mock config handler with InitializeFunc set to return an error
-		mockConfigHandler := setupMockConfigHandlerMocks(t)
-		expectedError := fmt.Errorf("mock initialize error")
-		mockConfigHandler.InitializeFunc = func() error {
-			return expectedError
-		}
-
-		// When calling Initialize
-		err := mockConfigHandler.Initialize()
-
-		// Then the expected error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if err.Error() != expectedError.Error() {
-			t.Errorf("Expected error %v, got %v", expectedError, err)
-		}
-	})
-
-	t.Run("NotImplemented", func(t *testing.T) {
-		// Given a mock config handler with InitializeFunc not set
+// TestMockConfigHandler tests that MockConfigHandler implements ConfigHandler interface
+func TestMockConfigHandler(t *testing.T) {
+	t.Run("ImplementsInterface", func(t *testing.T) {
+		// Given a mock config handler
 		mockConfigHandler := setupMockConfigHandlerMocks(t)
 
-		// When calling Initialize
-		err := mockConfigHandler.Initialize()
-
-		// Then no error should be returned (default implementation)
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
+		// Then it should implement ConfigHandler
+		if mockConfigHandler == nil {
+			t.Error("Expected mock config handler to be created")
 		}
 	})
 }

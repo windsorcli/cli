@@ -20,14 +20,14 @@ import (
 // =============================================================================
 
 type Mocks struct {
-	Runtime                   *runtime.Runtime
-	ConfigHandler             config.ConfigHandler
-	Shell                     *shell.MockShell
-	SecureShell               *shell.MockShell
-	SSHClient                 *ssh.MockClient
-	NetworkInterfaceProvider  *MockNetworkInterfaceProvider
-	Services                  []*services.MockService
-	Shims                     *Shims
+	Runtime                  *runtime.Runtime
+	ConfigHandler            config.ConfigHandler
+	Shell                    *shell.MockShell
+	SecureShell              *shell.MockShell
+	SSHClient                *ssh.MockClient
+	NetworkInterfaceProvider *MockNetworkInterfaceProvider
+	Services                 []*services.MockService
+	Shims                    *Shims
 }
 
 type SetupOptions struct {
@@ -73,7 +73,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	})
 
 	// Create a mock shell first (needed for config handler)
-	mockShell := shell.NewMockShell(nil)
+	mockShell := shell.NewMockShell()
 	mockShell.GetProjectRootFunc = func() (string, error) {
 		return tmpDir, nil
 	}
@@ -86,10 +86,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		// Create minimal injector for config handler initialization
 		injector := di.NewInjector()
 		injector.Register("shell", mockShell)
-		configHandler = config.NewConfigHandler(injector)
-		if err := configHandler.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize config handler: %v", err)
-		}
+		configHandler = config.NewConfigHandler(mockShell)
 	}
 
 	configYAML := `
@@ -130,7 +127,7 @@ contexts:
 	}
 
 	// Create a mock secure shell
-	mockSecureShell := shell.NewMockShell(nil)
+	mockSecureShell := shell.NewMockShell()
 	mockSecureShell.ExecFunc = func(command string, args ...string) (string, error) {
 		return "", nil
 	}
@@ -210,7 +207,6 @@ contexts:
 		Shims:                    setupShims(t),
 	}
 
-	configHandler.Initialize()
 	configHandler.SetContext("mock-context")
 
 	return mocks
@@ -225,7 +221,7 @@ func TestNetworkManager_NewNetworkManager(t *testing.T) {
 		// Given a runtime
 		rt := &runtime.Runtime{
 			ConfigHandler: config.NewMockConfigHandler(),
-			Shell:         shell.NewMockShell(nil),
+			Shell:         shell.NewMockShell(),
 		}
 
 		// When creating a new BaseNetworkManager
@@ -324,7 +320,6 @@ func TestNetworkManager_AssignIPs(t *testing.T) {
 			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
 		}
 	})
-
 
 	t.Run("ErrorResolvingServices", func(t *testing.T) {
 		// Given a network manager

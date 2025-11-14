@@ -59,12 +59,11 @@ func TestConfigHandler_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupMocks(t)
 
-		handler := NewConfigHandler(mocks.Injector)
+		handler := NewConfigHandler(mocks.Shell)
 
-		err := handler.Initialize()
-
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
+		// ConfigHandler is now fully initialized in constructor
+		if handler == nil {
+			t.Error("Expected handler to be created")
 		}
 
 		if !handler.IsLoaded() == handler.IsLoaded() {
@@ -75,11 +74,11 @@ func TestConfigHandler_Initialize(t *testing.T) {
 	t.Run("InitializesDataMap", func(t *testing.T) {
 		mocks := setupMocks(t)
 
-		handler := NewConfigHandler(mocks.Injector)
+		handler := NewConfigHandler(mocks.Shell)
 
-		err := handler.Initialize()
-		if err != nil {
-			t.Fatalf("Initialize failed: %v", err)
+		// ConfigHandler is now fully initialized in constructor
+		if handler == nil {
+			t.Fatal("Expected handler to be created")
 		}
 
 		handler.Set("test", "value")
@@ -90,18 +89,15 @@ func TestConfigHandler_Initialize(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsErrorWhenShellResolveFails", func(t *testing.T) {
-		// Given a config handler with invalid injector
-		injector := di.NewInjector()
+	t.Run("CreatesHandlerWithShell", func(t *testing.T) {
+		// Given a shell
+		mocks := setupMocks(t)
 
-		handler := NewConfigHandler(injector)
+		handler := NewConfigHandler(mocks.Shell)
 
-		// When initializing the handler
-		err := handler.Initialize()
-
-		// Then initialization should fail
-		if err == nil {
-			t.Error("Expected error when shell cannot be resolved")
+		// Then handler should be created
+		if handler == nil {
+			t.Error("Expected handler to be created")
 		}
 	})
 }
@@ -109,8 +105,7 @@ func TestConfigHandler_Initialize(t *testing.T) {
 func TestConfigHandler_LoadConfig(t *testing.T) {
 	t.Run("LoadsRootConfigContextSection", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 		handler.SetContext("test-context")
 
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
@@ -142,8 +137,7 @@ contexts:
 
 	t.Run("LoadsContextSpecificWindsorYaml", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 		handler.SetContext("test-context")
 
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
@@ -175,8 +169,7 @@ cluster:
 
 	t.Run("LoadsValuesYaml", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 		handler.SetContext("test-context")
 
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
@@ -213,8 +206,7 @@ nested:
 
 	t.Run("MergesAllSourcesWithCorrectPrecedence", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 		handler.SetContext("test-context")
 
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
@@ -261,8 +253,7 @@ contexts:
 
 	t.Run("LoadsSchemaWithoutErrors", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
@@ -284,8 +275,7 @@ properties:
 
 	t.Run("SetsLoadedFlag", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 		handler.SetContext("test-context")
 
 		if handler.IsLoaded() {
@@ -311,8 +301,7 @@ properties:
 		mocks := setupMocks(t)
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 		handler.SetContext("test-context")
 
 		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
@@ -341,8 +330,7 @@ additionalProperties: false
 
 	t.Run("HandlesYmlExtension", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 		handler.SetContext("test-context")
 
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
@@ -364,20 +352,16 @@ additionalProperties: false
 		}
 	})
 
-	t.Run("ReturnsErrorWhenShellNotInitialized", func(t *testing.T) {
-		// Given a config handler without initialized shell
-		injector := di.NewInjector()
-		handler := NewConfigHandler(injector).(*configHandler)
+	t.Run("CreatesHandlerWithShell", func(t *testing.T) {
+		// Given a shell
+		mocks := setupMocks(t)
+		handler := NewConfigHandler(mocks.Shell).(*configHandler)
 
-		// When loading config without shell
-		err := handler.LoadConfig()
-
-		// Then loading should fail
-		if err == nil {
-			t.Error("Expected error when shell not initialized")
-		}
-		if err.Error() != "shell not initialized" {
-			t.Errorf("Expected 'shell not initialized', got '%v'", err)
+		// When loading config with shell
+		// Note: This test verifies the handler is created correctly with a shell.
+		// LoadConfig may fail for other reasons (missing files, etc.) but not due to missing shell.
+		if handler.shell == nil {
+			t.Error("Expected shell to be set on handler")
 		}
 	})
 
@@ -577,8 +561,7 @@ func TestConfigHandler_LoadConfigString(t *testing.T) {
 		defer os.Unsetenv("WINDSOR_CONTEXT")
 
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		yaml := `version: v1alpha1
 contexts:
@@ -609,8 +592,7 @@ contexts:
 
 	t.Run("MergesFlatYamlStructure", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		yaml := `provider: generic
 custom_key: custom_value
@@ -635,8 +617,7 @@ custom_key: custom_value
 
 	t.Run("SetsLoadedFlag", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		err := handler.LoadConfigString("provider: test\n")
 
@@ -679,8 +660,7 @@ custom_key: custom_value
 func TestConfigHandler_Get(t *testing.T) {
 	t.Run("ReturnsValueFromData", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		handler.Set("simple.key", "test_value")
 
@@ -693,8 +673,7 @@ func TestConfigHandler_Get(t *testing.T) {
 
 	t.Run("ReturnsNilForEmptyPath", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		value := handler.Get("")
 
@@ -705,8 +684,7 @@ func TestConfigHandler_Get(t *testing.T) {
 
 	t.Run("ReturnsNilForMissingKey", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		value := handler.Get("nonexistent.key")
 
@@ -717,8 +695,7 @@ func TestConfigHandler_Get(t *testing.T) {
 
 	t.Run("NavigatesNestedMaps", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		handler.Set("parent.child.grandchild", "nested_value")
 
@@ -733,8 +710,7 @@ func TestConfigHandler_Get(t *testing.T) {
 		mocks := setupMocks(t)
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
 		os.MkdirAll(schemaDir, 0755)
@@ -759,8 +735,7 @@ properties:
 		mocks := setupMocks(t)
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
 		os.MkdirAll(schemaDir, 0755)
@@ -789,8 +764,7 @@ properties:
 func TestConfigHandler_GetString(t *testing.T) {
 	t.Run("ReturnsStringValue", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		handler.Set("key", "string_value")
 
@@ -803,8 +777,7 @@ func TestConfigHandler_GetString(t *testing.T) {
 
 	t.Run("ReturnsEmptyStringForMissingKey", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		result := handler.GetString("missing.key")
 
@@ -815,8 +788,7 @@ func TestConfigHandler_GetString(t *testing.T) {
 
 	t.Run("ReturnsProvidedDefault", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		result := handler.GetString("missing.key", "default_value")
 
@@ -827,8 +799,7 @@ func TestConfigHandler_GetString(t *testing.T) {
 
 	t.Run("ConvertsNonStringToString", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		handler.Set("number", 42)
 
@@ -843,8 +814,7 @@ func TestConfigHandler_GetString(t *testing.T) {
 func TestConfigHandler_GetInt(t *testing.T) {
 	t.Run("ReturnsIntValue", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		handler.Set("count", 42)
 
@@ -857,8 +827,7 @@ func TestConfigHandler_GetInt(t *testing.T) {
 
 	t.Run("IgnoresFloat64Values", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		handler.Set("count", float64(42.7))
 
@@ -871,8 +840,7 @@ func TestConfigHandler_GetInt(t *testing.T) {
 
 	t.Run("ConvertsUint64ToInt", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		handler.Set("count", uint64(42))
 
@@ -885,8 +853,7 @@ func TestConfigHandler_GetInt(t *testing.T) {
 
 	t.Run("ConvertsStringToInt", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		handler.Set("count", "42")
 
@@ -899,8 +866,7 @@ func TestConfigHandler_GetInt(t *testing.T) {
 
 	t.Run("ReturnsZeroForMissingKey", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		result := handler.GetInt("missing.key")
 
@@ -911,8 +877,7 @@ func TestConfigHandler_GetInt(t *testing.T) {
 
 	t.Run("ReturnsProvidedDefault", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		result := handler.GetInt("missing.key", 99)
 
@@ -923,8 +888,7 @@ func TestConfigHandler_GetInt(t *testing.T) {
 
 	t.Run("ConvertsInt64ToInt", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		handler.Set("count", int64(42))
 
@@ -937,8 +901,7 @@ func TestConfigHandler_GetInt(t *testing.T) {
 
 	t.Run("ConvertsUintToInt", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		handler.Set("count", uint(42))
 
@@ -951,8 +914,7 @@ func TestConfigHandler_GetInt(t *testing.T) {
 
 	t.Run("ReturnsZeroForNonNumericValue", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		handler.Set("count", "not_a_number")
 
@@ -967,8 +929,7 @@ func TestConfigHandler_GetInt(t *testing.T) {
 func TestConfigHandler_GetBool(t *testing.T) {
 	t.Run("ReturnsBoolValue", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		handler.Set("enabled", true)
 
@@ -981,8 +942,7 @@ func TestConfigHandler_GetBool(t *testing.T) {
 
 	t.Run("ReturnsFalseForMissingKey", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		result := handler.GetBool("missing.key")
 
@@ -993,8 +953,7 @@ func TestConfigHandler_GetBool(t *testing.T) {
 
 	t.Run("ReturnsProvidedDefault", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		result := handler.GetBool("missing.key", true)
 
@@ -1007,8 +966,7 @@ func TestConfigHandler_GetBool(t *testing.T) {
 func TestConfigHandler_GetStringSlice(t *testing.T) {
 	t.Run("ReturnsStringSlice", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		handler.Set("items", []string{"a", "b", "c"})
 
@@ -1024,8 +982,7 @@ func TestConfigHandler_GetStringSlice(t *testing.T) {
 
 	t.Run("ConvertsInterfaceSlice", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		handler.Set("items", []interface{}{"x", "y", "z"})
 
@@ -1041,8 +998,7 @@ func TestConfigHandler_GetStringSlice(t *testing.T) {
 
 	t.Run("ReturnsEmptySliceForMissingKey", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		result := handler.GetStringSlice("missing.key")
 
@@ -1053,8 +1009,7 @@ func TestConfigHandler_GetStringSlice(t *testing.T) {
 
 	t.Run("ReturnsProvidedDefault", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		defaultSlice := []string{"default1", "default2"}
 
@@ -1069,8 +1024,7 @@ func TestConfigHandler_GetStringSlice(t *testing.T) {
 func TestConfigHandler_GetStringMap(t *testing.T) {
 	t.Run("ReturnsStringMap", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		handler.Set("environment", map[string]string{"KEY1": "value1", "KEY2": "value2"})
 
@@ -1086,8 +1040,7 @@ func TestConfigHandler_GetStringMap(t *testing.T) {
 
 	t.Run("ConvertsInterfaceMap", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		handler.Set("environment", map[string]interface{}{"KEY": "value"})
 
@@ -1100,8 +1053,7 @@ func TestConfigHandler_GetStringMap(t *testing.T) {
 
 	t.Run("ReturnsEmptyMapForMissingKey", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		result := handler.GetStringMap("missing.key")
 
@@ -1112,8 +1064,7 @@ func TestConfigHandler_GetStringMap(t *testing.T) {
 
 	t.Run("ReturnsProvidedDefault", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		defaultMap := map[string]string{"default": "value"}
 
@@ -1126,8 +1077,7 @@ func TestConfigHandler_GetStringMap(t *testing.T) {
 
 	t.Run("ConvertsInterfaceKeyMap", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		handler.Set("env", map[interface{}]interface{}{"KEY": "value"})
 
@@ -1140,8 +1090,7 @@ func TestConfigHandler_GetStringMap(t *testing.T) {
 
 	t.Run("ConvertsNonStringValuesToString", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		handler.Set("env", map[string]interface{}{"NUM": 42, "BOOL": true})
 
@@ -1159,8 +1108,7 @@ func TestConfigHandler_GetStringMap(t *testing.T) {
 func TestConfigHandler_Set(t *testing.T) {
 	t.Run("SetsSimpleValue", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		err := handler.Set("key", "value")
 
@@ -1176,8 +1124,7 @@ func TestConfigHandler_Set(t *testing.T) {
 
 	t.Run("SetsNestedValue", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		err := handler.Set("parent.child.key", "nested_value")
 
@@ -1193,8 +1140,7 @@ func TestConfigHandler_Set(t *testing.T) {
 
 	t.Run("CreatesIntermediateMaps", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		err := handler.Set("a.b.c.d", "deep_value")
 
@@ -1212,8 +1158,7 @@ func TestConfigHandler_Set(t *testing.T) {
 		mocks := setupMocks(t)
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
 		os.MkdirAll(schemaDir, 0755)
@@ -1238,8 +1183,7 @@ additionalProperties: false
 		mocks := setupMocks(t)
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
 		os.MkdirAll(schemaDir, 0755)
@@ -1259,8 +1203,7 @@ additionalProperties: false
 
 	t.Run("ReturnsErrorForEmptyPath", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		err := handler.Set("", "value")
 
@@ -1271,8 +1214,7 @@ additionalProperties: false
 
 	t.Run("ReturnsErrorForInvalidPath", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		err := handler.Set("invalid..path", "value")
 
@@ -1285,8 +1227,7 @@ additionalProperties: false
 		mocks := setupMocks(t)
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
 		os.MkdirAll(schemaDir, 0755)
@@ -1329,8 +1270,7 @@ func TestConfigHandler_SaveConfig(t *testing.T) {
 		mocks := setupMocks(t)
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 		handler.SetContext("test-context")
 		handler.Set("provider", "local")
 
@@ -1356,8 +1296,7 @@ func TestConfigHandler_SaveConfig(t *testing.T) {
 		mocks := setupMocks(t)
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 		handler.SetContext("test-context")
 
 		handler.Set("provider", "generic")
@@ -1406,8 +1345,7 @@ func TestConfigHandler_SaveConfig(t *testing.T) {
 		mocks := setupMocks(t)
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 		handler.SetContext("test-context")
 
 		handler.Set("cluster.workers.count", 2)
@@ -1439,8 +1377,7 @@ func TestConfigHandler_SaveConfig(t *testing.T) {
 		mocks := setupMocks(t)
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 		handler.SetContext("test-context")
 
 		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
@@ -1478,8 +1415,7 @@ properties:
 		mocks := setupMocks(t)
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 		handler.SetContext("test-context")
 
 		handler.Set("user_key", "user_value")
@@ -1557,17 +1493,16 @@ properties:
 		}
 	})
 
-	t.Run("ReturnsErrorWhenShellNotInitialized", func(t *testing.T) {
-		// Given an uninitialized config handler
-		injector := di.NewInjector()
-		handler := NewConfigHandler(injector).(*configHandler)
+	t.Run("CreatesHandlerWithShell", func(t *testing.T) {
+		// Given a shell
+		mocks := setupMocks(t)
+		handler := NewConfigHandler(mocks.Shell).(*configHandler)
 
-		// When attempting to save config
-		err := handler.SaveConfig()
-
-		// Then it should return an error
-		if err == nil {
-			t.Error("Expected error when shell not initialized")
+		// When attempting to save config without context
+		// Note: This test verifies the handler is created correctly with a shell.
+		// SaveConfig may fail for other reasons (missing context, etc.) but not due to missing shell.
+		if handler.shell == nil {
+			t.Error("Expected shell to be set on handler")
 		}
 	})
 
@@ -1682,8 +1617,7 @@ properties:
 func TestConfigHandler_SetDefault(t *testing.T) {
 	t.Run("MergesDefaultContextIntoData", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		defaultContext := v1alpha1.Context{
 			Provider: ptrString("default_provider"),
@@ -1703,8 +1637,7 @@ func TestConfigHandler_SetDefault(t *testing.T) {
 
 	t.Run("AllowsOverridingDefaults", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		defaultContext := v1alpha1.Context{
 			Provider: ptrString("default_provider"),
@@ -1758,8 +1691,7 @@ func TestConfigHandler_SetDefault(t *testing.T) {
 func TestConfigHandler_GetConfig(t *testing.T) {
 	t.Run("ConvertsDataMapToContextStruct", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		handler.Set("provider", "test_provider")
 		handler.Set("dns.domain", "test.local")
@@ -1779,8 +1711,7 @@ func TestConfigHandler_GetConfig(t *testing.T) {
 
 	t.Run("ExcludesNodesFieldDueToYamlTag", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		handler.Set("cluster.workers.count", 2)
 		handler.Set("cluster.workers.nodes.worker-1.endpoint", "127.0.0.1:50001")
@@ -1845,8 +1776,7 @@ func TestConfigHandler_GetContextValues(t *testing.T) {
 		mocks := setupMocks(t)
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
 		os.MkdirAll(schemaDir, 0755)
@@ -1878,8 +1808,7 @@ properties:
 
 	t.Run("IncludesServiceCalculatedValues", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		handler.Set("cluster.workers.nodes.worker-1.endpoint", "127.0.0.1:50001")
 
@@ -1912,8 +1841,7 @@ func TestConfigHandler_GetConfigRoot(t *testing.T) {
 		mocks := setupMocks(t)
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 		handler.SetContext("test-context")
 
 		root, err := handler.GetConfigRoot()
@@ -1937,8 +1865,7 @@ func TestConfigHandler_GetConfigRoot(t *testing.T) {
 		}
 		injector.Register("shell", mockShell)
 
-		handler := NewConfigHandler(injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mockShell)
 		handler.SetContext("test")
 
 		// When getting config root
@@ -1956,8 +1883,7 @@ func TestConfigHandler_Clean(t *testing.T) {
 		mocks := setupMocks(t)
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 		handler.SetContext("test-context")
 
 		configRoot := filepath.Join(tmpDir, "contexts", "test-context")
@@ -1987,8 +1913,7 @@ func TestConfigHandler_Clean(t *testing.T) {
 		}
 		injector.Register("shell", mockShell)
 
-		handler := NewConfigHandler(injector).(*configHandler)
-		handler.Initialize()
+		handler := NewConfigHandler(mockShell).(*configHandler)
 		handler.SetContext("test")
 
 		// When cleaning
@@ -2004,8 +1929,7 @@ func TestConfigHandler_Clean(t *testing.T) {
 func TestConfigHandler_GenerateContextID(t *testing.T) {
 	t.Run("GeneratesIDWhenNotSet", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		err := handler.GenerateContextID()
 
@@ -2024,8 +1948,7 @@ func TestConfigHandler_GenerateContextID(t *testing.T) {
 
 	t.Run("DoesNotOverrideExistingID", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		handler.Set("id", "existing_id")
 
@@ -2064,8 +1987,7 @@ func TestConfigHandler_LoadSchema(t *testing.T) {
 		mocks := setupMocks(t)
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
 		os.MkdirAll(schemaDir, 0755)
@@ -2095,8 +2017,7 @@ properties:
 		mocks := setupMocks(t)
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
 		os.MkdirAll(schemaDir, 0755)
@@ -2144,8 +2065,7 @@ properties:
 func TestConfigHandler_LoadSchemaFromBytes(t *testing.T) {
 	t.Run("LoadsSchemaFromBytes", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		schemaContent := []byte(`$schema: https://json-schema.org/draft/2020-12/schema
 type: object
@@ -2205,8 +2125,7 @@ func TestConfigHandler_GetContext(t *testing.T) {
 	t.Run("ReturnsContextFromEnvironment", func(t *testing.T) {
 		mocks := setupMocks(t)
 
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		context := handler.GetContext()
 
@@ -2222,8 +2141,7 @@ func TestConfigHandler_GetContext(t *testing.T) {
 		os.Unsetenv("WINDSOR_CONTEXT")
 		defer os.Setenv("WINDSOR_CONTEXT", "test-context")
 
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		contextFilePath := filepath.Join(tmpDir, ".windsor", "context")
 		os.MkdirAll(filepath.Dir(contextFilePath), 0755)
@@ -2242,8 +2160,7 @@ func TestConfigHandler_GetContext(t *testing.T) {
 		os.Unsetenv("WINDSOR_CONTEXT")
 		defer os.Setenv("WINDSOR_CONTEXT", "test-context")
 
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		context := handler.GetContext()
 
@@ -2258,8 +2175,7 @@ func TestConfigHandler_SetContext(t *testing.T) {
 		mocks := setupMocks(t)
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		err := handler.SetContext("new-context")
 
@@ -2316,8 +2232,7 @@ func TestConfigHandler_SetContext(t *testing.T) {
 func TestConfigHandler_IsLoaded(t *testing.T) {
 	t.Run("ReturnsFalseBeforeLoading", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		result := handler.IsLoaded()
 
@@ -2330,8 +2245,7 @@ func TestConfigHandler_IsLoaded(t *testing.T) {
 		mocks := setupMocks(t)
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 		handler.SetContext("test-context")
 
 		contextDir := filepath.Join(tmpDir, "contexts", "test-context")
@@ -2349,8 +2263,7 @@ func TestConfigHandler_IsLoaded(t *testing.T) {
 
 	t.Run("ReturnsTrueAfterLoadConfigString", func(t *testing.T) {
 		mocks := setupMocks(t)
-		handler := NewConfigHandler(mocks.Injector)
-		handler.Initialize()
+		handler := NewConfigHandler(mocks.Shell)
 
 		handler.LoadConfigString("provider: test\n")
 
