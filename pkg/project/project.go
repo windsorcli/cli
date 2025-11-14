@@ -2,6 +2,7 @@ package project
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/windsorcli/cli/pkg/composer"
@@ -159,6 +160,38 @@ func (p *Project) Initialize(overwrite bool) error {
 
 	if err := p.Context.LoadEnvironment(true); err != nil {
 		return fmt.Errorf("failed to load environment: %w", err)
+	}
+
+	return nil
+}
+
+// PerformCleanup removes context-specific artifacts including volumes, terraform modules,
+// and generated configuration files. It calls the config handler's Clean method to remove
+// saved state, then deletes the .volumes directory, .windsor/.tf_modules directory,
+// .windsor/Corefile, and .windsor/docker-compose.yaml. Returns an error if any cleanup step fails.
+func (p *Project) PerformCleanup() error {
+	if err := p.Context.ConfigHandler.Clean(); err != nil {
+		return fmt.Errorf("error cleaning up context specific artifacts: %w", err)
+	}
+
+	volumesPath := filepath.Join(p.Context.ProjectRoot, ".volumes")
+	if err := os.RemoveAll(volumesPath); err != nil {
+		return fmt.Errorf("error deleting .volumes folder: %w", err)
+	}
+
+	tfModulesPath := filepath.Join(p.Context.ProjectRoot, ".windsor", ".tf_modules")
+	if err := os.RemoveAll(tfModulesPath); err != nil {
+		return fmt.Errorf("error deleting .windsor/.tf_modules folder: %w", err)
+	}
+
+	corefilePath := filepath.Join(p.Context.ProjectRoot, ".windsor", "Corefile")
+	if err := os.RemoveAll(corefilePath); err != nil {
+		return fmt.Errorf("error deleting .windsor/Corefile: %w", err)
+	}
+
+	dockerComposePath := filepath.Join(p.Context.ProjectRoot, ".windsor", "docker-compose.yaml")
+	if err := os.RemoveAll(dockerComposePath); err != nil {
+		return fmt.Errorf("error deleting .windsor/docker-compose.yaml: %w", err)
 	}
 
 	return nil
