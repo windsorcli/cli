@@ -298,7 +298,7 @@ func TestProvisioner_Up(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorNilTerraformStack", func(t *testing.T) {
+	t.Run("SuccessSkipsTerraformWhenDisabled", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 		provisioner.TerraformStack = nil
@@ -306,12 +306,8 @@ func TestProvisioner_Up(t *testing.T) {
 		blueprint := createTestBlueprint()
 		err := provisioner.Up(blueprint)
 
-		if err == nil {
-			t.Error("Expected error for nil terraform stack")
-		}
-
-		if !strings.Contains(err.Error(), "terraform stack not configured") {
-			t.Errorf("Expected specific error message, got: %v", err)
+		if err != nil {
+			t.Errorf("Expected no error when terraform is disabled, got: %v", err)
 		}
 	})
 
@@ -375,7 +371,7 @@ func TestProvisioner_Down(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorNilTerraformStack", func(t *testing.T) {
+	t.Run("SuccessSkipsTerraformWhenDisabled", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 		provisioner.TerraformStack = nil
@@ -383,12 +379,8 @@ func TestProvisioner_Down(t *testing.T) {
 		blueprint := createTestBlueprint()
 		err := provisioner.Down(blueprint)
 
-		if err == nil {
-			t.Error("Expected error for nil terraform stack")
-		}
-
-		if !strings.Contains(err.Error(), "terraform stack not configured") {
-			t.Errorf("Expected specific error message, got: %v", err)
+		if err != nil {
+			t.Errorf("Expected no error when terraform is disabled, got: %v", err)
 		}
 	})
 

@@ -100,14 +100,14 @@ func NewProvisioner(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHan
 // Up orchestrates the high-level infrastructure deployment process. It executes terraform apply operations
 // for all components in the stack. This method coordinates terraform, kubernetes, and cluster operations
 // to bring up the complete infrastructure. Initializes components as needed. The blueprint parameter is required.
-// Returns an error if any step fails.
+// If terraform is disabled (terraform.enabled is false), terraform operations are skipped. Returns an error if any step fails.
 func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
 
 	if i.TerraformStack == nil {
-		return fmt.Errorf("terraform stack not configured")
+		return nil
 	}
 	if err := i.TerraformStack.Up(blueprint); err != nil {
 		return fmt.Errorf("failed to run terraform up: %w", err)
@@ -118,14 +118,15 @@ func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 // Down orchestrates the high-level infrastructure teardown process. It executes terraform destroy operations
 // for all components in the stack in reverse dependency order. Components with Destroy set to false are skipped.
 // This method coordinates terraform, kubernetes, and cluster operations to tear down the infrastructure.
-// Initializes components as needed. The blueprint parameter is required. Returns an error if any destroy operation fails.
+// Initializes components as needed. The blueprint parameter is required. If terraform is disabled (terraform.enabled is false),
+// terraform operations are skipped. Returns an error if any destroy operation fails.
 func (i *Provisioner) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
 
 	if i.TerraformStack == nil {
-		return fmt.Errorf("terraform stack not configured")
+		return nil
 	}
 	if err := i.TerraformStack.Down(blueprint); err != nil {
 		return fmt.Errorf("failed to run terraform down: %w", err)
