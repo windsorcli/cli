@@ -163,28 +163,6 @@ func NewRuntime(ctx *Runtime) (*Runtime, error) {
 // Public Methods
 // =============================================================================
 
-// CheckTrustedDirectory verifies that the current directory is in the trusted file list.
-// It delegates to the Shell's CheckTrustedDirectory method. Returns an error if the
-// directory is not trusted or if Shell is not initialized.
-func (ctx *Runtime) CheckTrustedDirectory() error {
-	if ctx.Shell == nil {
-		return fmt.Errorf("shell not initialized")
-	}
-	return ctx.Shell.CheckTrustedDirectory()
-}
-
-// LoadConfig loads configuration from all sources.
-// The context paths (ContextName, ProjectRoot, ConfigRoot, TemplateRoot) are already
-// set up in the constructor, so this method only needs to load the configuration data.
-// Returns an error if configuration loading fails or if required dependencies are missing.
-func (ctx *Runtime) LoadConfig() error {
-	if ctx.ConfigHandler == nil {
-		return fmt.Errorf("config handler not initialized")
-	}
-
-	return ctx.ConfigHandler.LoadConfig()
-}
-
 // HandleSessionReset checks for reset flags and session tokens, then resets managed environment
 // variables if needed. It checks for WINDSOR_SESSION_TOKEN and uses the shell's CheckResetFlags
 // method to determine if a reset should occur. If reset is needed, it calls Shell.Reset() and
@@ -281,32 +259,6 @@ func (ctx *Runtime) LoadEnvironment(decrypt bool) error {
 	return nil
 }
 
-// PrintEnvVars returns all collected environment variables in key=value format.
-// If no environment variables are loaded, returns an empty string.
-func (ctx *Runtime) PrintEnvVars() string {
-	if ctx.Shell == nil || len(ctx.envVars) == 0 {
-		return ""
-	}
-	return ctx.Shell.RenderEnvVars(ctx.envVars, false)
-}
-
-// PrintEnvVarsExport returns all collected environment variables in export key=value format.
-// If no environment variables are loaded, returns an empty string.
-func (ctx *Runtime) PrintEnvVarsExport() string {
-	if ctx.Shell == nil || len(ctx.envVars) == 0 {
-		return ""
-	}
-	return ctx.Shell.RenderEnvVars(ctx.envVars, true)
-}
-
-// PrintAliases returns all collected aliases using the shell's RenderAliases method.
-// If no aliases are loaded, returns an empty string.
-func (ctx *Runtime) PrintAliases() string {
-	if ctx.Shell == nil || len(ctx.aliases) == 0 {
-		return ""
-	}
-	return ctx.Shell.RenderAliases(ctx.aliases)
-}
 
 // GetEnvVars returns a copy of the collected environment variables.
 func (ctx *Runtime) GetEnvVars() map[string]string {

@@ -37,7 +37,10 @@ var installCmd = &cobra.Command{
 			return err
 		}
 
-		blueprint := proj.Composer.BlueprintHandler.Generate()
+		blueprint, err := proj.Composer.GenerateBlueprint()
+		if err != nil {
+			return fmt.Errorf("error generating blueprint: %w", err)
+		}
 		if err := proj.Provisioner.Install(blueprint); err != nil {
 			return fmt.Errorf("error installing blueprint: %w", err)
 		}

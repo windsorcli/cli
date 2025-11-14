@@ -47,7 +47,10 @@ var upCmd = &cobra.Command{
 			}
 		}
 
-		blueprint := proj.Composer.BlueprintHandler.Generate()
+		blueprint, err := proj.Composer.GenerateBlueprint()
+		if err != nil {
+			return fmt.Errorf("error generating blueprint: %w", err)
+		}
 		if err := proj.Provisioner.Up(blueprint); err != nil {
 			return fmt.Errorf("error starting infrastructure: %w", err)
 		}

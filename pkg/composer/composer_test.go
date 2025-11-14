@@ -121,21 +121,6 @@ func TestCreateComposer(t *testing.T) {
 // Test Public Methods
 // =============================================================================
 
-func TestComposer_Bundle(t *testing.T) {
-	t.Run("HandlesBundleSuccessfully", func(t *testing.T) {
-		mocks := setupComposerMocks(t)
-		composer := NewComposer(mocks.ComposerRuntime)
-
-		// This test would need proper mocking of the artifact builder
-		// For now, we'll just test that the method exists and handles errors
-		_, err := composer.Bundle("/test/output", "v1.0.0")
-		// We expect an error here because we don't have proper mocks set up
-		if err == nil {
-			t.Error("Expected error due to missing mocks, but got nil")
-		}
-	})
-}
-
 func TestComposer_Push(t *testing.T) {
 	t.Run("HandlesPushSuccessfully", func(t *testing.T) {
 		mocks := setupComposerMocks(t)
