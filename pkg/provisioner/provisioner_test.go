@@ -92,7 +92,7 @@ func setupProvisionerMocks(t *testing.T) *Mocks {
 	kubernetesClient := k8sclient.NewMockKubernetesClient()
 	clusterClient := cluster.NewMockClusterClient()
 
-	execCtx := &runtime.Runtime{
+	rt := &runtime.Runtime{
 		ContextName:   "test-context",
 		ProjectRoot:   "/test/project",
 		ConfigRoot:    "/test/project/contexts/test-context",
@@ -103,7 +103,7 @@ func setupProvisionerMocks(t *testing.T) *Mocks {
 	}
 
 	provisionerCtx := &ProvisionerRuntime{
-		Runtime:           *execCtx,
+		Runtime:           *rt,
 		TerraformStack:    terraformStack,
 		KubernetesManager: kubernetesManager,
 		KubernetesClient:  kubernetesClient,
@@ -825,7 +825,7 @@ func TestProvisioner_Close(t *testing.T) {
 
 func TestProvisionerRuntime(t *testing.T) {
 	t.Run("CreatesProvisionerRuntime", func(t *testing.T) {
-		execCtx := &runtime.Runtime{
+		rt := &runtime.Runtime{
 			ContextName:  "test-context",
 			ProjectRoot:  "/test/project",
 			ConfigRoot:   "/test/project/contexts/test-context",
@@ -833,7 +833,7 @@ func TestProvisionerRuntime(t *testing.T) {
 		}
 
 		provisionerCtx := &ProvisionerRuntime{
-			Runtime: *execCtx,
+			Runtime: *rt,
 		}
 
 		if provisionerCtx.ContextName != "test-context" {

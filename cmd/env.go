@@ -27,28 +27,28 @@ var envCmd = &cobra.Command{
 
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		execCtx := &runtime.Runtime{
+		rt := &runtime.Runtime{
 			Injector: injector,
 		}
 
-		execCtx, err := runtime.NewRuntime(execCtx)
+		rt, err := runtime.NewRuntime(rt)
 		if err != nil {
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
-		if err := execCtx.Shell.CheckTrustedDirectory(); err != nil {
+		if err := rt.Shell.CheckTrustedDirectory(); err != nil {
 			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
 		}
 
-		if err := execCtx.HandleSessionReset(); err != nil {
+		if err := rt.HandleSessionReset(); err != nil {
 			return err
 		}
 
-		if err := execCtx.ConfigHandler.LoadConfig(); err != nil {
+		if err := rt.ConfigHandler.LoadConfig(); err != nil {
 			return err
 		}
 
-		if err := execCtx.LoadEnvironment(decrypt); err != nil {
+		if err := rt.LoadEnvironment(decrypt); err != nil {
 			if hook || !verbose {
 				return nil
 			}
@@ -62,15 +62,15 @@ var envCmd = &cobra.Command{
 		}
 
 		if hook {
-			if execCtx.Shell != nil && len(execCtx.GetEnvVars()) > 0 {
-				outputFunc(execCtx.Shell.RenderEnvVars(execCtx.GetEnvVars(), true))
+			if rt.Shell != nil && len(rt.GetEnvVars()) > 0 {
+				outputFunc(rt.Shell.RenderEnvVars(rt.GetEnvVars(), true))
 			}
-			if execCtx.Shell != nil && len(execCtx.GetAliases()) > 0 {
-				outputFunc(execCtx.Shell.RenderAliases(execCtx.GetAliases()))
+			if rt.Shell != nil && len(rt.GetAliases()) > 0 {
+				outputFunc(rt.Shell.RenderAliases(rt.GetAliases()))
 			}
 		} else {
-			if execCtx.Shell != nil && len(execCtx.GetEnvVars()) > 0 {
-				outputFunc(execCtx.Shell.RenderEnvVars(execCtx.GetEnvVars(), false))
+			if rt.Shell != nil && len(rt.GetEnvVars()) > 0 {
+				outputFunc(rt.Shell.RenderEnvVars(rt.GetEnvVars(), false))
 			}
 		}
 

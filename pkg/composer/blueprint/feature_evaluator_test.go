@@ -1,14 +1,13 @@
 package blueprint
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -18,8 +17,15 @@ import (
 
 func TestNewFeatureEvaluator(t *testing.T) {
 	t.Run("CreatesNewFeatureEvaluatorSuccessfully", func(t *testing.T) {
-		injector := di.NewInjector()
-		evaluator := NewFeatureEvaluator(injector)
+		configHandler := config.NewMockConfigHandler()
+		mockShell := shell.NewMockShell()
+		rt := &runtime.Runtime{
+			ProjectRoot:   "/test",
+			ConfigRoot:    "/test",
+			ConfigHandler: configHandler,
+			Shell:         mockShell,
+		}
+		evaluator := NewFeatureEvaluator(rt)
 		if evaluator == nil {
 			t.Fatal("Expected evaluator, got nil")
 		}
@@ -31,9 +37,15 @@ func TestNewFeatureEvaluator(t *testing.T) {
 // =============================================================================
 
 func TestFeatureEvaluator_EvaluateExpression(t *testing.T) {
-	injector := di.NewInjector()
-	evaluator := NewFeatureEvaluator(injector)
-	_ = evaluator.Initialize()
+	configHandler := config.NewMockConfigHandler()
+	mockShell := shell.NewMockShell()
+	rt := &runtime.Runtime{
+		ProjectRoot:   "/test",
+		ConfigRoot:    "/test",
+		ConfigHandler: configHandler,
+		Shell:         mockShell,
+	}
+	evaluator := NewFeatureEvaluator(rt)
 
 	tests := []struct {
 		name        string
@@ -174,9 +186,15 @@ func TestFeatureEvaluator_EvaluateExpression(t *testing.T) {
 }
 
 func TestFeatureEvaluator_EvaluateValue(t *testing.T) {
-	injector := di.NewInjector()
-	evaluator := NewFeatureEvaluator(injector)
-	_ = evaluator.Initialize()
+	configHandler := config.NewMockConfigHandler()
+	mockShell := shell.NewMockShell()
+	rt := &runtime.Runtime{
+		ProjectRoot:   "/test",
+		ConfigRoot:    "/test",
+		ConfigHandler: configHandler,
+		Shell:         mockShell,
+	}
+	evaluator := NewFeatureEvaluator(rt)
 
 	tests := []struct {
 		name        string
@@ -292,9 +310,13 @@ func TestFeatureEvaluator_EvaluateValue(t *testing.T) {
 }
 
 func TestFeatureEvaluator_EvaluateDefaults(t *testing.T) {
-	injector := di.NewInjector()
-	evaluator := NewFeatureEvaluator(injector)
-	_ = evaluator.Initialize()
+	configHandler := config.NewMockConfigHandler()
+	mockShell := shell.NewMockShell()
+	rt := &runtime.Runtime{
+		ConfigHandler: configHandler,
+		Shell:         mockShell,
+	}
+	evaluator := NewFeatureEvaluator(rt)
 
 	t.Run("EvaluatesLiteralValues", func(t *testing.T) {
 		defaults := map[string]any{
@@ -636,9 +658,13 @@ func TestFeatureEvaluator_EvaluateDefaults(t *testing.T) {
 // =============================================================================
 
 func TestFeatureEvaluator_extractExpression(t *testing.T) {
-	injector := di.NewInjector()
-	evaluator := NewFeatureEvaluator(injector)
-	_ = evaluator.Initialize()
+	configHandler := config.NewMockConfigHandler()
+	mockShell := shell.NewMockShell()
+	rt := &runtime.Runtime{
+		ConfigHandler: configHandler,
+		Shell:         mockShell,
+	}
+	evaluator := NewFeatureEvaluator(rt)
 
 	tests := []struct {
 		name     string
@@ -698,9 +724,13 @@ func TestFeatureEvaluator_extractExpression(t *testing.T) {
 }
 
 func TestFeatureEvaluator_evaluateDefaultValue(t *testing.T) {
-	injector := di.NewInjector()
-	evaluator := NewFeatureEvaluator(injector)
-	_ = evaluator.Initialize()
+	configHandler := config.NewMockConfigHandler()
+	mockShell := shell.NewMockShell()
+	rt := &runtime.Runtime{
+		ConfigHandler: configHandler,
+		Shell:         mockShell,
+	}
+	evaluator := NewFeatureEvaluator(rt)
 
 	t.Run("LiteralStringPassesThrough", func(t *testing.T) {
 		result, err := evaluator.evaluateDefaultValue("talos", map[string]any{}, "features/test.yaml")
@@ -886,16 +916,16 @@ func TestFeatureEvaluator_JsonnetFunction(t *testing.T) {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 
-		injector := di.NewInjector()
 		mockConfig := config.NewMockConfigHandler()
-		mockConfig.GetConfigRootFunc = func() (string, error) { return tmpDir, nil }
 		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) { return tmpDir, nil }
 
-		injector.Register("configHandler", mockConfig)
-		injector.Register("shell", mockShell)
-		evaluator := NewFeatureEvaluator(injector)
-		_ = evaluator.Initialize()
+		rt := &runtime.Runtime{
+			ProjectRoot:   tmpDir,
+			ConfigRoot:    tmpDir,
+			ConfigHandler: mockConfig,
+			Shell:         mockShell,
+		}
+		evaluator := NewFeatureEvaluator(rt)
 		config := map[string]any{}
 
 		featurePath := filepath.Join(expectedDir, "test.yaml")
@@ -939,16 +969,16 @@ func TestFeatureEvaluator_JsonnetFunction(t *testing.T) {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 
-		injector := di.NewInjector()
 		mockConfig := config.NewMockConfigHandler()
-		mockConfig.GetConfigRootFunc = func() (string, error) { return tmpDir, nil }
 		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) { return tmpDir, nil }
 
-		injector.Register("configHandler", mockConfig)
-		injector.Register("shell", mockShell)
-		evaluator := NewFeatureEvaluator(injector)
-		_ = evaluator.Initialize()
+		rt := &runtime.Runtime{
+			ProjectRoot:   tmpDir,
+			ConfigRoot:    tmpDir,
+			ConfigHandler: mockConfig,
+			Shell:         mockShell,
+		}
+		evaluator := NewFeatureEvaluator(rt)
 		config := map[string]any{
 			"namespace": "production",
 			"region":    "us-west-2",
@@ -993,16 +1023,16 @@ func TestFeatureEvaluator_JsonnetFunction(t *testing.T) {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 
-		injector := di.NewInjector()
 		mockConfig := config.NewMockConfigHandler()
-		mockConfig.GetConfigRootFunc = func() (string, error) { return tmpDir, nil }
 		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) { return projectDir, nil }
 
-		injector.Register("configHandler", mockConfig)
-		injector.Register("shell", mockShell)
-		evaluator := NewFeatureEvaluator(injector)
-		_ = evaluator.Initialize()
+		rt := &runtime.Runtime{
+			ProjectRoot:   projectDir,
+			ConfigRoot:    tmpDir,
+			ConfigHandler: mockConfig,
+			Shell:         mockShell,
+		}
+		evaluator := NewFeatureEvaluator(rt)
 		config := map[string]any{
 			"environment": "production",
 		}
@@ -1043,15 +1073,15 @@ func TestFeatureEvaluator_JsonnetFunction(t *testing.T) {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 
-		injector := di.NewInjector()
 		mockConfig := config.NewMockConfigHandler()
 		mockConfig.GetConfigRootFunc = func() (string, error) { return tmpDir, nil }
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) { return tmpDir, nil }
-		injector.Register("configHandler", mockConfig)
-		injector.Register("shell", mockShell)
-		evaluator := NewFeatureEvaluator(injector)
-		_ = evaluator.Initialize()
+		rt := &runtime.Runtime{
+			ConfigHandler: mockConfig,
+			Shell:         mockShell,
+		}
+		evaluator := NewFeatureEvaluator(rt)
 		config := map[string]any{}
 
 		featurePath := filepath.Join(tmpDir, "contexts", "_template", "features", "test.yaml")
@@ -1072,15 +1102,15 @@ func TestFeatureEvaluator_JsonnetFunction(t *testing.T) {
 
 	t.Run("JsonnetFileNotFound", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		injector := di.NewInjector()
 		mockConfig := config.NewMockConfigHandler()
 		mockConfig.GetConfigRootFunc = func() (string, error) { return tmpDir, nil }
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) { return tmpDir, nil }
-		injector.Register("configHandler", mockConfig)
-		injector.Register("shell", mockShell)
-		evaluator := NewFeatureEvaluator(injector)
-		_ = evaluator.Initialize()
+		rt := &runtime.Runtime{
+			ConfigHandler: mockConfig,
+			Shell:         mockShell,
+		}
+		evaluator := NewFeatureEvaluator(rt)
 		config := map[string]any{}
 
 		_, err := evaluator.EvaluateValue(`jsonnet("nonexistent.jsonnet")`, config, "features/test.yaml")
@@ -1100,15 +1130,15 @@ func TestFeatureEvaluator_JsonnetFunction(t *testing.T) {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 
-		injector := di.NewInjector()
 		mockConfig := config.NewMockConfigHandler()
 		mockConfig.GetConfigRootFunc = func() (string, error) { return tmpDir, nil }
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) { return tmpDir, nil }
-		injector.Register("configHandler", mockConfig)
-		injector.Register("shell", mockShell)
-		evaluator := NewFeatureEvaluator(injector)
-		_ = evaluator.Initialize()
+		rt := &runtime.Runtime{
+			ConfigHandler: mockConfig,
+			Shell:         mockShell,
+		}
+		evaluator := NewFeatureEvaluator(rt)
 		config := map[string]any{}
 
 		_, err := evaluator.EvaluateValue(`jsonnet("invalid.jsonnet")`, config, "features/test.yaml")
@@ -1134,16 +1164,16 @@ func TestFeatureEvaluator_FileFunction(t *testing.T) {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 
-		injector := di.NewInjector()
 		mockConfig := config.NewMockConfigHandler()
-		mockConfig.GetConfigRootFunc = func() (string, error) { return tmpDir, nil }
 		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) { return tmpDir, nil }
 
-		injector.Register("configHandler", mockConfig)
-		injector.Register("shell", mockShell)
-		evaluator := NewFeatureEvaluator(injector)
-		_ = evaluator.Initialize()
+		rt := &runtime.Runtime{
+			ProjectRoot:   tmpDir,
+			ConfigRoot:    tmpDir,
+			ConfigHandler: mockConfig,
+			Shell:         mockShell,
+		}
+		evaluator := NewFeatureEvaluator(rt)
 
 		featurePath := filepath.Join(expectedDir, "test.yaml")
 		result, err := evaluator.EvaluateValue(`file("test.txt")`, map[string]any{}, featurePath)
@@ -1178,15 +1208,15 @@ enabled: true`
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 
-		injector := di.NewInjector()
 		mockConfig := config.NewMockConfigHandler()
 		mockConfig.GetConfigRootFunc = func() (string, error) { return tmpDir, nil }
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) { return tmpDir, nil }
-		injector.Register("configHandler", mockConfig)
-		injector.Register("shell", mockShell)
-		evaluator := NewFeatureEvaluator(injector)
-		_ = evaluator.Initialize()
+		rt := &runtime.Runtime{
+			ConfigHandler: mockConfig,
+			Shell:         mockShell,
+		}
+		evaluator := NewFeatureEvaluator(rt)
 
 		featurePath := filepath.Join(expectedDir, "test.yaml")
 		result, err := evaluator.EvaluateValue(`file("config.yaml")`, map[string]any{}, featurePath)
@@ -1206,15 +1236,15 @@ enabled: true`
 
 	t.Run("FileNotFound", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		injector := di.NewInjector()
 		mockConfig := config.NewMockConfigHandler()
 		mockConfig.GetConfigRootFunc = func() (string, error) { return tmpDir, nil }
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) { return tmpDir, nil }
-		injector.Register("configHandler", mockConfig)
-		injector.Register("shell", mockShell)
-		evaluator := NewFeatureEvaluator(injector)
-		_ = evaluator.Initialize()
+		rt := &runtime.Runtime{
+			ConfigHandler: mockConfig,
+			Shell:         mockShell,
+		}
+		evaluator := NewFeatureEvaluator(rt)
 
 		_, err := evaluator.EvaluateValue(`file("nonexistent.txt")`, map[string]any{}, "features/test.yaml")
 		if err == nil {
@@ -1244,15 +1274,15 @@ func TestFeatureEvaluator_FileLoadingInDefaults(t *testing.T) {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 
-		injector := di.NewInjector()
 		mockConfig := config.NewMockConfigHandler()
 		mockConfig.GetConfigRootFunc = func() (string, error) { return tmpDir, nil }
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) { return tmpDir, nil }
-		injector.Register("configHandler", mockConfig)
-		injector.Register("shell", mockShell)
-		evaluator := NewFeatureEvaluator(injector)
-		_ = evaluator.Initialize()
+		rt := &runtime.Runtime{
+			ConfigHandler: mockConfig,
+			Shell:         mockShell,
+		}
+		evaluator := NewFeatureEvaluator(rt)
 
 		defaults := map[string]any{
 			"db_config": `${jsonnet("db-config.jsonnet")}`,
@@ -1300,15 +1330,15 @@ func TestFeatureEvaluator_FileLoadingInDefaults(t *testing.T) {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 
-		injector := di.NewInjector()
 		mockConfig := config.NewMockConfigHandler()
 		mockConfig.GetConfigRootFunc = func() (string, error) { return tmpDir, nil }
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) { return tmpDir, nil }
-		injector.Register("configHandler", mockConfig)
-		injector.Register("shell", mockShell)
-		evaluator := NewFeatureEvaluator(injector)
-		_ = evaluator.Initialize()
+		rt := &runtime.Runtime{
+			ConfigHandler: mockConfig,
+			Shell:         mockShell,
+		}
+		evaluator := NewFeatureEvaluator(rt)
 
 		defaults := map[string]any{
 			"ssh_key": `${file("key.pub")}`,
@@ -1340,9 +1370,13 @@ func TestFeatureEvaluator_AbsolutePaths(t *testing.T) {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 
-		injector := di.NewInjector()
-		evaluator := NewFeatureEvaluator(injector)
-		_ = evaluator.Initialize()
+		configHandler := config.NewMockConfigHandler()
+		mockShell := shell.NewMockShell()
+		rt := &runtime.Runtime{
+			ConfigHandler: configHandler,
+			Shell:         mockShell,
+		}
+		evaluator := NewFeatureEvaluator(rt)
 
 		result, err := evaluator.EvaluateValue(`jsonnet("`+strings.ReplaceAll(jsonnetPath, "\\", "\\\\")+`")`, map[string]any{}, "features/test.yaml")
 		if err != nil {
@@ -1370,19 +1404,15 @@ func TestFeatureEvaluator_PathResolution(t *testing.T) {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 
-		injector := di.NewInjector()
 		mockConfig := config.NewMockConfigHandler()
-		mockConfig.GetConfigRootFunc = func() (string, error) {
-			return "", fmt.Errorf("no context root")
-		}
 		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return tmpDir, nil
+		rt := &runtime.Runtime{
+			ProjectRoot:   tmpDir,
+			ConfigRoot:    "",
+			ConfigHandler: mockConfig,
+			Shell:         mockShell,
 		}
-		injector.Register("configHandler", mockConfig)
-		injector.Register("shell", mockShell)
-		evaluator := NewFeatureEvaluator(injector)
-		_ = evaluator.Initialize()
+		evaluator := NewFeatureEvaluator(rt)
 
 		result, err := evaluator.EvaluateValue(`jsonnet("config.jsonnet")`, map[string]any{}, "")
 		if err != nil {
@@ -1409,15 +1439,15 @@ func TestFeatureEvaluator_PathResolution(t *testing.T) {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 
-		injector := di.NewInjector()
-		mockConfig := config.NewMockConfigHandler()
-		mockConfig.GetConfigRootFunc = func() (string, error) {
-			return "", fmt.Errorf("no context root")
+		configHandler := config.NewMockConfigHandler()
+		mockShell := shell.NewMockShell()
+		rt := &runtime.Runtime{
+			ProjectRoot:   tmpDir,
+			ConfigRoot:    tmpDir,
+			ConfigHandler: configHandler,
+			Shell:         mockShell,
 		}
-		injector.Register("configHandler", mockConfig)
-
-		evaluator := NewFeatureEvaluator(injector)
-		_ = evaluator.Initialize()
+		evaluator := NewFeatureEvaluator(rt)
 
 		result, err := evaluator.EvaluateValue(`jsonnet("`+strings.ReplaceAll(testFile, "\\", "\\\\")+`")`, map[string]any{}, "features/test.yaml")
 		if err != nil {
@@ -1460,7 +1490,6 @@ func TestFeatureEvaluator_PathResolution(t *testing.T) {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 
-		injector := di.NewInjector()
 		mockConfig := config.NewMockConfigHandler()
 		mockConfig.GetConfigRootFunc = func() (string, error) {
 			return tmpDir, nil
@@ -1469,10 +1498,11 @@ func TestFeatureEvaluator_PathResolution(t *testing.T) {
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return tmpDir, nil
 		}
-		injector.Register("configHandler", mockConfig)
-		injector.Register("shell", mockShell)
-		evaluator := NewFeatureEvaluator(injector)
-		_ = evaluator.Initialize()
+		rt := &runtime.Runtime{
+			ConfigHandler: mockConfig,
+			Shell:         mockShell,
+		}
+		evaluator := NewFeatureEvaluator(rt)
 
 		featurePath := filepath.Join(featuresDir, "test.yaml")
 		result, err := evaluator.EvaluateValue(`jsonnet("config.jsonnet")`, map[string]any{}, featurePath)
@@ -1510,7 +1540,6 @@ func TestFeatureEvaluator_PathResolution(t *testing.T) {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 
-		injector := di.NewInjector()
 		mockConfig := config.NewMockConfigHandler()
 		mockConfig.GetConfigRootFunc = func() (string, error) {
 			return tmpDir, nil
@@ -1519,10 +1548,11 @@ func TestFeatureEvaluator_PathResolution(t *testing.T) {
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return tmpDir, nil
 		}
-		injector.Register("configHandler", mockConfig)
-		injector.Register("shell", mockShell)
-		evaluator := NewFeatureEvaluator(injector)
-		_ = evaluator.Initialize()
+		rt := &runtime.Runtime{
+			ConfigHandler: mockConfig,
+			Shell:         mockShell,
+		}
+		evaluator := NewFeatureEvaluator(rt)
 
 		featurePath := filepath.Join(expectedDir, "test.yaml")
 		result, err := evaluator.EvaluateValue(`jsonnet("talos-dev.jsonnet").worker_config_patches`, map[string]any{}, featurePath)
@@ -1566,7 +1596,6 @@ func TestFeatureEvaluator_PathResolution(t *testing.T) {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 
-		injector := di.NewInjector()
 		mockConfig := config.NewMockConfigHandler()
 		mockConfig.GetConfigRootFunc = func() (string, error) {
 			return tmpDir, nil
@@ -1575,10 +1604,11 @@ func TestFeatureEvaluator_PathResolution(t *testing.T) {
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return tmpDir, nil
 		}
-		injector.Register("configHandler", mockConfig)
-		injector.Register("shell", mockShell)
-		evaluator := NewFeatureEvaluator(injector)
-		_ = evaluator.Initialize()
+		rt := &runtime.Runtime{
+			ConfigHandler: mockConfig,
+			Shell:         mockShell,
+		}
+		evaluator := NewFeatureEvaluator(rt)
 
 		featurePath := filepath.Join(expectedDir, "test.yaml")
 		result, err := evaluator.EvaluateValue(`jsonnet("nested.jsonnet").config.nested.deeply.value`, map[string]any{}, featurePath)
@@ -1612,14 +1642,15 @@ func TestFeatureEvaluator_PathResolution(t *testing.T) {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 
-		injector := di.NewInjector()
+		mockConfig := config.NewMockConfigHandler()
 		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return tmpDir, nil
+		rt := &runtime.Runtime{
+			ProjectRoot:   tmpDir,
+			ConfigRoot:    tmpDir,
+			ConfigHandler: mockConfig,
+			Shell:         mockShell,
 		}
-		injector.Register("shell", mockShell)
-		evaluator := NewFeatureEvaluator(injector)
-		_ = evaluator.Initialize()
+		evaluator := NewFeatureEvaluator(rt)
 
 		featurePath := filepath.Join(featuresDir, "test.yaml")
 		result, err := evaluator.EvaluateValue(`jsonnet("../configs/talos-dev.jsonnet").worker_config_patches`, map[string]any{}, featurePath)
@@ -1651,19 +1682,15 @@ func TestFeatureEvaluator_PathResolution(t *testing.T) {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 
-		injector := di.NewInjector()
 		mockConfig := config.NewMockConfigHandler()
-		mockConfig.GetConfigRootFunc = func() (string, error) {
-			return "", fmt.Errorf("no context root")
-		}
 		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "", fmt.Errorf("no project root")
+		rt := &runtime.Runtime{
+			ProjectRoot:   "",
+			ConfigRoot:    "",
+			ConfigHandler: mockConfig,
+			Shell:         mockShell,
 		}
-		injector.Register("configHandler", mockConfig)
-		injector.Register("shell", mockShell)
-		evaluator := NewFeatureEvaluator(injector)
-		_ = evaluator.Initialize()
+		evaluator := NewFeatureEvaluator(rt)
 
 		result, err := evaluator.EvaluateValue(`jsonnet("`+strings.ReplaceAll(testFile, "\\", "\\\\")+`")`, map[string]any{}, "features/test.yaml")
 		if err != nil {

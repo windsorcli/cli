@@ -9,10 +9,8 @@ import (
 	"github.com/expr-lang/expr"
 	"github.com/google/go-jsonnet"
 	"github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 // FeatureEvaluator provides lightweight expression evaluation for blueprint feature conditions.
@@ -26,39 +24,23 @@ import (
 
 // FeatureEvaluator provides lightweight expression evaluation for feature conditions.
 type FeatureEvaluator struct {
-	injector      di.Injector
-	configHandler config.ConfigHandler
-	shell         shell.Shell
-	shims         *Shims
+	runtime *runtime.Runtime
+	shims   *Shims
 }
 
 // =============================================================================
 // Constructor
 // =============================================================================
 
-// NewFeatureEvaluator creates a new feature evaluator with the provided dependency injector.
-func NewFeatureEvaluator(injector di.Injector) *FeatureEvaluator {
-	return &FeatureEvaluator{
-		injector: injector,
-		shims:    NewShims(),
+// NewFeatureEvaluator creates a new feature evaluator with the provided dependencies.
+// If overrides are provided, any non-nil component in the override FeatureEvaluator will be used instead of creating a default.
+func NewFeatureEvaluator(rt *runtime.Runtime) *FeatureEvaluator {
+	evaluator := &FeatureEvaluator{
+		runtime: rt,
+		shims:   NewShims(),
 	}
-}
 
-// =============================================================================
-// Initialization
-// =============================================================================
-
-// Initialize resolves and assigns dependencies from the injector.
-func (e *FeatureEvaluator) Initialize() error {
-	if e.injector != nil {
-		if configHandler := e.injector.Resolve("configHandler"); configHandler != nil {
-			e.configHandler = configHandler.(config.ConfigHandler)
-		}
-		if shellService := e.injector.Resolve("shell"); shellService != nil {
-			e.shell = shellService.(shell.Shell)
-		}
-	}
-	return nil
+	return evaluator
 }
 
 // =============================================================================
@@ -483,16 +465,13 @@ func (e *FeatureEvaluator) buildContextMap(config map[string]any) map[string]any
 	contextMap := make(map[string]any)
 	maps.Copy(contextMap, config)
 
-	if e.configHandler != nil {
-		contextName := e.configHandler.GetContext()
+	if e.runtime != nil && e.runtime.ConfigHandler != nil {
+		contextName := e.runtime.ConfigHandler.GetContext()
 		contextMap["name"] = contextName
 	}
 
-	if e.shell != nil {
-		projectRoot, err := e.shell.GetProjectRoot()
-		if err == nil {
-			contextMap["projectName"] = e.shims.FilepathBase(projectRoot)
-		}
+	if e.runtime != nil && e.runtime.ProjectRoot != "" {
+		contextMap["projectName"] = e.shims.FilepathBase(e.runtime.ProjectRoot)
 	}
 
 	return contextMap
@@ -644,10 +623,8 @@ func (e *FeatureEvaluator) resolvePath(path string, featurePath string) string {
 		return filepath.Clean(filepath.Join(featureDir, path))
 	}
 
-	if e.shell != nil {
-		if projectRoot, err := e.shell.GetProjectRoot(); err == nil && projectRoot != "" {
-			return filepath.Clean(filepath.Join(projectRoot, path))
-		}
+	if e.runtime != nil && e.runtime.ProjectRoot != "" {
+		return filepath.Clean(filepath.Join(e.runtime.ProjectRoot, path))
 	}
 
 	return filepath.Clean(path)

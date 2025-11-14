@@ -17,6 +17,7 @@ import (
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
+	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -215,6 +216,7 @@ type Mocks struct {
 	ConfigHandler     config.ConfigHandler
 	Shims             *Shims
 	KubernetesManager *kubernetes.MockKubernetesManager
+	Runtime           *runtime.Runtime
 }
 
 type SetupOptions struct {
@@ -348,19 +350,11 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 			return nil
 		}
 
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return tmpDir, nil
-		}
-
 		configHandler = mockConfigHandler
 	}
 
 	// Create mock shell and kubernetes manager
 	mockShell := shell.NewMockShell()
-	// Set default GetProjectRoot implementation to use writable temp directory
-	mockShell.GetProjectRootFunc = func() (string, error) {
-		return tmpDir, nil
-	}
 
 	mockKubernetesManager := kubernetes.NewMockKubernetesManager(nil)
 	// Initialize safe default implementations for all mock functions
@@ -440,6 +434,16 @@ contexts:
 		}
 	}
 
+	// Create runtime
+	rt := &runtime.Runtime{
+		ProjectRoot:   tmpDir,
+		ConfigRoot:    tmpDir,
+		TemplateRoot:  filepath.Join(tmpDir, "contexts", "_template"),
+		Injector:      injector,
+		ConfigHandler: configHandler,
+		Shell:         mockShell,
+	}
+
 	// Cleanup function
 	t.Cleanup(func() {
 		os.Unsetenv("WINDSOR_PROJECT_ROOT")
@@ -454,6 +458,7 @@ contexts:
 		ConfigHandler:     configHandler,
 		Shims:             shims,
 		KubernetesManager: mockKubernetesManager,
+		Runtime:           rt,
 	}
 }
 
@@ -463,11 +468,15 @@ contexts:
 
 func TestBlueprintHandler_NewBlueprintHandler(t *testing.T) {
 	t.Run("CreatesHandlerWithMocks", func(t *testing.T) {
-		// Given an injector with mocks
+		// Given mocks
 		mocks := setupMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
 
 		// When creating a new blueprint handler
-		handler := NewBlueprintHandler(mocks.Injector)
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 
 		// Then the handler should be properly initialized
 		if handler == nil {
@@ -475,120 +484,53 @@ func TestBlueprintHandler_NewBlueprintHandler(t *testing.T) {
 		}
 
 		// And basic fields should be set
-		if handler.injector == nil {
-			t.Error("Expected injector to be set")
-		}
 		if handler.shims == nil {
 			t.Error("Expected shims to be set")
 		}
 
-		// And dependency fields should be nil until Initialize() is called
-		if handler.configHandler != nil {
-			t.Error("Expected configHandler to be nil before Initialize()")
+		// And dependencies should be set
+		if handler.runtime.ConfigHandler == nil {
+			t.Error("Expected configHandler to be set")
 		}
-		if handler.shell != nil {
-			t.Error("Expected shell to be nil before Initialize()")
+		if handler.runtime.Shell == nil {
+			t.Error("Expected shell to be set")
 		}
-		// kubernetesManager removed - no longer part of blueprint handler
-
-		// When Initialize is called
-		err := handler.Initialize()
-		if err != nil {
-			t.Fatalf("Initialize() failed: %v", err)
+		if handler.artifactBuilder == nil {
+			t.Error("Expected artifactBuilder to be set")
 		}
-
-		// Then dependencies should be injected
-		if handler.configHandler == nil {
-			t.Error("Expected configHandler to be set after Initialize()")
-		}
-		if handler.shell == nil {
-			t.Error("Expected shell to be set after Initialize()")
-		}
-		// kubernetesManager removed - no longer part of blueprint handler
 	})
 }
 
-func TestBlueprintHandler_Initialize(t *testing.T) {
-	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
-		t.Helper()
-		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-		return handler, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a handler
-		handler, _ := setup(t)
-
-		// When calling Initialize
-		err := handler.Initialize()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("expected nil error, got %v", err)
-		}
-	})
-
+func TestBlueprintHandler_NewBlueprintHandlerWithError(t *testing.T) {
 	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
-		// Given a handler
-		handler, mocks := setup(t)
+		// Given a runtime with empty ProjectRoot
+		mocks := setupMocks(t)
+		mocks.Runtime.ProjectRoot = ""
 
-		// And a shell that returns an error
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "", fmt.Errorf("get project root error")
+		// When creating a new blueprint handler
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+
+		// Then it should succeed (ProjectRoot is set on runtime, not validated in constructor)
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
 		}
-
-		// When calling Initialize
-		err := handler.Initialize()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "get project root error") {
-			t.Errorf("Expected error about get project root error, got: %v", err)
+		if handler == nil {
+			t.Error("Expected non-nil handler")
 		}
 	})
-
-	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		// Given an injector with no config handler registered
-		handler, mocks := setup(t)
-
-		mocks.Injector.Register("configHandler", nil)
-
-		// When calling Initialize
-		err := handler.Initialize()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-	})
-
-	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		// Given an injector with no shell registered
-		handler, mocks := setup(t)
-		mocks.Injector.Register("shell", nil)
-
-		// When calling Initialize
-		err := handler.Initialize()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-	})
-
 }
 
 func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		handler.shims = mocks.Shims
-		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
@@ -601,7 +543,7 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 
 		// And a project root directory
 		projectRoot := "/test/project"
-		handler.projectRoot = projectRoot
+		handler.runtime.ProjectRoot = projectRoot
 
 		// And a set of sources
 		sources := []blueprintv1alpha1.Source{
@@ -675,7 +617,7 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 
 		// And a project root directory
 		projectRoot := "/test/project"
-		handler.projectRoot = projectRoot
+		handler.runtime.ProjectRoot = projectRoot
 
 		// And a set of sources
 		sources := []blueprintv1alpha1.Source{
@@ -725,7 +667,7 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 
 		// And a project root directory
 		projectRoot := "/test/project"
-		handler.projectRoot = projectRoot
+		handler.runtime.ProjectRoot = projectRoot
 
 		// And an OCI source
 		sources := []blueprintv1alpha1.Source{
@@ -774,9 +716,12 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 	setup := func(t *testing.T) (BlueprintHandler, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		handler.shims = mocks.Shims
-		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
@@ -788,9 +733,7 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 		handler, mocks := setup(t)
 
 		// Mock shell to return project root
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return filepath.Join("/mock", "project"), nil
-		}
+		mocks.Runtime.ProjectRoot = filepath.Join("/mock", "project")
 
 		// Mock shims to return error for template directory (doesn't exist)
 		if baseHandler, ok := handler.(*BaseBlueprintHandler); ok {
@@ -820,13 +763,15 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 
 		// Set up mocks first, before initializing the handler
 		mocks := setupMocks(t)
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
-		}
+		mocks.Runtime.ProjectRoot = projectRoot
+		mocks.Runtime.TemplateRoot = templateDir
 
-		handler := NewBlueprintHandler(mocks.Injector)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		handler.shims = mocks.Shims
-		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
@@ -924,7 +869,7 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 		// Mock shims to return error when reading template directory
 		if baseHandler, ok := handler.(*BaseBlueprintHandler); ok {
 			baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
-				if path == baseHandler.templateRoot {
+				if path == baseHandler.runtime.TemplateRoot {
 					return nil, fmt.Errorf("failed to read template directory")
 				}
 				return nil, os.ErrNotExist
@@ -932,7 +877,7 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 
 			// Mock ReadDir to return error when trying to read the template directory
 			baseHandler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-				if path == baseHandler.templateRoot {
+				if path == baseHandler.runtime.TemplateRoot {
 					return nil, fmt.Errorf("failed to read template directory")
 				}
 				return nil, fmt.Errorf("directory not found")
@@ -964,13 +909,15 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 
 		// Set up mocks first, before initializing the handler
 		mocks := setupMocks(t)
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
-		}
+		mocks.Runtime.ProjectRoot = projectRoot
+		mocks.Runtime.TemplateRoot = templateDir
 
-		handler := NewBlueprintHandler(mocks.Injector)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		handler.shims = mocks.Shims
-		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
@@ -985,7 +932,10 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 		}
 
 		baseHandler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-			return nil, fmt.Errorf("failed to read directory")
+			if path == templateDir {
+				return nil, fmt.Errorf("failed to read directory")
+			}
+			return nil, os.ErrNotExist
 		}
 
 		// When getting local template data
@@ -1012,14 +962,12 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 
 		// Ensure the handler uses the mock shell and config handler
 		baseHandler := handler.(*BaseBlueprintHandler)
-		baseHandler.shell = mocks.Shell
-		baseHandler.configHandler = mocks.ConfigHandler
+		baseHandler.runtime.Shell = mocks.Shell
+		baseHandler.runtime.ConfigHandler = mocks.ConfigHandler
 
 		// Mock local context values
 		projectRoot := filepath.Join("tmp", "test")
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
-		}
+		mocks.Runtime.ProjectRoot = projectRoot
 		baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
 			// Normalize path separators for cross-platform compatibility
 			normalizedPath := filepath.ToSlash(path)
@@ -1095,9 +1043,7 @@ substitutions:
 		mockConfigHandler.GetContextFunc = func() string {
 			return "test-context"
 		}
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return filepath.Join(projectRoot, "contexts", "test-context"), nil
-		}
+		mocks.Runtime.ConfigRoot = filepath.Join(projectRoot, "contexts", "test-context")
 		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
 				"external_domain": "context.test",
@@ -1178,24 +1124,20 @@ substitutions:
 
 		// Ensure the handler uses the mock shell and config handler
 		baseHandler := handler.(*BaseBlueprintHandler)
-		baseHandler.shell = mocks.Shell
-		baseHandler.configHandler = mocks.ConfigHandler
+		baseHandler.runtime.Shell = mocks.Shell
+		baseHandler.runtime.ConfigHandler = mocks.ConfigHandler
 
 		projectRoot := filepath.Join("mock", "project")
 
 		// Mock shell to return project root
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
-		}
+		mocks.Runtime.ProjectRoot = projectRoot
 
 		// Mock config handler to return context
 		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
 			mockConfigHandler.GetContextFunc = func() string {
 				return "test-context"
 			}
-			mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-				return filepath.Join(projectRoot, "contexts", "test-context"), nil
-			}
+			mocks.Runtime.ConfigRoot = filepath.Join(projectRoot, "contexts", "test-context")
 			mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 				return map[string]any{
 					"external_domain": "context.test",
@@ -1353,30 +1295,30 @@ substitutions:
 
 		// Set up mocks first, before initializing the handler
 		mocks := setupMocks(t)
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
-		}
+		mocks.Runtime.ProjectRoot = projectRoot
+		mocks.Runtime.TemplateRoot = templateDir
 
-		handler := NewBlueprintHandler(mocks.Injector)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		handler.shims = mocks.Shims
-		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
 
 		// Ensure the handler uses the mock shell and config handler
 		baseHandler := handler
-		baseHandler.shell = mocks.Shell
-		baseHandler.configHandler = mocks.ConfigHandler
+		baseHandler.runtime.Shell = mocks.Shell
+		baseHandler.runtime.ConfigHandler = mocks.ConfigHandler
 
 		// Mock config handler to return context
 		if mockConfigHandler, ok := mocks.ConfigHandler.(*config.MockConfigHandler); ok {
 			mockConfigHandler.GetContextFunc = func() string {
 				return "test-context"
 			}
-			mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-				return filepath.Join(projectRoot, "contexts", "test-context"), nil
-			}
+			mocks.Runtime.ConfigRoot = filepath.Join(projectRoot, "contexts", "test-context")
 			mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 				return map[string]any{
 					"external_domain": "context.test",
@@ -1478,13 +1420,15 @@ substitutions:
 
 		// Set up mocks first, before initializing the handler
 		mocks := setupMocks(t)
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
-		}
+		mocks.Runtime.ProjectRoot = projectRoot
+		mocks.Runtime.TemplateRoot = templateDir
 
-		handler := NewBlueprintHandler(mocks.Injector)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		handler.shims = mocks.Shims
-		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
@@ -1527,6 +1471,7 @@ substitutions:
 		// Then an error should occur
 		if err == nil {
 			t.Error("Expected error when GetContextValues fails")
+			return
 		}
 
 		if !strings.Contains(err.Error(), "failed to load context values") {
@@ -1539,9 +1484,12 @@ func TestBlueprintHandler_loadData(t *testing.T) {
 	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		handler.shims = mocks.Shims
-		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
@@ -1749,24 +1697,19 @@ func TestBlueprintHandler_Write(t *testing.T) {
 	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-
-		// Override GetConfigRoot to return the expected path for Write tests
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
-			return "mock-config-root", nil
-		}
-
-		err := handler.Initialize()
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
 		if err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
 		}
+		handler.shims = mocks.Shims
 		return handler, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a blueprint handler with a loaded blueprint
 		handler, mocks := setup(t)
+		mocks.Runtime.ConfigRoot = "/test/config"
 
 		// Set up the blueprint with test data
 		handler.blueprint = blueprintv1alpha1.Blueprint{
@@ -1814,7 +1757,7 @@ func TestBlueprintHandler_Write(t *testing.T) {
 		}
 
 		// And the file should be written to the correct path
-		expectedPath := filepath.Join("mock-config-root", "blueprint.yaml")
+		expectedPath := filepath.Join(mocks.Runtime.ConfigRoot, "blueprint.yaml")
 		if writtenPath != expectedPath {
 			t.Errorf("Expected file path %s, got %s", expectedPath, writtenPath)
 		}
@@ -1828,6 +1771,7 @@ func TestBlueprintHandler_Write(t *testing.T) {
 	t.Run("WithOverwriteTrue", func(t *testing.T) {
 		// Given a blueprint handler
 		handler, mocks := setup(t)
+		mocks.Runtime.ConfigRoot = "/test/config"
 
 		// Set up the blueprint with test data
 		handler.blueprint = blueprintv1alpha1.Blueprint{
@@ -1866,7 +1810,7 @@ func TestBlueprintHandler_Write(t *testing.T) {
 		}
 
 		// And the file should be written (overwrite)
-		expectedPath := filepath.Join("mock-config-root", "blueprint.yaml")
+		expectedPath := filepath.Join(mocks.Runtime.ConfigRoot, "blueprint.yaml")
 		if writtenPath != expectedPath {
 			t.Errorf("Expected file path %s, got %s", expectedPath, writtenPath)
 		}
@@ -1902,28 +1846,22 @@ func TestBlueprintHandler_Write(t *testing.T) {
 	})
 
 	t.Run("ErrorGettingConfigRoot", func(t *testing.T) {
-		// Given a blueprint handler with a mock config handler that returns an error
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "", fmt.Errorf("config root error")
-		}
-		opts := &SetupOptions{
-			ConfigHandler: mockConfigHandler,
-		}
-		mocks := setupMocks(t, opts)
-		handler := NewBlueprintHandler(mocks.Injector)
-		handler.shims = mocks.Shims
-		err := handler.Initialize()
+		// Given a blueprint handler with empty ConfigRoot
+		mocks := setupMocks(t)
+		mocks.Runtime.ConfigRoot = ""
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
 		if err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
 		}
+		handler.shims = mocks.Shims
 
 		// When Write is called
 		err = handler.Write()
 
 		// Then an error should be returned
 		if err == nil {
-			t.Errorf("Expected error from GetConfigRoot, got nil")
+			t.Errorf("Expected error from empty ConfigRoot, got nil")
 		}
 	})
 
@@ -2087,18 +2025,17 @@ func TestBlueprintHandler_LoadBlueprint(t *testing.T) {
 	t.Run("LoadsBlueprintSuccessfullyWithLocalTemplates", func(t *testing.T) {
 		// Given a blueprint handler with local templates
 		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
-		if err := handler.Initialize(); err != nil {
-			t.Fatalf("Initialize() failed: %v", err)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
 		}
 		// Set up shims after initialization
 		handler.shims = mocks.Shims
 
 		// Set up project root and create template root directory
 		tmpDir := t.TempDir()
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return tmpDir, nil
-		}
+		mocks.Runtime.ProjectRoot = tmpDir
 		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
 		if err := os.MkdirAll(templateRoot, 0755); err != nil {
 			t.Fatalf("Failed to create template root: %v", err)
@@ -2128,7 +2065,7 @@ kustomizations: []`
 		}
 
 		// When loading blueprint
-		err := handler.LoadBlueprint()
+		err = handler.LoadBlueprint()
 
 		// Then should succeed
 		if err != nil {
@@ -2148,12 +2085,13 @@ func TestBaseBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 
 		mocks := setupMocks(t)
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
-		}
+		mocks.Runtime.ProjectRoot = projectRoot
 
-		handler := NewBlueprintHandler(mocks.Injector)
-		err := handler.Initialize()
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
@@ -2254,12 +2192,13 @@ metadata:
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 
 		mocks := setupMocks(t)
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
-		}
+		mocks.Runtime.ProjectRoot = projectRoot
 
-		handler := NewBlueprintHandler(mocks.Injector)
-		err := handler.Initialize()
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
@@ -2306,12 +2245,13 @@ metadata:
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 
 		mocks := setupMocks(t)
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
-		}
+		mocks.Runtime.ProjectRoot = projectRoot
 
-		handler := NewBlueprintHandler(mocks.Injector)
-		err := handler.Initialize()
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
@@ -2374,12 +2314,13 @@ metadata:
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 
 		mocks := setupMocks(t)
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
-		}
+		mocks.Runtime.ProjectRoot = projectRoot
 
-		handler := NewBlueprintHandler(mocks.Injector)
-		err := handler.Initialize()
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
@@ -2485,12 +2426,13 @@ terraform:
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 
 		mocks := setupMocks(t)
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
-		}
+		mocks.Runtime.ProjectRoot = projectRoot
 
-		handler := NewBlueprintHandler(mocks.Injector)
-		err := handler.Initialize()
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
@@ -2554,12 +2496,13 @@ terraform:
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 
 		mocks := setupMocks(t)
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
-		}
+		mocks.Runtime.ProjectRoot = projectRoot
 
-		handler := NewBlueprintHandler(mocks.Injector)
-		err := handler.Initialize()
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
@@ -2629,12 +2572,13 @@ terraform:
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 
 		mocks := setupMocks(t)
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
-		}
+		mocks.Runtime.ProjectRoot = projectRoot
 
-		handler := NewBlueprintHandler(mocks.Injector)
-		err := handler.Initialize()
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
@@ -2654,12 +2598,13 @@ terraform:
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 
 		mocks := setupMocks(t)
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
-		}
+		mocks.Runtime.ProjectRoot = projectRoot
 
-		handler := NewBlueprintHandler(mocks.Injector)
-		err := handler.Initialize()
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
@@ -2718,12 +2663,13 @@ terraform:
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 
 		mocks := setupMocks(t)
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
-		}
+		mocks.Runtime.ProjectRoot = projectRoot
 
-		handler := NewBlueprintHandler(mocks.Injector)
-		err := handler.Initialize()
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
@@ -2797,12 +2743,13 @@ kustomize:
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 
 		mocks := setupMocks(t)
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return projectRoot, nil
-		}
+		mocks.Runtime.ProjectRoot = projectRoot
 
-		handler := NewBlueprintHandler(mocks.Injector)
-		err := handler.Initialize()
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
@@ -2853,9 +2800,12 @@ func TestBaseBlueprintHandler_Generate(t *testing.T) {
 	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		handler := NewBlueprintHandler(mocks.Injector)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
 		handler.shims = mocks.Shims
-		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}

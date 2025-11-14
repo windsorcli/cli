@@ -17,20 +17,20 @@ var getContextCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		execCtx := &runtime.Runtime{
+		rt := &runtime.Runtime{
 			Injector: injector,
 		}
 
-		execCtx, err := runtime.NewRuntime(execCtx)
+		rt, err := runtime.NewRuntime(rt)
 		if err != nil {
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
-		if err := execCtx.ConfigHandler.LoadConfig(); err != nil {
+		if err := rt.ConfigHandler.LoadConfig(); err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		contextName := execCtx.ConfigHandler.GetContext()
+		contextName := rt.ConfigHandler.GetContext()
 		fmt.Fprintln(cmd.OutOrStdout(), contextName)
 
 		return nil
@@ -47,24 +47,24 @@ var setContextCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		execCtx := &runtime.Runtime{
+		rt := &runtime.Runtime{
 			Injector: injector,
 		}
 
-		execCtx, err := runtime.NewRuntime(execCtx)
+		rt, err := runtime.NewRuntime(rt)
 		if err != nil {
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
-		if err := execCtx.ConfigHandler.LoadConfig(); err != nil {
+		if err := rt.ConfigHandler.LoadConfig(); err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		if _, err := execCtx.Shell.WriteResetToken(); err != nil {
+		if _, err := rt.Shell.WriteResetToken(); err != nil {
 			return fmt.Errorf("failed to write reset token: %w", err)
 		}
 
-		if err := execCtx.ConfigHandler.SetContext(args[0]); err != nil {
+		if err := rt.ConfigHandler.SetContext(args[0]); err != nil {
 			return fmt.Errorf("failed to set context: %w", err)
 		}
 

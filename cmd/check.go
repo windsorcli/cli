@@ -27,28 +27,28 @@ var checkCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		execCtx := &runtime.Runtime{
+		rt := &runtime.Runtime{
 			Injector: injector,
 		}
 
-		execCtx, err := runtime.NewRuntime(execCtx)
+		rt, err := runtime.NewRuntime(rt)
 		if err != nil {
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
-		if err := execCtx.Shell.CheckTrustedDirectory(); err != nil {
+		if err := rt.Shell.CheckTrustedDirectory(); err != nil {
 			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
 		}
 
-		if err := execCtx.ConfigHandler.LoadConfig(); err != nil {
+		if err := rt.ConfigHandler.LoadConfig(); err != nil {
 			return err
 		}
 
-		if !execCtx.ConfigHandler.IsLoaded() {
+		if !rt.ConfigHandler.IsLoaded() {
 			return fmt.Errorf("Nothing to check. Have you run \033[1mwindsor init\033[0m?")
 		}
 
-		if err := execCtx.CheckTools(); err != nil {
+		if err := rt.CheckTools(); err != nil {
 			return err
 		}
 
@@ -72,29 +72,29 @@ var checkNodeHealthCmd = &cobra.Command{
 			nodeHealthTimeout = constants.DefaultNodeHealthCheckTimeout
 		}
 
-		execCtx := &runtime.Runtime{
+		rt := &runtime.Runtime{
 			Injector: injector,
 		}
 
-		execCtx, err := runtime.NewRuntime(execCtx)
+		rt, err := runtime.NewRuntime(rt)
 		if err != nil {
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
-		if err := execCtx.Shell.CheckTrustedDirectory(); err != nil {
+		if err := rt.Shell.CheckTrustedDirectory(); err != nil {
 			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
 		}
 
-		if err := execCtx.ConfigHandler.LoadConfig(); err != nil {
+		if err := rt.ConfigHandler.LoadConfig(); err != nil {
 			return err
 		}
 
-		if !execCtx.ConfigHandler.IsLoaded() {
+		if !rt.ConfigHandler.IsLoaded() {
 			return fmt.Errorf("Nothing to check. Have you run \033[1mwindsor init\033[0m?")
 		}
 
 		provisionerCtx := &provisioner.ProvisionerRuntime{
-			Runtime: *execCtx,
+			Runtime: *rt,
 		}
 
 		prov := provisioner.NewProvisioner(provisionerCtx)

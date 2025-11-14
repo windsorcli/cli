@@ -18,6 +18,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -41,6 +42,7 @@ type ArtifactMocks struct {
 	Injector di.Injector
 	Shell    *shell.MockShell
 	Shims    *Shims
+	Runtime  *runtime.Runtime
 }
 
 // mockTarWriter provides a mock implementation of TarWriter for testing
@@ -154,6 +156,12 @@ func setupArtifactMocks(t *testing.T, opts ...*ArtifactSetupOptions) *ArtifactMo
 		return os.Create(fullPath)
 	}
 
+	// Create runtime
+	rt := &runtime.Runtime{
+		Injector: injector,
+		Shell:    mockShell,
+	}
+
 	// Cleanup function
 	t.Cleanup(func() {
 		os.Chdir(tmpDir)
@@ -163,6 +171,7 @@ func setupArtifactMocks(t *testing.T, opts ...*ArtifactSetupOptions) *ArtifactMo
 		Injector: injector,
 		Shell:    mockShell,
 		Shims:    shims,
+		Runtime:  rt,
 	}
 }
 
@@ -249,11 +258,20 @@ func setupShims(t *testing.T) *Shims {
 // =============================================================================
 
 func TestArtifactBuilder_NewArtifactBuilder(t *testing.T) {
+	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
+		t.Helper()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims = mocks.Shims
+		return builder, mocks
+	}
+
 	t.Run("CreatesBuilderWithDefaults", func(t *testing.T) {
 		// Given no preconditions
 
 		// When creating a new artifact builder
-		builder := NewArtifactBuilder()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
 
 		// Then the builder should be properly initialized
 		if builder == nil {
@@ -268,76 +286,19 @@ func TestArtifactBuilder_NewArtifactBuilder(t *testing.T) {
 			t.Error("Expected files map to be initialized")
 		}
 
-		// And dependency fields should be nil until Initialize() is called
-		if builder.shell != nil {
-			t.Error("Expected shell to be nil before Initialize()")
+		// And shell should be set (passed to constructor)
+		if builder.shell == nil {
+			t.Error("Expected shell to be set")
 		}
 	})
-}
-
-// =============================================================================
-// Test Public Methods
-// =============================================================================
-
-func TestArtifactBuilder_Initialize(t *testing.T) {
-	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
-		t.Helper()
-		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder()
-		builder.shims = mocks.Shims
-		return builder, mocks
-	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a builder and mocks
-		builder, mocks := setup(t)
-
-		// When calling Initialize
-		err := builder.Initialize(mocks.Injector)
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected nil error, got %v", err)
-		}
-
-		// And shell should be injected
-		if builder.shell == nil {
-			t.Error("Expected shell to be set after Initialize()")
-		}
-	})
-
-	t.Run("SuccessWithNilInjector", func(t *testing.T) {
-		// Given a builder
 		builder, _ := setup(t)
 
-		// When calling Initialize with nil injector
-		err := builder.Initialize(nil)
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected nil error, got %v", err)
-		}
-
-		// And shell should remain nil
-		if builder.shell != nil {
-			t.Error("Expected shell to remain nil with nil injector")
-		}
-	})
-
-	t.Run("ErrorWhenShellNotFound", func(t *testing.T) {
-		// Given a builder and injector without shell
-		builder, mocks := setup(t)
-		mocks.Injector.Register("shell", "not-a-shell")
-
-		// When calling Initialize
-		err := builder.Initialize(mocks.Injector)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error when shell not found")
-		}
-		if !strings.Contains(err.Error(), "failed to resolve shell") {
-			t.Errorf("Expected shell resolution error, got: %v", err)
+		// Then shell should be set
+		if builder.shell == nil {
+			t.Error("Expected shell to be set")
 		}
 	})
 }
@@ -346,7 +307,7 @@ func TestArtifactBuilder_AddFile(t *testing.T) {
 	setup := func(t *testing.T) *ArtifactBuilder {
 		t.Helper()
 		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder()
+		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
 		return builder
 	}
@@ -413,9 +374,8 @@ func TestArtifactBuilder_Create(t *testing.T) {
 	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
 		t.Helper()
 		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder()
+		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
-		builder.Initialize(mocks.Injector)
 		return builder, mocks
 	}
 
@@ -826,9 +786,8 @@ func TestArtifactBuilder_Push(t *testing.T) {
 	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
 		t.Helper()
 		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder()
+		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
-		builder.Initialize(mocks.Injector)
 		return builder, mocks
 	}
 
@@ -1494,7 +1453,7 @@ func TestArtifactBuilder_resolveOutputPath(t *testing.T) {
 	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
 		t.Helper()
 		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder()
+		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
 		return builder, mocks
 	}
@@ -1574,9 +1533,8 @@ func TestArtifactBuilder_createTarballInMemory(t *testing.T) {
 	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
 		t.Helper()
 		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder()
+		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
-		builder.Initialize(mocks.Injector)
 		return builder, mocks
 	}
 
@@ -1693,9 +1651,8 @@ func TestArtifactBuilder_generateMetadataWithNameVersion(t *testing.T) {
 	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
 		t.Helper()
 		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder()
+		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
-		builder.Initialize(mocks.Injector)
 		return builder, mocks
 	}
 
@@ -1790,9 +1747,8 @@ func TestArtifactBuilder_getGitProvenance(t *testing.T) {
 	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
 		t.Helper()
 		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder()
+		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
-		builder.Initialize(mocks.Injector)
 		return builder, mocks
 	}
 
@@ -1930,9 +1886,8 @@ func TestArtifactBuilder_getBuilderInfo(t *testing.T) {
 	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
 		t.Helper()
 		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder()
+		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
-		builder.Initialize(mocks.Injector)
 		return builder, mocks
 	}
 
@@ -2057,9 +2012,8 @@ func TestArtifactBuilder_createOCIArtifactImage(t *testing.T) {
 	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
 		t.Helper()
 		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder()
+		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
-		builder.Initialize(mocks.Injector)
 		return builder, mocks
 	}
 
@@ -2282,11 +2236,8 @@ func (m *mockLayer) MediaType() (types.MediaType, error)  { return "", nil }
 func TestArtifactBuilder_parseOCIRef(t *testing.T) {
 	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
 		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder()
+		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
-		if err := builder.Initialize(mocks.Injector); err != nil {
-			t.Fatalf("failed to initialize ArtifactBuilder: %v", err)
-		}
 		return builder, mocks
 	}
 
@@ -2399,11 +2350,8 @@ func TestArtifactBuilder_parseOCIRef(t *testing.T) {
 func TestArtifactBuilder_downloadOCIArtifact(t *testing.T) {
 	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
 		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder()
+		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
-		if err := builder.Initialize(mocks.Injector); err != nil {
-			t.Fatalf("failed to initialize ArtifactBuilder: %v", err)
-		}
 		return builder, mocks
 	}
 
@@ -2507,7 +2455,7 @@ func TestArtifactBuilder_downloadOCIArtifact(t *testing.T) {
 func TestArtifactBuilder_Pull(t *testing.T) {
 	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
 		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder()
+		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
 
 		// Set up OCI mocks
@@ -2532,9 +2480,6 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 			return []byte("test artifact data"), nil
 		}
 
-		if err := builder.Initialize(mocks.Injector); err != nil {
-			t.Fatalf("failed to initialize ArtifactBuilder: %v", err)
-		}
 		return builder, mocks
 	}
 
@@ -2735,14 +2680,11 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 
 	t.Run("CachingPreventsRedundantDownloads", func(t *testing.T) {
 		// Given an ArtifactBuilder with mocked dependencies
-		builder := NewArtifactBuilder()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
 		injector := di.NewInjector()
 		shell := shell.NewMockShell()
 		injector.Register("shell", shell)
-		err := builder.Initialize(injector)
-		if err != nil {
-			t.Fatalf("failed to initialize builder: %v", err)
-		}
 
 		// And download counter to track calls
 		downloadCount := 0
@@ -2814,14 +2756,11 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 
 	t.Run("CachingWorksWithMixedNewAndCachedArtifacts", func(t *testing.T) {
 		// Given an ArtifactBuilder with mocked dependencies
-		builder := NewArtifactBuilder()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
 		injector := di.NewInjector()
 		shell := shell.NewMockShell()
 		injector.Register("shell", shell)
-		err := builder.Initialize(injector)
-		if err != nil {
-			t.Fatalf("failed to initialize builder: %v", err)
-		}
 
 		// And download counter to track calls
 		downloadCount := 0
@@ -2897,11 +2836,8 @@ func TestArtifactBuilder_Bundle(t *testing.T) {
 	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
 		t.Helper()
 		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder()
+		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
-		if err := builder.Initialize(mocks.Injector); err != nil {
-			t.Fatalf("Failed to initialize builder: %v", err)
-		}
 		return builder, mocks
 	}
 
@@ -3036,7 +2972,8 @@ func (m *mockReference) Scope(action string) string { return "" }
 func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 	t.Run("InvalidOCIReference", func(t *testing.T) {
 		// Given an artifact builder
-		builder := NewArtifactBuilder()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
 
 		// When calling GetTemplateData with invalid reference
 		templateData, err := builder.GetTemplateData("invalid-ref")
@@ -3055,7 +2992,8 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 
 	t.Run("ErrorParsingOCIReference", func(t *testing.T) {
 		// Given an artifact builder with mock shims
-		builder := NewArtifactBuilder()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = &Shims{
 			ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
 				return nil, fmt.Errorf("parse error")
@@ -3079,7 +3017,8 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 
 	t.Run("UsesCachedArtifact", func(t *testing.T) {
 		// Given an artifact builder with cached data
-		builder := NewArtifactBuilder()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
 
 		// Create test tar.gz data
 		testData := createTestTarGz(t, map[string][]byte{
@@ -3143,7 +3082,8 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 
 	t.Run("FiltersOnlyJsonnetFiles", func(t *testing.T) {
 		// Given an artifact builder with cached data containing multiple file types
-		builder := NewArtifactBuilder()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
 
 		// Create test tar.gz data with mixed file types
 		testData := createTestTarGz(t, map[string][]byte{
@@ -3216,7 +3156,8 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 
 	t.Run("ErrorWhenMissingMetadata", func(t *testing.T) {
 		// Given an artifact builder with cached data missing metadata.yaml
-		builder := NewArtifactBuilder()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
 
 		// Create test tar.gz data without metadata.yaml
 		testData := createTestTarGz(t, map[string][]byte{
@@ -3250,7 +3191,8 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 
 	t.Run("ErrorWhenMissingBlueprintJsonnet", func(t *testing.T) {
 		// Given an artifact builder with cached data missing _template/blueprint.jsonnet
-		builder := NewArtifactBuilder()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
 
 		// Create test tar.gz data without _template/blueprint.jsonnet
 		testData := createTestTarGz(t, map[string][]byte{
@@ -3292,7 +3234,8 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 
 	t.Run("SuccessWithOptionalSchema", func(t *testing.T) {
 		// Given an artifact builder with cached data missing optional schema.yaml
-		builder := NewArtifactBuilder()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
 
 		// Create test tar.gz data without schema.yaml
 		testData := createTestTarGz(t, map[string][]byte{
@@ -3354,7 +3297,8 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 
 	t.Run("SuccessWithRequiredFiles", func(t *testing.T) {
 		// Given an artifact builder with cached data containing required files
-		builder := NewArtifactBuilder()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
 
 		// Create test tar.gz data with required files
 		testData := createTestTarGz(t, map[string][]byte{
@@ -3544,11 +3488,8 @@ func TestArtifactBuilder_findMatchingProcessor(t *testing.T) {
 	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
 		t.Helper()
 		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder()
+		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
-		if err := builder.Initialize(mocks.Injector); err != nil {
-			t.Fatalf("Failed to initialize builder: %v", err)
-		}
 		return builder, mocks
 	}
 
@@ -3620,11 +3561,8 @@ func TestArtifactBuilder_shouldSkipTerraformFile(t *testing.T) {
 	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
 		t.Helper()
 		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder()
+		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
-		if err := builder.Initialize(mocks.Injector); err != nil {
-			t.Fatalf("Failed to initialize builder: %v", err)
-		}
 		return builder, mocks
 	}
 
@@ -3757,11 +3695,8 @@ func TestArtifactBuilder_walkAndProcessFiles(t *testing.T) {
 	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
 		t.Helper()
 		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder()
+		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
-		if err := builder.Initialize(mocks.Injector); err != nil {
-			t.Fatalf("Failed to initialize builder: %v", err)
-		}
 		return builder, mocks
 	}
 

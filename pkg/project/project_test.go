@@ -7,12 +7,12 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/composer"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/provisioner"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/provisioner"
 	"github.com/windsorcli/cli/pkg/workstation"
 )
 
@@ -102,11 +102,11 @@ func setupMocks(t *testing.T) *Mocks {
 	injector.Register("configHandler", configHandler)
 	injector.Register("toolsManager", mockToolsManager)
 
-	baseCtx := &runtime.Runtime{
+	rt := &runtime.Runtime{
 		Injector: injector,
 	}
 
-	ctx, err := runtime.NewRuntime(baseCtx)
+	ctx, err := runtime.NewRuntime(rt)
 	if err != nil {
 		t.Fatalf("Failed to create context: %v", err)
 	}
@@ -116,10 +116,7 @@ func setupMocks(t *testing.T) *Mocks {
 	}
 	prov := provisioner.NewProvisioner(provCtx)
 
-	composerCtx := &composer.ComposerRuntime{
-		Runtime: *ctx,
-	}
-	comp := composer.NewComposer(composerCtx)
+	comp := composer.NewComposer(ctx)
 
 	return &Mocks{
 		Injector:      injector,
@@ -148,8 +145,8 @@ func TestNewProject(t *testing.T) {
 			t.Fatal("Expected Project to be created")
 		}
 
-		if proj.Context == nil {
-			t.Error("Expected Context to be set")
+		if proj.Runtime == nil {
+			t.Error("Expected Runtime to be set")
 		}
 
 		if proj.Provisioner == nil {
@@ -160,8 +157,8 @@ func TestNewProject(t *testing.T) {
 			t.Error("Expected Composer to be set")
 		}
 
-		if proj.Context.ContextName != "test-context" {
-			t.Errorf("Expected ContextName to be 'test-context', got: %s", proj.Context.ContextName)
+		if proj.Runtime.ContextName != "test-context" {
+			t.Errorf("Expected ContextName to be 'test-context', got: %s", proj.Runtime.ContextName)
 		}
 	})
 
@@ -174,8 +171,8 @@ func TestNewProject(t *testing.T) {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		if proj.Context.ContextName != "custom-context" {
-			t.Errorf("Expected ContextName to be 'custom-context', got: %s", proj.Context.ContextName)
+		if proj.Runtime.ContextName != "custom-context" {
+			t.Errorf("Expected ContextName to be 'custom-context', got: %s", proj.Runtime.ContextName)
 		}
 	})
 
@@ -188,8 +185,8 @@ func TestNewProject(t *testing.T) {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		if proj.Context.ContextName != "test-context" {
-			t.Errorf("Expected ContextName to be 'test-context', got: %s", proj.Context.ContextName)
+		if proj.Runtime.ContextName != "test-context" {
+			t.Errorf("Expected ContextName to be 'test-context', got: %s", proj.Runtime.ContextName)
 		}
 	})
 
@@ -206,8 +203,8 @@ func TestNewProject(t *testing.T) {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		if proj.Context.ContextName != "local" {
-			t.Errorf("Expected ContextName to be 'local', got: %s", proj.Context.ContextName)
+		if proj.Runtime.ContextName != "local" {
+			t.Errorf("Expected ContextName to be 'local', got: %s", proj.Runtime.ContextName)
 		}
 	})
 
