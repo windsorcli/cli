@@ -26,7 +26,7 @@ var getContextCmd = &cobra.Command{
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
-		if err := execCtx.LoadConfig(); err != nil {
+		if err := execCtx.ConfigHandler.LoadConfig(); err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
@@ -56,7 +56,7 @@ var setContextCmd = &cobra.Command{
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
-		if err := execCtx.LoadConfig(); err != nil {
+		if err := execCtx.ConfigHandler.LoadConfig(); err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 

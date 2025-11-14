@@ -36,11 +36,11 @@ var checkCmd = &cobra.Command{
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
-		if err := execCtx.CheckTrustedDirectory(); err != nil {
+		if err := execCtx.Shell.CheckTrustedDirectory(); err != nil {
 			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
 		}
 
-		if err := execCtx.LoadConfig(); err != nil {
+		if err := execCtx.ConfigHandler.LoadConfig(); err != nil {
 			return err
 		}
 
@@ -81,11 +81,11 @@ var checkNodeHealthCmd = &cobra.Command{
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
-		if err := execCtx.CheckTrustedDirectory(); err != nil {
+		if err := execCtx.Shell.CheckTrustedDirectory(); err != nil {
 			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
 		}
 
-		if err := execCtx.LoadConfig(); err != nil {
+		if err := execCtx.ConfigHandler.LoadConfig(); err != nil {
 			return err
 		}
 

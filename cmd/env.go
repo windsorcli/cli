@@ -36,7 +36,7 @@ var envCmd = &cobra.Command{
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
-		if err := execCtx.CheckTrustedDirectory(); err != nil {
+		if err := execCtx.Shell.CheckTrustedDirectory(); err != nil {
 			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
 		}
 
@@ -44,7 +44,7 @@ var envCmd = &cobra.Command{
 			return err
 		}
 
-		if err := execCtx.LoadConfig(); err != nil {
+		if err := execCtx.ConfigHandler.LoadConfig(); err != nil {
 			return err
 		}
 
@@ -62,10 +62,16 @@ var envCmd = &cobra.Command{
 		}
 
 		if hook {
-			outputFunc(execCtx.PrintEnvVarsExport())
-			outputFunc(execCtx.PrintAliases())
+			if execCtx.Shell != nil && len(execCtx.GetEnvVars()) > 0 {
+				outputFunc(execCtx.Shell.RenderEnvVars(execCtx.GetEnvVars(), true))
+			}
+			if execCtx.Shell != nil && len(execCtx.GetAliases()) > 0 {
+				outputFunc(execCtx.Shell.RenderAliases(execCtx.GetAliases()))
+			}
 		} else {
-			outputFunc(execCtx.PrintEnvVars())
+			if execCtx.Shell != nil && len(execCtx.GetEnvVars()) > 0 {
+				outputFunc(execCtx.Shell.RenderEnvVars(execCtx.GetEnvVars(), false))
+			}
 		}
 
 		return nil
