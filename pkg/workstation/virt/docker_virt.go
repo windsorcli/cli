@@ -210,11 +210,11 @@ func (v *DockerVirt) WriteConfig() error {
 	return nil
 }
 
-// GetContainerInfo retrieves detailed information about Docker containers managed by
+// getContainerInfo retrieves detailed information about Docker containers managed by
 // Windsor, including their names, IP addresses, and labels. It filters containers
 // by Windsor-managed labels and context, and optionally by service name if provided.
 // For each container, it retrieves network settings to determine IP addresses.
-func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
+func (v *DockerVirt) getContainerInfo(name ...string) ([]ContainerInfo, error) {
 	contextName := v.configHandler.GetContext()
 
 	command := "docker"

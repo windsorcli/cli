@@ -67,13 +67,11 @@ type Virt interface {
 // VirtualMachine defines methods for VirtualMachine operations
 type VirtualMachine interface {
 	Virt
-	GetVMInfo() (VMInfo, error)
 }
 
 // ContainerRuntime defines methods for container operations
 type ContainerRuntime interface {
 	Virt
-	GetContainerInfo(name ...string) ([]ContainerInfo, error)
 }
 
 // =============================================================================

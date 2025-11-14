@@ -11,12 +11,10 @@ package virt
 
 // MockVirt is a struct that simulates a virt environment for testing purposes.
 type MockVirt struct {
-	InitializeFunc       func() error
-	UpFunc               func(verbose ...bool) error
-	DownFunc             func() error
-	WriteConfigFunc      func() error
-	GetVMInfoFunc        func() (VMInfo, error)
-	GetContainerInfoFunc func(name ...string) ([]ContainerInfo, error)
+	InitializeFunc  func() error
+	UpFunc          func(verbose ...bool) error
+	DownFunc        func() error
+	WriteConfigFunc func() error
 }
 
 // =============================================================================
@@ -66,24 +64,6 @@ func (m *MockVirt) WriteConfig() error {
 		return m.WriteConfigFunc()
 	}
 	return nil
-}
-
-// GetVMInfo retrieves information about the mock VM.
-// If a custom GetVMInfoFunc is provided, it will use that function instead.
-func (m *MockVirt) GetVMInfo() (VMInfo, error) {
-	if m.GetVMInfoFunc != nil {
-		return m.GetVMInfoFunc()
-	}
-	return VMInfo{}, nil
-}
-
-// GetContainerInfo retrieves information about the mock containers.
-// If a custom GetContainerInfoFunc is provided, it will use that function instead.
-func (m *MockVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
-	if m.GetContainerInfoFunc != nil {
-		return m.GetContainerInfoFunc(name...)
-	}
-	return []ContainerInfo{}, nil
 }
 
 // =============================================================================
