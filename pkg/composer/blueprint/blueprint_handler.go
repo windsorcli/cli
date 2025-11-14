@@ -176,54 +176,6 @@ func (b *BaseBlueprintHandler) LoadBlueprint() error {
 	return nil
 }
 
-// loadConfig reads blueprint configuration from blueprint.yaml file.
-// Returns an error if blueprint.yaml does not exist.
-// Template processing is now handled by the pkg/template package.
-func (b *BaseBlueprintHandler) loadConfig() error {
-	configRoot, err := b.configHandler.GetConfigRoot()
-	if err != nil {
-		return fmt.Errorf("error getting config root: %w", err)
-	}
-
-	yamlPath := filepath.Join(configRoot, "blueprint.yaml")
-	if _, err := b.shims.Stat(yamlPath); err != nil {
-		return fmt.Errorf("blueprint.yaml not found at %s", yamlPath)
-	}
-
-	yamlData, err := b.shims.ReadFile(yamlPath)
-	if err != nil {
-		return err
-	}
-
-	if err := b.processBlueprintData(yamlData, &b.blueprint); err != nil {
-		return err
-	}
-
-	b.configLoaded = true
-	return nil
-}
-
-// loadData loads blueprint configuration from a map containing blueprint data.
-// It marshals the input map to YAML, processes it as a Blueprint object, and updates the handler's blueprint state.
-// The ociInfo parameter optionally provides OCI artifact source information for source resolution and tracking.
-// If config is already loaded from YAML, this is a no-op to preserve resolved state.
-func (b *BaseBlueprintHandler) loadData(data map[string]any, ociInfo ...*artifact.OCIArtifactInfo) error {
-	if b.configLoaded {
-		return nil
-	}
-
-	yamlData, err := b.shims.YamlMarshal(data)
-	if err != nil {
-		return fmt.Errorf("error marshalling blueprint data to yaml: %w", err)
-	}
-
-	if err := b.processBlueprintData(yamlData, &b.blueprint, ociInfo...); err != nil {
-		return err
-	}
-
-	return nil
-}
-
 // Write persists the current blueprint state to blueprint.yaml in the configuration root directory.
 // If overwrite is true, the file is overwritten regardless of existence. If overwrite is false or omitted,
 // the file is only written if it does not already exist. The method ensures the target directory exists,
@@ -273,34 +225,6 @@ func (b *BaseBlueprintHandler) Write(overwrite ...bool) error {
 	return nil
 }
 
-// getMetadata retrieves the current blueprint's metadata.
-func (b *BaseBlueprintHandler) getMetadata() blueprintv1alpha1.Metadata {
-	resolvedBlueprint := b.blueprint
-	return resolvedBlueprint.Metadata
-}
-
-// getRepository retrieves the current blueprint's repository configuration, ensuring
-// default values are set for empty fields.
-func (b *BaseBlueprintHandler) getRepository() blueprintv1alpha1.Repository {
-	resolvedBlueprint := b.blueprint
-	repository := resolvedBlueprint.Repository
-
-	if repository.Url == "" {
-		repository.Url = ""
-	}
-	if repository.Ref == (blueprintv1alpha1.Reference{}) {
-		repository.Ref = blueprintv1alpha1.Reference{Branch: "main"}
-	}
-
-	return repository
-}
-
-// getSources retrieves the current blueprint's source configurations.
-func (b *BaseBlueprintHandler) getSources() []blueprintv1alpha1.Source {
-	resolvedBlueprint := b.blueprint
-	return resolvedBlueprint.Sources
-}
-
 // GetTerraformComponents retrieves the blueprint's Terraform components after resolving
 // their sources and paths to full URLs and filesystem paths respectively.
 func (b *BaseBlueprintHandler) GetTerraformComponents() []blueprintv1alpha1.TerraformComponent {
@@ -310,53 +234,6 @@ func (b *BaseBlueprintHandler) GetTerraformComponents() []blueprintv1alpha1.Terr
 	b.resolveComponentPaths(&resolvedBlueprint)
 
 	return resolvedBlueprint.TerraformComponents
-}
-
-// getKustomizations returns the current blueprint's kustomization configurations with all default values resolved.
-// It copies the kustomizations from the blueprint, sets default values for Source, Path, Interval, RetryInterval,
-// Timeout, Wait, Force, and Destroy fields if unset, discovers and appends patches, and sets the PostBuild configuration.
-// This method ensures all kustomization fields are fully populated for downstream processing.
-func (b *BaseBlueprintHandler) getKustomizations() []blueprintv1alpha1.Kustomization {
-	resolvedBlueprint := b.blueprint
-	kustomizations := make([]blueprintv1alpha1.Kustomization, len(resolvedBlueprint.Kustomizations))
-	copy(kustomizations, resolvedBlueprint.Kustomizations)
-
-	for i := range kustomizations {
-		if kustomizations[i].Source == "" {
-			kustomizations[i].Source = b.blueprint.Metadata.Name
-		}
-
-		if kustomizations[i].Path == "" {
-			kustomizations[i].Path = "kustomize"
-		} else {
-			kustomizations[i].Path = "kustomize/" + strings.ReplaceAll(kustomizations[i].Path, "\\", "/")
-		}
-
-		if kustomizations[i].Interval == nil || kustomizations[i].Interval.Duration == 0 {
-			kustomizations[i].Interval = &metav1.Duration{Duration: constants.DefaultFluxKustomizationInterval}
-		}
-		if kustomizations[i].RetryInterval == nil || kustomizations[i].RetryInterval.Duration == 0 {
-			kustomizations[i].RetryInterval = &metav1.Duration{Duration: constants.DefaultFluxKustomizationRetryInterval}
-		}
-		if kustomizations[i].Timeout == nil || kustomizations[i].Timeout.Duration == 0 {
-			kustomizations[i].Timeout = &metav1.Duration{Duration: constants.DefaultFluxKustomizationTimeout}
-		}
-		if kustomizations[i].Wait == nil {
-			defaultWait := constants.DefaultFluxKustomizationWait
-			kustomizations[i].Wait = &defaultWait
-		}
-		if kustomizations[i].Force == nil {
-			defaultForce := constants.DefaultFluxKustomizationForce
-			kustomizations[i].Force = &defaultForce
-		}
-		if kustomizations[i].Destroy == nil {
-			defaultDestroy := true
-			kustomizations[i].Destroy = &defaultDestroy
-		}
-
-	}
-
-	return kustomizations
 }
 
 // Generate returns the fully processed blueprint with all defaults resolved,
@@ -480,6 +357,129 @@ func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// loadConfig reads blueprint configuration from blueprint.yaml file.
+// Returns an error if blueprint.yaml does not exist.
+// Template processing is now handled by the pkg/template package.
+func (b *BaseBlueprintHandler) loadConfig() error {
+	configRoot, err := b.configHandler.GetConfigRoot()
+	if err != nil {
+		return fmt.Errorf("error getting config root: %w", err)
+	}
+
+	yamlPath := filepath.Join(configRoot, "blueprint.yaml")
+	if _, err := b.shims.Stat(yamlPath); err != nil {
+		return fmt.Errorf("blueprint.yaml not found at %s", yamlPath)
+	}
+
+	yamlData, err := b.shims.ReadFile(yamlPath)
+	if err != nil {
+		return err
+	}
+
+	if err := b.processBlueprintData(yamlData, &b.blueprint); err != nil {
+		return err
+	}
+
+	b.configLoaded = true
+	return nil
+}
+
+// loadData loads blueprint configuration from a map containing blueprint data.
+// It marshals the input map to YAML, processes it as a Blueprint object, and updates the handler's blueprint state.
+// The ociInfo parameter optionally provides OCI artifact source information for source resolution and tracking.
+// If config is already loaded from YAML, this is a no-op to preserve resolved state.
+func (b *BaseBlueprintHandler) loadData(data map[string]any, ociInfo ...*artifact.OCIArtifactInfo) error {
+	if b.configLoaded {
+		return nil
+	}
+
+	yamlData, err := b.shims.YamlMarshal(data)
+	if err != nil {
+		return fmt.Errorf("error marshalling blueprint data to yaml: %w", err)
+	}
+
+	if err := b.processBlueprintData(yamlData, &b.blueprint, ociInfo...); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// getMetadata retrieves the current blueprint's metadata.
+func (b *BaseBlueprintHandler) getMetadata() blueprintv1alpha1.Metadata {
+	resolvedBlueprint := b.blueprint
+	return resolvedBlueprint.Metadata
+}
+
+// getRepository retrieves the current blueprint's repository configuration, ensuring
+// default values are set for empty fields.
+func (b *BaseBlueprintHandler) getRepository() blueprintv1alpha1.Repository {
+	resolvedBlueprint := b.blueprint
+	repository := resolvedBlueprint.Repository
+
+	if repository.Url == "" {
+		repository.Url = ""
+	}
+	if repository.Ref == (blueprintv1alpha1.Reference{}) {
+		repository.Ref = blueprintv1alpha1.Reference{Branch: "main"}
+	}
+
+	return repository
+}
+
+// getSources retrieves the current blueprint's source configurations.
+func (b *BaseBlueprintHandler) getSources() []blueprintv1alpha1.Source {
+	resolvedBlueprint := b.blueprint
+	return resolvedBlueprint.Sources
+}
+
+// getKustomizations returns the current blueprint's kustomization configurations with all default values resolved.
+// It copies the kustomizations from the blueprint, sets default values for Source, Path, Interval, RetryInterval,
+// Timeout, Wait, Force, and Destroy fields if unset, discovers and appends patches, and sets the PostBuild configuration.
+// This method ensures all kustomization fields are fully populated for downstream processing.
+func (b *BaseBlueprintHandler) getKustomizations() []blueprintv1alpha1.Kustomization {
+	resolvedBlueprint := b.blueprint
+	kustomizations := make([]blueprintv1alpha1.Kustomization, len(resolvedBlueprint.Kustomizations))
+	copy(kustomizations, resolvedBlueprint.Kustomizations)
+
+	for i := range kustomizations {
+		if kustomizations[i].Source == "" {
+			kustomizations[i].Source = b.blueprint.Metadata.Name
+		}
+
+		if kustomizations[i].Path == "" {
+			kustomizations[i].Path = "kustomize"
+		} else {
+			kustomizations[i].Path = "kustomize/" + strings.ReplaceAll(kustomizations[i].Path, "\\", "/")
+		}
+
+		if kustomizations[i].Interval == nil || kustomizations[i].Interval.Duration == 0 {
+			kustomizations[i].Interval = &metav1.Duration{Duration: constants.DefaultFluxKustomizationInterval}
+		}
+		if kustomizations[i].RetryInterval == nil || kustomizations[i].RetryInterval.Duration == 0 {
+			kustomizations[i].RetryInterval = &metav1.Duration{Duration: constants.DefaultFluxKustomizationRetryInterval}
+		}
+		if kustomizations[i].Timeout == nil || kustomizations[i].Timeout.Duration == 0 {
+			kustomizations[i].Timeout = &metav1.Duration{Duration: constants.DefaultFluxKustomizationTimeout}
+		}
+		if kustomizations[i].Wait == nil {
+			defaultWait := constants.DefaultFluxKustomizationWait
+			kustomizations[i].Wait = &defaultWait
+		}
+		if kustomizations[i].Force == nil {
+			defaultForce := constants.DefaultFluxKustomizationForce
+			kustomizations[i].Force = &defaultForce
+		}
+		if kustomizations[i].Destroy == nil {
+			defaultDestroy := true
+			kustomizations[i].Destroy = &defaultDestroy
+		}
+
+	}
+
+	return kustomizations
+}
 
 // walkAndCollectTemplates traverses template directories to gather .jsonnet files.
 // It updates the provided templateData map with the relative paths and content of
