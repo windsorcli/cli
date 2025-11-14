@@ -8,13 +8,14 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/context/config"
 	envvars "github.com/windsorcli/cli/pkg/context/env"
+	"github.com/windsorcli/cli/pkg/context/shell"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
-	"github.com/windsorcli/cli/pkg/composer/blueprint"
-	"github.com/windsorcli/cli/pkg/context/shell"
 	"github.com/windsorcli/cli/pkg/workstation/network"
+	"github.com/windsorcli/cli/pkg/workstation/services"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
 
@@ -84,7 +85,7 @@ contexts:
 
 	// Setup network manager mock
 	mockNetworkManager := network.NewMockNetworkManager()
-	mockNetworkManager.InitializeFunc = func() error { return nil }
+	mockNetworkManager.InitializeFunc = func([]services.Service) error { return nil }
 	baseMocks.Injector.Register("networkManager", mockNetworkManager)
 
 	// Setup stack mock
@@ -382,7 +383,7 @@ func TestDownPipeline_Initialize(t *testing.T) {
 		mocks := setupDownMocks(t)
 
 		// Set up a failing network manager mock
-		mocks.NetworkManager.InitializeFunc = func() error {
+		mocks.NetworkManager.InitializeFunc = func([]services.Service) error {
 			return fmt.Errorf("network manager initialization failed")
 		}
 

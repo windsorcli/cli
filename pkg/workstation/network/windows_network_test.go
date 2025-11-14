@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
 // =============================================================================
@@ -19,7 +21,7 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks := setupMocks(t)
 		manager := NewBaseNetworkManager(mocks.Injector)
 		manager.shims = mocks.Shims
-		manager.Initialize()
+		manager.Initialize([]services.Service{})
 		return manager, mocks
 	}
 
@@ -27,14 +29,8 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 		// Given a properly configured network manager
 		manager, _ := setup(t)
 
-		// When initializing the network manager
-		err := manager.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
-
 		// And configuring the host route
-		err = manager.ConfigureHostRoute()
+		err := manager.ConfigureHostRoute()
 
 		// Then no error should occur
 		if err != nil {
@@ -148,7 +144,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks := setupMocks(t)
 		manager := NewBaseNetworkManager(mocks.Injector)
 		manager.shims = mocks.Shims
-		manager.Initialize()
+		manager.Initialize([]services.Service{})
 		return manager, mocks
 	}
 

@@ -5,11 +5,11 @@ import (
 	"net"
 	"sort"
 
-	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/context/config"
 	"github.com/windsorcli/cli/pkg/context/shell"
 	"github.com/windsorcli/cli/pkg/context/shell/ssh"
+	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
@@ -24,7 +24,7 @@ import (
 
 // NetworkManager handles configuring the local development network
 type NetworkManager interface {
-	Initialize() error
+	Initialize(services []services.Service) error
 	ConfigureHostRoute() error
 	ConfigureGuest() error
 	ConfigureDNS() error
@@ -58,8 +58,9 @@ func NewBaseNetworkManager(injector di.Injector) *BaseNetworkManager {
 // Public Methods
 // =============================================================================
 
-// Initialize resolves dependencies, sorts services, and assigns IPs based on network CIDR
-func (n *BaseNetworkManager) Initialize() error {
+// Initialize resolves dependencies, sorts services, and assigns IPs based on network CIDR.
+// Services are passed explicitly from Workstation to ensure we work with the same instances.
+func (n *BaseNetworkManager) Initialize(serviceList []services.Service) error {
 	shellInterface, ok := n.injector.Resolve("shell").(shell.Shell)
 	if !ok {
 		return fmt.Errorf("resolved shell instance is not of type shell.Shell")
@@ -72,17 +73,7 @@ func (n *BaseNetworkManager) Initialize() error {
 	}
 	n.configHandler = configHandler
 
-	resolvedServices, err := n.injector.ResolveAll(new(services.Service))
-	if err != nil {
-		return fmt.Errorf("error resolving services: %w", err)
-	}
-
-	var serviceList []services.Service
-	for _, serviceInterface := range resolvedServices {
-		service, _ := serviceInterface.(services.Service)
-		serviceList = append(serviceList, service)
-	}
-
+	// Sort services by name for consistent IP assignment
 	sort.Slice(serviceList, func(i, j int) bool {
 		return serviceList[i].GetName() < serviceList[j].GetName()
 	})

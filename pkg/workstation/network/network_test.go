@@ -260,8 +260,14 @@ func TestNetworkManager_Initialize(t *testing.T) {
 			return nil
 		}
 
+		// Convert mock services to service interface slice
+		serviceList := make([]services.Service, len(mocks.Services))
+		for i, s := range mocks.Services {
+			serviceList[i] = s
+		}
+
 		// When creating and initializing the network manager
-		err := manager.Initialize()
+		err := manager.Initialize(serviceList)
 
 		// Then no error should occur
 		if err != nil {
@@ -290,8 +296,14 @@ func TestNetworkManager_Initialize(t *testing.T) {
 			return fmt.Errorf("mock error setting address for service")
 		}
 
+		// Convert mock services to service interface slice
+		serviceList := make([]services.Service, len(mocks.Services))
+		for i, s := range mocks.Services {
+			serviceList[i] = s
+		}
+
 		// When initializing the network manager
-		err := manager.Initialize()
+		err := manager.Initialize(serviceList)
 
 		// Then an error should occur
 		if err == nil {
@@ -299,7 +311,7 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		}
 
 		// And the error should contain the expected message
-		expectedErrorSubstring := "error setting address for service"
+		expectedErrorSubstring := "error assigning IP addresses"
 		if !strings.Contains(err.Error(), expectedErrorSubstring) {
 			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
 		}
@@ -311,7 +323,7 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		mocks.Injector.Register("shell", "invalid")
 
 		// When initializing the network manager
-		err := manager.Initialize()
+		err := manager.Initialize([]services.Service{})
 
 		// Then an error should occur
 		if err == nil {
@@ -330,7 +342,7 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		mocks.Injector.Register("configHandler", "invalid")
 
 		// When initializing the network manager
-		err := manager.Initialize()
+		err := manager.Initialize([]services.Service{})
 
 		// Then an error should occur
 		if err == nil {
@@ -344,38 +356,54 @@ func TestNetworkManager_Initialize(t *testing.T) {
 	})
 
 	t.Run("ErrorResolvingServices", func(t *testing.T) {
-		// Given a network manager with service resolution error
-		mockInjector := di.NewMockInjector()
-		setupMocks(t, &SetupOptions{
-			Injector: mockInjector,
-		})
-		manager := NewBaseNetworkManager(mockInjector)
-		mockInjector.SetResolveAllError(new(services.Service), fmt.Errorf("mock error resolving services"))
+		// Given a network manager
+		manager, mocks := setup(t)
 
-		// When initializing the network manager
-		err := manager.Initialize()
+		// When initializing the network manager with services
+		// (services are now passed explicitly, so no resolution error can occur)
+		err := manager.Initialize([]services.Service{})
 
-		// Then an error should occur
-		if err == nil {
-			t.Errorf("expected error, got none")
+		// Then no error should occur (services are passed directly, not resolved)
+		if err != nil {
+			t.Errorf("expected no error when services are passed explicitly, got %v", err)
 		}
 
-		// And the error should contain the expected message
-		expectedErrorSubstring := "error resolving services"
-		if !strings.Contains(err.Error(), expectedErrorSubstring) {
-			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
+		// Verify manager was initialized
+		if manager.configHandler == nil {
+			t.Error("expected configHandler to be set")
 		}
+		if manager.shell == nil {
+			t.Error("expected shell to be set")
+		}
+		_ = mocks // suppress unused variable warning
 	})
 
 	t.Run("ErrorSettingNetworkCidr", func(t *testing.T) {
 		// Given a network manager with CIDR setting error
-		manager, mocks := setup(t)
-		mocks.Services[0].SetAddressFunc = func(address string, portAllocator *services.PortAllocator) error {
-			return fmt.Errorf("error setting default network CIDR")
+		// Create a mock config handler that returns error for Set
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "network.cidr_block" {
+				return "" // Return empty so Set is called
+			}
+			return "10.5.0.0/16"
+		}
+		mockConfigHandler.SetFunc = func(key string, value any) error {
+			if key == "network.cidr_block" {
+				return fmt.Errorf("error setting default network CIDR")
+			}
+			return nil
 		}
 
+		// Setup with mock config handler
+		mocks := setupMocks(t, &SetupOptions{
+			ConfigHandler: mockConfigHandler,
+		})
+		manager := NewBaseNetworkManager(mocks.Injector)
+		manager.shims = mocks.Shims
+
 		// When initializing the network manager
-		err := manager.Initialize()
+		err := manager.Initialize([]services.Service{})
 
 		// Then an error should occur
 		if err == nil {
@@ -392,12 +420,15 @@ func TestNetworkManager_Initialize(t *testing.T) {
 	t.Run("ErrorAssigningIPAddresses", func(t *testing.T) {
 		// Given a network manager with IP assignment error
 		manager, mocks := setup(t)
-		mocks.Services[0].SetAddressFunc = func(address string, portAllocator *services.PortAllocator) error {
+		// Create a service with SetAddress that returns error
+		mockService := services.NewMockService()
+		mockService.SetAddressFunc = func(address string, portAllocator *services.PortAllocator) error {
 			return fmt.Errorf("mock assign IP addresses error")
 		}
+		serviceList := []services.Service{mockService}
 
 		// When initializing the network manager
-		err := manager.Initialize()
+		err := manager.Initialize(serviceList)
 
 		// Then an error should occur
 		if err == nil {
@@ -409,6 +440,7 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		if !strings.Contains(err.Error(), expectedErrorSubstring) {
 			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
 		}
+		_ = mocks // suppress unused variable warning
 	})
 
 	t.Run("ResolveShellFailure", func(t *testing.T) {
@@ -417,7 +449,7 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		mocks.Injector.Register("shell", "invalid")
 
 		// When initializing the network manager
-		err := manager.Initialize()
+		err := manager.Initialize([]services.Service{})
 
 		// Then an error should occur
 		if err == nil {

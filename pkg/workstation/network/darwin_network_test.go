@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
 // =============================================================================
@@ -19,7 +21,7 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks := setupMocks(t)
 		manager := NewBaseNetworkManager(mocks.Injector)
 		manager.shims = mocks.Shims
-		manager.Initialize()
+		manager.Initialize([]services.Service{})
 		return manager, mocks
 	}
 
@@ -167,7 +169,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks := setupMocks(t)
 		manager := NewBaseNetworkManager(mocks.Injector)
 		manager.shims = mocks.Shims
-		manager.Initialize()
+		manager.Initialize([]services.Service{})
 		return manager, mocks
 	}
 
