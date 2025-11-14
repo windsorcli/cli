@@ -2,12 +2,14 @@ package composer
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/composer/terraform"
 	"github.com/windsorcli/cli/pkg/context"
-	"github.com/windsorcli/cli/pkg/generators"
 )
 
 // The Composer package provides high-level resource management functionality
@@ -162,11 +164,96 @@ func (r *Composer) Generate(overwrite ...bool) error {
 // =============================================================================
 
 // generateGitignore creates or updates the .gitignore file with Windsor-specific entries.
-// It delegates to the GitGenerator to maintain consistency with the existing generator logic.
+// It ensures Windsor-specific paths are excluded from version control while preserving user-defined entries.
 func (r *Composer) generateGitignore() error {
-	gitGenerator := generators.NewGitGenerator(r.Injector)
-	if err := gitGenerator.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize git generator: %w", err)
+	gitIgnoreLines := []string{
+		"# managed by windsor cli",
+		".windsor/",
+		".volumes/",
+		"terraform/**/backend_override.tf",
+		"contexts/**/.terraform/",
+		"contexts/**/.tfstate/",
+		"contexts/**/.kube/",
+		"contexts/**/.talos/",
+		"contexts/**/.omni/",
+		"contexts/**/.aws/",
+		"contexts/**/.azure/",
 	}
-	return gitGenerator.Generate(nil)
+
+	projectRoot, err := r.Shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	gitignorePath := filepath.Join(projectRoot, ".gitignore")
+
+	content, err := os.ReadFile(gitignorePath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to read .gitignore: %w", err)
+	}
+
+	if os.IsNotExist(err) {
+		content = []byte{}
+	}
+
+	existingLines := make(map[string]struct{})
+	commentedNormalized := make(map[string]struct{})
+	var unmanagedLines []string
+	lines := strings.Split(string(content), "\n")
+	for i, line := range lines {
+		existingLines[line] = struct{}{}
+
+		trimmed := strings.TrimLeft(line, " \t")
+		if strings.HasPrefix(trimmed, "#") {
+			norm := normalizeGitignoreComment(trimmed)
+			if norm != "" {
+				commentedNormalized[norm] = struct{}{}
+			}
+		}
+
+		if i == len(lines)-1 && line == "" {
+			continue
+		}
+		unmanagedLines = append(unmanagedLines, line)
+	}
+
+	for _, line := range gitIgnoreLines {
+		if line == "# managed by windsor cli" {
+			if _, exists := existingLines[line]; !exists {
+				unmanagedLines = append(unmanagedLines, "")
+				unmanagedLines = append(unmanagedLines, line)
+			}
+			continue
+		}
+
+		if _, exists := existingLines[line]; !exists {
+			if _, commentedExists := commentedNormalized[line]; !commentedExists {
+				unmanagedLines = append(unmanagedLines, line)
+			}
+		}
+	}
+
+	finalContent := strings.Join(unmanagedLines, "\n")
+
+	if !strings.HasSuffix(finalContent, "\n") {
+		finalContent += "\n"
+	}
+
+	if err := os.WriteFile(gitignorePath, []byte(finalContent), 0644); err != nil {
+		return fmt.Errorf("failed to write to .gitignore: %w", err)
+	}
+
+	return nil
+}
+
+// normalizeGitignoreComment normalizes a commented .gitignore line to its uncommented form.
+// It removes all leading #, whitespace, and trailing whitespace.
+func normalizeGitignoreComment(line string) string {
+	trimmed := strings.TrimLeft(line, " \t")
+	if !strings.HasPrefix(trimmed, "#") {
+		return ""
+	}
+	noHash := strings.TrimLeft(trimmed, "#")
+	noHash = strings.TrimLeft(noHash, " \t")
+	return strings.TrimSpace(noHash)
 }
