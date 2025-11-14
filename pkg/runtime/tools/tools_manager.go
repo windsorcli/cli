@@ -3,7 +3,6 @@ package tools
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -11,10 +10,10 @@ import (
 
 	"github.com/briandowns/spinner"
 	"github.com/windsorcli/cli/pkg/constants"
+	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	sh "github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 // The ToolsManager is a core component that manages development tools and dependencies
@@ -139,29 +138,6 @@ func (t *BaseToolsManager) Check() error {
 	spin.Stop()
 	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
 	return nil
-}
-
-// CheckExistingToolsManager identifies the active tools manager, prioritizing aqua.
-func CheckExistingToolsManager(projectRoot string) (string, error) {
-	aquaPath := filepath.Join(projectRoot, "aqua.yaml")
-	if _, err := osStat(aquaPath); err == nil {
-		return "aqua", nil
-	}
-
-	asdfPath := filepath.Join(projectRoot, ".tool-versions")
-	if _, err := osStat(asdfPath); err == nil {
-		return "asdf", nil
-	}
-
-	if _, err := execLookPath("aqua"); err == nil {
-		return "aqua", nil
-	}
-
-	if _, err := execLookPath("asdf"); err == nil {
-		return "asdf", nil
-	}
-
-	return "", nil
 }
 
 // =============================================================================

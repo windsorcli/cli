@@ -77,11 +77,11 @@ func (v *ColimaVirt) Down() error {
 	return v.executeColimaCommand("delete")
 }
 
-// GetVMInfo returns the information about the Colima VM
+// getVMInfo returns the information about the Colima VM
 // Retrieves the VM details from the Colima CLI and parses the JSON output
 // Converts memory and disk values from bytes to gigabytes for easier consumption
 // Returns a VMInfo struct with the parsed information or an error if retrieval fails
-func (v *ColimaVirt) GetVMInfo() (VMInfo, error) {
+func (v *ColimaVirt) getVMInfo() (VMInfo, error) {
 	contextName := v.configHandler.GetContext()
 
 	command := "colima"
@@ -215,22 +215,6 @@ func (v *ColimaVirt) WriteConfig() error {
 	return nil
 }
 
-// PrintInfo prints the information about the Colima VM
-// Retrieves the VM information and formats it in a tabular display
-// Shows the VM name, architecture, CPU count, memory, disk size, and IP address
-// Returns an error if the VM information cannot be retrieved
-func (v *ColimaVirt) PrintInfo() error {
-	info, err := v.GetVMInfo()
-	if err != nil {
-		return fmt.Errorf("error retrieving VM info: %w", err)
-	}
-	fmt.Printf("%-15s %-10s %-10s %-10s %-10s %-15s\n", "VM NAME", "ARCH", "CPUS", "MEMORY", "DISK", "ADDRESS")
-	fmt.Printf("%-15s %-10s %-10d %-10s %-10s %-15s\n", info.Name, info.Arch, info.CPUs, fmt.Sprintf("%dGiB", info.Memory), fmt.Sprintf("%dGiB", info.Disk), info.Address)
-	fmt.Println()
-
-	return nil
-}
-
 // =============================================================================
 // Private Methods
 // =============================================================================
@@ -313,7 +297,7 @@ func (v *ColimaVirt) startColima() (VMInfo, error) {
 	var info VMInfo
 	var lastErr error
 	for i := range make([]int, testRetryAttempts) {
-		info, err = v.GetVMInfo()
+		info, err = v.getVMInfo()
 		if err != nil {
 			lastErr = fmt.Errorf("Error retrieving Colima info: %w", err)
 			time.Sleep(time.Duration(RETRY_WAIT*(i+1)) * time.Second)

@@ -13,7 +13,7 @@ import (
 // Test Helper Functions
 // =============================================================================
 
-func TestBaseBlueprintHandler_GetKustomizations(t *testing.T) {
+func TestBaseBlueprintHandler_getKustomizations(t *testing.T) {
 	t.Run("NoKustomizations", func(t *testing.T) {
 		// Given a blueprint handler with no kustomizations
 		handler := &BaseBlueprintHandler{
@@ -26,7 +26,7 @@ func TestBaseBlueprintHandler_GetKustomizations(t *testing.T) {
 		}
 
 		// When getting kustomizations
-		result := handler.GetKustomizations()
+		result := handler.getKustomizations()
 
 		// Then it should return empty slice
 		if len(result) != 0 {
@@ -53,7 +53,7 @@ func TestBaseBlueprintHandler_GetKustomizations(t *testing.T) {
 		}
 
 		// When getting kustomizations
-		result := handler.GetKustomizations()
+		result := handler.getKustomizations()
 
 		// Then it should return the kustomization with default values
 		if len(result) != 1 {
@@ -98,7 +98,7 @@ func TestBaseBlueprintHandler_GetKustomizations(t *testing.T) {
 		}
 
 		// When getting kustomizations
-		result := handler.GetKustomizations()
+		result := handler.getKustomizations()
 
 		// Then it should return the kustomization with existing patches preserved
 		if len(result) != 1 {
@@ -164,7 +164,7 @@ data:
 		handler.projectRoot = tempDir
 
 		// When getting kustomizations
-		result := handler.GetKustomizations()
+		result := handler.getKustomizations()
 
 		// Then it should return the kustomization with no patches (auto-discovery disabled)
 		if len(result) != 1 {
@@ -225,7 +225,7 @@ data:
 		handler.projectRoot = tempDir
 
 		// When getting kustomizations
-		result := handler.GetKustomizations()
+		result := handler.getKustomizations()
 
 		// Then it should return the kustomization with only existing patches (auto-discovery disabled)
 		if len(result) != 1 {
@@ -282,7 +282,7 @@ data:
 		handler.projectRoot = tempDir
 
 		// When getting kustomizations
-		result := handler.GetKustomizations()
+		result := handler.getKustomizations()
 
 		// Then it should return the kustomization without patches (auto-discovery disabled)
 		if len(result) != 1 {
@@ -342,7 +342,7 @@ data:
 		handler.projectRoot = tempDir
 
 		// When getting kustomizations
-		result := handler.GetKustomizations()
+		result := handler.getKustomizations()
 
 		// Then it should return both kustomizations with appropriate patches
 		if len(result) != 2 {

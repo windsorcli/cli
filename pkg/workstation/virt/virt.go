@@ -10,8 +10,8 @@ import (
 
 	"os"
 
-	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -61,20 +61,17 @@ type Virt interface {
 	Initialize() error
 	Up() error
 	Down() error
-	PrintInfo() error
 	WriteConfig() error
 }
 
 // VirtualMachine defines methods for VirtualMachine operations
 type VirtualMachine interface {
 	Virt
-	GetVMInfo() (VMInfo, error)
 }
 
 // ContainerRuntime defines methods for container operations
 type ContainerRuntime interface {
 	Virt
-	GetContainerInfo(name ...string) ([]ContainerInfo, error)
 }
 
 // =============================================================================

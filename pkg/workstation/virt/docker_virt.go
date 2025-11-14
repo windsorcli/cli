@@ -210,11 +210,11 @@ func (v *DockerVirt) WriteConfig() error {
 	return nil
 }
 
-// GetContainerInfo retrieves detailed information about Docker containers managed by
+// getContainerInfo retrieves detailed information about Docker containers managed by
 // Windsor, including their names, IP addresses, and labels. It filters containers
 // by Windsor-managed labels and context, and optionally by service name if provided.
 // For each container, it retrieves network settings to determine IP addresses.
-func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
+func (v *DockerVirt) getContainerInfo(name ...string) ([]ContainerInfo, error) {
 	contextName := v.configHandler.GetContext()
 
 	command := "docker"
@@ -279,31 +279,6 @@ func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
 	}
 
 	return containerInfos, nil
-}
-
-// PrintInfo displays a formatted table of running Docker containers with their names,
-// IP addresses, and roles. It retrieves container information using GetContainerInfo
-// and presents it in a tabular format for easy reading. If no containers are running,
-// it displays an appropriate message.
-func (v *DockerVirt) PrintInfo() error {
-	containerInfos, err := v.GetContainerInfo()
-	if err != nil {
-		return fmt.Errorf("error retrieving container info: %w", err)
-	}
-
-	if len(containerInfos) == 0 {
-		fmt.Println("No Docker containers are currently running.")
-		return nil
-	}
-
-	fmt.Printf("%-30s\t%-15s\t%-10s\n", "CONTAINER NAME", "ADDRESS", "ROLE")
-	for _, info := range containerInfos {
-		role := info.Labels["role"]
-		fmt.Printf("%-30s\t%-15s\t%-10s\n", info.Name, info.Address, role)
-	}
-	fmt.Println()
-
-	return nil
 }
 
 // Ensure DockerVirt implements ContainerRuntime

@@ -11,13 +11,13 @@ import (
 	"github.com/spf13/pflag"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
+	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	envvars "github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
-	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 )
 
 // =============================================================================
@@ -82,7 +82,6 @@ func setupUpTest(t *testing.T, opts ...*SetupOptions) *UpMocks {
 	mockBlueprintHandler.InitializeFunc = func() error { return nil }
 	mockBlueprintHandler.LoadBlueprintFunc = func() error { return nil }
 	mockBlueprintHandler.WriteFunc = func(overwrite ...bool) error { return nil }
-	mockBlueprintHandler.LoadConfigFunc = func() error { return nil }
 	testBlueprint := &blueprintv1alpha1.Blueprint{
 		Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 	}
