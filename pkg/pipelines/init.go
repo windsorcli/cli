@@ -198,7 +198,7 @@ func (p *InitPipeline) Initialize(injector di.Injector, ctx context.Context) err
 	}
 
 	if p.networkManager != nil {
-		if err := p.networkManager.Initialize(); err != nil {
+		if err := p.networkManager.Initialize(p.services); err != nil {
 			return fmt.Errorf("failed to initialize network manager: %w", err)
 		}
 	}

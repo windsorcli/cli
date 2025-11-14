@@ -638,7 +638,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// When SetAddress is called for third worker
-		if err := service3.SetAddress("192.168.1.22", portAllocator); err != nil {
+		if err := service3.SetAddress("192.168.1.22", nil); err != nil {
 			t.Fatalf("Failed to set address for service3: %v", err)
 		}
 

@@ -77,11 +77,11 @@ func NewWorkstation(ctx *WorkstationExecutionContext, injector di.Injector) (*Wo
 
 	// Create Services if not already set
 	if workstation.Services == nil {
-		services, err := workstation.createServices()
+		serviceList, err := workstation.createServices()
 		if err != nil {
 			return nil, fmt.Errorf("failed to create services: %w", err)
 		}
-		workstation.Services = services
+		workstation.Services = serviceList
 	}
 
 	// Create VirtualMachine if not already set
@@ -105,11 +105,6 @@ func NewWorkstation(ctx *WorkstationExecutionContext, injector di.Injector) (*Wo
 		workstation.SSHClient = ssh.NewSSHClient()
 	}
 
-	// Initialize NetworkManager to assign IP addresses to services
-	if err := workstation.NetworkManager.Initialize(); err != nil {
-		return nil, fmt.Errorf("failed to initialize network manager: %w", err)
-	}
-
 	return workstation, nil
 }
 
@@ -118,13 +113,15 @@ func NewWorkstation(ctx *WorkstationExecutionContext, injector di.Injector) (*Wo
 // =============================================================================
 
 // Up starts the workstation environment including VMs, containers, networking, and services.
+// It sets the NO_CACHE environment variable, launches the virtual machine if the driver is "colima",
+// initializes the network manager for all registered services, re-initializes DNS services,
+// writes service configurations, initializes and starts the container runtime if enabled,
+// configures networking components, and informs the user of successful environment setup.
 func (w *Workstation) Up() error {
-	// Set NO_CACHE environment variable to prevent caching during up operations
 	if err := os.Setenv("NO_CACHE", "true"); err != nil {
 		return fmt.Errorf("Error setting NO_CACHE environment variable: %w", err)
 	}
 
-	// Start virtual machine if using colima
 	vmDriver := w.ConfigHandler.GetString("vm.driver")
 	if vmDriver == "colima" {
 		if w.VirtualMachine == nil {
@@ -138,7 +135,27 @@ func (w *Workstation) Up() error {
 		}
 	}
 
-	// Start container runtime if enabled
+	if w.NetworkManager != nil {
+		if err := w.NetworkManager.Initialize(w.Services); err != nil {
+			return fmt.Errorf("failed to initialize network manager: %w", err)
+		}
+	}
+
+	for _, service := range w.Services {
+		if dnsService, ok := service.(*services.DNSService); ok {
+			if err := dnsService.Initialize(); err != nil {
+				return fmt.Errorf("failed to re-initialize DNS service: %w", err)
+			}
+			break
+		}
+	}
+
+	for _, service := range w.Services {
+		if err := service.WriteConfig(); err != nil {
+			return fmt.Errorf("Error writing config for service %s: %w", service.GetName(), err)
+		}
+	}
+
 	containerRuntimeEnabled := w.ConfigHandler.GetBool("docker.enabled")
 	if containerRuntimeEnabled {
 		if w.ContainerRuntime == nil {
@@ -155,7 +172,6 @@ func (w *Workstation) Up() error {
 		}
 	}
 
-	// Configure networking
 	if w.NetworkManager != nil {
 		// Only configure guest and host routes for colima
 		if vmDriver == "colima" {
@@ -175,36 +191,28 @@ func (w *Workstation) Up() error {
 		}
 	}
 
-	// Write service configurations
-	for _, service := range w.Services {
-		if err := service.WriteConfig(); err != nil {
-			return fmt.Errorf("Error writing config for service %s: %w", service.GetName(), err)
-		}
-	}
-
-	// Print success message
 	fmt.Fprintln(os.Stderr, "Windsor environment set up successfully.")
 
 	return nil
 }
 
-// Down stops the workstation environment including services, containers, VMs, and networking.
+// Down stops the workstation environment, including services, containers, VMs, and networking.
+// It attempts to gracefully shut down the container runtime and virtual machine if they exist.
+// On success, it prints a confirmation message to standard error and returns nil. If any teardown
+// step fails, it returns an error describing the issue.
 func (w *Workstation) Down() error {
-	// Stop container runtime
 	if w.ContainerRuntime != nil {
 		if err := w.ContainerRuntime.Down(); err != nil {
 			return fmt.Errorf("Error running container runtime Down command: %w", err)
 		}
 	}
 
-	// Stop virtual machine
 	if w.VirtualMachine != nil {
 		if err := w.VirtualMachine.Down(); err != nil {
 			return fmt.Errorf("Error running virtual machine Down command: %w", err)
 		}
 	}
 
-	// Print success message
 	fmt.Fprintln(os.Stderr, "Windsor environment torn down successfully.")
 
 	return nil

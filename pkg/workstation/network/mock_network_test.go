@@ -2,6 +2,8 @@ package network
 
 import (
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
 // =============================================================================
@@ -12,12 +14,12 @@ func TestMockNetworkManager_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock network manager with successful initialization
 		mockManager := NewMockNetworkManager()
-		mockManager.InitializeFunc = func() error {
+		mockManager.InitializeFunc = func([]services.Service) error {
 			return nil
 		}
 
 		// When initializing the manager
-		err := mockManager.Initialize()
+		err := mockManager.Initialize([]services.Service{})
 
 		// Then no error should occur
 		if err != nil {
@@ -30,7 +32,7 @@ func TestMockNetworkManager_Initialize(t *testing.T) {
 		mockManager := NewMockNetworkManager()
 
 		// When initializing the manager
-		err := mockManager.Initialize()
+		err := mockManager.Initialize([]services.Service{})
 
 		// Then no error should occur
 		if err != nil {

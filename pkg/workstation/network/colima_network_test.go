@@ -5,6 +5,8 @@ import (
 	"net"
 	"strings"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
 // =============================================================================
@@ -26,7 +28,7 @@ func TestColimaNetworkManager_Initialize(t *testing.T) {
 		mocks.Injector.Register("secureShell", "invalid")
 
 		// When initializing the network manager
-		err := manager.Initialize()
+		err := manager.Initialize([]services.Service{})
 
 		// Then an error should occur
 		if err == nil {
@@ -45,7 +47,7 @@ func TestColimaNetworkManager_Initialize(t *testing.T) {
 		mocks.Injector.Register("sshClient", "invalid")
 
 		// When initializing the network manager
-		err := manager.Initialize()
+		err := manager.Initialize([]services.Service{})
 
 		// Then an error should occur
 		if err == nil {
@@ -64,7 +66,7 @@ func TestColimaNetworkManager_Initialize(t *testing.T) {
 		mocks.Injector.Register("networkInterfaceProvider", "invalid")
 
 		// When initializing the network manager
-		err := manager.Initialize()
+		err := manager.Initialize([]services.Service{})
 
 		// Then an error should occur
 		if err == nil {
@@ -84,7 +86,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		mocks := setupMocks(t)
 		manager := NewColimaNetworkManager(mocks.Injector)
 		manager.shims = mocks.Shims
-		manager.Initialize()
+		manager.Initialize([]services.Service{})
 		return manager, mocks
 	}
 
@@ -148,7 +150,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		}
 
 		// When initializing the network manager
-		err := manager.Initialize()
+		err := manager.Initialize([]services.Service{})
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -174,7 +176,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		}
 
 		// When initializing the network manager
-		err := manager.Initialize()
+		err := manager.Initialize([]services.Service{})
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -203,7 +205,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		}
 
 		// When initializing the network manager
-		err := manager.Initialize()
+		err := manager.Initialize([]services.Service{})
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -232,7 +234,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		}
 
 		// When initializing the network manager
-		err := manager.Initialize()
+		err := manager.Initialize([]services.Service{})
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -267,7 +269,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		}
 
 		// When initializing the network manager
-		err := manager.Initialize()
+		err := manager.Initialize([]services.Service{})
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -293,7 +295,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		}
 
 		// When initializing the network manager
-		err := manager.Initialize()
+		err := manager.Initialize([]services.Service{})
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -322,7 +324,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		}
 
 		// When initializing the network manager
-		err := manager.Initialize()
+		err := manager.Initialize([]services.Service{})
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -345,7 +347,7 @@ func TestColimaNetworkManager_getHostIP(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t)
 		manager := NewColimaNetworkManager(mocks.Injector)
-		manager.Initialize()
+		manager.Initialize([]services.Service{})
 		return manager, mocks
 	}
 

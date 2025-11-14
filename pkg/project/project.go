@@ -137,7 +137,7 @@ func (p *Project) Configure(flagOverrides map[string]any) error {
 // if any step fails.
 func (p *Project) Initialize(overwrite bool) error {
 	if p.Workstation != nil && p.Workstation.NetworkManager != nil {
-		if err := p.Workstation.NetworkManager.Initialize(); err != nil {
+		if err := p.Workstation.NetworkManager.Initialize(p.Workstation.Services); err != nil {
 			return fmt.Errorf("failed to initialize network manager: %w", err)
 		}
 	}

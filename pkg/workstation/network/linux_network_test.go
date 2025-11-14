@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
 // =============================================================================
@@ -20,7 +22,7 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks := setupMocks(t)
 		manager := NewBaseNetworkManager(mocks.Injector)
 		manager.shims = mocks.Shims
-		manager.Initialize()
+		manager.Initialize([]services.Service{})
 		return manager, mocks
 	}
 
@@ -169,7 +171,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks := setupMocks(t)
 		manager := NewBaseNetworkManager(mocks.Injector)
 		manager.shims = mocks.Shims
-		manager.Initialize()
+		manager.Initialize([]services.Service{})
 		return manager, mocks
 	}
 

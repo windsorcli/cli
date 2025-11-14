@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/windsorcli/cli/pkg/di"
 	envvars "github.com/windsorcli/cli/pkg/context/env"
-	"github.com/windsorcli/cli/pkg/context/tools"
-	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/context/shell"
+	"github.com/windsorcli/cli/pkg/context/tools"
+	"github.com/windsorcli/cli/pkg/di"
+	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/workstation/network"
+	"github.com/windsorcli/cli/pkg/workstation/services"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
 
@@ -105,7 +106,14 @@ func (p *UpPipeline) Initialize(injector di.Injector, ctx context.Context) error
 	}
 
 	if p.networkManager != nil {
-		if err := p.networkManager.Initialize(); err != nil {
+		resolvedServices, _ := p.injector.ResolveAll(new(services.Service))
+		serviceList := make([]services.Service, 0, len(resolvedServices))
+		for _, svc := range resolvedServices {
+			if s, ok := svc.(services.Service); ok {
+				serviceList = append(serviceList, s)
+			}
+		}
+		if err := p.networkManager.Initialize(serviceList); err != nil {
 			return fmt.Errorf("failed to initialize network manager: %w", err)
 		}
 	}

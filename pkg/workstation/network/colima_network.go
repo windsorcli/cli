@@ -9,6 +9,7 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/context/shell"
 	"github.com/windsorcli/cli/pkg/context/shell/ssh"
+	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
 // The ColimaNetworkManager is a specialized network manager for Colima-based environments.
@@ -47,8 +48,8 @@ func NewColimaNetworkManager(injector di.Injector) *ColimaNetworkManager {
 
 // Initialize sets up the ColimaNetworkManager by resolving dependencies for
 // sshClient, shell, and secureShell from the injector.
-func (n *ColimaNetworkManager) Initialize() error {
-	if err := n.BaseNetworkManager.Initialize(); err != nil {
+func (n *ColimaNetworkManager) Initialize(services []services.Service) error {
+	if err := n.BaseNetworkManager.Initialize(services); err != nil {
 		return err
 	}
 
