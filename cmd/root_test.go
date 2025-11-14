@@ -13,13 +13,13 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/context/config"
-	"github.com/windsorcli/cli/pkg/di"
-	envvars "github.com/windsorcli/cli/pkg/context/env"
-	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	blueprintpkg "github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/context/config"
+	envvars "github.com/windsorcli/cli/pkg/context/env"
 	"github.com/windsorcli/cli/pkg/context/secrets"
 	"github.com/windsorcli/cli/pkg/context/shell"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 )
 
 // =============================================================================
@@ -34,6 +34,7 @@ type Mocks struct {
 	EnvPrinter       *envvars.MockEnvPrinter
 	Shims            *Shims
 	BlueprintHandler *blueprintpkg.MockBlueprintHandler
+	TmpDir           string
 }
 
 type SetupOptions struct {
@@ -82,6 +83,9 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	// Set global shims
 	shims = testShims
 
+	// Create temporary directory for test
+	tmpDir := t.TempDir()
+
 	// Create injector
 	var injector di.Injector
 	if options.Injector == nil {
@@ -93,7 +97,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	// Create and register mock shell
 	mockShell := shell.NewMockShell()
 	mockShell.GetProjectRootFunc = func() (string, error) {
-		return t.TempDir(), nil
+		return tmpDir, nil
 	}
 	mockShell.CheckTrustedDirectoryFunc = func() error {
 		return nil
@@ -146,6 +150,14 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		configHandler = config.NewConfigHandler(injector)
 	} else {
 		configHandler = options.ConfigHandler
+		// If it's a mock config handler, set GetConfigRootFunc to use tmpDir
+		if mockConfig, ok := configHandler.(*config.MockConfigHandler); ok {
+			if mockConfig.GetConfigRootFunc == nil {
+				mockConfig.GetConfigRootFunc = func() (string, error) {
+					return tmpDir, nil
+				}
+			}
+		}
 	}
 
 	// Register config handler
@@ -188,6 +200,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		EnvPrinter:       mockEnvPrinter,
 		Shims:            testShims,
 		BlueprintHandler: mockBlueprintHandler,
+		TmpDir:           tmpDir,
 	}
 }
 
