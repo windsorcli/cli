@@ -37,6 +37,7 @@ type MockKubernetesManager struct {
 	WaitForKubernetesHealthyFunc        func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error
 	GetNodeReadyStatusFunc              func(ctx context.Context, nodeNames []string) (map[string]bool, error)
 	ApplyBlueprintFunc                  func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
+	DeleteBlueprintFunc                 func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
 }
 
 // =============================================================================
@@ -189,6 +190,14 @@ func (m *MockKubernetesManager) GetNodeReadyStatus(ctx context.Context, nodeName
 func (m *MockKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 	if m.ApplyBlueprintFunc != nil {
 		return m.ApplyBlueprintFunc(blueprint, namespace)
+	}
+	return nil
+}
+
+// DeleteBlueprint implements KubernetesManager interface
+func (m *MockKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
+	if m.DeleteBlueprintFunc != nil {
+		return m.DeleteBlueprintFunc(blueprint, namespace)
 	}
 	return nil
 }

@@ -8,14 +8,14 @@ import (
 	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/runtime"
-	"github.com/windsorcli/cli/pkg/runtime/config"
-	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/provisioner/cluster"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	k8sclient "github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
+	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================
@@ -53,13 +53,13 @@ func createTestBlueprint() *blueprintv1alpha1.Blueprint {
 }
 
 type Mocks struct {
-	Injector                    di.Injector
-	ConfigHandler               config.ConfigHandler
-	Shell                       *shell.MockShell
-	TerraformStack              *terraforminfra.MockStack
-	KubernetesManager           *kubernetes.MockKubernetesManager
-	KubernetesClient            k8sclient.KubernetesClient
-	ClusterClient               *cluster.MockClusterClient
+	Injector           di.Injector
+	ConfigHandler      config.ConfigHandler
+	Shell              *shell.MockShell
+	TerraformStack     *terraforminfra.MockStack
+	KubernetesManager  *kubernetes.MockKubernetesManager
+	KubernetesClient   k8sclient.KubernetesClient
+	ClusterClient      *cluster.MockClusterClient
 	ProvisionerRuntime *ProvisionerRuntime
 }
 
@@ -103,7 +103,7 @@ func setupProvisionerMocks(t *testing.T) *Mocks {
 	}
 
 	provisionerCtx := &ProvisionerRuntime{
-		Runtime:  *execCtx,
+		Runtime:           *execCtx,
 		TerraformStack:    terraformStack,
 		KubernetesManager: kubernetesManager,
 		KubernetesClient:  kubernetesClient,
@@ -118,13 +118,13 @@ func setupProvisionerMocks(t *testing.T) *Mocks {
 	injector.Register("clusterClient", clusterClient)
 
 	return &Mocks{
-		Injector:                    injector,
-		ConfigHandler:               configHandler,
-		Shell:                       mockShell,
-		TerraformStack:              terraformStack,
-		KubernetesManager:           kubernetesManager,
-		KubernetesClient:            kubernetesClient,
-		ClusterClient:               clusterClient,
+		Injector:           injector,
+		ConfigHandler:      configHandler,
+		Shell:              mockShell,
+		TerraformStack:     terraformStack,
+		KubernetesManager:  kubernetesManager,
+		KubernetesClient:   kubernetesClient,
+		ClusterClient:      clusterClient,
 		ProvisionerRuntime: provisionerCtx,
 	}
 }
@@ -631,6 +631,159 @@ func TestProvisioner_Wait(t *testing.T) {
 		}
 
 		if !strings.Contains(err.Error(), "failed waiting for kustomizations") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+}
+
+func TestProvisioner_Uninstall(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+
+		mocks.KubernetesManager.InitializeFunc = func() error {
+			return nil
+		}
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
+			return nil
+		}
+
+		blueprint := createTestBlueprint()
+		err := provisioner.Uninstall(blueprint)
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("SuccessWithCleanupKustomizations", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+
+		mocks.KubernetesManager.InitializeFunc = func() error {
+			return nil
+		}
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
+			return nil
+		}
+
+		blueprint := createTestBlueprint()
+		blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
+			{
+				Name:    "test-kustomization",
+				Cleanup: []string{"cleanup/path"},
+			},
+		}
+
+		err := provisioner.Uninstall(blueprint)
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("SuccessSkipsDestroyFalse", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+
+		mocks.KubernetesManager.InitializeFunc = func() error {
+			return nil
+		}
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
+			return nil
+		}
+
+		blueprint := createTestBlueprint()
+		destroyFalse := false
+		blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
+			{
+				Name:    "test-kustomization-1",
+				Destroy: &destroyFalse,
+			},
+			{
+				Name:    "test-kustomization-2",
+				Destroy: nil,
+			},
+		}
+
+		err := provisioner.Uninstall(blueprint)
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorNilBlueprint", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+
+		err := provisioner.Uninstall(nil)
+
+		if err == nil {
+			t.Error("Expected error for nil blueprint")
+		}
+
+		if !strings.Contains(err.Error(), "blueprint not provided") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorNilKubernetesManager", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+		provisioner.KubernetesManager = nil
+
+		blueprint := createTestBlueprint()
+		err := provisioner.Uninstall(blueprint)
+
+		if err == nil {
+			t.Error("Expected error for nil kubernetes manager")
+		}
+
+		if !strings.Contains(err.Error(), "kubernetes manager not configured") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorKubernetesManagerInitialize", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+
+		mocks.KubernetesManager.InitializeFunc = func() error {
+			return fmt.Errorf("initialize failed")
+		}
+
+		blueprint := createTestBlueprint()
+		err := provisioner.Uninstall(blueprint)
+
+		if err == nil {
+			t.Error("Expected error for kubernetes manager initialize failure")
+		}
+
+		if !strings.Contains(err.Error(), "failed to initialize kubernetes manager") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorDeleteBlueprint", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+
+		mocks.KubernetesManager.InitializeFunc = func() error {
+			return nil
+		}
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
+			return fmt.Errorf("delete blueprint failed")
+		}
+
+		blueprint := createTestBlueprint()
+		err := provisioner.Uninstall(blueprint)
+
+		if err == nil {
+			t.Error("Expected error for delete blueprint failure")
+		}
+
+		if !strings.Contains(err.Error(), "failed to delete blueprint") {
 			t.Errorf("Expected specific error message, got: %v", err)
 		}
 	})

@@ -9,13 +9,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
-	"github.com/windsorcli/cli/pkg/runtime/config"
-	execcontext "github.com/windsorcli/cli/pkg/runtime"
-	"github.com/windsorcli/cli/pkg/provisioner"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
-	"github.com/windsorcli/cli/pkg/workstation"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
 
@@ -258,46 +254,4 @@ func TestDownCmd(t *testing.T) {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
-}
-
-func setupDownMocksWithProject(t *testing.T) (*Mocks, *provisioner.Provisioner, *composer.Composer, *workstation.Workstation) {
-	t.Helper()
-
-	mocks := setupMocks(t)
-
-	mockBlueprintHandler := blueprint.NewMockBlueprintHandler(mocks.Injector)
-	mockBlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
-		return &blueprintv1alpha1.Blueprint{}
-	}
-	mocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
-
-	mockStack := &terraforminfra.MockStack{}
-	mockStack.InitializeFunc = func() error { return nil }
-	mocks.Injector.Register("stack", mockStack)
-
-	mockContainerRuntime := &virt.MockVirt{}
-	mockContainerRuntime.InitializeFunc = func() error { return nil }
-	mocks.Injector.Register("containerRuntime", mockContainerRuntime)
-
-	mockExecCtx := mocks.Injector.Resolve("executionContext")
-	if mockExecCtx == nil {
-		t.Fatal("executionContext not found in injector")
-	}
-
-	prov := provisioner.NewProvisioner(&provisioner.ProvisionerRuntime{
-		Runtime: *mockExecCtx.(*execcontext.Runtime),
-	})
-
-	comp := composer.NewComposer(&composer.ComposerRuntime{
-		Runtime: *mockExecCtx.(*execcontext.Runtime),
-	})
-
-	ws, err := workstation.NewWorkstation(&workstation.WorkstationRuntime{
-		Runtime: *mockExecCtx.(*execcontext.Runtime),
-	}, mocks.Injector)
-	if err != nil {
-		t.Fatalf("Failed to create workstation: %v", err)
-	}
-
-	return mocks, prov, comp, ws
 }
