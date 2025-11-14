@@ -569,3 +569,54 @@ func TestProject_Initialize(t *testing.T) {
 	})
 
 }
+
+func TestProject_PerformCleanup(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mocks := setupMocks(t)
+		proj, err := NewProject(mocks.Injector, "test-context")
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
+
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		cleanCalled := false
+		mockConfig.CleanFunc = func() error {
+			cleanCalled = true
+			return nil
+		}
+
+		err = proj.PerformCleanup()
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if !cleanCalled {
+			t.Error("Expected Clean to be called")
+		}
+	})
+
+	t.Run("ErrorOnCleanFailure", func(t *testing.T) {
+		mocks := setupMocks(t)
+		proj, err := NewProject(mocks.Injector, "test-context")
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
+
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.CleanFunc = func() error {
+			return fmt.Errorf("clean failed")
+		}
+
+		err = proj.PerformCleanup()
+
+		if err == nil {
+			t.Error("Expected error for Clean failure")
+			return
+		}
+
+		if !strings.Contains(err.Error(), "error cleaning up context specific artifacts") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+}

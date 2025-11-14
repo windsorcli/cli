@@ -202,12 +202,18 @@ func (w *Workstation) Up() error {
 // step fails, it returns an error describing the issue.
 func (w *Workstation) Down() error {
 	if w.ContainerRuntime != nil {
+		if err := w.ContainerRuntime.Initialize(); err != nil {
+			return fmt.Errorf("failed to initialize container runtime: %w", err)
+		}
 		if err := w.ContainerRuntime.Down(); err != nil {
 			return fmt.Errorf("Error running container runtime Down command: %w", err)
 		}
 	}
 
 	if w.VirtualMachine != nil {
+		if err := w.VirtualMachine.Initialize(); err != nil {
+			return fmt.Errorf("failed to initialize virtual machine: %w", err)
+		}
 		if err := w.VirtualMachine.Down(); err != nil {
 			return fmt.Errorf("Error running virtual machine Down command: %w", err)
 		}
