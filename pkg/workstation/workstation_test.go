@@ -8,10 +8,10 @@ import (
 
 	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
-	ctxpkg "github.com/windsorcli/cli/pkg/context"
-	"github.com/windsorcli/cli/pkg/context/config"
-	"github.com/windsorcli/cli/pkg/context/shell"
-	"github.com/windsorcli/cli/pkg/context/shell/ssh"
+	ctxpkg "github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/shell/ssh"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/services"
@@ -202,9 +202,9 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	}
 }
 
-func setupWorkstationContext(mocks *Mocks) *WorkstationExecutionContext {
-	return &WorkstationExecutionContext{
-		ExecutionContext: ctxpkg.ExecutionContext{
+func setupWorkstationContext(mocks *Mocks) *WorkstationRuntime {
+	return &WorkstationRuntime{
+		Runtime: ctxpkg.Runtime{
 			ContextName:   "test-context",
 			ProjectRoot:   "/test/project",
 			ConfigRoot:    "/test/project/contexts/test-context",
@@ -270,8 +270,8 @@ func TestNewWorkstation(t *testing.T) {
 	t.Run("NilConfigHandler", func(t *testing.T) {
 		// Given
 		mocks := setupMocks(t)
-		ctx := &WorkstationExecutionContext{
-			ExecutionContext: ctxpkg.ExecutionContext{
+		ctx := &WorkstationRuntime{
+			Runtime: ctxpkg.Runtime{
 				Shell: mocks.Shell,
 			},
 		}
@@ -294,8 +294,8 @@ func TestNewWorkstation(t *testing.T) {
 	t.Run("NilShell", func(t *testing.T) {
 		// Given
 		mocks := setupMocks(t)
-		ctx := &WorkstationExecutionContext{
-			ExecutionContext: ctxpkg.ExecutionContext{
+		ctx := &WorkstationRuntime{
+			Runtime: ctxpkg.Runtime{
 				ConfigHandler: mocks.ConfigHandler,
 			},
 		}

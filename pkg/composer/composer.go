@@ -9,7 +9,7 @@ import (
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/composer/terraform"
-	"github.com/windsorcli/cli/pkg/context"
+	context "github.com/windsorcli/cli/pkg/runtime"
 )
 
 // The Composer package provides high-level resource management functionality
@@ -21,10 +21,10 @@ import (
 // Types
 // =============================================================================
 
-// ComposerExecutionContext holds the execution context for resource operations.
-// It embeds the base ExecutionContext and includes all resource-specific dependencies.
-type ComposerExecutionContext struct {
-	context.ExecutionContext
+// ComposerRuntime holds the execution context for resource operations.
+// It embeds the base Runtime and includes all resource-specific dependencies.
+type ComposerRuntime struct {
+	context.Runtime
 
 	// Resource-specific dependencies
 	ArtifactBuilder   artifact.Artifact
@@ -36,7 +36,7 @@ type ComposerExecutionContext struct {
 // It provides a unified interface for creating, initializing, and managing these resources
 // with proper dependency injection and error handling.
 type Composer struct {
-	*ComposerExecutionContext
+	*ComposerRuntime
 }
 
 // =============================================================================
@@ -47,9 +47,9 @@ type Composer struct {
 // It sets up all required resource handlers—artifact builder, blueprint handler, and terraform resolver—
 // and registers each handler with the dependency injector for use throughout the resource lifecycle.
 // Returns a pointer to the fully initialized Composer struct.
-func NewComposer(ctx *ComposerExecutionContext) *Composer {
+func NewComposer(ctx *ComposerRuntime) *Composer {
 	composer := &Composer{
-		ComposerExecutionContext: ctx,
+		ComposerRuntime: ctx,
 	}
 
 	if composer.ArtifactBuilder == nil {

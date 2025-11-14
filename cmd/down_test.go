@@ -11,8 +11,8 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
-	"github.com/windsorcli/cli/pkg/context/config"
-	execcontext "github.com/windsorcli/cli/pkg/context"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	execcontext "github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/provisioner"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/workstation"
@@ -284,16 +284,16 @@ func setupDownMocksWithProject(t *testing.T) (*Mocks, *provisioner.Provisioner, 
 		t.Fatal("executionContext not found in injector")
 	}
 
-	prov := provisioner.NewProvisioner(&provisioner.ProvisionerExecutionContext{
-		ExecutionContext: *mockExecCtx.(*execcontext.ExecutionContext),
+	prov := provisioner.NewProvisioner(&provisioner.ProvisionerRuntime{
+		Runtime: *mockExecCtx.(*execcontext.Runtime),
 	})
 
-	comp := composer.NewComposer(&composer.ComposerExecutionContext{
-		ExecutionContext: *mockExecCtx.(*execcontext.ExecutionContext),
+	comp := composer.NewComposer(&composer.ComposerRuntime{
+		Runtime: *mockExecCtx.(*execcontext.Runtime),
 	})
 
-	ws, err := workstation.NewWorkstation(&workstation.WorkstationExecutionContext{
-		ExecutionContext: *mockExecCtx.(*execcontext.ExecutionContext),
+	ws, err := workstation.NewWorkstation(&workstation.WorkstationRuntime{
+		Runtime: *mockExecCtx.(*execcontext.Runtime),
 	}, mocks.Injector)
 	if err != nil {
 		t.Fatalf("Failed to create workstation: %v", err)

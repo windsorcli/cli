@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/windsorcli/cli/pkg/context"
-	"github.com/windsorcli/cli/pkg/context/shell/ssh"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/shell/ssh"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/services"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
@@ -22,10 +22,10 @@ import (
 // Types
 // =============================================================================
 
-// WorkstationExecutionContext holds the execution context for workstation operations.
-// It embeds the base ExecutionContext and includes all workstation-specific dependencies.
-type WorkstationExecutionContext struct {
-	context.ExecutionContext
+// WorkstationRuntime holds the execution context for workstation operations.
+// It embeds the base Runtime and includes all workstation-specific dependencies.
+type WorkstationRuntime struct {
+	runtime.Runtime
 
 	// Workstation-specific dependencies (created as needed)
 	NetworkManager   network.NetworkManager
@@ -37,9 +37,9 @@ type WorkstationExecutionContext struct {
 
 // Workstation manages all workstation functionality including virtualization,
 // networking, services, and SSH operations.
-// It embeds WorkstationExecutionContext so all fields are directly accessible.
+// It embeds WorkstationRuntime so all fields are directly accessible.
 type Workstation struct {
-	*WorkstationExecutionContext
+	*WorkstationRuntime
 	injector di.Injector
 }
 
@@ -50,7 +50,7 @@ type Workstation struct {
 // NewWorkstation creates a new Workstation instance with the provided execution context and injector.
 // The execution context should already have ConfigHandler and Shell set.
 // Other dependencies are created only if not already present on the context.
-func NewWorkstation(ctx *WorkstationExecutionContext, injector di.Injector) (*Workstation, error) {
+func NewWorkstation(ctx *WorkstationRuntime, injector di.Injector) (*Workstation, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("execution context is required")
 	}
@@ -66,8 +66,8 @@ func NewWorkstation(ctx *WorkstationExecutionContext, injector di.Injector) (*Wo
 
 	// Create workstation first
 	workstation := &Workstation{
-		WorkstationExecutionContext: ctx,
-		injector:                    injector,
+		WorkstationRuntime: ctx,
+		injector:           injector,
 	}
 
 	// Create NetworkManager if not already set

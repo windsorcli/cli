@@ -1,4 +1,4 @@
-package context
+package runtime
 
 import (
 	"errors"
@@ -9,9 +9,9 @@ import (
 	"testing"
 
 	v1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/context/config"
-	"github.com/windsorcli/cli/pkg/context/secrets"
-	"github.com/windsorcli/cli/pkg/context/shell"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/secrets"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
@@ -19,7 +19,7 @@ import (
 // Test Setup
 // =============================================================================
 
-// setupEnvironmentMocks creates mock components for testing the ExecutionContext
+// setupEnvironmentMocks creates mock components for testing the Runtime
 func setupEnvironmentMocks(t *testing.T) *Mocks {
 	t.Helper()
 
@@ -92,12 +92,12 @@ func setupEnvironmentMocks(t *testing.T) *Mocks {
 	injector.Register("projectRoot", "/test/project")
 	injector.Register("contextName", "test-context")
 
-	// Create execution context - paths will be set automatically by NewContext
-	execCtx := &ExecutionContext{
+	// Create execution context - paths will be set automatically by NewRuntime
+	execCtx := &Runtime{
 		Injector: injector,
 	}
 
-	ctx, err := NewContext(execCtx)
+	ctx, err := NewRuntime(execCtx)
 	if err != nil {
 		t.Fatalf("Failed to create context: %v", err)
 	}
@@ -106,7 +106,7 @@ func setupEnvironmentMocks(t *testing.T) *Mocks {
 		Injector:         injector,
 		ConfigHandler:    configHandler,
 		Shell:            shell,
-		ExecutionContext: ctx,
+		Runtime: ctx,
 	}
 }
 
@@ -115,18 +115,18 @@ type Mocks struct {
 	Injector         di.Injector
 	ConfigHandler    config.ConfigHandler
 	Shell            shell.Shell
-	ExecutionContext *ExecutionContext
+	Runtime *Runtime
 }
 
 // =============================================================================
 // Test Constructor
 // =============================================================================
 
-func TestNewContext(t *testing.T) {
+func TestNewRuntime(t *testing.T) {
 	t.Run("CreatesContextWithDependencies", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
 
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		if ctx == nil {
 			t.Fatal("Expected context to be created")
@@ -172,7 +172,7 @@ func TestNewContext(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenContextIsNil", func(t *testing.T) {
-		_, err := NewContext(nil)
+		_, err := NewRuntime(nil)
 
 		if err == nil {
 			t.Error("Expected error when context is nil")
@@ -184,9 +184,9 @@ func TestNewContext(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenInjectorIsNil", func(t *testing.T) {
-		ctx := &ExecutionContext{}
+		ctx := &Runtime{}
 
-		_, err := NewContext(ctx)
+		_, err := NewRuntime(ctx)
 
 		if err == nil {
 			t.Error("Expected error when injector is nil")
@@ -205,11 +205,11 @@ func TestNewContext(t *testing.T) {
 		}
 		injector.Register("configHandler", mockConfigHandler)
 
-		ctx := &ExecutionContext{
+		ctx := &Runtime{
 			Injector: injector,
 		}
 
-		result, err := NewContext(ctx)
+		result, err := NewRuntime(ctx)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -231,12 +231,12 @@ func TestNewContext(t *testing.T) {
 		}
 		injector.Register("shell", mockShell)
 
-		ctx := &ExecutionContext{
+		ctx := &Runtime{
 			Injector: injector,
 			Shell:    mockShell,
 		}
 
-		result, err := NewContext(ctx)
+		result, err := NewRuntime(ctx)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -252,10 +252,10 @@ func TestNewContext(t *testing.T) {
 // Test LoadEnvironment
 // =============================================================================
 
-func TestExecutionContext_LoadEnvironment(t *testing.T) {
+func TestRuntime_LoadEnvironment(t *testing.T) {
 	t.Run("LoadsEnvironmentSuccessfully", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		err := ctx.LoadEnvironment(false)
 
@@ -277,7 +277,7 @@ func TestExecutionContext_LoadEnvironment(t *testing.T) {
 
 	t.Run("HandlesConfigHandlerNotLoaded", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		// Set config handler to nil to test error handling
 		ctx.ConfigHandler = nil
@@ -291,7 +291,7 @@ func TestExecutionContext_LoadEnvironment(t *testing.T) {
 
 	t.Run("HandlesEnvPrinterInitializationError", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		err := ctx.LoadEnvironment(false)
 
@@ -311,10 +311,10 @@ func TestExecutionContext_LoadEnvironment(t *testing.T) {
 // Test PrintEnvVars
 // =============================================================================
 
-func TestExecutionContext_PrintEnvVars(t *testing.T) {
+func TestRuntime_PrintEnvVars(t *testing.T) {
 	t.Run("PrintsEnvironmentVariables", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		// Set up environment variables
 		ctx.envVars = map[string]string{
@@ -331,7 +331,7 @@ func TestExecutionContext_PrintEnvVars(t *testing.T) {
 
 	t.Run("HandlesEmptyEnvironmentVariables", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		output := ctx.PrintEnvVars()
 
@@ -346,10 +346,10 @@ func TestExecutionContext_PrintEnvVars(t *testing.T) {
 // Test PrintAliases
 // =============================================================================
 
-func TestExecutionContext_PrintAliases(t *testing.T) {
+func TestRuntime_PrintAliases(t *testing.T) {
 	t.Run("PrintsAliases", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		// Set up aliases
 		ctx.aliases = map[string]string{
@@ -366,7 +366,7 @@ func TestExecutionContext_PrintAliases(t *testing.T) {
 
 	t.Run("HandlesEmptyAliases", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		output := ctx.PrintAliases()
 
@@ -383,10 +383,10 @@ func TestExecutionContext_PrintAliases(t *testing.T) {
 // Test Getter Methods
 // =============================================================================
 
-func TestExecutionContext_GetEnvVars(t *testing.T) {
+func TestRuntime_GetEnvVars(t *testing.T) {
 	t.Run("ReturnsCopyOfEnvVars", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		original := map[string]string{
 			"TEST_VAR1": "value1",
@@ -410,10 +410,10 @@ func TestExecutionContext_GetEnvVars(t *testing.T) {
 	})
 }
 
-func TestExecutionContext_GetAliases(t *testing.T) {
+func TestRuntime_GetAliases(t *testing.T) {
 	t.Run("ReturnsCopyOfAliases", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		original := map[string]string{
 			"test1": "echo test1",
@@ -441,10 +441,10 @@ func TestExecutionContext_GetAliases(t *testing.T) {
 // Test Private Methods
 // =============================================================================
 
-func TestExecutionContext_loadSecrets(t *testing.T) {
+func TestRuntime_loadSecrets(t *testing.T) {
 	t.Run("LoadsSecretsSuccessfully", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		// Set up mock secrets providers
 		mockSopsProvider := secrets.NewMockSecretsProvider(mocks.Injector)
@@ -461,7 +461,7 @@ func TestExecutionContext_loadSecrets(t *testing.T) {
 
 	t.Run("HandlesSecretsProviderError", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		// Set up mock secrets provider that returns an error
 		mockProvider := secrets.NewMockSecretsProvider(mocks.Injector)
@@ -483,7 +483,7 @@ func TestExecutionContext_loadSecrets(t *testing.T) {
 
 	t.Run("HandlesNilProviders", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		// Leave providers as nil
 		ctx.SecretsProviders.Sops = nil
@@ -497,7 +497,7 @@ func TestExecutionContext_loadSecrets(t *testing.T) {
 
 	t.Run("HandlesMixedProviders", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		// Set up one provider that works and one that's nil
 		mockProvider := secrets.NewMockSecretsProvider(mocks.Injector)
@@ -511,10 +511,10 @@ func TestExecutionContext_loadSecrets(t *testing.T) {
 	})
 }
 
-func TestExecutionContext_initializeSecretsProviders(t *testing.T) {
+func TestRuntime_initializeSecretsProviders(t *testing.T) {
 	t.Run("InitializesSopsProviderWhenEnabled", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		// Enable SOPS in config
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -539,7 +539,7 @@ func TestExecutionContext_initializeSecretsProviders(t *testing.T) {
 
 	t.Run("InitializesOnepasswordProviderWhenEnabled", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		// Enable 1Password in config
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -564,7 +564,7 @@ func TestExecutionContext_initializeSecretsProviders(t *testing.T) {
 
 	t.Run("SkipsProvidersWhenDisabled", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		// Disable both providers
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -585,7 +585,7 @@ func TestExecutionContext_initializeSecretsProviders(t *testing.T) {
 
 	t.Run("DoesNotOverrideExistingProviders", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		// Pre-set a provider
 		existingProvider := secrets.NewMockSecretsProvider(mocks.Injector)
@@ -609,10 +609,10 @@ func TestExecutionContext_initializeSecretsProviders(t *testing.T) {
 	})
 }
 
-func TestExecutionContext_LoadEnvironment_WithSecrets(t *testing.T) {
+func TestRuntime_LoadEnvironment_WithSecrets(t *testing.T) {
 	t.Run("LoadsEnvironmentWithSecretsSuccessfully", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		// Set up mock secrets providers
 		mockSopsProvider := secrets.NewMockSecretsProvider(mocks.Injector)
@@ -629,7 +629,7 @@ func TestExecutionContext_LoadEnvironment_WithSecrets(t *testing.T) {
 
 	t.Run("HandlesSecretsLoadError", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		// Set up mock secrets provider that returns an error
 		mockProvider := secrets.NewMockSecretsProvider(mocks.Injector)
@@ -650,10 +650,10 @@ func TestExecutionContext_LoadEnvironment_WithSecrets(t *testing.T) {
 	})
 }
 
-func TestExecutionContext_PrintEnvVars_EdgeCases(t *testing.T) {
+func TestRuntime_PrintEnvVars_EdgeCases(t *testing.T) {
 	t.Run("HandlesNilShell", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 		ctx.Shell = nil
 
 		// This should not panic
@@ -665,7 +665,7 @@ func TestExecutionContext_PrintEnvVars_EdgeCases(t *testing.T) {
 
 	t.Run("HandlesEmptyEnvVars", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 		ctx.envVars = make(map[string]string)
 
 		result := ctx.PrintEnvVars()
@@ -675,10 +675,10 @@ func TestExecutionContext_PrintEnvVars_EdgeCases(t *testing.T) {
 	})
 }
 
-func TestExecutionContext_PrintEnvVarsExport_EdgeCases(t *testing.T) {
+func TestRuntime_PrintEnvVarsExport_EdgeCases(t *testing.T) {
 	t.Run("HandlesNilShell", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 		ctx.Shell = nil
 
 		// This should not panic
@@ -690,7 +690,7 @@ func TestExecutionContext_PrintEnvVarsExport_EdgeCases(t *testing.T) {
 
 	t.Run("HandlesEmptyEnvVars", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 		ctx.envVars = make(map[string]string)
 
 		result := ctx.PrintEnvVarsExport()
@@ -700,10 +700,10 @@ func TestExecutionContext_PrintEnvVarsExport_EdgeCases(t *testing.T) {
 	})
 }
 
-func TestExecutionContext_PrintAliases_EdgeCases(t *testing.T) {
+func TestRuntime_PrintAliases_EdgeCases(t *testing.T) {
 	t.Run("HandlesNilShell", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 		ctx.Shell = nil
 
 		// This should not panic
@@ -715,7 +715,7 @@ func TestExecutionContext_PrintAliases_EdgeCases(t *testing.T) {
 
 	t.Run("HandlesEmptyAliases", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 		ctx.aliases = make(map[string]string)
 
 		result := ctx.PrintAliases()
@@ -725,10 +725,10 @@ func TestExecutionContext_PrintAliases_EdgeCases(t *testing.T) {
 	})
 }
 
-func TestExecutionContext_initializeComponents_EdgeCases(t *testing.T) {
+func TestRuntime_initializeComponents_EdgeCases(t *testing.T) {
 	t.Run("HandlesToolsManagerInitializationError", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		// Set up a mock tools manager that returns an error
 		mockToolsManager := &MockToolsManager{}
@@ -749,7 +749,7 @@ func TestExecutionContext_initializeComponents_EdgeCases(t *testing.T) {
 
 	t.Run("HandlesEnvPrinterInitializationError", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		// Set up a mock env printer that returns an error
 		mockPrinter := &MockEnvPrinter{}
@@ -884,10 +884,10 @@ func (m *MockEnvPrinter) Reset() {
 // Test CheckTools
 // =============================================================================
 
-func TestExecutionContext_CheckTools(t *testing.T) {
+func TestRuntime_CheckTools(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		mockToolsManager := &MockToolsManager{}
 		mockToolsManager.InitializeFunc = func() error {
@@ -907,7 +907,7 @@ func TestExecutionContext_CheckTools(t *testing.T) {
 
 	t.Run("InitializesToolsManagerWhenNil", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
@@ -932,7 +932,7 @@ func TestExecutionContext_CheckTools(t *testing.T) {
 
 	t.Run("HandlesToolsManagerInitializationError", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		ctx.ToolsManager = nil
 
@@ -958,7 +958,7 @@ func TestExecutionContext_CheckTools(t *testing.T) {
 
 	t.Run("HandlesToolsManagerCheckError", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		mockToolsManager := &MockToolsManager{}
 		mockToolsManager.InitializeFunc = func() error {
@@ -986,10 +986,10 @@ func TestExecutionContext_CheckTools(t *testing.T) {
 
 }
 
-func TestExecutionContext_CheckTrustedDirectory(t *testing.T) {
+func TestRuntime_CheckTrustedDirectory(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		mockShell := mocks.Shell.(*shell.MockShell)
 		mockShell.CheckTrustedDirectoryFunc = func() error {
@@ -1004,7 +1004,7 @@ func TestExecutionContext_CheckTrustedDirectory(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenShellNotInitialized", func(t *testing.T) {
-		ctx := &ExecutionContext{}
+		ctx := &Runtime{}
 
 		err := ctx.CheckTrustedDirectory()
 
@@ -1019,7 +1019,7 @@ func TestExecutionContext_CheckTrustedDirectory(t *testing.T) {
 
 	t.Run("ErrorWhenCheckFails", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		mockShell := mocks.Shell.(*shell.MockShell)
 		mockShell.CheckTrustedDirectoryFunc = func() error {
@@ -1038,10 +1038,10 @@ func TestExecutionContext_CheckTrustedDirectory(t *testing.T) {
 	})
 }
 
-func TestExecutionContext_LoadConfig(t *testing.T) {
+func TestRuntime_LoadConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.LoadConfigFunc = func() error {
@@ -1056,7 +1056,7 @@ func TestExecutionContext_LoadConfig(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenConfigHandlerNotInitialized", func(t *testing.T) {
-		ctx := &ExecutionContext{}
+		ctx := &Runtime{}
 
 		err := ctx.LoadConfig()
 
@@ -1071,7 +1071,7 @@ func TestExecutionContext_LoadConfig(t *testing.T) {
 
 	t.Run("ErrorWhenLoadConfigFails", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.LoadConfigFunc = func() error {
@@ -1090,7 +1090,7 @@ func TestExecutionContext_LoadConfig(t *testing.T) {
 	})
 }
 
-func TestExecutionContext_HandleSessionReset(t *testing.T) {
+func TestRuntime_HandleSessionReset(t *testing.T) {
 	t.Run("ResetsWhenNoSessionToken", func(t *testing.T) {
 		t.Cleanup(func() {
 			os.Unsetenv("NO_CACHE")
@@ -1099,7 +1099,7 @@ func TestExecutionContext_HandleSessionReset(t *testing.T) {
 		os.Unsetenv("WINDSOR_SESSION_TOKEN")
 
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		mockShell := mocks.Shell.(*shell.MockShell)
 		resetCalled := false
@@ -1127,7 +1127,7 @@ func TestExecutionContext_HandleSessionReset(t *testing.T) {
 		})
 
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		mockShell := mocks.Shell.(*shell.MockShell)
 		resetCalled := false
@@ -1151,7 +1151,7 @@ func TestExecutionContext_HandleSessionReset(t *testing.T) {
 
 	t.Run("SkipsResetWhenSessionTokenAndNoResetFlag", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		t.Setenv("WINDSOR_SESSION_TOKEN", "test-token")
 
@@ -1176,7 +1176,7 @@ func TestExecutionContext_HandleSessionReset(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenShellNotInitialized", func(t *testing.T) {
-		ctx := &ExecutionContext{}
+		ctx := &Runtime{}
 
 		err := ctx.HandleSessionReset()
 
@@ -1191,7 +1191,7 @@ func TestExecutionContext_HandleSessionReset(t *testing.T) {
 
 	t.Run("ErrorWhenCheckResetFlagsFails", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		mockShell := mocks.Shell.(*shell.MockShell)
 		mockShell.CheckResetFlagsFunc = func() (bool, error) {
@@ -1210,10 +1210,10 @@ func TestExecutionContext_HandleSessionReset(t *testing.T) {
 	})
 }
 
-func TestExecutionContext_ApplyConfigDefaults(t *testing.T) {
+func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 	t.Run("SkipsWhenConfigAlreadyLoaded", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.IsLoadedFunc = func() bool {
@@ -1229,7 +1229,7 @@ func TestExecutionContext_ApplyConfigDefaults(t *testing.T) {
 
 	t.Run("SetsDefaultsForDevMode", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 		ctx.ContextName = "local"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -1275,7 +1275,7 @@ func TestExecutionContext_ApplyConfigDefaults(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenConfigHandlerNotAvailable", func(t *testing.T) {
-		ctx := &ExecutionContext{}
+		ctx := &Runtime{}
 
 		err := ctx.ApplyConfigDefaults()
 
@@ -1290,7 +1290,7 @@ func TestExecutionContext_ApplyConfigDefaults(t *testing.T) {
 
 	t.Run("ErrorWhenSetDevFails", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 		ctx.ContextName = "local"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -1323,7 +1323,7 @@ func TestExecutionContext_ApplyConfigDefaults(t *testing.T) {
 
 	t.Run("SetsDefaultsForNonDevMode", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 		ctx.ContextName = "prod"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -1360,7 +1360,7 @@ func TestExecutionContext_ApplyConfigDefaults(t *testing.T) {
 
 	t.Run("SetsVMDriverForDockerDesktop", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 		ctx.ContextName = "local"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -1406,7 +1406,7 @@ func TestExecutionContext_ApplyConfigDefaults(t *testing.T) {
 
 	t.Run("ErrorWhenSetDefaultFails", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 		ctx.ContextName = "local"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -1441,7 +1441,7 @@ func TestExecutionContext_ApplyConfigDefaults(t *testing.T) {
 
 	t.Run("ErrorWhenSetVMDriverFails", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 		ctx.ContextName = "local"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -1479,7 +1479,7 @@ func TestExecutionContext_ApplyConfigDefaults(t *testing.T) {
 
 	t.Run("ErrorWhenSetProviderFails", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 		ctx.ContextName = "local"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -1516,10 +1516,10 @@ func TestExecutionContext_ApplyConfigDefaults(t *testing.T) {
 	})
 }
 
-func TestExecutionContext_ApplyProviderDefaults(t *testing.T) {
+func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 	t.Run("SetsAWSDefaults", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 		ctx.ContextName = "prod"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -1546,7 +1546,7 @@ func TestExecutionContext_ApplyProviderDefaults(t *testing.T) {
 
 	t.Run("SetsAzureDefaults", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 		ctx.ContextName = "prod"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -1573,7 +1573,7 @@ func TestExecutionContext_ApplyProviderDefaults(t *testing.T) {
 
 	t.Run("SetsGenericDefaults", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 		ctx.ContextName = "local"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -1595,7 +1595,7 @@ func TestExecutionContext_ApplyProviderDefaults(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenConfigHandlerNotAvailable", func(t *testing.T) {
-		ctx := &ExecutionContext{}
+		ctx := &Runtime{}
 
 		err := ctx.ApplyProviderDefaults("aws")
 
@@ -1610,7 +1610,7 @@ func TestExecutionContext_ApplyProviderDefaults(t *testing.T) {
 
 	t.Run("ErrorWhenSetFails", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 		ctx.ContextName = "prod"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -1634,7 +1634,7 @@ func TestExecutionContext_ApplyProviderDefaults(t *testing.T) {
 
 	t.Run("SetsDefaultsForDevModeWithNoProvider", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 		ctx.ContextName = "local"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -1670,7 +1670,7 @@ func TestExecutionContext_ApplyProviderDefaults(t *testing.T) {
 
 	t.Run("GetsProviderFromConfig", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 		ctx.ContextName = "prod"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -1700,7 +1700,7 @@ func TestExecutionContext_ApplyProviderDefaults(t *testing.T) {
 
 	t.Run("ErrorWhenSetClusterDriverFails", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 		ctx.ContextName = "prod"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -1730,7 +1730,7 @@ func TestExecutionContext_ApplyProviderDefaults(t *testing.T) {
 
 	t.Run("ErrorWhenSetAzureDriverFails", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 		ctx.ContextName = "prod"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -1754,7 +1754,7 @@ func TestExecutionContext_ApplyProviderDefaults(t *testing.T) {
 
 	t.Run("ErrorWhenSetDevModeClusterDriverFails", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 		ctx.ContextName = "local"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -1789,10 +1789,10 @@ func TestExecutionContext_ApplyProviderDefaults(t *testing.T) {
 	})
 }
 
-func TestExecutionContext_PrepareTools(t *testing.T) {
+func TestRuntime_PrepareTools(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		mockToolsManager := &MockToolsManager{}
 		mockToolsManager.CheckFunc = func() error {
@@ -1812,7 +1812,7 @@ func TestExecutionContext_PrepareTools(t *testing.T) {
 
 	t.Run("ErrorWhenCheckFails", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		mockToolsManager := &MockToolsManager{}
 		mockToolsManager.CheckFunc = func() error {
@@ -1833,7 +1833,7 @@ func TestExecutionContext_PrepareTools(t *testing.T) {
 
 	t.Run("ErrorWhenInstallFails", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		mockToolsManager := &MockToolsManager{}
 		mockToolsManager.CheckFunc = func() error {
@@ -1856,10 +1856,10 @@ func TestExecutionContext_PrepareTools(t *testing.T) {
 	})
 }
 
-func TestExecutionContext_GetBuildID(t *testing.T) {
+func TestRuntime_GetBuildID(t *testing.T) {
 	t.Run("CreatesNewBuildIDWhenNoneExists", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		tmpDir := t.TempDir()
 		ctx.ProjectRoot = tmpDir
@@ -1877,7 +1877,7 @@ func TestExecutionContext_GetBuildID(t *testing.T) {
 
 	t.Run("ReturnsExistingBuildID", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		tmpDir := t.TempDir()
 		ctx.ProjectRoot = tmpDir
@@ -1898,10 +1898,10 @@ func TestExecutionContext_GetBuildID(t *testing.T) {
 	})
 }
 
-func TestExecutionContext_GenerateBuildID(t *testing.T) {
+func TestRuntime_GenerateBuildID(t *testing.T) {
 	t.Run("GeneratesAndSavesBuildID", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		tmpDir := t.TempDir()
 		ctx.ProjectRoot = tmpDir
@@ -1919,7 +1919,7 @@ func TestExecutionContext_GenerateBuildID(t *testing.T) {
 
 	t.Run("IncrementsBuildIDOnSubsequentCalls", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		tmpDir := t.TempDir()
 		ctx.ProjectRoot = tmpDir
@@ -1941,7 +1941,7 @@ func TestExecutionContext_GenerateBuildID(t *testing.T) {
 
 	t.Run("ErrorOnInvalidFormat", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		tmpDir := t.TempDir()
 		ctx.ProjectRoot = tmpDir
@@ -1959,7 +1959,7 @@ func TestExecutionContext_GenerateBuildID(t *testing.T) {
 
 	t.Run("ErrorOnInvalidCounter", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		tmpDir := t.TempDir()
 		ctx.ProjectRoot = tmpDir
@@ -1977,7 +1977,7 @@ func TestExecutionContext_GenerateBuildID(t *testing.T) {
 
 	t.Run("ResetsCounterOnDateChange", func(t *testing.T) {
 		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.ExecutionContext
+		ctx := mocks.Runtime
 
 		tmpDir := t.TempDir()
 		ctx.ProjectRoot = tmpDir

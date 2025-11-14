@@ -7,10 +7,10 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/composer"
-	"github.com/windsorcli/cli/pkg/context"
-	"github.com/windsorcli/cli/pkg/context/config"
-	"github.com/windsorcli/cli/pkg/context/shell"
-	"github.com/windsorcli/cli/pkg/context/tools"
+	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/provisioner"
 	"github.com/windsorcli/cli/pkg/workstation"
@@ -102,22 +102,22 @@ func setupMocks(t *testing.T) *Mocks {
 	injector.Register("configHandler", configHandler)
 	injector.Register("toolsManager", mockToolsManager)
 
-	baseCtx := &context.ExecutionContext{
+	baseCtx := &runtime.Runtime{
 		Injector: injector,
 	}
 
-	ctx, err := context.NewContext(baseCtx)
+	ctx, err := runtime.NewRuntime(baseCtx)
 	if err != nil {
 		t.Fatalf("Failed to create context: %v", err)
 	}
 
-	provCtx := &provisioner.ProvisionerExecutionContext{
-		ExecutionContext: *ctx,
+	provCtx := &provisioner.ProvisionerRuntime{
+		Runtime: *ctx,
 	}
 	prov := provisioner.NewProvisioner(provCtx)
 
-	composerCtx := &composer.ComposerExecutionContext{
-		ExecutionContext: *ctx,
+	composerCtx := &composer.ComposerRuntime{
+		Runtime: *ctx,
 	}
 	comp := composer.NewComposer(composerCtx)
 

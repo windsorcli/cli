@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 
 	"github.com/windsorcli/cli/pkg/composer"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/provisioner"
+	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/workstation"
 )
 
@@ -16,7 +16,7 @@ import (
 // It coordinates context, provisioner, composer, and workstation managers
 // to provide a unified interface for project initialization and management.
 type Project struct {
-	Context     *context.ExecutionContext
+	Context     *runtime.Runtime
 	Provisioner *provisioner.Provisioner
 	Composer    *composer.Composer
 	Workstation *workstation.Workstation
@@ -28,17 +28,17 @@ type Project struct {
 // is in dev mode. If an existing context is provided, it will be reused; otherwise,
 // a new context will be created. Returns the initialized Project or an error if any step fails.
 // After creation, call Configure() to apply flag overrides if needed.
-func NewProject(injector di.Injector, contextName string, existingCtx ...*context.ExecutionContext) (*Project, error) {
-	var baseCtx *context.ExecutionContext
+func NewProject(injector di.Injector, contextName string, existingCtx ...*runtime.Runtime) (*Project, error) {
+	var baseCtx *runtime.Runtime
 	var err error
 
 	if len(existingCtx) > 0 && existingCtx[0] != nil {
 		baseCtx = existingCtx[0]
 	} else {
-		baseCtx = &context.ExecutionContext{
+		baseCtx = &runtime.Runtime{
 			Injector: injector,
 		}
-		baseCtx, err = context.NewContext(baseCtx)
+		baseCtx, err = runtime.NewRuntime(baseCtx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize context: %w", err)
 		}
@@ -58,20 +58,20 @@ func NewProject(injector di.Injector, contextName string, existingCtx ...*contex
 		return nil, err
 	}
 
-	provCtx := &provisioner.ProvisionerExecutionContext{
-		ExecutionContext: *baseCtx,
+	provCtx := &provisioner.ProvisionerRuntime{
+		Runtime: *baseCtx,
 	}
 	prov := provisioner.NewProvisioner(provCtx)
 
-	composerCtx := &composer.ComposerExecutionContext{
-		ExecutionContext: *baseCtx,
+	composerCtx := &composer.ComposerRuntime{
+		Runtime: *baseCtx,
 	}
 	comp := composer.NewComposer(composerCtx)
 
 	var ws *workstation.Workstation
 	if baseCtx.ConfigHandler.IsDevMode(baseCtx.ContextName) {
-		workstationCtx := &workstation.WorkstationExecutionContext{
-			ExecutionContext: *baseCtx,
+		workstationCtx := &workstation.WorkstationRuntime{
+			Runtime: *baseCtx,
 		}
 		ws, err = workstation.NewWorkstation(workstationCtx, baseCtx.Injector)
 		if err != nil {

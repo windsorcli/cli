@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/context/config"
-	"github.com/windsorcli/cli/pkg/context/env"
-	"github.com/windsorcli/cli/pkg/context/shell"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/env"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
@@ -151,7 +151,7 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 		return stdout, stderr
 	}
 
-	t.Run("HandlesNewContextError", func(t *testing.T) {
+	t.Run("HandlesNewRuntimeError", func(t *testing.T) {
 		setup(t)
 		injector := di.NewInjector()
 		mockShell := shell.NewMockShell()
@@ -175,7 +175,7 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 		err := Execute()
 
 		if err == nil {
-			t.Error("Expected error when NewContext fails")
+			t.Error("Expected error when NewRuntime fails")
 		}
 
 		if !strings.Contains(err.Error(), "failed to initialize context") {

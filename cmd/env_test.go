@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/context/config"
-	"github.com/windsorcli/cli/pkg/context/env"
-	"github.com/windsorcli/cli/pkg/context/shell"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/env"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
@@ -231,7 +231,7 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 	// so testing the Setenv error path isn't realistic. The error handling code exists
 	// for completeness but cannot be triggered in practice.
 
-	t.Run("HandlesNewContextError", func(t *testing.T) {
+	t.Run("HandlesNewRuntimeError", func(t *testing.T) {
 		setup(t)
 		// Reset context and verbose before setting up test
 		rootCmd.SetContext(context.Background())
@@ -257,7 +257,7 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		err := Execute()
 
 		if err == nil {
-			t.Error("Expected error when NewContext fails")
+			t.Error("Expected error when NewRuntime fails")
 		}
 
 		if !strings.Contains(err.Error(), "failed to initialize context") {
@@ -399,7 +399,7 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 			return fmt.Errorf("hook failed")
 		}
 		// Override the WindsorEnv printer after LoadEnvironment has initialized it
-		// We need to set it directly on the ExecutionContext after it's created
+		// We need to set it directly on the Runtime after it's created
 		injector := mocks.Injector
 
 		ctx := context.WithValue(context.Background(), injectorKey, injector)

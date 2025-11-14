@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/context/shell"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // The SecretsProviderTest is a test suite for the SecretsProvider interface

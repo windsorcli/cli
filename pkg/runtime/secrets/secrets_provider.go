@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/context/shell"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // The SecretsProvider is a core interface for secrets management
