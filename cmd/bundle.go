@@ -5,7 +5,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/composer"
-	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
@@ -44,16 +43,12 @@ Examples:
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
-		var override *composer.Composer
-		if existingArtifactBuilder := injector.Resolve("artifactBuilder"); existingArtifactBuilder != nil {
-			if artifactBuilder, ok := existingArtifactBuilder.(artifact.Artifact); ok {
-				override = &composer.Composer{
-					ArtifactBuilder: artifactBuilder,
-				}
-			}
+		var opts []*composer.Composer
+		if overridesVal := cmd.Context().Value(composerOverridesKey); overridesVal != nil {
+			opts = []*composer.Composer{overridesVal.(*composer.Composer)}
 		}
 
-		comp := composer.NewComposer(rt, override)
+		comp := composer.NewComposer(rt, opts...)
 
 		tag, _ := cmd.Flags().GetString("tag")
 		outputPath, _ := cmd.Flags().GetString("output")

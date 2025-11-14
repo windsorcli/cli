@@ -11,7 +11,6 @@ import (
 	"github.com/siderolabs/talos/pkg/machinery/api/machine"
 	talosclient "github.com/siderolabs/talos/pkg/machinery/client"
 	clientconfig "github.com/siderolabs/talos/pkg/machinery/client/config"
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 // =============================================================================
@@ -81,16 +80,13 @@ func setupShims(t *testing.T) *Shims {
 
 func TestNewTalosClusterClient(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		client := NewTalosClusterClient(di.NewMockInjector())
+		client := NewTalosClusterClient()
 
 		if client == nil {
 			t.Error("Expected non-nil TalosClusterClient")
 		}
 		if client.BaseClusterClient == nil {
 			t.Error("Expected non-nil BaseClusterClient")
-		}
-		if client.injector == nil {
-			t.Error("Expected injector to be set")
 		}
 		if client.shims == nil {
 			t.Error("Expected shims to be initialized")
@@ -105,7 +101,7 @@ func TestNewTalosClusterClient(t *testing.T) {
 func TestTalosClusterClient_WaitForNodesHealthy(t *testing.T) {
 	setup := func(t *testing.T) *TalosClusterClient {
 		t.Helper()
-		client := NewTalosClusterClient(di.NewMockInjector())
+		client := NewTalosClusterClient()
 		client.shims = setupShims(t)
 		client.healthCheckTimeout = 100 * time.Millisecond
 		client.healthCheckPollInterval = 10 * time.Millisecond
@@ -285,7 +281,7 @@ func TestTalosClusterClient_WaitForNodesHealthy(t *testing.T) {
 
 func TestTalosClusterClient_Close(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		client := NewTalosClusterClient(di.NewMockInjector())
+		client := NewTalosClusterClient()
 
 		// Test that Close doesn't panic when client is nil
 		client.client = nil
@@ -298,7 +294,7 @@ func TestTalosClusterClient_Close(t *testing.T) {
 	})
 
 	t.Run("SuccessWithClient", func(t *testing.T) {
-		client := NewTalosClusterClient(di.NewMockInjector())
+		client := NewTalosClusterClient()
 		client.shims = setupShims(t)
 
 		// Set up a mock client (we'll use a non-nil pointer to simulate having a client)
@@ -325,7 +321,7 @@ func TestTalosClusterClient_Close(t *testing.T) {
 	})
 
 	t.Run("NoClient", func(t *testing.T) {
-		client := NewTalosClusterClient(di.NewMockInjector())
+		client := NewTalosClusterClient()
 
 		client.Close()
 	})
@@ -338,7 +334,7 @@ func TestTalosClusterClient_Close(t *testing.T) {
 func TestTalosClusterClient_ensureClient(t *testing.T) {
 	setup := func(t *testing.T) *TalosClusterClient {
 		t.Helper()
-		client := NewTalosClusterClient(di.NewMockInjector())
+		client := NewTalosClusterClient()
 		client.shims = setupShims(t)
 		return client
 	}
@@ -422,7 +418,7 @@ func TestTalosClusterClient_ensureClient(t *testing.T) {
 func TestTalosClusterClient_getNodeHealthDetails(t *testing.T) {
 	setup := func(t *testing.T) *TalosClusterClient {
 		t.Helper()
-		client := NewTalosClusterClient(di.NewMockInjector())
+		client := NewTalosClusterClient()
 		client.shims = setupShims(t)
 		return client
 	}
@@ -588,7 +584,7 @@ func TestTalosClusterClient_getNodeHealthDetails(t *testing.T) {
 func TestTalosClusterClient_getNodeVersion(t *testing.T) {
 	setup := func(t *testing.T) *TalosClusterClient {
 		t.Helper()
-		client := NewTalosClusterClient(di.NewMockInjector())
+		client := NewTalosClusterClient()
 		client.shims = setupShims(t)
 		return client
 	}

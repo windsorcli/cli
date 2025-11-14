@@ -25,16 +25,23 @@ type Project struct {
 // NewProject creates and initializes a new Project instance with all required managers.
 // It sets up the execution context, applies config defaults, and creates provisioner,
 // composer, and workstation managers. The workstation is only created if the project
-// is in dev mode. If an existing context is provided, it will be reused; otherwise,
-// a new context will be created. Returns the initialized Project or an error if any step fails.
+// is in dev mode. Returns the initialized Project or an error if any step fails.
 // After creation, call Configure() to apply flag overrides if needed.
-func NewProject(injector di.Injector, contextName string, existingRuntime ...*runtime.Runtime) (*Project, error) {
+// Optional overrides can be provided via opts to inject mocks for testing.
+// If opts contains a Project with Runtime set, that runtime will be reused.
+func NewProject(injector di.Injector, contextName string, opts ...*Project) (*Project, error) {
 	var rt *runtime.Runtime
 	var err error
 
-	if len(existingRuntime) > 0 && existingRuntime[0] != nil {
-		rt = existingRuntime[0]
-	} else {
+	var overrides *Project
+	if len(opts) > 0 && opts[0] != nil {
+		overrides = opts[0]
+		if overrides.Runtime != nil {
+			rt = overrides.Runtime
+		}
+	}
+
+	if rt == nil {
 		rt = &runtime.Runtime{
 			Injector: injector,
 		}
@@ -58,21 +65,32 @@ func NewProject(injector di.Injector, contextName string, existingRuntime ...*ru
 		return nil, err
 	}
 
-	provCtx := &provisioner.ProvisionerRuntime{
-		Runtime: *rt,
+	var comp *composer.Composer
+	if overrides != nil && overrides.Composer != nil {
+		comp = overrides.Composer
+	} else {
+		comp = composer.NewComposer(rt)
 	}
-	prov := provisioner.NewProvisioner(provCtx)
 
-	comp := composer.NewComposer(rt)
+	var prov *provisioner.Provisioner
+	if overrides != nil && overrides.Provisioner != nil {
+		prov = overrides.Provisioner
+	} else {
+		prov = provisioner.NewProvisioner(rt, comp.BlueprintHandler)
+	}
 
 	var ws *workstation.Workstation
 	if rt.ConfigHandler.IsDevMode(rt.ContextName) {
-		workstationCtx := &workstation.WorkstationRuntime{
-			Runtime: *rt,
-		}
-		ws, err = workstation.NewWorkstation(workstationCtx, rt.Injector)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create workstation: %w", err)
+		if overrides != nil && overrides.Workstation != nil {
+			ws = overrides.Workstation
+		} else {
+			workstationCtx := &workstation.WorkstationRuntime{
+				Runtime: *rt,
+			}
+			ws, err = workstation.NewWorkstation(workstationCtx, rt.Injector)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create workstation: %w", err)
+			}
 		}
 	}
 

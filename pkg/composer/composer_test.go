@@ -35,7 +35,7 @@ func setupComposerMocks(t *testing.T) *Mocks {
 		return tmpDir, nil
 	}
 
-	// Create execution context
+	// Create runtime
 	rt := &runtime.Runtime{
 		ContextName:   "test-context",
 		ProjectRoot:   tmpDir,
@@ -148,14 +148,11 @@ func TestComposer_Push(t *testing.T) {
 func TestComposer_Generate(t *testing.T) {
 	t.Run("HandlesGenerateSuccessfully", func(t *testing.T) {
 		mocks := setupComposerMocks(t)
-		// Create empty TemplateRoot directory so LoadBlueprint tries to load from template
+		// Create TemplateRoot directory so LoadBlueprint checks for empty template data
 		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
 			t.Fatalf("Failed to create TemplateRoot: %v", err)
 		}
 		composer := NewComposer(mocks.Runtime)
-		if composer == nil {
-			t.Fatal("Expected non-nil composer")
-		}
 
 		// Generate will fail because blueprint.yaml doesn't exist in ConfigRoot and template is empty
 		err := composer.Generate()
@@ -167,14 +164,11 @@ func TestComposer_Generate(t *testing.T) {
 
 	t.Run("HandlesGenerateWithOverwrite", func(t *testing.T) {
 		mocks := setupComposerMocks(t)
-		// Create empty TemplateRoot directory so LoadBlueprint tries to load from template
+		// Create TemplateRoot directory so LoadBlueprint checks for empty template data
 		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
 			t.Fatalf("Failed to create TemplateRoot: %v", err)
 		}
 		composer := NewComposer(mocks.Runtime)
-		if composer == nil {
-			t.Fatal("Expected non-nil composer")
-		}
 
 		// Generate will fail because blueprint.yaml doesn't exist in ConfigRoot and template is empty
 		err := composer.Generate(true)

@@ -106,17 +106,13 @@ func setupMocks(t *testing.T) *Mocks {
 		Injector: injector,
 	}
 
-	ctx, err := runtime.NewRuntime(rt)
+	rt, err := runtime.NewRuntime(rt)
 	if err != nil {
 		t.Fatalf("Failed to create context: %v", err)
 	}
 
-	provCtx := &provisioner.ProvisionerRuntime{
-		Runtime: *ctx,
-	}
-	prov := provisioner.NewProvisioner(provCtx)
-
-	comp := composer.NewComposer(ctx)
+	comp := composer.NewComposer(rt)
+	prov := provisioner.NewProvisioner(rt, comp.BlueprintHandler)
 
 	return &Mocks{
 		Injector:      injector,

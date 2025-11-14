@@ -8,6 +8,7 @@ import (
 	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/provisioner/cluster"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
@@ -53,14 +54,15 @@ func createTestBlueprint() *blueprintv1alpha1.Blueprint {
 }
 
 type Mocks struct {
-	Injector           di.Injector
-	ConfigHandler      config.ConfigHandler
-	Shell              *shell.MockShell
-	TerraformStack     *terraforminfra.MockStack
-	KubernetesManager  *kubernetes.MockKubernetesManager
-	KubernetesClient   k8sclient.KubernetesClient
-	ClusterClient      *cluster.MockClusterClient
-	ProvisionerRuntime *ProvisionerRuntime
+	Injector          di.Injector
+	ConfigHandler     config.ConfigHandler
+	Shell             *shell.MockShell
+	TerraformStack    *terraforminfra.MockStack
+	KubernetesManager *kubernetes.MockKubernetesManager
+	KubernetesClient  k8sclient.KubernetesClient
+	ClusterClient     *cluster.MockClusterClient
+	Runtime           *runtime.Runtime
+	BlueprintHandler  blueprint.BlueprintHandler
 }
 
 // setupProvisionerMocks creates mock components for testing the Provisioner
@@ -91,6 +93,7 @@ func setupProvisionerMocks(t *testing.T) *Mocks {
 	kubernetesManager := kubernetes.NewMockKubernetesManager(injector)
 	kubernetesClient := k8sclient.NewMockKubernetesClient()
 	clusterClient := cluster.NewMockClusterClient()
+	mockBlueprintHandler := blueprint.NewMockBlueprintHandler(injector)
 
 	rt := &runtime.Runtime{
 		ContextName:   "test-context",
@@ -102,14 +105,6 @@ func setupProvisionerMocks(t *testing.T) *Mocks {
 		Shell:         mockShell,
 	}
 
-	provisionerCtx := &ProvisionerRuntime{
-		Runtime:           *rt,
-		TerraformStack:    terraformStack,
-		KubernetesManager: kubernetesManager,
-		KubernetesClient:  kubernetesClient,
-		ClusterClient:     clusterClient,
-	}
-
 	injector.Register("shell", mockShell)
 	injector.Register("configHandler", configHandler)
 	injector.Register("terraformStack", terraformStack)
@@ -118,14 +113,15 @@ func setupProvisionerMocks(t *testing.T) *Mocks {
 	injector.Register("clusterClient", clusterClient)
 
 	return &Mocks{
-		Injector:           injector,
-		ConfigHandler:      configHandler,
-		Shell:              mockShell,
-		TerraformStack:     terraformStack,
-		KubernetesManager:  kubernetesManager,
-		KubernetesClient:   kubernetesClient,
-		ClusterClient:      clusterClient,
-		ProvisionerRuntime: provisionerCtx,
+		Injector:          injector,
+		ConfigHandler:     configHandler,
+		Shell:             mockShell,
+		TerraformStack:    terraformStack,
+		KubernetesManager: kubernetesManager,
+		KubernetesClient:  kubernetesClient,
+		ClusterClient:     clusterClient,
+		Runtime:           rt,
+		BlueprintHandler:  mockBlueprintHandler,
 	}
 }
 
@@ -137,21 +133,21 @@ func TestNewProvisioner(t *testing.T) {
 	t.Run("CreatesProvisionerWithDependencies", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
 		if provisioner == nil {
 			t.Fatal("Expected Provisioner to be created")
 		}
 
-		if provisioner.Injector != mocks.Injector {
-			t.Error("Expected injector to be set")
+		if provisioner.Runtime != mocks.Runtime {
+			t.Error("Expected runtime to be set")
 		}
 
-		if provisioner.Shell != mocks.Shell {
+		if provisioner.Runtime.Shell != mocks.Shell {
 			t.Error("Expected shell to be set")
 		}
 
-		if provisioner.ConfigHandler != mocks.ConfigHandler {
+		if provisioner.Runtime.ConfigHandler != mocks.ConfigHandler {
 			t.Error("Expected config handler to be set")
 		}
 
@@ -170,7 +166,6 @@ func TestNewProvisioner(t *testing.T) {
 
 	t.Run("CreatesClusterClientForTalos", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		mocks.ProvisionerRuntime.ClusterClient = nil
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -180,7 +175,7 @@ func TestNewProvisioner(t *testing.T) {
 			return ""
 		}
 
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
 		if provisioner.ClusterClient == nil {
 			t.Error("Expected cluster client to be created for talos driver")
@@ -189,7 +184,6 @@ func TestNewProvisioner(t *testing.T) {
 
 	t.Run("CreatesClusterClientForOmni", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		mocks.ProvisionerRuntime.ClusterClient = nil
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -199,7 +193,7 @@ func TestNewProvisioner(t *testing.T) {
 			return ""
 		}
 
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
 		if provisioner.ClusterClient == nil {
 			t.Error("Expected cluster client to be created for omni driver")
@@ -208,7 +202,6 @@ func TestNewProvisioner(t *testing.T) {
 
 	t.Run("SkipsClusterClientForOtherDrivers", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		mocks.ProvisionerRuntime.ClusterClient = nil
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -218,7 +211,7 @@ func TestNewProvisioner(t *testing.T) {
 			return ""
 		}
 
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
 		if provisioner.ClusterClient != nil {
 			t.Error("Expected cluster client to be nil for non-talos/omni driver")
@@ -228,7 +221,13 @@ func TestNewProvisioner(t *testing.T) {
 	t.Run("UsesExistingDependencies", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+		opts := &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+			ClusterClient:     mocks.ClusterClient,
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		if provisioner.TerraformStack != mocks.TerraformStack {
 			t.Error("Expected existing terraform stack to be used")
@@ -255,11 +254,11 @@ func TestNewProvisioner(t *testing.T) {
 func TestProvisioner_Up(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
-		mocks.TerraformStack.InitializeFunc = func() error {
-			return nil
+		opts := &Provisioner{
+			TerraformStack: mocks.TerraformStack,
 		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
 		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
 			return nil
 		}
@@ -274,7 +273,7 @@ func TestProvisioner_Up(t *testing.T) {
 
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
 		err := provisioner.Up(nil)
 
@@ -289,7 +288,7 @@ func TestProvisioner_Up(t *testing.T) {
 
 	t.Run("ErrorNilTerraformStack", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 		provisioner.TerraformStack = nil
 
 		blueprint := createTestBlueprint()
@@ -304,33 +303,13 @@ func TestProvisioner_Up(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorTerraformStackInitialize", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
-		mocks.TerraformStack.InitializeFunc = func() error {
-			return fmt.Errorf("initialize failed")
-		}
-
-		blueprint := createTestBlueprint()
-		err := provisioner.Up(blueprint)
-
-		if err == nil {
-			t.Error("Expected error for terraform stack initialize failure")
-		}
-
-		if !strings.Contains(err.Error(), "failed to initialize terraform stack") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
 	t.Run("ErrorTerraformStackUp", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
-		mocks.TerraformStack.InitializeFunc = func() error {
-			return nil
+		opts := &Provisioner{
+			TerraformStack: mocks.TerraformStack,
 		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
 		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
 			return fmt.Errorf("up failed")
 		}
@@ -346,16 +325,17 @@ func TestProvisioner_Up(t *testing.T) {
 			t.Errorf("Expected specific error message, got: %v", err)
 		}
 	})
+
 }
 
 func TestProvisioner_Down(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
-		mocks.TerraformStack.InitializeFunc = func() error {
-			return nil
+		opts := &Provisioner{
+			TerraformStack: mocks.TerraformStack,
 		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
 		mocks.TerraformStack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
 			return nil
 		}
@@ -370,7 +350,7 @@ func TestProvisioner_Down(t *testing.T) {
 
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
 		err := provisioner.Down(nil)
 
@@ -385,7 +365,7 @@ func TestProvisioner_Down(t *testing.T) {
 
 	t.Run("ErrorNilTerraformStack", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 		provisioner.TerraformStack = nil
 
 		blueprint := createTestBlueprint()
@@ -400,33 +380,13 @@ func TestProvisioner_Down(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorTerraformStackInitialize", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
-		mocks.TerraformStack.InitializeFunc = func() error {
-			return fmt.Errorf("initialize failed")
-		}
-
-		blueprint := createTestBlueprint()
-		err := provisioner.Down(blueprint)
-
-		if err == nil {
-			t.Error("Expected error for terraform stack initialize failure")
-		}
-
-		if !strings.Contains(err.Error(), "failed to initialize terraform stack") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
 	t.Run("ErrorTerraformStackDown", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
-		mocks.TerraformStack.InitializeFunc = func() error {
-			return nil
+		opts := &Provisioner{
+			TerraformStack: mocks.TerraformStack,
 		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
 		mocks.TerraformStack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
 			return fmt.Errorf("down failed")
 		}
@@ -442,19 +402,19 @@ func TestProvisioner_Down(t *testing.T) {
 			t.Errorf("Expected specific error message, got: %v", err)
 		}
 	})
+
 }
 
 func TestProvisioner_Install(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
-		mocks.KubernetesManager.InitializeFunc = func() error {
-			return nil
-		}
 		mocks.KubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 			return nil
 		}
+		opts := &Provisioner{
+			KubernetesManager: mocks.KubernetesManager,
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		blueprint := createTestBlueprint()
 		err := provisioner.Install(blueprint)
@@ -466,7 +426,7 @@ func TestProvisioner_Install(t *testing.T) {
 
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
 		err := provisioner.Install(nil)
 
@@ -481,7 +441,7 @@ func TestProvisioner_Install(t *testing.T) {
 
 	t.Run("ErrorNilKubernetesManager", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 		provisioner.KubernetesManager = nil
 
 		blueprint := createTestBlueprint()
@@ -496,36 +456,15 @@ func TestProvisioner_Install(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorKubernetesManagerInitialize", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
-		mocks.KubernetesManager.InitializeFunc = func() error {
-			return fmt.Errorf("initialize failed")
-		}
-
-		blueprint := createTestBlueprint()
-		err := provisioner.Install(blueprint)
-
-		if err == nil {
-			t.Error("Expected error for kubernetes manager initialize failure")
-		}
-
-		if !strings.Contains(err.Error(), "failed to initialize kubernetes manager") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
 	t.Run("ErrorApplyBlueprint", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
-		mocks.KubernetesManager.InitializeFunc = func() error {
-			return nil
-		}
 		mocks.KubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 			return fmt.Errorf("apply blueprint failed")
 		}
+		opts := &Provisioner{
+			KubernetesManager: mocks.KubernetesManager,
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		blueprint := createTestBlueprint()
 		err := provisioner.Install(blueprint)
@@ -543,14 +482,13 @@ func TestProvisioner_Install(t *testing.T) {
 func TestProvisioner_Wait(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
-		mocks.KubernetesManager.InitializeFunc = func() error {
-			return nil
-		}
 		mocks.KubernetesManager.WaitForKustomizationsFunc = func(message string, names ...string) error {
 			return nil
 		}
+		opts := &Provisioner{
+			KubernetesManager: mocks.KubernetesManager,
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		blueprint := createTestBlueprint()
 		err := provisioner.Wait(blueprint)
@@ -562,7 +500,7 @@ func TestProvisioner_Wait(t *testing.T) {
 
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
 		err := provisioner.Wait(nil)
 
@@ -577,7 +515,7 @@ func TestProvisioner_Wait(t *testing.T) {
 
 	t.Run("ErrorNilKubernetesManager", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 		provisioner.KubernetesManager = nil
 
 		blueprint := createTestBlueprint()
@@ -592,36 +530,15 @@ func TestProvisioner_Wait(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorKubernetesManagerInitialize", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
-		mocks.KubernetesManager.InitializeFunc = func() error {
-			return fmt.Errorf("initialize failed")
-		}
-
-		blueprint := createTestBlueprint()
-		err := provisioner.Wait(blueprint)
-
-		if err == nil {
-			t.Error("Expected error for kubernetes manager initialize failure")
-		}
-
-		if !strings.Contains(err.Error(), "failed to initialize kubernetes manager") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
 	t.Run("ErrorWaitForKustomizations", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
-		mocks.KubernetesManager.InitializeFunc = func() error {
-			return nil
-		}
 		mocks.KubernetesManager.WaitForKustomizationsFunc = func(message string, names ...string) error {
 			return fmt.Errorf("wait failed")
 		}
+		opts := &Provisioner{
+			KubernetesManager: mocks.KubernetesManager,
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		blueprint := createTestBlueprint()
 		err := provisioner.Wait(blueprint)
@@ -639,14 +556,13 @@ func TestProvisioner_Wait(t *testing.T) {
 func TestProvisioner_Uninstall(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
-		mocks.KubernetesManager.InitializeFunc = func() error {
-			return nil
-		}
 		mocks.KubernetesManager.DeleteBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 			return nil
 		}
+		opts := &Provisioner{
+			KubernetesManager: mocks.KubernetesManager,
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		blueprint := createTestBlueprint()
 		err := provisioner.Uninstall(blueprint)
@@ -658,14 +574,13 @@ func TestProvisioner_Uninstall(t *testing.T) {
 
 	t.Run("SuccessWithCleanupKustomizations", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
-		mocks.KubernetesManager.InitializeFunc = func() error {
-			return nil
-		}
 		mocks.KubernetesManager.DeleteBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 			return nil
 		}
+		opts := &Provisioner{
+			KubernetesManager: mocks.KubernetesManager,
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		blueprint := createTestBlueprint()
 		blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
@@ -684,14 +599,13 @@ func TestProvisioner_Uninstall(t *testing.T) {
 
 	t.Run("SuccessSkipsDestroyFalse", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
-		mocks.KubernetesManager.InitializeFunc = func() error {
-			return nil
-		}
 		mocks.KubernetesManager.DeleteBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 			return nil
 		}
+		opts := &Provisioner{
+			KubernetesManager: mocks.KubernetesManager,
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		blueprint := createTestBlueprint()
 		destroyFalse := false
@@ -715,7 +629,7 @@ func TestProvisioner_Uninstall(t *testing.T) {
 
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
 		err := provisioner.Uninstall(nil)
 
@@ -730,7 +644,7 @@ func TestProvisioner_Uninstall(t *testing.T) {
 
 	t.Run("ErrorNilKubernetesManager", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 		provisioner.KubernetesManager = nil
 
 		blueprint := createTestBlueprint()
@@ -745,36 +659,15 @@ func TestProvisioner_Uninstall(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorKubernetesManagerInitialize", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
-		mocks.KubernetesManager.InitializeFunc = func() error {
-			return fmt.Errorf("initialize failed")
-		}
-
-		blueprint := createTestBlueprint()
-		err := provisioner.Uninstall(blueprint)
-
-		if err == nil {
-			t.Error("Expected error for kubernetes manager initialize failure")
-		}
-
-		if !strings.Contains(err.Error(), "failed to initialize kubernetes manager") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
 	t.Run("ErrorDeleteBlueprint", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
-		mocks.KubernetesManager.InitializeFunc = func() error {
-			return nil
-		}
 		mocks.KubernetesManager.DeleteBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 			return fmt.Errorf("delete blueprint failed")
 		}
+		opts := &Provisioner{
+			KubernetesManager: mocks.KubernetesManager,
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		blueprint := createTestBlueprint()
 		err := provisioner.Uninstall(blueprint)
@@ -792,12 +685,14 @@ func TestProvisioner_Uninstall(t *testing.T) {
 func TestProvisioner_Close(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
 		closeCalled := false
 		mocks.ClusterClient.CloseFunc = func() {
 			closeCalled = true
 		}
+		opts := &Provisioner{
+			ClusterClient: mocks.ClusterClient,
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		provisioner.Close()
 
@@ -808,7 +703,7 @@ func TestProvisioner_Close(t *testing.T) {
 
 	t.Run("HandlesNilClusterClient", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 		provisioner.ClusterClient = nil
 
 		provisioner.Close()
@@ -820,56 +715,23 @@ func TestProvisioner_Close(t *testing.T) {
 }
 
 // =============================================================================
-// Test ProvisionerRuntime
-// =============================================================================
-
-func TestProvisionerRuntime(t *testing.T) {
-	t.Run("CreatesProvisionerRuntime", func(t *testing.T) {
-		rt := &runtime.Runtime{
-			ContextName:  "test-context",
-			ProjectRoot:  "/test/project",
-			ConfigRoot:   "/test/project/contexts/test-context",
-			TemplateRoot: "/test/project/contexts/_template",
-		}
-
-		provisionerCtx := &ProvisionerRuntime{
-			Runtime: *rt,
-		}
-
-		if provisionerCtx.ContextName != "test-context" {
-			t.Errorf("Expected context name 'test-context', got: %s", provisionerCtx.ContextName)
-		}
-
-		if provisionerCtx.ProjectRoot != "/test/project" {
-			t.Errorf("Expected project root '/test/project', got: %s", provisionerCtx.ProjectRoot)
-		}
-
-		if provisionerCtx.ConfigRoot != "/test/project/contexts/test-context" {
-			t.Errorf("Expected config root '/test/project/contexts/test-context', got: %s", provisionerCtx.ConfigRoot)
-		}
-
-		if provisionerCtx.TemplateRoot != "/test/project/contexts/_template" {
-			t.Errorf("Expected template root '/test/project/contexts/_template', got: %s", provisionerCtx.TemplateRoot)
-		}
-	})
-}
-
-// =============================================================================
 // Test CheckNodeHealth
 // =============================================================================
 
 func TestProvisioner_CheckNodeHealth(t *testing.T) {
 	t.Run("SuccessWithNodeCheckOnly", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx stdcontext.Context, nodeAddresses []string, expectedVersion string) error {
+			return nil
+		}
+		opts := &Provisioner{
+			ClusterClient: mocks.ClusterClient,
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		var outputMessages []string
 		outputFunc := func(msg string) {
 			outputMessages = append(outputMessages, msg)
-		}
-
-		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx stdcontext.Context, nodeAddresses []string, expectedVersion string) error {
-			return nil
 		}
 
 		options := NodeHealthCheckOptions{
@@ -894,18 +756,20 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 
 	t.Run("SuccessWithNodeCheckAndVersion", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
-		var outputMessages []string
-		outputFunc := func(msg string) {
-			outputMessages = append(outputMessages, msg)
-		}
-
 		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx stdcontext.Context, nodeAddresses []string, expectedVersion string) error {
 			if expectedVersion != "v1.5.0" {
 				t.Errorf("Expected version 'v1.5.0', got: %q", expectedVersion)
 			}
 			return nil
+		}
+		opts := &Provisioner{
+			ClusterClient: mocks.ClusterClient,
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		var outputMessages []string
+		outputFunc := func(msg string) {
+			outputMessages = append(outputMessages, msg)
 		}
 
 		options := NodeHealthCheckOptions{
@@ -931,18 +795,17 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 
 	t.Run("SuccessWithKubernetesCheckOnly", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx stdcontext.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
+			return nil
+		}
+		opts := &Provisioner{
+			KubernetesManager: mocks.KubernetesManager,
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		var outputMessages []string
 		outputFunc := func(msg string) {
 			outputMessages = append(outputMessages, msg)
-		}
-
-		mocks.KubernetesManager.InitializeFunc = func() error {
-			return nil
-		}
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx stdcontext.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
-			return nil
 		}
 
 		options := NodeHealthCheckOptions{
@@ -967,21 +830,21 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 
 	t.Run("SuccessWithBothChecks", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
-		var outputMessages []string
-		outputFunc := func(msg string) {
-			outputMessages = append(outputMessages, msg)
-		}
-
 		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx stdcontext.Context, nodeAddresses []string, expectedVersion string) error {
-			return nil
-		}
-		mocks.KubernetesManager.InitializeFunc = func() error {
 			return nil
 		}
 		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx stdcontext.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
 			return nil
+		}
+		opts := &Provisioner{
+			KubernetesManager: mocks.KubernetesManager,
+			ClusterClient:     mocks.ClusterClient,
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		var outputMessages []string
+		outputFunc := func(msg string) {
+			outputMessages = append(outputMessages, msg)
 		}
 
 		options := NodeHealthCheckOptions{
@@ -999,16 +862,6 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 
 	t.Run("SuccessWithNodeReadinessCheck", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
-		var outputMessages []string
-		outputFunc := func(msg string) {
-			outputMessages = append(outputMessages, msg)
-		}
-
-		mocks.KubernetesManager.InitializeFunc = func() error {
-			return nil
-		}
 		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx stdcontext.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
 			if len(nodeNames) != 1 || nodeNames[0] != "10.0.0.1" {
 				t.Errorf("Expected node name '10.0.0.1', got: %v", nodeNames)
@@ -1017,6 +870,15 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 		}
 		mocks.KubernetesManager.GetNodeReadyStatusFunc = func(ctx stdcontext.Context, nodeNames []string) (map[string]bool, error) {
 			return map[string]bool{"10.0.0.1": true}, nil
+		}
+		opts := &Provisioner{
+			KubernetesManager: mocks.KubernetesManager,
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		var outputMessages []string
+		outputFunc := func(msg string) {
+			outputMessages = append(outputMessages, msg)
 		}
 
 		options := NodeHealthCheckOptions{
@@ -1035,7 +897,7 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 
 	t.Run("ErrorNoHealthChecksSpecified", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
 		options := NodeHealthCheckOptions{
 			K8SEndpointProvided: false,
@@ -1054,11 +916,13 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 
 	t.Run("ErrorClusterClientWaitForNodesHealthy", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
 		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx stdcontext.Context, nodeAddresses []string, expectedVersion string) error {
 			return fmt.Errorf("cluster health check failed")
 		}
+		opts := &Provisioner{
+			ClusterClient: mocks.ClusterClient,
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		options := NodeHealthCheckOptions{
 			Nodes:               []string{"10.0.0.1"},
@@ -1078,21 +942,21 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 
 	t.Run("WarningClusterClientFailureWithK8sCheck", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx stdcontext.Context, nodeAddresses []string, expectedVersion string) error {
+			return fmt.Errorf("cluster health check failed")
+		}
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx stdcontext.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
+			return nil
+		}
+		opts := &Provisioner{
+			KubernetesManager: mocks.KubernetesManager,
+			ClusterClient:     mocks.ClusterClient,
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		var outputMessages []string
 		outputFunc := func(msg string) {
 			outputMessages = append(outputMessages, msg)
-		}
-
-		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx stdcontext.Context, nodeAddresses []string, expectedVersion string) error {
-			return fmt.Errorf("cluster health check failed")
-		}
-		mocks.KubernetesManager.InitializeFunc = func() error {
-			return nil
-		}
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx stdcontext.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
-			return nil
 		}
 
 		options := NodeHealthCheckOptions{
@@ -1120,40 +984,15 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorKubernetesManagerInitialize", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
-		mocks.KubernetesManager.InitializeFunc = func() error {
-			return fmt.Errorf("initialization failed")
-		}
-
-		options := NodeHealthCheckOptions{
-			K8SEndpoint:         "https://test:6443",
-			K8SEndpointProvided: true,
-		}
-
-		err := provisioner.CheckNodeHealth(stdcontext.Background(), options, nil)
-
-		if err == nil {
-			t.Error("Expected error when Kubernetes manager initialization fails")
-		}
-
-		if !strings.Contains(err.Error(), "failed to initialize kubernetes manager") {
-			t.Errorf("Expected error about initialization failure, got: %v", err)
-		}
-	})
-
 	t.Run("ErrorKubernetesManagerWaitForKubernetesHealthy", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
-		mocks.KubernetesManager.InitializeFunc = func() error {
-			return nil
-		}
 		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx stdcontext.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
 			return fmt.Errorf("kubernetes health check failed")
 		}
+		opts := &Provisioner{
+			KubernetesManager: mocks.KubernetesManager,
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		options := NodeHealthCheckOptions{
 			K8SEndpoint:         "https://test:6443",
@@ -1173,11 +1012,10 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 
 	t.Run("ErrorCheckNodeReadyRequiresNodes", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
-		mocks.KubernetesManager.InitializeFunc = func() error {
-			return nil
+		opts := &Provisioner{
+			KubernetesManager: mocks.KubernetesManager,
 		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		options := NodeHealthCheckOptions{
 			K8SEndpoint:         "https://test:6443",
@@ -1198,7 +1036,7 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 
 	t.Run("ErrorNoKubernetesManager", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 		provisioner.KubernetesManager = nil
 
 		options := NodeHealthCheckOptions{
@@ -1219,8 +1057,6 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 
 	t.Run("SuccessWithDefaultTimeout", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.ProvisionerRuntime)
-
 		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx stdcontext.Context, nodeAddresses []string, expectedVersion string) error {
 			deadline, ok := ctx.Deadline()
 			if !ok {
@@ -1231,6 +1067,10 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 			}
 			return nil
 		}
+		opts := &Provisioner{
+			ClusterClient: mocks.ClusterClient,
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		options := NodeHealthCheckOptions{
 			Nodes:               []string{"10.0.0.1"},
