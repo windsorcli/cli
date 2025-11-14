@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
@@ -48,77 +47,6 @@ func TestMockBlueprintHandler_Initialize(t *testing.T) {
 	})
 }
 
-func TestMockBlueprintHandler_LoadConfig(t *testing.T) {
-	setup := func(t *testing.T) *MockBlueprintHandler {
-		t.Helper()
-		injector := di.NewInjector()
-		handler := NewMockBlueprintHandler(injector)
-		return handler
-	}
-
-	mockLoadErr := fmt.Errorf("mock load config error")
-
-	t.Run("WithError", func(t *testing.T) {
-		// Given a mock handler with load config function
-		handler := setup(t)
-		handler.LoadConfigFunc = func() error {
-			return mockLoadErr
-		}
-		// When loading config
-		err := handler.LoadConfig()
-		// Then expected error should be returned
-		if err != mockLoadErr {
-			t.Errorf("Expected error = %v, got = %v", mockLoadErr, err)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock handler without load config function
-		handler := setup(t)
-		// When loading config
-		err := handler.LoadConfig()
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-	})
-}
-
-func TestMockBlueprintHandler_getSources(t *testing.T) {
-	setup := func(t *testing.T) *MockBlueprintHandler {
-		t.Helper()
-		injector := di.NewInjector()
-		handler := NewMockBlueprintHandler(injector)
-		return handler
-	}
-
-	t.Run("WithFuncSet", func(t *testing.T) {
-		// Given a mock handler with get sources function
-		handler := setup(t)
-		expectedSources := []blueprintv1alpha1.Source{}
-		handler.getSourcesFunc = func() []blueprintv1alpha1.Source {
-			return expectedSources
-		}
-		// When getting sources
-		sources := handler.getSources()
-		// Then expected sources should be returned
-		if !reflect.DeepEqual(sources, expectedSources) {
-			t.Errorf("Expected sources = %v, got = %v", expectedSources, sources)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock handler without get sources function
-		handler := setup(t)
-		// When getting sources
-		sources := handler.getSources()
-		// Then empty sources should be returned
-		if !reflect.DeepEqual(sources, []blueprintv1alpha1.Source{}) {
-			t.Errorf("Expected sources = %v, got = %v", []blueprintv1alpha1.Source{}, sources)
-		}
-	})
-}
-
 func TestMockBlueprintHandler_GetTerraformComponents(t *testing.T) {
 	setup := func(t *testing.T) *MockBlueprintHandler {
 		t.Helper()
@@ -150,41 +78,6 @@ func TestMockBlueprintHandler_GetTerraformComponents(t *testing.T) {
 		// Then empty components should be returned
 		if !reflect.DeepEqual(components, []blueprintv1alpha1.TerraformComponent{}) {
 			t.Errorf("Expected components = %v, got = %v", []blueprintv1alpha1.TerraformComponent{}, components)
-		}
-	})
-}
-
-func TestMockBlueprintHandler_getKustomizations(t *testing.T) {
-	setup := func(t *testing.T) *MockBlueprintHandler {
-		t.Helper()
-		injector := di.NewInjector()
-		handler := NewMockBlueprintHandler(injector)
-		return handler
-	}
-
-	t.Run("WithFuncSet", func(t *testing.T) {
-		// Given a mock handler with get kustomizations function
-		handler := setup(t)
-		expectedKustomizations := []blueprintv1alpha1.Kustomization{}
-		handler.getKustomizationsFunc = func() []blueprintv1alpha1.Kustomization {
-			return expectedKustomizations
-		}
-		// When getting kustomizations
-		kustomizations := handler.getKustomizations()
-		// Then expected kustomizations should be returned
-		if !reflect.DeepEqual(kustomizations, expectedKustomizations) {
-			t.Errorf("Expected kustomizations = %v, got = %v", expectedKustomizations, kustomizations)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock handler without get kustomizations function
-		handler := setup(t)
-		// When getting kustomizations
-		kustomizations := handler.getKustomizations()
-		// Then empty kustomizations should be returned
-		if !reflect.DeepEqual(kustomizations, []blueprintv1alpha1.Kustomization{}) {
-			t.Errorf("Expected kustomizations = %v, got = %v", []blueprintv1alpha1.Kustomization{}, kustomizations)
 		}
 	})
 }
@@ -221,44 +114,6 @@ func TestMockBlueprintHandler_Install(t *testing.T) {
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-	})
-}
-
-func TestMockBlueprintHandler_getRepository(t *testing.T) {
-	setup := func(t *testing.T) *MockBlueprintHandler {
-		t.Helper()
-		injector := di.NewInjector()
-		handler := NewMockBlueprintHandler(injector)
-		return handler
-	}
-
-	t.Run("DefaultBehavior", func(t *testing.T) {
-		// Given a mock handler without get repository function
-		handler := setup(t)
-		// When getting repository
-		repo := handler.getRepository()
-		// Then empty repository should be returned
-		if repo != (blueprintv1alpha1.Repository{}) {
-			t.Errorf("Expected empty Repository, got %+v", repo)
-		}
-	})
-
-	t.Run("WithMockFunction", func(t *testing.T) {
-		// Given a mock handler with get repository function
-		handler := setup(t)
-		expected := blueprintv1alpha1.Repository{
-			Url: "test-url",
-			Ref: blueprintv1alpha1.Reference{Branch: "main"},
-		}
-		handler.getRepositoryFunc = func() blueprintv1alpha1.Repository {
-			return expected
-		}
-		// When getting repository
-		repo := handler.getRepository()
-		// Then expected repository should be returned
-		if repo != expected {
-			t.Errorf("Expected %+v, got %+v", expected, repo)
 		}
 	})
 }
@@ -301,71 +156,6 @@ func TestMockBlueprintHandler_WaitForKustomizations(t *testing.T) {
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-	})
-}
-
-func TestMockBlueprintHandler_getDefaultTemplateData(t *testing.T) {
-	setup := func(t *testing.T) *MockBlueprintHandler {
-		t.Helper()
-		return &MockBlueprintHandler{}
-	}
-
-	t.Run("WithFuncSet", func(t *testing.T) {
-		// Given a mock handler with getDefaultTemplateData function
-		handler := setup(t)
-		expectedData := map[string][]byte{
-			"template1": []byte("template content 1"),
-			"template2": []byte("template content 2"),
-		}
-		handler.getDefaultTemplateDataFunc = func(contextName string) (map[string][]byte, error) {
-			return expectedData, nil
-		}
-		// When getting default template data
-		data, err := handler.getDefaultTemplateData("test-context")
-		// Then expected data should be returned
-		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-		if len(data) != len(expectedData) {
-			t.Errorf("Expected data length = %v, got = %v", len(expectedData), len(data))
-		}
-		for key, expectedValue := range expectedData {
-			if value, exists := data[key]; !exists || string(value) != string(expectedValue) {
-				t.Errorf("Expected data[%s] = %s, got = %s", key, string(expectedValue), string(value))
-			}
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock handler with no getDefaultTemplateData function
-		handler := setup(t)
-		// When getting default template data
-		data, err := handler.getDefaultTemplateData("test-context")
-		// Then empty map and no error should be returned
-		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-		if data == nil || len(data) != 0 {
-			t.Errorf("Expected empty map, got = %v", data)
-		}
-	})
-
-	t.Run("WithError", func(t *testing.T) {
-		// Given a mock handler with getDefaultTemplateData function that returns error
-		handler := setup(t)
-		mockErr := fmt.Errorf("mock error")
-		handler.getDefaultTemplateDataFunc = func(contextName string) (map[string][]byte, error) {
-			return nil, mockErr
-		}
-		// When getting default template data
-		data, err := handler.getDefaultTemplateData("test-context")
-		// Then expected error should be returned
-		if err != mockErr {
-			t.Errorf("Expected error = %v, got = %v", mockErr, err)
-		}
-		if data != nil {
-			t.Errorf("Expected data = %v, got = %v", nil, data)
 		}
 	})
 }
@@ -636,38 +426,6 @@ func TestMockBlueprintHandler_SetRenderedKustomizeData(t *testing.T) {
 		// Then the function should be called with correct complex data
 		if !reflect.DeepEqual(receivedData, expectedData) {
 			t.Errorf("Expected data = %v, got = %v", expectedData, receivedData)
-		}
-	})
-}
-
-func TestMockBlueprintHandler_LoadData(t *testing.T) {
-	t.Run("WithFuncSet", func(t *testing.T) {
-		// Given a mock blueprint handler with LoadDataFunc set
-		handler := NewMockBlueprintHandler(di.NewInjector())
-		expectedError := fmt.Errorf("mock load data error")
-		handler.LoadDataFunc = func(data map[string]any, ociInfo ...*artifact.OCIArtifactInfo) error {
-			return expectedError
-		}
-
-		// When LoadData is called
-		err := handler.LoadData(map[string]any{})
-
-		// Then it should return the expected error
-		if err != expectedError {
-			t.Errorf("expected error %v, got %v", expectedError, err)
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock blueprint handler without LoadDataFunc set
-		handler := NewMockBlueprintHandler(di.NewInjector())
-
-		// When LoadData is called
-		err := handler.LoadData(map[string]any{})
-
-		// Then it should return nil
-		if err != nil {
-			t.Errorf("expected nil, got %v", err)
 		}
 	})
 }

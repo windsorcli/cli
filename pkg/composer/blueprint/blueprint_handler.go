@@ -34,8 +34,6 @@ import (
 type BlueprintHandler interface {
 	Initialize() error
 	LoadBlueprint() error
-	LoadConfig() error
-	LoadData(data map[string]any, ociInfo ...*artifact.OCIArtifactInfo) error
 	Write(overwrite ...bool) error
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
 	GetLocalTemplateData() (map[string][]byte, error)
@@ -137,7 +135,7 @@ func (b *BaseBlueprintHandler) LoadBlueprint() error {
 		for key, value := range templateData {
 			blueprintData[key] = string(value)
 		}
-		if err := b.LoadData(blueprintData, ociInfo); err != nil {
+		if err := b.loadData(blueprintData, ociInfo); err != nil {
 			return fmt.Errorf("failed to load default blueprint data: %w", err)
 		}
 	}
@@ -170,7 +168,7 @@ func (b *BaseBlueprintHandler) LoadBlueprint() error {
 
 	blueprintPath := filepath.Join(configRoot, "blueprint.yaml")
 	if _, err := b.shims.Stat(blueprintPath); err == nil {
-		if err := b.LoadConfig(); err != nil {
+		if err := b.loadConfig(); err != nil {
 			return fmt.Errorf("failed to load blueprint config overrides: %w", err)
 		}
 	}
@@ -178,10 +176,10 @@ func (b *BaseBlueprintHandler) LoadBlueprint() error {
 	return nil
 }
 
-// LoadConfig reads blueprint configuration from blueprint.yaml file.
+// loadConfig reads blueprint configuration from blueprint.yaml file.
 // Returns an error if blueprint.yaml does not exist.
 // Template processing is now handled by the pkg/template package.
-func (b *BaseBlueprintHandler) LoadConfig() error {
+func (b *BaseBlueprintHandler) loadConfig() error {
 	configRoot, err := b.configHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("error getting config root: %w", err)
@@ -205,11 +203,11 @@ func (b *BaseBlueprintHandler) LoadConfig() error {
 	return nil
 }
 
-// LoadData loads blueprint configuration from a map containing blueprint data.
+// loadData loads blueprint configuration from a map containing blueprint data.
 // It marshals the input map to YAML, processes it as a Blueprint object, and updates the handler's blueprint state.
 // The ociInfo parameter optionally provides OCI artifact source information for source resolution and tracking.
 // If config is already loaded from YAML, this is a no-op to preserve resolved state.
-func (b *BaseBlueprintHandler) LoadData(data map[string]any, ociInfo ...*artifact.OCIArtifactInfo) error {
+func (b *BaseBlueprintHandler) loadData(data map[string]any, ociInfo ...*artifact.OCIArtifactInfo) error {
 	if b.configLoaded {
 		return nil
 	}
