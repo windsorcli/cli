@@ -12,7 +12,6 @@ import (
 	"testing"
 	"text/template"
 
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 // The ShellTest is a test suite for the Shell interface and its implementations.
@@ -38,13 +37,11 @@ var (
 )
 
 type Mocks struct {
-	Injector di.Injector
-	Shims    *Shims
-	TmpDir   string
+	Shims  *Shims
+	TmpDir string
 }
 
 type SetupOptions struct {
-	Injector di.Injector
 }
 
 // setupMocks creates a new set of mocks for testing
@@ -212,9 +209,8 @@ func setupMocks(t *testing.T) *Mocks {
 	}
 
 	return &Mocks{
-		Injector: di.NewMockInjector(),
-		Shims:    shims,
-		TmpDir:   tmpDir,
+		Shims:  shims,
+		TmpDir: tmpDir,
 	}
 }
 

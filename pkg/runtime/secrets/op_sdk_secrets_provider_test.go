@@ -31,7 +31,7 @@ func TestNewOnePasswordSDKSecretsProvider(t *testing.T) {
 		}
 
 		// Create the provider
-		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Injector)
+		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Shell)
 
 		// Verify the provider was created correctly
 		if provider == nil {
@@ -53,98 +53,6 @@ func TestNewOnePasswordSDKSecretsProvider(t *testing.T) {
 // Test Public Methods
 // =============================================================================
 
-func TestOnePasswordSDKSecretsProvider_Initialize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupMocks(t)
-
-		// Create a test vault
-		vault := secretsConfigType.OnePasswordVault{
-			Name: "test-vault",
-			ID:   "test-id",
-		}
-
-		// Create the provider
-		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Injector)
-
-		// Set environment variable
-		os.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "test-token")
-		defer os.Unsetenv("OP_SERVICE_ACCOUNT_TOKEN")
-
-		// Initialize the provider
-		err := provider.Initialize()
-
-		// Verify the result
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("MissingToken", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupMocks(t)
-
-		// Create a test vault
-		vault := secretsConfigType.OnePasswordVault{
-			Name: "test-vault",
-			ID:   "test-id",
-		}
-
-		// Create the provider
-		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Injector)
-
-		// Ensure environment variable is not set
-		os.Unsetenv("OP_SERVICE_ACCOUNT_TOKEN")
-
-		// Initialize the provider
-		err := provider.Initialize()
-
-		// Verify the result
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		expectedError := "OP_SERVICE_ACCOUNT_TOKEN environment variable is required for 1Password SDK"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error message '%s', got '%s'", expectedError, err.Error())
-		}
-	})
-
-	t.Run("BaseInitializationFails", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupMocks(t)
-
-		// Create a test vault
-		vault := secretsConfigType.OnePasswordVault{
-			Name: "test-vault",
-			ID:   "test-id",
-		}
-
-		// Create the provider
-		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Injector)
-
-		// Set environment variable
-		os.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "test-token")
-		defer os.Unsetenv("OP_SERVICE_ACCOUNT_TOKEN")
-
-		// Remove shell from injector to cause base initialization to fail
-		mocks.Injector.Register("shell", nil)
-
-		// Initialize the provider
-		err := provider.Initialize()
-
-		// Verify the result
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		expectedError := "failed to resolve shell instance from injector"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error message '%s', got '%s'", expectedError, err.Error())
-		}
-	})
-}
-
 func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Setup mocks
@@ -157,7 +65,7 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 		}
 
 		// Create the provider
-		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Injector)
+		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Shell)
 
 		// Set environment variable
 		os.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "test-token")
@@ -180,11 +88,6 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 			t.Fatalf("Failed to create client: %v", err)
 		}
 		globalClient = client
-
-		// Initialize the provider
-		if err := provider.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize provider: %v", err)
-		}
 
 		// Call GetSecret
 		value, err := provider.GetSecret("test-secret.password")
@@ -210,7 +113,7 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 		}
 
 		// Create the provider
-		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Injector)
+		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Shell)
 
 		// Set environment variable
 		os.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "test-token")
@@ -243,7 +146,7 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 		}
 
 		// Create the provider
-		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Injector)
+		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Shell)
 
 		// Set environment variable
 		os.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "test-token")
@@ -281,7 +184,7 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 		}
 
 		// Create the provider
-		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Injector)
+		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Shell)
 
 		// Ensure environment variable is not set
 		os.Unsetenv("OP_SERVICE_ACCOUNT_TOKEN")
@@ -318,7 +221,7 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 		}
 
 		// Create the provider
-		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Injector)
+		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Shell)
 
 		// Set environment variable
 		os.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "test-token")
@@ -364,7 +267,7 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 		}
 
 		// Create the provider
-		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Injector)
+		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Shell)
 
 		// Set environment variable
 		os.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "test-token")
@@ -410,7 +313,7 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 		}
 
 		// Create the provider
-		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Injector)
+		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Shell)
 
 		// Set environment variable
 		os.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "test-token")
@@ -464,12 +367,8 @@ func TestOnePasswordSDKSecretsProvider_ParseSecrets(t *testing.T) {
 			ID:   "test-id",
 		}
 
-		// Create and initialize the provider
-		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Injector)
-		err := provider.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize provider: %v", err)
-		}
+		// Create the provider
+		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Shell)
 
 		return mocks, provider
 	}

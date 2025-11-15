@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // The SopsSecretsProvider is an implementation of the SecretsProvider interface
@@ -48,9 +48,9 @@ type SopsSecretsProvider struct {
 // =============================================================================
 
 // NewSopsSecretsProvider creates a new instance of SopsSecretsProvider.
-func NewSopsSecretsProvider(configPath string, injector di.Injector) *SopsSecretsProvider {
+func NewSopsSecretsProvider(configPath string, shell shell.Shell) *SopsSecretsProvider {
 	return &SopsSecretsProvider{
-		BaseSecretsProvider: NewBaseSecretsProvider(injector),
+		BaseSecretsProvider: NewBaseSecretsProvider(shell),
 		configPath:          configPath,
 	}
 }

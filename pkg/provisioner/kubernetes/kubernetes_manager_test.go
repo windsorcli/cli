@@ -13,7 +13,6 @@ import (
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -23,13 +22,11 @@ import (
 
 // SetupOptions holds test-specific options for setup
 type SetupOptions struct {
-	Injector di.Injector
 }
 
 // Mocks holds all mock dependencies for tests
 type Mocks struct {
-	Injector        di.Injector
-	Shims           *Shims
+	Shims            *Shims
 	KubernetesClient client.KubernetesClient
 }
 
@@ -38,11 +35,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	t.Helper()
 	if opts == nil {
 		opts = []*SetupOptions{{}}
-	}
-
-	// Ensure Injector is initialized
-	if opts[0].Injector == nil {
-		opts[0].Injector = di.NewMockInjector()
 	}
 
 	kubernetesClient := client.NewMockKubernetesClient()
@@ -54,12 +46,9 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	}
 
 	mocks := &Mocks{
-		Injector:        opts[0].Injector,
-		Shims:           setupShims(t),
+		Shims:            setupShims(t),
 		KubernetesClient: kubernetesClient,
 	}
-
-	mocks.Injector.Register("kubernetesClient", kubernetesClient)
 
 	return mocks
 }
@@ -73,7 +62,6 @@ func setupShims(t *testing.T) *Shims {
 	}
 	return shims
 }
-
 
 func TestBaseKubernetesManager_ApplyKustomization(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {

@@ -14,7 +14,6 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -25,7 +24,6 @@ import (
 // =============================================================================
 
 type Mocks struct {
-	Injector         di.Injector
 	Shell            *shell.MockShell
 	ConfigHandler    config.ConfigHandler
 	BlueprintHandler *blueprint.MockBlueprintHandler
@@ -61,8 +59,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		}
 	})
 
-	injector := di.NewInjector()
-
 	mockShell := shell.NewMockShell()
 	mockShell.GetProjectRootFunc = func() (string, error) {
 		return tmpDir, nil
@@ -73,7 +69,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		}
 		return "", nil
 	}
-	injector.Register("shell", mockShell)
 
 	var configHandler config.ConfigHandler
 	if len(opts) > 0 && opts[0].ConfigHandler != nil {
@@ -81,7 +76,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	} else {
 		configHandler = config.NewConfigHandler(mockShell)
 	}
-	injector.Register("configHandler", configHandler)
 
 	configHandler.SetContext("mock-context")
 
@@ -100,7 +94,7 @@ contexts:
 		}
 	}
 
-	mockBlueprintHandler := blueprint.NewMockBlueprintHandler(injector)
+	mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
 	mockBlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
 		return []blueprintv1alpha1.TerraformComponent{
 			{
@@ -113,8 +107,6 @@ contexts:
 			},
 		}
 	}
-	injector.Register("blueprintHandler", mockBlueprintHandler)
-
 	// Mock artifact builder for OCI resolver tests
 	mockArtifactBuilder := artifact.NewMockArtifact()
 	mockArtifactBuilder.PullFunc = func(refs []string) (map[string][]byte, error) {
@@ -130,19 +122,16 @@ contexts:
 		}
 		return artifacts, nil
 	}
-	injector.Register("artifactBuilder", mockArtifactBuilder)
 
 	shims := setupShims(t)
 
 	// Create runtime
 	rt := &runtime.Runtime{
-		Injector:      injector,
 		ConfigHandler: configHandler,
 		Shell:         mockShell,
 	}
 
 	return &Mocks{
-		Injector:         injector,
 		Shell:            mockShell,
 		ConfigHandler:    configHandler,
 		BlueprintHandler: mockBlueprintHandler,

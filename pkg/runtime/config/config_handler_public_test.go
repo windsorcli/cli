@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -15,9 +14,8 @@ import (
 // =============================================================================
 
 type Mocks struct {
-	Injector di.Injector
-	Shell    *shell.MockShell
-	Shims    *Shims
+	Shell *shell.MockShell
+	Shims *Shims
 }
 
 type SetupOptions struct {
@@ -31,13 +29,10 @@ func setupMocks(t *testing.T, _ ...*SetupOptions) *Mocks {
 	os.Setenv("WINDSOR_PROJECT_ROOT", tmpDir)
 	os.Setenv("WINDSOR_CONTEXT", "test-context")
 
-	injector := di.NewInjector()
-
 	mockShell := shell.NewMockShell()
 	mockShell.GetProjectRootFunc = func() (string, error) {
 		return tmpDir, nil
 	}
-	injector.Register("shell", mockShell)
 
 	t.Cleanup(func() {
 		os.Unsetenv("WINDSOR_PROJECT_ROOT")
@@ -45,9 +40,8 @@ func setupMocks(t *testing.T, _ ...*SetupOptions) *Mocks {
 	})
 
 	return &Mocks{
-		Injector: injector,
-		Shell:    mockShell,
-		Shims:    NewShims(),
+		Shell: mockShell,
+		Shims: NewShims(),
 	}
 }
 
@@ -1858,12 +1852,10 @@ func TestConfigHandler_GetConfigRoot(t *testing.T) {
 
 	t.Run("ReturnsErrorWhenShellFails", func(t *testing.T) {
 		// Given a handler with shell that fails
-		injector := di.NewInjector()
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "", os.ErrPermission
 		}
-		injector.Register("shell", mockShell)
 
 		handler := NewConfigHandler(mockShell)
 		handler.SetContext("test")
@@ -1906,12 +1898,10 @@ func TestConfigHandler_Clean(t *testing.T) {
 
 	t.Run("ReturnsErrorWhenGetConfigRootFails", func(t *testing.T) {
 		// Given a handler with shell that fails
-		injector := di.NewInjector()
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "", os.ErrPermission
 		}
-		injector.Register("shell", mockShell)
 
 		handler := NewConfigHandler(mockShell).(*configHandler)
 		handler.SetContext("test")

@@ -9,11 +9,9 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/runtime/config"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -22,7 +20,6 @@ import (
 // =============================================================================
 
 type PushMocks struct {
-	Injector di.Injector
 }
 
 // setupPushTest sets up the test environment for push command tests.
@@ -40,32 +37,25 @@ func setupPushTest(t *testing.T) *PushMocks {
 	templateDir := filepath.Join(contextsDir, "_template")
 	os.MkdirAll(templateDir, 0755)
 
-	injector := di.NewInjector()
-
 	// Mock shell
 	mockShell := shell.NewMockShell()
 	mockShell.GetProjectRootFunc = func() (string, error) {
 		return tmpDir, nil
 	}
-	injector.Register("shell", mockShell)
 
 	// Mock config handler
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 		return map[string]any{}, nil
 	}
-	injector.Register("configHandler", mockConfigHandler)
 
 	// Mock kubernetes manager
-	mockK8sManager := kubernetes.NewMockKubernetesManager(injector)
-	injector.Register("kubernetesManager", mockK8sManager)
 
 	// Mock blueprint handler
-	mockBlueprintHandler := blueprint.NewMockBlueprintHandler(injector)
+	mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
 	mockBlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
 		return map[string][]byte{}, nil
 	}
-	injector.Register("blueprintHandler", mockBlueprintHandler)
 
 	// Mock artifact builder
 	mockArtifactBuilder := artifact.NewMockArtifact()
@@ -75,11 +65,8 @@ func setupPushTest(t *testing.T) *PushMocks {
 	mockArtifactBuilder.PushFunc = func(registryBase string, repoName string, tag string) error {
 		return fmt.Errorf("authentication failed: unauthorized")
 	}
-	injector.Register("artifactBuilder", mockArtifactBuilder)
 
-	return &PushMocks{
-		Injector: injector,
-	}
+	return &PushMocks{}
 }
 
 // createTestPushCmd creates a new cobra.Command for testing the push command.
@@ -100,9 +87,9 @@ func createTestPushCmd() *cobra.Command {
 
 func TestPushCmdWithRuntime(t *testing.T) {
 	t.Run("SuccessWithRuntime", func(t *testing.T) {
-		mocks := setupPushTest(t)
+		setupPushTest(t)
 		cmd := createTestPushCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"registry.example.com/repo:v1.0.0"})
 		err := cmd.Execute()
@@ -117,9 +104,9 @@ func TestPushCmdWithRuntime(t *testing.T) {
 	})
 
 	t.Run("SuccessWithoutTag", func(t *testing.T) {
-		mocks := setupPushTest(t)
+		setupPushTest(t)
 		cmd := createTestPushCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"registry.example.com/repo"})
 		err := cmd.Execute()
@@ -134,9 +121,9 @@ func TestPushCmdWithRuntime(t *testing.T) {
 	})
 
 	t.Run("SuccessWithOciUrl", func(t *testing.T) {
-		mocks := setupPushTest(t)
+		setupPushTest(t)
 		cmd := createTestPushCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"oci://ghcr.io/windsorcli/core:v0.0.0"})
 		err := cmd.Execute()
@@ -151,9 +138,9 @@ func TestPushCmdWithRuntime(t *testing.T) {
 	})
 
 	t.Run("ErrorMissingRegistry", func(t *testing.T) {
-		mocks := setupPushTest(t)
+		setupPushTest(t)
 		cmd := createTestPushCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{})
 		err := cmd.Execute()
@@ -163,9 +150,9 @@ func TestPushCmdWithRuntime(t *testing.T) {
 	})
 
 	t.Run("ErrorInvalidRegistryFormat", func(t *testing.T) {
-		mocks := setupPushTest(t)
+		setupPushTest(t)
 		cmd := createTestPushCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"invalidformat"})
 		err := cmd.Execute()
@@ -175,11 +162,9 @@ func TestPushCmdWithRuntime(t *testing.T) {
 	})
 
 	t.Run("RuntimeSetupError", func(t *testing.T) {
-		// Create injector without required dependencies
 		// The runtime is now resilient and will create default dependencies
-		injector := di.NewInjector()
 		cmd := createTestPushCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		ctx := context.Background()
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"registry.example.com/repo:v1.0.0"})
 		err := cmd.Execute()

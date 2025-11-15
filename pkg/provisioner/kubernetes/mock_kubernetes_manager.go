@@ -11,7 +11,6 @@ import (
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 // =============================================================================
@@ -20,7 +19,6 @@ import (
 
 // MockKubernetesManager is a mock implementation of KubernetesManager interface for testing
 type MockKubernetesManager struct {
-	InitializeFunc                      func() error
 	ApplyKustomizationFunc              func(kustomization kustomizev1.Kustomization) error
 	DeleteKustomizationFunc             func(name, namespace string) error
 	WaitForKustomizationsFunc           func(message string, names ...string) error
@@ -45,7 +43,7 @@ type MockKubernetesManager struct {
 // =============================================================================
 
 // NewMockKubernetesManager creates a new instance of MockKubernetesManager
-func NewMockKubernetesManager(injector di.Injector) *MockKubernetesManager {
+func NewMockKubernetesManager() *MockKubernetesManager {
 	return &MockKubernetesManager{}
 }
 
@@ -55,14 +53,6 @@ var _ KubernetesManager = (*MockKubernetesManager)(nil)
 // =============================================================================
 // Public Methods
 // =============================================================================
-
-// Initialize implements KubernetesManager interface
-func (m *MockKubernetesManager) Initialize() error {
-	if m.InitializeFunc != nil {
-		return m.InitializeFunc()
-	}
-	return nil
-}
 
 // ApplyKustomization implements KubernetesManager interface
 func (m *MockKubernetesManager) ApplyKustomization(kustomization kustomizev1.Kustomization) error {

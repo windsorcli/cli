@@ -14,7 +14,6 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	envvars "github.com/windsorcli/cli/pkg/runtime/env"
@@ -58,7 +57,6 @@ func createTestBlueprint() *blueprintv1alpha1.Blueprint {
 }
 
 type Mocks struct {
-	Injector         di.Injector
 	ConfigHandler    config.ConfigHandler
 	Shell            *shell.MockShell
 	Blueprint        *blueprint.MockBlueprintHandler
@@ -68,7 +66,6 @@ type Mocks struct {
 }
 
 type SetupOptions struct {
-	Injector      di.Injector
 	ConfigHandler config.ConfigHandler
 	ConfigStr     string
 }
@@ -94,16 +91,9 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		options = opts[0]
 	}
 
-	var injector di.Injector
-	if options.Injector == nil {
-		injector = di.NewMockInjector()
-	} else {
-		injector = options.Injector
-	}
-
 	mockShell := shell.NewMockShell()
 
-	mockBlueprint := blueprint.NewMockBlueprintHandler(injector)
+	mockBlueprint := blueprint.NewMockBlueprintHandler()
 	mockBlueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
 		return []blueprintv1alpha1.TerraformComponent{
 			{
@@ -124,9 +114,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 			},
 		}
 	}
-
-	injector.Register("shell", mockShell)
-	injector.Register("blueprintHandler", mockBlueprint)
 
 	var configHandler config.ConfigHandler
 	if options.ConfigHandler == nil {
@@ -153,8 +140,6 @@ contexts:
 			t.Fatalf("Failed to load config string: %v", err)
 		}
 	}
-
-	injector.Register("configHandler", configHandler)
 
 	shims := &Shims{}
 
@@ -188,13 +173,11 @@ contexts:
 		ProjectRoot:   tmpDir,
 		ConfigRoot:    tmpDir,
 		TemplateRoot:  filepath.Join(tmpDir, "contexts", "_template"),
-		Injector:      injector,
 		ConfigHandler: configHandler,
 		Shell:         mockShell,
 	}
 
 	return &Mocks{
-		Injector:         injector,
 		ConfigHandler:    configHandler,
 		Shell:            mockShell,
 		Blueprint:        mockBlueprint,

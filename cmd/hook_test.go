@@ -19,10 +19,10 @@ func TestHookCmd(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setup(t)
-		mocks := setupMocks(t)
+		setupMocks(t)
 
 		// Set up command context with injector
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"hook", "zsh"})
@@ -76,7 +76,7 @@ func TestHookCmd(t *testing.T) {
 		}
 
 		// Set up command context with injector
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"hook", "unsupported"})

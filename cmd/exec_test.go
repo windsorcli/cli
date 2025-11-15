@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -40,12 +40,13 @@ func TestExecCmd(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		setup(t)
-		mocks := setupMocks(t)
+		var mocks *Mocks
+		mocks = setupMocks(t)
 		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
 			return "", nil
 		}
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetContext(ctx)
 
 		args := []string{"go", "version"}
@@ -68,8 +69,9 @@ func TestExecCmd(t *testing.T) {
 			capturedArgs = args
 			return "", nil
 		}
+
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetContext(ctx)
 
 		args := []string{"test-command", "arg1", "arg2"}
@@ -91,9 +93,8 @@ func TestExecCmd(t *testing.T) {
 
 	t.Run("NoCommandProvided", func(t *testing.T) {
 		setup(t)
-		mocks := setupMocks(t)
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetContext(ctx)
 
 		args := []string{}
@@ -113,14 +114,15 @@ func TestExecCmd(t *testing.T) {
 
 	t.Run("SuccessWithVerbose", func(t *testing.T) {
 		setup(t)
-		mocks := setupMocks(t)
+		var mocks *Mocks
+		mocks = setupMocks(t)
 		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
 			return "", nil
 		}
 		cmd := createTestCmd()
 		cmd.Flags().Bool("verbose", false, "Show verbose output")
 		cmd.Flags().Set("verbose", "true")
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetContext(ctx)
 
 		args := []string{"go", "version"}
@@ -153,13 +155,22 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("HandlesNewRuntimeError", func(t *testing.T) {
 		setup(t)
-		injector := di.NewInjector()
+
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("project root error")
 		}
-		injector.Register("shell", mockShell)
-		ctx := context.WithValue(context.Background(), injectorKey, injector)
+
+		rtOverride := &runtime.Runtime{
+			Shell:       mockShell,
+			ProjectRoot: "",
+		}
+		_, err := runtime.NewRuntime(rtOverride)
+		if err == nil {
+			t.Fatal("Expected NewRuntime to fail with invalid shell")
+		}
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rtOverride)
 		rootCmd.SetContext(ctx)
 		t.Cleanup(func() {
 			rootCmd.SetContext(context.Background())
@@ -169,10 +180,11 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 
 		rootCmd.SetArgs([]string{"exec", "go", "version"})
 
-		err := Execute()
+		err = Execute()
 
 		if err == nil {
 			t.Error("Expected error when NewRuntime fails")
+			return
 		}
 
 		if !strings.Contains(err.Error(), "failed to initialize context") {
@@ -182,14 +194,15 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("HandlesCheckTrustedDirectoryError", func(t *testing.T) {
 		setup(t)
+		mocks := setupMocks(t)
 		// Reset context and verbose before setting up test
 		rootCmd.SetContext(context.Background())
 		verbose = false
-		mocks := setupMocks(t)
 		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
 			return fmt.Errorf("not trusted")
 		}
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 		t.Cleanup(func() {
 			rootCmd.SetContext(context.Background())
@@ -203,6 +216,7 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 
 		if err == nil {
 			t.Error("Expected error when CheckTrustedDirectory fails")
+			return
 		}
 
 		if !strings.Contains(err.Error(), "not in a trusted directory") {
@@ -212,14 +226,15 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("HandlesHandleSessionResetError", func(t *testing.T) {
 		setup(t)
+		mocks := setupMocks(t)
 		// Reset context and verbose before setting up test
 		rootCmd.SetContext(context.Background())
 		verbose = false
-		mocks := setupMocks(t)
 		mocks.Shell.CheckResetFlagsFunc = func() (bool, error) {
 			return false, fmt.Errorf("reset check failed")
 		}
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 		t.Cleanup(func() {
 			rootCmd.SetContext(context.Background())
@@ -233,6 +248,7 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 
 		if err == nil {
 			t.Error("Expected error when HandleSessionReset fails")
+			return
 		}
 
 		if !strings.Contains(err.Error(), "failed to check reset flags") {
@@ -245,7 +261,7 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 		// Reset context and verbose before setting up test
 		rootCmd.SetContext(context.Background())
 		verbose = false
-		injector := di.NewInjector()
+
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.LoadConfigFunc = func() error {
 			return fmt.Errorf("config load failed")
@@ -253,21 +269,15 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 		mockConfigHandler.GetContextFunc = func() string {
 			return "test-context"
 		}
-		injector.Register("configHandler", mockConfigHandler)
-
-		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return t.TempDir(), nil
-		}
-		mockShell.CheckTrustedDirectoryFunc = func() error {
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
 			return nil
 		}
-		mockShell.CheckResetFlagsFunc = func() (bool, error) {
+		mocks.Shell.CheckResetFlagsFunc = func() (bool, error) {
 			return false, nil
 		}
-		injector.Register("shell", mockShell)
 
-		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 		t.Cleanup(func() {
 			rootCmd.SetContext(context.Background())
@@ -281,6 +291,7 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 
 		if err == nil {
 			t.Error("Expected error when LoadConfig fails")
+			return
 		}
 
 		if !strings.Contains(err.Error(), "config load failed") && !strings.Contains(err.Error(), "failed to load config") {
@@ -312,18 +323,14 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
 		mockDockerEnvPrinter := env.NewMockEnvPrinter()
-		mockDockerEnvPrinter.InitializeFunc = func() error {
-			return nil
-		}
 		mockDockerEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
 			return nil, fmt.Errorf("failed to get env vars")
 		}
 		mockDockerEnvPrinter.GetAliasFunc = func() (map[string]string, error) {
 			return make(map[string]string), nil
 		}
-		mocks.Injector.Register("dockerEnvPrinter", mockDockerEnvPrinter)
 
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 		t.Cleanup(func() {
 			rootCmd.SetContext(context.Background())
@@ -342,14 +349,11 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("HandlesExecutePostEnvHooksErrorWithVerbose", func(t *testing.T) {
 		setup(t)
+		mocks := setupMocks(t)
 		// Reset context and verbose before setting up test
 		rootCmd.SetContext(context.Background())
 		verbose = false
-		mocks := setupMocks(t)
 		mockWindsorEnvPrinter := env.NewMockEnvPrinter()
-		mockWindsorEnvPrinter.InitializeFunc = func() error {
-			return nil
-		}
 		mockWindsorEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
 			return make(map[string]string), nil
 		}
@@ -359,12 +363,11 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 		mockWindsorEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
 			return fmt.Errorf("hook failed")
 		}
-		mocks.Injector.Register("windsorEnv", mockWindsorEnvPrinter)
 		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
 			return "", nil
 		}
 
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 		t.Cleanup(func() {
 			rootCmd.SetContext(context.Background())
@@ -383,14 +386,11 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("SwallowsExecutePostEnvHooksErrorWithoutVerbose", func(t *testing.T) {
 		setup(t)
+		mocks := setupMocks(t)
 		// Reset context and verbose before setting up test
 		rootCmd.SetContext(context.Background())
 		verbose = false
-		mocks := setupMocks(t)
 		mockWindsorEnvPrinter := env.NewMockEnvPrinter()
-		mockWindsorEnvPrinter.InitializeFunc = func() error {
-			return nil
-		}
 		mockWindsorEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
 			return make(map[string]string), nil
 		}
@@ -400,12 +400,11 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 		mockWindsorEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
 			return fmt.Errorf("hook failed")
 		}
-		mocks.Injector.Register("windsorEnv", mockWindsorEnvPrinter)
 		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
 			return "", nil
 		}
 
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 		t.Cleanup(func() {
 			rootCmd.SetContext(context.Background())
@@ -424,14 +423,15 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("HandlesShellExecError", func(t *testing.T) {
 		setup(t)
+		mocks := setupMocks(t)
 		// Reset context and verbose before setting up test
 		rootCmd.SetContext(context.Background())
 		verbose = false
-		mocks := setupMocks(t)
 		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
 			return "", fmt.Errorf("command execution failed")
 		}
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 		t.Cleanup(func() {
 			rootCmd.SetContext(context.Background())
@@ -445,6 +445,7 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 
 		if err == nil {
 			t.Error("Expected error when Shell.Exec fails")
+			return
 		}
 
 		if !strings.Contains(err.Error(), "failed to execute command") {

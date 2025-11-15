@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -22,7 +21,6 @@ func setupComposerMocks(t *testing.T) *Mocks {
 	// Create temporary directory for test
 	tmpDir := t.TempDir()
 
-	injector := di.NewInjector()
 	configHandler := config.NewMockConfigHandler()
 	// Set up GetConfigRoot to return temp directory
 	configHandler.GetConfigRootFunc = func() (string, error) {
@@ -41,13 +39,11 @@ func setupComposerMocks(t *testing.T) *Mocks {
 		ProjectRoot:   tmpDir,
 		ConfigRoot:    filepath.Join(tmpDir, "contexts", "test-context"),
 		TemplateRoot:  filepath.Join(tmpDir, "contexts", "_template"),
-		Injector:      injector,
 		ConfigHandler: configHandler,
 		Shell:         shell,
 	}
 
 	return &Mocks{
-		Injector:      injector,
 		ConfigHandler: configHandler,
 		Shell:         shell,
 		Runtime:       rt,
@@ -56,7 +52,6 @@ func setupComposerMocks(t *testing.T) *Mocks {
 
 // Mocks contains all the mock dependencies for testing
 type Mocks struct {
-	Injector      di.Injector
 	ConfigHandler config.ConfigHandler
 	Shell         shell.Shell
 	Runtime       *runtime.Runtime
@@ -74,10 +69,6 @@ func TestNewComposer(t *testing.T) {
 
 		if composer == nil {
 			t.Fatal("Expected Composer to be created")
-		}
-
-		if composer.Runtime.Injector != mocks.Injector {
-			t.Error("Expected injector to be set")
 		}
 
 		if composer.Runtime.Shell != mocks.Shell {
@@ -110,10 +101,6 @@ func TestCreateComposer(t *testing.T) {
 
 		if composer == nil {
 			t.Fatal("Expected Composer to be created")
-		}
-
-		if composer.Runtime.Injector != mocks.Injector {
-			t.Error("Expected injector to be set")
 		}
 
 		if composer.Runtime.ConfigHandler != mocks.ConfigHandler {

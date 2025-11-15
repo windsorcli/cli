@@ -9,7 +9,6 @@ import (
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/secrets"
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 // =============================================================================
@@ -55,14 +54,14 @@ contexts:
 	}
 
 	// Create and register mock secrets provider
-	mockSecretsProvider := secrets.NewMockSecretsProvider(di.NewMockInjector())
+	mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
 	mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 		if strings.Contains(input, "${{secret_name}}") {
 			return "parsed_secret_value", nil
 		}
 		return input, nil
 	}
-	mocks.Injector.Register("secretsProvider", mockSecretsProvider)
+	_ = mockSecretsProvider
 
 	t.Cleanup(func() {
 		os.Unsetenv("NO_CACHE")
@@ -188,14 +187,14 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		t.Setenv("WINDSOR_MANAGED_ENV", "")
 
 		// And mock secrets provider
-		mockSecretsProvider := secrets.NewMockSecretsProvider(di.NewMockInjector())
+		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 			if strings.Contains(input, "{{secret_name}}") {
 				return "parsed_secret_value", nil
 			}
 			return input, nil
 		}
-		mocks.Injector.Register("secretsProvider", mockSecretsProvider)
+		_ = mockSecretsProvider
 
 		// Re-create printer with updated secrets provider
 
@@ -842,10 +841,10 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		printer, _ := setup(t)
+		printer, mocks := setup(t)
 
 		// Given a mock secrets provider that successfully parses secrets
-		mockSecretsProvider := secrets.NewMockSecretsProvider(di.NewMockInjector())
+		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 			if input == "value with ${{ secrets.mySecret }}" {
 				return "value with resolved-secret", nil
@@ -864,10 +863,10 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 	})
 
 	t.Run("SecretsProviderError", func(t *testing.T) {
-		printer, _ := setup(t)
+		printer, mocks := setup(t)
 
 		// Given a mock secrets provider that fails to parse secrets
-		mockSecretsProvider := secrets.NewMockSecretsProvider(di.NewMockInjector())
+		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 			return "", fmt.Errorf("error parsing secrets")
 		}
@@ -901,10 +900,10 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 	})
 
 	t.Run("UnparsedSecrets", func(t *testing.T) {
-		printer, _ := setup(t)
+		printer, mocks := setup(t)
 
 		// Given a mock secrets provider that doesn't recognize secrets
-		mockSecretsProvider := secrets.NewMockSecretsProvider(di.NewMockInjector())
+		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 			return input, nil
 		}
@@ -923,10 +922,10 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 	})
 
 	t.Run("MultipleUnparsedSecrets", func(t *testing.T) {
-		printer, _ := setup(t)
+		printer, mocks := setup(t)
 
 		// Given a mock secrets provider that doesn't recognize secrets
-		mockSecretsProvider := secrets.NewMockSecretsProvider(di.NewMockInjector())
+		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 			return input, nil
 		}

@@ -209,7 +209,6 @@ func TestOCIModuleResolver_ProcessModules(t *testing.T) {
 		mockArtifactBuilder.PullFunc = func(refs []string) (map[string][]byte, error) {
 			return nil, errors.New("artifact pull error")
 		}
-		mocks.Injector.Register("artifactBuilder", mockArtifactBuilder)
 		resolver.artifactBuilder = mockArtifactBuilder
 
 		// When processing modules

@@ -6,52 +6,17 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 // =============================================================================
 // Test Public Methods
 // =============================================================================
 
-func TestMockBlueprintHandler_Initialize(t *testing.T) {
-	setup := func(t *testing.T) *MockBlueprintHandler {
-		t.Helper()
-		injector := di.NewInjector()
-		handler := NewMockBlueprintHandler(injector)
-		return handler
-	}
-
-	t.Run("Initialize", func(t *testing.T) {
-		// Given a mock handler with initialize function
-		handler := setup(t)
-		handler.InitializeFunc = func() error {
-			return nil
-		}
-		// When initializing
-		err := handler.Initialize()
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-	})
-
-	t.Run("NoInitializeFunc", func(t *testing.T) {
-		// Given a mock handler without initialize function
-		handler := setup(t)
-		// When initializing
-		err := handler.Initialize()
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-	})
-}
-
 func TestMockBlueprintHandler_GetTerraformComponents(t *testing.T) {
 	setup := func(t *testing.T) *MockBlueprintHandler {
 		t.Helper()
-		injector := di.NewInjector()
-		handler := NewMockBlueprintHandler(injector)
+
+		handler := NewMockBlueprintHandler()
 		return handler
 	}
 
@@ -85,8 +50,8 @@ func TestMockBlueprintHandler_GetTerraformComponents(t *testing.T) {
 func TestMockBlueprintHandler_Install(t *testing.T) {
 	setup := func(t *testing.T) *MockBlueprintHandler {
 		t.Helper()
-		injector := di.NewInjector()
-		handler := NewMockBlueprintHandler(injector)
+
+		handler := NewMockBlueprintHandler()
 		return handler
 	}
 
@@ -121,8 +86,8 @@ func TestMockBlueprintHandler_Install(t *testing.T) {
 func TestMockBlueprintHandler_WaitForKustomizations(t *testing.T) {
 	setup := func(t *testing.T) *MockBlueprintHandler {
 		t.Helper()
-		injector := di.NewInjector()
-		handler := NewMockBlueprintHandler(injector)
+
+		handler := NewMockBlueprintHandler()
 		return handler
 	}
 
@@ -433,8 +398,8 @@ func TestMockBlueprintHandler_SetRenderedKustomizeData(t *testing.T) {
 func TestMockBlueprintHandler_Generate(t *testing.T) {
 	setup := func(t *testing.T) *MockBlueprintHandler {
 		t.Helper()
-		injector := di.NewInjector()
-		handler := NewMockBlueprintHandler(injector)
+
+		handler := NewMockBlueprintHandler()
 		return handler
 	}
 

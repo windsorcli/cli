@@ -28,7 +28,7 @@ func TestNewOnePasswordCLISecretsProvider(t *testing.T) {
 		}
 
 		// When a new provider is created
-		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
+		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Shell)
 
 		// Then the provider should be created correctly
 		if provider == nil {
@@ -58,11 +58,7 @@ func TestOnePasswordCLISecretsProvider_GetSecret(t *testing.T) {
 		}
 
 		// And a provider initialized and unlocked
-		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
-		err := provider.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize provider: %v", err)
-		}
+		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Shell)
 		provider.unlocked = true
 
 		// Set up mocked shims for command execution
@@ -100,11 +96,7 @@ func TestOnePasswordCLISecretsProvider_GetSecret(t *testing.T) {
 		}
 
 		// And a provider initialized but locked
-		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
-		err := provider.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize provider: %v", err)
-		}
+		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Shell)
 		provider.unlocked = false
 
 		// When GetSecret is called
@@ -132,11 +124,7 @@ func TestOnePasswordCLISecretsProvider_GetSecret(t *testing.T) {
 		}
 
 		// And a provider initialized and unlocked
-		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
-		err := provider.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize provider: %v", err)
-		}
+		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Shell)
 		provider.unlocked = true
 
 		// When GetSecret is called with an invalid key format
@@ -173,11 +161,7 @@ func TestParseSecrets(t *testing.T) {
 		}
 
 		// And a provider initialized and unlocked
-		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
-		err := provider.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize provider: %v", err)
-		}
+		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Shell)
 		provider.unlocked = true
 
 		// Set up mocked shims for command execution
@@ -218,11 +202,7 @@ func TestParseSecrets(t *testing.T) {
 		}
 
 		// And a provider initialized
-		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
-		err := provider.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize provider: %v", err)
-		}
+		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Shell)
 
 		// When ParseSecrets is called with empty input
 		input := ""
@@ -251,11 +231,7 @@ func TestParseSecrets(t *testing.T) {
 		}
 
 		// And a provider initialized
-		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
-		err := provider.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize provider: %v", err)
-		}
+		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Shell)
 
 		// When ParseSecrets is called with invalid format (missing field)
 		input := "This is a secret: ${{ op.test-id.test-secret }}"
@@ -285,11 +261,7 @@ func TestParseSecrets(t *testing.T) {
 		}
 
 		// And a provider initialized
-		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
-		err := provider.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize provider: %v", err)
-		}
+		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Shell)
 
 		// When ParseSecrets is called with malformed JSON (missing closing brace)
 		input := "This is a secret: ${{ op.test-id.test-secret.password"
@@ -319,11 +291,7 @@ func TestParseSecrets(t *testing.T) {
 		}
 
 		// And a provider initialized
-		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
-		err := provider.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize provider: %v", err)
-		}
+		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Shell)
 
 		// When ParseSecrets is called with wrong vault ID
 		input := "This is a secret: ${{ op.wrong-id.test-secret.password }}"
@@ -353,11 +321,7 @@ func TestParseSecrets(t *testing.T) {
 		}
 
 		// And a provider initialized and unlocked
-		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
-		err := provider.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize provider: %v", err)
-		}
+		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Shell)
 		provider.unlocked = true
 
 		// Set up mocked shims for command execution

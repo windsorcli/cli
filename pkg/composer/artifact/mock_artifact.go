@@ -1,9 +1,5 @@
 package artifact
 
-import (
-	"github.com/windsorcli/cli/pkg/di"
-)
-
 // The MockArtifact is a mock implementation of the Artifact interface for testing.
 // It provides function fields that can be overridden to control behavior during tests.
 // It serves as a test double for the Artifact interface in unit tests.
@@ -15,7 +11,6 @@ import (
 
 // MockArtifact is a mock implementation of the Artifact interface
 type MockArtifact struct {
-	InitializeFunc      func(injector di.Injector) error
 	BundleFunc          func() error
 	WriteFunc           func(outputPath string, tag string) (string, error)
 	PushFunc            func(registryBase string, repoName string, tag string) error
@@ -35,14 +30,6 @@ func NewMockArtifact() *MockArtifact {
 // =============================================================================
 // Public Methods
 // =============================================================================
-
-// Initialize calls the mock InitializeFunc if set, otherwise returns nil
-func (m *MockArtifact) Initialize(injector di.Injector) error {
-	if m.InitializeFunc != nil {
-		return m.InitializeFunc(injector)
-	}
-	return nil
-}
 
 // Bundle calls the mock BundleFunc if set, otherwise returns nil
 func (m *MockArtifact) Bundle() error {

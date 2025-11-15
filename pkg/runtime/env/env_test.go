@@ -7,7 +7,6 @@ import (
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 // =============================================================================
@@ -16,14 +15,12 @@ import (
 
 // Mocks holds all the mock objects used in the tests.
 type Mocks struct {
-	Injector      di.Injector
 	ConfigHandler config.ConfigHandler
 	Shell         *shell.MockShell
 	Shims         *Shims
 }
 
 type SetupOptions struct {
-	Injector      di.Injector
 	ConfigHandler config.ConfigHandler
 	ConfigStr     string
 	Context       string
@@ -72,20 +69,11 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		os.Setenv("WINDSOR_CONTEXT", "test-context")
 	}
 
-	// Create injector
-	var injector di.Injector
-	if options.Injector == nil {
-		injector = di.NewInjector()
-	} else {
-		injector = options.Injector
-	}
-
 	// Create shell with project root matching temp dir
 	mockShell := shell.NewMockShell()
 	mockShell.GetProjectRootFunc = func() (string, error) {
 		return tmpDir, nil
 	}
-	injector.Register("shell", mockShell)
 
 	// Create config handler
 	var configHandler config.ConfigHandler
@@ -97,7 +85,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	if options.ConfigStr != "" {
 		configHandler.LoadConfigString(options.ConfigStr)
 	}
-	injector.Register("configHandler", configHandler)
 
 	// Setup shims
 	shims := setupShims(t)
@@ -113,7 +100,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 
 	// Return mocks
 	return &Mocks{
-		Injector:      injector,
 		Shell:         mockShell,
 		ConfigHandler: configHandler,
 		Shims:         shims,

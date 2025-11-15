@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	v1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/secrets"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -23,9 +22,8 @@ import (
 func setupEnvironmentMocks(t *testing.T) *Mocks {
 	t.Helper()
 
-	injector := di.NewInjector()
 	configHandler := config.NewMockConfigHandler()
-	shell := shell.NewMockShell()
+	mockShell := shell.NewMockShell()
 
 	// Set up basic configuration
 	configHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
@@ -49,7 +47,7 @@ func setupEnvironmentMocks(t *testing.T) *Mocks {
 	}
 
 	// Set up shell mock to return output
-	shell.RenderEnvVarsFunc = func(envVars map[string]string, export bool) string {
+	mockShell.RenderEnvVarsFunc = func(envVars map[string]string, export bool) string {
 		var result string
 		for key, value := range envVars {
 			if export {
@@ -61,7 +59,7 @@ func setupEnvironmentMocks(t *testing.T) *Mocks {
 		return result
 	}
 
-	shell.RenderAliasesFunc = func(aliases map[string]string) string {
+	mockShell.RenderAliasesFunc = func(aliases map[string]string) string {
 		var result string
 		for key, value := range aliases {
 			result += "alias " + key + "='" + value + "'\n"
@@ -70,12 +68,12 @@ func setupEnvironmentMocks(t *testing.T) *Mocks {
 	}
 
 	// Set up session token mock
-	shell.GetSessionTokenFunc = func() (string, error) {
+	mockShell.GetSessionTokenFunc = func() (string, error) {
 		return "mock-session-token", nil
 	}
 
 	// Set up GetProjectRoot mock
-	shell.GetProjectRootFunc = func() (string, error) {
+	mockShell.GetProjectRootFunc = func() (string, error) {
 		return "/test/project", nil
 	}
 
@@ -84,35 +82,28 @@ func setupEnvironmentMocks(t *testing.T) *Mocks {
 		return "test-context"
 	}
 
-	// Register dependencies in injector
-	injector.Register("shell", shell)
-	injector.Register("configHandler", configHandler)
-
-	// Register additional dependencies that WindsorEnv printer needs
-	injector.Register("projectRoot", "/test/project")
-	injector.Register("contextName", "test-context")
-
 	// Create execution context - paths will be set automatically by NewRuntime
-	rt := &Runtime{
-		Injector: injector,
+	rtOpts := []*Runtime{
+		{
+			Shell:         mockShell,
+			ConfigHandler: configHandler,
+		},
 	}
 
-	ctx, err := NewRuntime(rt)
+	ctx, err := NewRuntime(rtOpts...)
 	if err != nil {
 		t.Fatalf("Failed to create context: %v", err)
 	}
 
 	return &Mocks{
-		Injector:      injector,
 		ConfigHandler: configHandler,
-		Shell:         shell,
+		Shell:         mockShell,
 		Runtime:       ctx,
 	}
 }
 
 // Mocks contains all the mock dependencies for testing
 type Mocks struct {
-	Injector      di.Injector
 	ConfigHandler config.ConfigHandler
 	Shell         shell.Shell
 	Runtime       *Runtime
@@ -130,10 +121,6 @@ func TestNewRuntime(t *testing.T) {
 
 		if ctx == nil {
 			t.Fatal("Expected context to be created")
-		}
-
-		if ctx.Injector != mocks.Injector {
-			t.Error("Expected injector to be set")
 		}
 
 		if ctx.Shell != mocks.Shell {
@@ -174,42 +161,32 @@ func TestNewRuntime(t *testing.T) {
 	t.Run("ErrorWhenContextIsNil", func(t *testing.T) {
 		_, err := NewRuntime(nil)
 
-		if err == nil {
-			t.Error("Expected error when context is nil")
-		}
-
-		if !strings.Contains(err.Error(), "execution context is required") {
-			t.Errorf("Expected error about execution context required, got: %v", err)
+		if err != nil {
+			t.Errorf("Expected no error when opts is nil, got: %v", err)
 		}
 	})
 
-	t.Run("ErrorWhenInjectorIsNil", func(t *testing.T) {
-		ctx := &Runtime{}
+	t.Run("ErrorWhenRuntimeIsNil", func(t *testing.T) {
+		_, err := NewRuntime(nil)
 
-		_, err := NewRuntime(ctx)
-
-		if err == nil {
-			t.Error("Expected error when injector is nil")
-		}
-
-		if !strings.Contains(err.Error(), "injector is required") {
-			t.Errorf("Expected error about injector required, got: %v", err)
+		if err != nil {
+			t.Errorf("Expected no error when opts is nil, got: %v", err)
 		}
 	})
 
 	t.Run("CreatesShellWhenNotProvided", func(t *testing.T) {
-		injector := di.NewInjector()
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetContextFunc = func() string {
 			return "test"
 		}
-		injector.Register("configHandler", mockConfigHandler)
 
-		ctx := &Runtime{
-			Injector: injector,
+		rtOpts := []*Runtime{
+			{
+				ConfigHandler: mockConfigHandler,
+			},
 		}
 
-		result, err := NewRuntime(ctx)
+		result, err := NewRuntime(rtOpts...)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -221,20 +198,18 @@ func TestNewRuntime(t *testing.T) {
 	})
 
 	t.Run("CreatesConfigHandlerWhenNotProvided", func(t *testing.T) {
-		injector := di.NewInjector()
 		mockShell := shell.NewMockShell()
-		// MockShell no longer has InitializeFunc
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "/test", nil
 		}
-		injector.Register("shell", mockShell)
 
-		ctx := &Runtime{
-			Injector: injector,
-			Shell:    mockShell,
+		rtOpts := []*Runtime{
+			{
+				Shell: mockShell,
+			},
 		}
 
-		result, err := NewRuntime(ctx)
+		result, err := NewRuntime(rtOpts...)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -375,8 +350,8 @@ func TestRuntime_loadSecrets(t *testing.T) {
 		ctx := mocks.Runtime
 
 		// Set up mock secrets providers
-		mockSopsProvider := secrets.NewMockSecretsProvider(di.NewMockInjector())
-		mockOnepasswordProvider := secrets.NewMockSecretsProvider(di.NewMockInjector())
+		mockSopsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
+		mockOnepasswordProvider := secrets.NewMockSecretsProvider(mocks.Shell)
 
 		ctx.SecretsProviders.Sops = mockSopsProvider
 		ctx.SecretsProviders.Onepassword = mockOnepasswordProvider
@@ -392,7 +367,7 @@ func TestRuntime_loadSecrets(t *testing.T) {
 		ctx := mocks.Runtime
 
 		// Set up mock secrets provider that returns an error
-		mockProvider := secrets.NewMockSecretsProvider(di.NewMockInjector())
+		mockProvider := secrets.NewMockSecretsProvider(mocks.Shell)
 		mockProvider.LoadSecretsFunc = func() error {
 			return errors.New("secrets load failed")
 		}
@@ -428,7 +403,7 @@ func TestRuntime_loadSecrets(t *testing.T) {
 		ctx := mocks.Runtime
 
 		// Set up one provider that works and one that's nil
-		mockProvider := secrets.NewMockSecretsProvider(di.NewMockInjector())
+		mockProvider := secrets.NewMockSecretsProvider(mocks.Shell)
 		ctx.SecretsProviders.Sops = mockProvider
 		ctx.SecretsProviders.Onepassword = nil
 
@@ -458,11 +433,6 @@ func TestRuntime_initializeSecretsProviders(t *testing.T) {
 		if ctx.SecretsProviders.Sops == nil {
 			t.Error("Expected SOPS provider to be initialized")
 		}
-
-		// Verify it's registered in the injector
-		if _, ok := mocks.Injector.Resolve("sopsSecretsProvider").(secrets.SecretsProvider); !ok {
-			t.Error("Expected SOPS provider to be registered in injector")
-		}
 	})
 
 	t.Run("InitializesOnepasswordProviderWhenEnabled", func(t *testing.T) {
@@ -482,11 +452,6 @@ func TestRuntime_initializeSecretsProviders(t *testing.T) {
 
 		if ctx.SecretsProviders.Onepassword == nil {
 			t.Error("Expected 1Password provider to be initialized")
-		}
-
-		// Verify it's registered in the injector
-		if _, ok := mocks.Injector.Resolve("onepasswordSecretsProvider").(secrets.SecretsProvider); !ok {
-			t.Error("Expected 1Password provider to be registered in injector")
 		}
 	})
 
@@ -516,7 +481,7 @@ func TestRuntime_initializeSecretsProviders(t *testing.T) {
 		ctx := mocks.Runtime
 
 		// Pre-set a provider
-		existingProvider := secrets.NewMockSecretsProvider(di.NewMockInjector())
+		existingProvider := secrets.NewMockSecretsProvider(mocks.Shell)
 		ctx.SecretsProviders.Sops = existingProvider
 
 		// Enable SOPS in config
@@ -543,8 +508,8 @@ func TestRuntime_LoadEnvironment_WithSecrets(t *testing.T) {
 		ctx := mocks.Runtime
 
 		// Set up mock secrets providers
-		mockSopsProvider := secrets.NewMockSecretsProvider(di.NewMockInjector())
-		mockOnepasswordProvider := secrets.NewMockSecretsProvider(di.NewMockInjector())
+		mockSopsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
+		mockOnepasswordProvider := secrets.NewMockSecretsProvider(mocks.Shell)
 
 		ctx.SecretsProviders.Sops = mockSopsProvider
 		ctx.SecretsProviders.Onepassword = mockOnepasswordProvider
@@ -560,7 +525,7 @@ func TestRuntime_LoadEnvironment_WithSecrets(t *testing.T) {
 		ctx := mocks.Runtime
 
 		// Set up mock secrets provider that returns an error
-		mockProvider := secrets.NewMockSecretsProvider(di.NewMockInjector())
+		mockProvider := secrets.NewMockSecretsProvider(mocks.Shell)
 		mockProvider.LoadSecretsFunc = func() error {
 			return errors.New("secrets load failed")
 		}
@@ -595,17 +560,9 @@ func TestRuntime_initializeComponents_EdgeCases(t *testing.T) {
 // =============================================================================
 
 type MockToolsManager struct {
-	InitializeFunc    func() error
 	WriteManifestFunc func() error
 	InstallFunc       func() error
 	CheckFunc         func() error
-}
-
-func (m *MockToolsManager) Initialize() error {
-	if m.InitializeFunc != nil {
-		return m.InitializeFunc()
-	}
-	return nil
 }
 
 func (m *MockToolsManager) WriteManifest() error {
@@ -630,7 +587,6 @@ func (m *MockToolsManager) Check() error {
 }
 
 type MockEnvPrinter struct {
-	InitializeFunc      func() error
 	GetEnvVarsFunc      func() (map[string]string, error)
 	GetAliasFunc        func() (map[string]string, error)
 	PostEnvHookFunc     func(directory ...string) error
@@ -639,13 +595,6 @@ type MockEnvPrinter struct {
 	SetManagedEnvFunc   func(env string)
 	SetManagedAliasFunc func(alias string)
 	ResetFunc           func()
-}
-
-func (m *MockEnvPrinter) Initialize() error {
-	if m.InitializeFunc != nil {
-		return m.InitializeFunc()
-	}
-	return nil
 }
 
 func (m *MockEnvPrinter) GetEnvVars() (map[string]string, error) {
@@ -711,9 +660,6 @@ func TestRuntime_CheckTools(t *testing.T) {
 		ctx := mocks.Runtime
 
 		mockToolsManager := &MockToolsManager{}
-		mockToolsManager.InitializeFunc = func() error {
-			return nil
-		}
 		mockToolsManager.CheckFunc = func() error {
 			return nil
 		}
@@ -774,9 +720,6 @@ func TestRuntime_CheckTools(t *testing.T) {
 		ctx := mocks.Runtime
 
 		mockToolsManager := &MockToolsManager{}
-		mockToolsManager.InitializeFunc = func() error {
-			return nil
-		}
 		mockToolsManager.CheckFunc = func() error {
 			return errors.New("tools check failed")
 		}

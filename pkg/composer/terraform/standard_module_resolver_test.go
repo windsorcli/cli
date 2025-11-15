@@ -148,7 +148,7 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 		// Given a resolver with config handler GetConfigRoot returning error
 		resolver, mocks := setup(t)
 		mockConfigHandler := config.NewMockConfigHandler()
-		mocks.Injector.Register("configHandler", mockConfigHandler)
+		_ = mocks
 		resolver.BaseModuleResolver.runtime.ConfigHandler = mockConfigHandler
 		resolver.BaseModuleResolver.runtime.ConfigRoot = ""
 
@@ -165,7 +165,7 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 		// Given a resolver with Setenv shim returning error for TF_DATA_DIR
 		resolver, mocks := setup(t)
 		mockConfigHandler := config.NewMockConfigHandler()
-		mocks.Injector.Register("configHandler", mockConfigHandler)
+		_ = mocks
 		resolver.BaseModuleResolver.runtime.ConfigHandler = mockConfigHandler
 		resolver.BaseModuleResolver.runtime.ConfigRoot = "/mock/config/root"
 		resolver.BaseModuleResolver.shims.Setenv = func(key, value string) error {

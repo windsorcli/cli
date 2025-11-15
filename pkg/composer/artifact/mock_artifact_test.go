@@ -3,8 +3,6 @@ package artifact
 import (
 	"errors"
 	"testing"
-
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 // The MockArtifactTest is a test suite for the MockArtifact implementation.
@@ -39,41 +37,6 @@ func TestMockArtifact_NewMockArtifact(t *testing.T) {
 		// Then the mock artifact should be created successfully
 		if mockArtifact == nil {
 			t.Errorf("Expected mockArtifact, got nil")
-		}
-	})
-}
-
-// TestMockArtifact_Initialize tests the Initialize method of MockArtifact
-func TestMockArtifact_Initialize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given
-		mockArtifact := setupMockArtifactMocks(t)
-
-		// When initializing
-		injector := di.NewMockInjector()
-		err := mockArtifact.Initialize(injector)
-
-		// Then should succeed
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ReturnsErrorWhenInitializeFuncSet", func(t *testing.T) {
-		// Given
-		mockArtifact := setupMockArtifactMocks(t)
-		expectedError := errors.New("initialize error")
-		mockArtifact.InitializeFunc = func(di.Injector) error {
-			return expectedError
-		}
-
-		// When initializing
-		injector := di.NewMockInjector()
-		err := mockArtifact.Initialize(injector)
-
-		// Then should return the error
-		if err != expectedError {
-			t.Errorf("Expected error %v, got %v", expectedError, err)
 		}
 	})
 }
