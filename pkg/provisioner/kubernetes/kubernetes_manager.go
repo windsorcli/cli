@@ -64,6 +64,9 @@ type BaseKubernetesManager struct {
 	kustomizationWaitPollInterval time.Duration
 	kustomizationReconcileTimeout time.Duration
 	kustomizationReconcileSleep   time.Duration
+
+	healthCheckPollInterval time.Duration
+	nodeReadyPollInterval   time.Duration
 }
 
 // NewKubernetesManager creates a new instance of BaseKubernetesManager
@@ -74,6 +77,8 @@ func NewKubernetesManager(kubernetesClient client.KubernetesClient) *BaseKuberne
 		kustomizationWaitPollInterval: 2 * time.Second,
 		kustomizationReconcileTimeout: 5 * time.Minute,
 		kustomizationReconcileSleep:   2 * time.Second,
+		healthCheckPollInterval:       10 * time.Second,
+		nodeReadyPollInterval:         5 * time.Second,
 	}
 
 	return manager
@@ -543,7 +548,10 @@ func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, en
 		deadline = time.Now().Add(5 * time.Minute)
 	}
 
-	pollInterval := 10 * time.Second
+	pollInterval := k.healthCheckPollInterval
+	if pollInterval == 0 {
+		pollInterval = 10 * time.Second
+	}
 
 	for time.Now().Before(deadline) {
 		select {
@@ -551,14 +559,22 @@ func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, en
 			return fmt.Errorf("timeout waiting for Kubernetes API to be healthy")
 		default:
 			if err := k.client.CheckHealth(ctx, endpoint); err != nil {
-				time.Sleep(pollInterval)
-				continue
+				select {
+				case <-ctx.Done():
+					return fmt.Errorf("timeout waiting for Kubernetes API to be healthy")
+				case <-time.After(pollInterval):
+					continue
+				}
 			}
 
 			if len(nodeNames) > 0 {
 				if err := k.waitForNodesReady(ctx, nodeNames, outputFunc); err != nil {
-					time.Sleep(pollInterval)
-					continue
+					select {
+					case <-ctx.Done():
+						return fmt.Errorf("timeout waiting for Kubernetes API to be healthy")
+					case <-time.After(pollInterval):
+						continue
+					}
 				}
 			}
 
@@ -801,7 +817,10 @@ func (k *BaseKubernetesManager) waitForNodesReady(ctx context.Context, nodeNames
 		deadline = time.Now().Add(5 * time.Minute)
 	}
 
-	pollInterval := 5 * time.Second
+	pollInterval := k.nodeReadyPollInterval
+	if pollInterval == 0 {
+		pollInterval = 5 * time.Second
+	}
 	lastStatus := make(map[string]string)
 
 	for time.Now().Before(deadline) {
@@ -811,8 +830,12 @@ func (k *BaseKubernetesManager) waitForNodesReady(ctx context.Context, nodeNames
 		default:
 			readyStatus, err := k.client.GetNodeReadyStatus(ctx, nodeNames)
 			if err != nil {
-				time.Sleep(pollInterval)
-				continue
+				select {
+				case <-ctx.Done():
+					return fmt.Errorf("context cancelled while waiting for nodes to be ready")
+				case <-time.After(pollInterval):
+					continue
+				}
 			}
 
 			var missingNodes []string
@@ -848,7 +871,12 @@ func (k *BaseKubernetesManager) waitForNodesReady(ctx context.Context, nodeNames
 				return nil
 			}
 
-			time.Sleep(pollInterval)
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("context cancelled while waiting for nodes to be ready")
+			case <-time.After(pollInterval):
+				continue
+			}
 		}
 	}
 
