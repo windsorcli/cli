@@ -46,7 +46,7 @@ func TestExecCmd(t *testing.T) {
 			return "", nil
 		}
 		cmd := createTestCmd()
-		ctx := context.Background()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetContext(ctx)
 
 		args := []string{"go", "version"}
