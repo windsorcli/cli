@@ -259,6 +259,9 @@ func setupShims(t *testing.T) *Shims {
 		if strings.Contains(name, "contexts") && strings.Contains(name, "values.yaml") {
 			return &mockFileInfo{name: "values.yaml"}, nil
 		}
+		if strings.Contains(name, "_template/metadata.yaml") {
+			return nil, os.ErrNotExist
+		}
 		if strings.Contains(name, "_template") && !strings.Contains(name, "schema.yaml") {
 			return &mockFileInfo{name: "_template", isDir: true}, nil
 		}
@@ -963,6 +966,12 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 			if strings.Contains(normalizedPath, "test-context/values.yaml") {
 				return &mockFileInfo{isDir: false}, nil
 			}
+			if normalizedPath == filepath.ToSlash(filepath.Join(projectRoot, "contexts", "_template")) {
+				return &mockFileInfo{isDir: true}, nil
+			}
+			if strings.Contains(normalizedPath, "_template/metadata.yaml") {
+				return nil, os.ErrNotExist
+			}
 			if strings.Contains(normalizedPath, "_template") && !strings.Contains(normalizedPath, "schema.yaml") {
 				return &mockFileInfo{isDir: true}, nil
 			}
@@ -1148,6 +1157,13 @@ substitutions:
 				if strings.Contains(normalizedPath, "_template/schema.yaml") ||
 					strings.Contains(normalizedPath, "test-context/values.yaml") {
 					return mockFileInfo{name: "template"}, nil
+				}
+				if strings.Contains(normalizedPath, "_template/metadata.yaml") {
+					return nil, os.ErrNotExist
+				}
+				templateRoot := filepath.ToSlash(baseHandler.runtime.TemplateRoot)
+				if normalizedPath == templateRoot {
+					return mockFileInfo{name: "_template", isDir: true}, nil
 				}
 				if strings.Contains(normalizedPath, "_template") && !strings.Contains(normalizedPath, "schema.yaml") {
 					return mockFileInfo{name: "_template", isDir: true}, nil
@@ -2016,18 +2032,13 @@ func TestBlueprintHandler_LoadBlueprint(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewBlueprintHandler() failed: %v", err)
 		}
-		// Set up shims after initialization
 		handler.shims = mocks.Shims
 
-		// Set up project root and create template root directory
+		// Set up project root and template root
 		tmpDir := t.TempDir()
 		mocks.Runtime.ProjectRoot = tmpDir
-		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
-		if err := os.MkdirAll(templateRoot, 0755); err != nil {
-			t.Fatalf("Failed to create template root: %v", err)
-		}
-
-		// Create a basic blueprint.yaml in templates
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		templateRootNormalized := filepath.ToSlash(mocks.Runtime.TemplateRoot)
 		blueprintContent := `apiVersion: v1alpha1
 kind: Blueprint
 metadata:
@@ -2037,9 +2048,38 @@ sources: []
 terraformComponents: []
 kustomizations: []`
 
-		blueprintPath := filepath.Join(templateRoot, "blueprint.yaml")
-		if err := os.WriteFile(blueprintPath, []byte(blueprintContent), 0644); err != nil {
-			t.Fatalf("Failed to create blueprint.yaml: %v", err)
+		originalReadFile := handler.shims.ReadFile
+		handler.shims.Stat = func(path string) (os.FileInfo, error) {
+			normalizedPath := filepath.ToSlash(path)
+			if normalizedPath == templateRootNormalized {
+				return &mockFileInfo{name: "_template", isDir: true}, nil
+			}
+			if strings.Contains(normalizedPath, "_template/metadata.yaml") {
+				return nil, os.ErrNotExist
+			}
+			if strings.Contains(normalizedPath, "_template/blueprint.yaml") {
+				return &mockFileInfo{name: "blueprint.yaml", isDir: false}, nil
+			}
+			if strings.Contains(normalizedPath, "_template") {
+				return &mockFileInfo{name: "_template", isDir: true}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+			normalizedPath := filepath.ToSlash(path)
+			if normalizedPath == templateRootNormalized {
+				return []os.DirEntry{
+					&mockDirEntry{name: "blueprint.yaml", isDir: false},
+				}, nil
+			}
+			return []os.DirEntry{}, nil
+		}
+		handler.shims.ReadFile = func(path string) ([]byte, error) {
+			normalizedPath := filepath.ToSlash(path)
+			if strings.Contains(normalizedPath, "_template/blueprint.yaml") {
+				return []byte(blueprintContent), nil
+			}
+			return originalReadFile(path)
 		}
 
 		// Mock config handler to return empty context values
@@ -2778,6 +2818,207 @@ metadata:
 			if strings.Contains(string(composedBlueprint), "test-context") {
 				t.Error("Should not set metadata when blueprint has no components")
 			}
+		}
+	})
+
+	t.Run("ValidatesCliVersionFromMetadataYaml", func(t *testing.T) {
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+
+		mocks := setupMocks(t)
+		mocks.Runtime.ProjectRoot = projectRoot
+
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+
+		contextName := "test-context"
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetContextFunc = func() string {
+			return contextName
+		}
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
+
+		if err := os.MkdirAll(templateDir, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+
+		metadataContent := []byte(`name: test-blueprint
+version: 1.0.0
+cliVersion: ">=1.0.0"
+`)
+		if err := os.WriteFile(filepath.Join(templateDir, "metadata.yaml"), metadataContent, 0644); err != nil {
+			t.Fatalf("Failed to write metadata.yaml: %v", err)
+		}
+
+		blueprintContent := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base-blueprint
+`)
+		if err := os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), blueprintContent, 0644); err != nil {
+			t.Fatalf("Failed to write blueprint.yaml: %v", err)
+		}
+
+		_, err = handler.GetLocalTemplateData()
+
+		if err != nil {
+			t.Fatalf("Expected no error when cliVersion is empty (validation skipped), got %v", err)
+		}
+	})
+
+	t.Run("SkipsValidationWhenMetadataYamlDoesNotExist", func(t *testing.T) {
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+
+		mocks := setupMocks(t)
+		mocks.Runtime.ProjectRoot = projectRoot
+
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+
+		contextName := "test-context"
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetContextFunc = func() string {
+			return contextName
+		}
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
+
+		if err := os.MkdirAll(templateDir, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+
+		blueprintContent := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base-blueprint
+`)
+		if err := os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), blueprintContent, 0644); err != nil {
+			t.Fatalf("Failed to write blueprint.yaml: %v", err)
+		}
+
+		templateData, err := handler.GetLocalTemplateData()
+
+		if err != nil {
+			t.Fatalf("Expected no error when metadata.yaml doesn't exist, got %v", err)
+		}
+
+		if templateData == nil {
+			t.Fatal("Expected template data, got nil")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenMetadataYamlCannotBeRead", func(t *testing.T) {
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+
+		mocks := setupMocks(t)
+		mocks.Runtime.ProjectRoot = projectRoot
+
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+
+		contextName := "test-context"
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetContextFunc = func() string {
+			return contextName
+		}
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
+
+		if err := os.MkdirAll(templateDir, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "metadata.yaml") {
+				return &mockFileInfo{name: "metadata.yaml", isDir: false}, nil
+			}
+			return os.Stat(name)
+		}
+
+		handler.shims.ReadFile = func(path string) ([]byte, error) {
+			if strings.Contains(path, "metadata.yaml") {
+				return nil, fmt.Errorf("read error")
+			}
+			return os.ReadFile(path)
+		}
+
+		_, err = handler.GetLocalTemplateData()
+
+		if err == nil {
+			t.Fatal("Expected error when metadata.yaml cannot be read")
+		}
+		if !strings.Contains(err.Error(), "failed to read metadata.yaml") {
+			t.Errorf("Expected error to contain 'failed to read metadata.yaml', got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenMetadataYamlCannotBeParsed", func(t *testing.T) {
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+
+		mocks := setupMocks(t)
+		mocks.Runtime.ProjectRoot = projectRoot
+
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+
+		contextName := "test-context"
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetContextFunc = func() string {
+			return contextName
+		}
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+
+		templateDir := filepath.Join(projectRoot, "contexts", "_template")
+
+		if err := os.MkdirAll(templateDir, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+
+		invalidMetadata := []byte(`name: test-blueprint
+version: 1.0.0
+invalid: yaml: content
+`)
+		if err := os.WriteFile(filepath.Join(templateDir, "metadata.yaml"), invalidMetadata, 0644); err != nil {
+			t.Fatalf("Failed to write metadata.yaml: %v", err)
+		}
+
+		handler.shims.YamlUnmarshal = func(data []byte, v any) error {
+			if strings.Contains(string(data), "invalid: yaml: content") {
+				return fmt.Errorf("yaml parse error")
+			}
+			return yaml.Unmarshal(data, v)
+		}
+
+		_, err = handler.GetLocalTemplateData()
+
+		if err == nil {
+			t.Fatal("Expected error when metadata.yaml cannot be parsed")
+		}
+		if !strings.Contains(err.Error(), "failed to parse metadata.yaml") {
+			t.Errorf("Expected error to contain 'failed to parse metadata.yaml', got: %v", err)
 		}
 	})
 }

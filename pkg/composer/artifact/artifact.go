@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/briandowns/spinner"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -18,6 +19,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -41,6 +43,7 @@ type BlueprintMetadata struct {
 	Tags        []string      `json:"tags,omitempty"`
 	Homepage    string        `json:"homepage,omitempty"`
 	License     string        `json:"license,omitempty"`
+	CliVersion  string        `json:"cliVersion,omitempty"`
 	Timestamp   string        `json:"timestamp"`
 	Git         GitProvenance `json:"git"`
 	Builder     BuilderInfo   `json:"builder"`
@@ -78,6 +81,7 @@ type BlueprintMetadataInput struct {
 	Tags        []string `yaml:"tags,omitempty"`
 	Homepage    string   `yaml:"homepage,omitempty"`
 	License     string   `yaml:"license,omitempty"`
+	CliVersion  string   `yaml:"cliVersion,omitempty"`
 }
 
 // =============================================================================
@@ -395,6 +399,9 @@ func (a *ArtifactBuilder) GetTemplateData(ociRef string) (map[string][]byte, err
 			if err := a.shims.YamlUnmarshal(content, &metadata); err != nil {
 				return nil, fmt.Errorf("failed to parse metadata.yaml: %w", err)
 			}
+			if err := ValidateCliVersion(constants.Version, metadata.CliVersion); err != nil {
+				return nil, err
+			}
 			metadataName = metadata.Name
 		case name == "_template/schema.yaml":
 			schemaContent, err = io.ReadAll(tarReader)
@@ -665,6 +672,9 @@ func (a *ArtifactBuilder) parseTagAndResolveMetadata(repoName, tag string) (stri
 	if hasMetadata {
 		if err := a.shims.YamlUnmarshal(metadataFileInfo.Content, &input); err != nil {
 			return "", "", nil, fmt.Errorf("failed to parse metadata.yaml: %w", err)
+		}
+		if err := ValidateCliVersion(constants.Version, input.CliVersion); err != nil {
+			return "", "", nil, err
 		}
 	}
 
@@ -937,6 +947,10 @@ func (a *ArtifactBuilder) generateMetadataWithNameVersion(input BlueprintMetadat
 		Builder:     builderInfo,
 	}
 
+	if input.CliVersion != "" {
+		metadata.CliVersion = input.CliVersion
+	}
+
 	return a.shims.YamlMarshal(metadata)
 }
 
@@ -1119,6 +1133,42 @@ func IsAuthenticationError(err error) bool {
 	}
 
 	return false
+}
+
+// ValidateCliVersion validates that the provided CLI version satisfies the cliVersion constraint
+// specified in the template metadata. If constraint is empty, validation is skipped.
+// If cliVersion is empty, validation is skipped (caller cannot determine version).
+// If the CLI version is "dev" or "main" or "latest", validation is skipped as these are development builds.
+// Returns an error if the constraint is specified and the version does not satisfy it.
+func ValidateCliVersion(cliVersion, constraint string) error {
+	if constraint == "" {
+		return nil
+	}
+
+	if cliVersion == "" {
+		return nil
+	}
+
+	if cliVersion == "dev" || cliVersion == "main" || cliVersion == "latest" {
+		return nil
+	}
+
+	versionStr := strings.TrimPrefix(cliVersion, "v")
+	version, err := semver.NewVersion(versionStr)
+	if err != nil {
+		return fmt.Errorf("invalid CLI version format '%s': %w", cliVersion, err)
+	}
+
+	c, err := semver.NewConstraint(constraint)
+	if err != nil {
+		return fmt.Errorf("invalid cliVersion constraint '%s': %w", constraint, err)
+	}
+
+	if !c.Check(version) {
+		return fmt.Errorf("CLI version %s does not satisfy required constraint '%s'", cliVersion, constraint)
+	}
+
+	return nil
 }
 
 // Ensure ArtifactBuilder implements Artifact interface

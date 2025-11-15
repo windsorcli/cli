@@ -4,6 +4,7 @@ go 1.25.3
 
 require (
 	github.com/1password/onepassword-sdk-go v0.3.1
+	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/abiosoft/colima v0.9.1
 	github.com/briandowns/spinner v1.23.2
 	github.com/compose-spec/compose-go/v2 v2.9.1

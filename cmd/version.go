@@ -5,12 +5,7 @@ import (
 	"runtime"
 
 	"github.com/spf13/cobra"
-)
-
-// These variables will be set at build time
-var (
-	version   = "dev"
-	commitSHA = "none"
+	"github.com/windsorcli/cli/pkg/constants"
 )
 
 // Goos returns the operating system, can be mocked for testing
@@ -24,7 +19,7 @@ var versionCmd = &cobra.Command{
 	SilenceUsage: true,
 	Run: func(cmd *cobra.Command, args []string) {
 		platform := fmt.Sprintf("%s/%s", Goos, runtime.GOARCH)
-		cmd.Printf("Version: %s\nCommit SHA: %s\nPlatform: %s\n", version, commitSHA, platform)
+		cmd.Printf("Version: %s\nCommit SHA: %s\nPlatform: %s\n", constants.Version, constants.CommitSHA, platform)
 	},
 }
 

@@ -162,6 +162,11 @@ func (p *Project) Initialize(overwrite bool) error {
 	if err := p.Runtime.ConfigHandler.GenerateContextID(); err != nil {
 		return fmt.Errorf("failed to generate context ID: %w", err)
 	}
+
+	if err := p.Composer.BlueprintHandler.LoadBlueprint(); err != nil {
+		return fmt.Errorf("failed to load blueprint data: %w", err)
+	}
+
 	if err := p.Runtime.ConfigHandler.SaveConfig(overwrite); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
