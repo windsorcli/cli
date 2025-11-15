@@ -12,274 +12,14 @@ import (
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 )
 
-// MockTarReader provides a mock implementation for TarReader interface
-type MockTarReader struct {
-	NextFunc func() (*tar.Header, error)
-	ReadFunc func([]byte) (int, error)
-}
-
-func (m *MockTarReader) Next() (*tar.Header, error) {
-	if m.NextFunc != nil {
-		return m.NextFunc()
-	}
-	return nil, io.EOF
-}
-
-func (m *MockTarReader) Read(p []byte) (int, error) {
-	if m.ReadFunc != nil {
-		return m.ReadFunc(p)
-	}
-	return 0, io.EOF
-}
-
 // =============================================================================
-// Test Public Methods
+// Test Private Methods
 // =============================================================================
-
-func TestOCIModuleResolver_NewOCIModuleResolver(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given dependencies
-		mocks := setupMocks(t, &SetupOptions{})
-		mockArtifactBuilder := artifact.NewMockArtifact()
-
-		// When creating a new OCI module resolver
-		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
-
-		// Then it should be created successfully
-		if resolver == nil {
-			t.Fatal("Expected non-nil OCIModuleResolver")
-		}
-		if resolver.BaseModuleResolver == nil {
-			t.Error("Expected BaseModuleResolver to be set")
-		}
-		if resolver.artifactBuilder == nil {
-			t.Error("Expected artifactBuilder to be set")
-		}
-	})
-}
-
-func TestOCIModuleResolver_NewOCIModuleResolverWithDependencies(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a resolver with all required dependencies
-		mocks := setupMocks(t, &SetupOptions{})
-		mockArtifactBuilder := artifact.NewMockArtifact()
-		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
-		resolver.BaseModuleResolver.shims = mocks.Shims
-
-		// Then dependencies should be set
-		if resolver.BaseModuleResolver.runtime.Shell == nil {
-			t.Error("Expected shell to be set")
-		}
-		if resolver.artifactBuilder == nil {
-			t.Error("Expected artifactBuilder to be set")
-		}
-		if resolver.BaseModuleResolver.blueprintHandler == nil {
-			t.Error("Expected blueprintHandler to be set")
-		}
-	})
-}
-
-func TestOCIModuleResolver_shouldHandle(t *testing.T) {
-	t.Run("HandlesOCIAndRejectsNonOCI", func(t *testing.T) {
-		// Given a resolver
-		mocks := setupMocks(t, &SetupOptions{})
-		mockArtifactBuilder := artifact.NewMockArtifact()
-		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
-		resolver.BaseModuleResolver.shims = mocks.Shims
-
-		// When checking various source types
-		testCases := []struct {
-			source   string
-			expected bool
-		}{
-			{"oci://registry.example.com/module:latest", true},
-			{"oci://ghcr.io/windsorcli/terraform-modules:v1.0.0", true},
-			{"git::https://github.com/terraform-aws-modules/terraform-aws-vpc.git", false},
-			{"./local/module", false},
-			{"", false},
-		}
-
-		for _, tc := range testCases {
-			// Then it should handle OCI sources and reject non-OCI sources
-			result := resolver.shouldHandle(tc.source)
-			if result != tc.expected {
-				t.Errorf("Expected %s to return %v, got %v", tc.source, tc.expected, result)
-			}
-		}
-	})
-}
-
-func TestOCIModuleResolver_ProcessModules(t *testing.T) {
-	setup := func(t *testing.T) (*OCIModuleResolver, *Mocks) {
-		t.Helper()
-		mocks := setupMocks(t, &SetupOptions{})
-		mockArtifactBuilder := artifact.NewMockArtifact()
-		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
-		resolver.BaseModuleResolver.shims = mocks.Shims
-		return resolver, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a resolver with OCI components
-		resolver, mocks := setup(t)
-		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{
-				{
-					Path:     "test-module",
-					Source:   "oci://registry.example.com/module:latest//terraform/test-module",
-					FullPath: "/mock/project/terraform/test-module",
-				},
-			}
-		}
-
-		// Set up artifact builder to return mock data with correct cache key
-		mockArtifactBuilder := artifact.NewMockArtifact()
-		mockArtifactBuilder.PullFunc = func(refs []string) (map[string][]byte, error) {
-			artifacts := make(map[string][]byte)
-			for _, ref := range refs {
-				// Cache key format is registry/repository:tag (without oci:// prefix)
-				if strings.HasPrefix(ref, "oci://") {
-					cacheKey := strings.TrimPrefix(ref, "oci://")
-					artifacts[cacheKey] = []byte("mock artifact data")
-				} else {
-					artifacts[ref] = []byte("mock artifact data")
-				}
-			}
-			return artifacts, nil
-		}
-		resolver.artifactBuilder = mockArtifactBuilder
-
-		// Mock tar reader for successful extraction
-		mockTarReader := &MockTarReader{
-			NextFunc: func() (*tar.Header, error) {
-				return nil, io.EOF
-			},
-		}
-		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
-			return mockTarReader
-		}
-		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
-
-		// When processing modules
-		err := resolver.ProcessModules()
-
-		// Then it should succeed
-		if err != nil {
-			t.Errorf("Expected nil error, got %v", err)
-		}
-	})
-
-	t.Run("HandlesNoOCIComponents", func(t *testing.T) {
-		// Given a resolver with no OCI components
-		resolver, mocks := setup(t)
-		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{
-				{
-					Path:     "test-module",
-					Source:   "git::https://github.com/test/module.git",
-					FullPath: "/mock/project/terraform/test-module",
-				},
-			}
-		}
-
-		// When processing modules
-		err := resolver.ProcessModules()
-
-		// Then it should succeed without processing
-		if err != nil {
-			t.Errorf("Expected nil error, got %v", err)
-		}
-	})
-
-	t.Run("HandlesErrors", func(t *testing.T) {
-		// Given a resolver with artifact pull error
-		resolver, mocks := setup(t)
-		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{
-				{
-					Path:     "test-module",
-					Source:   "oci://registry.example.com/module:latest//terraform/test-module",
-					FullPath: "/mock/project/terraform/test-module",
-				},
-			}
-		}
-
-		// Mock artifact builder to return error
-		mockArtifactBuilder := artifact.NewMockArtifact()
-		mockArtifactBuilder.PullFunc = func(refs []string) (map[string][]byte, error) {
-			return nil, errors.New("artifact pull error")
-		}
-		resolver.artifactBuilder = mockArtifactBuilder
-
-		// When processing modules
-		err := resolver.ProcessModules()
-
-		// Then it should return an error
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to preload OCI artifacts") {
-			t.Errorf("Expected artifact pull error, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesMalformedOCIURLs", func(t *testing.T) {
-		// Given a resolver with malformed OCI URLs
-		resolver, mocks := setup(t)
-		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{
-				{
-					Path:     "test-module",
-					Source:   "oci://registry.example.com/module:latest", // Missing path separator
-					FullPath: "/mock/project/terraform/test-module",
-				},
-			}
-		}
-
-		// When processing modules
-		err := resolver.ProcessModules()
-
-		// Then it should succeed (malformed URLs are skipped during URL extraction)
-		if err != nil {
-			t.Errorf("Expected nil error for malformed URL, got %v", err)
-		}
-	})
-
-	t.Run("HandlesComponentProcessingErrors", func(t *testing.T) {
-		// Given a resolver with component that fails during processing
-		resolver, mocks := setup(t)
-		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{
-				{
-					Path:     "test-module",
-					Source:   "oci://registry.example.com/module:latest//terraform/test-module",
-					FullPath: "/mock/project/terraform/test-module",
-				},
-			}
-		}
-
-		// Mock MkdirAll to fail for component processing
-		resolver.BaseModuleResolver.shims.MkdirAll = func(path string, perm os.FileMode) error {
-			return errors.New("mkdir error")
-		}
-
-		// When processing modules
-		err := resolver.ProcessModules()
-
-		// Then it should return an error
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to process component") {
-			t.Errorf("Expected component processing error, got: %v", err)
-		}
-	})
-}
 
 func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 	t.Run("ParsesValidReferences", func(t *testing.T) {
 		// Given a resolver
-		mocks := setupMocks(t, &SetupOptions{})
+		mocks := setupTerraformMocks(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
 		resolver.BaseModuleResolver.shims = mocks.Shims
@@ -315,7 +55,7 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 
 	t.Run("HandlesInvalidReferences", func(t *testing.T) {
 		// Given a resolver
-		mocks := setupMocks(t, &SetupOptions{})
+		mocks := setupTerraformMocks(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
 		resolver.BaseModuleResolver.shims = mocks.Shims
@@ -338,7 +78,7 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 
 	t.Run("HandlesEdgeCases", func(t *testing.T) {
 		// Given a resolver
-		mocks := setupMocks(t, &SetupOptions{})
+		mocks := setupTerraformMocks(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
 		resolver.BaseModuleResolver.shims = mocks.Shims
@@ -354,9 +94,7 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 			{"OCIOnlyPrefix", "oci://", "invalid OCI reference format"},
 			{"MissingTag", "oci://registry.example.com/module", "expected registry/repository:tag"},
 			{"MissingRepository", "oci://registry.example.com:", "expected registry/repository:tag"},
-
 			{"MultipleColons", "oci://registry.example.com/module:v1.0.0:extra", "expected registry/repository:tag"},
-
 			{"NoSlash", "oci://registry.example.com-module:latest", "expected registry/repository:tag"},
 			{"OnlySlash", "oci:///", "expected registry/repository:tag"},
 			{"SlashWithoutRepo", "oci://registry.example.com/", "expected registry/repository:tag"},
@@ -375,7 +113,7 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 
 	t.Run("HandlesComplexValidReferences", func(t *testing.T) {
 		// Given a resolver
-		mocks := setupMocks(t, &SetupOptions{})
+		mocks := setupTerraformMocks(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
 		resolver.BaseModuleResolver.shims = mocks.Shims
@@ -415,7 +153,7 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 	setup := func(t *testing.T) *OCIModuleResolver {
 		t.Helper()
-		mocks := setupMocks(t, &SetupOptions{})
+		mocks := setupTerraformMocks(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
 		resolver.BaseModuleResolver.shims = mocks.Shims
@@ -604,7 +342,7 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 	setup := func(t *testing.T) *OCIModuleResolver {
 		t.Helper()
-		mocks := setupMocks(t, &SetupOptions{})
+		mocks := setupTerraformMocks(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
 		resolver.BaseModuleResolver.shims = mocks.Shims
@@ -909,7 +647,7 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 func TestOCIModuleResolver_processComponent(t *testing.T) {
 	setup := func(t *testing.T) *OCIModuleResolver {
 		t.Helper()
-		mocks := setupMocks(t, &SetupOptions{})
+		mocks := setupTerraformMocks(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
 		resolver.BaseModuleResolver.shims = mocks.Shims
@@ -1165,6 +903,101 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "failed to write outputs.tf") {
 			t.Errorf("Expected outputs.tf write error, got: %v", err)
+		}
+	})
+}
+
+func TestOCIModuleResolver_validateAndSanitizePath(t *testing.T) {
+	setup := func(t *testing.T) *OCIModuleResolver {
+		t.Helper()
+		mocks := setupTerraformMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
+		resolver.BaseModuleResolver.shims = mocks.Shims
+		return resolver
+	}
+
+	t.Run("HandlesValidPaths", func(t *testing.T) {
+		// Given a resolver
+		resolver := setup(t)
+
+		// When validating valid paths
+		testCases := []string{
+			"terraform/module/main.tf",
+			"terraform/module/subdir/file.tf",
+			"module/file.tf",
+		}
+
+		for _, path := range testCases {
+			// Then it should succeed
+			result, err := resolver.validateAndSanitizePath(path)
+			if err != nil {
+				t.Errorf("Expected no error for %s, got %v", path, err)
+			}
+			if result == "" {
+				t.Errorf("Expected non-empty result for %s", path)
+			}
+		}
+	})
+
+	t.Run("HandlesDirectoryTraversal", func(t *testing.T) {
+		// Given a resolver
+		resolver := setup(t)
+
+		// When validating paths with directory traversal
+		testCases := []string{
+			"../../etc/passwd",
+			"terraform/../../../etc/passwd",
+			"../module/file.tf",
+			"module/../../file.tf",
+		}
+
+		for _, path := range testCases {
+			// Then it should return an error
+			_, err := resolver.validateAndSanitizePath(path)
+			if err == nil {
+				t.Errorf("Expected error for path with traversal %s, got nil", path)
+			}
+			if !strings.Contains(err.Error(), "directory traversal") {
+				t.Errorf("Expected directory traversal error for %s, got: %v", path, err)
+			}
+		}
+	})
+
+	t.Run("HandlesAbsolutePaths", func(t *testing.T) {
+		// Given a resolver
+		resolver := setup(t)
+
+		// When validating absolute paths
+		testCases := []string{
+			"/etc/passwd",
+			"/root/file.tf",
+			"/tmp/module/main.tf",
+		}
+
+		for _, path := range testCases {
+			// Then it should return an error
+			_, err := resolver.validateAndSanitizePath(path)
+			if err == nil {
+				t.Errorf("Expected error for absolute path %s, got nil", path)
+			}
+			if !strings.Contains(err.Error(), "absolute paths are not allowed") {
+				t.Errorf("Expected absolute path error for %s, got: %v", path, err)
+			}
+		}
+	})
+
+	t.Run("HandlesCleanPathWithTraversal", func(t *testing.T) {
+		// Given a resolver
+		resolver := setup(t)
+
+		// When validating paths that clean to contain traversal
+		path := "terraform/../module/../../etc/passwd"
+
+		// Then it should return an error
+		_, err := resolver.validateAndSanitizePath(path)
+		if err == nil {
+			t.Error("Expected error for path that cleans to traversal, got nil")
 		}
 	})
 }

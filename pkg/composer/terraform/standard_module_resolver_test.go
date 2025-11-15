@@ -23,7 +23,7 @@ import (
 
 func TestStandardModuleResolver_NewStandardModuleResolver(t *testing.T) {
 	t.Run("CreatesStandardModuleResolver", func(t *testing.T) {
-		mocks := setupMocks(t, &SetupOptions{})
+		mocks := setupTerraformMocks(t)
 		resolver := NewStandardModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
 		if resolver == nil {
 			t.Fatal("Expected non-nil standard module resolver")
@@ -38,9 +38,9 @@ func TestStandardModuleResolver_NewStandardModuleResolver(t *testing.T) {
 }
 
 func TestStandardModuleResolver_NewStandardModuleResolverWithDependencies(t *testing.T) {
-	setup := func(t *testing.T) (*StandardModuleResolver, *Mocks) {
+	setup := func(t *testing.T) (*StandardModuleResolver, *TerraformTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t, &SetupOptions{})
+		mocks := setupTerraformMocks(t)
 		resolver := NewStandardModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
 		return resolver, mocks
 	}
@@ -63,9 +63,9 @@ func TestStandardModuleResolver_NewStandardModuleResolverWithDependencies(t *tes
 }
 
 func TestStandardModuleResolver_ProcessModules(t *testing.T) {
-	setup := func(t *testing.T) (*StandardModuleResolver, *Mocks) {
+	setup := func(t *testing.T) (*StandardModuleResolver, *TerraformTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t, &SetupOptions{})
+		mocks := setupTerraformMocks(t)
 		resolver := NewStandardModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
 		resolver.BaseModuleResolver.shims = mocks.Shims
 		return resolver, mocks
@@ -388,7 +388,7 @@ invalid json line
 func TestStandardModuleResolver_shouldHandle(t *testing.T) {
 	setup := func(t *testing.T) *StandardModuleResolver {
 		t.Helper()
-		mocks := setupMocks(t, &SetupOptions{})
+		mocks := setupTerraformMocks(t)
 		resolver := NewStandardModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
 		resolver.shims = mocks.Shims
 		return resolver
@@ -586,7 +586,7 @@ func TestStandardModuleResolver_shouldHandle(t *testing.T) {
 func TestStandardModuleResolver_isTerraformRegistryModule(t *testing.T) {
 	setup := func(t *testing.T) *StandardModuleResolver {
 		t.Helper()
-		mocks := setupMocks(t, &SetupOptions{})
+		mocks := setupTerraformMocks(t)
 		resolver := NewStandardModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
 		resolver.shims = mocks.Shims
 		return resolver
