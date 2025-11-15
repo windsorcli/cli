@@ -15,7 +15,6 @@ import (
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/provisioner"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
-	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
@@ -59,24 +58,18 @@ func TestInstallCmd(t *testing.T) {
 		mockKubernetesManager := kubernetes.NewMockKubernetesManager()
 		mockKubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mockConfigHandler,
-			ProjectRoot:   tmpDir,
-			ToolsManager:  mocks.ToolsManager,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
+		// Override ConfigHandler and ProjectRoot in runtime
+		mocks.Runtime.ConfigHandler = mockConfigHandler
+		mocks.Runtime.ProjectRoot = tmpDir
 
-		comp := composer.NewComposer(rt)
+		comp := composer.NewComposer(mocks.Runtime)
 		comp.BlueprintHandler = mockBlueprintHandler
-		mockProvisioner := provisioner.NewProvisioner(rt, comp.BlueprintHandler, &provisioner.Provisioner{
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
 			KubernetesManager: mockKubernetesManager,
 		})
 
 		proj, err := project.NewProject("", &project.Project{
-			Runtime:     rt,
+			Runtime:     mocks.Runtime,
 			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
@@ -118,24 +111,18 @@ func TestInstallCmd(t *testing.T) {
 		mockKubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
 		mockKubernetesManager.WaitForKustomizationsFunc = func(message string, names ...string) error { return nil }
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mockConfigHandler,
-			ProjectRoot:   tmpDir,
-			ToolsManager:  mocks.ToolsManager,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
+		// Override ConfigHandler and ProjectRoot in runtime
+		mocks.Runtime.ConfigHandler = mockConfigHandler
+		mocks.Runtime.ProjectRoot = tmpDir
 
-		comp := composer.NewComposer(rt)
+		comp := composer.NewComposer(mocks.Runtime)
 		comp.BlueprintHandler = mockBlueprintHandler
-		mockProvisioner := provisioner.NewProvisioner(rt, comp.BlueprintHandler, &provisioner.Provisioner{
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
 			KubernetesManager: mockKubernetesManager,
 		})
 
 		proj, err := project.NewProject("", &project.Project{
-			Runtime:     rt,
+			Runtime:     mocks.Runtime,
 			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
@@ -170,21 +157,15 @@ func TestInstallCmd(t *testing.T) {
 		mockConfigHandler.IsLoadedFunc = func() bool { return true }
 		mockConfigHandler.LoadConfigFunc = func() error { return nil }
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mockConfigHandler,
-			ProjectRoot:   tmpDir,
-			ToolsManager:  mocks.ToolsManager,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
+		// Override ConfigHandler and ProjectRoot in runtime
+		mocks.Runtime.ConfigHandler = mockConfigHandler
+		mocks.Runtime.ProjectRoot = tmpDir
 
-		comp := composer.NewComposer(rt)
-		mockProvisioner := provisioner.NewProvisioner(rt, comp.BlueprintHandler, nil)
+		comp := composer.NewComposer(mocks.Runtime)
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, nil)
 
 		proj, err := project.NewProject("", &project.Project{
-			Runtime:     rt,
+			Runtime:     mocks.Runtime,
 			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
@@ -223,21 +204,15 @@ func TestInstallCmd(t *testing.T) {
 			ConfigHandler: mockConfigHandler,
 		})
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mockConfigHandler,
-			ProjectRoot:   tmpDir,
-			ToolsManager:  mocks.ToolsManager,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
+		// Override ConfigHandler and ProjectRoot in runtime
+		mocks.Runtime.ConfigHandler = mockConfigHandler
+		mocks.Runtime.ProjectRoot = tmpDir
 
-		comp := composer.NewComposer(rt)
-		mockProvisioner := provisioner.NewProvisioner(rt, comp.BlueprintHandler, nil)
+		comp := composer.NewComposer(mocks.Runtime)
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, nil)
 
 		proj, err := project.NewProject("", &project.Project{
-			Runtime:     rt,
+			Runtime:     mocks.Runtime,
 			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})

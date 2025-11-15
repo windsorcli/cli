@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 	blueprintpkg "github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	envvars "github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/runtime/secrets"
@@ -31,6 +32,7 @@ type Mocks struct {
 	SecretsProvider  *secrets.MockSecretsProvider
 	EnvPrinter       *envvars.MockEnvPrinter
 	ToolsManager     *tools.MockToolsManager
+	Runtime          *runtime.Runtime
 	Shims            *Shims
 	BlueprintHandler *blueprintpkg.MockBlueprintHandler
 	TmpDir           string
@@ -164,12 +166,24 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	mockToolsManager := tools.NewMockToolsManager()
 	mockToolsManager.CheckFunc = func() error { return nil }
 
+	// Create runtime with all mocked dependencies
+	rt, err := runtime.NewRuntime(&runtime.Runtime{
+		Shell:         mockShell,
+		ConfigHandler: configHandler,
+		ProjectRoot:   tmpDir,
+		ToolsManager:  mockToolsManager,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create runtime: %v", err)
+	}
+
 	return &Mocks{
 		ConfigHandler:    configHandler,
 		Shell:            mockShell,
 		SecretsProvider:  mockSecretsProvider,
 		EnvPrinter:       mockEnvPrinter,
 		ToolsManager:     mockToolsManager,
+		Runtime:          rt,
 		Shims:            testShims,
 		BlueprintHandler: mockBlueprintHandler,
 		TmpDir:           tmpDir,

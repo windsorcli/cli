@@ -76,21 +76,11 @@ func TestCheckCmd(t *testing.T) {
 		}
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mocks.ToolsManager,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, rt)
+		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		// When executing the command
-		err = Execute()
+		err := Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -115,20 +105,11 @@ func TestCheckCmd(t *testing.T) {
 		}
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, rt)
+		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		// When executing the command
-		err = Execute()
+		err := Execute()
 
 		// Then an error should occur
 		if err == nil {
@@ -199,21 +180,12 @@ func TestCheckCmd_ErrorScenarios(t *testing.T) {
 			return fmt.Errorf("not trusted")
 		}
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, rt)
+		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"check"})
 
-		err = Execute()
+		err := Execute()
 
 		if err == nil {
 			t.Error("Expected error when CheckTrustedDirectory fails")
@@ -236,21 +208,12 @@ func TestCheckCmd_ErrorScenarios(t *testing.T) {
 		}
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, rt)
+		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"check"})
 
-		err = Execute()
+		err := Execute()
 
 		if err == nil {
 			t.Error("Expected error when LoadConfig fails")
@@ -279,22 +242,12 @@ func TestCheckCmd_ErrorScenarios(t *testing.T) {
 			return fmt.Errorf("tools check failed")
 		}
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mocks.ToolsManager,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, rt)
+		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"check"})
 
-		err = Execute()
+		err := Execute()
 
 		if err == nil {
 			t.Error("Expected error when CheckTools fails")
@@ -385,28 +338,19 @@ func TestCheckNodeHealthCmd(t *testing.T) {
 		}
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
 		mockClusterClient := cluster.NewMockClusterClient()
 		mockClusterClient.WaitForNodesHealthyFunc = func(ctx stdcontext.Context, nodeAddresses []string, expectedVersion string) error {
 			return fmt.Errorf("cluster health check failed")
 		}
 
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, rt)
+		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		// Setup command args with nodes
 		rootCmd.SetArgs([]string{"check", "node-health", "--nodes", "10.0.0.1,10.0.0.2"})
 
 		// When executing the command
-		err = Execute()
+		err := Execute()
 
 		// Then an error should occur
 		if err == nil {
@@ -533,21 +477,12 @@ func TestCheckNodeHealthCmd_ErrorScenarios(t *testing.T) {
 			return fmt.Errorf("not trusted")
 		}
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, rt)
+		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"check", "node-health", "--nodes", "10.0.0.1"})
 
-		err = Execute()
+		err := Execute()
 
 		if err == nil {
 			t.Error("Expected error when CheckTrustedDirectory fails")
@@ -570,21 +505,12 @@ func TestCheckNodeHealthCmd_ErrorScenarios(t *testing.T) {
 		}
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, rt)
+		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"check", "node-health", "--nodes", "10.0.0.1"})
 
-		err = Execute()
+		err := Execute()
 
 		if err == nil {
 			t.Error("Expected error when LoadConfig fails")
@@ -615,26 +541,17 @@ func TestCheckNodeHealthCmd_ErrorScenarios(t *testing.T) {
 		}
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
 		mockClusterClient := cluster.NewMockClusterClient()
 		mockClusterClient.WaitForNodesHealthyFunc = func(ctx stdcontext.Context, nodeAddresses []string, expectedVersion string) error {
 			return fmt.Errorf("cluster health check failed")
 		}
 
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, rt)
+		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"check", "node-health", "--nodes", "10.0.0.1"})
 
-		err = Execute()
+		err := Execute()
 
 		if err == nil {
 			t.Error("Expected error when CheckNodeHealth fails")

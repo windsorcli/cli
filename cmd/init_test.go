@@ -26,6 +26,7 @@ type InitMocks struct {
 	Shims            *Shims
 	BlueprintHandler *blueprint.MockBlueprintHandler
 	ToolsManager     *tools.MockToolsManager
+	Runtime          *runtime.Runtime
 }
 
 func setupInitTest(t *testing.T, opts ...*SetupOptions) *InitMocks {
@@ -74,6 +75,8 @@ func setupInitTest(t *testing.T, opts ...*SetupOptions) *InitMocks {
 		Shell:            baseMocks,
 		Shims:            baseMocks.Shims,
 		BlueprintHandler: mockBlueprintHandler,
+		ToolsManager:     baseMocks.ToolsManager,
+		Runtime:          baseMocks.Runtime,
 	}
 }
 
@@ -1012,21 +1015,15 @@ func TestInitCmd(t *testing.T) {
 			return nil
 		}
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.Shell.TmpDir,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
+		// Override ProjectRoot in runtime
+		mocks.Runtime.ProjectRoot = mocks.Shell.TmpDir
 
 		// When executing the init command
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
-		err = cmd.Execute()
+		err := cmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -1049,21 +1046,15 @@ func TestInitCmd(t *testing.T) {
 			return expectedError
 		}
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.Shell.TmpDir,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
+		// Override ProjectRoot in runtime
+		mocks.Runtime.ProjectRoot = mocks.Shell.TmpDir
 
 		// When executing the init command
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
-		err = cmd.Execute()
+		err := cmd.Execute()
 
 		// Then an error should occur
 		if err == nil {

@@ -12,7 +12,6 @@ import (
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
-	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -57,16 +56,10 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		// Get base mocks (includes ToolsManager)
 		baseMocks := setupMocks(t)
 
-		// Create runtime with mocks
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mockShell,
-			ConfigHandler: mockConfigHandler,
-			ProjectRoot:   tmpDir,
-			ToolsManager:  baseMocks.ToolsManager,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
+		// Override Shell, ConfigHandler, and ProjectRoot in runtime
+		baseMocks.Runtime.Shell = mockShell
+		baseMocks.Runtime.ConfigHandler = mockConfigHandler
+		baseMocks.Runtime.ProjectRoot = tmpDir
 
 		// Mock blueprint handler
 		mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
@@ -75,7 +68,7 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		}
 
 		// Create composer with mocked blueprint handler
-		comp := composer.NewComposer(rt)
+		comp := composer.NewComposer(baseMocks.Runtime)
 		comp.BlueprintHandler = mockBlueprintHandler
 
 		// Create test command
@@ -89,7 +82,7 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 
 		// Set up context with runtime and composer overrides
 		ctx := context.Background()
-		ctx = context.WithValue(ctx, runtimeOverridesKey, rt)
+		ctx = context.WithValue(ctx, runtimeOverridesKey, baseMocks.Runtime)
 		ctx = context.WithValue(ctx, composerOverridesKey, comp)
 		cmd.SetContext(ctx)
 
@@ -97,7 +90,7 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		cmd.SetArgs([]string{"--tag", "test:v1.0.0"})
 
 		// Execute command
-		err = cmd.Execute()
+		err := cmd.Execute()
 
 		// Verify no error
 		if err != nil {
@@ -173,18 +166,12 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 
 		baseMocks := setupMocks(t)
 
-		// Create runtime and composer
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mockShell,
-			ConfigHandler: mockConfigHandler,
-			ProjectRoot:   tmpDir,
-			ToolsManager:  baseMocks.ToolsManager,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
+		// Override Shell, ConfigHandler, and ProjectRoot in runtime
+		baseMocks.Runtime.Shell = mockShell
+		baseMocks.Runtime.ConfigHandler = mockConfigHandler
+		baseMocks.Runtime.ProjectRoot = tmpDir
 
-		comp := composer.NewComposer(rt)
+		comp := composer.NewComposer(baseMocks.Runtime)
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		mockArtifactBuilder.WriteFunc = func(outputPath string, tag string) (string, error) {
 			return "", fmt.Errorf("failed to write artifact")
@@ -202,7 +189,7 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 
 		// Set up context with runtime and composer overrides
 		ctx := context.Background()
-		ctx = context.WithValue(ctx, runtimeOverridesKey, rt)
+		ctx = context.WithValue(ctx, runtimeOverridesKey, baseMocks.Runtime)
 		ctx = context.WithValue(ctx, composerOverridesKey, comp)
 		cmd.SetContext(ctx)
 
@@ -210,7 +197,7 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		cmd.SetArgs([]string{"--tag", "test:v1.0.0"})
 
 		// Execute command
-		err = cmd.Execute()
+		err := cmd.Execute()
 
 		// Verify error
 		if err == nil {

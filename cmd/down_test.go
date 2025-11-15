@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/windsorcli/cli/pkg/project"
-	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
@@ -33,17 +32,7 @@ func TestDownCmd(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupMocks(t)
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mocks.ToolsManager,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		proj, err := project.NewProject("", &project.Project{Runtime: rt})
+		proj, err := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
 		}
@@ -65,17 +54,7 @@ func TestDownCmd(t *testing.T) {
 			return fmt.Errorf("not in trusted directory")
 		}
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mocks.ToolsManager,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		proj, err := project.NewProject("", &project.Project{Runtime: rt})
+		proj, err := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
 		}
@@ -104,17 +83,10 @@ func TestDownCmd(t *testing.T) {
 		}
 		mocks := setupMocks(t, opts)
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mockConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mocks.ToolsManager,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
+		// Override ConfigHandler in runtime
+		mocks.Runtime.ConfigHandler = mockConfigHandler
 
-		proj, err := project.NewProject("", &project.Project{Runtime: rt})
+		proj, err := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
 		}
@@ -135,17 +107,7 @@ func TestDownCmd(t *testing.T) {
 	t.Run("SkipK8sFlag", func(t *testing.T) {
 		mocks := setupMocks(t)
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mocks.ToolsManager,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		proj, err := project.NewProject("", &project.Project{Runtime: rt})
+		proj, err := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
 		}
@@ -164,17 +126,7 @@ func TestDownCmd(t *testing.T) {
 	t.Run("SkipTerraformFlag", func(t *testing.T) {
 		mocks := setupMocks(t)
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mocks.ToolsManager,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		proj, err := project.NewProject("", &project.Project{Runtime: rt})
+		proj, err := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
 		}
@@ -193,17 +145,7 @@ func TestDownCmd(t *testing.T) {
 	t.Run("SkipDockerFlag", func(t *testing.T) {
 		mocks := setupMocks(t)
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mocks.ToolsManager,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		proj, err := project.NewProject("", &project.Project{Runtime: rt})
+		proj, err := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
 		}
@@ -228,17 +170,10 @@ func TestDownCmd(t *testing.T) {
 		}
 		mocks := setupMocks(t, opts)
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mockConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mocks.ToolsManager,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
+		// Override ConfigHandler in runtime
+		mocks.Runtime.ConfigHandler = mockConfigHandler
 
-		proj, err := project.NewProject("", &project.Project{Runtime: rt})
+		proj, err := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
 		}

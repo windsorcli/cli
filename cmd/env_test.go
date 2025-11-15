@@ -280,16 +280,7 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 			return fmt.Errorf("not trusted")
 		}
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 		t.Cleanup(func() {
 			rootCmd.SetContext(context.Background())
@@ -297,7 +288,7 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 
 		rootCmd.SetArgs([]string{"env"})
 
-		err = Execute()
+		err := Execute()
 
 		if err == nil {
 			t.Error("Expected error when CheckTrustedDirectory fails")
@@ -323,16 +314,7 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 			return false, fmt.Errorf("reset check failed")
 		}
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 		t.Cleanup(func() {
 			rootCmd.SetContext(context.Background())
@@ -340,7 +322,7 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 
 		rootCmd.SetArgs([]string{"env"})
 
-		err = Execute()
+		err := Execute()
 
 		if err == nil {
 			t.Error("Expected error when HandleSessionReset fails")
@@ -374,16 +356,7 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 			return false, nil
 		}
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 		t.Cleanup(func() {
 			rootCmd.SetContext(context.Background())
@@ -391,7 +364,7 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 
 		rootCmd.SetArgs([]string{"env"})
 
-		err = Execute()
+		err := Execute()
 
 		if err == nil {
 			t.Error("Expected error when LoadConfig fails")

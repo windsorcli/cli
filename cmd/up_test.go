@@ -34,6 +34,7 @@ type UpMocks struct {
 	TerraformStack    *terraforminfra.MockStack
 	KubernetesManager *kubernetes.MockKubernetesManager
 	ToolsManager      *tools.MockToolsManager
+	Runtime           *runtime.Runtime
 	TmpDir            string
 }
 
@@ -103,6 +104,17 @@ func setupUpTest(t *testing.T, opts ...*SetupOptions) *UpMocks {
 	mockKubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
 	mockKubernetesManager.WaitForKustomizationsFunc = func(message string, names ...string) error { return nil }
 
+	// Create runtime with all mocked dependencies
+	rt, err := runtime.NewRuntime(&runtime.Runtime{
+		Shell:         baseMocks.Shell,
+		ConfigHandler: baseMocks.ConfigHandler,
+		ProjectRoot:   tmpDir,
+		ToolsManager:  baseMocks.ToolsManager,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create runtime: %v", err)
+	}
+
 	return &UpMocks{
 		ConfigHandler:     baseMocks.ConfigHandler,
 		Shell:             baseMocks.Shell,
@@ -111,6 +123,7 @@ func setupUpTest(t *testing.T, opts ...*SetupOptions) *UpMocks {
 		TerraformStack:    mockTerraformStack,
 		KubernetesManager: mockKubernetesManager,
 		ToolsManager:      baseMocks.ToolsManager,
+		Runtime:           rt,
 		TmpDir:            tmpDir,
 	}
 }
@@ -144,25 +157,15 @@ func TestUpCmd(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupUpTest(t)
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mocks.ToolsManager,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		comp := composer.NewComposer(rt)
+		comp := composer.NewComposer(mocks.Runtime)
 		comp.BlueprintHandler = mocks.BlueprintHandler
-		mockProvisioner := provisioner.NewProvisioner(rt, comp.BlueprintHandler, &provisioner.Provisioner{
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			KubernetesManager: mocks.KubernetesManager,
 		})
 
 		proj, err := project.NewProject("", &project.Project{
-			Runtime:     rt,
+			Runtime:     mocks.Runtime,
 			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
@@ -186,25 +189,15 @@ func TestUpCmd(t *testing.T) {
 	t.Run("SuccessWithInstallFlag", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupUpTest(t)
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mocks.ToolsManager,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		comp := composer.NewComposer(rt)
+		comp := composer.NewComposer(mocks.Runtime)
 		comp.BlueprintHandler = mocks.BlueprintHandler
-		mockProvisioner := provisioner.NewProvisioner(rt, comp.BlueprintHandler, &provisioner.Provisioner{
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			KubernetesManager: mocks.KubernetesManager,
 		})
 
 		proj, err := project.NewProject("", &project.Project{
-			Runtime:     rt,
+			Runtime:     mocks.Runtime,
 			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
@@ -228,25 +221,15 @@ func TestUpCmd(t *testing.T) {
 	t.Run("SuccessWithWaitFlag", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupUpTest(t)
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mocks.ToolsManager,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		comp := composer.NewComposer(rt)
+		comp := composer.NewComposer(mocks.Runtime)
 		comp.BlueprintHandler = mocks.BlueprintHandler
-		mockProvisioner := provisioner.NewProvisioner(rt, comp.BlueprintHandler, &provisioner.Provisioner{
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			KubernetesManager: mocks.KubernetesManager,
 		})
 
 		proj, err := project.NewProject("", &project.Project{
-			Runtime:     rt,
+			Runtime:     mocks.Runtime,
 			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
@@ -270,25 +253,15 @@ func TestUpCmd(t *testing.T) {
 	t.Run("SuccessWithInstallAndWaitFlags", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupUpTest(t)
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mocks.ToolsManager,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		comp := composer.NewComposer(rt)
+		comp := composer.NewComposer(mocks.Runtime)
 		comp.BlueprintHandler = mocks.BlueprintHandler
-		mockProvisioner := provisioner.NewProvisioner(rt, comp.BlueprintHandler, &provisioner.Provisioner{
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			KubernetesManager: mocks.KubernetesManager,
 		})
 
 		proj, err := project.NewProject("", &project.Project{
-			Runtime:     rt,
+			Runtime:     mocks.Runtime,
 			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
@@ -318,25 +291,15 @@ func TestUpCmd(t *testing.T) {
 			return fmt.Errorf("not in trusted directory")
 		}
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mocks.ToolsManager,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		comp := composer.NewComposer(rt)
+		comp := composer.NewComposer(mocks.Runtime)
 		comp.BlueprintHandler = mocks.BlueprintHandler
-		mockProvisioner := provisioner.NewProvisioner(rt, comp.BlueprintHandler, &provisioner.Provisioner{
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			KubernetesManager: mocks.KubernetesManager,
 		})
 
 		proj, err := project.NewProject("", &project.Project{
-			Runtime:     rt,
+			Runtime:     mocks.Runtime,
 			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
@@ -370,25 +333,15 @@ func TestUpCmd(t *testing.T) {
 			return fmt.Errorf("terraform stack up failed")
 		}
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mocks.ToolsManager,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		comp := composer.NewComposer(rt)
+		comp := composer.NewComposer(mocks.Runtime)
 		comp.BlueprintHandler = mocks.BlueprintHandler
-		mockProvisioner := provisioner.NewProvisioner(rt, comp.BlueprintHandler, &provisioner.Provisioner{
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			KubernetesManager: mocks.KubernetesManager,
 		})
 
 		proj, err := project.NewProject("", &project.Project{
-			Runtime:     rt,
+			Runtime:     mocks.Runtime,
 			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
@@ -422,25 +375,15 @@ func TestUpCmd(t *testing.T) {
 			return fmt.Errorf("kubernetes apply failed")
 		}
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mocks.ToolsManager,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		comp := composer.NewComposer(rt)
+		comp := composer.NewComposer(mocks.Runtime)
 		comp.BlueprintHandler = mocks.BlueprintHandler
-		mockProvisioner := provisioner.NewProvisioner(rt, comp.BlueprintHandler, &provisioner.Provisioner{
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			KubernetesManager: mocks.KubernetesManager,
 		})
 
 		proj, err := project.NewProject("", &project.Project{
-			Runtime:     rt,
+			Runtime:     mocks.Runtime,
 			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
@@ -474,25 +417,15 @@ func TestUpCmd(t *testing.T) {
 			return fmt.Errorf("wait for kustomizations failed")
 		}
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mocks.ToolsManager,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		comp := composer.NewComposer(rt)
+		comp := composer.NewComposer(mocks.Runtime)
 		comp.BlueprintHandler = mocks.BlueprintHandler
-		mockProvisioner := provisioner.NewProvisioner(rt, comp.BlueprintHandler, &provisioner.Provisioner{
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			KubernetesManager: mocks.KubernetesManager,
 		})
 
 		proj, err := project.NewProject("", &project.Project{
-			Runtime:     rt,
+			Runtime:     mocks.Runtime,
 			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})

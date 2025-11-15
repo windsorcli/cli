@@ -235,21 +235,12 @@ func TestContextCmd_ErrorScenarios(t *testing.T) {
 		}
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"context", "get"})
 
-		err = Execute()
+		err := Execute()
 
 		if err == nil {
 			t.Error("Expected error when LoadConfig fails")
@@ -305,21 +296,12 @@ func TestContextCmd_ErrorScenarios(t *testing.T) {
 		}
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"context", "set", "test-context"})
 
-		err = Execute()
+		err := Execute()
 
 		if err == nil {
 			t.Error("Expected error when LoadConfig fails")
@@ -338,21 +320,12 @@ func TestContextCmd_ErrorScenarios(t *testing.T) {
 			return "", fmt.Errorf("write reset token failed")
 		}
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"context", "set", "test-context"})
 
-		err = Execute()
+		err := Execute()
 
 		if err == nil {
 			t.Error("Expected error when WriteResetToken fails")
@@ -382,21 +355,12 @@ func TestContextCmd_ErrorScenarios(t *testing.T) {
 			return "mock-reset-token", nil
 		}
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
-			Shell:         mocks.Shell,
-			ConfigHandler: mocks.ConfigHandler,
-			ProjectRoot:   mocks.TmpDir,
-		})
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
-		}
-
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"context", "set", "test-context"})
 
-		err = Execute()
+		err := Execute()
 
 		if err == nil {
 			t.Error("Expected error when SetContext fails")
