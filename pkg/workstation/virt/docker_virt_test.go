@@ -19,17 +19,11 @@ import (
 // Test Setup
 // =============================================================================
 
-func setupDockerMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+func setupDockerMocks(t *testing.T, opts ...func(*VirtTestMocks)) *VirtTestMocks {
 	t.Helper()
 
-	// Process options with defaults
-	options := &SetupOptions{}
-	if len(opts) > 0 && opts[0] != nil {
-		options = opts[0]
-	}
-
 	// Set up base mocks
-	mocks := setupMocks(t, options)
+	mocks := setupVirtMocks(t, opts...)
 
 	// Load Docker-specific config
 	configStr := `
@@ -162,7 +156,7 @@ contexts:
 
 // TestDockerVirt_Initialize tests the initialization of the DockerVirt component.
 func TestDockerVirt_Initialize(t *testing.T) {
-	setup := func(t *testing.T) (*DockerVirt, *Mocks) {
+	setup := func(t *testing.T) (*DockerVirt, *VirtTestMocks) {
 		t.Helper()
 		mocks := setupDockerMocks(t)
 		dockerVirt := NewDockerVirt(mocks.Runtime, []services.Service{})
@@ -301,7 +295,7 @@ func TestDockerVirt_Initialize(t *testing.T) {
 
 // TestDockerVirt_Up tests the Up method of the DockerVirt component.
 func TestDockerVirt_Up(t *testing.T) {
-	setup := func(t *testing.T) (*DockerVirt, *Mocks) {
+	setup := func(t *testing.T) (*DockerVirt, *VirtTestMocks) {
 		t.Helper()
 		mocks := setupDockerMocks(t)
 		dockerVirt := NewDockerVirt(mocks.Runtime, []services.Service{})
@@ -501,7 +495,7 @@ func TestDockerVirt_Up(t *testing.T) {
 
 // TestDockerVirt_Down tests the Down method of the DockerVirt component.
 func TestDockerVirt_Down(t *testing.T) {
-	setup := func(t *testing.T) (*DockerVirt, *Mocks) {
+	setup := func(t *testing.T) (*DockerVirt, *VirtTestMocks) {
 		t.Helper()
 		mocks := setupDockerMocks(t)
 		dockerVirt := NewDockerVirt(mocks.Runtime, []services.Service{})
@@ -663,7 +657,7 @@ func TestDockerVirt_Down(t *testing.T) {
 
 // TestDockerVirt_WriteConfig tests the WriteConfig method of the DockerVirt component.
 func TestDockerVirt_WriteConfig(t *testing.T) {
-	setup := func(t *testing.T) (*DockerVirt, *Mocks) {
+	setup := func(t *testing.T) (*DockerVirt, *VirtTestMocks) {
 		t.Helper()
 		mocks := setupDockerMocks(t)
 		dockerVirt := NewDockerVirt(mocks.Runtime, []services.Service{})
@@ -764,7 +758,7 @@ func TestDockerVirt_WriteConfig(t *testing.T) {
 
 // TestDockerVirt_DetermineComposeCommand tests the determineComposeCommand method of the DockerVirt component.
 func TestDockerVirt_DetermineComposeCommand(t *testing.T) {
-	setup := func(t *testing.T) (*DockerVirt, *Mocks) {
+	setup := func(t *testing.T) (*DockerVirt, *VirtTestMocks) {
 		t.Helper()
 		mocks := setupDockerMocks(t)
 		dockerVirt := NewDockerVirt(mocks.Runtime, []services.Service{})
@@ -877,7 +871,7 @@ func TestDockerVirt_DetermineComposeCommand(t *testing.T) {
 
 // TestDockerVirt_GetFullComposeConfig tests the getFullComposeConfig method of the DockerVirt component.
 func TestDockerVirt_GetFullComposeConfig(t *testing.T) {
-	setup := func(t *testing.T) (*DockerVirt, *Mocks) {
+	setup := func(t *testing.T) (*DockerVirt, *VirtTestMocks) {
 		t.Helper()
 		mocks := setupDockerMocks(t)
 		dockerVirt := NewDockerVirt(mocks.Runtime, []services.Service{})
