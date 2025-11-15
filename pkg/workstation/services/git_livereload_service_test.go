@@ -18,7 +18,7 @@ import (
 func TestGitLivereloadService_NewGitLivereloadService(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a set of mock components
-		mocks := setupMocks(t)
+		mocks := setupServicesMocks(t)
 
 		// When a new GitLivereloadService is created
 		gitLivereloadService := NewGitLivereloadService(mocks.Runtime)
@@ -34,7 +34,7 @@ func TestGitLivereloadService_NewGitLivereloadService(t *testing.T) {
 func TestGitLivereloadService_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock config handler, shell, context, and service
-		mocks := setupMocks(t)
+		mocks := setupServicesMocks(t)
 		gitLivereloadService := NewGitLivereloadService(mocks.Runtime)
 
 		// Set the service name
@@ -63,10 +63,9 @@ func TestGitLivereloadService_GetComposeConfig(t *testing.T) {
 		}
 	})
 
-
 	t.Run("SuccessWithRsyncInclude", func(t *testing.T) {
 		// Given a mock config handler, shell, context, and service with rsync_include configured
-		mocks := setupMocks(t)
+		mocks := setupServicesMocks(t)
 		gitLivereloadService := NewGitLivereloadService(mocks.Runtime)
 
 		// Set the service name
@@ -109,7 +108,7 @@ func TestGitLivereloadService_GetComposeConfig(t *testing.T) {
 
 	t.Run("SuccessWithoutRsyncInclude", func(t *testing.T) {
 		// Given a mock config handler, shell, context, and service without rsync_include configured
-		mocks := setupMocks(t)
+		mocks := setupServicesMocks(t)
 		gitLivereloadService := NewGitLivereloadService(mocks.Runtime)
 
 		// Set the service name

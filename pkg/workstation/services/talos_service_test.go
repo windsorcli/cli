@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/constants"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================
@@ -15,18 +17,22 @@ import (
 // =============================================================================
 
 // setupTalosServiceMocks creates and returns mock components for TalosService tests
-func setupTalosServiceMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+func setupTalosServiceMocks(t *testing.T, opts ...func(*ServicesTestMocks)) *ServicesTestMocks {
 	t.Helper()
 
-	// Create base mocks using setupMocks
-	mocks := setupMocks(t, opts...)
+	// Create base mocks using setupServicesMocks
+	mocks := setupServicesMocks(t, opts...)
 
-	// Load config - use provided config if available, otherwise use default
-	var configToLoad string
-	if len(opts) > 0 && opts[0].ConfigStr != "" {
-		configToLoad = opts[0].ConfigStr
-	} else {
-		configToLoad = fmt.Sprintf(`
+	// Check if config handler was overridden (compare with the default one from setupServicesMocks)
+	// We'll check by seeing if the config handler is different from what setupServicesMocks created
+	// For simplicity, we'll just check if opts were provided - if they were, assume custom config might be set
+	// and skip loading default talos config. Tests that need default config won't provide opts.
+	hasCustomConfig := len(opts) > 0
+
+	// Only load default talos config if no custom config handler was provided
+	if !hasCustomConfig {
+		// Load config
+		configToLoad := fmt.Sprintf(`
 version: v1alpha1
 contexts:
   mock-context:
@@ -71,10 +77,10 @@ contexts:
 `, constants.DefaultTalosAPIPort,
 			constants.DefaultTalosWorkerCPU,
 			constants.DefaultTalosWorkerRAM)
-	}
 
-	if err := mocks.ConfigHandler.LoadConfigString(configToLoad); err != nil {
-		t.Fatalf("Failed to load config: %v", err)
+		if err := mocks.ConfigHandler.LoadConfigString(configToLoad); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
 	}
 
 	mocks.Shell.GetProjectRootFunc = func() (string, error) {
@@ -123,7 +129,7 @@ func TestTalosService_NewTalosService(t *testing.T) {
 
 // TestTalosService_SetAddress tests the SetAddress method of TalosService
 func TestTalosService_SetAddress(t *testing.T) {
-	setup := func(t *testing.T) (*TalosService, *Mocks) {
+	setup := func(t *testing.T) (*TalosService, *ServicesTestMocks) {
 		t.Helper()
 
 		// Reset package-level variables
@@ -829,7 +835,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 
 // TestTalosService_GetComposeConfig tests the GetComposeConfig method of TalosService
 func TestTalosService_GetComposeConfig(t *testing.T) {
-	setup := func(t *testing.T) (*TalosService, *Mocks) {
+	setup := func(t *testing.T) (*TalosService, *ServicesTestMocks) {
 		t.Helper()
 
 		// Reset package-level variables
@@ -848,7 +854,7 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		return service, mocks
 	}
 
-	setupWorker := func(t *testing.T) (*TalosService, *Mocks) {
+	setupWorker := func(t *testing.T) (*TalosService, *ServicesTestMocks) {
 		t.Helper()
 
 		// Reset package-level variables
@@ -1049,8 +1055,14 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 
 	t.Run("SuccessEmptyConfig", func(t *testing.T) {
 		// Given a TalosService with mock components and empty cluster config
-		emptyConfig := &SetupOptions{
-			ConfigStr: `
+		// Create a new config handler with empty config
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project/root", nil
+		}
+		configHandler := config.NewConfigHandler(mockShell)
+		configHandler.SetContext("mock-context")
+		configStr := `
 version: v1alpha1
 contexts:
   mock-context:
@@ -1058,9 +1070,14 @@ contexts:
       domain: test
     vm:
       driver: docker-desktop
-`,
+`
+		if err := configHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
 		}
-		mocks := setupTalosServiceMocks(t, emptyConfig)
+		mocks := setupTalosServiceMocks(t, func(m *ServicesTestMocks) {
+			m.ConfigHandler = configHandler
+			m.Runtime.ConfigHandler = configHandler
+		})
 		service := NewTalosService(mocks.Runtime, "controlplane")
 		service.shims = mocks.Shims
 		service.SetName("controlplane1")
@@ -1084,8 +1101,14 @@ contexts:
 
 	t.Run("EmptyConfig", func(t *testing.T) {
 		// Given a TalosService with mock components and empty cluster config
-		emptyConfig := &SetupOptions{
-			ConfigStr: `
+		// Create a new config handler with empty config
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project/root", nil
+		}
+		configHandler := config.NewConfigHandler(mockShell)
+		configHandler.SetContext("mock-context")
+		configStr := `
 version: v1alpha1
 contexts:
   mock-context:
@@ -1093,9 +1116,14 @@ contexts:
       domain: test
     vm:
       driver: docker-desktop
-`,
+`
+		if err := configHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
 		}
-		mocks := setupTalosServiceMocks(t, emptyConfig)
+		mocks := setupTalosServiceMocks(t, func(m *ServicesTestMocks) {
+			m.ConfigHandler = configHandler
+			m.Runtime.ConfigHandler = configHandler
+		})
 		service := NewTalosService(mocks.Runtime, "controlplane")
 		service.shims = mocks.Shims
 		service.SetName("controlplane1")

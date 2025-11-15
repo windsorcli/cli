@@ -31,20 +31,14 @@ func (m *mockFileInfo) ModTime() time.Time { return time.Now() }
 func (m *mockFileInfo) IsDir() bool        { return m.isDir }
 func (m *mockFileInfo) Sys() interface{}   { return nil }
 
-type Mocks struct {
+type ServicesTestMocks struct {
 	Runtime       *runtime.Runtime
 	ConfigHandler config.ConfigHandler
 	Shell         *shell.MockShell
 	Shims         *Shims
 }
 
-type SetupOptions struct {
-	ConfigHandler config.ConfigHandler
-	ConfigStr     string
-}
-
-func setupShims(t *testing.T) *Shims {
-	t.Helper()
+func setupDefaultShims() *Shims {
 	shims := NewShims()
 
 	shims.Getwd = func() (string, error) {
@@ -88,7 +82,7 @@ func setupShims(t *testing.T) *Shims {
 	return shims
 }
 
-func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+func setupServicesMocks(t *testing.T, opts ...func(*ServicesTestMocks)) *ServicesTestMocks {
 	t.Helper()
 
 	// Store original directory and create temp dir
@@ -120,13 +114,8 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		return tmpDir, nil
 	}
 
-	// Create config handler if not provided
-	var configHandler config.ConfigHandler
-	if len(opts) > 0 && opts[0].ConfigHandler != nil {
-		configHandler = opts[0].ConfigHandler
-	} else {
-		configHandler = config.NewConfigHandler(mockShell)
-	}
+	// Create config handler
+	configHandler := config.NewConfigHandler(mockShell)
 
 	configHandler.SetContext("mock-context")
 
@@ -152,13 +141,6 @@ contexts:
 		t.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Load optional config if provided
-	if len(opts) > 0 && opts[0].ConfigStr != "" {
-		if err := configHandler.LoadConfigString(opts[0].ConfigStr); err != nil {
-			t.Fatalf("Failed to load config string: %v", err)
-		}
-	}
-
 	rt := &runtime.Runtime{
 		ProjectRoot:   tmpDir,
 		ConfigRoot:    tmpDir,
@@ -168,12 +150,19 @@ contexts:
 		Shell:         mockShell,
 	}
 
-	return &Mocks{
+	mocks := &ServicesTestMocks{
 		Runtime:       rt,
 		ConfigHandler: configHandler,
 		Shell:         mockShell,
-		Shims:         setupShims(t),
+		Shims:         setupDefaultShims(),
 	}
+
+	// Apply any overrides
+	for _, opt := range opts {
+		opt(mocks)
+	}
+
+	return mocks
 }
 
 // =============================================================================
@@ -181,8 +170,8 @@ contexts:
 // =============================================================================
 
 func TestBaseService_NewBaseService(t *testing.T) {
-	setup := func(t *testing.T) (*BaseService, *Mocks) {
-		mocks := setupMocks(t)
+	setup := func(t *testing.T) (*BaseService, *ServicesTestMocks) {
+		mocks := setupServicesMocks(t)
 		service := NewBaseService(mocks.Runtime)
 		return service, mocks
 	}
@@ -209,8 +198,8 @@ func TestBaseService_NewBaseService(t *testing.T) {
 }
 
 func TestBaseService_WriteConfig(t *testing.T) {
-	setup := func(t *testing.T) (*BaseService, *Mocks) {
-		mocks := setupMocks(t)
+	setup := func(t *testing.T) (*BaseService, *ServicesTestMocks) {
+		mocks := setupServicesMocks(t)
 		service := NewBaseService(mocks.Runtime)
 		service.shims = mocks.Shims
 		return service, mocks
@@ -231,8 +220,8 @@ func TestBaseService_WriteConfig(t *testing.T) {
 }
 
 func TestBaseService_SetAddress(t *testing.T) {
-	setup := func(t *testing.T) (*BaseService, *Mocks) {
-		mocks := setupMocks(t)
+	setup := func(t *testing.T) (*BaseService, *ServicesTestMocks) {
+		mocks := setupServicesMocks(t)
 		service := NewBaseService(mocks.Runtime)
 		service.shims = mocks.Shims
 		return service, mocks
@@ -278,8 +267,8 @@ func TestBaseService_SetAddress(t *testing.T) {
 }
 
 func TestBaseService_GetAddress(t *testing.T) {
-	setup := func(t *testing.T) (*BaseService, *Mocks) {
-		mocks := setupMocks(t)
+	setup := func(t *testing.T) (*BaseService, *ServicesTestMocks) {
+		mocks := setupServicesMocks(t)
 		service := NewBaseService(mocks.Runtime)
 		service.shims = mocks.Shims
 		return service, mocks
@@ -302,8 +291,8 @@ func TestBaseService_GetAddress(t *testing.T) {
 }
 
 func TestBaseService_GetName(t *testing.T) {
-	setup := func(t *testing.T) (*BaseService, *Mocks) {
-		mocks := setupMocks(t)
+	setup := func(t *testing.T) (*BaseService, *ServicesTestMocks) {
+		mocks := setupServicesMocks(t)
 		service := NewBaseService(mocks.Runtime)
 		service.shims = mocks.Shims
 		return service, mocks
@@ -326,8 +315,8 @@ func TestBaseService_GetName(t *testing.T) {
 }
 
 func TestBaseService_GetHostname(t *testing.T) {
-	setup := func(t *testing.T) (*BaseService, *Mocks) {
-		mocks := setupMocks(t)
+	setup := func(t *testing.T) (*BaseService, *ServicesTestMocks) {
+		mocks := setupServicesMocks(t)
 		service := NewBaseService(mocks.Runtime)
 		service.shims = mocks.Shims
 		return service, mocks
@@ -366,8 +355,8 @@ func TestBaseService_GetHostname(t *testing.T) {
 }
 
 func TestBaseService_IsLocalhostMode(t *testing.T) {
-	setup := func(t *testing.T) (*BaseService, *Mocks) {
-		mocks := setupMocks(t)
+	setup := func(t *testing.T) (*BaseService, *ServicesTestMocks) {
+		mocks := setupServicesMocks(t)
 		service := NewBaseService(mocks.Runtime)
 		service.shims = mocks.Shims
 		return service, mocks
@@ -407,8 +396,8 @@ func TestBaseService_IsLocalhostMode(t *testing.T) {
 }
 
 func TestBaseService_SupportsWildcard(t *testing.T) {
-	setup := func(t *testing.T) (*BaseService, *Mocks) {
-		mocks := setupMocks(t)
+	setup := func(t *testing.T) (*BaseService, *ServicesTestMocks) {
+		mocks := setupServicesMocks(t)
 		service := NewBaseService(mocks.Runtime)
 		service.shims = mocks.Shims
 		return service, mocks
@@ -429,7 +418,7 @@ func TestBaseService_SupportsWildcard(t *testing.T) {
 }
 
 func TestBaseService_GetContainerName(t *testing.T) {
-	setup := func(t *testing.T) (*BaseService, *Mocks) {
+	setup := func(t *testing.T) (*BaseService, *ServicesTestMocks) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "dns.domain" {
@@ -437,8 +426,9 @@ func TestBaseService_GetContainerName(t *testing.T) {
 			}
 			return defaultValue[0]
 		}
-		mocks := setupMocks(t, &SetupOptions{
-			ConfigHandler: mockConfigHandler,
+		mocks := setupServicesMocks(t, func(m *ServicesTestMocks) {
+			m.ConfigHandler = mockConfigHandler
+			m.Runtime.ConfigHandler = mockConfigHandler
 		})
 		service := NewBaseService(mocks.Runtime)
 		service.shims = mocks.Shims

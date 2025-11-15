@@ -18,9 +18,9 @@ import (
 // =============================================================================
 
 func TestRegistryService_NewRegistryService(t *testing.T) {
-	setup := func(t *testing.T) (*RegistryService, *Mocks) {
+	setup := func(t *testing.T) (*RegistryService, *ServicesTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupServicesMocks(t)
 		service := NewRegistryService(mocks.Runtime)
 		service.shims = mocks.Shims
 		return service, mocks
@@ -42,9 +42,9 @@ func TestRegistryService_NewRegistryService(t *testing.T) {
 // =============================================================================
 
 func TestRegistryService_GetComposeConfig(t *testing.T) {
-	setup := func(t *testing.T) (*RegistryService, *Mocks) {
+	setup := func(t *testing.T) (*RegistryService, *ServicesTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupServicesMocks(t)
 		service := NewRegistryService(mocks.Runtime)
 		service.shims = mocks.Shims
 		service.SetName("registry")
@@ -169,9 +169,9 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 }
 
 func TestRegistryService_SetAddress(t *testing.T) {
-	setup := func(t *testing.T) (*RegistryService, *Mocks) {
+	setup := func(t *testing.T) (*RegistryService, *ServicesTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupServicesMocks(t)
 		// Load initial config
 		configYAML := `
 version: v1alpha1
@@ -374,8 +374,9 @@ contexts:
 	t.Run("BaseServiceError", func(t *testing.T) {
 		// Given a registry service with mock components
 		mockConfigHandler := config.NewMockConfigHandler()
-		mocks := setupMocks(t, &SetupOptions{
-			ConfigHandler: mockConfigHandler,
+		mocks := setupServicesMocks(t, func(m *ServicesTestMocks) {
+			m.ConfigHandler = mockConfigHandler
+			m.Runtime.ConfigHandler = mockConfigHandler
 		})
 
 		service := NewRegistryService(mocks.Runtime)
@@ -397,8 +398,9 @@ contexts:
 	t.Run("ErrorSettingHostname", func(t *testing.T) {
 		// Given a registry service with mock components
 		mockConfigHandler := config.NewMockConfigHandler()
-		mocks := setupMocks(t, &SetupOptions{
-			ConfigHandler: mockConfigHandler,
+		mocks := setupServicesMocks(t, func(m *ServicesTestMocks) {
+			m.ConfigHandler = mockConfigHandler
+			m.Runtime.ConfigHandler = mockConfigHandler
 		})
 
 		service := NewRegistryService(mocks.Runtime)
@@ -425,8 +427,9 @@ contexts:
 	t.Run("ErrorSettingHostPort", func(t *testing.T) {
 		// Given a registry service with mock components
 		mockConfigHandler := config.NewMockConfigHandler()
-		mocks := setupMocks(t, &SetupOptions{
-			ConfigHandler: mockConfigHandler,
+		mocks := setupServicesMocks(t, func(m *ServicesTestMocks) {
+			m.ConfigHandler = mockConfigHandler
+			m.Runtime.ConfigHandler = mockConfigHandler
 		})
 
 		service := NewRegistryService(mocks.Runtime)
@@ -476,8 +479,9 @@ contexts:
 	t.Run("ErrorSettingRegistryURL", func(t *testing.T) {
 		// Given a registry service with mock components
 		mockConfigHandler := config.NewMockConfigHandler()
-		mocks := setupMocks(t, &SetupOptions{
-			ConfigHandler: mockConfigHandler,
+		mocks := setupServicesMocks(t, func(m *ServicesTestMocks) {
+			m.ConfigHandler = mockConfigHandler
+			m.Runtime.ConfigHandler = mockConfigHandler
 		})
 
 		service := NewRegistryService(mocks.Runtime)
@@ -530,7 +534,7 @@ contexts:
 }
 
 func TestRegistryService_GetHostname(t *testing.T) {
-	setup := func(t *testing.T) (*RegistryService, *Mocks) {
+	setup := func(t *testing.T) (*RegistryService, *ServicesTestMocks) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "dns.domain" {
@@ -538,8 +542,9 @@ func TestRegistryService_GetHostname(t *testing.T) {
 			}
 			return defaultValue[0]
 		}
-		mocks := setupMocks(t, &SetupOptions{
-			ConfigHandler: mockConfigHandler,
+		mocks := setupServicesMocks(t, func(m *ServicesTestMocks) {
+			m.ConfigHandler = mockConfigHandler
+			m.Runtime.ConfigHandler = mockConfigHandler
 		})
 		service := NewRegistryService(mocks.Runtime)
 		return service, mocks
@@ -606,7 +611,7 @@ func TestRegistryService_GetHostname(t *testing.T) {
 }
 
 func TestRegistryService_GetContainerName(t *testing.T) {
-	setup := func(t *testing.T) (*RegistryService, *Mocks) {
+	setup := func(t *testing.T) (*RegistryService, *ServicesTestMocks) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "dns.domain" {
@@ -614,8 +619,9 @@ func TestRegistryService_GetContainerName(t *testing.T) {
 			}
 			return defaultValue[0]
 		}
-		mocks := setupMocks(t, &SetupOptions{
-			ConfigHandler: mockConfigHandler,
+		mocks := setupServicesMocks(t, func(m *ServicesTestMocks) {
+			m.ConfigHandler = mockConfigHandler
+			m.Runtime.ConfigHandler = mockConfigHandler
 		})
 		service := NewRegistryService(mocks.Runtime)
 		return service, mocks
@@ -638,9 +644,9 @@ func TestRegistryService_GetContainerName(t *testing.T) {
 }
 
 func TestRegistryService_GetName(t *testing.T) {
-	setup := func(t *testing.T) (*RegistryService, *Mocks) {
+	setup := func(t *testing.T) (*RegistryService, *ServicesTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupServicesMocks(t)
 		service := NewRegistryService(mocks.Runtime)
 		service.shims = mocks.Shims
 		service.SetName("registry")
@@ -658,9 +664,9 @@ func TestRegistryService_GetName(t *testing.T) {
 }
 
 func TestRegistryService_SupportsWildcard(t *testing.T) {
-	setup := func(t *testing.T) (*RegistryService, *Mocks) {
+	setup := func(t *testing.T) (*RegistryService, *ServicesTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupServicesMocks(t)
 		service := NewRegistryService(mocks.Runtime)
 		service.shims = mocks.Shims
 		service.SetName("registry")
