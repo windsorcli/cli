@@ -14,9 +14,9 @@ import (
 // =============================================================================
 
 func TestColimaNetworkManager_AssignIPs(t *testing.T) {
-	setup := func(t *testing.T) (*ColimaNetworkManager, *Mocks) {
+	setup := func(t *testing.T) (*ColimaNetworkManager, *NetworkTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupNetworkMocks(t)
 		manager := NewColimaNetworkManager(mocks.Runtime, mocks.SSHClient, mocks.SecureShell, mocks.NetworkInterfaceProvider)
 		manager.shims = mocks.Shims
 		return manager, mocks
@@ -42,9 +42,9 @@ func TestColimaNetworkManager_AssignIPs(t *testing.T) {
 }
 
 func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
-	setup := func(t *testing.T) (*ColimaNetworkManager, *Mocks) {
+	setup := func(t *testing.T) (*ColimaNetworkManager, *NetworkTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupNetworkMocks(t)
 		manager := NewColimaNetworkManager(mocks.Runtime, mocks.SSHClient, mocks.SecureShell, mocks.NetworkInterfaceProvider)
 		manager.shims = mocks.Shims
 		manager.AssignIPs([]services.Service{})
@@ -300,9 +300,9 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 }
 
 func TestColimaNetworkManager_getHostIP(t *testing.T) {
-	setup := func(t *testing.T) (*ColimaNetworkManager, *Mocks) {
+	setup := func(t *testing.T) (*ColimaNetworkManager, *NetworkTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupNetworkMocks(t)
 		manager := NewColimaNetworkManager(mocks.Runtime, mocks.SSHClient, mocks.SecureShell, mocks.NetworkInterfaceProvider)
 		manager.AssignIPs([]services.Service{})
 		return manager, mocks

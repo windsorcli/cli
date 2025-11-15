@@ -16,9 +16,9 @@ import (
 // =============================================================================
 
 func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
-	setup := func(t *testing.T) (*BaseNetworkManager, *Mocks) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupNetworkMocks(t)
 		manager := NewBaseNetworkManager(mocks.Runtime)
 		manager.shims = mocks.Shims
 		manager.AssignIPs([]services.Service{})
@@ -164,9 +164,9 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 }
 
 func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
-	setup := func(t *testing.T) (*BaseNetworkManager, *Mocks) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupNetworkMocks(t)
 		manager := NewBaseNetworkManager(mocks.Runtime)
 		manager.shims = mocks.Shims
 		manager.AssignIPs([]services.Service{})
