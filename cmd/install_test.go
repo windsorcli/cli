@@ -17,7 +17,6 @@ import (
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
-	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 func TestInstallCmd(t *testing.T) {
@@ -60,14 +59,11 @@ func TestInstallCmd(t *testing.T) {
 		mockKubernetesManager := kubernetes.NewMockKubernetesManager()
 		mockKubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
 
-		mockToolsManager := tools.NewMockToolsManager()
-		mockToolsManager.CheckFunc = func() error { return nil }
-
 		rt, err := runtime.NewRuntime(&runtime.Runtime{
 			Shell:         mocks.Shell,
 			ConfigHandler: mockConfigHandler,
 			ProjectRoot:   tmpDir,
-			ToolsManager:  mockToolsManager,
+			ToolsManager:  mocks.ToolsManager,
 		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
@@ -122,14 +118,11 @@ func TestInstallCmd(t *testing.T) {
 		mockKubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
 		mockKubernetesManager.WaitForKustomizationsFunc = func(message string, names ...string) error { return nil }
 
-		mockToolsManager := tools.NewMockToolsManager()
-		mockToolsManager.CheckFunc = func() error { return nil }
-
 		rt, err := runtime.NewRuntime(&runtime.Runtime{
 			Shell:         mocks.Shell,
 			ConfigHandler: mockConfigHandler,
 			ProjectRoot:   tmpDir,
-			ToolsManager:  mockToolsManager,
+			ToolsManager:  mocks.ToolsManager,
 		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
@@ -177,14 +170,11 @@ func TestInstallCmd(t *testing.T) {
 		mockConfigHandler.IsLoadedFunc = func() bool { return true }
 		mockConfigHandler.LoadConfigFunc = func() error { return nil }
 
-		mockToolsManager := tools.NewMockToolsManager()
-		mockToolsManager.CheckFunc = func() error { return nil }
-
 		rt, err := runtime.NewRuntime(&runtime.Runtime{
 			Shell:         mocks.Shell,
 			ConfigHandler: mockConfigHandler,
 			ProjectRoot:   tmpDir,
-			ToolsManager:  mockToolsManager,
+			ToolsManager:  mocks.ToolsManager,
 		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
@@ -233,14 +223,11 @@ func TestInstallCmd(t *testing.T) {
 			ConfigHandler: mockConfigHandler,
 		})
 
-		mockToolsManager := tools.NewMockToolsManager()
-		mockToolsManager.CheckFunc = func() error { return nil }
-
 		rt, err := runtime.NewRuntime(&runtime.Runtime{
 			Shell:         mocks.Shell,
 			ConfigHandler: mockConfigHandler,
 			ProjectRoot:   tmpDir,
-			ToolsManager:  mockToolsManager,
+			ToolsManager:  mocks.ToolsManager,
 		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)

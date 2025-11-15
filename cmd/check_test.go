@@ -12,7 +12,6 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 func TestCheckCmd(t *testing.T) {
@@ -77,16 +76,11 @@ func TestCheckCmd(t *testing.T) {
 		}
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		mockToolsManager := tools.NewMockToolsManager()
-		mockToolsManager.CheckFunc = func() error {
-			return nil
-		}
-
 		rt, err := runtime.NewRuntime(&runtime.Runtime{
 			Shell:         mocks.Shell,
 			ConfigHandler: mocks.ConfigHandler,
 			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mockToolsManager,
+			ToolsManager:  mocks.ToolsManager,
 		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
@@ -280,8 +274,8 @@ func TestCheckCmd_ErrorScenarios(t *testing.T) {
 			return true
 		}
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
-		mockToolsManager := tools.NewMockToolsManager()
-		mockToolsManager.CheckFunc = func() error {
+		// Override ToolsManager CheckFunc to return error for this test
+		mocks.ToolsManager.CheckFunc = func() error {
 			return fmt.Errorf("tools check failed")
 		}
 
@@ -289,7 +283,7 @@ func TestCheckCmd_ErrorScenarios(t *testing.T) {
 			Shell:         mocks.Shell,
 			ConfigHandler: mocks.ConfigHandler,
 			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mockToolsManager,
+			ToolsManager:  mocks.ToolsManager,
 		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)

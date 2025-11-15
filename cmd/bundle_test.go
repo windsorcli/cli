@@ -47,8 +47,26 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{}, nil
 		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "test-context"
+		}
+		mockShell.CheckTrustedDirectoryFunc = func() error {
+			return nil
+		}
 
-		// Mock kubernetes manager
+		// Get base mocks (includes ToolsManager)
+		baseMocks := setupMocks(t)
+
+		// Create runtime with mocks
+		rt, err := runtime.NewRuntime(&runtime.Runtime{
+			Shell:         mockShell,
+			ConfigHandler: mockConfigHandler,
+			ProjectRoot:   tmpDir,
+			ToolsManager:  baseMocks.ToolsManager,
+		})
+		if err != nil {
+			t.Fatalf("Failed to create runtime: %v", err)
+		}
 
 		// Mock blueprint handler
 		mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
@@ -56,7 +74,9 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 			return map[string][]byte{}, nil
 		}
 
-		// Mock artifact builder
+		// Create composer with mocked blueprint handler
+		comp := composer.NewComposer(rt)
+		comp.BlueprintHandler = mockBlueprintHandler
 
 		// Create test command
 		cmd := &cobra.Command{
@@ -67,15 +87,17 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		cmd.Flags().StringP("output", "o", ".", "Output path for bundle archive")
 		cmd.Flags().StringP("tag", "t", "", "Tag in 'name:version' format")
 
-		// Set up context
+		// Set up context with runtime and composer overrides
 		ctx := context.Background()
+		ctx = context.WithValue(ctx, runtimeOverridesKey, rt)
+		ctx = context.WithValue(ctx, composerOverridesKey, comp)
 		cmd.SetContext(ctx)
 
 		// Set arguments
 		cmd.SetArgs([]string{"--tag", "test:v1.0.0"})
 
 		// Execute command
-		err := cmd.Execute()
+		err = cmd.Execute()
 
 		// Verify no error
 		if err != nil {
@@ -149,13 +171,14 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 			return "test-context"
 		}
 
-		// Mock kubernetes manager
+		baseMocks := setupMocks(t)
 
 		// Create runtime and composer
 		rt, err := runtime.NewRuntime(&runtime.Runtime{
 			Shell:         mockShell,
 			ConfigHandler: mockConfigHandler,
 			ProjectRoot:   tmpDir,
+			ToolsManager:  baseMocks.ToolsManager,
 		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
@@ -177,8 +200,9 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		cmd.Flags().StringP("output", "o", ".", "Output path for bundle archive")
 		cmd.Flags().StringP("tag", "t", "", "Tag in 'name:version' format")
 
-		// Set up context with composer overrides
+		// Set up context with runtime and composer overrides
 		ctx := context.Background()
+		ctx = context.WithValue(ctx, runtimeOverridesKey, rt)
 		ctx = context.WithValue(ctx, composerOverridesKey, comp)
 		cmd.SetContext(ctx)
 

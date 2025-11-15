@@ -31,9 +31,12 @@ Examples:
   windsor bundle`,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		var rtOpts []*runtime.Runtime
+		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
+			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
+		}
 
-
-		rt, err := runtime.NewRuntime()
+		rt, err := runtime.NewRuntime(rtOpts...)
 		if err != nil {
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}

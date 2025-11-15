@@ -18,6 +18,7 @@ import (
 	envvars "github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/runtime/secrets"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 // =============================================================================
@@ -29,6 +30,7 @@ type Mocks struct {
 	Shell            *shell.MockShell
 	SecretsProvider  *secrets.MockSecretsProvider
 	EnvPrinter       *envvars.MockEnvPrinter
+	ToolsManager     *tools.MockToolsManager
 	Shims            *Shims
 	BlueprintHandler *blueprintpkg.MockBlueprintHandler
 	TmpDir           string
@@ -158,11 +160,16 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		return nil
 	}
 
+	// Create mock tools manager
+	mockToolsManager := tools.NewMockToolsManager()
+	mockToolsManager.CheckFunc = func() error { return nil }
+
 	return &Mocks{
 		ConfigHandler:    configHandler,
 		Shell:            mockShell,
 		SecretsProvider:  mockSecretsProvider,
 		EnvPrinter:       mockEnvPrinter,
+		ToolsManager:     mockToolsManager,
 		Shims:            testShims,
 		BlueprintHandler: mockBlueprintHandler,
 		TmpDir:           tmpDir,

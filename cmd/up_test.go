@@ -33,6 +33,7 @@ type UpMocks struct {
 	BlueprintHandler  *blueprint.MockBlueprintHandler
 	TerraformStack    *terraforminfra.MockStack
 	KubernetesManager *kubernetes.MockKubernetesManager
+	ToolsManager      *tools.MockToolsManager
 	TmpDir            string
 }
 
@@ -109,6 +110,7 @@ func setupUpTest(t *testing.T, opts ...*SetupOptions) *UpMocks {
 		BlueprintHandler:  mockBlueprintHandler,
 		TerraformStack:    mockTerraformStack,
 		KubernetesManager: mockKubernetesManager,
+		ToolsManager:      baseMocks.ToolsManager,
 		TmpDir:            tmpDir,
 	}
 }
@@ -142,14 +144,11 @@ func TestUpCmd(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupUpTest(t)
 
-		mockToolsManager := tools.NewMockToolsManager()
-		mockToolsManager.CheckFunc = func() error { return nil }
-
 		rt, err := runtime.NewRuntime(&runtime.Runtime{
 			Shell:         mocks.Shell,
 			ConfigHandler: mocks.ConfigHandler,
 			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mockToolsManager,
+			ToolsManager:  mocks.ToolsManager,
 		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
@@ -187,14 +186,11 @@ func TestUpCmd(t *testing.T) {
 	t.Run("SuccessWithInstallFlag", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupUpTest(t)
-		mockToolsManager := tools.NewMockToolsManager()
-		mockToolsManager.CheckFunc = func() error { return nil }
-
 		rt, err := runtime.NewRuntime(&runtime.Runtime{
 			Shell:         mocks.Shell,
 			ConfigHandler: mocks.ConfigHandler,
 			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mockToolsManager,
+			ToolsManager:  mocks.ToolsManager,
 		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
@@ -232,14 +228,11 @@ func TestUpCmd(t *testing.T) {
 	t.Run("SuccessWithWaitFlag", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupUpTest(t)
-		mockToolsManager := tools.NewMockToolsManager()
-		mockToolsManager.CheckFunc = func() error { return nil }
-
 		rt, err := runtime.NewRuntime(&runtime.Runtime{
 			Shell:         mocks.Shell,
 			ConfigHandler: mocks.ConfigHandler,
 			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mockToolsManager,
+			ToolsManager:  mocks.ToolsManager,
 		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
@@ -277,14 +270,11 @@ func TestUpCmd(t *testing.T) {
 	t.Run("SuccessWithInstallAndWaitFlags", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupUpTest(t)
-		mockToolsManager := tools.NewMockToolsManager()
-		mockToolsManager.CheckFunc = func() error { return nil }
-
 		rt, err := runtime.NewRuntime(&runtime.Runtime{
 			Shell:         mocks.Shell,
 			ConfigHandler: mocks.ConfigHandler,
 			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mockToolsManager,
+			ToolsManager:  mocks.ToolsManager,
 		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
@@ -328,14 +318,11 @@ func TestUpCmd(t *testing.T) {
 			return fmt.Errorf("not in trusted directory")
 		}
 
-		mockToolsManager := tools.NewMockToolsManager()
-		mockToolsManager.CheckFunc = func() error { return nil }
-
 		rt, err := runtime.NewRuntime(&runtime.Runtime{
 			Shell:         mocks.Shell,
 			ConfigHandler: mocks.ConfigHandler,
 			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mockToolsManager,
+			ToolsManager:  mocks.ToolsManager,
 		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
@@ -383,14 +370,11 @@ func TestUpCmd(t *testing.T) {
 			return fmt.Errorf("terraform stack up failed")
 		}
 
-		mockToolsManager := tools.NewMockToolsManager()
-		mockToolsManager.CheckFunc = func() error { return nil }
-
 		rt, err := runtime.NewRuntime(&runtime.Runtime{
 			Shell:         mocks.Shell,
 			ConfigHandler: mocks.ConfigHandler,
 			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mockToolsManager,
+			ToolsManager:  mocks.ToolsManager,
 		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
@@ -438,14 +422,11 @@ func TestUpCmd(t *testing.T) {
 			return fmt.Errorf("kubernetes apply failed")
 		}
 
-		mockToolsManager := tools.NewMockToolsManager()
-		mockToolsManager.CheckFunc = func() error { return nil }
-
 		rt, err := runtime.NewRuntime(&runtime.Runtime{
 			Shell:         mocks.Shell,
 			ConfigHandler: mocks.ConfigHandler,
 			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mockToolsManager,
+			ToolsManager:  mocks.ToolsManager,
 		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
@@ -493,14 +474,11 @@ func TestUpCmd(t *testing.T) {
 			return fmt.Errorf("wait for kustomizations failed")
 		}
 
-		mockToolsManager := tools.NewMockToolsManager()
-		mockToolsManager.CheckFunc = func() error { return nil }
-
 		rt, err := runtime.NewRuntime(&runtime.Runtime{
 			Shell:         mocks.Shell,
 			ConfigHandler: mocks.ConfigHandler,
 			ProjectRoot:   mocks.TmpDir,
-			ToolsManager:  mockToolsManager,
+			ToolsManager:  mocks.ToolsManager,
 		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)

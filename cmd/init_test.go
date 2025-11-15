@@ -25,6 +25,7 @@ type InitMocks struct {
 	Shell            *Mocks
 	Shims            *Shims
 	BlueprintHandler *blueprint.MockBlueprintHandler
+	ToolsManager     *tools.MockToolsManager
 }
 
 func setupInitTest(t *testing.T, opts ...*SetupOptions) *InitMocks {
@@ -65,10 +66,8 @@ func setupInitTest(t *testing.T, opts ...*SetupOptions) *InitMocks {
 	mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
 	mockBlueprintHandler.LoadBlueprintFunc = func() error { return nil }
 	mockBlueprintHandler.WriteFunc = func(overwrite ...bool) error { return nil }
-	// Add mock tools manager (required by runInit)
-	mockToolsManager := tools.NewMockToolsManager()
-	mockToolsManager.CheckFunc = func() error { return nil }
-	mockToolsManager.InstallFunc = func() error { return nil }
+	// Configure tools manager (required by runInit)
+	baseMocks.ToolsManager.InstallFunc = func() error { return nil }
 
 	return &InitMocks{
 		ConfigHandler:    baseMocks.ConfigHandler,

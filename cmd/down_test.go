@@ -37,6 +37,7 @@ func TestDownCmd(t *testing.T) {
 			Shell:         mocks.Shell,
 			ConfigHandler: mocks.ConfigHandler,
 			ProjectRoot:   mocks.TmpDir,
+			ToolsManager:  mocks.ToolsManager,
 		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
@@ -68,6 +69,7 @@ func TestDownCmd(t *testing.T) {
 			Shell:         mocks.Shell,
 			ConfigHandler: mocks.ConfigHandler,
 			ProjectRoot:   mocks.TmpDir,
+			ToolsManager:  mocks.ToolsManager,
 		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
@@ -105,6 +107,8 @@ func TestDownCmd(t *testing.T) {
 		rt, err := runtime.NewRuntime(&runtime.Runtime{
 			Shell:         mocks.Shell,
 			ConfigHandler: mockConfigHandler,
+			ProjectRoot:   mocks.TmpDir,
+			ToolsManager:  mocks.ToolsManager,
 		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
@@ -135,6 +139,7 @@ func TestDownCmd(t *testing.T) {
 			Shell:         mocks.Shell,
 			ConfigHandler: mocks.ConfigHandler,
 			ProjectRoot:   mocks.TmpDir,
+			ToolsManager:  mocks.ToolsManager,
 		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
@@ -163,6 +168,7 @@ func TestDownCmd(t *testing.T) {
 			Shell:         mocks.Shell,
 			ConfigHandler: mocks.ConfigHandler,
 			ProjectRoot:   mocks.TmpDir,
+			ToolsManager:  mocks.ToolsManager,
 		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
@@ -191,6 +197,7 @@ func TestDownCmd(t *testing.T) {
 			Shell:         mocks.Shell,
 			ConfigHandler: mocks.ConfigHandler,
 			ProjectRoot:   mocks.TmpDir,
+			ToolsManager:  mocks.ToolsManager,
 		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
@@ -224,6 +231,8 @@ func TestDownCmd(t *testing.T) {
 		rt, err := runtime.NewRuntime(&runtime.Runtime{
 			Shell:         mocks.Shell,
 			ConfigHandler: mockConfigHandler,
+			ProjectRoot:   mocks.TmpDir,
+			ToolsManager:  mocks.ToolsManager,
 		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
