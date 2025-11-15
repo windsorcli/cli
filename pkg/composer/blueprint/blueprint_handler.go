@@ -281,6 +281,21 @@ func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 		return nil, fmt.Errorf("failed to collect templates: %w", err)
 	}
 
+	metadataPath := filepath.Join(b.runtime.TemplateRoot, "metadata.yaml")
+	if _, err := b.shims.Stat(metadataPath); err == nil {
+		metadataContent, err := b.shims.ReadFile(metadataPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read metadata.yaml: %w", err)
+		}
+		var metadata artifact.BlueprintMetadataInput
+		if err := b.shims.YamlUnmarshal(metadataContent, &metadata); err != nil {
+			return nil, fmt.Errorf("failed to parse metadata.yaml: %w", err)
+		}
+		if err := artifact.ValidateCliVersion(constants.Version, metadata.CliVersion); err != nil {
+			return nil, err
+		}
+	}
+
 	if schemaData, exists := templateData["schema"]; exists {
 		if err := b.runtime.ConfigHandler.LoadSchemaFromBytes(schemaData); err != nil {
 			return nil, fmt.Errorf("failed to load schema: %w", err)
@@ -808,6 +823,7 @@ func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *blue
 	if err := blueprint.StrategicMerge(completeBlueprint); err != nil {
 		return fmt.Errorf("failed to strategic merge blueprint: %w", err)
 	}
+
 	return nil
 }
 

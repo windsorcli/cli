@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/goccy/go-yaml"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
@@ -1668,12 +1669,18 @@ func TestArtifactBuilder_generateMetadataWithNameVersion(t *testing.T) {
 			}
 		}
 
+		// Override YamlMarshal to actually marshal the data
+		mocks.Shims.YamlMarshal = func(data any) ([]byte, error) {
+			return yaml.Marshal(data)
+		}
+
 		input := BlueprintMetadataInput{
 			Description: "Test description",
 			Author:      "Test Author",
 			Tags:        []string{"test", "example"},
 			Homepage:    "https://example.com",
 			License:     "MIT",
+			CliVersion:  ">=1.0.0",
 		}
 
 		// When generating metadata
@@ -1685,6 +1692,15 @@ func TestArtifactBuilder_generateMetadataWithNameVersion(t *testing.T) {
 		}
 		if metadata == nil {
 			t.Error("Expected metadata to be generated")
+		}
+
+		// And cliVersion should be preserved in generated metadata
+		var generatedMetadata BlueprintMetadata
+		if err := yaml.Unmarshal(metadata, &generatedMetadata); err != nil {
+			t.Fatalf("Failed to unmarshal generated metadata: %v", err)
+		}
+		if generatedMetadata.CliVersion != ">=1.0.0" {
+			t.Errorf("Expected cliVersion to be '>=1.0.0', got '%s'", generatedMetadata.CliVersion)
 		}
 	})
 
@@ -3338,6 +3354,43 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 			t.Error("Expected schema key to be included")
 		}
 	})
+
+	t.Run("ValidatesCliVersionFromMetadata", func(t *testing.T) {
+		// Given an artifact builder with cached data containing cliVersion
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
+
+		// Create test tar.gz data with cliVersion in metadata
+		testData := createTestTarGz(t, map[string][]byte{
+			"metadata.yaml":               []byte("name: test\nversion: v1.0.0\ncliVersion: '>=1.0.0'\n"),
+			"_template/blueprint.jsonnet": []byte("{ blueprint: 'content' }"),
+		})
+
+		// Pre-populate cache
+		builder.ociCache["registry.example.com/test:v1.0.0"] = testData
+
+		builder.shims = &Shims{
+			ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
+				return &mockReference{}, nil
+			},
+			YamlUnmarshal: func(data []byte, v any) error {
+				if metadata, ok := v.(*BlueprintMetadata); ok {
+					metadata.Name = "test"
+					metadata.Version = "v1.0.0"
+					metadata.CliVersion = ">=1.0.0"
+				}
+				return nil
+			},
+		}
+
+		// When calling GetTemplateData
+		_, err := builder.GetTemplateData("oci://registry.example.com/test:v1.0.0")
+
+		// Then should succeed (validation skipped when cliVersion is empty)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
 }
 
 // createTestTarGz creates a test tar archive with the given files
@@ -4248,6 +4301,177 @@ func TestIsAuthenticationError(t *testing.T) {
 		// Then it should return false
 		if result {
 			t.Error("Expected false for not found error")
+		}
+	})
+}
+
+func TestValidateCliVersion(t *testing.T) {
+	t.Run("ReturnsNilWhenConstraintIsEmpty", func(t *testing.T) {
+		// Given an empty constraint
+		// When validating
+		err := ValidateCliVersion("1.0.0", "")
+
+		// Then should return nil
+		if err != nil {
+			t.Errorf("Expected nil for empty constraint, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilWhenCliVersionIsEmpty", func(t *testing.T) {
+		// Given an empty CLI version
+		// When validating
+		err := ValidateCliVersion("", ">=1.0.0")
+
+		// Then should return nil
+		if err != nil {
+			t.Errorf("Expected nil for empty CLI version, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilForDevVersion", func(t *testing.T) {
+		// Given dev version
+		// When validating
+		err := ValidateCliVersion("dev", ">=1.0.0")
+
+		// Then should return nil
+		if err != nil {
+			t.Errorf("Expected nil for dev version, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilForMainVersion", func(t *testing.T) {
+		// Given main version
+		// When validating
+		err := ValidateCliVersion("main", ">=1.0.0")
+
+		// Then should return nil
+		if err != nil {
+			t.Errorf("Expected nil for main version, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilForLatestVersion", func(t *testing.T) {
+		// Given latest version
+		// When validating
+		err := ValidateCliVersion("latest", ">=1.0.0")
+
+		// Then should return nil
+		if err != nil {
+			t.Errorf("Expected nil for latest version, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorForInvalidCliVersionFormat", func(t *testing.T) {
+		// Given an invalid CLI version format
+		// When validating
+		err := ValidateCliVersion("invalid-version", ">=1.0.0")
+
+		// Then should return error
+		if err == nil {
+			t.Error("Expected error for invalid CLI version format")
+		}
+		if !strings.Contains(err.Error(), "invalid CLI version format") {
+			t.Errorf("Expected error to contain 'invalid CLI version format', got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorForInvalidConstraint", func(t *testing.T) {
+		// Given an invalid constraint
+		// When validating
+		err := ValidateCliVersion("1.0.0", "invalid-constraint")
+
+		// Then should return error
+		if err == nil {
+			t.Error("Expected error for invalid constraint")
+		}
+		if !strings.Contains(err.Error(), "invalid cliVersion constraint") {
+			t.Errorf("Expected error to contain 'invalid cliVersion constraint', got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenVersionDoesNotSatisfyConstraint", func(t *testing.T) {
+		// Given a version that doesn't satisfy constraint
+		// When validating
+		err := ValidateCliVersion("1.0.0", ">=2.0.0")
+
+		// Then should return error
+		if err == nil {
+			t.Error("Expected error when version doesn't satisfy constraint")
+		}
+		if !strings.Contains(err.Error(), "does not satisfy required constraint") {
+			t.Errorf("Expected error to contain 'does not satisfy required constraint', got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilWhenVersionSatisfiesGreaterThanConstraint", func(t *testing.T) {
+		// Given a version that satisfies >= constraint
+		// When validating
+		err := ValidateCliVersion("2.0.0", ">=1.0.0")
+
+		// Then should return nil
+		if err != nil {
+			t.Errorf("Expected nil for satisfied constraint, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilWhenVersionSatisfiesLessThanConstraint", func(t *testing.T) {
+		// Given a version that satisfies < constraint
+		// When validating
+		err := ValidateCliVersion("1.0.0", "<2.0.0")
+
+		// Then should return nil
+		if err != nil {
+			t.Errorf("Expected nil for satisfied constraint, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilWhenVersionSatisfiesRangeConstraint", func(t *testing.T) {
+		// Given a version that satisfies range constraint
+		// When validating
+		err := ValidateCliVersion("1.5.0", ">=1.0.0 <2.0.0")
+
+		// Then should return nil
+		if err != nil {
+			t.Errorf("Expected nil for satisfied range constraint, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenVersionOutsideRange", func(t *testing.T) {
+		// Given a version outside range
+		// When validating
+		err := ValidateCliVersion("2.5.0", ">=1.0.0 <2.0.0")
+
+		// Then should return error
+		if err == nil {
+			t.Error("Expected error when version outside range")
+		}
+		if !strings.Contains(err.Error(), "does not satisfy required constraint") {
+			t.Errorf("Expected error to contain 'does not satisfy required constraint', got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilWhenVersionSatisfiesTildeConstraint", func(t *testing.T) {
+		// Given a version that satisfies ~ constraint
+		// When validating
+		err := ValidateCliVersion("1.2.3", "~1.2.0")
+
+		// Then should return nil
+		if err != nil {
+			t.Errorf("Expected nil for satisfied tilde constraint, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenVersionDoesNotSatisfyTildeConstraint", func(t *testing.T) {
+		// Given a version that doesn't satisfy ~ constraint
+		// When validating
+		err := ValidateCliVersion("1.3.0", "~1.2.0")
+
+		// Then should return error
+		if err == nil {
+			t.Error("Expected error when version doesn't satisfy tilde constraint")
+		}
+		if !strings.Contains(err.Error(), "does not satisfy required constraint") {
+			t.Errorf("Expected error to contain 'does not satisfy required constraint', got: %v", err)
 		}
 	})
 }

@@ -2,6 +2,12 @@ package constants
 
 import "time"
 
+// Version is the CLI version, set at build time via ldflags
+var Version = "dev"
+
+// CommitSHA is the git commit SHA, set at build time via ldflags
+var CommitSHA = "none"
+
 // The Constants package provides centralized default values and configuration constants
 // It provides shared constants for default settings, timeouts, versions, and resource configurations
 // The Constants package serves as a single source of truth for default values across the application
