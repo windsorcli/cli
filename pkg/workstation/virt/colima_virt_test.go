@@ -24,16 +24,11 @@ import (
 // Test Setup
 // =============================================================================
 
-func setupColimaMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+func setupColimaMocks(t *testing.T, opts ...func(*VirtTestMocks)) *VirtTestMocks {
 	t.Helper()
 
-	var options *SetupOptions
-	if len(opts) > 0 {
-		options = opts[0]
-	}
-
 	// Set up mocks and shell
-	mocks := setupMocks(t, options)
+	mocks := setupVirtMocks(t, opts...)
 
 	// Set up shell mock for GetVMInfo
 	mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
@@ -126,7 +121,7 @@ contexts:
 // =============================================================================
 
 func TestColimaVirt_Initialize(t *testing.T) {
-	setup := func(t *testing.T) (*ColimaVirt, *Mocks) {
+	setup := func(t *testing.T) (*ColimaVirt, *VirtTestMocks) {
 		t.Helper()
 		mocks := setupColimaMocks(t)
 		colimaVirt := NewColimaVirt(mocks.Runtime)
@@ -164,7 +159,7 @@ func TestColimaVirt_Initialize(t *testing.T) {
 }
 
 func TestColimaVirt_WriteConfig(t *testing.T) {
-	setup := func(t *testing.T) (*ColimaVirt, *Mocks) {
+	setup := func(t *testing.T) (*ColimaVirt, *VirtTestMocks) {
 		t.Helper()
 		mocks := setupColimaMocks(t)
 
@@ -466,7 +461,7 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 }
 
 func TestColimaVirt_Up(t *testing.T) {
-	setup := func(t *testing.T) (*ColimaVirt, *Mocks) {
+	setup := func(t *testing.T) (*ColimaVirt, *VirtTestMocks) {
 		t.Helper()
 		mocks := setupColimaMocks(t)
 		colimaVirt := NewColimaVirt(mocks.Runtime)
@@ -582,7 +577,7 @@ func TestColimaVirt_Up(t *testing.T) {
 }
 
 func TestColimaVirt_Down(t *testing.T) {
-	setup := func(t *testing.T) (*ColimaVirt, *Mocks) {
+	setup := func(t *testing.T) (*ColimaVirt, *VirtTestMocks) {
 		t.Helper()
 		mocks := setupColimaMocks(t)
 		colimaVirt := NewColimaVirt(mocks.Runtime)
@@ -678,9 +673,9 @@ func TestColimaVirt_Down(t *testing.T) {
 
 // TestColimaVirt_getArch tests the getArch method of the ColimaVirt component.
 func TestColimaVirt_getArch(t *testing.T) {
-	setup := func(t *testing.T) (*ColimaVirt, *Mocks) {
+	setup := func(t *testing.T) (*ColimaVirt, *VirtTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupVirtMocks(t)
 		colimaVirt := NewColimaVirt(mocks.Runtime)
 		colimaVirt.shims = mocks.Shims
 		return colimaVirt, mocks
@@ -731,7 +726,7 @@ func TestColimaVirt_getArch(t *testing.T) {
 
 // TestColimaVirt_getDefaultValues tests the getDefaultValues method of the ColimaVirt component.
 func TestColimaVirt_getDefaultValues(t *testing.T) {
-	setup := func(t *testing.T) (*ColimaVirt, *Mocks) {
+	setup := func(t *testing.T) (*ColimaVirt, *VirtTestMocks) {
 		t.Helper()
 		mocks := setupColimaMocks(t)
 		colimaVirt := NewColimaVirt(mocks.Runtime)
@@ -802,7 +797,7 @@ func TestColimaVirt_getDefaultValues(t *testing.T) {
 
 // TestColimaVirt_startColima tests the startColima method of the ColimaVirt component.
 func TestColimaVirt_startColima(t *testing.T) {
-	setup := func(t *testing.T) (*ColimaVirt, *Mocks) {
+	setup := func(t *testing.T) (*ColimaVirt, *VirtTestMocks) {
 		t.Helper()
 		mocks := setupColimaMocks(t)
 		colimaVirt := NewColimaVirt(mocks.Runtime)

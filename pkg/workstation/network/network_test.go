@@ -18,7 +18,7 @@ import (
 // Test Setup
 // =============================================================================
 
-type Mocks struct {
+type NetworkTestMocks struct {
 	Runtime                  *runtime.Runtime
 	ConfigHandler            config.ConfigHandler
 	Shell                    *shell.MockShell
@@ -29,14 +29,7 @@ type Mocks struct {
 	Shims                    *Shims
 }
 
-type SetupOptions struct {
-	ConfigHandler config.ConfigHandler
-	ConfigStr     string
-}
-
-func setupShims(t *testing.T) *Shims {
-	t.Helper()
-
+func setupDefaultShims() *Shims {
 	return &Shims{
 		Stat:      func(path string) (os.FileInfo, error) { return nil, nil },
 		WriteFile: func(path string, data []byte, perm os.FileMode) error { return nil },
@@ -46,7 +39,7 @@ func setupShims(t *testing.T) *Shims {
 	}
 }
 
-func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+func setupNetworkMocks(t *testing.T, opts ...func(*NetworkTestMocks)) *NetworkTestMocks {
 	t.Helper()
 
 	// Store original directory and create temp dir
@@ -77,13 +70,8 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		return tmpDir, nil
 	}
 
-	// Create config handler if not provided
-	var configHandler config.ConfigHandler
-	if len(opts) > 0 && opts[0].ConfigHandler != nil {
-		configHandler = opts[0].ConfigHandler
-	} else {
-		configHandler = config.NewConfigHandler(mockShell)
-	}
+	// Create config handler
+	configHandler := config.NewConfigHandler(mockShell)
 
 	configYAML := `
 version: v1alpha1
@@ -99,13 +87,6 @@ contexts:
 `
 	if err := configHandler.LoadConfigString(configYAML); err != nil {
 		t.Fatalf("Failed to load config: %v", err)
-	}
-
-	// Load optional config if provided
-	if len(opts) > 0 && opts[0].ConfigStr != "" {
-		if err := configHandler.LoadConfigString(opts[0].ConfigStr); err != nil {
-			t.Fatalf("Failed to load config string: %v", err)
-		}
 	}
 
 	// Configure mock shell functions
@@ -192,7 +173,7 @@ contexts:
 	}
 
 	// Create mocks struct with references to the same instances
-	mocks := &Mocks{
+	mocks := &NetworkTestMocks{
 		Runtime:                  rt,
 		ConfigHandler:            configHandler,
 		Shell:                    mockShell,
@@ -200,10 +181,15 @@ contexts:
 		SSHClient:                mockSSHClient,
 		NetworkInterfaceProvider: mockNetworkInterfaceProvider,
 		Services:                 []*services.MockService{mockService1, mockService2},
-		Shims:                    setupShims(t),
+		Shims:                    setupDefaultShims(),
 	}
 
 	configHandler.SetContext("mock-context")
+
+	// Apply any overrides
+	for _, opt := range opts {
+		opt(mocks)
+	}
 
 	return mocks
 }
@@ -235,9 +221,9 @@ func TestNetworkManager_NewNetworkManager(t *testing.T) {
 // =============================================================================
 
 func TestNetworkManager_AssignIPs(t *testing.T) {
-	setup := func(t *testing.T) (*BaseNetworkManager, *Mocks) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupNetworkMocks(t)
 		manager := NewBaseNetworkManager(mocks.Runtime)
 		manager.shims = mocks.Shims
 		return manager, mocks
@@ -358,8 +344,9 @@ func TestNetworkManager_AssignIPs(t *testing.T) {
 		}
 
 		// Setup with mock config handler
-		mocks := setupMocks(t, &SetupOptions{
-			ConfigHandler: mockConfigHandler,
+		mocks := setupNetworkMocks(t, func(m *NetworkTestMocks) {
+			m.ConfigHandler = mockConfigHandler
+			m.Runtime.ConfigHandler = mockConfigHandler
 		})
 		manager := NewBaseNetworkManager(mocks.Runtime)
 		manager.shims = mocks.Shims
@@ -408,9 +395,9 @@ func TestNetworkManager_AssignIPs(t *testing.T) {
 }
 
 func TestNetworkManager_ConfigureGuest(t *testing.T) {
-	setup := func(t *testing.T) (*BaseNetworkManager, *Mocks) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupNetworkMocks(t)
 		manager := NewBaseNetworkManager(mocks.Runtime)
 		manager.shims = mocks.Shims
 		return manager, mocks
@@ -431,9 +418,9 @@ func TestNetworkManager_ConfigureGuest(t *testing.T) {
 }
 
 func TestNetworkManager_assignIPAddresses(t *testing.T) {
-	setup := func(t *testing.T) (*BaseNetworkManager, *Mocks) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupNetworkMocks(t)
 		manager := NewBaseNetworkManager(mocks.Runtime)
 		manager.shims = mocks.Shims
 		return manager, mocks
