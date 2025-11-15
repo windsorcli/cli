@@ -259,6 +259,9 @@ func setupShims(t *testing.T) *Shims {
 		if strings.Contains(name, "contexts") && strings.Contains(name, "values.yaml") {
 			return &mockFileInfo{name: "values.yaml"}, nil
 		}
+		if strings.Contains(name, "_template/metadata.yaml") {
+			return nil, os.ErrNotExist
+		}
 		if strings.Contains(name, "_template") && !strings.Contains(name, "schema.yaml") {
 			return &mockFileInfo{name: "_template", isDir: true}, nil
 		}
@@ -963,6 +966,12 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 			if strings.Contains(normalizedPath, "test-context/values.yaml") {
 				return &mockFileInfo{isDir: false}, nil
 			}
+			if normalizedPath == filepath.ToSlash(filepath.Join(projectRoot, "contexts", "_template")) {
+				return &mockFileInfo{isDir: true}, nil
+			}
+			if strings.Contains(normalizedPath, "_template/metadata.yaml") {
+				return nil, os.ErrNotExist
+			}
 			if strings.Contains(normalizedPath, "_template") && !strings.Contains(normalizedPath, "schema.yaml") {
 				return &mockFileInfo{isDir: true}, nil
 			}
@@ -1148,6 +1157,13 @@ substitutions:
 				if strings.Contains(normalizedPath, "_template/schema.yaml") ||
 					strings.Contains(normalizedPath, "test-context/values.yaml") {
 					return mockFileInfo{name: "template"}, nil
+				}
+				if strings.Contains(normalizedPath, "_template/metadata.yaml") {
+					return nil, os.ErrNotExist
+				}
+				templateRoot := filepath.ToSlash(baseHandler.runtime.TemplateRoot)
+				if normalizedPath == templateRoot {
+					return mockFileInfo{name: "_template", isDir: true}, nil
 				}
 				if strings.Contains(normalizedPath, "_template") && !strings.Contains(normalizedPath, "schema.yaml") {
 					return mockFileInfo{name: "_template", isDir: true}, nil
