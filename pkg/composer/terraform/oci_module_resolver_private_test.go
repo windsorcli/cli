@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -969,10 +971,22 @@ func TestOCIModuleResolver_validateAndSanitizePath(t *testing.T) {
 		resolver := setup(t)
 
 		// When validating absolute paths
-		testCases := []string{
-			"/etc/passwd",
-			"/root/file.tf",
-			"/tmp/module/main.tf",
+		// Use platform-specific absolute paths
+		var testCases []string
+		if runtime.GOOS == "windows" {
+			// On Windows, use Windows-style absolute paths with drive letters
+			testCases = []string{
+				filepath.Join("C:", "Windows", "System32", "config", "sam"),
+				filepath.Join("C:", "Users", "file.tf"),
+				filepath.Join("C:", string(filepath.Separator), "tmp", "module", "main.tf"),
+			}
+		} else {
+			// On Unix-like systems, use Unix-style absolute paths
+			testCases = []string{
+				filepath.Join(string(filepath.Separator), "etc", "passwd"),
+				filepath.Join(string(filepath.Separator), "root", "file.tf"),
+				filepath.Join(string(filepath.Separator), "tmp", "module", "main.tf"),
+			}
 		}
 
 		for _, path := range testCases {
@@ -980,6 +994,7 @@ func TestOCIModuleResolver_validateAndSanitizePath(t *testing.T) {
 			_, err := resolver.validateAndSanitizePath(path)
 			if err == nil {
 				t.Errorf("Expected error for absolute path %s, got nil", path)
+				continue
 			}
 			if !strings.Contains(err.Error(), "absolute paths are not allowed") {
 				t.Errorf("Expected absolute path error for %s, got: %v", path, err)
