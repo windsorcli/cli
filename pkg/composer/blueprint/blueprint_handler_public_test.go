@@ -15,7 +15,6 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -211,7 +210,6 @@ local context = std.extVar("context");
 `
 
 type Mocks struct {
-	Injector          di.Injector
 	Shell             *shell.MockShell
 	ConfigHandler     config.ConfigHandler
 	Shims             *Shims
@@ -220,7 +218,6 @@ type Mocks struct {
 }
 
 type SetupOptions struct {
-	Injector      di.Injector
 	ConfigHandler config.ConfigHandler
 	ConfigStr     string
 }
@@ -313,9 +310,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	// Set environment variable
 	os.Setenv("WINDSOR_PROJECT_ROOT", tmpDir)
 
-	// Create injector
-	injector := di.NewInjector()
-
 	// Set up config handler - default to MockConfigHandler for easier testing
 	var configHandler config.ConfigHandler
 	if len(opts) > 0 && opts[0].ConfigHandler != nil {
@@ -356,7 +350,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	// Create mock shell and kubernetes manager
 	mockShell := shell.NewMockShell()
 
-	mockKubernetesManager := kubernetes.NewMockKubernetesManager(nil)
+	mockKubernetesManager := kubernetes.NewMockKubernetesManager()
 	// Initialize safe default implementations for all mock functions
 	mockKubernetesManager.DeleteKustomizationFunc = func(name, namespace string) error {
 		return nil
@@ -388,11 +382,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	mockKubernetesManager.DeleteNamespaceFunc = func(name string) error {
 		return nil
 	}
-
-	// Register components with injector
-	injector.Register("shell", mockShell)
-	injector.Register("configHandler", configHandler)
-	injector.Register("kubernetesManager", mockKubernetesManager)
 
 	// Set up default config
 	defaultConfigStr := `
@@ -438,7 +427,6 @@ contexts:
 		ProjectRoot:   tmpDir,
 		ConfigRoot:    tmpDir,
 		TemplateRoot:  filepath.Join(tmpDir, "contexts", "_template"),
-		Injector:      injector,
 		ConfigHandler: configHandler,
 		Shell:         mockShell,
 	}
@@ -452,7 +440,6 @@ contexts:
 	})
 
 	return &Mocks{
-		Injector:          injector,
 		Shell:             mockShell,
 		ConfigHandler:     configHandler,
 		Shims:             shims,

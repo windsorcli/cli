@@ -8,7 +8,6 @@ package virt
 import (
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/workstation/services"
@@ -19,7 +18,6 @@ import (
 // =============================================================================
 
 type MockComponents struct {
-	Injector          di.Injector
 	MockShell         *shell.MockShell
 	MockConfigHandler *config.MockConfigHandler
 	MockService       *services.MockService
@@ -48,38 +46,6 @@ func (m *mockYAMLEncoder) Close() error {
 // =============================================================================
 // Test Public Methods
 // =============================================================================
-
-// TestMockVirt_Initialize tests the Initialize method of MockVirt.
-func TestMockVirt_Initialize(t *testing.T) {
-	t.Run("InitializeFuncImplemented", func(t *testing.T) {
-		// Given a MockVirt with a custom InitializeFunc
-		mockVirt := NewMockVirt()
-		mockVirt.InitializeFunc = func() error {
-			return nil
-		}
-
-		// When calling Initialize
-		err := mockVirt.Initialize()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("InitializeFuncNotImplemented", func(t *testing.T) {
-		// Given a MockVirt without a custom InitializeFunc
-		mockVirt := NewMockVirt()
-
-		// When calling Initialize
-		err := mockVirt.Initialize()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-	})
-}
 
 // TestMockVirt_Up tests the Up method of MockVirt.
 func TestMockVirt_Up(t *testing.T) {

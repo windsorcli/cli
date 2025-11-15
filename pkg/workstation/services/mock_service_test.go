@@ -14,37 +14,6 @@ import (
 // Test Public Methods
 // =============================================================================
 
-func TestMockService_Initialize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a new MockService with InitializeFunc set
-		mock := NewMockService()
-		mock.InitializeFunc = func() error {
-			return nil
-		}
-
-		// When Initialize is called
-		err := mock.Initialize()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-	})
-
-	t.Run("NotImplemented", func(t *testing.T) {
-		// Given a new MockService without InitializeFunc set
-		mock := NewMockService()
-
-		// When Initialize is called
-		err := mock.Initialize()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-	})
-}
-
 func TestMockService_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new MockService with GetComposeConfigFunc set

@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
 
@@ -26,13 +25,8 @@ Examples:
   BUILD_ID=$(windsor build-id --new) && docker build -t myapp:$BUILD_ID .`,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		rt := &runtime.Runtime{
-			Injector: injector,
-		}
-
-		rt, err := runtime.NewRuntime(rt)
+		rt, err := runtime.NewRuntime()
 		if err != nil {
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}

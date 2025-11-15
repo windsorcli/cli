@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 // verbose is a flag for verbose output
@@ -13,26 +12,20 @@ var verbose bool
 // Define a custom type for context keys
 type contextKey string
 
-const injectorKey = contextKey("injector")
 const projectOverridesKey = contextKey("projectOverrides")
 const composerOverridesKey = contextKey("composerOverrides")
+const runtimeOverridesKey = contextKey("runtimeOverrides")
 
 var shims = NewShims()
 
 // Execute is the main entry point for the Windsor CLI application.
-// It initializes core dependencies, establishes the dependency injection container context,
-// and executes the root command. If a context with an injector is already set (such as in tests),
-// it uses the existing context; otherwise, it creates a new injector and context for normal execution.
+// It executes the root command with the provided context or a new background context.
 func Execute() error {
 	ctx := rootCmd.Context()
 	if ctx != nil {
-		if injector, ok := ctx.Value(injectorKey).(di.Injector); ok && injector != nil {
-			return rootCmd.ExecuteContext(ctx)
-		}
+		return rootCmd.ExecuteContext(ctx)
 	}
-	injector := di.NewInjector()
-	ctx = context.WithValue(context.Background(), injectorKey, injector)
-	return rootCmd.ExecuteContext(ctx)
+	return rootCmd.ExecuteContext(context.Background())
 }
 
 // rootCmd represents the base command when called without any subcommands

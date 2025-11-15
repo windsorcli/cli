@@ -2,7 +2,6 @@ package tools
 
 // MockToolsManager is a mock implementation of the ToolsManager interface for testing purposes.
 type MockToolsManager struct {
-	InitializeFunc    func() error
 	WriteManifestFunc func() error
 	InstallFunc       func() error
 	CheckFunc         func() error
@@ -20,14 +19,6 @@ func NewMockToolsManager() *MockToolsManager {
 // =============================================================================
 // Public Methods
 // =============================================================================
-
-// Initialize calls the mock InitializeFunc if set, otherwise returns nil.
-func (m *MockToolsManager) Initialize() error {
-	if m.InitializeFunc != nil {
-		return m.InitializeFunc()
-	}
-	return nil
-}
 
 // WriteManifest calls the mock WriteManifestFunc if set, otherwise returns nil.
 func (m *MockToolsManager) WriteManifest() error {

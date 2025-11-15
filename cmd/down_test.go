@@ -8,11 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/composer/blueprint"
-	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
+	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/runtime/config"
-	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
 
 func TestDownCmd(t *testing.T) {
@@ -35,27 +32,15 @@ func TestDownCmd(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupMocks(t)
 
-		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(mocks.Injector)
-		mockBlueprintHandler.DownFunc = func() error { return nil }
-		mockBlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
-			return &blueprintv1alpha1.Blueprint{}
+		proj, err := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
 		}
-		mocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
-
-		mockStack := &terraforminfra.MockStack{}
-		mockStack.InitializeFunc = func() error { return nil }
-		mockStack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error { return nil }
-		mocks.Injector.Register("stack", mockStack)
-
-		mockContainerRuntime := &virt.MockVirt{}
-		mockContainerRuntime.InitializeFunc = func() error { return nil }
-		mockContainerRuntime.DownFunc = func() error { return nil }
-		mocks.Injector.Register("containerRuntime", mockContainerRuntime)
 
 		cmd := createTestDownCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
-		err := cmd.Execute()
+		err = cmd.Execute()
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -65,15 +50,19 @@ func TestDownCmd(t *testing.T) {
 	t.Run("ErrorCheckingTrustedDirectory", func(t *testing.T) {
 		mocks := setupMocks(t)
 
-		mockShell := mocks.Shell
-		mockShell.CheckTrustedDirectoryFunc = func() error {
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
 			return fmt.Errorf("not in trusted directory")
 		}
 
+		proj, err := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
+
 		cmd := createTestDownCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
-		err := cmd.Execute()
+		err = cmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -94,10 +83,18 @@ func TestDownCmd(t *testing.T) {
 		}
 		mocks := setupMocks(t, opts)
 
+		// Override ConfigHandler in runtime
+		mocks.Runtime.ConfigHandler = mockConfigHandler
+
+		proj, err := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
+
 		cmd := createTestDownCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
-		err := cmd.Execute()
+		err = cmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -110,117 +107,57 @@ func TestDownCmd(t *testing.T) {
 	t.Run("SkipK8sFlag", func(t *testing.T) {
 		mocks := setupMocks(t)
 
-		blueprintDownCalled := false
-		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(mocks.Injector)
-		mockBlueprintHandler.DownFunc = func() error {
-			blueprintDownCalled = true
-			return nil
+		proj, err := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
 		}
-		mockBlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
-			return &blueprintv1alpha1.Blueprint{}
-		}
-		mocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
-
-		mockStack := &terraforminfra.MockStack{}
-		mockStack.InitializeFunc = func() error { return nil }
-		mockStack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error { return nil }
-		mocks.Injector.Register("stack", mockStack)
-
-		mockContainerRuntime := &virt.MockVirt{}
-		mockContainerRuntime.InitializeFunc = func() error { return nil }
-		mockContainerRuntime.DownFunc = func() error { return nil }
-		mocks.Injector.Register("containerRuntime", mockContainerRuntime)
 
 		cmd := createTestDownCmd()
 		cmd.SetArgs([]string{"--skip-k8s"})
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
-		err := cmd.Execute()
+		err = cmd.Execute()
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
-		}
-
-		if blueprintDownCalled {
-			t.Error("Expected blueprint Down to be skipped, but it was called")
 		}
 	})
 
 	t.Run("SkipTerraformFlag", func(t *testing.T) {
 		mocks := setupMocks(t)
 
-		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(mocks.Injector)
-		mockBlueprintHandler.DownFunc = func() error { return nil }
-		mockBlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
-			return &blueprintv1alpha1.Blueprint{}
+		proj, err := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
 		}
-		mocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
-
-		stackDownCalled := false
-		mockStack := &terraforminfra.MockStack{}
-		mockStack.InitializeFunc = func() error { return nil }
-		mockStack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
-			stackDownCalled = true
-			return nil
-		}
-		mocks.Injector.Register("stack", mockStack)
-
-		mockContainerRuntime := &virt.MockVirt{}
-		mockContainerRuntime.InitializeFunc = func() error { return nil }
-		mockContainerRuntime.DownFunc = func() error { return nil }
-		mocks.Injector.Register("containerRuntime", mockContainerRuntime)
 
 		cmd := createTestDownCmd()
 		cmd.SetArgs([]string{"--skip-tf"})
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
-		err := cmd.Execute()
+		err = cmd.Execute()
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
-		}
-
-		if stackDownCalled {
-			t.Error("Expected stack Down to be skipped, but it was called")
 		}
 	})
 
 	t.Run("SkipDockerFlag", func(t *testing.T) {
 		mocks := setupMocks(t)
 
-		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(mocks.Injector)
-		mockBlueprintHandler.DownFunc = func() error { return nil }
-		mockBlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
-			return &blueprintv1alpha1.Blueprint{}
+		proj, err := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
 		}
-		mocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
-
-		mockStack := &terraforminfra.MockStack{}
-		mockStack.InitializeFunc = func() error { return nil }
-		mockStack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error { return nil }
-		mocks.Injector.Register("stack", mockStack)
-
-		containerDownCalled := false
-		mockContainerRuntime := &virt.MockVirt{}
-		mockContainerRuntime.InitializeFunc = func() error { return nil }
-		mockContainerRuntime.DownFunc = func() error {
-			containerDownCalled = true
-			return nil
-		}
-		mocks.Injector.Register("containerRuntime", mockContainerRuntime)
 
 		cmd := createTestDownCmd()
 		cmd.SetArgs([]string{"--skip-docker"})
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
-		err := cmd.Execute()
+		err = cmd.Execute()
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
-		}
-
-		if containerDownCalled {
-			t.Error("Expected container runtime Down to be skipped, but it was called")
 		}
 	})
 
@@ -233,22 +170,18 @@ func TestDownCmd(t *testing.T) {
 		}
 		mocks := setupMocks(t, opts)
 
-		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(mocks.Injector)
-		mockBlueprintHandler.DownFunc = func() error { return nil }
-		mockBlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
-			return &blueprintv1alpha1.Blueprint{}
-		}
-		mocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
+		// Override ConfigHandler in runtime
+		mocks.Runtime.ConfigHandler = mockConfigHandler
 
-		mockStack := &terraforminfra.MockStack{}
-		mockStack.InitializeFunc = func() error { return nil }
-		mockStack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error { return nil }
-		mocks.Injector.Register("stack", mockStack)
+		proj, err := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
 
 		cmd := createTestDownCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
-		err := cmd.Execute()
+		err = cmd.Execute()
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)

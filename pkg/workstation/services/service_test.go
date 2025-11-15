@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -126,9 +125,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	if len(opts) > 0 && opts[0].ConfigHandler != nil {
 		configHandler = opts[0].ConfigHandler
 	} else {
-		// Create minimal injector for config handler initialization
-		injector := di.NewInjector()
-		injector.Register("shell", mockShell)
 		configHandler = config.NewConfigHandler(mockShell)
 	}
 

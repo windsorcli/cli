@@ -14,12 +14,12 @@ import (
 
 	"github.com/spf13/cobra"
 	blueprintpkg "github.com/windsorcli/cli/pkg/composer/blueprint"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
+	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	envvars "github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/runtime/secrets"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 // =============================================================================
@@ -27,18 +27,18 @@ import (
 // =============================================================================
 
 type Mocks struct {
-	Injector         di.Injector
 	ConfigHandler    config.ConfigHandler
 	Shell            *shell.MockShell
 	SecretsProvider  *secrets.MockSecretsProvider
 	EnvPrinter       *envvars.MockEnvPrinter
+	ToolsManager     *tools.MockToolsManager
+	Runtime          *runtime.Runtime
 	Shims            *Shims
 	BlueprintHandler *blueprintpkg.MockBlueprintHandler
 	TmpDir           string
 }
 
 type SetupOptions struct {
-	Injector      di.Injector
 	ConfigHandler config.ConfigHandler
 	ConfigStr     string
 	Shims         *Shims
@@ -86,15 +86,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	// Create temporary directory for test
 	tmpDir := t.TempDir()
 
-	// Create injector
-	var injector di.Injector
-	if options.Injector == nil {
-		injector = di.NewInjector()
-	} else {
-		injector = options.Injector
-	}
-
-	// Create and register mock shell
+	// Create mock shell
 	mockShell := shell.NewMockShell()
 	mockShell.GetProjectRootFunc = func() (string, error) {
 		return tmpDir, nil
@@ -112,22 +104,19 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	mockShell.WriteResetTokenFunc = func() (string, error) {
 		return "mock-reset-token", nil
 	}
-	injector.Register("shell", mockShell)
 
-	// Create and register mock secrets provider
-	mockSecretsProvider := secrets.NewMockSecretsProvider(injector)
+	// Create mock secrets provider
+	mockSecretsProvider := secrets.NewMockSecretsProvider(mockShell)
 	mockSecretsProvider.LoadSecretsFunc = func() error {
 		return nil
 	}
-	injector.Register("secretsProvider", mockSecretsProvider)
 
-	// Create and register mock env printer
+	// Create mock env printer
 	mockEnvPrinter := envvars.NewMockEnvPrinter()
 	// PrintFunc removed - functionality now in runtime
 	mockEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
 		return nil
 	}
-	injector.Register("envPrinter", mockEnvPrinter)
 
 	// Create and register additional mock env printers
 	mockWindsorEnvPrinter := envvars.NewMockEnvPrinter()
@@ -135,14 +124,11 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	mockWindsorEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
 		return nil
 	}
-	injector.Register("windsorEnvPrinter", mockWindsorEnvPrinter)
-
 	mockDockerEnvPrinter := envvars.NewMockEnvPrinter()
 	// PrintFunc removed - functionality now in runtime
 	mockDockerEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
 		return nil
 	}
-	injector.Register("dockerEnvPrinter", mockDockerEnvPrinter)
 
 	// Create config handler
 	var configHandler config.ConfigHandler
@@ -160,9 +146,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		}
 	}
 
-	// Register config handler
-	injector.Register("configHandler", configHandler)
-
 	// Load config if ConfigStr is provided
 	if options.ConfigStr != "" {
 		if err := configHandler.LoadConfigString(options.ConfigStr); err != nil {
@@ -173,26 +156,34 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		}
 	}
 
-	// Create and register mock kubernetes manager
-	mockKubernetesManager := kubernetes.NewMockKubernetesManager(injector)
-	mockKubernetesManager.InitializeFunc = func() error {
-		return nil
-	}
-	injector.Register("kubernetesManager", mockKubernetesManager)
-
 	// Create mock blueprint handler
-	mockBlueprintHandler := blueprintpkg.NewMockBlueprintHandler(injector)
+	mockBlueprintHandler := blueprintpkg.NewMockBlueprintHandler()
 	mockBlueprintHandler.InstallFunc = func() error {
 		return nil
 	}
-	injector.Register("blueprintHandler", mockBlueprintHandler)
+
+	// Create mock tools manager
+	mockToolsManager := tools.NewMockToolsManager()
+	mockToolsManager.CheckFunc = func() error { return nil }
+
+	// Create runtime with all mocked dependencies
+	rt, err := runtime.NewRuntime(&runtime.Runtime{
+		Shell:         mockShell,
+		ConfigHandler: configHandler,
+		ProjectRoot:   tmpDir,
+		ToolsManager:  mockToolsManager,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create runtime: %v", err)
+	}
 
 	return &Mocks{
-		Injector:         injector,
 		ConfigHandler:    configHandler,
 		Shell:            mockShell,
 		SecretsProvider:  mockSecretsProvider,
 		EnvPrinter:       mockEnvPrinter,
+		ToolsManager:     mockToolsManager,
+		Runtime:          rt,
 		Shims:            testShims,
 		BlueprintHandler: mockBlueprintHandler,
 		TmpDir:           tmpDir,

@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/project"
 )
 
@@ -20,14 +19,12 @@ var upCmd = &cobra.Command{
 	Long:         "Set up the Windsor environment by executing necessary shell commands.",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		injector := cmd.Context().Value(injectorKey).(di.Injector)
-
 		var opts []*project.Project
 		if overridesVal := cmd.Context().Value(projectOverridesKey); overridesVal != nil {
 			opts = []*project.Project{overridesVal.(*project.Project)}
 		}
 
-		proj, err := project.NewProject(injector, "", opts...)
+		proj, err := project.NewProject("", opts...)
 		if err != nil {
 			return err
 		}

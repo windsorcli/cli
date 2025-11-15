@@ -9,7 +9,6 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/provisioner/cluster"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	k8sclient "github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
@@ -54,7 +53,6 @@ func createTestBlueprint() *blueprintv1alpha1.Blueprint {
 }
 
 type Mocks struct {
-	Injector          di.Injector
 	ConfigHandler     config.ConfigHandler
 	Shell             *shell.MockShell
 	TerraformStack    *terraforminfra.MockStack
@@ -69,7 +67,6 @@ type Mocks struct {
 func setupProvisionerMocks(t *testing.T) *Mocks {
 	t.Helper()
 
-	injector := di.NewInjector()
 	configHandler := config.NewMockConfigHandler()
 	mockShell := shell.NewMockShell()
 
@@ -101,31 +98,22 @@ func setupProvisionerMocks(t *testing.T) *Mocks {
 		return "/test/project", nil
 	}
 
-	terraformStack := terraforminfra.NewMockStack(injector)
-	kubernetesManager := kubernetes.NewMockKubernetesManager(injector)
+	terraformStack := terraforminfra.NewMockStack()
+	kubernetesManager := kubernetes.NewMockKubernetesManager()
 	kubernetesClient := k8sclient.NewMockKubernetesClient()
 	clusterClient := cluster.NewMockClusterClient()
-	mockBlueprintHandler := blueprint.NewMockBlueprintHandler(injector)
+	mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
 
 	rt := &runtime.Runtime{
 		ContextName:   "test-context",
 		ProjectRoot:   "/test/project",
 		ConfigRoot:    "/test/project/contexts/test-context",
 		TemplateRoot:  "/test/project/contexts/_template",
-		Injector:      injector,
 		ConfigHandler: configHandler,
 		Shell:         mockShell,
 	}
 
-	injector.Register("shell", mockShell)
-	injector.Register("configHandler", configHandler)
-	injector.Register("terraformStack", terraformStack)
-	injector.Register("kubernetesManager", kubernetesManager)
-	injector.Register("kubernetesClient", kubernetesClient)
-	injector.Register("clusterClient", clusterClient)
-
 	return &Mocks{
-		Injector:          injector,
 		ConfigHandler:     configHandler,
 		Shell:             mockShell,
 		TerraformStack:    terraformStack,

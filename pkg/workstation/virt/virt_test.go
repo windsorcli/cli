@@ -13,7 +13,6 @@ import (
 
 	"github.com/goccy/go-yaml"
 	"github.com/shirou/gopsutil/mem"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -129,9 +128,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	// Create config handler
 	var configHandler config.ConfigHandler
 	if options.ConfigHandler == nil {
-		// Create minimal injector for config handler initialization
-		injector := di.NewInjector()
-		injector.Register("shell", mockShell)
 		configHandler = config.NewConfigHandler(mockShell)
 	} else {
 		configHandler = options.ConfigHandler

@@ -8,34 +8,6 @@ import (
 // Test Public Methods
 // =============================================================================
 
-// Tests for mock tools manager initialization
-func TestMockToolsManager_Initialize(t *testing.T) {
-	t.Run("Initialize", func(t *testing.T) {
-		// Given a mock tools manager with InitializeFunc set
-		mock := NewMockToolsManager()
-		mock.InitializeFunc = func() error {
-			return nil
-		}
-		// When Initialize is called
-		err := mock.Initialize()
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-	})
-
-	t.Run("NoInitializeFunc", func(t *testing.T) {
-		// Given a mock tools manager without InitializeFunc set
-		mock := NewMockToolsManager()
-		// When Initialize is called
-		err := mock.Initialize()
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-	})
-}
-
 // Tests for mock tools manager manifest writing
 func TestMockToolsManager_WriteManifest(t *testing.T) {
 	t.Run("WriteManifest", func(t *testing.T) {

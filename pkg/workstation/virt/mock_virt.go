@@ -11,7 +11,6 @@ package virt
 
 // MockVirt is a struct that simulates a virt environment for testing purposes.
 type MockVirt struct {
-	InitializeFunc  func() error
 	UpFunc          func(verbose ...bool) error
 	DownFunc        func() error
 	WriteConfigFunc func() error
@@ -29,15 +28,6 @@ func NewMockVirt() *MockVirt {
 // =============================================================================
 // Public Methods
 // =============================================================================
-
-// Initialize initializes the mock virt.
-// If a custom InitializeFunc is provided, it will use that function instead.
-func (m *MockVirt) Initialize() error {
-	if m.InitializeFunc != nil {
-		return m.InitializeFunc()
-	}
-	return nil
-}
 
 // Up starts the mock virt.
 // If a custom UpFunc is provided, it will use that function instead.

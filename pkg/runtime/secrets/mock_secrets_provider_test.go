@@ -9,50 +9,19 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================
 // Test Methods
 // =============================================================================
 
-func TestMockSecretsProvider_Initialize(t *testing.T) {
-	t.Run("Initialize", func(t *testing.T) {
-		// Given a mock secrets provider with InitializeFunc set
-		mock := NewMockSecretsProvider(di.NewMockInjector())
-		mock.InitializeFunc = func() error {
-			return nil
-		}
-
-		// When Initialize is called
-		err := mock.Initialize()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-	})
-
-	t.Run("NoInitializeFunc", func(t *testing.T) {
-		// Given a mock secrets provider with no InitializeFunc set
-		mock := NewMockSecretsProvider(di.NewMockInjector())
-
-		// When Initialize is called
-		err := mock.Initialize()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
-		}
-	})
-}
-
 func TestMockSecretsProvider_LoadSecrets(t *testing.T) {
 	mockLoadSecretsErr := fmt.Errorf("mock load secrets error")
 
 	t.Run("WithFuncSet", func(t *testing.T) {
 		// Given a mock secrets provider with LoadSecretsFunc set
-		mock := NewMockSecretsProvider(di.NewMockInjector())
+		mock := NewMockSecretsProvider(shell.NewMockShell())
 		mock.LoadSecretsFunc = func() error {
 			return mockLoadSecretsErr
 		}
@@ -68,7 +37,7 @@ func TestMockSecretsProvider_LoadSecrets(t *testing.T) {
 
 	t.Run("WithNoFuncSet", func(t *testing.T) {
 		// Given a mock secrets provider with no LoadSecretsFunc set
-		mock := NewMockSecretsProvider(di.NewMockInjector())
+		mock := NewMockSecretsProvider(shell.NewMockShell())
 
 		// When LoadSecrets is called
 		err := mock.LoadSecrets()
@@ -85,7 +54,7 @@ func TestMockSecretsProvider_GetSecret(t *testing.T) {
 
 	t.Run("WithFuncSet", func(t *testing.T) {
 		// Given a mock secrets provider with GetSecretFunc set
-		mock := NewMockSecretsProvider(di.NewMockInjector())
+		mock := NewMockSecretsProvider(shell.NewMockShell())
 		mock.GetSecretFunc = func(key string) (string, error) {
 			return "", mockGetSecretErr
 		}
@@ -101,7 +70,7 @@ func TestMockSecretsProvider_GetSecret(t *testing.T) {
 
 	t.Run("WithNoFuncSet", func(t *testing.T) {
 		// Given a mock secrets provider with no GetSecretFunc set
-		mock := NewMockSecretsProvider(di.NewMockInjector())
+		mock := NewMockSecretsProvider(shell.NewMockShell())
 
 		// When GetSecret is called
 		_, err := mock.GetSecret("test_key")
@@ -118,7 +87,7 @@ func TestMockSecretsProvider_ParseSecrets(t *testing.T) {
 
 	t.Run("WithFuncSet", func(t *testing.T) {
 		// Given a mock secrets provider with ParseSecretsFunc set
-		mock := NewMockSecretsProvider(di.NewMockInjector())
+		mock := NewMockSecretsProvider(shell.NewMockShell())
 		mock.ParseSecretsFunc = func(input string) (string, error) {
 			return "", mockParseSecretsErr
 		}
@@ -134,7 +103,7 @@ func TestMockSecretsProvider_ParseSecrets(t *testing.T) {
 
 	t.Run("WithNoFuncSet", func(t *testing.T) {
 		// Given a mock secrets provider with no ParseSecretsFunc set
-		mock := NewMockSecretsProvider(di.NewMockInjector())
+		mock := NewMockSecretsProvider(shell.NewMockShell())
 
 		// When ParseSecrets is called
 		output, err := mock.ParseSecrets("input")
@@ -154,7 +123,7 @@ func TestMockSecretsProvider_Unlock(t *testing.T) {
 
 	t.Run("WithFuncSet", func(t *testing.T) {
 		// Given a mock secrets provider with UnlockFunc set
-		mock := NewMockSecretsProvider(di.NewMockInjector())
+		mock := NewMockSecretsProvider(shell.NewMockShell())
 		mock.UnlockFunc = func() error {
 			return mockUnlockErr
 		}
@@ -170,7 +139,7 @@ func TestMockSecretsProvider_Unlock(t *testing.T) {
 
 	t.Run("WithNoFuncSet", func(t *testing.T) {
 		// Given a mock secrets provider with no UnlockFunc set
-		mock := NewMockSecretsProvider(di.NewMockInjector())
+		mock := NewMockSecretsProvider(shell.NewMockShell())
 
 		// When Unlock is called
 		err := mock.Unlock()

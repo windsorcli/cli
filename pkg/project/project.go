@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 
 	"github.com/windsorcli/cli/pkg/composer"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/provisioner"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/workstation"
@@ -29,7 +28,7 @@ type Project struct {
 // After creation, call Configure() to apply flag overrides if needed.
 // Optional overrides can be provided via opts to inject mocks for testing.
 // If opts contains a Project with Runtime set, that runtime will be reused.
-func NewProject(injector di.Injector, contextName string, opts ...*Project) (*Project, error) {
+func NewProject(contextName string, opts ...*Project) (*Project, error) {
 	var rt *runtime.Runtime
 	var err error
 
@@ -42,10 +41,11 @@ func NewProject(injector di.Injector, contextName string, opts ...*Project) (*Pr
 	}
 
 	if rt == nil {
-		rt = &runtime.Runtime{
-			Injector: injector,
+		var rtOpts []*runtime.Runtime
+		if overrides != nil && overrides.Runtime != nil {
+			rtOpts = []*runtime.Runtime{overrides.Runtime}
 		}
-		rt, err = runtime.NewRuntime(rt)
+		rt, err = runtime.NewRuntime(rtOpts...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize context: %w", err)
 		}

@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/runtime/secrets"
@@ -36,9 +35,6 @@ type Runtime struct {
 
 	// TemplateRoot is the template directory (<projectRoot>/contexts/_template)
 	TemplateRoot string
-
-	// Injector is the dependency injector
-	Injector di.Injector
 
 	// Core dependencies
 	ConfigHandler config.ConfigHandler
@@ -77,35 +73,69 @@ type Runtime struct {
 
 // NewRuntime creates a new Runtime with ConfigHandler and Shell initialized if not already present.
 // This is the base constructor that ensures core dependencies are available.
-// If ConfigHandler is nil, it creates one using the Injector and initializes it.
-// If Shell is nil, it creates one using the Injector and initializes it.
-// Both are registered in the Injector for use by other components.
+// If Shell is nil, it creates a new DefaultShell.
+// If ConfigHandler is nil, it creates one using the Shell.
 // The runtime also initializes envVars and aliases maps, and automatically sets up
 // ContextName, ProjectRoot, ConfigRoot, and TemplateRoot based on the current project state.
+// Optional overrides can be provided via opts to inject mocks for testing.
 // Returns the Runtime with initialized dependencies or an error if initialization fails.
-func NewRuntime(rt *Runtime) (*Runtime, error) {
-	if rt == nil {
-		return nil, fmt.Errorf("execution context is required")
+func NewRuntime(opts ...*Runtime) (*Runtime, error) {
+	rt := &Runtime{}
+
+	if len(opts) > 0 && opts[0] != nil {
+		overrides := opts[0]
+		if overrides.Shell != nil {
+			rt.Shell = overrides.Shell
+		}
+		if overrides.ConfigHandler != nil {
+			rt.ConfigHandler = overrides.ConfigHandler
+		}
+		if overrides.ContextName != "" {
+			rt.ContextName = overrides.ContextName
+		}
+		if overrides.ProjectRoot != "" {
+			rt.ProjectRoot = overrides.ProjectRoot
+		}
+		if overrides.ConfigRoot != "" {
+			rt.ConfigRoot = overrides.ConfigRoot
+		}
+		if overrides.TemplateRoot != "" {
+			rt.TemplateRoot = overrides.TemplateRoot
+		}
+		if overrides.ToolsManager != nil {
+			rt.ToolsManager = overrides.ToolsManager
+		}
+		if overrides.SecretsProviders.Sops != nil {
+			rt.SecretsProviders.Sops = overrides.SecretsProviders.Sops
+		}
+		if overrides.SecretsProviders.Onepassword != nil {
+			rt.SecretsProviders.Onepassword = overrides.SecretsProviders.Onepassword
+		}
+		if overrides.EnvPrinters.AwsEnv != nil {
+			rt.EnvPrinters.AwsEnv = overrides.EnvPrinters.AwsEnv
+		}
+		if overrides.EnvPrinters.AzureEnv != nil {
+			rt.EnvPrinters.AzureEnv = overrides.EnvPrinters.AzureEnv
+		}
+		if overrides.EnvPrinters.DockerEnv != nil {
+			rt.EnvPrinters.DockerEnv = overrides.EnvPrinters.DockerEnv
+		}
+		if overrides.EnvPrinters.KubeEnv != nil {
+			rt.EnvPrinters.KubeEnv = overrides.EnvPrinters.KubeEnv
+		}
+		if overrides.EnvPrinters.TalosEnv != nil {
+			rt.EnvPrinters.TalosEnv = overrides.EnvPrinters.TalosEnv
+		}
+		if overrides.EnvPrinters.TerraformEnv != nil {
+			rt.EnvPrinters.TerraformEnv = overrides.EnvPrinters.TerraformEnv
+		}
+		if overrides.EnvPrinters.WindsorEnv != nil {
+			rt.EnvPrinters.WindsorEnv = overrides.EnvPrinters.WindsorEnv
+		}
 	}
-	if rt.Injector == nil {
-		return nil, fmt.Errorf("injector is required")
-	}
-	injector := rt.Injector
 
 	if rt.Shell == nil {
-		if existing := injector.Resolve("shell"); existing != nil {
-			if shellInstance, ok := existing.(shell.Shell); ok {
-				rt.Shell = shellInstance
-			} else {
-				shellInstance := shell.NewDefaultShell()
-				rt.Shell = shellInstance
-				injector.Register("shell", shellInstance)
-			}
-		} else {
-			shellInstance := shell.NewDefaultShell()
-			rt.Shell = shellInstance
-			injector.Register("shell", shellInstance)
-		}
+		rt.Shell = shell.NewDefaultShell()
 	}
 
 	projectRoot, err := rt.Shell.GetProjectRoot()
@@ -113,24 +143,9 @@ func NewRuntime(rt *Runtime) (*Runtime, error) {
 		return nil, fmt.Errorf("failed to get project root: %w", err)
 	}
 	rt.ProjectRoot = projectRoot
-	rt.ConfigRoot = filepath.Join(rt.ProjectRoot, "contexts", rt.ContextName)
-	rt.TemplateRoot = filepath.Join(rt.ProjectRoot, "contexts", "_template")
 
 	if rt.ConfigHandler == nil {
-		if rt.Shell == nil {
-			return nil, fmt.Errorf("shell is required to create config handler")
-		}
-		if existing := injector.Resolve("configHandler"); existing != nil {
-			if configHandler, ok := existing.(config.ConfigHandler); ok {
-				rt.ConfigHandler = configHandler
-			} else {
-				rt.ConfigHandler = config.NewConfigHandler(rt.Shell)
-				injector.Register("configHandler", rt.ConfigHandler)
-			}
-		} else {
-			rt.ConfigHandler = config.NewConfigHandler(rt.Shell)
-			injector.Register("configHandler", rt.ConfigHandler)
-		}
+		rt.ConfigHandler = config.NewConfigHandler(rt.Shell)
 	}
 
 	if rt.envVars == nil {
@@ -140,16 +155,28 @@ func NewRuntime(rt *Runtime) (*Runtime, error) {
 		rt.aliases = make(map[string]string)
 	}
 
-	projectRoot, err = rt.Shell.GetProjectRoot()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get project root: %w", err)
+	contextName := rt.ConfigHandler.GetContext()
+	if rt.ContextName == "" {
+		rt.ContextName = contextName
+	}
+	if rt.ContextName == "" {
+		rt.ContextName = "local"
 	}
 
-	contextName := rt.ConfigHandler.GetContext()
-	rt.ContextName = contextName
-	rt.ProjectRoot = projectRoot
-	rt.ConfigRoot = filepath.Join(projectRoot, "contexts", contextName)
-	rt.TemplateRoot = filepath.Join(projectRoot, "contexts", "_template")
+	if rt.ProjectRoot == "" {
+		projectRoot, err = rt.Shell.GetProjectRoot()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get project root: %w", err)
+		}
+		rt.ProjectRoot = projectRoot
+	}
+
+	if rt.ConfigRoot == "" {
+		rt.ConfigRoot = filepath.Join(rt.ProjectRoot, "contexts", rt.ContextName)
+	}
+	if rt.TemplateRoot == "" {
+		rt.TemplateRoot = filepath.Join(rt.ProjectRoot, "contexts", "_template")
+	}
 
 	return rt, nil
 }
@@ -360,125 +387,59 @@ func (rt *Runtime) initializeEnvPrinters() {
 
 	if rt.EnvPrinters.AwsEnv == nil && rt.ConfigHandler.GetBool("aws.enabled", false) {
 		rt.EnvPrinters.AwsEnv = env.NewAwsEnvPrinter(rt.Shell, rt.ConfigHandler)
-		rt.Injector.Register("awsEnv", rt.EnvPrinters.AwsEnv)
 	}
 	if rt.EnvPrinters.AzureEnv == nil && rt.ConfigHandler.GetBool("azure.enabled", false) {
 		rt.EnvPrinters.AzureEnv = env.NewAzureEnvPrinter(rt.Shell, rt.ConfigHandler)
-		rt.Injector.Register("azureEnv", rt.EnvPrinters.AzureEnv)
 	}
 	if rt.EnvPrinters.DockerEnv == nil && rt.ConfigHandler.GetBool("docker.enabled", false) {
-		if existingPrinter := rt.Injector.Resolve("dockerEnv"); existingPrinter != nil {
-			if printer, ok := existingPrinter.(env.EnvPrinter); ok {
-				rt.EnvPrinters.DockerEnv = printer
-			}
-		}
-		if rt.EnvPrinters.DockerEnv == nil {
-			rt.EnvPrinters.DockerEnv = env.NewDockerEnvPrinter(rt.Shell, rt.ConfigHandler)
-			rt.Injector.Register("dockerEnv", rt.EnvPrinters.DockerEnv)
-		}
+		rt.EnvPrinters.DockerEnv = env.NewDockerEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
 	if rt.EnvPrinters.KubeEnv == nil && rt.ConfigHandler.GetBool("cluster.enabled", false) {
-		if existingPrinter := rt.Injector.Resolve("kubeEnv"); existingPrinter != nil {
-			if printer, ok := existingPrinter.(env.EnvPrinter); ok {
-				rt.EnvPrinters.KubeEnv = printer
-			}
-		}
-		if rt.EnvPrinters.KubeEnv == nil {
-			rt.EnvPrinters.KubeEnv = env.NewKubeEnvPrinter(rt.Shell, rt.ConfigHandler)
-			rt.Injector.Register("kubeEnv", rt.EnvPrinters.KubeEnv)
-		}
+		rt.EnvPrinters.KubeEnv = env.NewKubeEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
 	if rt.EnvPrinters.TalosEnv == nil &&
 		(rt.ConfigHandler.GetString("cluster.driver", "") == "talos" ||
 			rt.ConfigHandler.GetString("cluster.driver", "") == "omni") {
-		if existingPrinter := rt.Injector.Resolve("talosEnv"); existingPrinter != nil {
-			if printer, ok := existingPrinter.(env.EnvPrinter); ok {
-				rt.EnvPrinters.TalosEnv = printer
-			}
-		}
-		if rt.EnvPrinters.TalosEnv == nil {
-			rt.EnvPrinters.TalosEnv = env.NewTalosEnvPrinter(rt.Shell, rt.ConfigHandler)
-			rt.Injector.Register("talosEnv", rt.EnvPrinters.TalosEnv)
-		}
+		rt.EnvPrinters.TalosEnv = env.NewTalosEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
 	if rt.EnvPrinters.TerraformEnv == nil && rt.ConfigHandler.GetBool("terraform.enabled", false) {
-		if existingPrinter := rt.Injector.Resolve("terraformEnv"); existingPrinter != nil {
-			if printer, ok := existingPrinter.(env.EnvPrinter); ok {
-				rt.EnvPrinters.TerraformEnv = printer
-			}
-		}
-		if rt.EnvPrinters.TerraformEnv == nil {
-			rt.EnvPrinters.TerraformEnv = env.NewTerraformEnvPrinter(rt.Shell, rt.ConfigHandler)
-			rt.Injector.Register("terraformEnv", rt.EnvPrinters.TerraformEnv)
-		}
+		rt.EnvPrinters.TerraformEnv = env.NewTerraformEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
 	if rt.EnvPrinters.WindsorEnv == nil {
-		if existingPrinter := rt.Injector.Resolve("windsorEnv"); existingPrinter != nil {
-			if printer, ok := existingPrinter.(env.EnvPrinter); ok {
-				rt.EnvPrinters.WindsorEnv = printer
-			}
+		secretsProviders := []secrets.SecretsProvider{}
+		if rt.SecretsProviders.Sops != nil {
+			secretsProviders = append(secretsProviders, rt.SecretsProviders.Sops)
 		}
-		if rt.EnvPrinters.WindsorEnv == nil {
-			secretsProviders := []secrets.SecretsProvider{}
-			if rt.SecretsProviders.Sops != nil {
-				secretsProviders = append(secretsProviders, rt.SecretsProviders.Sops)
-			}
-			if rt.SecretsProviders.Onepassword != nil {
-				secretsProviders = append(secretsProviders, rt.SecretsProviders.Onepassword)
-			}
-			allEnvPrinters := rt.getAllEnvPrinters()
-			rt.EnvPrinters.WindsorEnv = env.NewWindsorEnvPrinter(rt.Shell, rt.ConfigHandler, secretsProviders, allEnvPrinters)
-			rt.Injector.Register("windsorEnv", rt.EnvPrinters.WindsorEnv)
+		if rt.SecretsProviders.Onepassword != nil {
+			secretsProviders = append(secretsProviders, rt.SecretsProviders.Onepassword)
 		}
+		allEnvPrinters := rt.getAllEnvPrinters()
+		rt.EnvPrinters.WindsorEnv = env.NewWindsorEnvPrinter(rt.Shell, rt.ConfigHandler, secretsProviders, allEnvPrinters)
 	}
 }
 
 // initializeToolsManager initializes the tools manager if not already set.
-// It checks the injector for an existing tools manager first, and only creates a new one if not found.
-// It creates a new ToolsManager instance and registers it with the dependency injector.
+// It creates a new ToolsManager instance if ConfigHandler and Shell are available.
 func (rt *Runtime) initializeToolsManager() {
 	if rt.ToolsManager == nil {
-		if existingManager := rt.Injector.Resolve("toolsManager"); existingManager != nil {
-			if toolsManager, ok := existingManager.(tools.ToolsManager); ok {
-				rt.ToolsManager = toolsManager
-				return
-			}
-		}
 		if rt.ConfigHandler != nil && rt.Shell != nil {
 			rt.ToolsManager = tools.NewToolsManager(rt.ConfigHandler, rt.Shell)
-			rt.Injector.Register("toolsManager", rt.ToolsManager)
 		}
 	}
 }
 
-// initializeSecretsProviders initializes and registers secrets providers with the dependency injector
-// based on current configuration settings. The method sets up the SOPS provider if enabled with the
-// context's config root path, and sets up the 1Password provider if enabled, using a mock in test
-// scenarios. Providers are only initialized if not already present on the context.
+// initializeSecretsProviders initializes secrets providers based on current configuration settings.
+// The method sets up the SOPS provider if enabled with the context's config root path, and sets up
+// the 1Password provider if enabled, using a mock in test scenarios. Providers are only initialized
+// if not already present on the context.
 func (rt *Runtime) initializeSecretsProviders() {
 	if rt.SecretsProviders.Sops == nil && rt.ConfigHandler.GetBool("secrets.sops.enabled", false) {
-		if existingProvider := rt.Injector.Resolve("sopsSecretsProvider"); existingProvider != nil {
-			if provider, ok := existingProvider.(secrets.SecretsProvider); ok {
-				rt.SecretsProviders.Sops = provider
-			}
-		}
-		if rt.SecretsProviders.Sops == nil {
-			configPath := rt.ConfigRoot
-			rt.SecretsProviders.Sops = secrets.NewSopsSecretsProvider(configPath, rt.Injector)
-			rt.Injector.Register("sopsSecretsProvider", rt.SecretsProviders.Sops)
-		}
+		configPath := rt.ConfigRoot
+		rt.SecretsProviders.Sops = secrets.NewSopsSecretsProvider(configPath, rt.Shell)
 	}
 
 	if rt.SecretsProviders.Onepassword == nil && rt.ConfigHandler.GetBool("secrets.onepassword.enabled", false) {
-		if existingProvider := rt.Injector.Resolve("onepasswordSecretsProvider"); existingProvider != nil {
-			if provider, ok := existingProvider.(secrets.SecretsProvider); ok {
-				rt.SecretsProviders.Onepassword = provider
-			}
-		}
-		if rt.SecretsProviders.Onepassword == nil {
-			rt.SecretsProviders.Onepassword = secrets.NewMockSecretsProvider(rt.Injector)
-			rt.Injector.Register("onepasswordSecretsProvider", rt.SecretsProviders.Onepassword)
-		}
+		rt.SecretsProviders.Onepassword = secrets.NewMockSecretsProvider(rt.Shell)
 	}
 }
 

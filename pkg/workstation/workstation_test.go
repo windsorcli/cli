@@ -48,7 +48,6 @@ func convertToServiceSlice(mockServices []*services.MockService) []services.Serv
 func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	t.Helper()
 
-
 	// Create mock config handler
 	mockConfigHandler := config.NewMockConfigHandler()
 
@@ -161,7 +160,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		service.SetNameFunc = func(name string) {}
 		service.GetNameFunc = func() string { return "test-service" }
 		service.WriteConfigFunc = func() error { return nil }
-		service.InitializeFunc = func() error { return nil }
 	}
 
 	// Set up mock network manager behaviors
@@ -177,7 +175,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	// Set up mock container runtime behaviors
 	mockContainerRuntime.UpFunc = func(verbose ...bool) error { return nil }
 	mockContainerRuntime.DownFunc = func() error { return nil }
-
 
 	// Apply custom options
 	if len(opts) > 0 && opts[0] != nil {

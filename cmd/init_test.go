@@ -11,9 +11,9 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/constants"
+	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 // =============================================================================
@@ -21,11 +21,12 @@ import (
 // =============================================================================
 
 type InitMocks struct {
-	Injector         di.Injector
 	ConfigHandler    config.ConfigHandler
 	Shell            *Mocks
 	Shims            *Shims
 	BlueprintHandler *blueprint.MockBlueprintHandler
+	ToolsManager     *tools.MockToolsManager
+	Runtime          *runtime.Runtime
 }
 
 func setupInitTest(t *testing.T, opts ...*SetupOptions) *InitMocks {
@@ -63,25 +64,19 @@ func setupInitTest(t *testing.T, opts ...*SetupOptions) *InitMocks {
 	baseMocks.Shell.WriteResetTokenFunc = func() (string, error) { return "test-token", nil }
 
 	// Add blueprint handler mock
-	mockBlueprintHandler := blueprint.NewMockBlueprintHandler(baseMocks.Injector)
-	mockBlueprintHandler.InitializeFunc = func() error { return nil }
+	mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
 	mockBlueprintHandler.LoadBlueprintFunc = func() error { return nil }
 	mockBlueprintHandler.WriteFunc = func(overwrite ...bool) error { return nil }
-	baseMocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
-
-	// Add mock tools manager (required by runInit)
-	mockToolsManager := tools.NewMockToolsManager()
-	mockToolsManager.InitializeFunc = func() error { return nil }
-	mockToolsManager.CheckFunc = func() error { return nil }
-	mockToolsManager.InstallFunc = func() error { return nil }
-	baseMocks.Injector.Register("toolsManager", mockToolsManager)
+	// Configure tools manager (required by runInit)
+	baseMocks.ToolsManager.InstallFunc = func() error { return nil }
 
 	return &InitMocks{
-		Injector:         baseMocks.Injector,
 		ConfigHandler:    baseMocks.ConfigHandler,
 		Shell:            baseMocks,
 		Shims:            baseMocks.Shims,
 		BlueprintHandler: mockBlueprintHandler,
+		ToolsManager:     baseMocks.ToolsManager,
+		Runtime:          baseMocks.Runtime,
 	}
 }
 
@@ -112,11 +107,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -129,11 +124,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SuccessWithReset", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with reset flag
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		ctx = context.WithValue(ctx, "reset", true)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
@@ -147,11 +142,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SuccessWithContext", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with context
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		ctx = context.WithValue(ctx, "contextName", "local")
 		cmd.SetArgs([]string{"test-context"})
 		cmd.SetContext(ctx)
@@ -165,11 +160,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SuccessWithContextAndReset", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with context and reset
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		ctx = context.WithValue(ctx, "contextName", "local")
 		ctx = context.WithValue(ctx, "reset", true)
 		cmd.SetArgs([]string{"test-context"})
@@ -184,11 +179,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SuccessWithAllFlags", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with all flags
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		ctx = context.WithValue(ctx, "contextName", "local")
 		ctx = context.WithValue(ctx, "reset", true)
 		ctx = context.WithValue(ctx, "verbose", true)
@@ -204,11 +199,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SuccessWithBackendFlag", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with backend flag
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"--backend", "s3"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -221,11 +216,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SuccessWithVmDriverFlag", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with VM driver flag
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"--vm-driver", "colima"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -238,11 +233,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SuccessWithVmCpuFlag", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with VM CPU flag
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"--vm-cpu", "4"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -255,11 +250,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SuccessWithVmDiskFlag", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with VM disk flag
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"--vm-disk", "100"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -272,11 +267,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SuccessWithVmMemoryFlag", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with VM memory flag
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"--vm-memory", "8192"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -289,11 +284,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SuccessWithVmArchFlag", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with VM arch flag
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"--vm-arch", "x86_64"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -306,11 +301,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SuccessWithDockerFlag", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with docker flag
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"--docker"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -323,11 +318,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SuccessWithGitLivereloadFlag", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with git livereload flag
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"--git-livereload"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -340,11 +335,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SuccessWithBlueprintFlag", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with blueprint flag
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"--blueprint", "full"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -357,11 +352,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SuccessWithPlatformFlag", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with platform flag
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"--provider", "local"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -374,11 +369,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SuccessWithSetFlags", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with set flags
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"--set", "cluster.endpoint=https://localhost:6443", "--set", "dns.domain=test.local"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -391,11 +386,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SetFlagInvalidFormat", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with invalid set flag format
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"--set", "invalid-format"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -408,11 +403,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("MultipleFlagsCombination", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with multiple flags
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"--backend", "s3", "--vm-driver", "colima", "--docker", "--blueprint", "full"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -767,11 +762,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("RunEAutoProviderBlueprintLogic", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with local context (should auto-set provider and blueprint)
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"local"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -784,11 +779,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("RunEExplicitProviderAutoBlueprint", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with explicit provider
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"--provider", "aws"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -801,11 +796,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("RunEExplicitBlueprintOverrides", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with explicit blueprint
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"--blueprint", "oci://custom/blueprint:v1.0.0"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -818,11 +813,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("RunESimpleFlagsProcessing", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with simple flags
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{
 			"test-context",
 			"--reset",
@@ -841,11 +836,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("RunEDeprecatedPlatformFlag", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with deprecated platform flag
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"--platform", "aws"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -858,11 +853,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("RunEPlatformAndProviderConflict", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with both platform and provider flags
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"--platform", "aws", "--provider", "azure"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -875,11 +870,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("RunEPlatformOverridesAutoProvider", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with platform flag (should override auto-set provider)
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"local", "--platform", "aws"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -892,11 +887,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("RunEContextNameAsProvider", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with context name that matches a provider
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"aws"}) // No explicit provider flag
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -909,11 +904,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("RunEContextNameAsProviderForAzure", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with "azure" context name
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"azure"}) // No explicit provider flag
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -926,11 +921,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("RunEContextNameAsProviderForMetal", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with "metal" context name
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"metal"}) // No explicit provider flag
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -943,11 +938,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("RunEContextNameAsProviderForLocal", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with "local" context name
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"local"}) // No explicit provider flag
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -960,11 +955,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("RunEExplicitProviderOverridesContextName", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with explicit provider that differs from context name
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"aws", "--provider", "azure"}) // Context name vs explicit provider
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -977,11 +972,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("RunEUnknownContextNameDoesNotSetProvider", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with unknown context name
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"unknown-context"}) // Unknown context name
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -994,11 +989,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("RunEInvalidSetFlagFormat", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
+		setupInitTest(t)
 
 		// When executing the init command with invalid set flag format
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		cmd.SetArgs([]string{"--set", "invalid-format-without-equals"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -1020,9 +1015,12 @@ func TestInitCmd(t *testing.T) {
 			return nil
 		}
 
+		// Override ProjectRoot in runtime
+		mocks.Runtime.ProjectRoot = mocks.Shell.TmpDir
+
 		// When executing the init command
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -1048,9 +1046,12 @@ func TestInitCmd(t *testing.T) {
 			return expectedError
 		}
 
+		// Override ProjectRoot in runtime
+		mocks.Runtime.ProjectRoot = mocks.Shell.TmpDir
+
 		// When executing the init command
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -1058,6 +1059,7 @@ func TestInitCmd(t *testing.T) {
 		// Then an error should occur
 		if err == nil {
 			t.Error("Expected error when AddCurrentDirToTrustedFile fails, got nil")
+			return
 		}
 
 		// And the error should contain the expected message

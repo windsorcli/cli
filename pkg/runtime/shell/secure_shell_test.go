@@ -58,9 +58,6 @@ func setupSecureShellMocks(t *testing.T) *SecureMocks {
 		},
 	}
 
-	// Register SSH client with injector
-	baseMocks.Injector.Register("sshClient", mockClient)
-
 	return &SecureMocks{
 		Mocks:      baseMocks,
 		Client:     mockClient,

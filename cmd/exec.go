@@ -6,7 +6,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/runtime"
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 // execCmd represents the exec command
@@ -23,13 +22,12 @@ var execCmd = &cobra.Command{
 
 		verbose, _ := cmd.Flags().GetBool("verbose")
 
-		injector := cmd.Context().Value(injectorKey).(di.Injector)
-
-		rt := &runtime.Runtime{
-			Injector: injector,
+		var rtOpts []*runtime.Runtime
+		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
+			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
 		}
 
-		rt, err := runtime.NewRuntime(rt)
+		rt, err := runtime.NewRuntime(rtOpts...)
 		if err != nil {
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}
