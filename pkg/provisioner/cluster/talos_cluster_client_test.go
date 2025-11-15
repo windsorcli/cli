@@ -17,9 +17,8 @@ import (
 // Test Setup
 // =============================================================================
 
-// setupShims initializes and returns shims for tests
-func setupShims(t *testing.T) *Shims {
-	t.Helper()
+// setupDefaultShims initializes and returns shims with default test configurations
+func setupDefaultShims() *Shims {
 	shims := NewShims()
 
 	shims.TalosConfigOpen = func(configPath string) (*clientconfig.Config, error) {
@@ -102,7 +101,7 @@ func TestTalosClusterClient_WaitForNodesHealthy(t *testing.T) {
 	setup := func(t *testing.T) *TalosClusterClient {
 		t.Helper()
 		client := NewTalosClusterClient()
-		client.shims = setupShims(t)
+		client.shims = setupDefaultShims()
 		client.healthCheckTimeout = 100 * time.Millisecond
 		client.healthCheckPollInterval = 10 * time.Millisecond
 		return client
@@ -277,6 +276,213 @@ func TestTalosClusterClient_WaitForNodesHealthy(t *testing.T) {
 			t.Errorf("Expected timeout error, got %v", err)
 		}
 	})
+
+	t.Run("ContextWithDeadline", func(t *testing.T) {
+		client := setup(t)
+		os.Setenv("TALOSCONFIG", "/tmp/talosconfig")
+		defer os.Unsetenv("TALOSCONFIG")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+
+		client.healthCheckTimeout = 200 * time.Millisecond
+		client.healthCheckPollInterval = 10 * time.Millisecond
+
+		nodeAddresses := []string{"10.0.0.1"}
+
+		err := client.WaitForNodesHealthy(ctx, nodeAddresses, "")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("MultipleNodesWithMixedHealth", func(t *testing.T) {
+		client := setup(t)
+		os.Setenv("TALOSCONFIG", "/tmp/talosconfig")
+		defer os.Unsetenv("TALOSCONFIG")
+
+		callCount := 0
+		client.shims.TalosServiceList = func(ctx context.Context, client *talosclient.Client) (*machine.ServiceListResponse, error) {
+			callCount++
+			if callCount == 1 {
+				return &machine.ServiceListResponse{
+					Messages: []*machine.ServiceList{
+						{
+							Services: []*machine.ServiceInfo{
+								{
+									Id:    "apid",
+									State: "Running",
+									Health: &machine.ServiceHealth{
+										Healthy: true,
+									},
+								},
+							},
+						},
+					},
+				}, nil
+			}
+			return &machine.ServiceListResponse{
+				Messages: []*machine.ServiceList{
+					{
+						Services: []*machine.ServiceInfo{
+							{
+								Id:    "apid",
+								State: "Running",
+								Health: &machine.ServiceHealth{
+									Healthy: true,
+								},
+							},
+						},
+					},
+				},
+			}, nil
+		}
+
+		ctx := context.Background()
+		nodeAddresses := []string{"10.0.0.1", "10.0.0.2"}
+
+		err := client.WaitForNodesHealthy(ctx, nodeAddresses, "")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("TimeoutWithUnhealthyAndVersionMismatch", func(t *testing.T) {
+		client := setup(t)
+		os.Setenv("TALOSCONFIG", "/tmp/talosconfig")
+		defer os.Unsetenv("TALOSCONFIG")
+
+		client.healthCheckTimeout = 50 * time.Millisecond
+		client.healthCheckPollInterval = 10 * time.Millisecond
+
+		client.shims.TalosServiceList = func(ctx context.Context, client *talosclient.Client) (*machine.ServiceListResponse, error) {
+			return &machine.ServiceListResponse{
+				Messages: []*machine.ServiceList{
+					{
+						Services: []*machine.ServiceInfo{
+							{
+								Id:    "apid",
+								State: "Stopped",
+								Health: &machine.ServiceHealth{
+									Healthy: false,
+								},
+							},
+						},
+					},
+				},
+			}, nil
+		}
+
+		client.shims.TalosVersion = func(ctx context.Context, client *talosclient.Client) (*machine.VersionResponse, error) {
+			return &machine.VersionResponse{
+				Messages: []*machine.Version{
+					{
+						Version: &machine.VersionInfo{
+							Tag: "v1.1.0",
+						},
+					},
+				},
+			}, nil
+		}
+
+		ctx := context.Background()
+		nodeAddresses := []string{"10.0.0.1"}
+		expectedVersion := "1.0.0"
+
+		err := client.WaitForNodesHealthy(ctx, nodeAddresses, expectedVersion)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "unhealthy nodes") && !strings.Contains(err.Error(), "version mismatch nodes") {
+			t.Errorf("Expected error about unhealthy or version mismatch nodes, got %v", err)
+		}
+	})
+
+	t.Run("EmptyNodeAddresses", func(t *testing.T) {
+		client := setup(t)
+		os.Setenv("TALOSCONFIG", "/tmp/talosconfig")
+		defer os.Unsetenv("TALOSCONFIG")
+
+		ctx := context.Background()
+		nodeAddresses := []string{}
+
+		err := client.WaitForNodesHealthy(ctx, nodeAddresses, "")
+		if err != nil {
+			t.Errorf("Expected no error for empty node addresses, got %v", err)
+		}
+	})
+
+	t.Run("MultipleNodesOneHealthyOneUnhealthy", func(t *testing.T) {
+		client := setup(t)
+		os.Setenv("TALOSCONFIG", "/tmp/talosconfig")
+		defer os.Unsetenv("TALOSCONFIG")
+
+		client.healthCheckTimeout = 50 * time.Millisecond
+		client.healthCheckPollInterval = 10 * time.Millisecond
+
+		client.shims.TalosServiceList = func(ctx context.Context, client *talosclient.Client) (*machine.ServiceListResponse, error) {
+			return &machine.ServiceListResponse{
+				Messages: []*machine.ServiceList{
+					{
+						Services: []*machine.ServiceInfo{
+							{
+								Id:    "apid",
+								State: "Stopped",
+								Health: &machine.ServiceHealth{
+									Healthy: false,
+								},
+							},
+						},
+					},
+				},
+			}, nil
+		}
+
+		ctx := context.Background()
+		nodeAddresses := []string{"10.0.0.1", "10.0.0.2"}
+
+		err := client.WaitForNodesHealthy(ctx, nodeAddresses, "")
+		if err == nil {
+			t.Error("Expected error when nodes are unhealthy, got nil")
+		}
+		if !strings.Contains(err.Error(), "timeout waiting for nodes") {
+			t.Errorf("Expected timeout error, got %v", err)
+		}
+	})
+
+	t.Run("MultipleNodesWithVersionMismatch", func(t *testing.T) {
+		client := setup(t)
+		os.Setenv("TALOSCONFIG", "/tmp/talosconfig")
+		defer os.Unsetenv("TALOSCONFIG")
+
+		client.healthCheckTimeout = 50 * time.Millisecond
+		client.healthCheckPollInterval = 10 * time.Millisecond
+
+		client.shims.TalosVersion = func(ctx context.Context, client *talosclient.Client) (*machine.VersionResponse, error) {
+			return &machine.VersionResponse{
+				Messages: []*machine.Version{
+					{
+						Version: &machine.VersionInfo{
+							Tag: "v1.1.0",
+						},
+					},
+				},
+			}, nil
+		}
+
+		ctx := context.Background()
+		nodeAddresses := []string{"10.0.0.1", "10.0.0.2"}
+		expectedVersion := "1.0.0"
+
+		err := client.WaitForNodesHealthy(ctx, nodeAddresses, expectedVersion)
+		if err == nil {
+			t.Error("Expected error when nodes have version mismatch, got nil")
+		}
+		if !strings.Contains(err.Error(), "version mismatch nodes") {
+			t.Errorf("Expected version mismatch error, got %v", err)
+		}
+	})
 }
 
 func TestTalosClusterClient_Close(t *testing.T) {
@@ -295,7 +501,7 @@ func TestTalosClusterClient_Close(t *testing.T) {
 
 	t.Run("SuccessWithClient", func(t *testing.T) {
 		client := NewTalosClusterClient()
-		client.shims = setupShims(t)
+		client.shims = setupDefaultShims()
 
 		// Set up a mock client (we'll use a non-nil pointer to simulate having a client)
 		mockClient := &talosclient.Client{}
@@ -335,7 +541,7 @@ func TestTalosClusterClient_ensureClient(t *testing.T) {
 	setup := func(t *testing.T) *TalosClusterClient {
 		t.Helper()
 		client := NewTalosClusterClient()
-		client.shims = setupShims(t)
+		client.shims = setupDefaultShims()
 		return client
 	}
 
@@ -419,7 +625,7 @@ func TestTalosClusterClient_getNodeHealthDetails(t *testing.T) {
 	setup := func(t *testing.T) *TalosClusterClient {
 		t.Helper()
 		client := NewTalosClusterClient()
-		client.shims = setupShims(t)
+		client.shims = setupDefaultShims()
 		return client
 	}
 
@@ -585,7 +791,7 @@ func TestTalosClusterClient_getNodeVersion(t *testing.T) {
 	setup := func(t *testing.T) *TalosClusterClient {
 		t.Helper()
 		client := NewTalosClusterClient()
-		client.shims = setupShims(t)
+		client.shims = setupDefaultShims()
 		return client
 	}
 
@@ -644,6 +850,44 @@ func TestTalosClusterClient_getNodeVersion(t *testing.T) {
 		}
 		if version != "1.2.3" {
 			t.Errorf("Expected version '1.2.3', got '%s'", version)
+		}
+	})
+}
+
+// =============================================================================
+// Test Shims
+// =============================================================================
+
+func TestNewShims(t *testing.T) {
+	t.Run("InitializesAllFields", func(t *testing.T) {
+		shims := NewShims()
+
+		if shims == nil {
+			t.Fatal("Expected non-nil Shims")
+		}
+
+		if shims.TalosConfigOpen == nil {
+			t.Error("Expected TalosConfigOpen to be initialized")
+		}
+
+		if shims.TalosNewClient == nil {
+			t.Error("Expected TalosNewClient to be initialized")
+		}
+
+		if shims.TalosVersion == nil {
+			t.Error("Expected TalosVersion to be initialized")
+		}
+
+		if shims.TalosWithNodes == nil {
+			t.Error("Expected TalosWithNodes to be initialized")
+		}
+
+		if shims.TalosServiceList == nil {
+			t.Error("Expected TalosServiceList to be initialized")
+		}
+
+		if shims.TalosClose == nil {
+			t.Error("Expected TalosClose to be initialized")
 		}
 	})
 }

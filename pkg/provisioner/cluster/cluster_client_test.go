@@ -8,18 +8,6 @@ import (
 )
 
 // =============================================================================
-// Test Setup
-// =============================================================================
-
-type Mocks struct {
-	// Add mocks as needed
-}
-
-type SetupOptions struct {
-	// Add setup options as needed
-}
-
-// =============================================================================
 // Test Constructor
 // =============================================================================
 
@@ -50,12 +38,25 @@ func TestNewBaseClusterClient(t *testing.T) {
 
 func TestBaseClusterClient_Close(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a base cluster client
 		client := NewBaseClusterClient()
 
-		// When calling Close
-		// Then it should not panic
 		client.Close()
+
+		if client == nil {
+			t.Error("Expected client to remain non-nil after Close")
+		}
+	})
+
+	t.Run("CanBeCalledMultipleTimes", func(t *testing.T) {
+		client := NewBaseClusterClient()
+
+		client.Close()
+		client.Close()
+		client.Close()
+
+		if client == nil {
+			t.Error("Expected client to remain non-nil after multiple Close calls")
+		}
 	})
 }
 
