@@ -68,6 +68,7 @@ func setupInitTest(t *testing.T, opts ...*SetupOptions) *InitMocks {
 	mockBlueprintHandler.LoadBlueprintFunc = func() error { return nil }
 	mockBlueprintHandler.WriteFunc = func(overwrite ...bool) error { return nil }
 	// Configure tools manager (required by runInit)
+	baseMocks.ToolsManager.CheckFunc = func() error { return nil }
 	baseMocks.ToolsManager.InstallFunc = func() error { return nil }
 
 	return &InitMocks{
