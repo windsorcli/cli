@@ -56,7 +56,7 @@ func createTestBlueprint() *blueprintv1alpha1.Blueprint {
 	}
 }
 
-type Mocks struct {
+type TerraformTestMocks struct {
 	ConfigHandler    config.ConfigHandler
 	Shell            *shell.MockShell
 	Blueprint        *blueprint.MockBlueprintHandler
@@ -70,8 +70,8 @@ type SetupOptions struct {
 	ConfigStr     string
 }
 
-// setupMocks creates mock components for testing the stack
-func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+// setupTerraformMocks creates mock components for testing the stack
+func setupTerraformMocks(t *testing.T, opts ...*SetupOptions) *TerraformTestMocks {
 	t.Helper()
 
 	origDir, err := os.Getwd()
@@ -177,7 +177,7 @@ contexts:
 		Shell:         mockShell,
 	}
 
-	return &Mocks{
+	return &TerraformTestMocks{
 		ConfigHandler:    configHandler,
 		Shell:            mockShell,
 		Blueprint:        mockBlueprint,
@@ -188,9 +188,9 @@ contexts:
 }
 
 // setupWindsorStackMocks creates mock components for testing the WindsorStack
-func setupWindsorStackMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+func setupWindsorStackMocks(t *testing.T, opts ...*SetupOptions) *TerraformTestMocks {
 	t.Helper()
-	mocks := setupMocks(t, opts...)
+	mocks := setupTerraformMocks(t, opts...)
 
 	projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 	tfModulesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "remote", "path")
@@ -221,9 +221,9 @@ func setupWindsorStackMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 // =============================================================================
 
 func TestStack_NewStack(t *testing.T) {
-	setup := func(t *testing.T) (*BaseStack, *Mocks) {
+	setup := func(t *testing.T) (*BaseStack, *TerraformTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupTerraformMocks(t)
 		stack := NewBaseStack(mocks.Runtime, mocks.BlueprintHandler)
 		stack.shims = mocks.Shims
 		return stack, mocks
@@ -239,9 +239,9 @@ func TestStack_NewStack(t *testing.T) {
 }
 
 func TestStack_Initialize(t *testing.T) {
-	setup := func(t *testing.T) (*BaseStack, *Mocks) {
+	setup := func(t *testing.T) (*BaseStack, *TerraformTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupTerraformMocks(t)
 		stack := NewBaseStack(mocks.Runtime, mocks.BlueprintHandler)
 		stack.shims = mocks.Shims
 		return stack, mocks
@@ -257,9 +257,9 @@ func TestStack_Initialize(t *testing.T) {
 }
 
 func TestStack_Up(t *testing.T) {
-	setup := func(t *testing.T) (*BaseStack, *Mocks) {
+	setup := func(t *testing.T) (*BaseStack, *TerraformTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupTerraformMocks(t)
 		stack := NewBaseStack(mocks.Runtime, mocks.BlueprintHandler)
 		stack.shims = mocks.Shims
 		return stack, mocks
@@ -284,7 +284,7 @@ func TestStack_Up(t *testing.T) {
 	})
 
 	t.Run("NilInjector", func(t *testing.T) {
-		mocks := setupMocks(t)
+		mocks := setupTerraformMocks(t)
 		stack := NewBaseStack(mocks.Runtime, mocks.BlueprintHandler)
 
 		blueprint := createTestBlueprint()
@@ -295,9 +295,9 @@ func TestStack_Up(t *testing.T) {
 }
 
 func TestStack_Down(t *testing.T) {
-	setup := func(t *testing.T) (*BaseStack, *Mocks) {
+	setup := func(t *testing.T) (*BaseStack, *TerraformTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupTerraformMocks(t)
 		stack := NewBaseStack(mocks.Runtime, mocks.BlueprintHandler)
 		stack.shims = mocks.Shims
 		return stack, mocks
@@ -322,7 +322,7 @@ func TestStack_Down(t *testing.T) {
 	})
 
 	t.Run("NilInjector", func(t *testing.T) {
-		mocks := setupMocks(t)
+		mocks := setupTerraformMocks(t)
 		stack := NewBaseStack(mocks.Runtime, mocks.BlueprintHandler)
 
 		blueprint := createTestBlueprint()
@@ -343,7 +343,7 @@ func TestStack_Interface(t *testing.T) {
 // =============================================================================
 
 func TestWindsorStack_NewWindsorStack(t *testing.T) {
-	setup := func(t *testing.T) (*WindsorStack, *Mocks) {
+	setup := func(t *testing.T) (*WindsorStack, *TerraformTestMocks) {
 		t.Helper()
 		mocks := setupWindsorStackMocks(t)
 		stack := NewWindsorStack(mocks.Runtime, mocks.BlueprintHandler)
@@ -360,7 +360,7 @@ func TestWindsorStack_NewWindsorStack(t *testing.T) {
 }
 
 func TestWindsorStack_Up(t *testing.T) {
-	setup := func(t *testing.T) (*WindsorStack, *Mocks) {
+	setup := func(t *testing.T) (*WindsorStack, *TerraformTestMocks) {
 		t.Helper()
 		mocks := setupWindsorStackMocks(t)
 		stack := NewWindsorStack(mocks.Runtime, mocks.BlueprintHandler)
@@ -471,10 +471,101 @@ func TestWindsorStack_Up(t *testing.T) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
 		}
 	})
+
+	t.Run("NilBlueprint", func(t *testing.T) {
+		stack, _ := setup(t)
+		err := stack.Up(nil)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "blueprint not provided") {
+			t.Errorf("Expected blueprint not provided error, got: %v", err)
+		}
+	})
+
+	t.Run("EmptyProjectRoot", func(t *testing.T) {
+		stack, mocks := setup(t)
+		mocks.Runtime.ProjectRoot = ""
+		blueprint := createTestBlueprint()
+		err := stack.Up(blueprint)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "project root is empty") {
+			t.Errorf("Expected project root error, got: %v", err)
+		}
+	})
+
+	t.Run("TerraformEnvNotAvailable", func(t *testing.T) {
+		stack, mocks := setup(t)
+		mocks.Runtime.EnvPrinters.TerraformEnv = nil
+		stack.terraformEnv = nil
+		blueprint := createTestBlueprint()
+		err := stack.Up(blueprint)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "terraform environment printer not available") {
+			t.Errorf("Expected terraform env error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorUnsettingEnvVar", func(t *testing.T) {
+		stack, mocks := setup(t)
+		mocks.Shims.Unsetenv = func(key string) error {
+			return fmt.Errorf("unsetenv error")
+		}
+		blueprint := createTestBlueprint()
+		err := stack.Up(blueprint)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error unsetting") {
+			t.Errorf("Expected unsetenv error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorSettingEnvVar", func(t *testing.T) {
+		stack, mocks := setup(t)
+		mocks.Shims.Setenv = func(key, value string) error {
+			return fmt.Errorf("setenv error")
+		}
+		blueprint := createTestBlueprint()
+		err := stack.Up(blueprint)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error setting") {
+			t.Errorf("Expected setenv error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorRemovingBackendOverride", func(t *testing.T) {
+		stack, mocks := setup(t)
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		backendOverridePath := filepath.Join(projectRoot, ".windsor", ".tf_modules", "remote", "path", "backend_override.tf")
+		if err := os.MkdirAll(filepath.Dir(backendOverridePath), 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+		if err := os.WriteFile(backendOverridePath, []byte("test"), 0644); err != nil {
+			t.Fatalf("Failed to create backend override file: %v", err)
+		}
+		mocks.Shims.Remove = func(path string) error {
+			return fmt.Errorf("remove error")
+		}
+		blueprint := createTestBlueprint()
+		err := stack.Up(blueprint)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error removing backend override file") {
+			t.Errorf("Expected remove error, got: %v", err)
+		}
+	})
 }
 
 func TestWindsorStack_Down(t *testing.T) {
-	setup := func(t *testing.T) (*WindsorStack, *Mocks) {
+	setup := func(t *testing.T) (*WindsorStack, *TerraformTestMocks) {
 		t.Helper()
 		mocks := setupWindsorStackMocks(t)
 		stack := NewWindsorStack(mocks.Runtime, mocks.BlueprintHandler)
@@ -631,6 +722,121 @@ func TestWindsorStack_Down(t *testing.T) {
 		expectedError := "error running terraform destroy for"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("NilBlueprint", func(t *testing.T) {
+		stack, _ := setup(t)
+		err := stack.Down(nil)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "blueprint not provided") {
+			t.Errorf("Expected blueprint not provided error, got: %v", err)
+		}
+	})
+
+	t.Run("EmptyProjectRoot", func(t *testing.T) {
+		stack, mocks := setup(t)
+		mocks.Runtime.ProjectRoot = ""
+		blueprint := createTestBlueprint()
+		err := stack.Down(blueprint)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "project root is empty") {
+			t.Errorf("Expected project root error, got: %v", err)
+		}
+	})
+
+	t.Run("TerraformEnvNotAvailable", func(t *testing.T) {
+		stack, mocks := setup(t)
+		mocks.Runtime.EnvPrinters.TerraformEnv = nil
+		stack.terraformEnv = nil
+		blueprint := createTestBlueprint()
+		err := stack.Down(blueprint)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "terraform environment printer not available") {
+			t.Errorf("Expected terraform env error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorUnsettingEnvVar", func(t *testing.T) {
+		stack, mocks := setup(t)
+		mocks.Shims.Unsetenv = func(key string) error {
+			return fmt.Errorf("unsetenv error")
+		}
+		blueprint := createTestBlueprint()
+		err := stack.Down(blueprint)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error unsetting") {
+			t.Errorf("Expected unsetenv error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorSettingEnvVar", func(t *testing.T) {
+		stack, mocks := setup(t)
+		mocks.Shims.Setenv = func(key, value string) error {
+			return fmt.Errorf("setenv error")
+		}
+		blueprint := createTestBlueprint()
+		err := stack.Down(blueprint)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error setting") {
+			t.Errorf("Expected setenv error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorRemovingBackendOverride", func(t *testing.T) {
+		stack, mocks := setup(t)
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		backendOverridePath := filepath.Join(projectRoot, ".windsor", ".tf_modules", "remote", "path", "backend_override.tf")
+		if err := os.MkdirAll(filepath.Dir(backendOverridePath), 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+		if err := os.WriteFile(backendOverridePath, []byte("test"), 0644); err != nil {
+			t.Fatalf("Failed to create backend override file: %v", err)
+		}
+		mocks.Shims.Remove = func(path string) error {
+			return fmt.Errorf("remove error")
+		}
+		blueprint := createTestBlueprint()
+		err := stack.Down(blueprint)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error removing backend_override.tf") {
+			t.Errorf("Expected remove error, got: %v", err)
+		}
+	})
+}
+
+func TestNewShims(t *testing.T) {
+	t.Run("InitializesAllFields", func(t *testing.T) {
+		shims := NewShims()
+		if shims.Stat == nil {
+			t.Error("Expected Stat to be initialized")
+		}
+		if shims.Chdir == nil {
+			t.Error("Expected Chdir to be initialized")
+		}
+		if shims.Getwd == nil {
+			t.Error("Expected Getwd to be initialized")
+		}
+		if shims.Setenv == nil {
+			t.Error("Expected Setenv to be initialized")
+		}
+		if shims.Unsetenv == nil {
+			t.Error("Expected Unsetenv to be initialized")
+		}
+		if shims.Remove == nil {
+			t.Error("Expected Remove to be initialized")
 		}
 	})
 }

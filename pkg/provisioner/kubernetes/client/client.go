@@ -24,14 +24,12 @@ import (
 
 // KubernetesClient defines methods for Kubernetes resource operations
 type KubernetesClient interface {
-	// Resource operations
 	GetResource(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error)
 	ListResources(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error)
 	ApplyResource(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error)
 	DeleteResource(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error
 	PatchResource(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error)
 	CheckHealth(ctx context.Context, endpoint string) error
-	// Node health operations
 	GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error)
 }
 

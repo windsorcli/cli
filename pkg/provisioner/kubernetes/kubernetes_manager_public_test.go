@@ -16,26 +16,20 @@ import (
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 )
 
-// SetupOptions holds test-specific options for setup
-type SetupOptions struct {
-}
-
-// Mocks holds all mock dependencies for tests
-type Mocks struct {
+// KubernetesTestMocks contains all the mock dependencies for testing the KubernetesManager
+type KubernetesTestMocks struct {
 	Shims            *Shims
 	KubernetesClient client.KubernetesClient
 }
 
-// setupMocks initializes and returns mock dependencies for tests
-func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+// setupKubernetesMocks creates mock components for testing the KubernetesManager with optional overrides
+func setupKubernetesMocks(t *testing.T, opts ...func(*KubernetesTestMocks)) *KubernetesTestMocks {
 	t.Helper()
-	if opts == nil {
-		opts = []*SetupOptions{{}}
-	}
 
 	kubernetesClient := client.NewMockKubernetesClient()
 	kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
@@ -45,17 +39,21 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		return &unstructured.Unstructured{}, nil
 	}
 
-	mocks := &Mocks{
-		Shims:            setupShims(t),
+	mocks := &KubernetesTestMocks{
+		Shims:            setupDefaultShims(),
 		KubernetesClient: kubernetesClient,
+	}
+
+	// Apply any overrides
+	for _, opt := range opts {
+		opt(mocks)
 	}
 
 	return mocks
 }
 
-// setupShims initializes and returns shims for tests
-func setupShims(t *testing.T) *Shims {
-	t.Helper()
+// setupDefaultShims initializes and returns shims with default test configurations
+func setupDefaultShims() *Shims {
 	shims := NewShims()
 	shims.ToUnstructured = func(obj any) (map[string]any, error) {
 		return nil, fmt.Errorf("forced conversion error")
@@ -66,7 +64,7 @@ func setupShims(t *testing.T) *Shims {
 func TestBaseKubernetesManager_ApplyKustomization(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient)
 		// Use shorter timeouts for tests
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
@@ -113,6 +111,9 @@ func TestBaseKubernetesManager_ApplyKustomization(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
+		if !strings.Contains(err.Error(), "failed to convert kustomization to unstructured") {
+			t.Errorf("Expected conversion error, got: %v", err)
+		}
 	})
 
 	t.Run("ApplyWithRetryError", func(t *testing.T) {
@@ -141,12 +142,59 @@ func TestBaseKubernetesManager_ApplyKustomization(t *testing.T) {
 			t.Error("Expected error, got nil")
 		}
 	})
+
+	t.Run("ApplyWithRetryExistingResourceConversionError", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		existingObj := &unstructured.Unstructured{
+			Object: map[string]any{
+				"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+				"kind":       "Kustomization",
+				"metadata": map[string]any{
+					"name":            "test-kustomization",
+					"namespace":       "test-namespace",
+					"resourceVersion": "123",
+				},
+			},
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return existingObj, nil
+		}
+		callCount := 0
+		originalToUnstructured := manager.shims.ToUnstructured
+		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+			callCount++
+			if callCount == 1 {
+				return originalToUnstructured(obj)
+			}
+			return nil, fmt.Errorf("conversion error")
+		}
+		manager.client = kubernetesClient
+
+		kustomization := kustomizev1.Kustomization{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-kustomization",
+				Namespace: "test-namespace",
+			},
+			Spec: kustomizev1.KustomizationSpec{
+				Path: "./test-path",
+			},
+		}
+
+		err := manager.ApplyKustomization(kustomization)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to convert existing object to unstructured") {
+			t.Errorf("Expected conversion error, got: %v", err)
+		}
+	})
 }
 
 func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient)
 		// Use shorter timeouts for tests
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
@@ -201,6 +249,50 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		}
 	})
 
+	t.Run("TimeoutWaitingForDeletion", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{}, nil
+		}
+		manager.client = kubernetesClient
+		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		if err == nil {
+			t.Error("Expected timeout error, got nil")
+		}
+		if !strings.Contains(err.Error(), "timeout waiting for kustomization") {
+			t.Errorf("Expected timeout error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorCheckingDeletionStatus", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("error checking status")
+		}
+		manager.client = kubernetesClient
+		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error checking kustomization deletion status") {
+			t.Errorf("Expected error checking status, got: %v", err)
+		}
+	})
+
 	t.Run("UsesCorrectDeleteOptions", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
@@ -232,7 +324,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient)
 		// Use shorter timeouts for tests
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
@@ -408,7 +500,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 func TestBaseKubernetesManager_CreateNamespace(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient)
 		return manager
 	}
@@ -451,7 +543,7 @@ func TestBaseKubernetesManager_CreateNamespace(t *testing.T) {
 func TestBaseKubernetesManager_DeleteNamespace(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient)
 		return manager
 	}
@@ -513,7 +605,7 @@ func TestBaseKubernetesManager_DeleteNamespace(t *testing.T) {
 func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient)
 		// Use shorter timeouts for tests
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
@@ -688,7 +780,7 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 
 	t.Run("FromUnstructuredError", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupMocks(t)
+			mocks := setupKubernetesMocks(t)
 			manager := NewKubernetesManager(mocks.KubernetesClient)
 			return manager
 		}(t)
@@ -735,7 +827,7 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 
 	t.Run("KustomizationNotReady", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupMocks(t)
+			mocks := setupKubernetesMocks(t)
 			manager := NewKubernetesManager(mocks.KubernetesClient)
 			return manager
 		}(t)
@@ -776,7 +868,7 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 
 	t.Run("KustomizationFailed", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupMocks(t)
+			mocks := setupKubernetesMocks(t)
 			manager := NewKubernetesManager(mocks.KubernetesClient)
 			return manager
 		}(t)
@@ -822,7 +914,7 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 
 	t.Run("KustomizationMissing", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupMocks(t)
+			mocks := setupKubernetesMocks(t)
 			manager := NewKubernetesManager(mocks.KubernetesClient)
 			return manager
 		}(t)
@@ -1030,7 +1122,7 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 func TestBaseKubernetesManager_GetHelmReleasesForKustomization(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient)
 		return manager
 	}
@@ -1138,7 +1230,7 @@ func TestBaseKubernetesManager_GetHelmReleasesForKustomization(t *testing.T) {
 func TestBaseKubernetesManager_SuspendKustomization(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient)
 		return manager
 	}
@@ -1233,7 +1325,7 @@ func TestBaseKubernetesManager_SuspendKustomization(t *testing.T) {
 func TestBaseKubernetesManager_SuspendHelmRelease(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient)
 		return manager
 	}
@@ -1328,7 +1420,7 @@ func TestBaseKubernetesManager_SuspendHelmRelease(t *testing.T) {
 func TestBaseKubernetesManager_ApplyGitRepository(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient)
 		return manager
 	}
@@ -1461,7 +1553,7 @@ func TestBaseKubernetesManager_ApplyGitRepository(t *testing.T) {
 func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupMocks(t)
+			mocks := setupKubernetesMocks(t)
 			manager := NewKubernetesManager(mocks.KubernetesClient)
 			return manager
 		}(t)
@@ -1500,7 +1592,7 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 
 	t.Run("ListResourcesError", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupMocks(t)
+			mocks := setupKubernetesMocks(t)
 			manager := NewKubernetesManager(mocks.KubernetesClient)
 			return manager
 		}(t)
@@ -1521,7 +1613,7 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 
 	t.Run("FromUnstructuredError", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupMocks(t)
+			mocks := setupKubernetesMocks(t)
 			manager := NewKubernetesManager(mocks.KubernetesClient)
 			return manager
 		}(t)
@@ -1566,7 +1658,7 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 
 	t.Run("RepositoryNotReady", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupMocks(t)
+			mocks := setupKubernetesMocks(t)
 			manager := NewKubernetesManager(mocks.KubernetesClient)
 			return manager
 		}(t)
@@ -1605,12 +1697,123 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 			t.Errorf("Expected error containing repo name and message, got %v", err)
 		}
 	})
+
+	t.Run("OCIRepositoryNotReady", func(t *testing.T) {
+		manager := func(t *testing.T) *BaseKubernetesManager {
+			mocks := setupKubernetesMocks(t)
+			manager := NewKubernetesManager(mocks.KubernetesClient)
+			return manager
+		}(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		callCount := 0
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			callCount++
+			if gvr.Resource == "gitrepositories" {
+				return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{}}, nil
+			}
+			return &unstructured.UnstructuredList{
+				Items: []unstructured.Unstructured{
+					{
+						Object: map[string]any{
+							"apiVersion": "source.toolkit.fluxcd.io/v1",
+							"kind":       "OCIRepository",
+							"metadata": map[string]any{
+								"name": "oci-repo1",
+							},
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{
+										"type":    "Ready",
+										"status":  "False",
+										"message": "oci repo not ready",
+									},
+								},
+							},
+						},
+					},
+				},
+			}, nil
+		}
+		manager.client = kubernetesClient
+
+		err := manager.CheckGitRepositoryStatus()
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "oci-repo1") || !strings.Contains(err.Error(), "oci repo not ready") {
+			t.Errorf("Expected error containing oci repo name and message, got %v", err)
+		}
+	})
+
+	t.Run("OCIRepositoryListError", func(t *testing.T) {
+		manager := func(t *testing.T) *BaseKubernetesManager {
+			mocks := setupKubernetesMocks(t)
+			manager := NewKubernetesManager(mocks.KubernetesClient)
+			return manager
+		}(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		callCount := 0
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			callCount++
+			if gvr.Resource == "gitrepositories" {
+				return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{}}, nil
+			}
+			return nil, fmt.Errorf("oci list error")
+		}
+		manager.client = kubernetesClient
+
+		err := manager.CheckGitRepositoryStatus()
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to list oci repositories") {
+			t.Errorf("Expected oci list error, got %v", err)
+		}
+	})
+
+	t.Run("OCIRepositoryFromUnstructuredError", func(t *testing.T) {
+		manager := func(t *testing.T) *BaseKubernetesManager {
+			mocks := setupKubernetesMocks(t)
+			manager := NewKubernetesManager(mocks.KubernetesClient)
+			return manager
+		}(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		callCount := 0
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			callCount++
+			if gvr.Resource == "gitrepositories" {
+				return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{}}, nil
+			}
+			return &unstructured.UnstructuredList{
+				Items: []unstructured.Unstructured{
+					{
+						Object: map[string]any{
+							"apiVersion": "source.toolkit.fluxcd.io/v1",
+							"kind":       "OCIRepository",
+						},
+					},
+				},
+			}, nil
+		}
+		manager.client = kubernetesClient
+		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
+			return fmt.Errorf("forced conversion error")
+		}
+
+		err := manager.CheckGitRepositoryStatus()
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to convert oci repository") {
+			t.Errorf("Expected oci conversion error, got %v", err)
+		}
+	})
 }
 
 func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupMocks(t)
+			mocks := setupKubernetesMocks(t)
 			manager := NewKubernetesManager(mocks.KubernetesClient)
 			return manager
 		}(t)
@@ -1651,7 +1854,7 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 
 	t.Run("ListResourcesError", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupMocks(t)
+			mocks := setupKubernetesMocks(t)
 			manager := NewKubernetesManager(mocks.KubernetesClient)
 			return manager
 		}(t)
@@ -1675,7 +1878,7 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 
 	t.Run("FromUnstructuredError", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupMocks(t)
+			mocks := setupKubernetesMocks(t)
 			manager := NewKubernetesManager(mocks.KubernetesClient)
 			return manager
 		}(t)
@@ -1722,7 +1925,7 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 
 	t.Run("KustomizationNotReady", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupMocks(t)
+			mocks := setupKubernetesMocks(t)
 			manager := NewKubernetesManager(mocks.KubernetesClient)
 			return manager
 		}(t)
@@ -1763,7 +1966,7 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 
 	t.Run("KustomizationFailed", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupMocks(t)
+			mocks := setupKubernetesMocks(t)
 			manager := NewKubernetesManager(mocks.KubernetesClient)
 			return manager
 		}(t)
@@ -1809,7 +2012,7 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 
 	t.Run("KustomizationArtifactFailed", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupMocks(t)
+			mocks := setupKubernetesMocks(t)
 			manager := NewKubernetesManager(mocks.KubernetesClient)
 			return manager
 		}(t)
@@ -1855,7 +2058,7 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 
 	t.Run("KustomizationMissing", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupMocks(t)
+			mocks := setupKubernetesMocks(t)
 			manager := NewKubernetesManager(mocks.KubernetesClient)
 			return manager
 		}(t)
@@ -1901,8 +2104,10 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 func TestBaseKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient)
+		manager.healthCheckPollInterval = 50 * time.Millisecond
+		manager.nodeReadyPollInterval = 50 * time.Millisecond
 		return manager
 	}
 
@@ -1942,8 +2147,15 @@ func TestBaseKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 	t.Run("ContextCancelled", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
+		callCount := 0
 		kubernetesClient.CheckHealthFunc = func(ctx context.Context, endpoint string) error {
-			return fmt.Errorf("health check failed")
+			callCount++
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+				return fmt.Errorf("health check failed")
+			}
 		}
 		manager.client = kubernetesClient
 
@@ -1958,12 +2170,133 @@ func TestBaseKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 			t.Errorf("Expected timeout error, got: %v", err)
 		}
 	})
+
+	t.Run("HealthCheckFailsThenSucceeds", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		callCount := 0
+		kubernetesClient.CheckHealthFunc = func(ctx context.Context, endpoint string) error {
+			callCount++
+			if callCount == 1 {
+				return fmt.Errorf("health check failed")
+			}
+			return nil
+		}
+		manager.client = kubernetesClient
+
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		err := manager.WaitForKubernetesHealthy(ctx, "https://test-endpoint:6443", nil)
+		if err != nil {
+			t.Errorf("Expected no error after retry, got %v", err)
+		}
+		if callCount < 2 {
+			t.Error("Expected CheckHealth to be called multiple times")
+		}
+	})
+
+	t.Run("TimeoutWaitingForHealth", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.CheckHealthFunc = func(ctx context.Context, endpoint string) error {
+			return fmt.Errorf("health check failed")
+		}
+		manager.client = kubernetesClient
+
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		err := manager.WaitForKubernetesHealthy(ctx, "https://test-endpoint:6443", nil)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "timeout waiting for Kubernetes API to be healthy") {
+			t.Errorf("Expected timeout error, got: %v", err)
+		}
+	})
+
+	t.Run("SuccessWithNodeNames", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.CheckHealthFunc = func(ctx context.Context, endpoint string) error {
+			return nil
+		}
+		kubernetesClient.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
+			return map[string]bool{
+				"node1": true,
+				"node2": true,
+			}, nil
+		}
+		manager.client = kubernetesClient
+
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		var output []string
+		outputFunc := func(msg string) {
+			output = append(output, msg)
+		}
+
+		err := manager.WaitForKubernetesHealthy(ctx, "https://test-endpoint:6443", outputFunc, "node1", "node2")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("HealthCheckSucceedsButNodesNotReady", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.CheckHealthFunc = func(ctx context.Context, endpoint string) error {
+			return nil
+		}
+		kubernetesClient.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
+			return map[string]bool{
+				"node1": false,
+			}, nil
+		}
+		manager.client = kubernetesClient
+
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+
+		err := manager.WaitForKubernetesHealthy(ctx, "https://test-endpoint:6443", nil, "node1")
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "timeout waiting for Kubernetes API to be healthy") {
+			t.Errorf("Expected timeout error, got: %v", err)
+		}
+	})
+
+	t.Run("HealthCheckSucceedsButWaitForNodesReadyError", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.CheckHealthFunc = func(ctx context.Context, endpoint string) error {
+			return nil
+		}
+		kubernetesClient.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
+			return nil, fmt.Errorf("node status error")
+		}
+		manager.client = kubernetesClient
+
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+
+		err := manager.WaitForKubernetesHealthy(ctx, "https://test-endpoint:6443", nil, "node1")
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "timeout waiting for Kubernetes API to be healthy") {
+			t.Errorf("Expected timeout error, got: %v", err)
+		}
+	})
 }
 
 func TestBaseKubernetesManager_ApplyOCIRepository(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient)
 		return manager
 	}
@@ -2120,7 +2453,7 @@ func TestBaseKubernetesManager_ApplyOCIRepository(t *testing.T) {
 func TestBaseKubernetesManager_GetNodeReadyStatus(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient)
 		return manager
 	}
@@ -2180,156 +2513,10 @@ func TestBaseKubernetesManager_GetNodeReadyStatus(t *testing.T) {
 	})
 }
 
-func TestBaseKubernetesManager_waitForNodesReady(t *testing.T) {
-	setup := func(t *testing.T) *BaseKubernetesManager {
-		t.Helper()
-		mocks := setupMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient)
-		return manager
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
-			return map[string]bool{
-				"node1": true,
-				"node2": true,
-			}, nil
-		}
-		manager.client = kubernetesClient
-
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
-
-		var output []string
-		outputFunc := func(msg string) {
-			output = append(output, msg)
-		}
-
-		err := manager.waitForNodesReady(ctx, []string{"node1", "node2"}, outputFunc)
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if len(output) == 0 {
-			t.Error("Expected output messages, got none")
-		}
-	})
-
-	t.Run("ContextCancelled", func(t *testing.T) {
-		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
-			return map[string]bool{
-				"node1": false,
-				"node2": false,
-			}, nil
-		}
-		manager.client = kubernetesClient
-
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel() // Cancel immediately
-
-		err := manager.waitForNodesReady(ctx, []string{"node1", "node2"}, nil)
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "context cancelled while waiting for nodes to be ready") {
-			t.Errorf("Expected context cancelled error, got: %v", err)
-		}
-	})
-
-	t.Run("MissingNodes", func(t *testing.T) {
-		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
-			return map[string]bool{
-				"node1": true,
-			}, nil
-		}
-		manager.client = kubernetesClient
-
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		defer cancel()
-
-		err := manager.waitForNodesReady(ctx, []string{"node1", "node2"}, nil)
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "timeout waiting for nodes to appear") {
-			t.Errorf("Expected missing nodes error, got: %v", err)
-		}
-	})
-
-}
-
-func TestBaseKubernetesManager_getHelmRelease(t *testing.T) {
-	setup := func(t *testing.T) *BaseKubernetesManager {
-		t.Helper()
-		mocks := setupMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient)
-		return manager
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		expectedObj := &unstructured.Unstructured{
-			Object: map[string]any{
-				"apiVersion": "helm.toolkit.fluxcd.io/v2",
-				"kind":       "HelmRelease",
-				"metadata": map[string]any{
-					"name":      "test-release",
-					"namespace": "test-namespace",
-				},
-				"spec": map[string]any{
-					"chart": map[string]any{
-						"spec": map[string]any{
-							"chart": "test-chart",
-						},
-					},
-				},
-			},
-		}
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
-			return expectedObj, nil
-		}
-		manager.client = kubernetesClient
-
-		release, err := manager.getHelmRelease("test-release", "test-namespace")
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if release == nil {
-			t.Error("Expected helm release, got nil")
-		}
-		if release.Name != "test-release" {
-			t.Errorf("Expected name 'test-release', got %s", release.Name)
-		}
-	})
-
-	t.Run("GetResourceError", func(t *testing.T) {
-		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
-			return nil, fmt.Errorf("get resource error")
-		}
-		manager.client = kubernetesClient
-
-		_, err := manager.getHelmRelease("test-release", "test-namespace")
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to get helm release") {
-			t.Errorf("Expected get resource error, got: %v", err)
-		}
-	})
-}
-
 func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient)
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
 		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
@@ -2720,6 +2907,290 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "failed to delete cleanup kustomization") {
 			t.Errorf("Expected error containing 'failed to delete cleanup kustomization', got %v", err)
+		}
+	})
+}
+
+func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
+	setup := func(t *testing.T) *BaseKubernetesManager {
+		t.Helper()
+		mocks := setupKubernetesMocks(t)
+		manager := NewKubernetesManager(mocks.KubernetesClient)
+		manager.shims = mocks.Shims
+		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+		}
+		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
+			return runtime.DefaultUnstructuredConverter.FromUnstructured(obj, target)
+		}
+		return manager
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name: "test-source",
+					Url:  "https://github.com/example/repo.git",
+					Ref:  blueprintv1alpha1.Reference{Branch: "main"},
+				},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+				},
+			},
+		}
+
+		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorOnCreateNamespace", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			if obj.GetKind() == "Namespace" {
+				return nil, fmt.Errorf("namespace creation failed")
+			}
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+		}
+
+		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to create namespace") {
+			t.Errorf("Expected error about namespace creation, got %v", err)
+		}
+	})
+
+	t.Run("SuccessWithRepository", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Repository: blueprintv1alpha1.Repository{
+				Url: "https://github.com/example/repo.git",
+				Ref: blueprintv1alpha1.Reference{Branch: "main"},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+				},
+			},
+		}
+
+		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorOnApplyBlueprintRepository", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			if obj.GetKind() == "GitRepository" {
+				return nil, fmt.Errorf("git repository apply failed")
+			}
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Repository: blueprintv1alpha1.Repository{
+				Url: "https://github.com/example/repo.git",
+			},
+		}
+
+		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to apply blueprint repository") {
+			t.Errorf("Expected error about blueprint repository, got %v", err)
+		}
+	})
+
+	t.Run("ErrorOnApplySource", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			if obj.GetKind() == "GitRepository" {
+				return nil, fmt.Errorf("git repository apply failed")
+			}
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name: "test-source",
+					Url:  "https://github.com/example/repo.git",
+				},
+			},
+		}
+
+		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to apply source") {
+			t.Errorf("Expected error about applying source, got %v", err)
+		}
+	})
+
+	t.Run("ErrorOnApplyConfigMap", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			if obj.GetKind() == "ConfigMap" {
+				return nil, fmt.Errorf("configmap apply failed")
+			}
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+					Substitutions: map[string]string{
+						"key": "value",
+					},
+				},
+			},
+		}
+
+		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to create ConfigMap") {
+			t.Errorf("Expected error about ConfigMap, got %v", err)
+		}
+	})
+
+	t.Run("ErrorOnApplyKustomization", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			if obj.GetKind() == "Kustomization" {
+				return nil, fmt.Errorf("kustomization apply failed")
+			}
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+				},
+			},
+		}
+
+		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to apply kustomization") {
+			t.Errorf("Expected error about kustomization, got %v", err)
+		}
+	})
+
+	t.Run("SuccessWithOCISource", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name: "oci-source",
+					Url:  "oci://example.com/repo",
+				},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+				},
+			},
+		}
+
+		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 }
