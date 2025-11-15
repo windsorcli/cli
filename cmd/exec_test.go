@@ -122,7 +122,7 @@ func TestExecCmd(t *testing.T) {
 		cmd := createTestCmd()
 		cmd.Flags().Bool("verbose", false, "Show verbose output")
 		cmd.Flags().Set("verbose", "true")
-		ctx := context.Background()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetContext(ctx)
 
 		args := []string{"go", "version"}

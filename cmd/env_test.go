@@ -53,10 +53,10 @@ func TestEnvCmd(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setup(t)
-		setupMocks(t)
+		mocks := setupMocks(t)
 
 		// Set up mocks with trusted directory
-		ctx := context.Background()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"env"})
@@ -78,10 +78,10 @@ func TestEnvCmd(t *testing.T) {
 	t.Run("SuccessWithDecrypt", func(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setup(t)
-		setupMocks(t)
+		mocks := setupMocks(t)
 
 		// Set up mocks with trusted directory
-		ctx := context.Background()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"env", "--decrypt"})
@@ -103,8 +103,8 @@ func TestEnvCmd(t *testing.T) {
 	t.Run("SuccessWithHook", func(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setup(t)
-		setupMocks(t)
-		ctx := context.Background()
+		mocks := setupMocks(t)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"env", "--hook"})
@@ -126,10 +126,10 @@ func TestEnvCmd(t *testing.T) {
 	t.Run("SuccessWithVerbose", func(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setup(t)
-		setupMocks(t)
+		mocks := setupMocks(t)
 
 		// Set up mocks with trusted directory
-		ctx := context.Background()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"env", "--verbose"})
@@ -151,8 +151,8 @@ func TestEnvCmd(t *testing.T) {
 	t.Run("SuccessWithAllFlags", func(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setup(t)
-		setupMocks(t)
-		ctx := context.Background()
+		mocks := setupMocks(t)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"env", "--decrypt", "--hook", "--verbose"})
@@ -378,7 +378,7 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("HandlesExecutePostEnvHooksErrorWithVerbose", func(t *testing.T) {
 		setup(t)
-		setupMocks(t)
+		mocks := setupMocks(t)
 		// Reset context and verbose before setting up test
 		rootCmd.SetContext(context.Background())
 		verbose = false
@@ -395,7 +395,7 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		}
 		// Override the WindsorEnv printer after LoadEnvironment has initialized it
 		// We need to set it directly on the Runtime after it's created
-		ctx := context.Background()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 		t.Cleanup(func() {
 			rootCmd.SetContext(context.Background())
@@ -418,7 +418,7 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("SwallowsExecutePostEnvHooksErrorWithoutVerbose", func(t *testing.T) {
 		_, stderr := setup(t)
-		setupMocks(t)
+		mocks := setupMocks(t)
 		// Reset context and verbose before setting up test
 		rootCmd.SetContext(context.Background())
 		verbose = false
@@ -434,7 +434,7 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 			return fmt.Errorf("hook failed")
 		}
 
-		ctx := context.Background()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 		t.Cleanup(func() {
 			rootCmd.SetContext(context.Background())
@@ -495,7 +495,7 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		mockConfigHandler.GetContextFunc = func() string {
 			return "test-context"
 		}
-		setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 		// Register a WindsorEnv printer that fails on PostEnvHook
 		mockWindsorEnvPrinter := env.NewMockEnvPrinter()
 		mockWindsorEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
@@ -508,7 +508,7 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 			return fmt.Errorf("hook failed")
 		}
 
-		ctx := context.Background()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 		t.Cleanup(func() {
 			rootCmd.SetContext(context.Background())
