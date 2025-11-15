@@ -971,22 +971,21 @@ func TestOCIModuleResolver_validateAndSanitizePath(t *testing.T) {
 		resolver := setup(t)
 
 		// When validating absolute paths
-		// Use platform-specific absolute paths
-		var testCases []string
+		// Tar archives use Unix-style paths (forward slashes) regardless of OS,
+		// so test with both Unix-style and Windows-style absolute paths
+		testCases := []string{
+			// Unix-style absolute paths (what would come from tar archives)
+			"/etc/passwd",
+			"/root/file.tf",
+			"/tmp/module/main.tf",
+		}
+
+		// Also test Windows-style absolute paths
 		if runtime.GOOS == "windows" {
-			// On Windows, use Windows-style absolute paths with drive letters
-			testCases = []string{
-				filepath.Join("C:", "Windows", "System32", "config", "sam"),
-				filepath.Join("C:", "Users", "file.tf"),
-				filepath.Join("C:", string(filepath.Separator), "tmp", "module", "main.tf"),
-			}
-		} else {
-			// On Unix-like systems, use Unix-style absolute paths
-			testCases = []string{
-				filepath.Join(string(filepath.Separator), "etc", "passwd"),
-				filepath.Join(string(filepath.Separator), "root", "file.tf"),
-				filepath.Join(string(filepath.Separator), "tmp", "module", "main.tf"),
-			}
+			testCases = append(testCases,
+				filepath.Join("C:", string(filepath.Separator), "Windows", "System32", "config", "sam"),
+				filepath.Join("C:", string(filepath.Separator), "Users", "file.tf"),
+			)
 		}
 
 		for _, path := range testCases {

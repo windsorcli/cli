@@ -284,12 +284,14 @@ func (h *OCIModuleResolver) extractModuleFromArtifact(artifactData []byte, modul
 
 // validateAndSanitizePath sanitizes a file path for safe extraction by removing path traversal sequences
 // and rejecting absolute paths. Returns the cleaned path if valid, or an error if the path is unsafe.
+// This function checks for absolute paths in a platform-agnostic way since tar archives use Unix-style paths
+// regardless of the host OS.
 func (h *OCIModuleResolver) validateAndSanitizePath(path string) (string, error) {
 	cleanPath := filepath.Clean(path)
 	if strings.Contains(cleanPath, "..") {
 		return "", fmt.Errorf("path contains directory traversal sequence: %s", path)
 	}
-	if filepath.IsAbs(cleanPath) {
+	if strings.HasPrefix(cleanPath, string(filepath.Separator)) || (len(cleanPath) >= 2 && cleanPath[1] == ':' && (cleanPath[0] >= 'A' && cleanPath[0] <= 'Z' || cleanPath[0] >= 'a' && cleanPath[0] <= 'z')) {
 		return "", fmt.Errorf("absolute paths are not allowed: %s", path)
 	}
 	return cleanPath, nil
