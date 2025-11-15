@@ -1521,10 +1521,10 @@ variable "disabled" { type = bool }`
 					Path:   "test-module",
 					Source: "git::https://github.com/test/module.git",
 					Inputs: map[string]any{
-						"nil_value":    nil,
-						"int_value":    42,
-						"float_value":  3.14,
-						"nested_list":  []any{[]string{"a", "b"}, []string{"c", "d"}},
+						"nil_value":   nil,
+						"int_value":   42,
+						"float_value": 3.14,
+						"nested_list": []any{[]string{"a", "b"}, []string{"c", "d"}},
 						"nested_map": map[string]any{
 							"inner": map[string]any{
 								"deep": map[string]any{
@@ -1976,7 +1976,6 @@ variable "cluster_name" { type = string }`
 			t.Errorf("Expected no error, got: %v", err)
 		}
 	})
-
 
 	t.Run("HandlesConvertFromCtyValueUnknownOrNull", func(t *testing.T) {
 		// Given a resolver with variables that have unknown or null default values
