@@ -124,9 +124,6 @@ var initCmd = &cobra.Command{
 		}
 
 		if err := proj.Initialize(initReset); err != nil {
-			if !verbose {
-				return nil
-			}
 			return err
 		}
 

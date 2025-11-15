@@ -4474,4 +4474,29 @@ func TestValidateCliVersion(t *testing.T) {
 			t.Errorf("Expected error to contain 'does not satisfy required constraint', got: %v", err)
 		}
 	})
+
+	t.Run("ReturnsNilWhenVersionWithVPrefixSatisfiesConstraint", func(t *testing.T) {
+		// Given a version with v prefix that satisfies constraint
+		// When validating
+		err := ValidateCliVersion("v1.0.0", ">=1.0.0")
+
+		// Then should return nil
+		if err != nil {
+			t.Errorf("Expected nil for v-prefixed version satisfying constraint, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenVersionWithVPrefixDoesNotSatisfyConstraint", func(t *testing.T) {
+		// Given a version with v prefix that doesn't satisfy constraint
+		// When validating
+		err := ValidateCliVersion("v0.5.0", ">=1.0.0")
+
+		// Then should return error
+		if err == nil {
+			t.Error("Expected error when v-prefixed version doesn't satisfy constraint")
+		}
+		if !strings.Contains(err.Error(), "does not satisfy required constraint") {
+			t.Errorf("Expected error to contain 'does not satisfy required constraint', got: %v", err)
+		}
+	})
 }

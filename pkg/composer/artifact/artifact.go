@@ -1153,7 +1153,8 @@ func ValidateCliVersion(cliVersion, constraint string) error {
 		return nil
 	}
 
-	version, err := semver.NewVersion(cliVersion)
+	versionStr := strings.TrimPrefix(cliVersion, "v")
+	version, err := semver.NewVersion(versionStr)
 	if err != nil {
 		return fmt.Errorf("invalid CLI version format '%s': %w", cliVersion, err)
 	}
