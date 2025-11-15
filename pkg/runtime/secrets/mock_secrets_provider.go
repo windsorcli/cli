@@ -3,7 +3,7 @@ package secrets
 import (
 	"fmt"
 
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // The MockSecretsProvider is a mock implementation of the SecretsProvider interface
@@ -18,7 +18,6 @@ import (
 // MockSecretsProvider is a mock implementation of the SecretsProvider interface for testing purposes
 type MockSecretsProvider struct {
 	BaseSecretsProvider
-	InitializeFunc   func() error
 	LoadSecretsFunc  func() error
 	GetSecretFunc    func(key string) (string, error)
 	ParseSecretsFunc func(input string) (string, error)
@@ -30,23 +29,15 @@ type MockSecretsProvider struct {
 // =============================================================================
 
 // NewMockSecretsProvider creates a new instance of MockSecretsProvider
-func NewMockSecretsProvider(injector di.Injector) *MockSecretsProvider {
+func NewMockSecretsProvider(shell shell.Shell) *MockSecretsProvider {
 	return &MockSecretsProvider{
-		BaseSecretsProvider: *NewBaseSecretsProvider(injector),
+		BaseSecretsProvider: *NewBaseSecretsProvider(shell),
 	}
 }
 
 // =============================================================================
 // Public Methods
 // =============================================================================
-
-// Initialize calls the mock InitializeFunc if set, otherwise returns nil
-func (m *MockSecretsProvider) Initialize() error {
-	if m.InitializeFunc != nil {
-		return m.InitializeFunc()
-	}
-	return nil
-}
 
 // LoadSecrets calls the mock LoadSecretsFunc if set, otherwise returns nil
 func (m *MockSecretsProvider) LoadSecrets() error {

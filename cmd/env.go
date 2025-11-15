@@ -6,7 +6,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/runtime"
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 var envCmd = &cobra.Command{
@@ -25,13 +24,12 @@ var envCmd = &cobra.Command{
 			}
 		}
 
-		injector := cmd.Context().Value(injectorKey).(di.Injector)
-
-		rt := &runtime.Runtime{
-			Injector: injector,
+		var rtOpts []*runtime.Runtime
+		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
+			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
 		}
 
-		rt, err := runtime.NewRuntime(rt)
+		rt, err := runtime.NewRuntime(rtOpts...)
 		if err != nil {
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}

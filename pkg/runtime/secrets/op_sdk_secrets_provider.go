@@ -14,7 +14,7 @@ import (
 
 	"github.com/1password/onepassword-sdk-go"
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================
@@ -43,9 +43,9 @@ type OnePasswordSDKSecretsProvider struct {
 // =============================================================================
 
 // NewOnePasswordSDKSecretsProvider creates a new OnePasswordSDKSecretsProvider instance
-func NewOnePasswordSDKSecretsProvider(vault secretsConfigType.OnePasswordVault, injector di.Injector) *OnePasswordSDKSecretsProvider {
+func NewOnePasswordSDKSecretsProvider(vault secretsConfigType.OnePasswordVault, shell shell.Shell) *OnePasswordSDKSecretsProvider {
 	return &OnePasswordSDKSecretsProvider{
-		BaseSecretsProvider: NewBaseSecretsProvider(injector),
+		BaseSecretsProvider: NewBaseSecretsProvider(shell),
 		vault:               vault,
 	}
 }
@@ -53,21 +53,6 @@ func NewOnePasswordSDKSecretsProvider(vault secretsConfigType.OnePasswordVault, 
 // =============================================================================
 // Public Methods
 // =============================================================================
-
-// Initialize initializes the secrets provider
-func (s *OnePasswordSDKSecretsProvider) Initialize() error {
-	if err := s.BaseSecretsProvider.Initialize(); err != nil {
-		return err
-	}
-
-	// Get the service account token from environment
-	token := os.Getenv("OP_SERVICE_ACCOUNT_TOKEN")
-	if token == "" {
-		return fmt.Errorf("OP_SERVICE_ACCOUNT_TOKEN environment variable is required for 1Password SDK")
-	}
-
-	return nil
-}
 
 // GetSecret retrieves a secret value for the specified key and automatically registers it with the shell for output scrubbing.
 // It first checks if the provider is unlocked. If not, it returns a masked value. It then ensures the 1Password client

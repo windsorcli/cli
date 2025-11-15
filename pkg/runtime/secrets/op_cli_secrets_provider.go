@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // The OnePasswordCLISecretsProvider is an implementation of the SecretsProvider interface
@@ -28,9 +28,9 @@ type OnePasswordCLISecretsProvider struct {
 // =============================================================================
 
 // NewOnePasswordCLISecretsProvider creates a new OnePasswordCLISecretsProvider instance
-func NewOnePasswordCLISecretsProvider(vault secretsConfigType.OnePasswordVault, injector di.Injector) *OnePasswordCLISecretsProvider {
+func NewOnePasswordCLISecretsProvider(vault secretsConfigType.OnePasswordVault, shell shell.Shell) *OnePasswordCLISecretsProvider {
 	return &OnePasswordCLISecretsProvider{
-		BaseSecretsProvider: NewBaseSecretsProvider(injector),
+		BaseSecretsProvider: NewBaseSecretsProvider(shell),
 		vault:               vault,
 	}
 }

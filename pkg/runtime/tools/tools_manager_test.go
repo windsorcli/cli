@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	sh "github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -18,13 +17,11 @@ import (
 // =============================================================================
 
 type Mocks struct {
-	Injector      di.Injector
 	ConfigHandler config.ConfigHandler
 	Shell         *sh.MockShell
 }
 
 type SetupOptions struct {
-	Injector      di.Injector
 	ConfigHandler config.ConfigHandler
 	ConfigStr     string
 }
@@ -62,13 +59,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		options = opts[0]
 	}
 
-	var injector di.Injector
-	if options.Injector == nil {
-		injector = di.NewInjector()
-	} else {
-		injector = options.Injector
-	}
-
 	shell := sh.NewMockShell()
 	shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 		switch {
@@ -104,9 +94,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	} else {
 		configHandler = options.ConfigHandler
 	}
-
-	injector.Register("configHandler", configHandler)
-	injector.Register("shell", shell)
 
 	configHandler.SetContext("test")
 
@@ -148,7 +135,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 
 	return &Mocks{
 		Shell:         shell,
-		Injector:      injector,
 		ConfigHandler: configHandler,
 	}
 }

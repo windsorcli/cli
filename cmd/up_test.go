@@ -12,14 +12,12 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/provisioner"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
-	envvars "github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
@@ -29,13 +27,13 @@ import (
 // =============================================================================
 
 type UpMocks struct {
-	Injector          di.Injector
 	ConfigHandler     config.ConfigHandler
 	Shell             *shell.MockShell
 	Shims             *Shims
 	BlueprintHandler  *blueprint.MockBlueprintHandler
 	TerraformStack    *terraforminfra.MockStack
 	KubernetesManager *kubernetes.MockKubernetesManager
+	TmpDir            string
 }
 
 func setupUpTest(t *testing.T, opts ...*SetupOptions) *UpMocks {
@@ -86,49 +84,32 @@ func setupUpTest(t *testing.T, opts ...*SetupOptions) *UpMocks {
 	baseMocks.Shell.CheckTrustedDirectoryFunc = func() error { return nil }
 
 	// Add blueprint handler mock
-	mockBlueprintHandler := blueprint.NewMockBlueprintHandler(baseMocks.Injector)
-	mockBlueprintHandler.InitializeFunc = func() error { return nil }
+	mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
 	mockBlueprintHandler.LoadBlueprintFunc = func() error { return nil }
 	mockBlueprintHandler.WriteFunc = func(overwrite ...bool) error { return nil }
 	testBlueprint := &blueprintv1alpha1.Blueprint{
 		Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 	}
 	mockBlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
-	baseMocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
 
 	// Add terraform stack mock
-	mockTerraformStack := terraforminfra.NewMockStack(baseMocks.Injector)
-	mockTerraformStack.InitializeFunc = func() error { return nil }
+	mockTerraformStack := terraforminfra.NewMockStack()
 	mockTerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint) error { return nil }
 	mockTerraformStack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error { return nil }
-	baseMocks.Injector.Register("terraformStack", mockTerraformStack)
 
 	// Add kubernetes manager mock
-	mockKubernetesManager := kubernetes.NewMockKubernetesManager(baseMocks.Injector)
-	mockKubernetesManager.InitializeFunc = func() error { return nil }
+	mockKubernetesManager := kubernetes.NewMockKubernetesManager()
 	mockKubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
 	mockKubernetesManager.WaitForKustomizationsFunc = func(message string, names ...string) error { return nil }
-	baseMocks.Injector.Register("kubernetesManager", mockKubernetesManager)
-
-	// Add terraform env printer (required by terraform stack)
-	terraformEnvPrinter := envvars.NewTerraformEnvPrinter(baseMocks.Shell, baseMocks.ConfigHandler)
-	baseMocks.Injector.Register("terraformEnv", terraformEnvPrinter)
-
-	// Add mock tools manager (required by runInit)
-	mockToolsManager := tools.NewMockToolsManager()
-	mockToolsManager.InitializeFunc = func() error { return nil }
-	mockToolsManager.CheckFunc = func() error { return nil }
-	mockToolsManager.InstallFunc = func() error { return nil }
-	baseMocks.Injector.Register("toolsManager", mockToolsManager)
 
 	return &UpMocks{
-		Injector:          baseMocks.Injector,
 		ConfigHandler:     baseMocks.ConfigHandler,
 		Shell:             baseMocks.Shell,
 		Shims:             baseMocks.Shims,
 		BlueprintHandler:  mockBlueprintHandler,
 		TerraformStack:    mockTerraformStack,
 		KubernetesManager: mockKubernetesManager,
+		TmpDir:            tmpDir,
 	}
 }
 
@@ -161,12 +142,41 @@ func TestUpCmd(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupUpTest(t)
 
+		mockToolsManager := tools.NewMockToolsManager()
+		mockToolsManager.CheckFunc = func() error { return nil }
+
+		rt, err := runtime.NewRuntime(&runtime.Runtime{
+			Shell:         mocks.Shell,
+			ConfigHandler: mocks.ConfigHandler,
+			ProjectRoot:   mocks.TmpDir,
+			ToolsManager:  mockToolsManager,
+		})
+		if err != nil {
+			t.Fatalf("Failed to create runtime: %v", err)
+		}
+
+		comp := composer.NewComposer(rt)
+		comp.BlueprintHandler = mocks.BlueprintHandler
+		mockProvisioner := provisioner.NewProvisioner(rt, comp.BlueprintHandler, &provisioner.Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			KubernetesManager: mocks.KubernetesManager,
+		})
+
+		proj, err := project.NewProject("", &project.Project{
+			Runtime:     rt,
+			Composer:    comp,
+			Provisioner: mockProvisioner,
+		})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
+
 		// When executing the up command
 		cmd := createTestUpCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
-		err := cmd.Execute()
+		err = cmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -177,26 +187,38 @@ func TestUpCmd(t *testing.T) {
 	t.Run("SuccessWithInstallFlag", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupUpTest(t)
+		mockToolsManager := tools.NewMockToolsManager()
+		mockToolsManager.CheckFunc = func() error { return nil }
 
-		// Create provisioner with mock KubernetesManager via opts pattern
-		rt := &runtime.Runtime{
-			Injector: mocks.Injector,
-		}
-		rt, err := runtime.NewRuntime(rt)
+		rt, err := runtime.NewRuntime(&runtime.Runtime{
+			Shell:         mocks.Shell,
+			ConfigHandler: mocks.ConfigHandler,
+			ProjectRoot:   mocks.TmpDir,
+			ToolsManager:  mockToolsManager,
+		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
 		}
+
 		comp := composer.NewComposer(rt)
+		comp.BlueprintHandler = mocks.BlueprintHandler
 		mockProvisioner := provisioner.NewProvisioner(rt, comp.BlueprintHandler, &provisioner.Provisioner{
+			TerraformStack:    mocks.TerraformStack,
 			KubernetesManager: mocks.KubernetesManager,
 		})
 
-		// When executing the up command with install flag
-		cmd := createTestUpCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		ctx = context.WithValue(ctx, projectOverridesKey, &project.Project{
+		proj, err := project.NewProject("", &project.Project{
+			Runtime:     rt,
+			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
+
+		// When executing the up command with install flag
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"--install"})
 		err = cmd.Execute()
@@ -210,26 +232,38 @@ func TestUpCmd(t *testing.T) {
 	t.Run("SuccessWithWaitFlag", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupUpTest(t)
+		mockToolsManager := tools.NewMockToolsManager()
+		mockToolsManager.CheckFunc = func() error { return nil }
 
-		// Create provisioner with mock KubernetesManager via opts pattern
-		rt := &runtime.Runtime{
-			Injector: mocks.Injector,
-		}
-		rt, err := runtime.NewRuntime(rt)
+		rt, err := runtime.NewRuntime(&runtime.Runtime{
+			Shell:         mocks.Shell,
+			ConfigHandler: mocks.ConfigHandler,
+			ProjectRoot:   mocks.TmpDir,
+			ToolsManager:  mockToolsManager,
+		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
 		}
+
 		comp := composer.NewComposer(rt)
+		comp.BlueprintHandler = mocks.BlueprintHandler
 		mockProvisioner := provisioner.NewProvisioner(rt, comp.BlueprintHandler, &provisioner.Provisioner{
+			TerraformStack:    mocks.TerraformStack,
 			KubernetesManager: mocks.KubernetesManager,
 		})
 
-		// When executing the up command with wait flag
-		cmd := createTestUpCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		ctx = context.WithValue(ctx, projectOverridesKey, &project.Project{
+		proj, err := project.NewProject("", &project.Project{
+			Runtime:     rt,
+			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
+
+		// When executing the up command with wait flag
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"--wait"})
 		err = cmd.Execute()
@@ -243,26 +277,38 @@ func TestUpCmd(t *testing.T) {
 	t.Run("SuccessWithInstallAndWaitFlags", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupUpTest(t)
+		mockToolsManager := tools.NewMockToolsManager()
+		mockToolsManager.CheckFunc = func() error { return nil }
 
-		// Create provisioner with mock KubernetesManager via opts pattern
-		rt := &runtime.Runtime{
-			Injector: mocks.Injector,
-		}
-		rt, err := runtime.NewRuntime(rt)
+		rt, err := runtime.NewRuntime(&runtime.Runtime{
+			Shell:         mocks.Shell,
+			ConfigHandler: mocks.ConfigHandler,
+			ProjectRoot:   mocks.TmpDir,
+			ToolsManager:  mockToolsManager,
+		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
 		}
+
 		comp := composer.NewComposer(rt)
+		comp.BlueprintHandler = mocks.BlueprintHandler
 		mockProvisioner := provisioner.NewProvisioner(rt, comp.BlueprintHandler, &provisioner.Provisioner{
+			TerraformStack:    mocks.TerraformStack,
 			KubernetesManager: mocks.KubernetesManager,
 		})
 
-		// When executing the up command with both install and wait flags
-		cmd := createTestUpCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		ctx = context.WithValue(ctx, projectOverridesKey, &project.Project{
+		proj, err := project.NewProject("", &project.Project{
+			Runtime:     rt,
+			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
+
+		// When executing the up command with both install and wait flags
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"--install", "--wait"})
 		err = cmd.Execute()
@@ -282,16 +328,46 @@ func TestUpCmd(t *testing.T) {
 			return fmt.Errorf("not in trusted directory")
 		}
 
+		mockToolsManager := tools.NewMockToolsManager()
+		mockToolsManager.CheckFunc = func() error { return nil }
+
+		rt, err := runtime.NewRuntime(&runtime.Runtime{
+			Shell:         mocks.Shell,
+			ConfigHandler: mocks.ConfigHandler,
+			ProjectRoot:   mocks.TmpDir,
+			ToolsManager:  mockToolsManager,
+		})
+		if err != nil {
+			t.Fatalf("Failed to create runtime: %v", err)
+		}
+
+		comp := composer.NewComposer(rt)
+		comp.BlueprintHandler = mocks.BlueprintHandler
+		mockProvisioner := provisioner.NewProvisioner(rt, comp.BlueprintHandler, &provisioner.Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			KubernetesManager: mocks.KubernetesManager,
+		})
+
+		proj, err := project.NewProject("", &project.Project{
+			Runtime:     rt,
+			Composer:    comp,
+			Provisioner: mockProvisioner,
+		})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
+
 		// When executing the up command
 		cmd := createTestUpCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{})
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
-		err := cmd.Execute()
+		cmd.SetArgs([]string{})
+		err = cmd.Execute()
 
 		// Then an error should occur
 		if err == nil {
 			t.Error("Expected error, got nil")
+			return
 		}
 		if !strings.Contains(err.Error(), "not in a trusted directory") {
 			t.Errorf("Expected trusted directory error, got: %v", err)
@@ -307,25 +383,38 @@ func TestUpCmd(t *testing.T) {
 			return fmt.Errorf("terraform stack up failed")
 		}
 
-		// Create provisioner with mock TerraformStack via opts pattern
-		rt := &runtime.Runtime{
-			Injector: mocks.Injector,
-		}
-		rt, err := runtime.NewRuntime(rt)
+		mockToolsManager := tools.NewMockToolsManager()
+		mockToolsManager.CheckFunc = func() error { return nil }
+
+		rt, err := runtime.NewRuntime(&runtime.Runtime{
+			Shell:         mocks.Shell,
+			ConfigHandler: mocks.ConfigHandler,
+			ProjectRoot:   mocks.TmpDir,
+			ToolsManager:  mockToolsManager,
+		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
 		}
+
 		comp := composer.NewComposer(rt)
+		comp.BlueprintHandler = mocks.BlueprintHandler
 		mockProvisioner := provisioner.NewProvisioner(rt, comp.BlueprintHandler, &provisioner.Provisioner{
-			TerraformStack: mocks.TerraformStack,
+			TerraformStack:    mocks.TerraformStack,
+			KubernetesManager: mocks.KubernetesManager,
 		})
+
+		proj, err := project.NewProject("", &project.Project{
+			Runtime:     rt,
+			Composer:    comp,
+			Provisioner: mockProvisioner,
+		})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
 
 		// When executing the up command
 		cmd := createTestUpCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		ctx = context.WithValue(ctx, projectOverridesKey, &project.Project{
-			Provisioner: mockProvisioner,
-		})
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{})
 		err = cmd.Execute()
@@ -349,25 +438,38 @@ func TestUpCmd(t *testing.T) {
 			return fmt.Errorf("kubernetes apply failed")
 		}
 
-		// Create provisioner with mock KubernetesManager via opts pattern
-		rt := &runtime.Runtime{
-			Injector: mocks.Injector,
-		}
-		rt, err := runtime.NewRuntime(rt)
+		mockToolsManager := tools.NewMockToolsManager()
+		mockToolsManager.CheckFunc = func() error { return nil }
+
+		rt, err := runtime.NewRuntime(&runtime.Runtime{
+			Shell:         mocks.Shell,
+			ConfigHandler: mocks.ConfigHandler,
+			ProjectRoot:   mocks.TmpDir,
+			ToolsManager:  mockToolsManager,
+		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
 		}
+
 		comp := composer.NewComposer(rt)
+		comp.BlueprintHandler = mocks.BlueprintHandler
 		mockProvisioner := provisioner.NewProvisioner(rt, comp.BlueprintHandler, &provisioner.Provisioner{
+			TerraformStack:    mocks.TerraformStack,
 			KubernetesManager: mocks.KubernetesManager,
 		})
 
-		// When executing the up command with install flag
-		cmd := createTestUpCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		ctx = context.WithValue(ctx, projectOverridesKey, &project.Project{
+		proj, err := project.NewProject("", &project.Project{
+			Runtime:     rt,
+			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
+
+		// When executing the up command with install flag
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"--install"})
 		err = cmd.Execute()
@@ -391,25 +493,38 @@ func TestUpCmd(t *testing.T) {
 			return fmt.Errorf("wait for kustomizations failed")
 		}
 
-		// Create provisioner with mock KubernetesManager via opts pattern
-		rt := &runtime.Runtime{
-			Injector: mocks.Injector,
-		}
-		rt, err := runtime.NewRuntime(rt)
+		mockToolsManager := tools.NewMockToolsManager()
+		mockToolsManager.CheckFunc = func() error { return nil }
+
+		rt, err := runtime.NewRuntime(&runtime.Runtime{
+			Shell:         mocks.Shell,
+			ConfigHandler: mocks.ConfigHandler,
+			ProjectRoot:   mocks.TmpDir,
+			ToolsManager:  mockToolsManager,
+		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
 		}
+
 		comp := composer.NewComposer(rt)
+		comp.BlueprintHandler = mocks.BlueprintHandler
 		mockProvisioner := provisioner.NewProvisioner(rt, comp.BlueprintHandler, &provisioner.Provisioner{
+			TerraformStack:    mocks.TerraformStack,
 			KubernetesManager: mocks.KubernetesManager,
 		})
 
-		// When executing the up command with install and wait flags
-		cmd := createTestUpCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		ctx = context.WithValue(ctx, projectOverridesKey, &project.Project{
+		proj, err := project.NewProject("", &project.Project{
+			Runtime:     rt,
+			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
+
+		// When executing the up command with install and wait flags
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"--install", "--wait"})
 		err = cmd.Execute()

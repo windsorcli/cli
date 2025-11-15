@@ -1,10 +1,7 @@
 package terraform
 
-import "github.com/windsorcli/cli/pkg/di"
-
 // MockModuleResolver is a mock implementation of the ModuleResolver interface
 type MockModuleResolver struct {
-	InitializeFunc     func() error
 	ProcessModulesFunc func() error
 	GenerateTfvarsFunc func(overwrite bool) error
 }
@@ -14,21 +11,13 @@ type MockModuleResolver struct {
 // =============================================================================
 
 // NewMockModuleResolver creates a new MockModuleResolver instance
-func NewMockModuleResolver(injector di.Injector) *MockModuleResolver {
+func NewMockModuleResolver() *MockModuleResolver {
 	return &MockModuleResolver{}
 }
 
 // =============================================================================
 // Public Methods
 // =============================================================================
-
-// Initialize calls the mock InitializeFunc if set, otherwise returns nil
-func (m *MockModuleResolver) Initialize() error {
-	if m.InitializeFunc != nil {
-		return m.InitializeFunc()
-	}
-	return nil
-}
 
 // ProcessModules calls the mock ProcessModulesFunc if set, otherwise returns nil
 func (m *MockModuleResolver) ProcessModules() error {

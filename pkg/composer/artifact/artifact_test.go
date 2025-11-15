@@ -17,7 +17,6 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/types"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -39,10 +38,9 @@ func (m *mockFileInfo) IsDir() bool        { return m.isDir }
 func (m *mockFileInfo) Sys() any           { return nil }
 
 type ArtifactMocks struct {
-	Injector di.Injector
-	Shell    *shell.MockShell
-	Shims    *Shims
-	Runtime  *runtime.Runtime
+	Shell   *shell.MockShell
+	Shims   *Shims
+	Runtime *runtime.Runtime
 }
 
 // mockTarWriter provides a mock implementation of TarWriter for testing
@@ -74,8 +72,7 @@ func (m *mockTarWriter) Close() error {
 }
 
 type ArtifactSetupOptions struct {
-	Injector di.Injector
-	Shell    shell.Shell
+	Shell shell.Shell
 }
 
 func setupArtifactMocks(t *testing.T, opts ...*ArtifactSetupOptions) *ArtifactMocks {
@@ -91,9 +88,6 @@ func setupArtifactMocks(t *testing.T, opts ...*ArtifactSetupOptions) *ArtifactMo
 	if err := os.Chdir(tmpDir); err != nil {
 		t.Fatalf("Failed to change to temp directory: %v", err)
 	}
-
-	// Create injector
-	injector := di.NewInjector()
 
 	// Set up shell - default to MockShell for easier testing
 	var mockShell *shell.MockShell
@@ -126,9 +120,6 @@ func setupArtifactMocks(t *testing.T, opts ...*ArtifactSetupOptions) *ArtifactMo
 		}
 	}
 
-	// Register shell with injector
-	injector.Register("shell", mockShell)
-
 	// Use setupShims for consistent shim configuration
 	shims := setupShims(t)
 
@@ -158,8 +149,7 @@ func setupArtifactMocks(t *testing.T, opts ...*ArtifactSetupOptions) *ArtifactMo
 
 	// Create runtime
 	rt := &runtime.Runtime{
-		Injector: injector,
-		Shell:    mockShell,
+		Shell: mockShell,
 	}
 
 	// Cleanup function
@@ -168,10 +158,9 @@ func setupArtifactMocks(t *testing.T, opts ...*ArtifactSetupOptions) *ArtifactMo
 	})
 
 	return &ArtifactMocks{
-		Injector: injector,
-		Shell:    mockShell,
-		Shims:    shims,
-		Runtime:  rt,
+		Shell:   mockShell,
+		Shims:   shims,
+		Runtime: rt,
 	}
 }
 
@@ -2682,9 +2671,7 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		// Given an ArtifactBuilder with mocked dependencies
 		mocks := setupArtifactMocks(t)
 		builder := NewArtifactBuilder(mocks.Runtime)
-		injector := di.NewInjector()
-		shell := shell.NewMockShell()
-		injector.Register("shell", shell)
+		_ = shell.NewMockShell()
 
 		// And download counter to track calls
 		downloadCount := 0
@@ -2758,9 +2745,7 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		// Given an ArtifactBuilder with mocked dependencies
 		mocks := setupArtifactMocks(t)
 		builder := NewArtifactBuilder(mocks.Runtime)
-		injector := di.NewInjector()
-		shell := shell.NewMockShell()
-		injector.Register("shell", shell)
+		_ = shell.NewMockShell()
 
 		// And download counter to track calls
 		downloadCount := 0

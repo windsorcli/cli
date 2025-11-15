@@ -12,8 +12,6 @@ import (
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -38,37 +36,27 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		templateDir := filepath.Join(contextsDir, "_template")
 		os.MkdirAll(templateDir, 0755)
 
-		// Create injector with required mocks
-		injector := di.NewInjector()
-
 		// Mock shell
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return tmpDir, nil
 		}
-		injector.Register("shell", mockShell)
 
 		// Mock config handler
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{}, nil
 		}
-		injector.Register("configHandler", mockConfigHandler)
 
 		// Mock kubernetes manager
-		mockK8sManager := kubernetes.NewMockKubernetesManager(injector)
-		injector.Register("kubernetesManager", mockK8sManager)
 
 		// Mock blueprint handler
-		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(injector)
+		mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
 		mockBlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
 			return map[string][]byte{}, nil
 		}
-		injector.Register("blueprintHandler", mockBlueprintHandler)
 
 		// Mock artifact builder
-		mockArtifactBuilder := artifact.NewMockArtifact()
-		injector.Register("artifactBuilder", mockArtifactBuilder)
 
 		// Create test command
 		cmd := &cobra.Command{
@@ -80,7 +68,7 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		cmd.Flags().StringP("tag", "t", "", "Tag in 'name:version' format")
 
 		// Set up context
-		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		ctx := context.Background()
 		cmd.SetContext(ctx)
 
 		// Set arguments
@@ -106,7 +94,6 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 
 		// Create injector without required dependencies
 		// The runtime is now resilient and will create default dependencies
-		injector := di.NewInjector()
 
 		// Create test command
 		cmd := &cobra.Command{
@@ -118,7 +105,7 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		cmd.Flags().StringP("tag", "t", "", "Tag in 'name:version' format")
 
 		// Set up context
-		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		ctx := context.Background()
 		cmd.SetContext(ctx)
 
 		// Set arguments
@@ -147,15 +134,11 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		templateDir := filepath.Join(contextsDir, "_template")
 		os.MkdirAll(templateDir, 0755)
 
-		// Create injector with mocks that will cause execution to fail
-		injector := di.NewInjector()
-
 		// Mock shell
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return tmpDir, nil
 		}
-		injector.Register("shell", mockShell)
 
 		// Mock config handler
 		mockConfigHandler := config.NewMockConfigHandler()
@@ -165,36 +148,25 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		mockConfigHandler.GetContextFunc = func() string {
 			return "test-context"
 		}
-		injector.Register("configHandler", mockConfigHandler)
 
 		// Mock kubernetes manager
-		mockK8sManager := kubernetes.NewMockKubernetesManager(injector)
-		injector.Register("kubernetesManager", mockK8sManager)
 
-		// Mock blueprint handler
-		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(injector)
-		mockBlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
-			return map[string][]byte{}, nil
-		}
-		injector.Register("blueprintHandler", mockBlueprintHandler)
-
-		// Mock artifact builder that fails during bundle
-		mockArtifactBuilder := artifact.NewMockArtifact()
-		mockArtifactBuilder.WriteFunc = func(outputPath string, tag string) (string, error) {
-			return "", fmt.Errorf("artifact bundle failed")
-		}
-
-		// Create runtime and composer with mock artifact builder override
-		rt := &runtime.Runtime{
-			Injector: injector,
-		}
-		rt, err := runtime.NewRuntime(rt)
+		// Create runtime and composer
+		rt, err := runtime.NewRuntime(&runtime.Runtime{
+			Shell:         mockShell,
+			ConfigHandler: mockConfigHandler,
+			ProjectRoot:   tmpDir,
+		})
 		if err != nil {
 			t.Fatalf("Failed to create runtime: %v", err)
 		}
-		mockComposer := composer.NewComposer(rt, &composer.Composer{
-			ArtifactBuilder: mockArtifactBuilder,
-		})
+
+		comp := composer.NewComposer(rt)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		mockArtifactBuilder.WriteFunc = func(outputPath string, tag string) (string, error) {
+			return "", fmt.Errorf("failed to write artifact")
+		}
+		comp.ArtifactBuilder = mockArtifactBuilder
 
 		// Create test command
 		cmd := &cobra.Command{
@@ -206,8 +178,8 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		cmd.Flags().StringP("tag", "t", "", "Tag in 'name:version' format")
 
 		// Set up context with composer overrides
-		ctx := context.WithValue(context.Background(), injectorKey, injector)
-		ctx = context.WithValue(ctx, composerOverridesKey, mockComposer)
+		ctx := context.Background()
+		ctx = context.WithValue(ctx, composerOverridesKey, comp)
 		cmd.SetContext(ctx)
 
 		// Set arguments

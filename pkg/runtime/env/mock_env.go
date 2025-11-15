@@ -12,7 +12,6 @@ package env
 // MockEnvPrinter is a struct that implements mock environment configuration
 type MockEnvPrinter struct {
 	BaseEnvPrinter
-	InitializeFunc      func() error
 	PrintFunc           func() error
 	PrintAliasFunc      func() error
 	PostEnvHookFunc     func(directory ...string) error
@@ -35,14 +34,6 @@ func NewMockEnvPrinter() *MockEnvPrinter {
 // =============================================================================
 // Public Methods
 // =============================================================================
-
-// Initialize calls the custom InitializeFunc if provided.
-func (m *MockEnvPrinter) Initialize() error {
-	if m.InitializeFunc != nil {
-		return m.InitializeFunc()
-	}
-	return nil
-}
 
 // Print simulates printing the provided environment variables.
 // If a custom PrintFunc is provided, it will use that function instead.

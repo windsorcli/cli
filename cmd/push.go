@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
 
@@ -36,13 +35,9 @@ Examples:
 			return fmt.Errorf("registry is required: windsor push registry/repo[:tag]")
 		}
 
-		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
-		rt := &runtime.Runtime{
-			Injector: injector,
-		}
 
-		rt, err := runtime.NewRuntime(rt)
+		rt, err := runtime.NewRuntime()
 		if err != nil {
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}

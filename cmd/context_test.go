@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -191,21 +191,31 @@ func TestContextCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("GetContext_HandlesNewRuntimeError", func(t *testing.T) {
 		setup(t)
-		injector := di.NewInjector()
+
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("project root error")
 		}
-		injector.Register("shell", mockShell)
-		ctx := context.WithValue(context.Background(), injectorKey, injector)
+
+		rtOverride := &runtime.Runtime{
+			Shell:       mockShell,
+			ProjectRoot: "",
+		}
+		_, err := runtime.NewRuntime(rtOverride)
+		if err == nil {
+			t.Fatal("Expected NewRuntime to fail with invalid shell")
+		}
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rtOverride)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"context", "get"})
 
-		err := Execute()
+		err = Execute()
 
 		if err == nil {
 			t.Error("Expected error when NewRuntime fails")
+			return
 		}
 
 		if !strings.Contains(err.Error(), "failed to initialize context") {
@@ -215,7 +225,7 @@ func TestContextCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("GetContext_HandlesLoadConfigError", func(t *testing.T) {
 		setup(t)
-		injector := di.NewInjector()
+
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.LoadConfigFunc = func() error {
 			return fmt.Errorf("config load failed")
@@ -223,20 +233,23 @@ func TestContextCmd_ErrorScenarios(t *testing.T) {
 		mockConfigHandler.GetContextFunc = func() string {
 			return "test-context"
 		}
-		injector.Register("configHandler", mockConfigHandler)
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return t.TempDir(), nil
+		rt, err := runtime.NewRuntime(&runtime.Runtime{
+			Shell:         mocks.Shell,
+			ConfigHandler: mocks.ConfigHandler,
+			ProjectRoot:   mocks.TmpDir,
+		})
+		if err != nil {
+			t.Fatalf("Failed to create runtime: %v", err)
 		}
-		injector.Register("shell", mockShell)
 
-		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"context", "get"})
 
-		err := Execute()
+		err = Execute()
 
 		if err == nil {
 			t.Error("Expected error when LoadConfig fails")
@@ -249,18 +262,27 @@ func TestContextCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("SetContext_HandlesNewRuntimeError", func(t *testing.T) {
 		setup(t)
-		injector := di.NewInjector()
+
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("project root error")
 		}
-		injector.Register("shell", mockShell)
-		ctx := context.WithValue(context.Background(), injectorKey, injector)
+
+		rtOverride := &runtime.Runtime{
+			Shell:       mockShell,
+			ProjectRoot: "",
+		}
+		_, err := runtime.NewRuntime(rtOverride)
+		if err == nil {
+			t.Fatal("Expected NewRuntime to fail with invalid shell")
+		}
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rtOverride)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"context", "set", "test-context"})
 
-		err := Execute()
+		err = Execute()
 
 		if err == nil {
 			t.Error("Expected error when NewRuntime fails")
@@ -273,7 +295,7 @@ func TestContextCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("SetContext_HandlesLoadConfigError", func(t *testing.T) {
 		setup(t)
-		injector := di.NewInjector()
+
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.LoadConfigFunc = func() error {
 			return fmt.Errorf("config load failed")
@@ -281,23 +303,27 @@ func TestContextCmd_ErrorScenarios(t *testing.T) {
 		mockConfigHandler.GetContextFunc = func() string {
 			return "test-context"
 		}
-		injector.Register("configHandler", mockConfigHandler)
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return t.TempDir(), nil
+		rt, err := runtime.NewRuntime(&runtime.Runtime{
+			Shell:         mocks.Shell,
+			ConfigHandler: mocks.ConfigHandler,
+			ProjectRoot:   mocks.TmpDir,
+		})
+		if err != nil {
+			t.Fatalf("Failed to create runtime: %v", err)
 		}
-		injector.Register("shell", mockShell)
 
-		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"context", "set", "test-context"})
 
-		err := Execute()
+		err = Execute()
 
 		if err == nil {
 			t.Error("Expected error when LoadConfig fails")
+			return
 		}
 
 		if !strings.Contains(err.Error(), "failed to load config") {
@@ -311,15 +337,26 @@ func TestContextCmd_ErrorScenarios(t *testing.T) {
 		mocks.Shell.WriteResetTokenFunc = func() (string, error) {
 			return "", fmt.Errorf("write reset token failed")
 		}
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+
+		rt, err := runtime.NewRuntime(&runtime.Runtime{
+			Shell:         mocks.Shell,
+			ConfigHandler: mocks.ConfigHandler,
+			ProjectRoot:   mocks.TmpDir,
+		})
+		if err != nil {
+			t.Fatalf("Failed to create runtime: %v", err)
+		}
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"context", "set", "test-context"})
 
-		err := Execute()
+		err = Execute()
 
 		if err == nil {
 			t.Error("Expected error when WriteResetToken fails")
+			return
 		}
 
 		if !strings.Contains(err.Error(), "failed to write reset token") {
@@ -329,7 +366,7 @@ func TestContextCmd_ErrorScenarios(t *testing.T) {
 
 	t.Run("SetContext_HandlesSetContextError", func(t *testing.T) {
 		setup(t)
-		injector := di.NewInjector()
+
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.LoadConfigFunc = func() error {
 			return nil
@@ -340,26 +377,30 @@ func TestContextCmd_ErrorScenarios(t *testing.T) {
 		mockConfigHandler.SetContextFunc = func(context string) error {
 			return fmt.Errorf("set context failed")
 		}
-		injector.Register("configHandler", mockConfigHandler)
-
-		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return t.TempDir(), nil
-		}
-		mockShell.WriteResetTokenFunc = func() (string, error) {
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+		mocks.Shell.WriteResetTokenFunc = func() (string, error) {
 			return "mock-reset-token", nil
 		}
-		injector.Register("shell", mockShell)
 
-		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		rt, err := runtime.NewRuntime(&runtime.Runtime{
+			Shell:         mocks.Shell,
+			ConfigHandler: mocks.ConfigHandler,
+			ProjectRoot:   mocks.TmpDir,
+		})
+		if err != nil {
+			t.Fatalf("Failed to create runtime: %v", err)
+		}
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"context", "set", "test-context"})
 
-		err := Execute()
+		err = Execute()
 
 		if err == nil {
 			t.Error("Expected error when SetContext fails")
+			return
 		}
 
 		if !strings.Contains(err.Error(), "failed to set context") {

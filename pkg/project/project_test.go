@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/composer"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/provisioner"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -21,7 +20,7 @@ import (
 // =============================================================================
 
 type Mocks struct {
-	Injector      di.Injector
+	Runtime       *runtime.Runtime
 	ConfigHandler config.ConfigHandler
 	Shell         shell.Shell
 	Workstation   *workstation.Workstation
@@ -35,7 +34,6 @@ func setupMocks(t *testing.T) *Mocks {
 	tmpDir := t.TempDir()
 	configRoot := filepath.Join(tmpDir, "contexts", "test-context")
 
-	injector := di.NewInjector()
 	configHandler := config.NewMockConfigHandler()
 	mockShell := shell.NewMockShell()
 
@@ -98,15 +96,16 @@ func setupMocks(t *testing.T) *Mocks {
 		return nil
 	}
 
-	injector.Register("shell", mockShell)
-	injector.Register("configHandler", configHandler)
-	injector.Register("toolsManager", mockToolsManager)
-
-	rt := &runtime.Runtime{
-		Injector: injector,
+	rtOpts := []*runtime.Runtime{
+		{
+			Shell:         mockShell,
+			ConfigHandler: configHandler,
+			ProjectRoot:   tmpDir,
+			ToolsManager:  mockToolsManager,
+		},
 	}
 
-	rt, err := runtime.NewRuntime(rt)
+	rt, err := runtime.NewRuntime(rtOpts...)
 	if err != nil {
 		t.Fatalf("Failed to create context: %v", err)
 	}
@@ -115,7 +114,7 @@ func setupMocks(t *testing.T) *Mocks {
 	prov := provisioner.NewProvisioner(rt, comp.BlueprintHandler)
 
 	return &Mocks{
-		Injector:      injector,
+		Runtime:       rt,
 		ConfigHandler: configHandler,
 		Shell:         mockShell,
 		Provisioner:   prov,
@@ -131,7 +130,7 @@ func TestNewProject(t *testing.T) {
 	t.Run("CreatesProjectWithDependencies", func(t *testing.T) {
 		mocks := setupMocks(t)
 
-		proj, err := NewProject(mocks.Injector, "test-context")
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -161,7 +160,7 @@ func TestNewProject(t *testing.T) {
 	t.Run("UsesProvidedContextName", func(t *testing.T) {
 		mocks := setupMocks(t)
 
-		proj, err := NewProject(mocks.Injector, "custom-context")
+		proj, err := NewProject("custom-context", &Project{Runtime: mocks.Runtime})
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -175,7 +174,7 @@ func TestNewProject(t *testing.T) {
 	t.Run("UsesConfigContextWhenContextNameEmpty", func(t *testing.T) {
 		mocks := setupMocks(t)
 
-		proj, err := NewProject(mocks.Injector, "")
+		proj, err := NewProject("", &Project{Runtime: mocks.Runtime})
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -193,7 +192,7 @@ func TestNewProject(t *testing.T) {
 			return ""
 		}
 
-		proj, err := NewProject(mocks.Injector, "")
+		proj, err := NewProject("", &Project{Runtime: mocks.Runtime})
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -211,7 +210,7 @@ func TestNewProject(t *testing.T) {
 			return true
 		}
 
-		proj, err := NewProject(mocks.Injector, "test-context")
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -229,7 +228,7 @@ func TestNewProject(t *testing.T) {
 			return false
 		}
 
-		proj, err := NewProject(mocks.Injector, "test-context")
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -241,21 +240,28 @@ func TestNewProject(t *testing.T) {
 	})
 
 	t.Run("ErrorOnContextInitializationFailure", func(t *testing.T) {
-		var injector di.Injector
+		mocks := setupMocks(t)
+		mockShell := mocks.Shell.(*shell.MockShell)
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("failed to get project root")
+		}
 
-		proj, err := NewProject(injector, "test-context")
-
+		rt, err := runtime.NewRuntime(&runtime.Runtime{
+			Shell:       mockShell,
+			ProjectRoot: "",
+		})
 		if err == nil {
-			t.Error("Expected error for context initialization failure")
-			return
-		}
-
-		if proj != nil {
-			t.Error("Expected Project to be nil on error")
-		}
-
-		if !strings.Contains(err.Error(), "failed to initialize context") {
-			t.Errorf("Expected specific error message, got: %v", err)
+			proj, err := NewProject("test-context", &Project{Runtime: rt})
+			if err == nil {
+				t.Error("Expected error for context initialization failure")
+				return
+			}
+			if proj != nil {
+				t.Error("Expected Project to be nil on error")
+			}
+			if !strings.Contains(err.Error(), "failed to initialize context") {
+				t.Errorf("Expected specific error message, got: %v", err)
+			}
 		}
 	})
 
@@ -268,7 +274,7 @@ func TestNewProject(t *testing.T) {
 func TestProject_Configure(t *testing.T) {
 	t.Run("SuccessWithNilFlagOverrides", func(t *testing.T) {
 		mocks := setupMocks(t)
-		proj, err := NewProject(mocks.Injector, "test-context")
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
 		}
@@ -282,7 +288,7 @@ func TestProject_Configure(t *testing.T) {
 
 	t.Run("SuccessWithEmptyFlagOverrides", func(t *testing.T) {
 		mocks := setupMocks(t)
-		proj, err := NewProject(mocks.Injector, "test-context")
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
 		}
@@ -296,7 +302,7 @@ func TestProject_Configure(t *testing.T) {
 
 	t.Run("SuccessWithFlagOverrides", func(t *testing.T) {
 		mocks := setupMocks(t)
-		proj, err := NewProject(mocks.Injector, "test-context")
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
 		}
@@ -326,7 +332,7 @@ func TestProject_Configure(t *testing.T) {
 			return ""
 		}
 
-		proj, err := NewProject(mocks.Injector, "test-context")
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
 		}
@@ -363,7 +369,7 @@ func TestProject_Configure(t *testing.T) {
 			return ""
 		}
 
-		proj, err := NewProject(mocks.Injector, "test-context")
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
 		}
@@ -389,17 +395,17 @@ func TestProject_Configure(t *testing.T) {
 
 	t.Run("ErrorOnApplyProviderDefaultsFailure", func(t *testing.T) {
 		mocks := setupMocks(t)
-		proj, err := NewProject(mocks.Injector, "test-context")
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
-
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.SetFunc = func(key string, value any) error {
 			if key == "cluster.driver" {
 				return fmt.Errorf("set cluster.driver failed")
 			}
 			return nil
+		}
+
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
 		}
 
 		err = proj.Configure(map[string]any{"provider": "aws"})
@@ -412,14 +418,14 @@ func TestProject_Configure(t *testing.T) {
 
 	t.Run("ErrorOnLoadConfigFailure", func(t *testing.T) {
 		mocks := setupMocks(t)
-		proj, err := NewProject(mocks.Injector, "test-context")
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
-
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.LoadConfigFunc = func() error {
 			return fmt.Errorf("load config failed")
+		}
+
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
 		}
 
 		err = proj.Configure(nil)
@@ -436,14 +442,14 @@ func TestProject_Configure(t *testing.T) {
 
 	t.Run("ErrorOnSetFailure", func(t *testing.T) {
 		mocks := setupMocks(t)
-		proj, err := NewProject(mocks.Injector, "test-context")
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
-
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.SetFunc = func(key string, value any) error {
 			return fmt.Errorf("set failed")
+		}
+
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
 		}
 
 		err = proj.Configure(map[string]any{"key": "value"})
@@ -462,7 +468,7 @@ func TestProject_Configure(t *testing.T) {
 func TestProject_Initialize(t *testing.T) {
 	t.Run("SuccessWithoutWorkstation", func(t *testing.T) {
 		mocks := setupMocks(t)
-		proj, err := NewProject(mocks.Injector, "test-context")
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
 		}
@@ -481,7 +487,7 @@ func TestProject_Initialize(t *testing.T) {
 			return true
 		}
 
-		proj, err := NewProject(mocks.Injector, "test-context")
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
 		}
@@ -501,7 +507,7 @@ func TestProject_Initialize(t *testing.T) {
 
 	t.Run("SuccessWithOverwriteTrue", func(t *testing.T) {
 		mocks := setupMocks(t)
-		proj, err := NewProject(mocks.Injector, "test-context")
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
 		}
@@ -515,14 +521,14 @@ func TestProject_Initialize(t *testing.T) {
 
 	t.Run("ErrorOnGenerateContextIDFailure", func(t *testing.T) {
 		mocks := setupMocks(t)
-		proj, err := NewProject(mocks.Injector, "test-context")
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
-
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.GenerateContextIDFunc = func() error {
 			return fmt.Errorf("generate context ID failed")
+		}
+
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
 		}
 
 		err = proj.Initialize(false)
@@ -539,14 +545,14 @@ func TestProject_Initialize(t *testing.T) {
 
 	t.Run("ErrorOnSaveConfigFailure", func(t *testing.T) {
 		mocks := setupMocks(t)
-		proj, err := NewProject(mocks.Injector, "test-context")
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
-
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.SaveConfigFunc = func(hasSetFlags ...bool) error {
 			return fmt.Errorf("save config failed")
+		}
+
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
 		}
 
 		err = proj.Initialize(false)
@@ -566,16 +572,16 @@ func TestProject_Initialize(t *testing.T) {
 func TestProject_PerformCleanup(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupMocks(t)
-		proj, err := NewProject(mocks.Injector, "test-context")
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
-
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		cleanCalled := false
 		mockConfig.CleanFunc = func() error {
 			cleanCalled = true
 			return nil
+		}
+
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
 		}
 
 		err = proj.PerformCleanup()
@@ -591,14 +597,14 @@ func TestProject_PerformCleanup(t *testing.T) {
 
 	t.Run("ErrorOnCleanFailure", func(t *testing.T) {
 		mocks := setupMocks(t)
-		proj, err := NewProject(mocks.Injector, "test-context")
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
-
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.CleanFunc = func() error {
 			return fmt.Errorf("clean failed")
+		}
+
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
 		}
 
 		err = proj.PerformCleanup()

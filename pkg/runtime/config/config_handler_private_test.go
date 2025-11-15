@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -17,13 +16,11 @@ func setupPrivateTestHandler(t *testing.T) (*configHandler, string) {
 	t.Helper()
 
 	tmpDir := t.TempDir()
-	injector := di.NewInjector()
 
 	mockShell := shell.NewMockShell()
 	mockShell.GetProjectRootFunc = func() (string, error) {
 		return tmpDir, nil
 	}
-	injector.Register("shell", mockShell)
 
 	handler := NewConfigHandler(mockShell).(*configHandler)
 

@@ -10,44 +10,6 @@ import (
 // Test Public Methods
 // =============================================================================
 
-// TestMockEnvPrinter_Initialize tests the Initialize method of the MockEnvPrinter
-func TestMockEnvPrinter_Initialize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a mock environment printer
-		printer := NewMockEnvPrinter()
-		var initialized bool
-		printer.InitializeFunc = func() error {
-			initialized = true
-			return nil
-		}
-
-		// When initializing
-		err := printer.Initialize()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Initialize() error = %v, want nil", err)
-		}
-		// And initialized should be true
-		if !initialized {
-			t.Errorf("Initialize() did not set initialized to true")
-		}
-	})
-
-	t.Run("DefaultInitialize", func(t *testing.T) {
-		// Given a mock environment printer with default implementation
-		printer := NewMockEnvPrinter()
-
-		// When initializing
-		err := printer.Initialize()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Initialize() error = %v, want nil", err)
-		}
-	})
-}
-
 // TestMockEnvPrinter_NewMockEnvPrinter tests the NewMockEnvPrinter constructor
 func TestMockEnvPrinter_NewMockEnvPrinter(t *testing.T) {
 	t.Run("CreateMockEnvPrinterWithoutContainer", func(t *testing.T) {

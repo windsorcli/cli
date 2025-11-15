@@ -5,7 +5,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -21,10 +20,9 @@ func TestBuildIDCmd(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setup(t)
-		mocks := setupMocks(t)
 
 		// Set up command context with injector
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"build-id"})
@@ -46,10 +44,9 @@ func TestBuildIDCmd(t *testing.T) {
 	t.Run("SuccessWithNewFlag", func(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setup(t)
-		mocks := setupMocks(t)
 
 		// Set up command context with injector
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"build-id", "--new"})
@@ -125,10 +122,9 @@ func TestBuildIDCmd(t *testing.T) {
 	t.Run("PipelineSetupError", func(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setup(t)
-		mocks := setupMocks(t)
 
 		// Set up command context with injector
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"build-id"})
@@ -150,10 +146,9 @@ func TestBuildIDCmd(t *testing.T) {
 	t.Run("PipelineExecuteError", func(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setup(t)
-		mocks := setupMocks(t)
 
 		// Set up command context with injector
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"build-id"})
@@ -198,10 +193,9 @@ func TestBuildIDCmd(t *testing.T) {
 	t.Run("ContextWithNewFlag", func(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setup(t)
-		mocks := setupMocks(t)
 
 		// Set up command context with injector
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"build-id", "--new"})
@@ -223,10 +217,9 @@ func TestBuildIDCmd(t *testing.T) {
 	t.Run("ContextWithoutNewFlag", func(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setup(t)
-		mocks := setupMocks(t)
 
 		// Set up command context with injector
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.Background()
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"build-id"})
@@ -250,8 +243,6 @@ func TestBuildIDCmd(t *testing.T) {
 		setup(t)
 
 		// Set up mocks with pipeline that fails to initialize
-		mockInjector := di.NewInjector()
-
 		// Register a mock shell to prevent nil pointer dereference
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) {
@@ -260,10 +251,9 @@ func TestBuildIDCmd(t *testing.T) {
 		mockShell.CheckTrustedDirectoryFunc = func() error {
 			return nil
 		}
-		mockInjector.Register("shell", mockShell)
 
 		// Set up command context with injector
-		ctx := context.WithValue(context.Background(), injectorKey, mockInjector)
+		ctx := context.Background()
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"build-id"})
@@ -286,7 +276,7 @@ func TestBuildIDCmd(t *testing.T) {
 		setup(t)
 
 		// Set up command context with invalid injector type
-		ctx := context.WithValue(context.Background(), injectorKey, "invalid")
+		ctx := context.Background()
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"build-id"})

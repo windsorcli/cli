@@ -44,7 +44,7 @@ nested:
 func TestNewSopsSecretsProvider(t *testing.T) {
 	setup := func(t *testing.T) (*SopsSecretsProvider, *Mocks) {
 		mocks := setupSopsSecretsMocks(t)
-		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
+		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Shell)
 		provider.shims = mocks.Shims
 		return provider, mocks
 	}
@@ -67,9 +67,8 @@ func TestNewSopsSecretsProvider(t *testing.T) {
 func TestSopsSecretsProvider_LoadSecrets(t *testing.T) {
 	setup := func(t *testing.T) (*SopsSecretsProvider, *Mocks) {
 		mocks := setupSopsSecretsMocks(t)
-		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
+		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Shell)
 		provider.shims = mocks.Shims
-		provider.Initialize()
 		return provider, mocks
 	}
 
@@ -170,9 +169,8 @@ func TestSopsSecretsProvider_LoadSecrets(t *testing.T) {
 func TestSopsSecretsProvider_GetSecret(t *testing.T) {
 	setup := func(t *testing.T) (*SopsSecretsProvider, *Mocks) {
 		mocks := setupSopsSecretsMocks(t)
-		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
+		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Shell)
 		provider.shims = mocks.Shims
-		provider.Initialize()
 		return provider, mocks
 	}
 
@@ -232,9 +230,8 @@ func TestSopsSecretsProvider_GetSecret(t *testing.T) {
 func TestSopsSecretsProvider_ParseSecrets(t *testing.T) {
 	setup := func(t *testing.T) (*SopsSecretsProvider, *Mocks) {
 		mocks := setupSopsSecretsMocks(t)
-		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
+		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Shell)
 		provider.shims = mocks.Shims
-		provider.Initialize()
 		return provider, mocks
 	}
 
@@ -375,7 +372,7 @@ func TestSopsSecretsProvider_ParseSecrets(t *testing.T) {
 func TestSopsSecretsProvider_findSecretsFilePath(t *testing.T) {
 	setup := func(t *testing.T) (*SopsSecretsProvider, *Mocks) {
 		mocks := setupSopsSecretsMocks(t)
-		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
+		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Shell)
 		provider.shims = mocks.Shims
 		return provider, mocks
 	}

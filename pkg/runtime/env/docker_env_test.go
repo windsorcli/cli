@@ -10,7 +10,6 @@ import (
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 // =============================================================================
@@ -19,7 +18,6 @@ import (
 
 // DockerEnvPrinterMocks holds all mock objects used in Docker environment tests
 type DockerEnvPrinterMocks struct {
-	Injector      di.Injector
 	Shell         *shell.MockShell
 	ConfigHandler *config.MockConfigHandler
 }

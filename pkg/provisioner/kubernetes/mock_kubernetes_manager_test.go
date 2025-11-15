@@ -20,34 +20,10 @@ import (
 // Public Methods
 // =============================================================================
 
-func TestMockKubernetesManager_Initialize(t *testing.T) {
-	setup := func(t *testing.T) *MockKubernetesManager {
-		t.Helper()
-		return NewMockKubernetesManager(nil)
-	}
-
-	t.Run("FuncSet", func(t *testing.T) {
-		manager := setup(t)
-		manager.InitializeFunc = func() error { return fmt.Errorf("err") }
-		err := manager.Initialize()
-		if err == nil || err.Error() != "err" {
-			t.Errorf("Expected error 'err', got %v", err)
-		}
-	})
-
-	t.Run("FuncNotSet", func(t *testing.T) {
-		manager := setup(t)
-		err := manager.Initialize()
-		if err != nil {
-			t.Errorf("Expected nil, got %v", err)
-		}
-	})
-}
-
 func TestMockKubernetesManager_ApplyKustomization(t *testing.T) {
 	setup := func(t *testing.T) *MockKubernetesManager {
 		t.Helper()
-		return NewMockKubernetesManager(nil)
+		return NewMockKubernetesManager()
 	}
 	k := kustomizev1.Kustomization{}
 
@@ -72,7 +48,7 @@ func TestMockKubernetesManager_ApplyKustomization(t *testing.T) {
 func TestMockKubernetesManager_DeleteKustomization(t *testing.T) {
 	setup := func(t *testing.T) *MockKubernetesManager {
 		t.Helper()
-		return NewMockKubernetesManager(nil)
+		return NewMockKubernetesManager()
 	}
 	name, ns := "n", "ns"
 
@@ -97,7 +73,7 @@ func TestMockKubernetesManager_DeleteKustomization(t *testing.T) {
 func TestMockKubernetesManager_WaitForKustomizations(t *testing.T) {
 	setup := func(t *testing.T) *MockKubernetesManager {
 		t.Helper()
-		return NewMockKubernetesManager(nil)
+		return NewMockKubernetesManager()
 	}
 	msg := "msg"
 	name := "n"
@@ -123,7 +99,7 @@ func TestMockKubernetesManager_WaitForKustomizations(t *testing.T) {
 func TestMockKubernetesManager_GetKustomizationStatus(t *testing.T) {
 	setup := func(t *testing.T) *MockKubernetesManager {
 		t.Helper()
-		return NewMockKubernetesManager(nil)
+		return NewMockKubernetesManager()
 	}
 	names := []string{"a", "b"}
 	ret := map[string]bool{"a": true}
@@ -155,7 +131,7 @@ func TestMockKubernetesManager_GetKustomizationStatus(t *testing.T) {
 func TestMockKubernetesManager_CreateNamespace(t *testing.T) {
 	setup := func(t *testing.T) *MockKubernetesManager {
 		t.Helper()
-		return NewMockKubernetesManager(nil)
+		return NewMockKubernetesManager()
 	}
 	name := "ns"
 
@@ -180,7 +156,7 @@ func TestMockKubernetesManager_CreateNamespace(t *testing.T) {
 func TestMockKubernetesManager_DeleteNamespace(t *testing.T) {
 	setup := func(t *testing.T) *MockKubernetesManager {
 		t.Helper()
-		return NewMockKubernetesManager(nil)
+		return NewMockKubernetesManager()
 	}
 	name := "ns"
 
@@ -205,7 +181,7 @@ func TestMockKubernetesManager_DeleteNamespace(t *testing.T) {
 func TestMockKubernetesManager_ApplyConfigMap(t *testing.T) {
 	setup := func(t *testing.T) *MockKubernetesManager {
 		t.Helper()
-		return NewMockKubernetesManager(nil)
+		return NewMockKubernetesManager()
 	}
 	name, ns := "n", "ns"
 	data := map[string]string{"k": "v"}
@@ -231,7 +207,7 @@ func TestMockKubernetesManager_ApplyConfigMap(t *testing.T) {
 func TestMockKubernetesManager_GetHelmReleasesForKustomization(t *testing.T) {
 	setup := func(t *testing.T) *MockKubernetesManager {
 		t.Helper()
-		return NewMockKubernetesManager(nil)
+		return NewMockKubernetesManager()
 	}
 	name, ns := "n", "ns"
 	releases := []helmv2.HelmRelease{{}}
@@ -263,7 +239,7 @@ func TestMockKubernetesManager_GetHelmReleasesForKustomization(t *testing.T) {
 func TestMockKubernetesManager_SuspendKustomization(t *testing.T) {
 	setup := func(t *testing.T) *MockKubernetesManager {
 		t.Helper()
-		return NewMockKubernetesManager(nil)
+		return NewMockKubernetesManager()
 	}
 	name, ns := "n", "ns"
 
@@ -288,7 +264,7 @@ func TestMockKubernetesManager_SuspendKustomization(t *testing.T) {
 func TestMockKubernetesManager_SuspendHelmRelease(t *testing.T) {
 	setup := func(t *testing.T) *MockKubernetesManager {
 		t.Helper()
-		return NewMockKubernetesManager(nil)
+		return NewMockKubernetesManager()
 	}
 	name, ns := "n", "ns"
 
@@ -313,7 +289,7 @@ func TestMockKubernetesManager_SuspendHelmRelease(t *testing.T) {
 func TestMockKubernetesManager_ApplyGitRepository(t *testing.T) {
 	setup := func(t *testing.T) *MockKubernetesManager {
 		t.Helper()
-		return NewMockKubernetesManager(nil)
+		return NewMockKubernetesManager()
 	}
 	repo := &sourcev1.GitRepository{}
 
@@ -338,7 +314,7 @@ func TestMockKubernetesManager_ApplyGitRepository(t *testing.T) {
 func TestMockKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 	setup := func(t *testing.T) *MockKubernetesManager {
 		t.Helper()
-		return NewMockKubernetesManager(nil)
+		return NewMockKubernetesManager()
 	}
 
 	t.Run("FuncSet", func(t *testing.T) {
@@ -362,7 +338,7 @@ func TestMockKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 func TestMockKubernetesManager_ApplyOCIRepository(t *testing.T) {
 	setup := func(t *testing.T) *MockKubernetesManager {
 		t.Helper()
-		return NewMockKubernetesManager(nil)
+		return NewMockKubernetesManager()
 	}
 	repo := &sourcev1.OCIRepository{}
 
@@ -387,7 +363,7 @@ func TestMockKubernetesManager_ApplyOCIRepository(t *testing.T) {
 func TestMockKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 	setup := func(t *testing.T) *MockKubernetesManager {
 		t.Helper()
-		return NewMockKubernetesManager(nil)
+		return NewMockKubernetesManager()
 	}
 	ctx := context.Background()
 	endpoint := "https://kubernetes.example.com:6443"
@@ -422,7 +398,7 @@ func TestMockKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 func TestMockKubernetesManager_GetNodeReadyStatus(t *testing.T) {
 	setup := func(t *testing.T) *MockKubernetesManager {
 		t.Helper()
-		return NewMockKubernetesManager(nil)
+		return NewMockKubernetesManager()
 	}
 	ctx := context.Background()
 	nodeNames := []string{"node1", "node2"}
@@ -469,7 +445,7 @@ func TestMockKubernetesManager_GetNodeReadyStatus(t *testing.T) {
 func TestMockKubernetesManager_ApplyBlueprint(t *testing.T) {
 	setup := func(t *testing.T) *MockKubernetesManager {
 		t.Helper()
-		return NewMockKubernetesManager(nil)
+		return NewMockKubernetesManager()
 	}
 	blueprint := &blueprintv1alpha1.Blueprint{
 		Metadata: blueprintv1alpha1.Metadata{
@@ -507,7 +483,7 @@ func TestMockKubernetesManager_ApplyBlueprint(t *testing.T) {
 func TestMockKubernetesManager_DeleteBlueprint(t *testing.T) {
 	setup := func(t *testing.T) *MockKubernetesManager {
 		t.Helper()
-		return NewMockKubernetesManager(nil)
+		return NewMockKubernetesManager()
 	}
 	blueprint := &blueprintv1alpha1.Blueprint{
 		Metadata: blueprintv1alpha1.Metadata{

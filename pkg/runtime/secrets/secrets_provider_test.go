@@ -3,7 +3,6 @@ package secrets
 import (
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -17,75 +16,24 @@ import (
 // =============================================================================
 
 type Mocks struct {
-	Injector di.Injector
-	Shell    *shell.MockShell
-	Shims    *Shims
+	Shell *shell.MockShell
+	Shims *Shims
 }
 
 type SetupOptions struct {
-	Injector di.Injector
 }
 
 // setupMocks creates mock components for testing the secrets provider
-func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+func setupMocks(t *testing.T, _ ...*SetupOptions) *Mocks {
 	t.Helper()
-	var mockInjector di.Injector
-	if len(opts) > 0 {
-		mockInjector = opts[0].Injector
-	} else {
-		mockInjector = di.NewMockInjector()
-	}
 
 	// Create a mock shell
 	mockShell := shell.NewMockShell()
-	mockInjector.Register("shell", mockShell)
 
 	return &Mocks{
-		Injector: mockInjector,
-		Shell:    mockShell,
-		Shims:    NewShims(),
+		Shell: mockShell,
+		Shims: NewShims(),
 	}
-}
-
-// =============================================================================
-// Test Public Methods
-// =============================================================================
-
-func TestBaseSecretsProvider_Initialize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		mocks := setupMocks(t)
-		provider := NewBaseSecretsProvider(mocks.Injector)
-
-		err := provider.Initialize()
-
-		if err != nil {
-			t.Errorf("Expected Initialize to succeed, but got error: %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		mocks := setupMocks(t)
-		mocks.Injector.Register("shell", nil)
-		provider := NewBaseSecretsProvider(mocks.Injector)
-
-		err := provider.Initialize()
-
-		if err == nil || err.Error() != "failed to resolve shell instance from injector" {
-			t.Errorf("Expected error 'failed to resolve shell instance from injector', but got: %v", err)
-		}
-	})
-
-	t.Run("ErrorCastingShell", func(t *testing.T) {
-		mocks := setupMocks(t)
-		mocks.Injector.Register("shell", "invalid")
-		provider := NewBaseSecretsProvider(mocks.Injector)
-
-		err := provider.Initialize()
-
-		if err == nil || err.Error() != "resolved shell instance is not of type shell.Shell" {
-			t.Errorf("Expected error 'resolved shell instance is not of type shell.Shell', but got: %v", err)
-		}
-	})
 }
 
 // =============================================================================
@@ -95,7 +43,7 @@ func TestBaseSecretsProvider_Initialize(t *testing.T) {
 func TestBaseSecretsProvider_LoadSecrets(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupMocks(t)
-		provider := NewBaseSecretsProvider(mocks.Injector)
+		provider := NewBaseSecretsProvider(mocks.Shell)
 
 		err := provider.LoadSecrets()
 
@@ -116,7 +64,7 @@ func TestBaseSecretsProvider_LoadSecrets(t *testing.T) {
 func TestBaseSecretsProvider_GetSecret(t *testing.T) {
 	t.Run("PanicsWhenNotImplemented", func(t *testing.T) {
 		mocks := setupMocks(t)
-		provider := NewBaseSecretsProvider(mocks.Injector)
+		provider := NewBaseSecretsProvider(mocks.Shell)
 
 		defer func() {
 			if r := recover(); r == nil {
@@ -133,7 +81,7 @@ func TestBaseSecretsProvider_GetSecret(t *testing.T) {
 func TestBaseSecretsProvider_ParseSecrets(t *testing.T) {
 	t.Run("PanicsWhenNotImplemented", func(t *testing.T) {
 		mocks := setupMocks(t)
-		provider := NewBaseSecretsProvider(mocks.Injector)
+		provider := NewBaseSecretsProvider(mocks.Shell)
 
 		defer func() {
 			if r := recover(); r == nil {

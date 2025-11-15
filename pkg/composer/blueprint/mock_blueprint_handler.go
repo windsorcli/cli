@@ -2,12 +2,10 @@ package blueprint
 
 import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/di"
 )
 
 // MockBlueprintHandler is a mock implementation of BlueprintHandler interface for testing
 type MockBlueprintHandler struct {
-	InitializeFunc               func() error
 	LoadBlueprintFunc            func() error
 	WriteFunc                    func(overwrite ...bool) error
 	GetTerraformComponentsFunc   func() []blueprintv1alpha1.TerraformComponent
@@ -24,21 +22,13 @@ type MockBlueprintHandler struct {
 // =============================================================================
 
 // NewMockBlueprintHandler creates a new instance of MockBlueprintHandler
-func NewMockBlueprintHandler(injector di.Injector) *MockBlueprintHandler {
+func NewMockBlueprintHandler() *MockBlueprintHandler {
 	return &MockBlueprintHandler{}
 }
 
 // =============================================================================
 // Public Methods
 // =============================================================================
-
-// Initialize initializes the blueprint handler
-func (m *MockBlueprintHandler) Initialize() error {
-	if m.InitializeFunc != nil {
-		return m.InitializeFunc()
-	}
-	return nil
-}
 
 // LoadBlueprint calls the mock LoadBlueprintFunc if set, otherwise returns nil
 func (m *MockBlueprintHandler) LoadBlueprint() error {

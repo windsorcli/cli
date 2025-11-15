@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/compose-spec/compose-go/v2/types"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
@@ -169,7 +168,6 @@ func TestDockerVirt_Initialize(t *testing.T) {
 		dockerVirt := NewDockerVirt(mocks.Runtime, []services.Service{})
 		dockerVirt.shims = mocks.Shims
 
-
 		return dockerVirt, mocks
 	}
 
@@ -199,18 +197,11 @@ func TestDockerVirt_Initialize(t *testing.T) {
 		}
 	})
 
-
 	t.Run("ErrorResolvingServices", func(t *testing.T) {
 		// Given a docker virt instance with failing service resolution
 		dockerVirt, mocks := setup(t)
 
-		// Create new mock injector with base dependencies
-		mockInjector := di.NewMockInjector()
-		mockInjector.Register("shell", mocks.Shell)
-		mockInjector.Register("configHandler", mocks.ConfigHandler)
-		mockInjector.SetResolveAllError((*services.Service)(nil), fmt.Errorf("service resolution failed"))
-
-		// Replace injector and recreate dockerVirt
+		// Recreate dockerVirt
 		dockerVirt = NewDockerVirt(mocks.Runtime, []services.Service{})
 		dockerVirt.shims = mocks.Shims
 
@@ -235,7 +226,6 @@ func TestDockerVirt_Initialize(t *testing.T) {
 			}
 			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
-
 
 		// And the compose command should be empty
 		if dockerVirt.composeCommand != "" {
@@ -298,13 +288,7 @@ func TestDockerVirt_Initialize(t *testing.T) {
 		// Given a docker virt instance with nil service
 		dockerVirt, mocks := setup(t)
 
-		// Create new mock injector with base dependencies
-		mockInjector := di.NewMockInjector()
-		mockInjector.Register("shell", mocks.Shell)
-		mockInjector.Register("configHandler", mocks.ConfigHandler)
-		mockInjector.Register("nilService", nil)
-
-		// Replace injector and recreate dockerVirt
+		// Recreate dockerVirt
 		dockerVirt = NewDockerVirt(mocks.Runtime, []services.Service{})
 		dockerVirt.shims = mocks.Shims
 
@@ -884,7 +868,6 @@ func TestDockerVirt_DetermineComposeCommand(t *testing.T) {
 			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
 
-
 		// And the compose command should be empty
 		if dockerVirt.composeCommand != "" {
 			t.Errorf("expected compose command to be empty, got %q", dockerVirt.composeCommand)
@@ -1228,4 +1211,3 @@ func TestDockerVirt_GetFullComposeConfig(t *testing.T) {
 		}
 	})
 }
-

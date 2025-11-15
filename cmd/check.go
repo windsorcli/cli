@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/provisioner"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
@@ -26,13 +25,12 @@ var checkCmd = &cobra.Command{
 	Long:         "Check the tool versions required by the project",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		injector := cmd.Context().Value(injectorKey).(di.Injector)
-
-		rt := &runtime.Runtime{
-			Injector: injector,
+		var rtOpts []*runtime.Runtime
+		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
+			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
 		}
 
-		rt, err := runtime.NewRuntime(rt)
+		rt, err := runtime.NewRuntime(rtOpts...)
 		if err != nil {
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}
@@ -63,7 +61,6 @@ var checkNodeHealthCmd = &cobra.Command{
 	Long:         "Check the health status of specified cluster nodes",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		injector := cmd.Context().Value(injectorKey).(di.Injector)
 
 		if len(nodeHealthNodes) == 0 && k8sEndpoint == "" {
 			return fmt.Errorf("No health checks specified. Use --nodes and/or --k8s-endpoint flags to specify health checks to perform")
@@ -73,11 +70,12 @@ var checkNodeHealthCmd = &cobra.Command{
 			nodeHealthTimeout = constants.DefaultNodeHealthCheckTimeout
 		}
 
-		rt := &runtime.Runtime{
-			Injector: injector,
+		var rtOpts []*runtime.Runtime
+		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
+			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
 		}
 
-		rt, err := runtime.NewRuntime(rt)
+		rt, err := runtime.NewRuntime(rtOpts...)
 		if err != nil {
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}
