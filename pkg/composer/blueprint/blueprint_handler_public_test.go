@@ -2032,18 +2032,13 @@ func TestBlueprintHandler_LoadBlueprint(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewBlueprintHandler() failed: %v", err)
 		}
-		// Set up shims after initialization
 		handler.shims = mocks.Shims
 
-		// Set up project root and create template root directory
+		// Set up project root and template root
 		tmpDir := t.TempDir()
 		mocks.Runtime.ProjectRoot = tmpDir
-		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
-		if err := os.MkdirAll(templateRoot, 0755); err != nil {
-			t.Fatalf("Failed to create template root: %v", err)
-		}
-
-		// Create a basic blueprint.yaml in templates
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		templateRootNormalized := filepath.ToSlash(mocks.Runtime.TemplateRoot)
 		blueprintContent := `apiVersion: v1alpha1
 kind: Blueprint
 metadata:
@@ -2053,9 +2048,38 @@ sources: []
 terraformComponents: []
 kustomizations: []`
 
-		blueprintPath := filepath.Join(templateRoot, "blueprint.yaml")
-		if err := os.WriteFile(blueprintPath, []byte(blueprintContent), 0644); err != nil {
-			t.Fatalf("Failed to create blueprint.yaml: %v", err)
+		originalReadFile := handler.shims.ReadFile
+		handler.shims.Stat = func(path string) (os.FileInfo, error) {
+			normalizedPath := filepath.ToSlash(path)
+			if normalizedPath == templateRootNormalized {
+				return &mockFileInfo{name: "_template", isDir: true}, nil
+			}
+			if strings.Contains(normalizedPath, "_template/metadata.yaml") {
+				return nil, os.ErrNotExist
+			}
+			if strings.Contains(normalizedPath, "_template/blueprint.yaml") {
+				return &mockFileInfo{name: "blueprint.yaml", isDir: false}, nil
+			}
+			if strings.Contains(normalizedPath, "_template") {
+				return &mockFileInfo{name: "_template", isDir: true}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+			normalizedPath := filepath.ToSlash(path)
+			if normalizedPath == templateRootNormalized {
+				return []os.DirEntry{
+					&mockDirEntry{name: "blueprint.yaml", isDir: false},
+				}, nil
+			}
+			return []os.DirEntry{}, nil
+		}
+		handler.shims.ReadFile = func(path string) ([]byte, error) {
+			normalizedPath := filepath.ToSlash(path)
+			if strings.Contains(normalizedPath, "_template/blueprint.yaml") {
+				return []byte(blueprintContent), nil
+			}
+			return originalReadFile(path)
 		}
 
 		// Mock config handler to return empty context values
