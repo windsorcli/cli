@@ -31,6 +31,19 @@ import (
 // dependencies and metadata for distribution.
 
 // =============================================================================
+// Interfaces
+// =============================================================================
+
+// Artifact defines the interface for artifact creation operations
+type Artifact interface {
+	Bundle() error
+	Write(outputPath string, tag string) (string, error)
+	Push(registryBase string, repoName string, tag string) error
+	Pull(ociRefs []string) (map[string][]byte, error)
+	GetTemplateData(ociRef string) (map[string][]byte, error)
+}
+
+// =============================================================================
 // Types
 // =============================================================================
 
@@ -64,12 +77,9 @@ type BuilderInfo struct {
 
 // OCIArtifactInfo contains information about the OCI artifact source for blueprint data
 type OCIArtifactInfo struct {
-	// Name is the name of the OCI artifact
 	Name string
-	// URL is the full OCI URL of the artifact
-	URL string
-	// Tag is the tag/version of the OCI artifact
-	Tag string
+	URL  string
+	Tag  string
 }
 
 // BlueprintMetadataInput represents the input metadata from contexts/_template/metadata.yaml
@@ -83,23 +93,6 @@ type BlueprintMetadataInput struct {
 	License     string   `yaml:"license,omitempty"`
 	CliVersion  string   `yaml:"cliVersion,omitempty"`
 }
-
-// =============================================================================
-// Interfaces
-// =============================================================================
-
-// Artifact defines the interface for artifact creation operations
-type Artifact interface {
-	Bundle() error
-	Write(outputPath string, tag string) (string, error)
-	Push(registryBase string, repoName string, tag string) error
-	Pull(ociRefs []string) (map[string][]byte, error)
-	GetTemplateData(ociRef string) (map[string][]byte, error)
-}
-
-// =============================================================================
-// ArtifactBuilder Implementation
-// =============================================================================
 
 // FileInfo holds file content and permission information
 type FileInfo struct {
@@ -534,6 +527,100 @@ func ParseOCIReference(ociRef string) (*OCIArtifactInfo, error) {
 		URL:  fullURL,
 		Tag:  version,
 	}, nil
+}
+
+// ParseRegistryURL parses a registry URL string into its components.
+// It handles formats like "registry.com/repo:tag", "registry.com/repo", or "oci://registry.com/repo:tag".
+// Returns registryBase, repoName, tag, and an error if parsing fails.
+func ParseRegistryURL(registryURL string) (registryBase, repoName, tag string, err error) {
+	arg := strings.TrimPrefix(registryURL, "oci://")
+
+	if lastColon := strings.LastIndex(arg, ":"); lastColon > 0 && lastColon < len(arg)-1 {
+		tag = arg[lastColon+1:]
+		arg = arg[:lastColon]
+	}
+
+	if firstSlash := strings.Index(arg, "/"); firstSlash >= 0 {
+		registryBase = arg[:firstSlash]
+		repoName = arg[firstSlash+1:]
+	} else {
+		return "", "", "", fmt.Errorf("invalid registry format: must include repository path (e.g., registry.com/namespace/repo)")
+	}
+
+	return registryBase, repoName, tag, nil
+}
+
+// IsAuthenticationError checks if the error is related to authentication failure.
+// It examines common authentication error patterns in error messages to determine
+// if the failure is due to authentication issues rather than other problems.
+func IsAuthenticationError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errStr := err.Error()
+
+	authErrorPatterns := []string{
+		"UNAUTHORIZED",
+		"unauthorized",
+		"authentication required",
+		"authentication failed",
+		"not authorized",
+		"access denied",
+		"login required",
+		"credentials required",
+		"401",
+		"403",
+		"unauthenticated",
+		"User cannot be authenticated",
+		"failed to push artifact",
+		"POST https://",
+		"blobs/uploads",
+	}
+
+	for _, pattern := range authErrorPatterns {
+		if strings.Contains(errStr, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// ValidateCliVersion validates that the provided CLI version satisfies the cliVersion constraint
+// specified in the template metadata. If constraint is empty, validation is skipped.
+// If cliVersion is empty, validation is skipped (caller cannot determine version).
+// If the CLI version is "dev" or "main" or "latest", validation is skipped as these are development builds.
+// Returns an error if the constraint is specified and the version does not satisfy it.
+func ValidateCliVersion(cliVersion, constraint string) error {
+	if constraint == "" {
+		return nil
+	}
+
+	if cliVersion == "" {
+		return nil
+	}
+
+	if cliVersion == "dev" || cliVersion == "main" || cliVersion == "latest" {
+		return nil
+	}
+
+	versionStr := strings.TrimPrefix(cliVersion, "v")
+	version, err := semver.NewVersion(versionStr)
+	if err != nil {
+		return fmt.Errorf("invalid CLI version format '%s': %w", cliVersion, err)
+	}
+
+	c, err := semver.NewConstraint(constraint)
+	if err != nil {
+		return fmt.Errorf("invalid cliVersion constraint '%s': %w", constraint, err)
+	}
+
+	if !c.Check(version) {
+		return fmt.Errorf("CLI version %s does not satisfy required constraint '%s'", cliVersion, constraint)
+	}
+
+	return nil
 }
 
 // =============================================================================
@@ -1071,104 +1158,6 @@ func (a *ArtifactBuilder) downloadOCIArtifact(registry, repository, tag string) 
 	}
 
 	return data, nil
-}
-
-// =============================================================================
-// Helper Functions
-// =============================================================================
-
-// ParseRegistryURL parses a registry URL string into its components.
-// It handles formats like "registry.com/repo:tag", "registry.com/repo", or "oci://registry.com/repo:tag".
-// Returns registryBase, repoName, tag, and an error if parsing fails.
-func ParseRegistryURL(registryURL string) (registryBase, repoName, tag string, err error) {
-	arg := strings.TrimPrefix(registryURL, "oci://")
-
-	if lastColon := strings.LastIndex(arg, ":"); lastColon > 0 && lastColon < len(arg)-1 {
-		tag = arg[lastColon+1:]
-		arg = arg[:lastColon]
-	}
-
-	if firstSlash := strings.Index(arg, "/"); firstSlash >= 0 {
-		registryBase = arg[:firstSlash]
-		repoName = arg[firstSlash+1:]
-	} else {
-		return "", "", "", fmt.Errorf("invalid registry format: must include repository path (e.g., registry.com/namespace/repo)")
-	}
-
-	return registryBase, repoName, tag, nil
-}
-
-// IsAuthenticationError checks if the error is related to authentication failure.
-// It examines common authentication error patterns in error messages to determine
-// if the failure is due to authentication issues rather than other problems.
-func IsAuthenticationError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	errStr := err.Error()
-
-	authErrorPatterns := []string{
-		"UNAUTHORIZED",
-		"unauthorized",
-		"authentication required",
-		"authentication failed",
-		"not authorized",
-		"access denied",
-		"login required",
-		"credentials required",
-		"401",
-		"403",
-		"unauthenticated",
-		"User cannot be authenticated",
-		"failed to push artifact",
-		"POST https://",
-		"blobs/uploads",
-	}
-
-	for _, pattern := range authErrorPatterns {
-		if strings.Contains(errStr, pattern) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// ValidateCliVersion validates that the provided CLI version satisfies the cliVersion constraint
-// specified in the template metadata. If constraint is empty, validation is skipped.
-// If cliVersion is empty, validation is skipped (caller cannot determine version).
-// If the CLI version is "dev" or "main" or "latest", validation is skipped as these are development builds.
-// Returns an error if the constraint is specified and the version does not satisfy it.
-func ValidateCliVersion(cliVersion, constraint string) error {
-	if constraint == "" {
-		return nil
-	}
-
-	if cliVersion == "" {
-		return nil
-	}
-
-	if cliVersion == "dev" || cliVersion == "main" || cliVersion == "latest" {
-		return nil
-	}
-
-	versionStr := strings.TrimPrefix(cliVersion, "v")
-	version, err := semver.NewVersion(versionStr)
-	if err != nil {
-		return fmt.Errorf("invalid CLI version format '%s': %w", cliVersion, err)
-	}
-
-	c, err := semver.NewConstraint(constraint)
-	if err != nil {
-		return fmt.Errorf("invalid cliVersion constraint '%s': %w", constraint, err)
-	}
-
-	if !c.Check(version) {
-		return fmt.Errorf("CLI version %s does not satisfy required constraint '%s'", cliVersion, constraint)
-	}
-
-	return nil
 }
 
 // Ensure ArtifactBuilder implements Artifact interface

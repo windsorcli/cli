@@ -11,26 +11,6 @@ import (
 // enabling reliable testing of consumers of the ModuleResolver interface
 
 // =============================================================================
-// Test Setup
-// =============================================================================
-
-type MockModuleResolverSetupOptions struct {
-	ProcessModulesFunc func() error
-}
-
-func setupMockModuleResolver(t *testing.T, opts ...*MockModuleResolverSetupOptions) *MockModuleResolver {
-	t.Helper()
-
-	mock := NewMockModuleResolver()
-	if len(opts) > 0 && opts[0] != nil {
-		if opts[0].ProcessModulesFunc != nil {
-			mock.ProcessModulesFunc = opts[0].ProcessModulesFunc
-		}
-	}
-	return mock
-}
-
-// =============================================================================
 // Test Public Methods
 // =============================================================================
 

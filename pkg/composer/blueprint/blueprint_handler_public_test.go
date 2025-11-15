@@ -209,7 +209,7 @@ local context = std.extVar("context");
 }
 `
 
-type Mocks struct {
+type BlueprintTestMocks struct {
 	Shell             *shell.MockShell
 	ConfigHandler     config.ConfigHandler
 	Shims             *Shims
@@ -217,13 +217,7 @@ type Mocks struct {
 	Runtime           *runtime.Runtime
 }
 
-type SetupOptions struct {
-	ConfigHandler config.ConfigHandler
-	ConfigStr     string
-}
-
-func setupShims(t *testing.T) *Shims {
-	t.Helper()
+func setupDefaultShims() *Shims {
 	shims := NewShims()
 
 	// Override only the functions needed for testing
@@ -293,7 +287,7 @@ func setupShims(t *testing.T) *Shims {
 	return shims
 }
 
-func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+func setupBlueprintMocks(t *testing.T, opts ...func(*BlueprintTestMocks)) *BlueprintTestMocks {
 	t.Helper()
 
 	// Unset BUILD_ID to ensure tests aren't affected by environment
@@ -315,40 +309,36 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 
 	// Set up config handler - default to MockConfigHandler for easier testing
 	var configHandler config.ConfigHandler
-	if len(opts) > 0 && opts[0].ConfigHandler != nil {
-		configHandler = opts[0].ConfigHandler
-	} else {
-		mockConfigHandler := config.NewMockConfigHandler()
-		// Set up default mock behaviors with stateful context handling
-		currentContext := "local" // Default context
+	mockConfigHandler := config.NewMockConfigHandler()
+	// Set up default mock behaviors with stateful context handling
+	currentContext := "local" // Default context
 
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			switch key {
-			case "context":
-				return currentContext
-			default:
-				if len(defaultValue) > 0 {
-					return defaultValue[0]
-				}
-				return ""
-			}
-		}
-
-		mockConfigHandler.GetContextFunc = func() string {
-			// Check environment variable first, like the real ConfigHandler does
-			if envContext := os.Getenv("WINDSOR_CONTEXT"); envContext != "" {
-				return envContext
-			}
+	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		switch key {
+		case "context":
 			return currentContext
+		default:
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
 		}
-
-		mockConfigHandler.SetContextFunc = func(context string) error {
-			currentContext = context
-			return nil
-		}
-
-		configHandler = mockConfigHandler
 	}
+
+	mockConfigHandler.GetContextFunc = func() string {
+		// Check environment variable first, like the real ConfigHandler does
+		if envContext := os.Getenv("WINDSOR_CONTEXT"); envContext != "" {
+			return envContext
+		}
+		return currentContext
+	}
+
+	mockConfigHandler.SetContextFunc = func(context string) error {
+		currentContext = context
+		return nil
+	}
+
+	configHandler = mockConfigHandler
 
 	// Create mock shell and kubernetes manager
 	mockShell := shell.NewMockShell()
@@ -386,6 +376,37 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		return nil
 	}
 
+	// Create shims
+	shims := setupDefaultShims()
+
+	// Set up default GetContextValues for mock config handler
+	mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+		return make(map[string]any), nil
+	}
+
+	// Create runtime
+	rt := &runtime.Runtime{
+		ProjectRoot:   tmpDir,
+		ConfigRoot:    tmpDir,
+		TemplateRoot:  filepath.Join(tmpDir, "contexts", "_template"),
+		ConfigHandler: configHandler,
+		Shell:         mockShell,
+	}
+
+	// Create mocks struct
+	mocks := &BlueprintTestMocks{
+		Shell:             mockShell,
+		ConfigHandler:     configHandler,
+		Shims:             shims,
+		KubernetesManager: mockKubernetesManager,
+		Runtime:           rt,
+	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(mocks)
+	}
+
 	// Set up default config
 	defaultConfigStr := `
 contexts:
@@ -404,34 +425,10 @@ contexts:
           - ${WINDSOR_PROJECT_ROOT}/.volumes:/var/local
 `
 
-	configHandler.SetContext("mock-context")
+	mocks.ConfigHandler.SetContext("mock-context")
 
-	if err := configHandler.LoadConfigString(defaultConfigStr); err != nil {
+	if err := mocks.ConfigHandler.LoadConfigString(defaultConfigStr); err != nil {
 		t.Fatalf("Failed to load default config string: %v", err)
-	}
-	if len(opts) > 0 && opts[0].ConfigStr != "" {
-		if err := configHandler.LoadConfigString(opts[0].ConfigStr); err != nil {
-			t.Fatalf("Failed to load config string: %v", err)
-		}
-	}
-
-	// Create shims
-	shims := setupShims(t)
-
-	// Set up default GetContextValues for mock config handler
-	if mockConfigHandler, ok := configHandler.(*config.MockConfigHandler); ok {
-		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return make(map[string]any), nil
-		}
-	}
-
-	// Create runtime
-	rt := &runtime.Runtime{
-		ProjectRoot:   tmpDir,
-		ConfigRoot:    tmpDir,
-		TemplateRoot:  filepath.Join(tmpDir, "contexts", "_template"),
-		ConfigHandler: configHandler,
-		Shell:         mockShell,
 	}
 
 	// Cleanup function
@@ -442,13 +439,7 @@ contexts:
 		os.Chdir(tmpDir)
 	})
 
-	return &Mocks{
-		Shell:             mockShell,
-		ConfigHandler:     configHandler,
-		Shims:             shims,
-		KubernetesManager: mockKubernetesManager,
-		Runtime:           rt,
-	}
+	return mocks
 }
 
 // =============================================================================
@@ -458,7 +449,7 @@ contexts:
 func TestBlueprintHandler_NewBlueprintHandler(t *testing.T) {
 	t.Run("CreatesHandlerWithMocks", func(t *testing.T) {
 		// Given mocks
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()
 
 		// When creating a new blueprint handler
@@ -488,12 +479,55 @@ func TestBlueprintHandler_NewBlueprintHandler(t *testing.T) {
 			t.Error("Expected artifactBuilder to be set")
 		}
 	})
+
+	t.Run("HandlesFeatureEvaluatorOverride", func(t *testing.T) {
+		// Given mocks
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+
+		// And a custom feature evaluator
+		customEvaluator := NewFeatureEvaluator(mocks.Runtime)
+
+		// When creating a handler with feature evaluator override
+		overrideHandler := &BaseBlueprintHandler{
+			featureEvaluator: customEvaluator,
+		}
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder, overrideHandler)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+
+		// Then the handler should use the custom feature evaluator
+		if handler.featureEvaluator != customEvaluator {
+			t.Error("Expected custom feature evaluator to be used")
+		}
+	})
+
+	t.Run("HandlesNilOverride", func(t *testing.T) {
+		// Given mocks
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+
+		// When creating a handler with nil override
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder, nil)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+
+		// Then it should succeed and use default feature evaluator
+		if handler == nil {
+			t.Fatal("Expected non-nil handler")
+		}
+		if handler.featureEvaluator == nil {
+			t.Error("Expected default feature evaluator to be set")
+		}
+	})
 }
 
 func TestBlueprintHandler_NewBlueprintHandlerWithError(t *testing.T) {
 	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
 		// Given a runtime with empty ProjectRoot
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mocks.Runtime.ProjectRoot = ""
 
 		// When creating a new blueprint handler
@@ -511,9 +545,9 @@ func TestBlueprintHandler_NewBlueprintHandlerWithError(t *testing.T) {
 }
 
 func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
-	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *BlueprintTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
 		if err != nil {
@@ -702,9 +736,9 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 }
 
 func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
-	setup := func(t *testing.T) (BlueprintHandler, *Mocks) {
+	setup := func(t *testing.T) (BlueprintHandler, *BlueprintTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
 		if err != nil {
@@ -751,7 +785,7 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 		templateDir := filepath.Join(projectRoot, "contexts", "_template")
 
 		// Set up mocks first, before initializing the handler
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mocks.Runtime.ProjectRoot = projectRoot
 		mocks.Runtime.TemplateRoot = templateDir
 
@@ -897,7 +931,7 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 		templateDir := filepath.Join(projectRoot, "contexts", "_template")
 
 		// Set up mocks first, before initializing the handler
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mocks.Runtime.ProjectRoot = projectRoot
 		mocks.Runtime.TemplateRoot = templateDir
 
@@ -1296,7 +1330,7 @@ substitutions:
 		templateDir := filepath.Join(projectRoot, "contexts", "_template")
 
 		// Set up mocks first, before initializing the handler
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mocks.Runtime.ProjectRoot = projectRoot
 		mocks.Runtime.TemplateRoot = templateDir
 
@@ -1421,7 +1455,7 @@ substitutions:
 		templateDir := filepath.Join(projectRoot, "contexts", "_template")
 
 		// Set up mocks first, before initializing the handler
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mocks.Runtime.ProjectRoot = projectRoot
 		mocks.Runtime.TemplateRoot = templateDir
 
@@ -1483,9 +1517,9 @@ substitutions:
 }
 
 func TestBlueprintHandler_loadData(t *testing.T) {
-	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *BlueprintTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
 		if err != nil {
@@ -1696,9 +1730,9 @@ func TestBlueprintHandler_loadData(t *testing.T) {
 }
 
 func TestBlueprintHandler_Write(t *testing.T) {
-	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *BlueprintTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
 		if err != nil {
@@ -1849,7 +1883,7 @@ func TestBlueprintHandler_Write(t *testing.T) {
 
 	t.Run("ErrorGettingConfigRoot", func(t *testing.T) {
 		// Given a blueprint handler with empty ConfigRoot
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mocks.Runtime.ConfigRoot = ""
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
@@ -2026,7 +2060,7 @@ func TestBlueprintHandler_Write(t *testing.T) {
 func TestBlueprintHandler_LoadBlueprint(t *testing.T) {
 	t.Run("LoadsBlueprintSuccessfullyWithLocalTemplates", func(t *testing.T) {
 		// Given a blueprint handler with local templates
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
 		if err != nil {
@@ -2104,13 +2138,609 @@ kustomizations: []`
 			t.Errorf("Expected blueprint name 'test-blueprint', got %s", metadata.Name)
 		}
 	})
+
+	t.Run("HandlesGetLocalTemplateDataError", func(t *testing.T) {
+		// Given a handler with template root that exists but GetLocalTemplateData fails
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+
+		// Mock Stat to return success (template root exists)
+		handler.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == mocks.Runtime.TemplateRoot {
+				return &mockFileInfo{name: "_template", isDir: true}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock ReadDir to return error (causes GetLocalTemplateData to fail)
+		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+			if path == mocks.Runtime.TemplateRoot {
+				return nil, fmt.Errorf("readdir error")
+			}
+			return []os.DirEntry{}, nil
+		}
+
+		// When loading blueprint
+		err = handler.LoadBlueprint()
+
+		// Then it should return an error
+		if err == nil {
+			t.Error("Expected error when GetLocalTemplateData fails")
+		}
+		if !strings.Contains(err.Error(), "failed to get local template data") {
+			t.Errorf("Expected error about local template data, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesEmptyTemplateDataWithEmptyConfigRoot", func(t *testing.T) {
+		// Given a handler with empty template data and empty config root
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		mocks.Runtime.ConfigRoot = ""
+
+		// Mock Stat to return success (template root exists)
+		handler.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == mocks.Runtime.TemplateRoot {
+				return &mockFileInfo{name: "_template", isDir: true}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock ReadDir to return empty (no files, so GetLocalTemplateData returns empty)
+		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+			return []os.DirEntry{}, nil
+		}
+
+		// When loading blueprint
+		err = handler.LoadBlueprint()
+
+		// Then it should return an error
+		if err == nil {
+			t.Error("Expected error when config root is empty and template data is empty")
+		}
+	})
+
+	t.Run("HandlesEmptyTemplateDataWithBlueprintNotFound", func(t *testing.T) {
+		// Given a handler with empty template data and blueprint.yaml not found
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		mocks.Runtime.ConfigRoot = tmpDir
+
+		// Mock Stat to return success for template root, not found for blueprint.yaml
+		handler.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == mocks.Runtime.TemplateRoot {
+				return &mockFileInfo{name: "_template", isDir: true}, nil
+			}
+			if strings.HasSuffix(path, "blueprint.yaml") {
+				return nil, os.ErrNotExist
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock ReadDir to return empty (no files, so GetLocalTemplateData returns empty)
+		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+			return []os.DirEntry{}, nil
+		}
+
+		// When loading blueprint
+		err = handler.LoadBlueprint()
+
+		// Then it should return an error
+		if err == nil {
+			t.Error("Expected error when blueprint.yaml is not found")
+		}
+		if !strings.Contains(err.Error(), "blueprint.yaml not found") {
+			t.Errorf("Expected error about blueprint.yaml not found, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesGetTemplateDataError", func(t *testing.T) {
+		// Given a handler with no template root and no blueprint.yaml, but GetTemplateData fails
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		mockArtifactBuilder.GetTemplateDataFunc = func(url string) (map[string][]byte, error) {
+			return nil, fmt.Errorf("get template data error")
+		}
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		mocks.Runtime.ConfigRoot = tmpDir
+
+		// Mock Stat to return errors (no template root, no blueprint.yaml)
+		handler.shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		// When loading blueprint
+		err = handler.LoadBlueprint()
+
+		// Then it should return an error
+		if err == nil {
+			t.Error("Expected error when GetTemplateData fails")
+		}
+		if !strings.Contains(err.Error(), "failed to get template data from default blueprint") {
+			t.Errorf("Expected error about getting template data, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesArtifactBuilderNil", func(t *testing.T) {
+		// Given a handler with no template root, no blueprint.yaml, and nil artifact builder
+		mocks := setupBlueprintMocks(t)
+		handler, err := NewBlueprintHandler(mocks.Runtime, nil)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+		handler.artifactBuilder = nil
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		mocks.Runtime.ConfigRoot = tmpDir
+
+		// Mock Stat to return errors (no template root, no blueprint.yaml)
+		handler.shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		// Set valid blueprint URL
+		os.Setenv("WINDSOR_BLUEPRINT_URL", "oci://registry.example.com/blueprint:latest")
+		defer os.Unsetenv("WINDSOR_BLUEPRINT_URL")
+
+		// When loading blueprint
+		err = handler.LoadBlueprint()
+
+		// Then it should return an error
+		if err == nil {
+			t.Error("Expected error when artifact builder is nil")
+		}
+		if !strings.Contains(err.Error(), "artifact builder not available") {
+			t.Errorf("Expected error about artifact builder, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesLoadConfigWhenTemplateRootDoesNotExistButBlueprintYamlExists", func(t *testing.T) {
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		mocks.Runtime.ConfigRoot = tmpDir
+
+		blueprintPath := filepath.Join(tmpDir, "blueprint.yaml")
+		blueprintContent := `apiVersion: v1alpha1
+kind: Blueprint
+metadata:
+  name: test-blueprint
+`
+		if err := os.WriteFile(blueprintPath, []byte(blueprintContent), 0644); err != nil {
+			t.Fatalf("Failed to write blueprint.yaml: %v", err)
+		}
+
+		handler.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == mocks.Runtime.TemplateRoot {
+				return nil, os.ErrNotExist
+			}
+			if path == blueprintPath {
+				return &mockFileInfo{name: "blueprint.yaml", isDir: false}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		err = handler.LoadBlueprint()
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("HandlesGetTemplateDataErrorWhenNoLocalBlueprint", func(t *testing.T) {
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		mocks.Runtime.ConfigRoot = tmpDir
+
+		handler.shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		os.Setenv("WINDSOR_BLUEPRINT_URL", "oci://registry.example.com/blueprint:latest")
+		defer os.Unsetenv("WINDSOR_BLUEPRINT_URL")
+
+		expectedError := fmt.Errorf("template data error")
+		mockArtifactBuilder.GetTemplateDataFunc = func(url string) (map[string][]byte, error) {
+			return nil, expectedError
+		}
+
+		err = handler.LoadBlueprint()
+
+		if err == nil {
+			t.Fatal("Expected error when GetTemplateData fails")
+		}
+		if !strings.Contains(err.Error(), "failed to get template data from default blueprint") {
+			t.Errorf("Expected error about template data, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesLoadDataErrorWhenNoLocalBlueprint", func(t *testing.T) {
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		mocks.Runtime.ConfigRoot = tmpDir
+
+		handler.shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		os.Setenv("WINDSOR_BLUEPRINT_URL", "oci://registry.example.com/blueprint:latest")
+		defer os.Unsetenv("WINDSOR_BLUEPRINT_URL")
+
+		mockArtifactBuilder.GetTemplateDataFunc = func(url string) (map[string][]byte, error) {
+			return map[string][]byte{"blueprint": []byte("invalid yaml")}, nil
+		}
+
+		handler.shims.YamlUnmarshal = func(data []byte, v any) error {
+			return fmt.Errorf("yaml unmarshal error")
+		}
+
+		err = handler.LoadBlueprint()
+
+		if err == nil {
+			t.Fatal("Expected error when loadData fails")
+		}
+		if !strings.Contains(err.Error(), "failed to load default blueprint data") {
+			t.Errorf("Expected error about loading data, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesEmptyTemplateDataWithEmptyConfigRoot", func(t *testing.T) {
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		mocks.Runtime.ConfigRoot = ""
+
+		handler.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == mocks.Runtime.TemplateRoot {
+				return &mockFileInfo{name: "_template", isDir: true}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+			return []os.DirEntry{}, nil
+		}
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+
+		err = handler.LoadBlueprint()
+
+		if err == nil {
+			t.Fatal("Expected error when ConfigRoot is empty and template data is empty")
+		}
+		if !strings.Contains(err.Error(), "blueprint.yaml not found") {
+			t.Errorf("Expected error about blueprint not found, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesLoadConfigErrorWhenTemplateRootDoesNotExist", func(t *testing.T) {
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		mocks.Runtime.ConfigRoot = tmpDir
+
+		blueprintPath := filepath.Join(tmpDir, "blueprint.yaml")
+		invalidBlueprintContent := `invalid: yaml: [`
+		if err := os.WriteFile(blueprintPath, []byte(invalidBlueprintContent), 0644); err != nil {
+			t.Fatalf("Failed to write blueprint.yaml: %v", err)
+		}
+
+		handler.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == mocks.Runtime.TemplateRoot {
+				return nil, os.ErrNotExist
+			}
+			if path == blueprintPath {
+				return &mockFileInfo{name: "blueprint.yaml", isDir: false}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		handler.shims.YamlUnmarshal = func(data []byte, v any) error {
+			return fmt.Errorf("yaml unmarshal error")
+		}
+
+		err = handler.LoadBlueprint()
+
+		if err == nil {
+			t.Fatal("Expected error when loadConfig fails")
+		}
+		if !strings.Contains(err.Error(), "failed to load blueprint config") {
+			t.Errorf("Expected error about loading blueprint config, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesPullOCISourcesError", func(t *testing.T) {
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		mocks.Runtime.ConfigRoot = tmpDir
+
+		blueprintContent := `apiVersion: v1alpha1
+kind: Blueprint
+metadata:
+  name: test-blueprint
+sources:
+  - name: oci-source
+    url: oci://ghcr.io/test/blueprint:latest
+terraformComponents: []
+kustomizations: []
+`
+
+		handler.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == mocks.Runtime.TemplateRoot {
+				return &mockFileInfo{name: "_template", isDir: true}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+			if path == mocks.Runtime.TemplateRoot {
+				return []os.DirEntry{
+					&mockDirEntry{name: "blueprint.yaml", isDir: false},
+				}, nil
+			}
+			return []os.DirEntry{}, nil
+		}
+
+		handler.shims.ReadFile = func(path string) ([]byte, error) {
+			if strings.Contains(path, "blueprint.yaml") {
+				return []byte(blueprintContent), nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		expectedError := fmt.Errorf("pull error")
+		mockArtifactBuilder.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
+			return nil, expectedError
+		}
+
+		err = handler.LoadBlueprint()
+
+		if err == nil {
+			t.Fatal("Expected error when Pull fails")
+		}
+		if !strings.Contains(err.Error(), "failed to load OCI sources") {
+			t.Errorf("Expected error about loading OCI sources, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesLoadConfigErrorAfterProcessingSources", func(t *testing.T) {
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		mocks.Runtime.ConfigRoot = tmpDir
+
+		blueprintContent := `apiVersion: v1alpha1
+kind: Blueprint
+metadata:
+  name: test-blueprint
+sources: []
+terraformComponents: []
+kustomizations: []
+`
+
+		blueprintPath := filepath.Join(tmpDir, "blueprint.yaml")
+		invalidBlueprintContent := `invalid: yaml: [`
+		if err := os.WriteFile(blueprintPath, []byte(invalidBlueprintContent), 0644); err != nil {
+			t.Fatalf("Failed to write blueprint.yaml: %v", err)
+		}
+
+		handler.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == mocks.Runtime.TemplateRoot {
+				return &mockFileInfo{name: "_template", isDir: true}, nil
+			}
+			if path == blueprintPath {
+				return &mockFileInfo{name: "blueprint.yaml", isDir: false}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+			if path == mocks.Runtime.TemplateRoot {
+				return []os.DirEntry{
+					&mockDirEntry{name: "blueprint.yaml", isDir: false},
+				}, nil
+			}
+			return []os.DirEntry{}, nil
+		}
+
+		handler.shims.ReadFile = func(path string) ([]byte, error) {
+			normalizedPath := filepath.ToSlash(path)
+			if strings.Contains(normalizedPath, "_template/blueprint.yaml") || strings.HasSuffix(normalizedPath, "_template/blueprint.yaml") {
+				return []byte(blueprintContent), nil
+			}
+			if path == blueprintPath {
+				return []byte(invalidBlueprintContent), nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		handler.shims.YamlUnmarshal = func(data []byte, v any) error {
+			if strings.Contains(string(data), "invalid") {
+				return fmt.Errorf("yaml unmarshal error")
+			}
+			return yaml.Unmarshal(data, v)
+		}
+
+		err = handler.LoadBlueprint()
+
+		if err == nil {
+			t.Fatal("Expected error when loadConfig fails after processing sources")
+		}
+		if !strings.Contains(err.Error(), "failed to load blueprint config overrides") {
+			t.Errorf("Expected error about loading blueprint config overrides, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesOCISourcesWithNonOCISources", func(t *testing.T) {
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		mocks.Runtime.ConfigRoot = tmpDir
+
+		blueprintContent := `apiVersion: v1alpha1
+kind: Blueprint
+metadata:
+  name: test-blueprint
+sources:
+  - name: git-source
+    url: git::https://example.com/repo.git
+  - name: oci-source
+    url: oci://ghcr.io/test/blueprint:latest
+terraformComponents: []
+kustomizations: []
+`
+
+		handler.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == mocks.Runtime.TemplateRoot {
+				return &mockFileInfo{name: "_template", isDir: true}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+			if path == mocks.Runtime.TemplateRoot {
+				return []os.DirEntry{
+					&mockDirEntry{name: "blueprint.yaml", isDir: false},
+				}, nil
+			}
+			return []os.DirEntry{}, nil
+		}
+
+		handler.shims.ReadFile = func(path string) ([]byte, error) {
+			if strings.Contains(path, "blueprint.yaml") {
+				return []byte(blueprintContent), nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		mockArtifactBuilder.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
+			if len(ociRefs) != 1 || ociRefs[0] != "oci://ghcr.io/test/blueprint:latest" {
+				t.Errorf("Expected single OCI URL, got: %v", ociRefs)
+			}
+			return nil, nil
+		}
+
+		err = handler.LoadBlueprint()
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
 }
 
 func TestBaseBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 	t.Run("CollectsBlueprintAndFeatureFiles", func(t *testing.T) {
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mocks.Runtime.ProjectRoot = projectRoot
 
 		mockArtifactBuilder := artifact.NewMockArtifact()
@@ -2217,7 +2847,7 @@ metadata:
 	t.Run("CollectsNestedFeatures", func(t *testing.T) {
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mocks.Runtime.ProjectRoot = projectRoot
 
 		mockArtifactBuilder := artifact.NewMockArtifact()
@@ -2267,10 +2897,281 @@ metadata:
 		}
 	})
 
+	t.Run("HandlesYamlMarshalErrorWhenComposingBlueprint", func(t *testing.T) {
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		mocks.Runtime.ConfigRoot = tmpDir
+
+		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+
+		blueprintContent := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base-blueprint
+terraform:
+  - path: test/component
+`)
+		if err := os.WriteFile(filepath.Join(mocks.Runtime.TemplateRoot, "blueprint.yaml"), blueprintContent, 0644); err != nil {
+			t.Fatalf("Failed to write blueprint.yaml: %v", err)
+		}
+
+		handler.shims.Stat = os.Stat
+		handler.shims.ReadDir = os.ReadDir
+		handler.shims.ReadFile = os.ReadFile
+		handler.shims.YamlUnmarshal = yaml.Unmarshal
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
+			return "test-context"
+		}
+
+		handler.shims.YamlMarshal = func(v any) ([]byte, error) {
+			return nil, fmt.Errorf("yaml marshal error")
+		}
+
+		_, err = handler.GetLocalTemplateData()
+
+		if err == nil {
+			t.Fatal("Expected error when YamlMarshal fails")
+		}
+		if !strings.Contains(err.Error(), "failed to marshal composed blueprint") {
+			t.Errorf("Expected error about marshaling blueprint, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesYamlMarshalErrorForSubstitutions", func(t *testing.T) {
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		mocks.Runtime.ConfigRoot = tmpDir
+
+		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+
+		handler.shims.Stat = os.Stat
+		handler.shims.ReadDir = os.ReadDir
+		handler.shims.ReadFile = os.ReadFile
+		handler.shims.YamlUnmarshal = yaml.Unmarshal
+		handler.shims.YamlMarshal = func(v any) ([]byte, error) {
+			if _, ok := v.(map[string]any); ok {
+				return nil, fmt.Errorf("yaml marshal error")
+			}
+			return yaml.Marshal(v)
+		}
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"substitutions": map[string]any{
+					"key": "value",
+				},
+			}, nil
+		}
+
+		_, err = handler.GetLocalTemplateData()
+
+		if err == nil {
+			t.Fatal("Expected error when YamlMarshal fails for substitutions")
+		}
+		if !strings.Contains(err.Error(), "failed to marshal substitution values") {
+			t.Errorf("Expected error about marshaling substitutions, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesGetContextValuesError", func(t *testing.T) {
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		mocks.Runtime.ConfigRoot = tmpDir
+
+		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+
+		handler.shims.Stat = os.Stat
+		handler.shims.ReadDir = os.ReadDir
+		handler.shims.ReadFile = os.ReadFile
+		handler.shims.YamlUnmarshal = yaml.Unmarshal
+
+		expectedError := fmt.Errorf("get context values error")
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return nil, expectedError
+		}
+
+		_, err = handler.GetLocalTemplateData()
+
+		if err == nil {
+			t.Fatal("Expected error when GetContextValues fails")
+		}
+		if !strings.Contains(err.Error(), "failed to load context values") {
+			t.Errorf("Expected error about loading context values, got: %v", err)
+		}
+	})
+
+	t.Run("MergesSubstitutionValuesWithExisting", func(t *testing.T) {
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		mocks.Runtime.ConfigRoot = tmpDir
+
+		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+
+		substitutionsContent := `common:
+  registry_url: registry.template.test
+`
+		if err := os.WriteFile(filepath.Join(mocks.Runtime.TemplateRoot, "substitutions"), []byte(substitutionsContent), 0644); err != nil {
+			t.Fatalf("Failed to write substitutions file: %v", err)
+		}
+
+		handler.shims.Stat = os.Stat
+		handler.shims.ReadDir = os.ReadDir
+		handler.shims.ReadFile = os.ReadFile
+		handler.shims.YamlUnmarshal = yaml.Unmarshal
+		handler.shims.YamlMarshal = yaml.Marshal
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"substitutions": map[string]any{
+					"common": map[string]any{
+						"registry_url": "registry.context.test",
+					},
+					"csi": map[string]any{
+						"volume_path": "/context/volumes",
+					},
+				},
+			}, nil
+		}
+
+		result, err := handler.GetLocalTemplateData()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if substitutions, exists := result["substitutions"]; exists {
+			var merged map[string]any
+			if err := yaml.Unmarshal(substitutions, &merged); err != nil {
+				t.Fatalf("Failed to unmarshal merged substitutions: %v", err)
+			}
+			common, ok := merged["common"].(map[string]any)
+			if !ok {
+				t.Fatal("Expected common in merged substitutions")
+			}
+			if common["registry_url"] != "registry.context.test" {
+				t.Errorf("Expected context value to override template value, got: %v", common["registry_url"])
+			}
+			if _, exists := merged["csi"]; !exists {
+				t.Error("Expected csi to be in merged substitutions")
+			}
+		} else {
+			t.Error("Expected substitutions to be in result")
+		}
+	})
+
+	t.Run("HandlesSubstitutionUnmarshalErrorGracefully", func(t *testing.T) {
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		mocks.Runtime.ConfigRoot = tmpDir
+
+		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+
+		invalidSubstitutionsContent := `invalid: yaml: [`
+		if err := os.WriteFile(filepath.Join(mocks.Runtime.TemplateRoot, "substitutions"), []byte(invalidSubstitutionsContent), 0644); err != nil {
+			t.Fatalf("Failed to write substitutions file: %v", err)
+		}
+
+		handler.shims.Stat = os.Stat
+		handler.shims.ReadDir = os.ReadDir
+		handler.shims.ReadFile = os.ReadFile
+		handler.shims.YamlMarshal = yaml.Marshal
+		handler.shims.YamlUnmarshal = func(data []byte, v any) error {
+			if strings.Contains(string(data), "invalid") {
+				return fmt.Errorf("yaml unmarshal error")
+			}
+			return yaml.Unmarshal(data, v)
+		}
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"substitutions": map[string]any{
+					"key": "value",
+				},
+			}, nil
+		}
+
+		result, err := handler.GetLocalTemplateData()
+
+		if err != nil {
+			t.Fatalf("Expected no error when unmarshal fails (should use context values only), got %v", err)
+		}
+
+		if substitutions, exists := result["substitutions"]; exists {
+			var subs map[string]any
+			if err := yaml.Unmarshal(substitutions, &subs); err != nil {
+				t.Fatalf("Failed to unmarshal substitutions: %v", err)
+			}
+			if subs["key"] != "value" {
+				t.Errorf("Expected context substitution values, got: %v", subs)
+			}
+		} else {
+			t.Error("Expected substitutions to be in result")
+		}
+	})
+
 	t.Run("IgnoresNonYAMLFilesInFeatures", func(t *testing.T) {
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mocks.Runtime.ProjectRoot = projectRoot
 
 		mockArtifactBuilder := artifact.NewMockArtifact()
@@ -2339,7 +3240,7 @@ metadata:
 	t.Run("ComposesFeaturesByEvaluatingConditions", func(t *testing.T) {
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mocks.Runtime.ProjectRoot = projectRoot
 
 		mockArtifactBuilder := artifact.NewMockArtifact()
@@ -2451,7 +3352,7 @@ terraform:
 	t.Run("SetsMetadataFromContextName", func(t *testing.T) {
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mocks.Runtime.ProjectRoot = projectRoot
 
 		mockArtifactBuilder := artifact.NewMockArtifact()
@@ -2521,7 +3422,7 @@ terraform:
 	t.Run("HandlesSubstitutionValues", func(t *testing.T) {
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mocks.Runtime.ProjectRoot = projectRoot
 
 		mockArtifactBuilder := artifact.NewMockArtifact()
@@ -2597,7 +3498,7 @@ terraform:
 	t.Run("ReturnsNilWhenNoTemplateDirectory", func(t *testing.T) {
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mocks.Runtime.ProjectRoot = projectRoot
 
 		mockArtifactBuilder := artifact.NewMockArtifact()
@@ -2623,7 +3524,7 @@ terraform:
 	t.Run("HandlesEmptyBlueprintWithOnlyFeatures", func(t *testing.T) {
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mocks.Runtime.ProjectRoot = projectRoot
 
 		mockArtifactBuilder := artifact.NewMockArtifact()
@@ -2688,7 +3589,7 @@ terraform:
 	t.Run("HandlesKustomizationsInFeatures", func(t *testing.T) {
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mocks.Runtime.ProjectRoot = projectRoot
 
 		mockArtifactBuilder := artifact.NewMockArtifact()
@@ -2768,7 +3669,7 @@ kustomize:
 	t.Run("SkipsComposedBlueprintWhenEmpty", func(t *testing.T) {
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mocks.Runtime.ProjectRoot = projectRoot
 
 		mockArtifactBuilder := artifact.NewMockArtifact()
@@ -2824,7 +3725,7 @@ metadata:
 	t.Run("ValidatesCliVersionFromMetadataYaml", func(t *testing.T) {
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mocks.Runtime.ProjectRoot = projectRoot
 
 		mockArtifactBuilder := artifact.NewMockArtifact()
@@ -2875,7 +3776,7 @@ metadata:
 	t.Run("SkipsValidationWhenMetadataYamlDoesNotExist", func(t *testing.T) {
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mocks.Runtime.ProjectRoot = projectRoot
 
 		mockArtifactBuilder := artifact.NewMockArtifact()
@@ -2922,7 +3823,7 @@ metadata:
 	t.Run("ReturnsErrorWhenMetadataYamlCannotBeRead", func(t *testing.T) {
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mocks.Runtime.ProjectRoot = projectRoot
 
 		mockArtifactBuilder := artifact.NewMockArtifact()
@@ -2973,7 +3874,7 @@ metadata:
 	t.Run("ReturnsErrorWhenMetadataYamlCannotBeParsed", func(t *testing.T) {
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mocks.Runtime.ProjectRoot = projectRoot
 
 		mockArtifactBuilder := artifact.NewMockArtifact()
@@ -3021,12 +3922,123 @@ invalid: yaml: content
 			t.Errorf("Expected error to contain 'failed to parse metadata.yaml', got: %v", err)
 		}
 	})
+
+	t.Run("HandlesMetadataYamlReadFileError", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		mocks := setupBlueprintMocks(t)
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+
+		templateDir := mocks.Runtime.TemplateRoot
+		if err := os.MkdirAll(templateDir, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+
+		metadataPath := filepath.Join(templateDir, "metadata.yaml")
+		if err := os.WriteFile(metadataPath, []byte("name: test\n"), 0644); err != nil {
+			t.Fatalf("Failed to write metadata.yaml: %v", err)
+		}
+
+		expectedError := fmt.Errorf("read file error")
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
+			if name == metadataPath {
+				return nil, expectedError
+			}
+			return os.ReadFile(name)
+		}
+
+		_, err = handler.GetLocalTemplateData()
+
+		if err == nil {
+			t.Fatal("Expected error when metadata.yaml cannot be read")
+		}
+		if !strings.Contains(err.Error(), "failed to read metadata.yaml") {
+			t.Errorf("Expected error to contain 'failed to read metadata.yaml', got: %v", err)
+		}
+	})
+
+	t.Run("HandlesLoadSchemaFromBytesError", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		mocks := setupBlueprintMocks(t)
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+
+		templateDir := mocks.Runtime.TemplateRoot
+		if err := os.MkdirAll(templateDir, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+
+		schemaPath := filepath.Join(templateDir, "schema.yaml")
+		if err := os.WriteFile(schemaPath, []byte("invalid schema"), 0644); err != nil {
+			t.Fatalf("Failed to write schema: %v", err)
+		}
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		expectedError := fmt.Errorf("schema load error")
+		mockConfigHandler.LoadSchemaFromBytesFunc = func(data []byte) error {
+			return expectedError
+		}
+
+		_, err = handler.GetLocalTemplateData()
+
+		if err == nil {
+			t.Fatal("Expected error when schema cannot be loaded")
+		}
+		if !strings.Contains(err.Error(), "failed to load schema") {
+			t.Errorf("Expected error to contain 'failed to load schema', got: %v", err)
+		}
+	})
+
+	t.Run("HandlesGetContextValuesError", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		mocks := setupBlueprintMocks(t)
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+
+		templateDir := mocks.Runtime.TemplateRoot
+		if err := os.MkdirAll(templateDir, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		expectedError := fmt.Errorf("context values error")
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return nil, expectedError
+		}
+
+		_, err = handler.GetLocalTemplateData()
+
+		if err == nil {
+			t.Fatal("Expected error when context values cannot be loaded")
+		}
+		if !strings.Contains(err.Error(), "failed to load context values") {
+			t.Errorf("Expected error to contain 'failed to load context values', got: %v", err)
+		}
+	})
 }
 
 func TestBaseBlueprintHandler_Generate(t *testing.T) {
-	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *BlueprintTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupBlueprintMocks(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
 		if err != nil {
