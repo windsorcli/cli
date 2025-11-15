@@ -2643,7 +2643,8 @@ kustomizations: []
 		}
 
 		handler.shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.Contains(path, "_template/blueprint.yaml") {
+			normalizedPath := filepath.ToSlash(path)
+			if strings.Contains(normalizedPath, "_template/blueprint.yaml") || strings.HasSuffix(normalizedPath, "_template/blueprint.yaml") {
 				return []byte(blueprintContent), nil
 			}
 			if path == blueprintPath {
