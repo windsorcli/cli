@@ -665,9 +665,9 @@ func (s *DefaultShell) scrubString(input string) string {
 // The export parameter controls whether to use OS-specific export commands or plain KEY=value format
 func (s *DefaultShell) PrintEnvVars(envVars map[string]string, export bool) {
 	if export {
-		s.renderEnvVarsWithExport(envVars)
+		fmt.Print(s.renderEnvVarsWithExport(envVars))
 	} else {
-		s.renderEnvVarsPlain(envVars)
+		fmt.Print(s.renderEnvVarsPlain(envVars))
 	}
 }
 
