@@ -328,6 +328,9 @@ func (rt *Runtime) GetBuildID() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to open project root: %w", err)
 	}
+	if root == nil {
+		return "", fmt.Errorf("failed to open project root: root is nil")
+	}
 	defer root.Close()
 
 	buildIDPath := ".windsor/.build-id"
@@ -497,6 +500,9 @@ func (rt *Runtime) writeBuildIDToFile(buildID string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open project root: %w", err)
 	}
+	if root == nil {
+		return fmt.Errorf("failed to open project root: root is nil")
+	}
 	defer root.Close()
 
 	buildIDPath := ".windsor/.build-id"
@@ -530,6 +536,9 @@ func (rt *Runtime) generateBuildID() (string, error) {
 	root, err := os.OpenRoot(projectRoot)
 	if err != nil {
 		return "", fmt.Errorf("failed to open project root: %w", err)
+	}
+	if root == nil {
+		return "", fmt.Errorf("failed to open project root: root is nil")
 	}
 	defer root.Close()
 
