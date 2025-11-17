@@ -19,7 +19,7 @@ type ConfigTestMocks struct {
 }
 
 // setupConfigMocks creates a new set of mocks for testing
-func setupConfigMocks(t *testing.T, opts ...func(*ConfigTestMocks)) *ConfigTestMocks {
+func setupConfigMocks(t *testing.T) *ConfigTestMocks {
 	t.Helper()
 
 	tmpDir := t.TempDir()
@@ -35,11 +35,6 @@ func setupConfigMocks(t *testing.T, opts ...func(*ConfigTestMocks)) *ConfigTestM
 	mocks := &ConfigTestMocks{
 		Shell: mockShell,
 		Shims: NewShims(),
-	}
-
-	// Apply any dependency injection overrides BEFORE using mocks
-	for _, opt := range opts {
-		opt(mocks)
 	}
 
 	t.Cleanup(func() {

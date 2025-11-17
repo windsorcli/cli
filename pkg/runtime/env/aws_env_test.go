@@ -17,11 +17,10 @@ import (
 // Test Setup
 // =============================================================================
 
-func setupAwsEnvMocks(t *testing.T, opts ...func(*EnvTestMocks)) *EnvTestMocks {
+func setupAwsEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMocks {
 	t.Helper()
 
-	// Apply opts first to allow DI-style overrides (e.g., injecting a custom ConfigHandler)
-	mocks := setupEnvMocks(t, opts...)
+	mocks := setupEnvMocks(t, overrides...)
 
 	// If ConfigHandler wasn't overridden, use MockConfigHandler
 	if _, ok := mocks.ConfigHandler.(*config.MockConfigHandler); !ok {
@@ -69,9 +68,9 @@ func setupAwsEnvMocks(t *testing.T, opts ...func(*EnvTestMocks)) *EnvTestMocks {
 		return &v1alpha1.Context{}
 	}
 
-	// Only load default config if ConfigHandler wasn't overridden via opts
-	// If ConfigHandler was injected via opts, assume test wants to control it
-	if len(opts) == 0 {
+	// Only load default config if ConfigHandler wasn't overridden
+	// If ConfigHandler was injected via overrides, assume test wants to control it
+	if len(overrides) == 0 || overrides[0] == nil || overrides[0].ConfigHandler == nil {
 		defaultConfigStr := `
 version: v1alpha1
 contexts:

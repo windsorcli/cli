@@ -190,7 +190,7 @@ func setupDefaultShims(tmpDir string) *Shims {
 }
 
 // setupShellMocks creates a new set of mocks for testing
-func setupShellMocks(t *testing.T, opts ...func(*ShellTestMocks)) *ShellTestMocks {
+func setupShellMocks(t *testing.T) *ShellTestMocks {
 	t.Helper()
 
 	// Create temp dir
@@ -200,11 +200,6 @@ func setupShellMocks(t *testing.T, opts ...func(*ShellTestMocks)) *ShellTestMock
 	mocks := &ShellTestMocks{
 		Shims:  setupDefaultShims(tmpDir),
 		TmpDir: tmpDir,
-	}
-
-	// Apply any dependency injection overrides BEFORE using mocks
-	for _, opt := range opts {
-		opt(mocks)
 	}
 
 	return mocks

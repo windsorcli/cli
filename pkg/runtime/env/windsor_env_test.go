@@ -15,14 +15,13 @@ import (
 // Test Setup
 // =============================================================================
 
-func setupWindsorEnvMocks(t *testing.T, opts ...func(*EnvTestMocks)) *EnvTestMocks {
+func setupWindsorEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMocks {
 	t.Helper()
-	// Apply opts first to allow DI-style overrides (e.g., injecting a custom ConfigHandler)
-	mocks := setupEnvMocks(t, opts...)
+	mocks := setupEnvMocks(t, overrides...)
 
-	// Only load default config if ConfigHandler wasn't overridden via opts
-	// If ConfigHandler was injected via opts, assume test wants to control it
-	if len(opts) == 0 {
+	// Only load default config if ConfigHandler wasn't overridden
+	// If ConfigHandler was injected via overrides, assume test wants to control it
+	if len(overrides) == 0 || overrides[0] == nil || overrides[0].ConfigHandler == nil {
 		configStr := `
 version: v1alpha1
 contexts:
@@ -138,8 +137,8 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 			return "mock-string"
 		}
 
-		mocks := setupWindsorEnvMocks(t, func(m *EnvTestMocks) {
-			m.ConfigHandler = mockConfigHandler
+		mocks := setupWindsorEnvMocks(t, &EnvTestMocks{
+			ConfigHandler: mockConfigHandler,
 		})
 		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
 		printer.shims = mocks.Shims

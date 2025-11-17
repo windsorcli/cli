@@ -35,7 +35,7 @@ func setupDefaultShims(tmpDir string) *Shims {
 	return shims
 }
 
-func setupEnvMocks(t *testing.T, opts ...func(*EnvTestMocks)) *EnvTestMocks {
+func setupEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMocks {
 	t.Helper()
 
 	// Store original directory and create temp dir
@@ -68,9 +68,18 @@ func setupEnvMocks(t *testing.T, opts ...func(*EnvTestMocks)) *EnvTestMocks {
 		Shims:         shims,
 	}
 
-	// Apply any dependency injection overrides BEFORE using mocks
-	for _, opt := range opts {
-		opt(mocks)
+	// Apply any selective overrides
+	if len(overrides) > 0 && overrides[0] != nil {
+		override := overrides[0]
+		if override.Shell != nil {
+			mocks.Shell = override.Shell
+		}
+		if override.ConfigHandler != nil {
+			mocks.ConfigHandler = override.ConfigHandler
+		}
+		if override.Shims != nil {
+			mocks.Shims = override.Shims
+		}
 	}
 
 	// Register cleanup to restore original state

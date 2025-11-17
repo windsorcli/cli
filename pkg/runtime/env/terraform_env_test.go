@@ -18,9 +18,8 @@ import (
 // =============================================================================
 
 // setupTerraformEnvMocks creates and configures mock objects for Terraform environment tests.
-func setupTerraformEnvMocks(t *testing.T, opts ...func(*EnvTestMocks)) *EnvTestMocks {
-	// Pass the mock config handler to setupEnvMocks
-	mocks := setupEnvMocks(t, opts...)
+func setupTerraformEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMocks {
+	mocks := setupEnvMocks(t, overrides...)
 
 	mocks.Shims.Getwd = func() (string, error) {
 		// Use platform-agnostic path
@@ -212,8 +211,8 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		configHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error getting config root")
 		}
-		mocks := setupTerraformEnvMocks(t, func(m *EnvTestMocks) {
-			m.ConfigHandler = configHandler
+		mocks := setupTerraformEnvMocks(t, &EnvTestMocks{
+			ConfigHandler: configHandler,
 		})
 		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims

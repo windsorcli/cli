@@ -27,7 +27,7 @@ type RuntimeTestMocks struct {
 }
 
 // setupRuntimeMocks creates mock components for testing the Runtime with optional overrides
-func setupRuntimeMocks(t *testing.T, opts ...func(*RuntimeTestMocks)) *RuntimeTestMocks {
+func setupRuntimeMocks(t *testing.T) *RuntimeTestMocks {
 	t.Helper()
 
 	configHandler := config.NewMockConfigHandler()
@@ -101,10 +101,6 @@ func setupRuntimeMocks(t *testing.T, opts ...func(*RuntimeTestMocks)) *RuntimeTe
 		ConfigHandler: configHandler,
 		Shell:         mockShell,
 		Runtime:       rt,
-	}
-
-	for _, opt := range opts {
-		opt(mocks)
 	}
 
 	return mocks

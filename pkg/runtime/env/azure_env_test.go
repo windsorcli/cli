@@ -14,15 +14,13 @@ import (
 // Test Setup
 // =============================================================================
 
-func setupAzureEnvMocks(t *testing.T, opts ...func(*EnvTestMocks)) *EnvTestMocks {
+func setupAzureEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMocks {
 	t.Helper()
-	// Apply opts first to allow DI-style overrides (e.g., injecting a custom ConfigHandler)
-	mocks := setupEnvMocks(t, opts...)
+	mocks := setupEnvMocks(t, overrides...)
 
-	// Only load default config if ConfigHandler wasn't overridden via opts
-	// If ConfigHandler was injected via opts, assume test wants to control it
-	// Check by seeing if it's a MockConfigHandler (which would indicate injection) or if opts were provided
-	if len(opts) == 0 {
+	// Only load default config if ConfigHandler wasn't overridden
+	// If ConfigHandler was injected via overrides, assume test wants to control it
+	if len(overrides) == 0 || overrides[0] == nil || overrides[0].ConfigHandler == nil {
 		configStr := `
 version: v1alpha1
 contexts:
@@ -55,9 +53,9 @@ contexts:
 // =============================================================================
 
 func TestAzureEnv_GetEnvVars(t *testing.T) {
-	setup := func(t *testing.T, opts ...func(*EnvTestMocks)) (*AzureEnvPrinter, *EnvTestMocks) {
+	setup := func(t *testing.T, overrides ...*EnvTestMocks) (*AzureEnvPrinter, *EnvTestMocks) {
 		t.Helper()
-		mocks := setupAzureEnvMocks(t, opts...)
+		mocks := setupAzureEnvMocks(t, overrides...)
 		printer := NewAzureEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 		return printer, mocks
@@ -108,8 +106,8 @@ func TestAzureEnv_GetEnvVars(t *testing.T) {
 		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("error retrieving configuration root directory")
 		}
-		mocks := setupAzureEnvMocks(t, func(m *EnvTestMocks) {
-			m.ConfigHandler = mockConfigHandler
+		mocks := setupAzureEnvMocks(t, &EnvTestMocks{
+			ConfigHandler: mockConfigHandler,
 		})
 		printer := NewAzureEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 
@@ -127,8 +125,9 @@ func TestAzureEnv_GetEnvVars(t *testing.T) {
 
 	t.Run("MissingConfiguration", func(t *testing.T) {
 		// Given a printer with no Azure configuration
-		mocks := setupAzureEnvMocks(t, func(m *EnvTestMocks) {
-			m.ConfigHandler = config.NewConfigHandler(m.Shell)
+		baseMocks := setupEnvMocks(t)
+		mocks := setupAzureEnvMocks(t, &EnvTestMocks{
+			ConfigHandler: config.NewConfigHandler(baseMocks.Shell),
 		})
 		configStr := `
 version: v1alpha1

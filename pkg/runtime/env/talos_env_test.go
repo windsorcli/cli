@@ -27,8 +27,8 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 			return ""
 		}
 
-		mocks := setupEnvMocks(t, func(m *EnvTestMocks) {
-			m.ConfigHandler = mockConfigHandler
+		mocks := setupEnvMocks(t, &EnvTestMocks{
+			ConfigHandler: mockConfigHandler,
 		})
 
 		// Set up GetConfigRoot to return the correct path

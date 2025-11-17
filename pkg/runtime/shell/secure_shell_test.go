@@ -27,11 +27,11 @@ type SecureMocks struct {
 }
 
 // setupSecureShellMocks creates a new set of mocks for testing SecureShell
-func setupSecureShellMocks(t *testing.T, opts ...func(*ShellTestMocks)) *SecureMocks {
+func setupSecureShellMocks(t *testing.T) *SecureMocks {
 	t.Helper()
 
 	// Set up base mocks first
-	baseMocks := setupShellMocks(t, opts...)
+	baseMocks := setupShellMocks(t)
 
 	// Create default mock components
 	mockSession := &ssh.MockSession{

@@ -23,14 +23,13 @@ type DockerEnvPrinterMocks struct {
 }
 
 // setupDockerEnvMocks creates a new set of mocks for Docker environment tests
-func setupDockerEnvMocks(t *testing.T, opts ...func(*EnvTestMocks)) *EnvTestMocks {
+func setupDockerEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMocks {
 	t.Helper()
-	// Apply opts first to allow DI-style overrides (e.g., injecting a custom ConfigHandler)
-	mocks := setupEnvMocks(t, opts...)
+	mocks := setupEnvMocks(t, overrides...)
 
-	// Only load default config if ConfigHandler wasn't overridden via opts
-	// If ConfigHandler was injected via opts, assume test wants to control it
-	if len(opts) == 0 {
+	// Only load default config if ConfigHandler wasn't overridden
+	// If ConfigHandler was injected via overrides, assume test wants to control it
+	if len(overrides) == 0 || overrides[0] == nil || overrides[0].ConfigHandler == nil {
 		configStr := `
 version: v1alpha1
 contexts:
@@ -604,9 +603,9 @@ func TestDockerEnvPrinter_GetAlias(t *testing.T) {
 // TestDockerEnvPrinter_getRegistryURL tests the getRegistryURL method of the DockerEnvPrinter
 func TestDockerEnvPrinter_getRegistryURL(t *testing.T) {
 	// setup creates a new DockerEnvPrinter with the given configuration
-	setup := func(t *testing.T, opts ...func(*EnvTestMocks)) (*DockerEnvPrinter, *EnvTestMocks) {
+	setup := func(t *testing.T, overrides ...*EnvTestMocks) (*DockerEnvPrinter, *EnvTestMocks) {
 		t.Helper()
-		mocks := setupDockerEnvMocks(t, opts...)
+		mocks := setupDockerEnvMocks(t, overrides...)
 		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 		return printer, mocks
@@ -614,8 +613,8 @@ func TestDockerEnvPrinter_getRegistryURL(t *testing.T) {
 
 	t.Run("ValidRegistryURL", func(t *testing.T) {
 		// Given a DockerEnvPrinter with a valid registry URL in config
-		printer, _ := setup(t, func(m *EnvTestMocks) {
-			configStr := `
+		printer, mocks := setup(t)
+		configStr := `
 version: v1alpha1
 contexts:
   test-context:
@@ -624,10 +623,9 @@ contexts:
     docker:
       registry_url: registry.example.com:5000
 `
-			if err := m.ConfigHandler.LoadConfigString(configStr); err != nil {
-				t.Fatalf("Failed to load config: %v", err)
-			}
-		})
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
 
 		// And the registry URL is set in the context
 		printer.configHandler.Set("docker.registry_url", "registry.example.com:5000")
@@ -647,8 +645,8 @@ contexts:
 
 	t.Run("RegistryURLWithConfig", func(t *testing.T) {
 		// Given a DockerEnvPrinter with a registry URL and matching config
-		printer, _ := setup(t, func(m *EnvTestMocks) {
-			configStr := `
+		printer, mocks := setup(t)
+		configStr := `
 version: v1alpha1
 contexts:
   test-context:
@@ -660,10 +658,9 @@ contexts:
         registry.example.com:
           hostport: 5000
 `
-			if err := m.ConfigHandler.LoadConfigString(configStr); err != nil {
-				t.Fatalf("Failed to load config: %v", err)
-			}
-		})
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
 
 		// And the registry URL is set in the context
 		printer.configHandler.Set("docker.registry_url", "registry.example.com")
@@ -683,8 +680,8 @@ contexts:
 
 	t.Run("EmptyRegistryURL", func(t *testing.T) {
 		// Given a DockerEnvPrinter with no registry URL but with registries config
-		printer, _ := setup(t, func(m *EnvTestMocks) {
-			configStr := `
+		printer, mocks := setup(t)
+		configStr := `
 version: v1alpha1
 contexts:
   test-context:
@@ -695,10 +692,9 @@ contexts:
         mock-registry-url:
           hostport: 5000
 `
-			if err := m.ConfigHandler.LoadConfigString(configStr); err != nil {
-				t.Fatalf("Failed to load config: %v", err)
-			}
-		})
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
 
 		// When getting the registry URL
 		url, err := printer.getRegistryURL()
@@ -715,8 +711,9 @@ contexts:
 
 	t.Run("EmptyConfig", func(t *testing.T) {
 		// Given a DockerEnvPrinter with empty registries config
-		mocks := setupDockerEnvMocks(t, func(m *EnvTestMocks) {
-			m.ConfigHandler = config.NewConfigHandler(m.Shell)
+		baseMocks := setupEnvMocks(t)
+		mocks := setupDockerEnvMocks(t, &EnvTestMocks{
+			ConfigHandler: config.NewConfigHandler(baseMocks.Shell),
 		})
 		configStr := `
 version: v1alpha1
@@ -748,8 +745,8 @@ contexts:
 
 	t.Run("RegistryURLWithoutPortNoConfig", func(t *testing.T) {
 		// Given a DockerEnvPrinter with a registry URL without port and no matching config
-		printer, _ := setup(t, func(m *EnvTestMocks) {
-			configStr := `
+		printer, mocks := setup(t)
+		configStr := `
 version: v1alpha1
 contexts:
   test-context:
@@ -761,10 +758,9 @@ contexts:
         other-registry:
           hostport: 5000
 `
-			if err := m.ConfigHandler.LoadConfigString(configStr); err != nil {
-				t.Fatalf("Failed to load config: %v", err)
-			}
-		})
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
 
 		// And the registry URL is set in the context
 		printer.configHandler.Set("docker.registry_url", "registry.example.com")
@@ -784,8 +780,8 @@ contexts:
 
 	t.Run("RegistryURLInvalidPort", func(t *testing.T) {
 		// Given a DockerEnvPrinter with a registry URL with invalid port
-		printer, _ := setup(t, func(m *EnvTestMocks) {
-			configStr := `
+		printer, mocks := setup(t)
+		configStr := `
 version: v1alpha1
 contexts:
   test-context:
@@ -794,10 +790,9 @@ contexts:
     docker:
       registry_url: registry.example.com:invalid
 `
-			if err := m.ConfigHandler.LoadConfigString(configStr); err != nil {
-				t.Fatalf("Failed to load config: %v", err)
-			}
-		})
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
 
 		// When getting the registry URL
 		url, err := printer.getRegistryURL()
@@ -814,8 +809,8 @@ contexts:
 
 	t.Run("RegistryURLNoPortNoHostPort", func(t *testing.T) {
 		// Given a DockerEnvPrinter with a registry URL without port and no hostport in config
-		printer, _ := setup(t, func(m *EnvTestMocks) {
-			configStr := `
+		printer, mocks := setup(t)
+		configStr := `
 version: v1alpha1
 contexts:
   test-context:
@@ -826,10 +821,9 @@ contexts:
       registries:
         registry.example.com: {}
 `
-			if err := m.ConfigHandler.LoadConfigString(configStr); err != nil {
-				t.Fatalf("Failed to load config: %v", err)
-			}
-		})
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
 
 		// When getting the registry URL
 		url, err := printer.getRegistryURL()
@@ -846,8 +840,8 @@ contexts:
 
 	t.Run("RegistryURLEmptyRegistries", func(t *testing.T) {
 		// Given a DockerEnvPrinter with a registry URL and empty registries config
-		printer, _ := setup(t, func(m *EnvTestMocks) {
-			configStr := `
+		printer, mocks := setup(t)
+		configStr := `
 version: v1alpha1
 contexts:
   test-context:
@@ -857,10 +851,9 @@ contexts:
       registry_url: registry.example.com
       registries: {}
 `
-			if err := m.ConfigHandler.LoadConfigString(configStr); err != nil {
-				t.Fatalf("Failed to load config: %v", err)
-			}
-		})
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
 
 		// When getting the registry URL
 		url, err := printer.getRegistryURL()
@@ -877,8 +870,9 @@ contexts:
 
 	t.Run("NilDockerConfig", func(t *testing.T) {
 		// Given a DockerEnvPrinter with no Docker config
-		mocks := setupDockerEnvMocks(t, func(m *EnvTestMocks) {
-			m.ConfigHandler = config.NewConfigHandler(m.Shell)
+		baseMocks := setupEnvMocks(t)
+		mocks := setupDockerEnvMocks(t, &EnvTestMocks{
+			ConfigHandler: config.NewConfigHandler(baseMocks.Shell),
 		})
 		configStr := `
 version: v1alpha1
@@ -908,8 +902,8 @@ contexts:
 
 	t.Run("NilRegistriesWithURL", func(t *testing.T) {
 		// Given a DockerEnvPrinter with a registry URL but no registries config
-		printer, _ := setup(t, func(m *EnvTestMocks) {
-			configStr := `
+		printer, mocks := setup(t)
+		configStr := `
 version: v1alpha1
 contexts:
   test-context:
@@ -918,10 +912,9 @@ contexts:
     docker:
       registry_url: registry.example.com
 `
-			if err := m.ConfigHandler.LoadConfigString(configStr); err != nil {
-				t.Fatalf("Failed to load config: %v", err)
-			}
-		})
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
 
 		// When getting the registry URL
 		url, err := printer.getRegistryURL()
@@ -938,8 +931,9 @@ contexts:
 
 	t.Run("RegistryWithoutHostPort", func(t *testing.T) {
 		// Given a DockerEnvPrinter with a registry without hostport in config
-		mocks := setupDockerEnvMocks(t, func(m *EnvTestMocks) {
-			m.ConfigHandler = config.NewConfigHandler(m.Shell)
+		baseMocks := setupEnvMocks(t)
+		mocks := setupDockerEnvMocks(t, &EnvTestMocks{
+			ConfigHandler: config.NewConfigHandler(baseMocks.Shell),
 		})
 		configStr := `
 version: v1alpha1

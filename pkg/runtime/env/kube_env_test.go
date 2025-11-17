@@ -41,9 +41,9 @@ func (m mockFileInfo) IsDir() bool        { return true }
 func (m mockFileInfo) Sys() any           { return nil }
 
 // setupKubeEnvMocks creates a base mock setup for Kubernetes environment tests
-func setupKubeEnvMocks(t *testing.T, opts ...func(*EnvTestMocks)) *EnvTestMocks {
+func setupKubeEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMocks {
 	t.Helper()
-	mocks := setupEnvMocks(t, opts...)
+	mocks := setupEnvMocks(t, overrides...)
 	projectRoot, err := mocks.Shell.GetProjectRoot()
 	if err != nil {
 		t.Fatalf("Failed to get project root: %v", err)
@@ -201,8 +201,8 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 		}
 
 		// And a KubeEnvPrinter with the mock ConfigHandler
-		mocks := setupKubeEnvMocks(t, func(m *EnvTestMocks) {
-			m.ConfigHandler = mockConfigHandler
+		mocks := setupKubeEnvMocks(t, &EnvTestMocks{
+			ConfigHandler: mockConfigHandler,
 		})
 		printer := NewKubeEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
