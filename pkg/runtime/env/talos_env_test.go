@@ -15,7 +15,7 @@ import (
 
 // TestTalosEnv_GetEnvVars tests the GetEnvVars method of the TalosEnvPrinter
 func TestTalosEnv_GetEnvVars(t *testing.T) {
-	setup := func(t *testing.T, provider string) (*TalosEnvPrinter, *Mocks) {
+	setup := func(t *testing.T, provider string) (*TalosEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 
 		// Create a mock config handler
@@ -27,8 +27,8 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 			return ""
 		}
 
-		mocks := setupMocks(t, &SetupOptions{
-			ConfigHandler: mockConfigHandler,
+		mocks := setupEnvMocks(t, func(m *EnvTestMocks) {
+			m.ConfigHandler = mockConfigHandler
 		})
 
 		// Set up GetConfigRoot to return the correct path

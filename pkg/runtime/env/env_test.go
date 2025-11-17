@@ -13,36 +13,29 @@ import (
 // Test Setup
 // =============================================================================
 
-// Mocks holds all the mock objects used in the tests.
-type Mocks struct {
+// EnvTestMocks holds all the mock objects used in the tests.
+type EnvTestMocks struct {
 	ConfigHandler config.ConfigHandler
 	Shell         *shell.MockShell
 	Shims         *Shims
 }
 
-type SetupOptions struct {
-	ConfigHandler config.ConfigHandler
-	ConfigStr     string
-	Context       string
-}
-
-// setupShims creates a new Shims instance with default implementations
-func setupShims(t *testing.T) *Shims {
-	t.Helper()
+// setupDefaultShims creates a new Shims instance with default implementations
+func setupDefaultShims(tmpDir string) *Shims {
 	shims := NewShims()
 
 	shims.LookupEnv = func(key string) (string, bool) { return "", false }
 	shims.WriteFile = func(name string, data []byte, perm os.FileMode) error { return nil }
 	shims.ReadFile = func(name string) ([]byte, error) { return []byte{}, nil }
 	shims.MkdirAll = func(path string, perm os.FileMode) error { return nil }
-	shims.UserHomeDir = func() (string, error) { return t.TempDir(), nil }
 	shims.Stat = func(name string) (os.FileInfo, error) { return nil, nil }
-	shims.Getwd = func() (string, error) { return t.TempDir(), nil }
+	shims.UserHomeDir = func() (string, error) { return tmpDir, nil }
+	shims.Getwd = func() (string, error) { return tmpDir, nil }
 
 	return shims
 }
 
-func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+func setupEnvMocks(t *testing.T, opts ...func(*EnvTestMocks)) *EnvTestMocks {
 	t.Helper()
 
 	// Store original directory and create temp dir
@@ -56,18 +49,8 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	// Set project root environment variable
 	os.Setenv("WINDSOR_PROJECT_ROOT", tmpDir)
 
-	// Process options with defaults
-	options := &SetupOptions{}
-	if len(opts) > 0 && opts[0] != nil {
-		options = opts[0]
-	}
-
-	// Set context from options or default to test-context
-	if options.Context != "" {
-		os.Setenv("WINDSOR_CONTEXT", options.Context)
-	} else {
-		os.Setenv("WINDSOR_CONTEXT", "test-context")
-	}
+	// Set context default to test-context
+	os.Setenv("WINDSOR_CONTEXT", "test-context")
 
 	// Create shell with project root matching temp dir
 	mockShell := shell.NewMockShell()
@@ -75,19 +58,20 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		return tmpDir, nil
 	}
 
-	// Create config handler
-	var configHandler config.ConfigHandler
-	if options.ConfigHandler == nil {
-		configHandler = config.NewConfigHandler(mockShell)
-	} else {
-		configHandler = options.ConfigHandler
-	}
-	if options.ConfigStr != "" {
-		configHandler.LoadConfigString(options.ConfigStr)
+	// Setup shims
+	shims := setupDefaultShims(tmpDir)
+
+	// Create initial mocks with defaults
+	mocks := &EnvTestMocks{
+		Shell:         mockShell,
+		ConfigHandler: config.NewConfigHandler(mockShell),
+		Shims:         shims,
 	}
 
-	// Setup shims
-	shims := setupShims(t)
+	// Apply any dependency injection overrides BEFORE using mocks
+	for _, opt := range opts {
+		opt(mocks)
+	}
 
 	// Register cleanup to restore original state
 	t.Cleanup(func() {
@@ -98,12 +82,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		}
 	})
 
-	// Return mocks
-	return &Mocks{
-		Shell:         mockShell,
-		ConfigHandler: configHandler,
-		Shims:         shims,
-	}
+	return mocks
 }
 
 // =============================================================================
@@ -112,9 +91,9 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 
 // TestEnv_NewBaseEnvPrinter tests the NewBaseEnvPrinter constructor
 func TestEnv_NewBaseEnvPrinter(t *testing.T) {
-	setup := func(t *testing.T) (*BaseEnvPrinter, *Mocks) {
+	setup := func(t *testing.T) (*BaseEnvPrinter, *EnvTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupEnvMocks(t)
 		printer := NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		return printer, mocks
 	}
@@ -131,7 +110,7 @@ func TestEnv_NewBaseEnvPrinter(t *testing.T) {
 
 	t.Run("WithValidDependencies", func(t *testing.T) {
 		// Given a new BaseEnvPrinter with valid shell and configHandler
-		mocks := setupMocks(t)
+		mocks := setupEnvMocks(t)
 		printer := NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 
 		// Then it should be created successfully
@@ -143,9 +122,9 @@ func TestEnv_NewBaseEnvPrinter(t *testing.T) {
 
 // TestBaseEnvPrinter_GetEnvVars tests the GetEnvVars method of the BaseEnvPrinter struct
 func TestBaseEnvPrinter_GetEnvVars(t *testing.T) {
-	setup := func(t *testing.T) (*BaseEnvPrinter, *Mocks) {
+	setup := func(t *testing.T) (*BaseEnvPrinter, *EnvTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupEnvMocks(t)
 		printer := NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		return printer, mocks
 	}
@@ -167,9 +146,9 @@ func TestBaseEnvPrinter_GetEnvVars(t *testing.T) {
 
 // TestBaseEnvPrinter_GetManagedEnv tests the GetManagedEnv method of the BaseEnvPrinter struct
 func TestBaseEnvPrinter_GetManagedEnv(t *testing.T) {
-	setup := func(t *testing.T) (*BaseEnvPrinter, *Mocks) {
+	setup := func(t *testing.T) (*BaseEnvPrinter, *EnvTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupEnvMocks(t)
 		printer := NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		return printer, mocks
 	}
@@ -202,11 +181,38 @@ func TestBaseEnvPrinter_GetManagedEnv(t *testing.T) {
 	})
 }
 
+// TestBaseEnvPrinter_GetAlias tests the GetAlias method of the BaseEnvPrinter struct
+func TestBaseEnvPrinter_GetAlias(t *testing.T) {
+	setup := func(t *testing.T) (*BaseEnvPrinter, *EnvTestMocks) {
+		t.Helper()
+		mocks := setupEnvMocks(t)
+		printer := NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		return printer, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a new BaseEnvPrinter
+		printer, _ := setup(t)
+
+		// When calling GetAlias
+		aliasMap, err := printer.GetAlias()
+
+		// Then no error should be returned and aliasMap should be empty
+		if err != nil {
+			t.Errorf("GetAlias() error = %v, want nil", err)
+		}
+		expectedAliasMap := map[string]string{}
+		if !reflect.DeepEqual(aliasMap, expectedAliasMap) {
+			t.Errorf("aliasMap = %v, want %v", aliasMap, expectedAliasMap)
+		}
+	})
+}
+
 // TestBaseEnvPrinter_GetManagedAlias tests the GetManagedAlias method of the BaseEnvPrinter struct
 func TestBaseEnvPrinter_GetManagedAlias(t *testing.T) {
-	setup := func(t *testing.T) (*BaseEnvPrinter, *Mocks) {
+	setup := func(t *testing.T) (*BaseEnvPrinter, *EnvTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupEnvMocks(t)
 		printer := NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		return printer, mocks
 	}
@@ -241,9 +247,9 @@ func TestBaseEnvPrinter_GetManagedAlias(t *testing.T) {
 
 // TestBaseEnvPrinter_SetManagedEnv tests the SetManagedEnv method of the BaseEnvPrinter struct
 func TestBaseEnvPrinter_SetManagedEnv(t *testing.T) {
-	setup := func(t *testing.T) (*BaseEnvPrinter, *Mocks) {
+	setup := func(t *testing.T) (*BaseEnvPrinter, *EnvTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupEnvMocks(t)
 		printer := NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		return printer, mocks
 	}
@@ -308,9 +314,9 @@ func TestBaseEnvPrinter_SetManagedEnv(t *testing.T) {
 
 // TestBaseEnvPrinter_SetManagedAlias tests the SetManagedAlias method of the BaseEnvPrinter struct
 func TestBaseEnvPrinter_SetManagedAlias(t *testing.T) {
-	setup := func(t *testing.T) (*BaseEnvPrinter, *Mocks) {
+	setup := func(t *testing.T) (*BaseEnvPrinter, *EnvTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupEnvMocks(t)
 		printer := NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		return printer, mocks
 	}
@@ -375,9 +381,9 @@ func TestBaseEnvPrinter_SetManagedAlias(t *testing.T) {
 
 // TestBaseEnvPrinter_Reset tests the Reset method of the BaseEnvPrinter struct
 func TestBaseEnvPrinter_Reset(t *testing.T) {
-	setup := func(t *testing.T) (*BaseEnvPrinter, *Mocks) {
+	setup := func(t *testing.T) (*BaseEnvPrinter, *EnvTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupEnvMocks(t)
 		printer := NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		return printer, mocks
 	}

@@ -17,11 +17,62 @@ import (
 // Test Setup
 // =============================================================================
 
-func setupAwsEnvMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+func setupAwsEnvMocks(t *testing.T, opts ...func(*EnvTestMocks)) *EnvTestMocks {
 	t.Helper()
-	if len(opts) == 0 || opts[0].ConfigStr == "" {
-		opts = []*SetupOptions{{
-			ConfigStr: `
+
+	// Apply opts first to allow DI-style overrides (e.g., injecting a custom ConfigHandler)
+	mocks := setupEnvMocks(t, opts...)
+
+	// If ConfigHandler wasn't overridden, use MockConfigHandler
+	if _, ok := mocks.ConfigHandler.(*config.MockConfigHandler); !ok {
+		mocks.ConfigHandler = config.NewMockConfigHandler()
+	}
+
+	mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+
+	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+		return "/mock/config/root", nil
+	}
+
+	loadedConfigs := make(map[string]*v1alpha1.Context)
+	currentContext := "test-context"
+
+	mockConfigHandler.GetContextFunc = func() string {
+		return currentContext
+	}
+
+	mockConfigHandler.SetContextFunc = func(context string) error {
+		currentContext = context
+		return nil
+	}
+
+	mockConfigHandler.LoadConfigStringFunc = func(content string) error {
+		var cfg v1alpha1.Config
+		if err := yaml.Unmarshal([]byte(content), &cfg); err != nil {
+			return err
+		}
+		for name, ctx := range cfg.Contexts {
+			if ctx != nil {
+				ctxCopy := *ctx
+				loadedConfigs[name] = &ctxCopy
+			} else {
+				loadedConfigs[name] = &v1alpha1.Context{}
+			}
+		}
+		return nil
+	}
+
+	mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+		if ctx, ok := loadedConfigs[currentContext]; ok {
+			return ctx
+		}
+		return &v1alpha1.Context{}
+	}
+
+	// Only load default config if ConfigHandler wasn't overridden via opts
+	// If ConfigHandler was injected via opts, assume test wants to control it
+	if len(opts) == 0 {
+		defaultConfigStr := `
 version: v1alpha1
 contexts:
   test-context:
@@ -30,44 +81,17 @@ contexts:
       aws_endpoint_url: https://aws.endpoint
       s3_hostname: s3.amazonaws.com
       mwaa_endpoint: https://mwaa.endpoint
-`,
-		}}
-	}
+`
 
-	// Create a mock config handler
-	mockConfigHandler := config.NewMockConfigHandler()
-
-	// Set up the GetConfigRoot function to return a mock path
-	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-		return "/mock/config/root", nil
-	}
-
-	// Set up the GetConfig function to return a mock config
-	mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-		// Parse the config string
-		var config v1alpha1.Config
-		if err := yaml.Unmarshal([]byte(opts[0].ConfigStr), &config); err != nil {
-			t.Fatalf("Failed to unmarshal config: %v", err)
+		if err := mocks.ConfigHandler.LoadConfigString(defaultConfigStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
 		}
-
-		// Return the context for the test-context
-		if ctx, ok := config.Contexts["test-context"]; ok {
-			return ctx
-		}
-		return &v1alpha1.Context{}
 	}
 
-	// Create mocks with the mock config handler
-	mocks := setupMocks(t, &SetupOptions{
-		ConfigHandler: mockConfigHandler,
-	})
-
-	// ConfigHandler is now fully initialized in constructor
 	if err := mocks.ConfigHandler.SetContext("test-context"); err != nil {
 		t.Fatalf("Failed to set context: %v", err)
 	}
 
-	// Set up shims for AWS config file check
 	mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
 		if name == filepath.FromSlash("/mock/config/root/.aws/config") {
 			return nil, nil
@@ -84,7 +108,7 @@ contexts:
 
 // TestAwsEnv_GetEnvVars tests the GetEnvVars method of the AwsEnvPrinter
 func TestAwsEnv_GetEnvVars(t *testing.T) {
-	setup := func() (*AwsEnvPrinter, *Mocks) {
+	setup := func() (*AwsEnvPrinter, *EnvTestMocks) {
 		mocks := setupAwsEnvMocks(t)
 		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		env.shims = mocks.Shims
@@ -92,9 +116,13 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
+		// Given an AWS env printer with configuration
 		env, _ := setup()
 
+		// When GetEnvVars is called
 		envVars, err := env.GetEnvVars()
+
+		// Then environment variables should match expected values
 		if err != nil {
 			t.Errorf("GetEnvVars returned an error: %v", err)
 		}
@@ -113,14 +141,17 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("NonExistentConfigFile", func(t *testing.T) {
+		// Given an AWS env printer with non-existent config file
 		env, _ := setup()
 
-		// Override shims to make AWS config file not exist
 		env.shims.Stat = func(name string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
 
+		// When GetEnvVars is called
 		envVars, err := env.GetEnvVars()
+
+		// Then environment variables should be returned without AWS_CONFIG_FILE
 		if err != nil {
 			t.Errorf("GetEnvVars returned an error: %v", err)
 		}
@@ -138,44 +169,60 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("MissingConfiguration", func(t *testing.T) {
-		mocks := setupAwsEnvMocks(t, &SetupOptions{
-			ConfigStr: `
+		// Given an AWS env printer with missing AWS configuration
+		mocks := setupAwsEnvMocks(t)
+		configStr := `
 version: v1alpha1
 contexts:
   test-context: {}
-`,
-		})
+`
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
 		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		env.shims = mocks.Shims
 
+		// When GetEnvVars is called
 		_, err := env.GetEnvVars()
+
+		// Then an error should be returned
 		if err == nil {
 			t.Error("GetEnvVars did not return an error")
 		}
-		if !strings.Contains(err.Error(), "context configuration or AWS configuration is missing") {
+		if err != nil && !strings.Contains(err.Error(), "context configuration or AWS configuration is missing") {
 			t.Errorf("GetEnvVars returned error %v, want error containing 'context configuration or AWS configuration is missing'", err)
 		}
 	})
 
 	t.Run("GetConfigRootError", func(t *testing.T) {
-		mocks := setupAwsEnvMocks(t, &SetupOptions{
-			ConfigStr: `
+		// Given a printer with a config handler that fails to get config root
+		mocks := setupAwsEnvMocks(t)
+		configStr := `
 version: v1alpha1
 contexts:
   test-context:
     aws:
       aws_profile: default
-`,
-		})
+`
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+		if err := mocks.ConfigHandler.SetContext("test-context"); err != nil {
+			t.Fatalf("Failed to set context: %v", err)
+		}
 
-		// Mock the GetConfigRoot function to return an error
+		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		env.shims = mocks.Shims
+
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("error retrieving configuration root directory")
 		}
 
-		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-
+		// When GetEnvVars is called
 		_, err := env.GetEnvVars()
+
+		// Then an error should be returned
 		if err == nil {
 			t.Error("GetEnvVars did not return an error")
 		}
