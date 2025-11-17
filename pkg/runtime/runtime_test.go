@@ -2094,7 +2094,7 @@ func TestRuntime_GenerateBuildID(t *testing.T) {
 		// Then an error should be returned
 
 		if err == nil {
-			t.Error("Expected error when writeBuildIDToFile fails")
+			t.Fatal("Expected error when writeBuildIDToFile fails")
 		}
 
 		if !strings.Contains(err.Error(), "failed to set build ID") && !strings.Contains(err.Error(), "failed to read build ID file") {
