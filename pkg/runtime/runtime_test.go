@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -1849,6 +1850,10 @@ func TestRuntime_GetBuildID(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenReadFileFails", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Skipping on Windows: os.Chmod with 0000 does not prevent file operations")
+		}
+
 		// Given a runtime with a build ID file that cannot be read
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
@@ -1886,6 +1891,10 @@ func TestRuntime_GetBuildID(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenWriteBuildIDToFileFails", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Skipping on Windows: os.Chmod with 0000 does not prevent file operations")
+		}
+
 		// Given a runtime with a build ID directory that cannot be written to
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
@@ -2071,6 +2080,10 @@ func TestRuntime_GenerateBuildID(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenWriteBuildIDToFileFails", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Skipping on Windows: os.Chmod with 0000 does not prevent file operations")
+		}
+
 		// Given a runtime with a build ID directory that cannot be written to
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
