@@ -149,6 +149,28 @@ func TestConfigHandler_setValueInMap(t *testing.T) {
 			t.Error("Expected empty path to be handled gracefully")
 		}
 	})
+
+	t.Run("OverwritesNonMapValueWithMap", func(t *testing.T) {
+		data := map[string]any{
+			"parent": "not_a_map",
+		}
+
+		setValueInMap(data, []string{"parent", "child", "key"}, "nested_value")
+
+		parent, ok := data["parent"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected parent to be converted to a map")
+		}
+
+		child, ok := parent["child"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected child to be a map")
+		}
+
+		if child["key"] != "nested_value" {
+			t.Errorf("Expected 'nested_value', got '%v'", child["key"])
+		}
+	})
 }
 
 func TestConfigHandler_convertInterfaceMap(t *testing.T) {
@@ -188,6 +210,37 @@ func TestConfigHandler_convertInterfaceMap(t *testing.T) {
 
 		if parent["child"] != "nested_value" {
 			t.Errorf("Expected nested value, got '%v'", parent["child"])
+		}
+	})
+
+	t.Run("HandlesMapStringAnyValues", func(t *testing.T) {
+		handler, _ := setupPrivateTestHandler(t)
+
+		input := map[interface{}]interface{}{
+			"key1": map[string]any{
+				"nested": "value",
+			},
+			"key2": map[interface{}]interface{}{
+				"nested": "value2",
+			},
+		}
+
+		result := handler.convertInterfaceMap(input)
+
+		key1Val, ok := result["key1"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected key1 value to be map[string]any")
+		}
+		if key1Val["nested"] != "value" {
+			t.Errorf("Expected nested value, got '%v'", key1Val["nested"])
+		}
+
+		key2Val, ok := result["key2"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected key2 value to be converted to map[string]any")
+		}
+		if key2Val["nested"] != "value2" {
+			t.Errorf("Expected nested value2, got '%v'", key2Val["nested"])
 		}
 	})
 
@@ -485,6 +538,42 @@ func TestConfigHandler_parsePath(t *testing.T) {
 			t.Errorf("Expected ['key'], got %v", result)
 		}
 	})
+
+	t.Run("HandlesDotInsideBrackets", func(t *testing.T) {
+		result := parsePath("parent[child.key].nested")
+
+		expected := []string{"parent", "child.key", "nested"}
+		if len(result) != len(expected) {
+			t.Fatalf("Expected %d keys, got %d", len(expected), len(result))
+		}
+		for i, key := range expected {
+			if result[i] != key {
+				t.Errorf("Expected key[%d]='%s', got '%s'", i, key, result[i])
+			}
+		}
+	})
+
+	t.Run("HandlesBracketAtStart", func(t *testing.T) {
+		result := parsePath("[key].value")
+
+		expected := []string{"key", "value"}
+		if len(result) != len(expected) {
+			t.Fatalf("Expected %d keys, got %d", len(expected), len(result))
+		}
+		for i, key := range expected {
+			if result[i] != key {
+				t.Errorf("Expected key[%d]='%s', got '%s'", i, key, result[i])
+			}
+		}
+	})
+
+	t.Run("HandlesEmptyPath", func(t *testing.T) {
+		result := parsePath("")
+
+		if len(result) != 0 {
+			t.Errorf("Expected empty slice, got %v", result)
+		}
+	})
 }
 
 func TestConfigHandler_convertStringValue(t *testing.T) {
@@ -598,6 +687,72 @@ properties:
 		}
 		if floatResult != 1.5 {
 			t.Errorf("Expected 1.5 from pattern, got %v", floatResult)
+		}
+	})
+
+	t.Run("ConvertsWhenSchemaValidatorIsNil", func(t *testing.T) {
+		handler, _ := setupPrivateTestHandler(t)
+		handler.schemaValidator = nil
+
+		result := handler.convertStringValue("true")
+
+		if result != true {
+			t.Errorf("Expected true, got %v", result)
+		}
+	})
+
+	t.Run("ConvertsWhenSchemaIsNil", func(t *testing.T) {
+		handler, _ := setupPrivateTestHandler(t)
+		handler.schemaValidator = &SchemaValidator{
+			Schema: nil,
+		}
+
+		result := handler.convertStringValue("true")
+
+		if result != true {
+			t.Errorf("Expected true, got %v", result)
+		}
+	})
+
+	t.Run("ConvertsWhenExpectedTypeIsEmpty", func(t *testing.T) {
+		handler, tmpDir := setupPrivateTestHandler(t)
+
+		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
+		os.MkdirAll(schemaDir, 0755)
+		schemaContent := `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  test_key:
+    type: string
+`
+		os.WriteFile(filepath.Join(schemaDir, "schema.yaml"), []byte(schemaContent), 0644)
+		handler.LoadSchema(filepath.Join(schemaDir, "schema.yaml"))
+
+		result := handler.convertStringValue("test_value")
+
+		if result != "test_value" {
+			t.Errorf("Expected 'test_value', got '%v'", result)
+		}
+	})
+
+	t.Run("ConvertsWhenConvertStringToTypeReturnsNil", func(t *testing.T) {
+		handler, tmpDir := setupPrivateTestHandler(t)
+
+		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
+		os.MkdirAll(schemaDir, 0755)
+		schemaContent := `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  invalid_bool:
+    type: boolean
+`
+		os.WriteFile(filepath.Join(schemaDir, "schema.yaml"), []byte(schemaContent), 0644)
+		handler.LoadSchema(filepath.Join(schemaDir, "schema.yaml"))
+
+		result := handler.convertStringValue("not_a_bool")
+
+		if result == nil {
+			t.Error("Expected result to fall back to pattern conversion, got nil")
 		}
 	})
 }
@@ -857,6 +1012,26 @@ properties: {}
 		// Then empty string should be returned
 		if typeStr != "" {
 			t.Errorf("Expected empty for invalid property schema, got '%s'", typeStr)
+		}
+	})
+
+	t.Run("HandlesNonStringType", func(t *testing.T) {
+		handler, _ := setupPrivateTestHandler(t)
+
+		handler.schemaValidator = &SchemaValidator{
+			Schema: map[string]any{
+				"properties": map[string]any{
+					"test_key": map[string]any{
+						"type": 123,
+					},
+				},
+			},
+		}
+
+		typeStr := handler.getExpectedTypeFromSchema("test_key")
+
+		if typeStr != "" {
+			t.Errorf("Expected empty for non-string type, got '%s'", typeStr)
 		}
 	})
 }

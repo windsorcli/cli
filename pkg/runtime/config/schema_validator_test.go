@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -130,6 +131,94 @@ type: object
 			t.Fatal("Expected error for file read failure")
 		}
 	})
+}
+
+func TestSchemaValidator_injectSubstitutionSchema(t *testing.T) {
+	t.Run("InjectsSubstitutionSchema", func(t *testing.T) {
+		validator := NewSchemaValidator(nil)
+		schema := map[string]any{
+			"properties": map[string]any{},
+		}
+
+		validator.injectSubstitutionSchema(&schema)
+
+		properties, ok := schema["properties"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected properties to be a map")
+		}
+
+		substitutions, ok := properties["substitutions"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected substitutions to be injected")
+		}
+
+		if substitutions["type"] != "object" {
+			t.Errorf("Expected substitutions type to be object, got %v", substitutions["type"])
+		}
+	})
+
+	t.Run("HandlesNilSchema", func(t *testing.T) {
+		validator := NewSchemaValidator(nil)
+
+		validator.injectSubstitutionSchema(nil)
+	})
+
+	t.Run("CreatesPropertiesWhenMissing", func(t *testing.T) {
+		validator := NewSchemaValidator(nil)
+		schema := map[string]any{}
+
+		validator.injectSubstitutionSchema(&schema)
+
+		properties, ok := schema["properties"]
+		if !ok {
+			t.Fatal("Expected properties to be created")
+		}
+
+		propertiesMap, ok := properties.(map[string]any)
+		if !ok {
+			t.Fatal("Expected properties to be a map")
+		}
+
+		if _, ok := propertiesMap["substitutions"]; !ok {
+			t.Error("Expected substitutions to be injected")
+		}
+	})
+
+	t.Run("HandlesNonMapProperties", func(t *testing.T) {
+		validator := NewSchemaValidator(nil)
+		schema := map[string]any{
+			"properties": "not_a_map",
+		}
+
+		validator.injectSubstitutionSchema(&schema)
+
+		properties := schema["properties"]
+		if properties != "not_a_map" {
+			t.Error("Expected properties to remain unchanged when not a map")
+		}
+	})
+
+	t.Run("ErrorWhenSchemaIsNil", func(t *testing.T) {
+		validator := NewSchemaValidator(nil)
+		validator.Schema = nil
+
+		values := map[string]any{
+			"provider": "generic",
+		}
+
+		result, err := validator.Validate(values)
+
+		if err == nil {
+			t.Error("Expected error when schema is nil")
+		}
+		if result != nil {
+			t.Error("Expected nil result when error occurs")
+		}
+		if !strings.Contains(err.Error(), "no schema loaded") {
+			t.Errorf("Expected error about no schema loaded, got: %v", err)
+		}
+	})
+
 }
 
 func TestSchemaValidator_ExtractDefaults(t *testing.T) {
@@ -568,6 +657,34 @@ func TestSchemaValidator_GetSchemaDefaults(t *testing.T) {
 
 		if _, exists := defaults["storage"]; exists {
 			t.Error("Expected storage to not be included when no nested defaults")
+		}
+	})
+
+	t.Run("HandlesNestedObjectWithEmptyDefaults", func(t *testing.T) {
+		validator := NewSchemaValidator(nil)
+		validator.Schema = map[string]any{
+			"$schema": "https://json-schema.org/draft/2020-12/schema",
+			"type":    "object",
+			"properties": map[string]any{
+				"nested": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"key": map[string]any{
+							"type": "string",
+						},
+					},
+				},
+			},
+		}
+
+		defaults, err := validator.GetSchemaDefaults()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if len(defaults) != 0 {
+			t.Errorf("Expected empty defaults for nested object without defaults, got: %v", defaults)
 		}
 	})
 }
@@ -2184,6 +2301,49 @@ properties:
 		}
 		if len(result.Errors) == 0 {
 			t.Error("Expected validation errors for invalid array items")
+		}
+	})
+
+	t.Run("ValidateArrayWithNonArrayValue", func(t *testing.T) {
+		validator := NewSchemaValidator(nil)
+		validator.Schema = map[string]any{
+			"type": "array",
+			"items": map[string]any{
+				"type": "string",
+			},
+		}
+
+		errors := validator.validateArray("not_an_array", validator.Schema, "test")
+
+		if len(errors) != 0 {
+			t.Errorf("Expected no errors for non-array value, got %v", errors)
+		}
+	})
+
+	t.Run("ValidateArrayWithoutItems", func(t *testing.T) {
+		validator := NewSchemaValidator(nil)
+		validator.Schema = map[string]any{
+			"type": "array",
+		}
+
+		errors := validator.validateArray([]any{"item1", "item2"}, validator.Schema, "test")
+
+		if len(errors) != 0 {
+			t.Errorf("Expected no errors when items not in schema, got %v", errors)
+		}
+	})
+
+	t.Run("ValidateArrayWithNonMapItems", func(t *testing.T) {
+		validator := NewSchemaValidator(nil)
+		validator.Schema = map[string]any{
+			"type":  "array",
+			"items": "not_a_map",
+		}
+
+		errors := validator.validateArray([]any{"item1", "item2"}, validator.Schema, "test")
+
+		if len(errors) != 0 {
+			t.Errorf("Expected no errors when items is not a map, got %v", errors)
 		}
 	})
 
