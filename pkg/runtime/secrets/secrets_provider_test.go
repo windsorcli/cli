@@ -15,22 +15,19 @@ import (
 // Test Setup
 // =============================================================================
 
-type Mocks struct {
+type SecretsTestMocks struct {
 	Shell *shell.MockShell
 	Shims *Shims
 }
 
-type SetupOptions struct {
-}
-
-// setupMocks creates mock components for testing the secrets provider
-func setupMocks(t *testing.T, _ ...*SetupOptions) *Mocks {
+// setupSecretsMocks creates mock components for testing the secrets provider
+func setupSecretsMocks(t *testing.T) *SecretsTestMocks {
 	t.Helper()
 
 	// Create a mock shell
 	mockShell := shell.NewMockShell()
 
-	return &Mocks{
+	return &SecretsTestMocks{
 		Shell: mockShell,
 		Shims: NewShims(),
 	}
@@ -42,7 +39,7 @@ func setupMocks(t *testing.T, _ ...*SetupOptions) *Mocks {
 
 func TestBaseSecretsProvider_LoadSecrets(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		mocks := setupMocks(t)
+		mocks := setupSecretsMocks(t)
 		provider := NewBaseSecretsProvider(mocks.Shell)
 
 		err := provider.LoadSecrets()
@@ -63,7 +60,7 @@ func TestBaseSecretsProvider_LoadSecrets(t *testing.T) {
 
 func TestBaseSecretsProvider_GetSecret(t *testing.T) {
 	t.Run("PanicsWhenNotImplemented", func(t *testing.T) {
-		mocks := setupMocks(t)
+		mocks := setupSecretsMocks(t)
 		provider := NewBaseSecretsProvider(mocks.Shell)
 
 		defer func() {
@@ -80,7 +77,7 @@ func TestBaseSecretsProvider_GetSecret(t *testing.T) {
 
 func TestBaseSecretsProvider_ParseSecrets(t *testing.T) {
 	t.Run("PanicsWhenNotImplemented", func(t *testing.T) {
-		mocks := setupMocks(t)
+		mocks := setupSecretsMocks(t)
 		provider := NewBaseSecretsProvider(mocks.Shell)
 
 		defer func() {

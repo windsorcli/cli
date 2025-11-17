@@ -16,8 +16,8 @@ import (
 // Test Setup
 // =============================================================================
 
-func setupSopsSecretsMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
-	mocks := setupMocks(t, opts...)
+func setupSopsSecretsMocks(t *testing.T) *SecretsTestMocks {
+	mocks := setupSecretsMocks(t)
 
 	// Mock the stat function to simulate the file exists
 	mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
@@ -42,7 +42,7 @@ nested:
 // =============================================================================
 
 func TestNewSopsSecretsProvider(t *testing.T) {
-	setup := func(t *testing.T) (*SopsSecretsProvider, *Mocks) {
+	setup := func(t *testing.T) (*SopsSecretsProvider, *SecretsTestMocks) {
 		mocks := setupSopsSecretsMocks(t)
 		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Shell)
 		provider.shims = mocks.Shims
@@ -65,7 +65,7 @@ func TestNewSopsSecretsProvider(t *testing.T) {
 // =============================================================================
 
 func TestSopsSecretsProvider_LoadSecrets(t *testing.T) {
-	setup := func(t *testing.T) (*SopsSecretsProvider, *Mocks) {
+	setup := func(t *testing.T) (*SopsSecretsProvider, *SecretsTestMocks) {
 		mocks := setupSopsSecretsMocks(t)
 		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Shell)
 		provider.shims = mocks.Shims
@@ -167,7 +167,7 @@ func TestSopsSecretsProvider_LoadSecrets(t *testing.T) {
 }
 
 func TestSopsSecretsProvider_GetSecret(t *testing.T) {
-	setup := func(t *testing.T) (*SopsSecretsProvider, *Mocks) {
+	setup := func(t *testing.T) (*SopsSecretsProvider, *SecretsTestMocks) {
 		mocks := setupSopsSecretsMocks(t)
 		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Shell)
 		provider.shims = mocks.Shims
@@ -228,7 +228,7 @@ func TestSopsSecretsProvider_GetSecret(t *testing.T) {
 }
 
 func TestSopsSecretsProvider_ParseSecrets(t *testing.T) {
-	setup := func(t *testing.T) (*SopsSecretsProvider, *Mocks) {
+	setup := func(t *testing.T) (*SopsSecretsProvider, *SecretsTestMocks) {
 		mocks := setupSopsSecretsMocks(t)
 		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Shell)
 		provider.shims = mocks.Shims
@@ -370,7 +370,7 @@ func TestSopsSecretsProvider_ParseSecrets(t *testing.T) {
 }
 
 func TestSopsSecretsProvider_findSecretsFilePath(t *testing.T) {
-	setup := func(t *testing.T) (*SopsSecretsProvider, *Mocks) {
+	setup := func(t *testing.T) (*SopsSecretsProvider, *SecretsTestMocks) {
 		mocks := setupSopsSecretsMocks(t)
 		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Shell)
 		provider.shims = mocks.Shims
