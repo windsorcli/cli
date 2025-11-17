@@ -23,7 +23,7 @@ import (
 // Test Setup
 // =============================================================================
 
-type Mocks struct {
+type VirtTestMocks struct {
 	Runtime       *runtime.Runtime
 	ConfigHandler config.ConfigHandler
 	Shell         *shell.MockShell
@@ -31,14 +31,8 @@ type Mocks struct {
 	Service       *services.MockService
 }
 
-type SetupOptions struct {
-	ConfigHandler config.ConfigHandler
-	ConfigStr     string
-}
-
-// setupShims creates a new Shims instance with default implementations
-func setupShims(t *testing.T) *Shims {
-	t.Helper()
+// setupDefaultShims creates a new Shims instance with default implementations
+func setupDefaultShims() *Shims {
 	shims := &Shims{
 		Setenv: func(key, value string) error {
 			return os.Setenv(key, value)
@@ -87,15 +81,10 @@ func setupShims(t *testing.T) *Shims {
 		},
 	}
 
-	t.Cleanup(func() {
-		os.Unsetenv("COMPOSE_FILE")
-		os.Unsetenv("WINDSOR_CONTEXT")
-	})
-
 	return shims
 }
 
-func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+func setupVirtMocks(t *testing.T, opts ...func(*VirtTestMocks)) *VirtTestMocks {
 	t.Helper()
 
 	// Store original directory and create temp dir
@@ -112,12 +101,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	// Set project root environment variable
 	os.Setenv("WINDSOR_PROJECT_ROOT", tmpDir)
 
-	// Process options with defaults
-	options := &SetupOptions{}
-	if len(opts) > 0 && opts[0] != nil {
-		options = opts[0]
-	}
-
 	// Create shell
 	mockShell := shell.NewMockShell()
 	// Mock GetProjectRoot to return a temporary directory
@@ -126,12 +109,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	}
 
 	// Create config handler
-	var configHandler config.ConfigHandler
-	if options.ConfigHandler == nil {
-		configHandler = config.NewConfigHandler(mockShell)
-	} else {
-		configHandler = options.ConfigHandler
-	}
+	configHandler := config.NewConfigHandler(mockShell)
 
 	// Create mock service
 	mockService := services.NewMockService()
@@ -165,28 +143,30 @@ contexts:
 		t.Fatalf("Failed to load default config string: %v", err)
 	}
 
-	// Load test-specific config if provided
-	if options.ConfigStr != "" {
-		if err := configHandler.LoadConfigString(options.ConfigStr); err != nil {
-			t.Fatalf("Failed to load config string: %v", err)
-		}
-	}
-
 	// Register cleanup to restore original state
 	t.Cleanup(func() {
 		os.Unsetenv("WINDSOR_PROJECT_ROOT")
+		os.Unsetenv("COMPOSE_FILE")
+		os.Unsetenv("WINDSOR_CONTEXT")
 		if err := os.Chdir(origDir); err != nil {
 			t.Logf("Warning: Failed to change back to original directory: %v", err)
 		}
 	})
 
-	return &Mocks{
+	mocks := &VirtTestMocks{
 		Runtime:       rt,
 		ConfigHandler: configHandler,
 		Shell:         mockShell,
 		Service:       mockService,
-		Shims:         setupShims(t),
+		Shims:         setupDefaultShims(),
 	}
+
+	// Apply any overrides
+	for _, opt := range opts {
+		opt(mocks)
+	}
+
+	return mocks
 }
 
 // =============================================================================
@@ -194,9 +174,9 @@ contexts:
 // =============================================================================
 
 func TestVirt_Initialize(t *testing.T) {
-	setup := func(t *testing.T) (*Mocks, *BaseVirt) {
+	setup := func(t *testing.T) (*VirtTestMocks, *BaseVirt) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupVirtMocks(t)
 		virt := NewBaseVirt(mocks.Runtime)
 		virt.shims = mocks.Shims
 		return mocks, virt

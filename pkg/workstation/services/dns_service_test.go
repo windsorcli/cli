@@ -15,11 +15,11 @@ import (
 // =============================================================================
 
 // setupDnsMocks creates and returns mock components for DNS service tests
-func setupDnsMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+func setupDnsMocks(t *testing.T, opts ...func(*ServicesTestMocks)) *ServicesTestMocks {
 	t.Helper()
 
-	// Create base mocks using setupMocks
-	mocks := setupMocks(t, opts...)
+	// Create base mocks using setupServicesMocks
+	mocks := setupServicesMocks(t, opts...)
 
 	// Set up shell project root
 	mocks.Shell.GetProjectRootFunc = func() (string, error) {
@@ -34,7 +34,7 @@ func setupDnsMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 // =============================================================================
 
 func TestNewDNSService(t *testing.T) {
-	setup := func(t *testing.T) (*DNSService, *Mocks) {
+	setup := func(t *testing.T) (*DNSService, *ServicesTestMocks) {
 		t.Helper()
 		mocks := setupDnsMocks(t)
 		service := NewDNSService(mocks.Runtime)
@@ -59,7 +59,7 @@ func TestNewDNSService(t *testing.T) {
 // =============================================================================
 
 func TestDNSService_Initialize(t *testing.T) {
-	setup := func(t *testing.T) (*DNSService, *Mocks) {
+	setup := func(t *testing.T) (*DNSService, *ServicesTestMocks) {
 		t.Helper()
 		mocks := setupDnsMocks(t)
 		service := NewDNSService(mocks.Runtime)
@@ -80,7 +80,7 @@ func TestDNSService_Initialize(t *testing.T) {
 }
 
 func TestDNSService_SetAddress(t *testing.T) {
-	setup := func(t *testing.T) (*DNSService, *Mocks) {
+	setup := func(t *testing.T) (*DNSService, *ServicesTestMocks) {
 		t.Helper()
 		mocks := setupDnsMocks(t)
 		service := NewDNSService(mocks.Runtime)
@@ -114,8 +114,9 @@ func TestDNSService_SetAddress(t *testing.T) {
 		mockConfigHandler.SetFunc = func(key string, value any) error {
 			return fmt.Errorf("mocked error setting address")
 		}
-		mocks := setupDnsMocks(t, &SetupOptions{
-			ConfigHandler: mockConfigHandler,
+		mocks := setupDnsMocks(t, func(m *ServicesTestMocks) {
+			m.ConfigHandler = mockConfigHandler
+			m.Runtime.ConfigHandler = mockConfigHandler
 		})
 		service := NewDNSService(mocks.Runtime)
 		service.shims = mocks.Shims
@@ -136,7 +137,7 @@ func TestDNSService_SetAddress(t *testing.T) {
 }
 
 func TestDNSService_GetComposeConfig(t *testing.T) {
-	setup := func(t *testing.T) (*DNSService, *Mocks) {
+	setup := func(t *testing.T) (*DNSService, *ServicesTestMocks) {
 		t.Helper()
 		mocks := setupDnsMocks(t)
 		service := NewDNSService(mocks.Runtime)
@@ -216,7 +217,7 @@ func TestDNSService_GetComposeConfig(t *testing.T) {
 }
 
 func TestDNSService_WriteConfig(t *testing.T) {
-	setup := func(t *testing.T) (*DNSService, *Mocks) {
+	setup := func(t *testing.T) (*DNSService, *ServicesTestMocks) {
 		t.Helper()
 		mocks := setupDnsMocks(t)
 		service := NewDNSService(mocks.Runtime)
@@ -595,7 +596,6 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		}
 	})
 
-
 	t.Run("SuccessRemovingCorefileDirectory", func(t *testing.T) {
 		// Given a DNSService with mock components
 		service, mocks := setup(t)
@@ -642,7 +642,7 @@ func TestDNSService_WriteConfig(t *testing.T) {
 }
 
 func TestDNSService_SetName(t *testing.T) {
-	setup := func(t *testing.T) (*DNSService, *Mocks) {
+	setup := func(t *testing.T) (*DNSService, *ServicesTestMocks) {
 		t.Helper()
 		mocks := setupDnsMocks(t)
 		service := NewDNSService(mocks.Runtime)
@@ -667,7 +667,7 @@ func TestDNSService_SetName(t *testing.T) {
 }
 
 func TestDNSService_GetName(t *testing.T) {
-	setupSuccess := func(t *testing.T) (*DNSService, *Mocks) {
+	setupSuccess := func(t *testing.T) (*DNSService, *ServicesTestMocks) {
 		t.Helper()
 		mocks := setupDnsMocks(t)
 		service := NewDNSService(mocks.Runtime)
@@ -677,7 +677,7 @@ func TestDNSService_GetName(t *testing.T) {
 		return service, mocks
 	}
 
-	setupError := func(t *testing.T) (*DNSService, *Mocks) {
+	setupError := func(t *testing.T) (*DNSService, *ServicesTestMocks) {
 		t.Helper()
 		mocks := setupDnsMocks(t)
 		service := NewDNSService(mocks.Runtime)
@@ -720,7 +720,7 @@ func TestDNSService_GetName(t *testing.T) {
 }
 
 func TestDNSService_GetHostname(t *testing.T) {
-	setup := func(t *testing.T) (*DNSService, *Mocks) {
+	setup := func(t *testing.T) (*DNSService, *ServicesTestMocks) {
 		t.Helper()
 		mocks := setupDnsMocks(t)
 		service := NewDNSService(mocks.Runtime)
@@ -764,7 +764,7 @@ func TestDNSService_GetHostname(t *testing.T) {
 }
 
 func TestDNSService_SupportsWildcard(t *testing.T) {
-	setup := func(t *testing.T) (*DNSService, *Mocks) {
+	setup := func(t *testing.T) (*DNSService, *ServicesTestMocks) {
 		t.Helper()
 		mocks := setupDnsMocks(t)
 		service := NewDNSService(mocks.Runtime)

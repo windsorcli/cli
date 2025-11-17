@@ -21,7 +21,7 @@ import (
 // Test Setup
 // =============================================================================
 
-type Mocks struct {
+type WorkstationTestMocks struct {
 	Runtime          *ctxpkg.Runtime
 	ConfigHandler    config.ConfigHandler
 	Shell            *shell.MockShell
@@ -32,11 +32,6 @@ type Mocks struct {
 	SSHClient        *ssh.MockClient
 }
 
-type SetupOptions struct {
-	ConfigHandler config.ConfigHandler
-	ConfigStr     string
-}
-
 func convertToServiceSlice(mockServices []*services.MockService) []services.Service {
 	serviceSlice := make([]services.Service, len(mockServices))
 	for i, mockService := range mockServices {
@@ -45,7 +40,7 @@ func convertToServiceSlice(mockServices []*services.MockService) []services.Serv
 	return serviceSlice
 }
 
-func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+func setupWorkstationMocks(t *testing.T, opts ...func(*WorkstationTestMocks)) *WorkstationTestMocks {
 	t.Helper()
 
 	// Create mock config handler
@@ -176,15 +171,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	mockContainerRuntime.UpFunc = func(verbose ...bool) error { return nil }
 	mockContainerRuntime.DownFunc = func() error { return nil }
 
-	// Apply custom options
-	if len(opts) > 0 && opts[0] != nil {
-		if opts[0].ConfigHandler != nil {
-			if mockConfig, ok := opts[0].ConfigHandler.(*config.MockConfigHandler); ok {
-				mockConfigHandler = mockConfig
-			}
-		}
-	}
-
 	rt := &ctxpkg.Runtime{
 		ContextName:   "test-context",
 		ProjectRoot:   "/test/project",
@@ -194,7 +180,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		Shell:         mockShell,
 	}
 
-	return &Mocks{
+	mocks := &WorkstationTestMocks{
 		Runtime:          rt,
 		ConfigHandler:    mockConfigHandler,
 		Shell:            mockShell,
@@ -204,6 +190,13 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		ContainerRuntime: mockContainerRuntime,
 		SSHClient:        mockSSHClient,
 	}
+
+	// Apply any overrides
+	for _, opt := range opts {
+		opt(mocks)
+	}
+
+	return mocks
 }
 
 // =============================================================================
@@ -213,7 +206,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 func TestNewWorkstation(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 
 		// When
 		workstation, err := NewWorkstation(mocks.Runtime)
@@ -235,7 +228,7 @@ func TestNewWorkstation(t *testing.T) {
 
 	t.Run("NilContext", func(t *testing.T) {
 		// Given
-		_ = setupMocks(t)
+		_ = setupWorkstationMocks(t)
 
 		// When
 		workstation, err := NewWorkstation(nil)
@@ -254,7 +247,7 @@ func TestNewWorkstation(t *testing.T) {
 
 	t.Run("NilConfigHandler", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		rt := &ctxpkg.Runtime{
 			Shell: mocks.Shell,
 		}
@@ -276,7 +269,7 @@ func TestNewWorkstation(t *testing.T) {
 
 	t.Run("NilShell", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		rt := &ctxpkg.Runtime{
 			ConfigHandler: mocks.ConfigHandler,
 		}
@@ -298,7 +291,7 @@ func TestNewWorkstation(t *testing.T) {
 
 	t.Run("NilRuntime", func(t *testing.T) {
 		// Given
-		_ = setupMocks(t)
+		_ = setupWorkstationMocks(t)
 
 		// When
 		workstation, err := NewWorkstation(nil)
@@ -317,7 +310,7 @@ func TestNewWorkstation(t *testing.T) {
 
 	t.Run("CreatesDependencies", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 
 		// When
 		workstation, err := NewWorkstation(mocks.Runtime)
@@ -345,7 +338,7 @@ func TestNewWorkstation(t *testing.T) {
 
 	t.Run("UsesExistingDependencies", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		opts := &Workstation{
 			Runtime:          mocks.Runtime,
 			NetworkManager:   mocks.NetworkManager,
@@ -387,7 +380,7 @@ func TestNewWorkstation(t *testing.T) {
 func TestWorkstation_Up(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		workstation, err := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
@@ -409,7 +402,7 @@ func TestWorkstation_Up(t *testing.T) {
 
 	t.Run("SetsNoCacheEnvironmentVariable", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		workstation, err := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
@@ -434,7 +427,7 @@ func TestWorkstation_Up(t *testing.T) {
 
 	t.Run("StartsVirtualMachine", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		vmUpCalled := false
 		mocks.VirtualMachine.UpFunc = func(verbose ...bool) error {
 			vmUpCalled = true
@@ -464,7 +457,7 @@ func TestWorkstation_Up(t *testing.T) {
 
 	t.Run("StartsContainerRuntime", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		containerUpCalled := false
 		mocks.ContainerRuntime.UpFunc = func(verbose ...bool) error {
 			containerUpCalled = true
@@ -494,7 +487,7 @@ func TestWorkstation_Up(t *testing.T) {
 
 	t.Run("ConfiguresNetworking", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		hostRouteCalled := false
 		guestCalled := false
 		dnsCalled := false
@@ -541,7 +534,7 @@ func TestWorkstation_Up(t *testing.T) {
 
 	t.Run("WritesServiceConfigs", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		writeConfigCalled := false
 		for _, service := range mocks.Services {
 			service.WriteConfigFunc = func() error {
@@ -573,7 +566,7 @@ func TestWorkstation_Up(t *testing.T) {
 
 	t.Run("VirtualMachineUpError", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		mocks.VirtualMachine.UpFunc = func(verbose ...bool) error {
 			return fmt.Errorf("VM start failed")
 		}
@@ -601,7 +594,7 @@ func TestWorkstation_Up(t *testing.T) {
 
 	t.Run("ContainerRuntimeUpError", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		mocks.ContainerRuntime.UpFunc = func(verbose ...bool) error {
 			return fmt.Errorf("container start failed")
 		}
@@ -629,7 +622,7 @@ func TestWorkstation_Up(t *testing.T) {
 
 	t.Run("NetworkConfigurationError", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		mocks.NetworkManager.ConfigureHostRouteFunc = func() error {
 			return fmt.Errorf("network config failed")
 		}
@@ -657,7 +650,7 @@ func TestWorkstation_Up(t *testing.T) {
 
 	t.Run("ServiceWriteConfigError", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		for _, service := range mocks.Services {
 			service.WriteConfigFunc = func() error {
 				return fmt.Errorf("service config failed")
@@ -689,7 +682,7 @@ func TestWorkstation_Up(t *testing.T) {
 func TestWorkstation_Down(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		workstation, err := NewWorkstation(mocks.Runtime)
 		if err != nil {
 			t.Fatalf("Failed to create workstation: %v", err)
@@ -706,7 +699,7 @@ func TestWorkstation_Down(t *testing.T) {
 
 	t.Run("StopsContainerRuntime", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		containerDownCalled := false
 		mocks.ContainerRuntime.DownFunc = func() error {
 			containerDownCalled = true
@@ -733,7 +726,7 @@ func TestWorkstation_Down(t *testing.T) {
 
 	t.Run("StopsVirtualMachine", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		vmDownCalled := false
 		mocks.VirtualMachine.DownFunc = func() error {
 			vmDownCalled = true
@@ -760,7 +753,7 @@ func TestWorkstation_Down(t *testing.T) {
 
 	t.Run("ContainerRuntimeDownError", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		mocks.ContainerRuntime.DownFunc = func() error {
 			return fmt.Errorf("container stop failed")
 		}
@@ -785,7 +778,7 @@ func TestWorkstation_Down(t *testing.T) {
 
 	t.Run("VirtualMachineDownError", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		mocks.VirtualMachine.DownFunc = func() error {
 			return fmt.Errorf("VM stop failed")
 		}
@@ -816,7 +809,7 @@ func TestWorkstation_Down(t *testing.T) {
 func TestWorkstation_createServices(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		workstation, err := NewWorkstation(mocks.Runtime)
 		if err != nil {
 			t.Fatalf("Failed to create workstation: %v", err)
@@ -839,7 +832,7 @@ func TestWorkstation_createServices(t *testing.T) {
 
 	t.Run("DockerDisabled", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		mockConfig := config.NewMockConfigHandler()
 		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			if key == "docker.enabled" {
@@ -867,7 +860,7 @@ func TestWorkstation_createServices(t *testing.T) {
 
 	t.Run("ServiceInitializationError", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		workstation, err := NewWorkstation(mocks.Runtime)
 		if err != nil {
 			t.Fatalf("Failed to create workstation: %v", err)
@@ -887,7 +880,7 @@ func TestWorkstation_createServices(t *testing.T) {
 
 	t.Run("CreatesDNSService", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		workstation, err := NewWorkstation(mocks.Runtime)
 		if err != nil {
 			t.Fatalf("Failed to create workstation: %v", err)
@@ -907,7 +900,7 @@ func TestWorkstation_createServices(t *testing.T) {
 
 	t.Run("CreatesGitLivereloadService", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		workstation, err := NewWorkstation(mocks.Runtime)
 		if err != nil {
 			t.Fatalf("Failed to create workstation: %v", err)
@@ -927,7 +920,7 @@ func TestWorkstation_createServices(t *testing.T) {
 
 	t.Run("CreatesLocalstackService", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		workstation, err := NewWorkstation(mocks.Runtime)
 		if err != nil {
 			t.Fatalf("Failed to create workstation: %v", err)
@@ -947,7 +940,7 @@ func TestWorkstation_createServices(t *testing.T) {
 
 	t.Run("CreatesRegistryServices", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		workstation, err := NewWorkstation(mocks.Runtime)
 		if err != nil {
 			t.Fatalf("Failed to create workstation: %v", err)
@@ -967,7 +960,7 @@ func TestWorkstation_createServices(t *testing.T) {
 
 	t.Run("CreatesTalosServices", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		workstation, err := NewWorkstation(mocks.Runtime)
 		if err != nil {
 			t.Fatalf("Failed to create workstation: %v", err)
@@ -993,7 +986,7 @@ func TestWorkstation_createServices(t *testing.T) {
 func TestWorkstation_Integration(t *testing.T) {
 	t.Run("FullUpDownCycle", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		workstation, err := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
@@ -1023,7 +1016,7 @@ func TestWorkstation_Integration(t *testing.T) {
 
 	t.Run("MultipleUpDownCycles", func(t *testing.T) {
 		// Given
-		mocks := setupMocks(t)
+		mocks := setupWorkstationMocks(t)
 		workstation, err := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
