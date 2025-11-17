@@ -20,18 +20,18 @@ import (
 // =============================================================================
 
 type SecureMocks struct {
-	*Mocks
+	*ShellTestMocks
 	Client     *ssh.MockClient
 	ClientConn *ssh.MockClientConn
 	Session    *ssh.MockSession
 }
 
 // setupSecureShellMocks creates a new set of mocks for testing SecureShell
-func setupSecureShellMocks(t *testing.T) *SecureMocks {
+func setupSecureShellMocks(t *testing.T, opts ...func(*ShellTestMocks)) *SecureMocks {
 	t.Helper()
 
 	// Set up base mocks first
-	baseMocks := setupMocks(t)
+	baseMocks := setupShellMocks(t, opts...)
 
 	// Create default mock components
 	mockSession := &ssh.MockSession{
@@ -59,10 +59,10 @@ func setupSecureShellMocks(t *testing.T) *SecureMocks {
 	}
 
 	return &SecureMocks{
-		Mocks:      baseMocks,
-		Client:     mockClient,
-		ClientConn: mockClientConn,
-		Session:    mockSession,
+		ShellTestMocks: baseMocks,
+		Client:         mockClient,
+		ClientConn:     mockClientConn,
+		Session:        mockSession,
 	}
 }
 
