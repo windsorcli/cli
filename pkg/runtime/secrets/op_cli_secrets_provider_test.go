@@ -19,7 +19,7 @@ import (
 func TestNewOnePasswordCLISecretsProvider(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a set of mock components
-		mocks := setupMocks(t)
+		mocks := setupSecretsMocks(t)
 
 		// And a test vault configuration
 		vault := secretsConfigType.OnePasswordVault{
@@ -49,7 +49,7 @@ func TestNewOnePasswordCLISecretsProvider(t *testing.T) {
 func TestOnePasswordCLISecretsProvider_GetSecret(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a set of mock components
-		mocks := setupMocks(t)
+		mocks := setupSecretsMocks(t)
 
 		// And a test vault configuration
 		vault := secretsConfigType.OnePasswordVault{
@@ -87,7 +87,7 @@ func TestOnePasswordCLISecretsProvider_GetSecret(t *testing.T) {
 
 	t.Run("NotUnlocked", func(t *testing.T) {
 		// Given a set of mock components
-		mocks := setupMocks(t)
+		mocks := setupSecretsMocks(t)
 
 		// And a test vault configuration
 		vault := secretsConfigType.OnePasswordVault{
@@ -115,7 +115,7 @@ func TestOnePasswordCLISecretsProvider_GetSecret(t *testing.T) {
 
 	t.Run("InvalidKeyFormat", func(t *testing.T) {
 		// Given a set of mock components
-		mocks := setupMocks(t)
+		mocks := setupSecretsMocks(t)
 
 		// And a test vault configuration
 		vault := secretsConfigType.OnePasswordVault{
@@ -151,7 +151,7 @@ func TestOnePasswordCLISecretsProvider_GetSecret(t *testing.T) {
 func TestParseSecrets(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a set of mock components
-		mocks := setupMocks(t)
+		mocks := setupSecretsMocks(t)
 
 		// And a test vault configuration
 		vault := secretsConfigType.OnePasswordVault{
@@ -192,7 +192,7 @@ func TestParseSecrets(t *testing.T) {
 
 	t.Run("EmptyInput", func(t *testing.T) {
 		// Given a set of mock components
-		mocks := setupMocks(t)
+		mocks := setupSecretsMocks(t)
 
 		// And a test vault configuration
 		vault := secretsConfigType.OnePasswordVault{
@@ -221,7 +221,7 @@ func TestParseSecrets(t *testing.T) {
 
 	t.Run("InvalidFormat", func(t *testing.T) {
 		// Given a set of mock components
-		mocks := setupMocks(t)
+		mocks := setupSecretsMocks(t)
 
 		// And a test vault configuration
 		vault := secretsConfigType.OnePasswordVault{
@@ -251,7 +251,7 @@ func TestParseSecrets(t *testing.T) {
 
 	t.Run("MalformedJSON", func(t *testing.T) {
 		// Given a set of mock components
-		mocks := setupMocks(t)
+		mocks := setupSecretsMocks(t)
 
 		// And a test vault configuration
 		vault := secretsConfigType.OnePasswordVault{
@@ -281,7 +281,7 @@ func TestParseSecrets(t *testing.T) {
 
 	t.Run("MismatchedVaultID", func(t *testing.T) {
 		// Given a set of mock components
-		mocks := setupMocks(t)
+		mocks := setupSecretsMocks(t)
 
 		// And a test vault configuration
 		vault := secretsConfigType.OnePasswordVault{
@@ -311,7 +311,7 @@ func TestParseSecrets(t *testing.T) {
 
 	t.Run("SecretNotFound", func(t *testing.T) {
 		// Given a set of mock components
-		mocks := setupMocks(t)
+		mocks := setupSecretsMocks(t)
 
 		// And a test vault configuration
 		vault := secretsConfigType.OnePasswordVault{

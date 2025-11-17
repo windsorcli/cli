@@ -22,7 +22,7 @@ import (
 func TestNewOnePasswordSDKSecretsProvider(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Setup mocks
-		mocks := setupMocks(t)
+		mocks := setupSecretsMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{
@@ -56,7 +56,7 @@ func TestNewOnePasswordSDKSecretsProvider(t *testing.T) {
 func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Setup mocks
-		mocks := setupMocks(t)
+		mocks := setupSecretsMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{
@@ -104,7 +104,7 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 
 	t.Run("NotUnlocked", func(t *testing.T) {
 		// Setup mocks
-		mocks := setupMocks(t)
+		mocks := setupSecretsMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{
@@ -137,7 +137,7 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 
 	t.Run("InvalidKeyFormat", func(t *testing.T) {
 		// Setup mocks
-		mocks := setupMocks(t)
+		mocks := setupSecretsMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{
@@ -175,7 +175,7 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 
 	t.Run("MissingToken", func(t *testing.T) {
 		// Setup mocks
-		mocks := setupMocks(t)
+		mocks := setupSecretsMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{
@@ -212,7 +212,7 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 
 	t.Run("ClientCreationError", func(t *testing.T) {
 		// Setup mocks
-		mocks := setupMocks(t)
+		mocks := setupSecretsMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{
@@ -258,7 +258,7 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 
 	t.Run("SecretResolutionError", func(t *testing.T) {
 		// Setup mocks
-		mocks := setupMocks(t)
+		mocks := setupSecretsMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{
@@ -304,7 +304,7 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 
 	t.Run("NilClient", func(t *testing.T) {
 		// Setup mocks
-		mocks := setupMocks(t)
+		mocks := setupSecretsMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{
@@ -351,7 +351,7 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 
 func TestOnePasswordSDKSecretsProvider_ParseSecrets(t *testing.T) {
 	// setup creates and initializes a OnePasswordSDKSecretsProvider for testing
-	setup := func(t *testing.T) (*Mocks, *OnePasswordSDKSecretsProvider) {
+	setup := func(t *testing.T) (*SecretsTestMocks, *OnePasswordSDKSecretsProvider) {
 		t.Helper()
 
 		// Set environment variable
@@ -359,7 +359,7 @@ func TestOnePasswordSDKSecretsProvider_ParseSecrets(t *testing.T) {
 		t.Cleanup(func() { os.Unsetenv("OP_SERVICE_ACCOUNT_TOKEN") })
 
 		// Setup mocks
-		mocks := setupMocks(t)
+		mocks := setupSecretsMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{

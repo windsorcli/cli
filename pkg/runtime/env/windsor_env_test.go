@@ -15,13 +15,14 @@ import (
 // Test Setup
 // =============================================================================
 
-func setupWindsorEnvMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+func setupWindsorEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMocks {
 	t.Helper()
-	if opts == nil {
-		opts = []*SetupOptions{{}}
-	}
-	if opts[0].ConfigStr == "" {
-		opts[0].ConfigStr = `
+	mocks := setupEnvMocks(t, overrides...)
+
+	// Only load default config if ConfigHandler wasn't overridden
+	// If ConfigHandler was injected via overrides, assume test wants to control it
+	if len(overrides) == 0 || overrides[0] == nil || overrides[0].ConfigHandler == nil {
+		configStr := `
 version: v1alpha1
 contexts:
   mock-context:
@@ -29,11 +30,11 @@ contexts:
       TEST_VAR: test_value
       SECRET_VAR: "{{secret_name}}"
 `
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+		mocks.ConfigHandler.SetContext("mock-context")
 	}
-	if opts[0].Context == "" {
-		opts[0].Context = "mock-context"
-	}
-	mocks := setupMocks(t, opts[0])
 
 	// Get the temp dir that was set up in setupMocks
 	projectRoot, err := mocks.Shell.GetProjectRoot()
@@ -82,7 +83,7 @@ contexts:
 
 // TestWindsorEnv_GetEnvVars tests the GetEnvVars method of the WindsorEnvPrinter
 func TestWindsorEnv_GetEnvVars(t *testing.T) {
-	setup := func(t *testing.T) (*WindsorEnvPrinter, *Mocks) {
+	setup := func(t *testing.T) (*WindsorEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupWindsorEnvMocks(t)
 		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
@@ -91,9 +92,9 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
+		// Given a properly initialized WindsorEnvPrinter
 		printer, _ := setup(t)
 
-		// Given a properly initialized WindsorEnvPrinter
 		// When GetEnvVars is called
 		envVars, err := printer.GetEnvVars()
 
@@ -136,7 +137,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 			return "mock-string"
 		}
 
-		mocks := setupWindsorEnvMocks(t, &SetupOptions{
+		mocks := setupWindsorEnvMocks(t, &EnvTestMocks{
 			ConfigHandler: mockConfigHandler,
 		})
 		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
@@ -159,9 +160,9 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ProjectRootError", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with failing project root retrieval
 		printer, mocks := setup(t)
 
-		// Given a WindsorEnvPrinter with failing project root retrieval
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock project root error")
 		}
@@ -179,14 +180,13 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("SecretVarWithCacheEnabled", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with cache enabled
 		printer, mocks := setup(t)
 
-		// Given a WindsorEnvPrinter with cache enabled
 		t.Setenv("NO_CACHE", "0")
 		t.Setenv("SECRET_VAR", "cached_value")
 		t.Setenv("WINDSOR_MANAGED_ENV", "")
 
-		// And mock secrets provider
 		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 			if strings.Contains(input, "{{secret_name}}") {
@@ -196,9 +196,6 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		}
 		_ = mockSecretsProvider
 
-		// Re-create printer with updated secrets provider
-
-		// And config with secret variable
 		if err := mocks.ConfigHandler.LoadConfigString(`
 version: v1alpha1
 contexts:
@@ -228,13 +225,12 @@ contexts:
 	})
 
 	t.Run("SecretVarWithCacheDisabled", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with cache disabled
 		printer, mocks := setup(t)
 
-		// Given a WindsorEnvPrinter with cache disabled
 		t.Setenv("NO_CACHE", "1")
 		t.Setenv("SECRET_VAR", "cached_value")
 
-		// And config with secret variable
 		if err := mocks.ConfigHandler.LoadConfigString(`
 version: v1alpha1
 contexts:
@@ -258,13 +254,12 @@ contexts:
 	})
 
 	t.Run("SecretVarWithErrorInExistingValue", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with error in existing value
 		printer, mocks := setup(t)
 
-		// Given a WindsorEnvPrinter with error in existing value
 		t.Setenv("NO_CACHE", "0")
 		t.Setenv("SECRET_VAR", "<e>secret error</e>")
 
-		// And config with secret variable
 		if err := mocks.ConfigHandler.LoadConfigString(`
 version: v1alpha1
 contexts:
@@ -288,14 +283,13 @@ contexts:
 	})
 
 	t.Run("SecretVarWithManagedEnvExists", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with managed env exists
 		printer, mocks := setup(t)
 
-		// Given a WindsorEnvPrinter with managed env exists
 		t.Setenv("NO_CACHE", "0")
 		t.Setenv("SECRET_VAR", "cached_value")
 		t.Setenv("WINDSOR_MANAGED_ENV", "SECRET_VAR")
 
-		// And config with secret variable
 		if err := mocks.ConfigHandler.LoadConfigString(`
 version: v1alpha1
 contexts:
@@ -320,9 +314,9 @@ contexts:
 	})
 
 	t.Run("ExistingSessionToken", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with token regeneration
 		printer, mocks := setup(t)
 
-		// Given a WindsorEnvPrinter with token regeneration
 		var callCount int
 		mocks.Shell.GetSessionTokenFunc = func() (string, error) {
 			callCount++
@@ -358,9 +352,9 @@ contexts:
 	})
 
 	t.Run("SessionTokenError", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with failing session token generation
 		printer, mocks := setup(t)
 
-		// Given a WindsorEnvPrinter with failing session token generation
 		mocks.Shell.GetSessionTokenFunc = func() (string, error) {
 			return "", fmt.Errorf("mock session token error")
 		}
@@ -378,26 +372,26 @@ contexts:
 	})
 
 	t.Run("NoEnvironmentVarsInConfig", func(t *testing.T) {
-		// Setup with empty environment
-		mocks := setupWindsorEnvMocks(t, &SetupOptions{
-			ConfigStr: `
+		// Given a WindsorEnvPrinter with empty environment configuration
+		mocks := setupWindsorEnvMocks(t)
+		configStr := `
 version: v1alpha1
 contexts:
   mock-context:
     environment: {}
-`,
-			Context: "mock-context",
-		})
+`
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+		mocks.ConfigHandler.SetContext("mock-context")
 		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
 		printer.shims = mocks.Shims
 
-		// Given a WindsorEnvPrinter with empty environment configuration
 		projectRoot, err := mocks.Shell.GetProjectRoot()
 		if err != nil {
 			t.Fatalf("Failed to get project root: %v", err)
 		}
 
-		// And no managed environment variables or aliases
 		printer.managedEnv = []string{}
 		printer.managedAlias = []string{}
 
@@ -429,17 +423,15 @@ contexts:
 	})
 
 	t.Run("EnvironmentTokenWithoutSignalFile", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with environment token and no signal file
 		printer, mocks := setup(t)
 
-		// Given a WindsorEnvPrinter with environment token
 		t.Setenv("WINDSOR_SESSION_TOKEN", "envtoken")
 
-		// And no signal file exists
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
 
-		// And GetSessionToken configured to handle environment token
 		mocks.Shell.GetSessionTokenFunc = func() (string, error) {
 			if envToken, exists := mocks.Shims.LookupEnv("WINDSOR_SESSION_TOKEN"); exists {
 				return envToken, nil
@@ -460,17 +452,15 @@ contexts:
 	})
 
 	t.Run("EnvironmentTokenWithStatError", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with environment token and stat error
 		printer, mocks := setup(t)
 
-		// Given a WindsorEnvPrinter with environment token
 		t.Setenv("WINDSOR_SESSION_TOKEN", "envtoken")
 
-		// And stat returns a non-ErrNotExist error
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
 			return nil, fmt.Errorf("mock stat error")
 		}
 
-		// And GetSessionToken configured to handle environment token
 		mocks.Shell.GetSessionTokenFunc = func() (string, error) {
 			if envToken, exists := mocks.Shims.LookupEnv("WINDSOR_SESSION_TOKEN"); exists {
 				return envToken, nil
@@ -491,38 +481,33 @@ contexts:
 	})
 
 	t.Run("EnvironmentTokenWithSignalFile", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with environment token and signal file
 		printer, mocks := setup(t)
 
-		// Given a WindsorEnvPrinter with environment token
 		t.Setenv("WINDSOR_SESSION_TOKEN", "envtoken")
 
-		// And signal file exists
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
 			if strings.Contains(name, ".session.envtoken") {
-				return nil, nil // File exists
+				return nil, nil
 			}
 			return nil, os.ErrNotExist
 		}
 
-		// And RemoveAll succeeds
 		mocks.Shims.RemoveAll = func(path string) error {
 			return nil
 		}
 
-		// And CryptoRandRead returns predictable output
 		mocks.Shims.CryptoRandRead = func(b []byte) (n int, err error) {
 			for i := range b {
-				b[i] = byte(i % 62) // Will map to characters in charset
+				b[i] = byte(i % 62)
 			}
 			return len(b), nil
 		}
 
-		// And GetSessionToken configured to handle environment token and signal file
 		mocks.Shell.GetSessionTokenFunc = func() (string, error) {
 			if envToken, exists := mocks.Shims.LookupEnv("WINDSOR_SESSION_TOKEN"); exists {
 				tokenFilePath := filepath.Join("/mock/project/root", ".windsor", ".session."+envToken)
 				if _, err := mocks.Shims.Stat(tokenFilePath); err == nil {
-					// Signal file exists, generate new token
 					return "abcdefg", nil
 				}
 				return envToken, nil
@@ -546,38 +531,33 @@ contexts:
 	})
 
 	t.Run("SignalFileRemovalError", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with environment token and signal file removal error
 		printer, mocks := setup(t)
 
-		// Given a WindsorEnvPrinter with environment token
 		t.Setenv("WINDSOR_SESSION_TOKEN", "envtoken")
 
-		// And signal file exists
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
 			if strings.Contains(name, ".session.envtoken") {
-				return nil, nil // File exists
+				return nil, nil
 			}
 			return nil, os.ErrNotExist
 		}
 
-		// And RemoveAll fails
 		mocks.Shims.RemoveAll = func(path string) error {
 			return fmt.Errorf("mock error removing signal file")
 		}
 
-		// And CryptoRandRead returns predictable output
 		mocks.Shims.CryptoRandRead = func(b []byte) (n int, err error) {
 			for i := range b {
-				b[i] = byte(i % 62) // Will map to characters in charset
+				b[i] = byte(i % 62)
 			}
 			return len(b), nil
 		}
 
-		// And GetSessionToken configured to handle environment token and signal file
 		mocks.Shell.GetSessionTokenFunc = func() (string, error) {
 			if envToken, exists := mocks.Shims.LookupEnv("WINDSOR_SESSION_TOKEN"); exists {
 				tokenFilePath := filepath.Join("/mock/project/root", ".windsor", ".session."+envToken)
 				if _, err := mocks.Shims.Stat(tokenFilePath); err == nil {
-					// Signal file exists, generate new token
 					return "abcdefg", nil
 				}
 				return envToken, nil
@@ -601,12 +581,11 @@ contexts:
 	})
 
 	t.Run("ProjectRootErrorDuringEnvTokenSignalFileCheck", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with environment token and project root error
 		printer, mocks := setup(t)
 
-		// Given a WindsorEnvPrinter with environment token
 		t.Setenv("WINDSOR_SESSION_TOKEN", "envtoken")
 
-		// And GetSessionToken returns an error during signal file check
 		mocks.Shell.GetSessionTokenFunc = func() (string, error) {
 			if _, exists := mocks.Shims.LookupEnv("WINDSOR_SESSION_TOKEN"); exists {
 				return "", fmt.Errorf("error getting project root: mock error getting project root during token check")
@@ -629,25 +608,22 @@ contexts:
 	})
 
 	t.Run("RandomGenerationError", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with environment token and random generation error
 		printer, mocks := setup(t)
 
-		// Given a WindsorEnvPrinter with environment token
 		t.Setenv("WINDSOR_SESSION_TOKEN", "envtoken")
 
-		// And signal file exists
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
 			if strings.Contains(name, ".session.envtoken") {
-				return nil, nil // File exists
+				return nil, nil
 			}
 			return nil, os.ErrNotExist
 		}
 
-		// And GetSessionToken returns an error during token regeneration
 		mocks.Shell.GetSessionTokenFunc = func() (string, error) {
 			if envToken, exists := mocks.Shims.LookupEnv("WINDSOR_SESSION_TOKEN"); exists {
 				tokenFilePath := filepath.Join("/mock/project/root", ".windsor", ".session."+envToken)
 				if _, err := mocks.Shims.Stat(tokenFilePath); err == nil {
-					// Signal file exists, mock error during regeneration
 					return "", fmt.Errorf("mock random generation error during token regeneration")
 				}
 				return envToken, nil
@@ -668,9 +644,9 @@ contexts:
 	})
 
 	t.Run("GetProjectRootError", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with failing project root lookup
 		printer, mocks := setup(t)
 
-		// Given a WindsorEnvPrinter with failing project root lookup
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock shell error")
 		}
@@ -686,12 +662,11 @@ contexts:
 	})
 
 	t.Run("ProjectRootErrorDuringTokenCheck", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with environment token and project root error during token check
 		printer, mocks := setup(t)
 
-		// Given a WindsorEnvPrinter with environment token
 		t.Setenv("WINDSOR_SESSION_TOKEN", "envtoken")
 
-		// And GetSessionToken returns an error during project root check
 		mocks.Shell.GetSessionTokenFunc = func() (string, error) {
 			if _, exists := mocks.Shims.LookupEnv("WINDSOR_SESSION_TOKEN"); exists {
 				return "", fmt.Errorf("error getting project root: mock shell error during token check")
@@ -714,18 +689,17 @@ contexts:
 	})
 
 	t.Run("ComprehensiveEnvironmentTokenTest", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with mock file system functions
 		printer, mocks := setup(t)
 
-		// Given a WindsorEnvPrinter with mock file system functions
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
 			if strings.Contains(name, ".session.testtoken") {
-				return nil, nil // Session file exists
+				return nil, nil
 			}
 			return nil, os.ErrNotExist
 		}
 
 		// Phase 1: No environment token present
-		// Given no environment token
 		mocks.Shims.LookupEnv = func(key string) (string, bool) {
 			return "", false
 		}
@@ -738,7 +712,6 @@ contexts:
 		firstToken := envVars["WINDSOR_SESSION_TOKEN"]
 
 		// Phase 2: Set environment token
-		// Given environment token is set
 		mocks.Shims.LookupEnv = func(key string) (string, bool) {
 			if key == "WINDSOR_SESSION_TOKEN" {
 				return "testtoken", true
@@ -746,13 +719,11 @@ contexts:
 			return "", false
 		}
 
-		// And GetSessionToken configured to handle testtoken
 		mocks.Shell.GetSessionTokenFunc = func() (string, error) {
 			if envToken, exists := mocks.Shims.LookupEnv("WINDSOR_SESSION_TOKEN"); exists {
-				// Our testtoken has a signal file
 				tokenFilePath := filepath.Join("/mock/project/root", ".windsor", ".session."+envToken)
 				if _, err := mocks.Shims.Stat(tokenFilePath); err == nil {
-					return "newtoken", nil // Return a different token to show regeneration
+					return "newtoken", nil
 				}
 				return envToken, nil
 			}
@@ -796,7 +767,7 @@ func TestWindsorEnv_PostEnvHook(t *testing.T) {
 
 // TestWindsorEnv_Initialize tests the Initialize method of the WindsorEnvPrinter
 func TestWindsorEnv_Initialize(t *testing.T) {
-	setup := func(t *testing.T) (*WindsorEnvPrinter, *Mocks) {
+	setup := func(t *testing.T) (*WindsorEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupWindsorEnvMocks(t)
 		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
@@ -805,6 +776,7 @@ func TestWindsorEnv_Initialize(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
+		// Given a WindsorEnvPrinter
 		printer, _ := setup(t)
 
 		// Then printer should be created
@@ -812,7 +784,6 @@ func TestWindsorEnv_Initialize(t *testing.T) {
 			t.Fatal("Expected printer to be created")
 		}
 
-		// And secretsProviders should be empty (passed as empty slice)
 		if len(printer.secretsProviders) != 0 {
 			t.Errorf("Expected 0 secrets providers, got %d", len(printer.secretsProviders))
 		}
@@ -832,7 +803,7 @@ func TestWindsorEnv_Initialize(t *testing.T) {
 
 // TestWindsorEnv_ParseAndCheckSecrets tests the parseAndCheckSecrets method
 func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
-	setup := func(t *testing.T) (*WindsorEnvPrinter, *Mocks) {
+	setup := func(t *testing.T) (*WindsorEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupWindsorEnvMocks(t)
 		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
@@ -841,9 +812,9 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with a secrets provider that successfully parses secrets
 		printer, mocks := setup(t)
 
-		// Given a mock secrets provider that successfully parses secrets
 		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 			if input == "value with ${{ secrets.mySecret }}" {
@@ -863,9 +834,9 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 	})
 
 	t.Run("SecretsProviderError", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with a secrets provider that fails to parse secrets
 		printer, mocks := setup(t)
 
-		// Given a mock secrets provider that fails to parse secrets
 		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 			return "", fmt.Errorf("error parsing secrets")
@@ -885,9 +856,9 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 	})
 
 	t.Run("NoSecretsProviders", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with no secrets providers
 		printer, _ := setup(t)
 
-		// Given a WindsorEnvPrinter with no secrets providers
 		printer.secretsProviders = []secrets.SecretsProvider{}
 
 		// When parseAndCheckSecrets is called
@@ -945,7 +916,7 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 }
 
 func TestWindsorEnv_shouldUseCache(t *testing.T) {
-	setup := func(t *testing.T) (*WindsorEnvPrinter, *Mocks) {
+	setup := func(t *testing.T) (*WindsorEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupWindsorEnvMocks(t)
 		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
@@ -1026,6 +997,287 @@ func TestWindsorEnv_shouldUseCache(t *testing.T) {
 		// Then it should return false
 		if shouldCache {
 			t.Error("Expected shouldUseCache to return false for NO_CACHE=1")
+		}
+	})
+}
+
+// TestWindsorEnv_getBuildID tests the getBuildID method of the WindsorEnvPrinter
+func TestWindsorEnv_getBuildID(t *testing.T) {
+	setup := func(t *testing.T) (*WindsorEnvPrinter, *EnvTestMocks) {
+		t.Helper()
+		mocks := setupWindsorEnvMocks(t)
+		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
+		printer.shims = mocks.Shims
+		return printer, mocks
+	}
+
+	t.Run("ErrorWhenGetProjectRootFails", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with failing GetProjectRoot
+		printer, mocks := setup(t)
+
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error getting project root")
+		}
+
+		// When getBuildID is called
+		_, err := printer.getBuildID()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to get project root") {
+			t.Errorf("Expected error about getting project root, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenReadFileFails", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with existing build ID file that fails to read
+		printer, mocks := setup(t)
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, ".build-id") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
+			if strings.Contains(filename, ".build-id") {
+				return nil, fmt.Errorf("mock error reading build ID file")
+			}
+			return os.ReadFile(filename)
+		}
+
+		// When getBuildID is called
+		_, err := printer.getBuildID()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to read build ID file") {
+			t.Errorf("Expected error about reading build ID file, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenWriteBuildIDToFileFails", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with no existing build ID file
+		printer, mocks := setup(t)
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return fmt.Errorf("mock error creating directory")
+		}
+
+		// When getBuildID is called
+		_, err := printer.getBuildID()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to set build ID") {
+			t.Errorf("Expected error about setting build ID, got %v", err)
+		}
+	})
+}
+
+// TestWindsorEnv_writeBuildIDToFile tests the writeBuildIDToFile method of the WindsorEnvPrinter
+func TestWindsorEnv_writeBuildIDToFile(t *testing.T) {
+	setup := func(t *testing.T) (*WindsorEnvPrinter, *EnvTestMocks) {
+		t.Helper()
+		mocks := setupWindsorEnvMocks(t)
+		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
+		printer.shims = mocks.Shims
+		return printer, mocks
+	}
+
+	t.Run("ErrorWhenGetProjectRootFails", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with failing GetProjectRoot
+		printer, mocks := setup(t)
+
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error getting project root")
+		}
+
+		// When writeBuildIDToFile is called
+		err := printer.writeBuildIDToFile("240101.123.1")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to get project root") {
+			t.Errorf("Expected error about getting project root, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenMkdirAllFails", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with failing MkdirAll
+		printer, mocks := setup(t)
+
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return fmt.Errorf("mock error creating directory")
+		}
+
+		// When writeBuildIDToFile is called
+		err := printer.writeBuildIDToFile("240101.123.1")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to create build ID directory") {
+			t.Errorf("Expected error about creating directory, got %v", err)
+		}
+	})
+}
+
+// TestWindsorEnv_generateBuildID tests the generateBuildID method of the WindsorEnvPrinter
+func TestWindsorEnv_generateBuildID(t *testing.T) {
+	setup := func(t *testing.T) (*WindsorEnvPrinter, *EnvTestMocks) {
+		t.Helper()
+		mocks := setupWindsorEnvMocks(t)
+		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
+		printer.shims = mocks.Shims
+		return printer, mocks
+	}
+
+	t.Run("ErrorWhenGetProjectRootFails", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with failing GetProjectRoot
+		printer, mocks := setup(t)
+
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error getting project root")
+		}
+
+		// When generateBuildID is called
+		_, err := printer.generateBuildID()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to get project root") {
+			t.Errorf("Expected error about getting project root, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenReadFileFails", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with existing build ID file that fails to read
+		printer, mocks := setup(t)
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, ".build-id") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
+			if strings.Contains(filename, ".build-id") {
+				return nil, fmt.Errorf("mock error reading build ID file")
+			}
+			return os.ReadFile(filename)
+		}
+
+		// When generateBuildID is called
+		_, err := printer.generateBuildID()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to read build ID file") {
+			t.Errorf("Expected error about reading build ID file, got %v", err)
+		}
+	})
+
+}
+
+// TestWindsorEnv_incrementBuildID tests the incrementBuildID method of the WindsorEnvPrinter
+func TestWindsorEnv_incrementBuildID(t *testing.T) {
+	setup := func(t *testing.T) (*WindsorEnvPrinter, *EnvTestMocks) {
+		t.Helper()
+		mocks := setupWindsorEnvMocks(t)
+		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
+		printer.shims = mocks.Shims
+		return printer, mocks
+	}
+
+	t.Run("ErrorOnInvalidFormat", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with invalid build ID format
+		printer, _ := setup(t)
+
+		// When incrementBuildID is called with invalid format
+		_, err := printer.incrementBuildID("invalid", "240101")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "invalid build ID format") {
+			t.Errorf("Expected error about invalid format, got %v", err)
+		}
+	})
+
+	t.Run("ErrorOnInvalidCounter", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with invalid counter component
+		printer, _ := setup(t)
+
+		// When incrementBuildID is called with invalid counter
+		_, err := printer.incrementBuildID("240101.123.invalid", "240101")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "invalid counter component") {
+			t.Errorf("Expected error about invalid counter, got %v", err)
+		}
+	})
+
+	t.Run("IncrementsCounterForSameDate", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with same date
+		printer, _ := setup(t)
+
+		// When incrementBuildID is called with same date
+		result, err := printer.incrementBuildID("240101.123.5", "240101")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		// And counter should be incremented
+		expected := "240101.123.6"
+		if result != expected {
+			t.Errorf("Expected %s, got %s", expected, result)
+		}
+	})
+
+	t.Run("ResetsCounterForDifferentDate", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with different date
+		printer, _ := setup(t)
+
+		// When incrementBuildID is called with different date
+		result, err := printer.incrementBuildID("240101.123.5", "240102")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		// And counter should be reset to 1
+		if !strings.HasSuffix(result, ".1") {
+			t.Errorf("Expected counter to be reset to 1, got %s", result)
+		}
+		if !strings.HasPrefix(result, "240102.") {
+			t.Errorf("Expected date to be 240102, got %s", result)
 		}
 	})
 }
