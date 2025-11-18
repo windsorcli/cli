@@ -77,22 +77,6 @@ func (t *BaseToolsManager) Check() error {
 		}
 	}
 
-	if t.configHandler.GetBool("aws.enabled") {
-		if err := t.checkAwsCli(); err != nil {
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
-			return fmt.Errorf("aws cli check failed: %v", err)
-		}
-	}
-
-	if t.configHandler.GetBool("cluster.enabled") {
-		if err := t.checkKubectl(); err != nil {
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
-			return fmt.Errorf("kubectl check failed: %v", err)
-		}
-	}
-
 	if t.configHandler.GetBool("terraform.enabled") {
 		if err := t.checkTerraform(); err != nil {
 			spin.Stop()
@@ -199,25 +183,6 @@ func (t *BaseToolsManager) checkColima() error {
 	return nil
 }
 
-// checkKubectl ensures Kubectl is available in the system's PATH using execLookPath.
-// It checks for 'kubectl' in the system's PATH and verifies its version.
-// Returns nil if found and meets the minimum version requirement, else an error indicating it is not available or outdated.
-func (t *BaseToolsManager) checkKubectl() error {
-	if _, err := execLookPath("kubectl"); err != nil {
-		return fmt.Errorf("kubectl is not available in the PATH")
-	}
-	output, _ := t.shell.ExecSilent("kubectl", "version", "--client")
-	kubectlVersion := extractVersion(output)
-	if kubectlVersion == "" {
-		return fmt.Errorf("failed to extract kubectl version")
-	}
-	if compareVersion(kubectlVersion, constants.MinimumVersionKubectl) < 0 {
-		return fmt.Errorf("kubectl version %s is below the minimum required version %s", kubectlVersion, constants.MinimumVersionKubectl)
-	}
-
-	return nil
-}
-
 // checkTerraform ensures Terraform is available in the system's PATH using execLookPath.
 // It checks for 'terraform' in the system's PATH and verifies its version.
 // Returns nil if found and meets the minimum version requirement, else an error indicating it is not available or outdated.
@@ -257,32 +222,6 @@ func (t *BaseToolsManager) checkOnePassword() error {
 
 	if compareVersion(version, constants.MinimumVersion1Password) < 0 {
 		return fmt.Errorf("1Password CLI version %s is below the minimum required version %s", version, constants.MinimumVersion1Password)
-	}
-
-	return nil
-}
-
-// checkAwsCli ensures AWS CLI is available in the system's PATH using execLookPath.
-// It checks for 'aws' in the system's PATH and verifies its version.
-// Returns nil if found and meets the minimum version requirement, else an error indicating it is not available or outdated.
-func (t *BaseToolsManager) checkAwsCli() error {
-	if _, err := execLookPath("aws"); err != nil {
-		return fmt.Errorf("aws cli is not available in the PATH")
-	}
-	output, _ := t.shell.ExecSilent("aws", "--version")
-	re := regexp.MustCompile(`aws-cli/(\d+\.\d+\.\d+)`)
-	match := re.FindStringSubmatch(output)
-	var awsVersion string
-	if len(match) > 1 {
-		awsVersion = match[1]
-	} else {
-		awsVersion = extractVersion(output)
-	}
-	if awsVersion == "" {
-		return fmt.Errorf("failed to extract aws cli version")
-	}
-	if compareVersion(awsVersion, constants.MinimumVersionAWSCLI) < 0 {
-		return fmt.Errorf("aws cli version %s is below the minimum required version %s", awsVersion, constants.MinimumVersionAWSCLI)
 	}
 
 	return nil
