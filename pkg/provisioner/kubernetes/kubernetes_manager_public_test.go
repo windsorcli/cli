@@ -3147,6 +3147,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{
 					Name: "test-kustomization",
+					Path: "test/path",
 				},
 			},
 		}
@@ -3191,6 +3192,289 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		err := manager.ApplyBlueprint(blueprint, "test-namespace")
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("SuccessWithBlueprintConfigMaps", func(t *testing.T) {
+		manager := setup(t)
+		configMapApplied := false
+		kustomizationApplied := false
+		var appliedKustomization kustomizev1.Kustomization
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			if obj.GetKind() == "ConfigMap" && obj.GetName() == "values-common" {
+				configMapApplied = true
+			}
+			if obj.GetKind() == "Kustomization" {
+				kustomizationApplied = true
+				if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &appliedKustomization); err != nil {
+					t.Fatalf("Failed to convert kustomization: %v", err)
+				}
+			}
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			ConfigMaps: map[string]map[string]string{
+				"values-common": {
+					"domain": "example.com",
+					"region": "us-west-2",
+				},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+					Path: "test/path",
+				},
+			},
+		}
+
+		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !configMapApplied {
+			t.Error("Expected values-common ConfigMap to be applied")
+		}
+		if !kustomizationApplied {
+			t.Error("Expected Kustomization to be applied")
+		}
+		if appliedKustomization.Spec.PostBuild == nil {
+			t.Fatal("Expected PostBuild to be set when blueprint has ConfigMaps")
+		}
+		if len(appliedKustomization.Spec.PostBuild.SubstituteFrom) != 1 {
+			t.Fatalf("Expected 1 SubstituteFrom reference (values-common), got %d", len(appliedKustomization.Spec.PostBuild.SubstituteFrom))
+		}
+		if appliedKustomization.Spec.PostBuild.SubstituteFrom[0].Name != "values-common" {
+			t.Errorf("Expected SubstituteFrom to be values-common, got '%s'", appliedKustomization.Spec.PostBuild.SubstituteFrom[0].Name)
+		}
+	})
+
+	t.Run("SuccessWithBlueprintConfigMapsAndKustomizationSubstitutions", func(t *testing.T) {
+		manager := setup(t)
+		commonConfigMapApplied := false
+		kustomizationConfigMapApplied := false
+		kustomizationApplied := false
+		var appliedKustomization kustomizev1.Kustomization
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			if obj.GetKind() == "ConfigMap" {
+				if obj.GetName() == "values-common" {
+					commonConfigMapApplied = true
+				}
+				if obj.GetName() == "values-test-kustomization" {
+					kustomizationConfigMapApplied = true
+				}
+			}
+			if obj.GetKind() == "Kustomization" {
+				kustomizationApplied = true
+				if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &appliedKustomization); err != nil {
+					t.Fatalf("Failed to convert kustomization: %v", err)
+				}
+			}
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			ConfigMaps: map[string]map[string]string{
+				"values-common": {
+					"domain": "example.com",
+				},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+					Path: "test/path",
+					Substitutions: map[string]string{
+						"key": "value",
+					},
+				},
+			},
+		}
+
+		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !commonConfigMapApplied {
+			t.Error("Expected values-common ConfigMap to be applied")
+		}
+		if !kustomizationConfigMapApplied {
+			t.Error("Expected values-test-kustomization ConfigMap to be applied")
+		}
+		if !kustomizationApplied {
+			t.Error("Expected Kustomization to be applied")
+		}
+		if appliedKustomization.Spec.PostBuild == nil {
+			t.Fatal("Expected PostBuild to be set")
+		}
+		if len(appliedKustomization.Spec.PostBuild.SubstituteFrom) != 2 {
+			t.Fatalf("Expected 2 SubstituteFrom references (values-common and values-test-kustomization), got %d", len(appliedKustomization.Spec.PostBuild.SubstituteFrom))
+		}
+		foundCommon := false
+		foundKustomization := false
+		for _, ref := range appliedKustomization.Spec.PostBuild.SubstituteFrom {
+			if ref.Name == "values-common" {
+				foundCommon = true
+			}
+			if ref.Name == "values-test-kustomization" {
+				foundKustomization = true
+			}
+		}
+		if !foundCommon {
+			t.Error("Expected values-common in SubstituteFrom")
+		}
+		if !foundKustomization {
+			t.Error("Expected values-test-kustomization in SubstituteFrom")
+		}
+	})
+
+	t.Run("SuccessWithMultipleBlueprintConfigMaps", func(t *testing.T) {
+		manager := setup(t)
+		configMapsApplied := make(map[string]bool)
+		var appliedKustomization kustomizev1.Kustomization
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			if obj.GetKind() == "ConfigMap" {
+				configMapsApplied[obj.GetName()] = true
+			}
+			if obj.GetKind() == "Kustomization" {
+				if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &appliedKustomization); err != nil {
+					t.Fatalf("Failed to convert kustomization: %v", err)
+				}
+			}
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			ConfigMaps: map[string]map[string]string{
+				"values-common": {
+					"domain": "example.com",
+				},
+				"values-shared": {
+					"shared_key": "shared_value",
+				},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+					Path: "test/path",
+				},
+			},
+		}
+
+		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !configMapsApplied["values-common"] {
+			t.Error("Expected values-common ConfigMap to be applied")
+		}
+		if !configMapsApplied["values-shared"] {
+			t.Error("Expected values-shared ConfigMap to be applied")
+		}
+		if appliedKustomization.Spec.PostBuild == nil {
+			t.Fatal("Expected PostBuild to be set")
+		}
+		if len(appliedKustomization.Spec.PostBuild.SubstituteFrom) != 2 {
+			t.Fatalf("Expected 2 SubstituteFrom references, got %d", len(appliedKustomization.Spec.PostBuild.SubstituteFrom))
+		}
+		foundCommon := false
+		foundShared := false
+		for _, ref := range appliedKustomization.Spec.PostBuild.SubstituteFrom {
+			if ref.Name == "values-common" {
+				foundCommon = true
+			}
+			if ref.Name == "values-shared" {
+				foundShared = true
+			}
+		}
+		if !foundCommon {
+			t.Error("Expected values-common in SubstituteFrom")
+		}
+		if !foundShared {
+			t.Error("Expected values-shared in SubstituteFrom")
+		}
+	})
+
+	t.Run("SuccessWithKustomizationSubstitutions", func(t *testing.T) {
+		manager := setup(t)
+		kustomizationConfigMapApplied := false
+		kustomizationApplied := false
+		var appliedKustomization kustomizev1.Kustomization
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			if obj.GetKind() == "ConfigMap" && obj.GetName() == "values-csi" {
+				kustomizationConfigMapApplied = true
+			}
+			if obj.GetKind() == "Kustomization" {
+				kustomizationApplied = true
+				if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &appliedKustomization); err != nil {
+					t.Fatalf("Failed to convert kustomization: %v", err)
+				}
+			}
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "csi",
+					Path: "csi",
+					Substitutions: map[string]string{
+						"volume_path":   "/custom/volumes",
+						"storage_class": "fast-ssd",
+					},
+				},
+			},
+		}
+
+		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !kustomizationConfigMapApplied {
+			t.Error("Expected values-csi ConfigMap to be applied")
+		}
+		if !kustomizationApplied {
+			t.Error("Expected Kustomization to be applied")
+		}
+		if appliedKustomization.Spec.PostBuild == nil {
+			t.Fatal("Expected PostBuild to be set when kustomization has substitutions")
+		}
+		if len(appliedKustomization.Spec.PostBuild.SubstituteFrom) != 1 {
+			t.Fatalf("Expected 1 SubstituteFrom reference (values-csi), got %d", len(appliedKustomization.Spec.PostBuild.SubstituteFrom))
+		}
+		if appliedKustomization.Spec.PostBuild.SubstituteFrom[0].Name != "values-csi" {
+			t.Errorf("Expected SubstituteFrom to be values-csi, got '%s'", appliedKustomization.Spec.PostBuild.SubstituteFrom[0].Name)
 		}
 	})
 }

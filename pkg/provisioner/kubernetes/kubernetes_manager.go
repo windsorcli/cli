@@ -594,9 +594,11 @@ func (k *BaseKubernetesManager) GetNodeReadyStatus(ctx context.Context, nodeName
 	return k.client.GetNodeReadyStatus(ctx, nodeNames)
 }
 
-// ApplyBlueprint applies an entire blueprint to the cluster. It creates the namespace, applies all source
-// repositories (Git and OCI), and applies all kustomizations. This method orchestrates the complete
-// blueprint installation process in the correct order.
+// ApplyBlueprint applies the entire blueprint to the cluster in the proper sequence.
+// It creates the target namespace, applies all blueprint source repositories (Git and OCI),
+// applies all individual sources, applies any standalone ConfigMaps, and finally applies
+// all kustomizations and their associated ConfigMaps. This orchestrates a complete
+// blueprint installation following the intended order. Returns an error if any step fails.
 func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 	if err := k.CreateNamespace(namespace); err != nil {
 		return fmt.Errorf("failed to create namespace: %w", err)
@@ -621,6 +623,15 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 	}
 
 	defaultSourceName := blueprint.Metadata.Name
+
+	if blueprint.ConfigMaps != nil {
+		for configMapName, data := range blueprint.ConfigMaps {
+			if err := k.ApplyConfigMap(configMapName, namespace, data); err != nil {
+				return fmt.Errorf("failed to create ConfigMap %s: %w", configMapName, err)
+			}
+		}
+	}
+
 	for _, kustomization := range blueprint.Kustomizations {
 		if len(kustomization.Substitutions) > 0 {
 			configMapName := fmt.Sprintf("values-%s", kustomization.Name)
@@ -629,6 +640,22 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 			}
 		}
 		fluxKustomization := kustomization.ToFluxKustomization(namespace, defaultSourceName, blueprint.Sources)
+
+		if len(blueprint.ConfigMaps) > 0 {
+			if fluxKustomization.Spec.PostBuild == nil {
+				fluxKustomization.Spec.PostBuild = &kustomizev1.PostBuild{
+					SubstituteFrom: make([]kustomizev1.SubstituteReference, 0),
+				}
+			}
+			for configMapName := range blueprint.ConfigMaps {
+				fluxKustomization.Spec.PostBuild.SubstituteFrom = append(fluxKustomization.Spec.PostBuild.SubstituteFrom, kustomizev1.SubstituteReference{
+					Kind:     "ConfigMap",
+					Name:     configMapName,
+					Optional: false,
+				})
+			}
+		}
+
 		if err := k.ApplyKustomization(fluxKustomization); err != nil {
 			return fmt.Errorf("failed to apply kustomization %s: %w", kustomization.Name, err)
 		}

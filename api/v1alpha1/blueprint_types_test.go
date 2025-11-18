@@ -839,7 +839,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 			t.Fatalf("Expected 1 SubstituteFrom reference (values-test-kustomization), got %d", len(result.Spec.PostBuild.SubstituteFrom))
 		}
 		if result.Spec.PostBuild.SubstituteFrom[0].Name != "values-test-kustomization" {
-			t.Errorf("Expected values-test-kustomization ConfigMap reference, got '%s'", result.Spec.PostBuild.SubstituteFrom[0].Name)
+			t.Errorf("Expected SubstituteFrom to be values-test-kustomization, got '%s'", result.Spec.PostBuild.SubstituteFrom[0].Name)
 		}
 	})
 
@@ -938,8 +938,6 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 		if len(result.Spec.PostBuild.SubstituteFrom) != 1 {
 			t.Fatalf("Expected 1 SubstituteFrom reference (values-test-kustomization), got %d", len(result.Spec.PostBuild.SubstituteFrom))
 		}
-
-		// Should have component-specific ConfigMap
 		if result.Spec.PostBuild.SubstituteFrom[0].Name != "values-test-kustomization" {
 			t.Errorf("Expected SubstituteFrom to be values-test-kustomization, got '%s'", result.Spec.PostBuild.SubstituteFrom[0].Name)
 		}
