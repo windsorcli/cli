@@ -958,6 +958,24 @@ func TestShell_GetSessionToken(t *testing.T) {
 			t.Errorf("Expected token length 7, got %d", len(token))
 		}
 	})
+
+	t.Run("ReturnsCachedToken", func(t *testing.T) {
+		// Given a shell with a cached session token
+		shell, _ := setup(t)
+		expectedToken := "cached-token"
+		shell.sessionToken = expectedToken
+
+		// When getting session token
+		token, err := shell.GetSessionToken()
+
+		// Then it should return the cached token without calling Getenv
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if token != expectedToken {
+			t.Errorf("Expected token %q, got %q", expectedToken, token)
+		}
+	})
 }
 
 func TestShell_CheckResetFlags(t *testing.T) {
@@ -1116,6 +1134,20 @@ func TestShell_GenerateRandomString(t *testing.T) {
 		}
 		if len(result) != 10 {
 			t.Errorf("Expected length 10, got %d", len(result))
+		}
+	})
+
+	t.Run("ErrorWhenRandReadFails", func(t *testing.T) {
+		shell, mocks := setup(t)
+		mocks.Shims.RandRead = func(b []byte) (n int, err error) {
+			return 0, fmt.Errorf("random read failed")
+		}
+		result, err := shell.generateRandomString(10)
+		if err == nil {
+			t.Errorf("Expected error, got nil")
+		}
+		if result != "" {
+			t.Errorf("Expected empty result on error, got %q", result)
 		}
 	})
 }
@@ -3246,6 +3278,55 @@ func TestScrubbingWriter(t *testing.T) {
 		// Output length should match input due to padding
 		if len(output) != len(testContent) {
 			t.Errorf("Expected output length %d to match input length %d", len(output), len(testContent))
+		}
+	})
+}
+
+// TestDefaultShell_renderEnvVarsPlain tests the renderEnvVarsPlain method
+func TestDefaultShell_renderEnvVarsPlain(t *testing.T) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+		t.Helper()
+		mocks := setupShellMocks(t)
+		shell := NewDefaultShell()
+		shell.shims = mocks.Shims
+		return shell, mocks
+	}
+
+	t.Run("RendersPlainEnvVars", func(t *testing.T) {
+		// Given a shell with environment variables
+		shell, _ := setup(t)
+		envVars := map[string]string{
+			"VAR1": "value1",
+			"VAR2": "value2",
+			"VAR3": "",
+		}
+
+		// When rendering plain environment variables
+		result := shell.renderEnvVarsPlain(envVars)
+
+		// Then the output should contain sorted KEY=value format
+		if !strings.Contains(result, "VAR1=value1\n") {
+			t.Errorf("Expected VAR1=value1, got: %s", result)
+		}
+		if !strings.Contains(result, "VAR2=value2\n") {
+			t.Errorf("Expected VAR2=value2, got: %s", result)
+		}
+		if !strings.Contains(result, "VAR3=\n") {
+			t.Errorf("Expected VAR3=, got: %s", result)
+		}
+	})
+
+	t.Run("RendersEmptyEnvVars", func(t *testing.T) {
+		// Given a shell with empty environment variables map
+		shell, _ := setup(t)
+		envVars := map[string]string{}
+
+		// When rendering plain environment variables
+		result := shell.renderEnvVarsPlain(envVars)
+
+		// Then the output should be empty
+		if result != "" {
+			t.Errorf("Expected empty output for empty env vars, got: %s", result)
 		}
 	})
 }

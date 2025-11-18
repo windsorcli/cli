@@ -1,8 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
@@ -319,6 +321,344 @@ additionalProperties: false
 
 		if err == nil {
 			t.Error("Expected validation error for invalid values.yaml")
+		}
+	})
+
+	t.Run("LoadsSchemaWhenSchemaValidatorIsNil", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+
+		handler := NewConfigHandler(mocks.Shell).(*configHandler)
+		handler.SetContext("test-context")
+		handler.schemaValidator.Schema = nil
+
+		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
+		os.MkdirAll(schemaDir, 0755)
+		schemaContent := `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  schema_key:
+    type: string
+    default: schema_value
+`
+		os.WriteFile(filepath.Join(schemaDir, "schema.yaml"), []byte(schemaContent), 0644)
+
+		contextDir := filepath.Join(tmpDir, "contexts", "test-context")
+		os.MkdirAll(contextDir, 0755)
+		os.WriteFile(filepath.Join(contextDir, "windsor.yaml"), []byte("provider: local\n"), 0644)
+
+		err := handler.LoadConfig()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		value := handler.Get("schema_key")
+		if value != "schema_value" {
+			t.Errorf("Expected schema default to be loaded, got '%v'", value)
+		}
+	})
+
+	t.Run("HandlesSchemaLoadError", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+
+		handler := NewConfigHandler(mocks.Shell).(*configHandler)
+		handler.SetContext("test-context")
+		handler.schemaValidator.Schema = nil
+
+		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
+		os.MkdirAll(schemaDir, 0755)
+		invalidSchema := `invalid: yaml: [[[`
+		os.WriteFile(filepath.Join(schemaDir, "schema.yaml"), []byte(invalidSchema), 0644)
+
+		err := handler.LoadConfig()
+
+		if err == nil {
+			t.Error("Expected error when schema loading fails")
+		}
+	})
+
+	t.Run("HandlesRootConfigWithoutContexts", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+		handler.SetContext("test-context")
+
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+		rootConfig := `version: v1alpha1
+`
+		os.WriteFile(filepath.Join(tmpDir, "windsor.yaml"), []byte(rootConfig), 0644)
+
+		err := handler.LoadConfig()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("HandlesRootConfigWithMissingContext", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+		handler.SetContext("missing-context")
+
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+		rootConfig := `version: v1alpha1
+contexts:
+  other-context:
+    provider: local
+`
+		os.WriteFile(filepath.Join(tmpDir, "windsor.yaml"), []byte(rootConfig), 0644)
+
+		err := handler.LoadConfig()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenShellIsNil", func(t *testing.T) {
+		handler := &configHandler{
+			shell: nil,
+		}
+
+		err := handler.LoadConfig()
+
+		if err == nil {
+			t.Error("Expected error when shell is nil")
+		}
+		if !strings.Contains(err.Error(), "shell not initialized") {
+			t.Errorf("Expected error about shell not initialized, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenGetProjectRootFails", func(t *testing.T) {
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("project root error")
+		}
+
+		handler := NewConfigHandler(mockShell)
+
+		err := handler.LoadConfig()
+
+		if err == nil {
+			t.Error("Expected error when GetProjectRoot fails")
+		}
+		if !strings.Contains(err.Error(), "error retrieving project root") {
+			t.Errorf("Expected error about retrieving project root, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenReadFileFailsForRootConfig", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+
+		handler := NewConfigHandler(mocks.Shell).(*configHandler)
+		handler.SetContext("test-context")
+
+		rootConfigPath := filepath.Join(tmpDir, "windsor.yaml")
+		os.WriteFile(rootConfigPath, []byte("version: v1alpha1\n"), 0644)
+
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
+			if name == rootConfigPath {
+				return nil, fmt.Errorf("read file error")
+			}
+			return os.ReadFile(name)
+		}
+
+		err := handler.LoadConfig()
+
+		if err == nil {
+			t.Error("Expected error when ReadFile fails for root config")
+		}
+		if !strings.Contains(err.Error(), "error reading root config file") {
+			t.Errorf("Expected error about reading root config file, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenYamlUnmarshalFailsForRootConfig", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+
+		handler := NewConfigHandler(mocks.Shell).(*configHandler)
+		handler.SetContext("test-context")
+
+		rootConfigPath := filepath.Join(tmpDir, "windsor.yaml")
+		os.WriteFile(rootConfigPath, []byte("invalid: yaml: [[["), 0644)
+
+		err := handler.LoadConfig()
+
+		if err == nil {
+			t.Error("Expected error when YamlUnmarshal fails for root config")
+		}
+		if !strings.Contains(err.Error(), "error unmarshalling root config") {
+			t.Errorf("Expected error about unmarshalling root config, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenReadFileFailsForContextConfig", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+
+		handler := NewConfigHandler(mocks.Shell).(*configHandler)
+		handler.SetContext("test-context")
+
+		contextDir := filepath.Join(tmpDir, "contexts", "test-context")
+		os.MkdirAll(contextDir, 0755)
+		contextConfigPath := filepath.Join(contextDir, "windsor.yaml")
+		os.WriteFile(contextConfigPath, []byte("provider: local\n"), 0644)
+
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
+			if name == contextConfigPath {
+				return nil, fmt.Errorf("read file error")
+			}
+			return os.ReadFile(name)
+		}
+
+		err := handler.LoadConfig()
+
+		if err == nil {
+			t.Error("Expected error when ReadFile fails for context config")
+		}
+		if !strings.Contains(err.Error(), "error reading context config file") {
+			t.Errorf("Expected error about reading context config file, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenYamlUnmarshalFailsForContextConfig", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+
+		handler := NewConfigHandler(mocks.Shell).(*configHandler)
+		handler.SetContext("test-context")
+
+		contextDir := filepath.Join(tmpDir, "contexts", "test-context")
+		os.MkdirAll(contextDir, 0755)
+		os.WriteFile(filepath.Join(contextDir, "windsor.yaml"), []byte("invalid: yaml: [[["), 0644)
+
+		err := handler.LoadConfig()
+
+		if err == nil {
+			t.Error("Expected error when YamlUnmarshal fails for context config")
+		}
+		if !strings.Contains(err.Error(), "error unmarshalling context yaml") {
+			t.Errorf("Expected error about unmarshalling context yaml, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenReadFileFailsForValuesYaml", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+
+		handler := NewConfigHandler(mocks.Shell).(*configHandler)
+		handler.SetContext("test-context")
+
+		contextDir := filepath.Join(tmpDir, "contexts", "test-context")
+		os.MkdirAll(contextDir, 0755)
+		valuesPath := filepath.Join(contextDir, "values.yaml")
+		os.WriteFile(valuesPath, []byte("key: value\n"), 0644)
+
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
+			if name == valuesPath {
+				return nil, fmt.Errorf("read file error")
+			}
+			return os.ReadFile(name)
+		}
+
+		err := handler.LoadConfig()
+
+		if err == nil {
+			t.Error("Expected error when ReadFile fails for values.yaml")
+		}
+		if !strings.Contains(err.Error(), "error reading values.yaml") {
+			t.Errorf("Expected error about reading values.yaml, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenYamlUnmarshalFailsForValuesYaml", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+
+		handler := NewConfigHandler(mocks.Shell).(*configHandler)
+		handler.SetContext("test-context")
+
+		contextDir := filepath.Join(tmpDir, "contexts", "test-context")
+		os.MkdirAll(contextDir, 0755)
+		os.WriteFile(filepath.Join(contextDir, "values.yaml"), []byte("invalid: yaml: [[["), 0644)
+
+		err := handler.LoadConfig()
+
+		if err == nil {
+			t.Error("Expected error when YamlUnmarshal fails for values.yaml")
+		}
+		if !strings.Contains(err.Error(), "error unmarshalling values.yaml") {
+			t.Errorf("Expected error about unmarshalling values.yaml, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenYamlMarshalFailsForContextConfig", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+
+		handler := NewConfigHandler(mocks.Shell).(*configHandler)
+		handler.SetContext("test-context")
+
+		rootConfigPath := filepath.Join(tmpDir, "windsor.yaml")
+		rootConfig := `version: v1alpha1
+contexts:
+  test-context:
+    provider: local
+`
+		os.WriteFile(rootConfigPath, []byte(rootConfig), 0644)
+
+		handler.shims.YamlMarshal = func(v any) ([]byte, error) {
+			return nil, fmt.Errorf("marshal error")
+		}
+
+		err := handler.LoadConfig()
+
+		if err == nil {
+			t.Error("Expected error when YamlMarshal fails for context config")
+		}
+		if !strings.Contains(err.Error(), "error marshalling context config") {
+			t.Errorf("Expected error about marshalling context config, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenValidateReturnsError", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+
+		handler := NewConfigHandler(mocks.Shell).(*configHandler)
+		handler.SetContext("test-context")
+
+		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
+		os.MkdirAll(schemaDir, 0755)
+		schemaContent := `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  test_key:
+    type: string
+    pattern: "^[a-z]+$"
+`
+		os.WriteFile(filepath.Join(schemaDir, "schema.yaml"), []byte(schemaContent), 0644)
+		handler.LoadSchema(filepath.Join(schemaDir, "schema.yaml"))
+
+		contextDir := filepath.Join(tmpDir, "contexts", "test-context")
+		os.MkdirAll(contextDir, 0755)
+		os.WriteFile(filepath.Join(contextDir, "values.yaml"), []byte("test_key: VALUE\n"), 0644)
+
+		handler.schemaValidator.Shims.RegexpMatchString = func(pattern, s string) (bool, error) {
+			return false, fmt.Errorf("regex error")
+		}
+
+		err := handler.LoadConfig()
+
+		if err == nil {
+			t.Error("Expected error when Validate returns error")
+		}
+		if !strings.Contains(err.Error(), "values.yaml validation") {
+			t.Errorf("Expected error about values.yaml validation, got: %v", err)
 		}
 	})
 
@@ -649,6 +989,139 @@ custom_key: custom_value
 			t.Errorf("Expected no error for empty string, got %v", err)
 		}
 	})
+
+	t.Run("HandlesMapAnyAnyContexts", func(t *testing.T) {
+		os.Setenv("WINDSOR_CONTEXT", "test-context")
+		defer os.Unsetenv("WINDSOR_CONTEXT")
+
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		yaml := `version: v1alpha1
+contexts:
+  test-context:
+    provider: local
+    custom: value
+`
+
+		err := handler.LoadConfigString(yaml)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		provider := handler.GetString("provider")
+		if provider != "local" {
+			t.Errorf("Expected provider='local', got '%s'", provider)
+		}
+
+		custom := handler.GetString("custom")
+		if custom != "value" {
+			t.Errorf("Expected custom='value', got '%s'", custom)
+		}
+	})
+
+	t.Run("HandlesContextDataAsMapAnyAny", func(t *testing.T) {
+		os.Setenv("WINDSOR_CONTEXT", "test-context")
+		defer os.Unsetenv("WINDSOR_CONTEXT")
+
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell).(*configHandler)
+
+		yaml := `version: v1alpha1
+contexts:
+  test-context:
+    provider: local
+    nested:
+      key: value
+`
+
+		err := handler.LoadConfigString(yaml)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		provider := handler.GetString("provider")
+		if provider != "local" {
+			t.Errorf("Expected provider='local', got '%s'", provider)
+		}
+	})
+
+	t.Run("HandlesMissingContextInContexts", func(t *testing.T) {
+		os.Setenv("WINDSOR_CONTEXT", "missing-context")
+		defer os.Unsetenv("WINDSOR_CONTEXT")
+
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		yaml := `version: v1alpha1
+contexts:
+  other-context:
+    provider: local
+flat_key: flat_value
+`
+
+		err := handler.LoadConfigString(yaml)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		flatKey := handler.GetString("flat_key")
+		if flatKey != "flat_value" {
+			t.Errorf("Expected flat_key='flat_value', got '%s'", flatKey)
+		}
+	})
+
+	t.Run("HandlesContextsAsNonMap", func(t *testing.T) {
+		os.Setenv("WINDSOR_CONTEXT", "test-context")
+		defer os.Unsetenv("WINDSOR_CONTEXT")
+
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		yaml := `version: v1alpha1
+contexts: not_a_map
+flat_key: flat_value
+`
+
+		err := handler.LoadConfigString(yaml)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		flatKey := handler.GetString("flat_key")
+		if flatKey != "flat_value" {
+			t.Errorf("Expected flat_key='flat_value', got '%s'", flatKey)
+		}
+	})
+
+	t.Run("HandlesContextDataAsNonMap", func(t *testing.T) {
+		os.Setenv("WINDSOR_CONTEXT", "test-context")
+		defer os.Unsetenv("WINDSOR_CONTEXT")
+
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		yaml := `version: v1alpha1
+contexts:
+  test-context: not_a_map
+flat_key: flat_value
+`
+
+		err := handler.LoadConfigString(yaml)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		flatKey := handler.GetString("flat_key")
+		if flatKey != "flat_value" {
+			t.Errorf("Expected flat_key='flat_value', got '%s'", flatKey)
+		}
+	})
 }
 
 func TestConfigHandler_Get(t *testing.T) {
@@ -906,6 +1379,33 @@ func TestConfigHandler_GetInt(t *testing.T) {
 		}
 	})
 
+	t.Run("HandlesUint64Overflow", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		maxUint64 := uint64(^uint(0)>>1) + 1
+		handler.Set("count", maxUint64)
+
+		result := handler.GetInt("count", 99)
+
+		if result != 99 {
+			t.Errorf("Expected default value 99 for uint64 overflow, got %d", result)
+		}
+	})
+
+	t.Run("HandlesInvalidString", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		handler.Set("count", "not-a-number")
+
+		result := handler.GetInt("count", 99)
+
+		if result != 99 {
+			t.Errorf("Expected default value 99 for invalid string, got %d", result)
+		}
+	})
+
 	t.Run("ReturnsZeroForNonNumericValue", func(t *testing.T) {
 		mocks := setupConfigMocks(t)
 		handler := NewConfigHandler(mocks.Shell)
@@ -955,6 +1455,19 @@ func TestConfigHandler_GetBool(t *testing.T) {
 			t.Error("Expected true, got false")
 		}
 	})
+
+	t.Run("ReturnsFalseForNonBoolValueWithDefault", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		handler.Set("enabled", 1)
+
+		result := handler.GetBool("enabled", true)
+
+		if result {
+			t.Error("Expected false for non-bool value even with default, got true")
+		}
+	})
 }
 
 func TestConfigHandler_GetStringSlice(t *testing.T) {
@@ -987,6 +1500,28 @@ func TestConfigHandler_GetStringSlice(t *testing.T) {
 		}
 		if result[0] != "x" || result[1] != "y" || result[2] != "z" {
 			t.Errorf("Expected [x y z], got %v", result)
+		}
+	})
+
+	t.Run("ConvertsInterfaceSliceWithNonStringValues", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		handler.Set("items", []interface{}{"x", 42, true})
+
+		result := handler.GetStringSlice("items")
+
+		if len(result) != 3 {
+			t.Errorf("Expected length 3, got %d", len(result))
+		}
+		if result[0] != "x" {
+			t.Errorf("Expected first element 'x', got '%s'", result[0])
+		}
+		if result[1] != "42" {
+			t.Errorf("Expected second element '42', got '%s'", result[1])
+		}
+		if result[2] != "true" {
+			t.Errorf("Expected third element 'true', got '%s'", result[2])
 		}
 	})
 
@@ -2050,6 +2585,23 @@ properties:
 			t.Error("Expected error for invalid schema content")
 		}
 	})
+
+	t.Run("ReturnsErrorWhenSchemaValidatorIsNil", func(t *testing.T) {
+		// Given a handler with nil schema validator
+		handler, _ := setupPrivateTestHandler(t)
+		handler.schemaValidator = nil
+
+		// When loading schema
+		err := handler.LoadSchema("/some/path/schema.yaml")
+
+		// Then it should return error
+		if err == nil {
+			t.Error("Expected error when schema validator is nil")
+		}
+		if !strings.Contains(err.Error(), "schema validator not initialized") {
+			t.Errorf("Expected error about schema validator not initialized, got: %v", err)
+		}
+	})
 }
 
 func TestConfigHandler_LoadSchemaFromBytes(t *testing.T) {
@@ -2074,6 +2626,23 @@ properties:
 		value := handler.Get("byte_schema_key")
 		if value != "from_bytes" {
 			t.Error("Expected schema default from bytes to be accessible")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenSchemaValidatorIsNil", func(t *testing.T) {
+		// Given a handler with nil schema validator
+		handler, _ := setupPrivateTestHandler(t)
+		handler.schemaValidator = nil
+
+		// When loading schema from bytes
+		err := handler.LoadSchemaFromBytes([]byte("test: content"))
+
+		// Then it should return error
+		if err == nil {
+			t.Error("Expected error when schema validator is nil")
+		}
+		if !strings.Contains(err.Error(), "schema validator not initialized") {
+			t.Errorf("Expected error about schema validator not initialized, got: %v", err)
 		}
 	})
 
@@ -2261,6 +2830,80 @@ func TestConfigHandler_IsLoaded(t *testing.T) {
 
 		if !result {
 			t.Error("Expected IsLoaded=true after LoadConfigString")
+		}
+	})
+}
+
+func TestConfigHandler_IsDevMode(t *testing.T) {
+	t.Run("ReturnsTrueWhenDevIsSetToTrue", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		handler.Set("dev", true)
+
+		result := handler.IsDevMode("production")
+
+		if !result {
+			t.Error("Expected IsDevMode=true when dev=true, regardless of context name")
+		}
+	})
+
+	t.Run("ReturnsFalseWhenDevIsSetToFalse", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		handler.Set("dev", false)
+
+		result := handler.IsDevMode("local")
+
+		if result {
+			t.Error("Expected IsDevMode=false when dev=false, even for local context")
+		}
+	})
+
+	t.Run("ReturnsTrueForLocalContext", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		result := handler.IsDevMode("local")
+
+		if !result {
+			t.Error("Expected IsDevMode=true for 'local' context")
+		}
+	})
+
+	t.Run("ReturnsTrueForLocalPrefixContext", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		result := handler.IsDevMode("local-dev")
+
+		if !result {
+			t.Error("Expected IsDevMode=true for context starting with 'local-'")
+		}
+	})
+
+	t.Run("ReturnsFalseForNonLocalContext", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		result := handler.IsDevMode("production")
+
+		if result {
+			t.Error("Expected IsDevMode=false for non-local context")
+		}
+	})
+
+	t.Run("IgnoresNonBoolDevValue", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		handler.Set("dev", "true")
+
+		result := handler.IsDevMode("local")
+
+		if !result {
+			t.Error("Expected IsDevMode=true for local context when dev is non-bool")
 		}
 	})
 }

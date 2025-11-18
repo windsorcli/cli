@@ -6,6 +6,7 @@ package shell
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -156,6 +157,221 @@ func TestDefaultShell_UnsetAlias(t *testing.T) {
 		// Then the output should be empty
 		if output != "" {
 			t.Errorf("UnsetAlias() with empty list should produce no output, got %v", output)
+		}
+	})
+}
+
+// TestDefaultShell_RenderAliases tests the RenderAliases method on Unix systems
+func TestDefaultShell_RenderAliases(t *testing.T) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+		t.Helper()
+		mocks := setupShellMocks(t)
+		shell := NewDefaultShell()
+		shell.shims = mocks.Shims
+		return shell, mocks
+	}
+
+	t.Run("RendersAliasesWithValues", func(t *testing.T) {
+		// Given a shell with aliases
+		shell, _ := setup(t)
+		aliases := map[string]string{
+			"ll":   "ls -la",
+			"grep": "grep --color=auto",
+			"cd":   "",
+		}
+
+		// When rendering aliases
+		result := shell.RenderAliases(aliases)
+
+		// Then the output should contain sorted alias commands
+		if !strings.Contains(result, "alias cd=\"\"\n") && !strings.Contains(result, "unalias cd\n") {
+			t.Errorf("Expected unalias or empty alias for cd, got: %s", result)
+		}
+		if !strings.Contains(result, "alias grep=\"grep --color=auto\"\n") {
+			t.Errorf("Expected alias for grep, got: %s", result)
+		}
+		if !strings.Contains(result, "alias ll=\"ls -la\"\n") {
+			t.Errorf("Expected alias for ll, got: %s", result)
+		}
+	})
+
+	t.Run("RendersEmptyAliases", func(t *testing.T) {
+		// Given a shell with empty aliases map
+		shell, _ := setup(t)
+		aliases := map[string]string{}
+
+		// When rendering aliases
+		result := shell.RenderAliases(aliases)
+
+		// Then the output should be empty
+		if result != "" {
+			t.Errorf("Expected empty output for empty aliases, got: %s", result)
+		}
+	})
+
+	t.Run("RendersAliasesWithEmptyValues", func(t *testing.T) {
+		// Given a shell with aliases that have empty values
+		shell, _ := setup(t)
+		aliases := map[string]string{
+			"alias1": "",
+			"alias2": "",
+		}
+
+		// When rendering aliases
+		result := shell.RenderAliases(aliases)
+
+		// Then the output should contain unalias commands
+		if !strings.Contains(result, "unalias") {
+			t.Errorf("Expected unalias commands for empty aliases, got: %s", result)
+		}
+	})
+}
+
+// TestDefaultShell_renderEnvVarsWithExport tests the renderEnvVarsWithExport method on Unix systems
+func TestDefaultShell_renderEnvVarsWithExport(t *testing.T) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+		t.Helper()
+		mocks := setupShellMocks(t)
+		shell := NewDefaultShell()
+		shell.shims = mocks.Shims
+		return shell, mocks
+	}
+
+	t.Run("RendersEnvVarsWithExport", func(t *testing.T) {
+		// Given a shell with environment variables
+		shell, _ := setup(t)
+		envVars := map[string]string{
+			"VAR1": "value1",
+			"VAR2": "value2",
+			"VAR3": "",
+		}
+
+		// When rendering environment variables with export
+		result := shell.renderEnvVarsWithExport(envVars)
+
+		// Then the output should contain sorted export commands
+		if !strings.Contains(result, "export VAR1=\"value1\"\n") {
+			t.Errorf("Expected export VAR1, got: %s", result)
+		}
+		if !strings.Contains(result, "export VAR2=\"value2\"\n") {
+			t.Errorf("Expected export VAR2, got: %s", result)
+		}
+		if !strings.Contains(result, "unset VAR3\n") {
+			t.Errorf("Expected unset VAR3, got: %s", result)
+		}
+	})
+
+	t.Run("RendersEmptyEnvVars", func(t *testing.T) {
+		// Given a shell with empty environment variables map
+		shell, _ := setup(t)
+		envVars := map[string]string{}
+
+		// When rendering environment variables with export
+		result := shell.renderEnvVarsWithExport(envVars)
+
+		// Then the output should be empty
+		if result != "" {
+			t.Errorf("Expected empty output for empty env vars, got: %s", result)
+		}
+	})
+}
+
+// TestDefaultShell_RenderEnvVars tests the RenderEnvVars method on Unix systems
+func TestDefaultShell_RenderEnvVars(t *testing.T) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+		t.Helper()
+		mocks := setupShellMocks(t)
+		shell := NewDefaultShell()
+		shell.shims = mocks.Shims
+		return shell, mocks
+	}
+
+	t.Run("RendersEnvVarsWithExport", func(t *testing.T) {
+		// Given a shell with environment variables
+		shell, _ := setup(t)
+		envVars := map[string]string{
+			"VAR1": "value1",
+			"VAR2": "value2",
+		}
+
+		// When rendering environment variables with export=true
+		result := shell.RenderEnvVars(envVars, true)
+
+		// Then the output should contain export commands
+		if !strings.Contains(result, "export") {
+			t.Errorf("Expected export commands, got: %s", result)
+		}
+	})
+
+	t.Run("RendersEnvVarsWithoutExport", func(t *testing.T) {
+		// Given a shell with environment variables
+		shell, _ := setup(t)
+		envVars := map[string]string{
+			"VAR1": "value1",
+			"VAR2": "value2",
+		}
+
+		// When rendering environment variables with export=false
+		result := shell.RenderEnvVars(envVars, false)
+
+		// Then the output should contain plain KEY=value format
+		if !strings.Contains(result, "VAR1=value1") {
+			t.Errorf("Expected plain format, got: %s", result)
+		}
+		if strings.Contains(result, "export") {
+			t.Errorf("Expected no export commands, got: %s", result)
+		}
+	})
+}
+
+// TestDefaultShell_PrintEnvVars tests the PrintEnvVars method on Unix systems
+func TestDefaultShell_PrintEnvVars(t *testing.T) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+		t.Helper()
+		mocks := setupShellMocks(t)
+		shell := NewDefaultShell()
+		shell.shims = mocks.Shims
+		return shell, mocks
+	}
+
+	t.Run("PrintsEnvVarsWithExport", func(t *testing.T) {
+		// Given a shell with environment variables
+		shell, _ := setup(t)
+		envVars := map[string]string{
+			"VAR1": "value1",
+			"VAR2": "value2",
+		}
+
+		// When printing environment variables with export=true
+		output := captureStdout(t, func() {
+			shell.PrintEnvVars(envVars, true)
+		})
+
+		// Then the output should contain export commands
+		if !strings.Contains(output, "export") {
+			t.Errorf("Expected export commands, got: %s", output)
+		}
+	})
+
+	t.Run("PrintsEnvVarsWithoutExport", func(t *testing.T) {
+		// Given a shell with environment variables
+		shell, _ := setup(t)
+		envVars := map[string]string{
+			"VAR1": "value1",
+			"VAR2": "value2",
+		}
+
+		// When printing environment variables with export=false
+		output := captureStdout(t, func() {
+			shell.PrintEnvVars(envVars, false)
+		})
+
+		// Then the output should contain plain KEY=value format
+		if !strings.Contains(output, "VAR1=value1") {
+			t.Errorf("Expected plain format, got: %s", output)
+		}
+		if strings.Contains(output, "export") {
+			t.Errorf("Expected no export commands, got: %s", output)
 		}
 	})
 }
