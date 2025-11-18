@@ -36,6 +36,10 @@ type Blueprint struct {
 
 	// Kustomizations are kustomization configs in the blueprint.
 	Kustomizations []Kustomization `yaml:"kustomize"`
+
+	// ConfigMaps are standalone ConfigMaps to be created, not tied to specific kustomizations.
+	// These ConfigMaps are referenced by all kustomizations in PostBuild substitution.
+	ConfigMaps map[string]map[string]string `yaml:"configMaps,omitempty"`
 }
 
 // Metadata describes a blueprint.
@@ -283,6 +287,13 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 		kustomizationsCopy[i] = *kustomization.DeepCopy()
 	}
 
+	configMapsCopy := make(map[string]map[string]string)
+	if b.ConfigMaps != nil {
+		for name, data := range b.ConfigMaps {
+			configMapsCopy[name] = maps.Clone(data)
+		}
+	}
+
 	return &Blueprint{
 		Kind:                b.Kind,
 		ApiVersion:          b.ApiVersion,
@@ -291,6 +302,7 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 		Sources:             sourcesCopy,
 		TerraformComponents: terraformComponentsCopy,
 		Kustomizations:      kustomizationsCopy,
+		ConfigMaps:          configMapsCopy,
 	}
 }
 
@@ -360,6 +372,18 @@ func (b *Blueprint) StrategicMerge(overlays ...*Blueprint) error {
 		for _, overlayK := range overlay.Kustomizations {
 			if err := b.strategicMergeKustomization(overlayK); err != nil {
 				return err
+			}
+		}
+
+		if overlay.ConfigMaps != nil {
+			if b.ConfigMaps == nil {
+				b.ConfigMaps = make(map[string]map[string]string)
+			}
+			for name, data := range overlay.ConfigMaps {
+				if b.ConfigMaps[name] == nil {
+					b.ConfigMaps[name] = make(map[string]string)
+				}
+				maps.Copy(b.ConfigMaps[name], data)
 			}
 		}
 	}
@@ -597,6 +621,7 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 // ToFluxKustomization converts a blueprint Kustomization to a Flux Kustomization.
 // It takes the namespace for the kustomization, the default source name to use if no source is specified,
 // and the list of sources to determine the source kind (GitRepository or OCIRepository).
+// PostBuild is constructed based on the kustomization's Substitutions field.
 func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName string, sources []Source) kustomizev1.Kustomization {
 	dependsOn := make([]kustomizev1.DependencyReference, len(k.DependsOn))
 	for idx, dep := range k.DependsOn {
@@ -684,15 +709,15 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 
 	var postBuild *kustomizev1.PostBuild
 	if len(k.Substitutions) > 0 {
-		substituteFrom := make([]kustomizev1.SubstituteReference, 0)
 		configMapName := fmt.Sprintf("values-%s", k.Name)
-		substituteFrom = append(substituteFrom, kustomizev1.SubstituteReference{
-			Kind:     "ConfigMap",
-			Name:     configMapName,
-			Optional: false,
-		})
 		postBuild = &kustomizev1.PostBuild{
-			SubstituteFrom: substituteFrom,
+			SubstituteFrom: []kustomizev1.SubstituteReference{
+				{
+					Kind:     "ConfigMap",
+					Name:     configMapName,
+					Optional: false,
+				},
+			},
 		}
 	}
 

@@ -46,6 +46,7 @@ type BaseBlueprintHandler struct {
 	shims                *Shims
 	kustomizeData        map[string]any
 	featureSubstitutions map[string]map[string]string
+	commonSubstitutions  map[string]string
 	configLoaded         bool
 }
 
@@ -59,6 +60,7 @@ func NewBlueprintHandler(rt *runtime.Runtime, artifactBuilder artifact.Artifact,
 		shims:                NewShims(),
 		kustomizeData:        make(map[string]any),
 		featureSubstitutions: make(map[string]map[string]string),
+		commonSubstitutions:  make(map[string]string),
 	}
 
 	if len(opts) > 0 && opts[0] != nil {
@@ -218,24 +220,23 @@ func (b *BaseBlueprintHandler) GetTerraformComponents() []blueprintv1alpha1.Terr
 	return resolvedBlueprint.TerraformComponents
 }
 
-// Generate returns the fully processed blueprint with all defaults resolved,
-// paths processed, and generation logic applied - equivalent to what would be deployed.
-// It applies the same processing logic as getKustomizations() but for the entire blueprint structure.
+// Generate returns a fully processed blueprint with all defaults resolved, paths updated,
+// and generation logic applied. The returned blueprint is ready for deployment and reflects
+// the complete, concrete state including kustomization and terraform component details,
+// restored feature substitutions, and merged common or legacy variables as ConfigMaps.
+// This function performs logic equivalent to getKustomizations() but applies it to the entire blueprint.
 func (b *BaseBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
 	generated := b.blueprint.DeepCopy()
 
-	// Process kustomizations with the same logic as getKustomizations()
 	for i := range generated.Kustomizations {
 		if generated.Kustomizations[i].Source == "" {
 			generated.Kustomizations[i].Source = generated.Metadata.Name
 		}
-
 		if generated.Kustomizations[i].Path == "" {
 			generated.Kustomizations[i].Path = "kustomize"
 		} else {
 			generated.Kustomizations[i].Path = "kustomize/" + strings.ReplaceAll(generated.Kustomizations[i].Path, "\\", "/")
 		}
-
 		if generated.Kustomizations[i].Interval == nil || generated.Kustomizations[i].Interval.Duration == 0 {
 			generated.Kustomizations[i].Interval = &metav1.Duration{Duration: constants.DefaultFluxKustomizationInterval}
 		}
@@ -259,9 +260,28 @@ func (b *BaseBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
 		}
 	}
 
-	// Process terraform components with source resolution
 	b.resolveComponentSources(generated)
 	b.resolveComponentPaths(generated)
+
+	for i := range generated.Kustomizations {
+		if subs, exists := b.featureSubstitutions[generated.Kustomizations[i].Name]; exists {
+			generated.Kustomizations[i].Substitutions = maps.Clone(subs)
+		}
+	}
+
+	mergedCommonValues := make(map[string]string)
+	if b.commonSubstitutions != nil {
+		maps.Copy(mergedCommonValues, b.commonSubstitutions)
+	}
+
+	b.mergeLegacySpecialVariables(mergedCommonValues)
+
+	if len(mergedCommonValues) > 0 {
+		if generated.ConfigMaps == nil {
+			generated.ConfigMaps = make(map[string]map[string]string)
+		}
+		generated.ConfigMaps["values-common"] = mergedCommonValues
+	}
 
 	return generated
 }
@@ -332,19 +352,50 @@ func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 		templateData["blueprint"] = composedBlueprintYAML
 	}
 
+	var substitutionValues map[string]any
 	if contextValues != nil {
-		if substitutionValues, ok := contextValues["substitutions"].(map[string]any); ok && len(substitutionValues) > 0 {
-			if existingValues, exists := templateData["substitutions"]; exists {
-				var ociSubstitutionValues map[string]any
-				if err := b.shims.YamlUnmarshal(existingValues, &ociSubstitutionValues); err == nil {
-					substitutionValues = b.deepMergeMaps(ociSubstitutionValues, substitutionValues)
+		if contextSubs, ok := contextValues["substitutions"].(map[string]any); ok && len(contextSubs) > 0 {
+			substitutionValues = contextSubs
+		}
+	}
+
+	if existingValues, exists := templateData["substitutions"]; exists {
+		var ociSubstitutionValues map[string]any
+		if err := b.shims.YamlUnmarshal(existingValues, &ociSubstitutionValues); err == nil {
+			if substitutionValues == nil {
+				substitutionValues = ociSubstitutionValues
+			} else {
+				substitutionValues = b.deepMergeMaps(ociSubstitutionValues, substitutionValues)
+			}
+		}
+	}
+
+	if len(substitutionValues) > 0 {
+		substitutionYAML, err := b.shims.YamlMarshal(substitutionValues)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal substitution values: %w", err)
+		}
+		templateData["substitutions"] = substitutionYAML
+
+		if commonSubs, ok := substitutionValues["common"].(map[string]any); ok && len(commonSubs) > 0 {
+			b.commonSubstitutions = make(map[string]string)
+			for k, v := range commonSubs {
+				b.commonSubstitutions[k] = fmt.Sprintf("%v", v)
+			}
+		}
+
+		for key, value := range substitutionValues {
+			if key == "common" {
+				continue
+			}
+			if kustomizationSubs, ok := value.(map[string]any); ok && len(kustomizationSubs) > 0 {
+				if b.featureSubstitutions[key] == nil {
+					b.featureSubstitutions[key] = make(map[string]string)
+				}
+				for k, v := range kustomizationSubs {
+					b.featureSubstitutions[key][k] = fmt.Sprintf("%v", v)
 				}
 			}
-			substitutionYAML, err := b.shims.YamlMarshal(substitutionValues)
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal substitution values: %w", err)
-			}
-			templateData["substitutions"] = substitutionYAML
 		}
 	}
 
@@ -498,6 +549,7 @@ func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir string, templ
 		} else if strings.HasSuffix(entry.Name(), ".jsonnet") ||
 			entry.Name() == "schema.yaml" ||
 			entry.Name() == "blueprint.yaml" ||
+			entry.Name() == "substitutions" ||
 			(strings.HasPrefix(filepath.Dir(entryPath), filepath.Join(b.runtime.TemplateRoot, "features")) && strings.HasSuffix(entry.Name(), ".yaml")) {
 			content, err := b.shims.ReadFile(filepath.Clean(entryPath))
 			if err != nil {
@@ -508,6 +560,8 @@ func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir string, templ
 				templateData["schema"] = content
 			} else if entry.Name() == "blueprint.yaml" {
 				templateData["blueprint"] = content
+			} else if entry.Name() == "substitutions" {
+				templateData["substitutions"] = content
 			} else {
 				relPath, err := filepath.Rel(b.runtime.TemplateRoot, entryPath)
 				if err != nil {
@@ -974,6 +1028,63 @@ func (b *BaseBlueprintHandler) isOCISource(sourceNameOrURL string) bool {
 		}
 	}
 	return false
+}
+
+// mergeLegacySpecialVariables merges legacy special variables into the common values map for backward compatibility.
+// These variables were previously extracted from config and kustomize/values.yaml and are now merged from the config handler.
+// This method can be removed when legacy variable support is no longer needed.
+func (b *BaseBlueprintHandler) mergeLegacySpecialVariables(mergedCommonValues map[string]string) {
+	if b.runtime == nil || b.runtime.ConfigHandler == nil {
+		return
+	}
+
+	domain := b.runtime.ConfigHandler.GetString("dns.domain")
+	context := b.runtime.ConfigHandler.GetContext()
+	contextID := b.runtime.ConfigHandler.GetString("id")
+	lbStart := b.runtime.ConfigHandler.GetString("network.loadbalancer_ips.start")
+	lbEnd := b.runtime.ConfigHandler.GetString("network.loadbalancer_ips.end")
+	registryURL := b.runtime.ConfigHandler.GetString("docker.registry_url")
+	localVolumePaths := b.runtime.ConfigHandler.GetStringSlice("cluster.workers.volumes")
+
+	loadBalancerIPRange := fmt.Sprintf("%s-%s", lbStart, lbEnd)
+
+	var localVolumePath string
+	if len(localVolumePaths) > 0 {
+		parts := strings.Split(localVolumePaths[0], ":")
+		if len(parts) > 1 {
+			localVolumePath = parts[1]
+		}
+	}
+
+	if domain != "" {
+		mergedCommonValues["DOMAIN"] = domain
+	}
+	if context != "" {
+		mergedCommonValues["CONTEXT"] = context
+	}
+	if contextID != "" {
+		mergedCommonValues["CONTEXT_ID"] = contextID
+	}
+	if loadBalancerIPRange != "-" {
+		mergedCommonValues["LOADBALANCER_IP_RANGE"] = loadBalancerIPRange
+	}
+	if lbStart != "" {
+		mergedCommonValues["LOADBALANCER_IP_START"] = lbStart
+	}
+	if lbEnd != "" {
+		mergedCommonValues["LOADBALANCER_IP_END"] = lbEnd
+	}
+	if registryURL != "" {
+		mergedCommonValues["REGISTRY_URL"] = registryURL
+	}
+	if localVolumePath != "" {
+		mergedCommonValues["LOCAL_VOLUME_PATH"] = localVolumePath
+	}
+
+	buildID, err := b.runtime.GetBuildID()
+	if err == nil && buildID != "" {
+		mergedCommonValues["BUILD_ID"] = buildID
+	}
 }
 
 // validateValuesForSubstitution checks that all values are valid for Flux post-build variable substitution.

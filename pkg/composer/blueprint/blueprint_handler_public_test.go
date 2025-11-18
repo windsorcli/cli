@@ -4250,4 +4250,369 @@ func TestBaseBlueprintHandler_Generate(t *testing.T) {
 			t.Error("Generated blueprint should have defaults applied")
 		}
 	})
+
+	t.Run("WithCommonSubstitutions", func(t *testing.T) {
+		handler, _ := setup(t)
+		handler.commonSubstitutions = map[string]string{
+			"domain": "example.com",
+			"region": "us-west-2",
+		}
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+		}
+
+		generated := handler.Generate()
+
+		if generated.ConfigMaps == nil {
+			t.Fatal("Expected ConfigMaps to be set")
+		}
+		if len(generated.ConfigMaps) != 1 {
+			t.Fatalf("Expected 1 ConfigMap, got %d", len(generated.ConfigMaps))
+		}
+		commonConfigMap, exists := generated.ConfigMaps["values-common"]
+		if !exists {
+			t.Fatal("Expected values-common ConfigMap")
+		}
+		if commonConfigMap["domain"] != "example.com" {
+			t.Errorf("Expected domain 'example.com', got '%s'", commonConfigMap["domain"])
+		}
+		if commonConfigMap["region"] != "us-west-2" {
+			t.Errorf("Expected region 'us-west-2', got '%s'", commonConfigMap["region"])
+		}
+	})
+
+	t.Run("WithLegacySpecialVariables", func(t *testing.T) {
+		handler, mocks := setup(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "dns.domain":
+				return "test.example.com"
+			case "id":
+				return "test-id-123"
+			case "network.loadbalancer_ips.start":
+				return "192.168.1.1"
+			case "network.loadbalancer_ips.end":
+				return "192.168.1.100"
+			case "docker.registry_url":
+				return "registry.example.com"
+			default:
+				return ""
+			}
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
+			return "test-context"
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+			if key == "cluster.workers.volumes" {
+				return []string{"/host:/var/local"}
+			}
+			return []string{}
+		}
+		
+		buildIDPath := filepath.Join(mocks.Runtime.ProjectRoot, ".windsor", ".build-id")
+		if err := os.MkdirAll(filepath.Dir(buildIDPath), 0755); err != nil {
+			t.Fatalf("Failed to create .windsor directory: %v", err)
+		}
+		if err := os.WriteFile(buildIDPath, []byte("build-123"), 0644); err != nil {
+			t.Fatalf("Failed to write build ID file: %v", err)
+		}
+		
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+		}
+
+		generated := handler.Generate()
+
+		if generated.ConfigMaps == nil {
+			t.Fatal("Expected ConfigMaps to be set")
+		}
+		commonConfigMap, exists := generated.ConfigMaps["values-common"]
+		if !exists {
+			t.Fatal("Expected values-common ConfigMap")
+		}
+		if commonConfigMap["DOMAIN"] != "test.example.com" {
+			t.Errorf("Expected DOMAIN 'test.example.com', got '%s'", commonConfigMap["DOMAIN"])
+		}
+		if commonConfigMap["CONTEXT"] != "test-context" {
+			t.Errorf("Expected CONTEXT 'test-context', got '%s'", commonConfigMap["CONTEXT"])
+		}
+		if commonConfigMap["CONTEXT_ID"] != "test-id-123" {
+			t.Errorf("Expected CONTEXT_ID 'test-id-123', got '%s'", commonConfigMap["CONTEXT_ID"])
+		}
+		if commonConfigMap["LOADBALANCER_IP_RANGE"] != "192.168.1.1-192.168.1.100" {
+			t.Errorf("Expected LOADBALANCER_IP_RANGE '192.168.1.1-192.168.1.100', got '%s'", commonConfigMap["LOADBALANCER_IP_RANGE"])
+		}
+		if commonConfigMap["REGISTRY_URL"] != "registry.example.com" {
+			t.Errorf("Expected REGISTRY_URL 'registry.example.com', got '%s'", commonConfigMap["REGISTRY_URL"])
+		}
+		if commonConfigMap["LOCAL_VOLUME_PATH"] != "/var/local" {
+			t.Errorf("Expected LOCAL_VOLUME_PATH '/var/local', got '%s'", commonConfigMap["LOCAL_VOLUME_PATH"])
+		}
+		if commonConfigMap["BUILD_ID"] != "build-123" {
+			t.Errorf("Expected BUILD_ID 'build-123', got '%s'", commonConfigMap["BUILD_ID"])
+		}
+	})
+
+	t.Run("WithPerKustomizationSubstitutions", func(t *testing.T) {
+		handler, mocks := setup(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"substitutions": map[string]any{
+					"common": map[string]any{
+						"domain": "example.com",
+					},
+					"csi": map[string]any{
+						"volume_path": "/custom/volumes",
+						"storage_class": "fast-ssd",
+					},
+					"monitoring": map[string]any{
+						"retention_days": "30",
+					},
+				},
+			}, nil
+		}
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "csi",
+					Path: "csi",
+				},
+				{
+					Name: "monitoring",
+					Path: "monitoring",
+				},
+			},
+		}
+
+		_, err := handler.GetLocalTemplateData()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		generated := handler.Generate()
+
+		if generated.ConfigMaps == nil {
+			t.Fatal("Expected ConfigMaps to be set")
+		}
+		commonConfigMap, exists := generated.ConfigMaps["values-common"]
+		if !exists {
+			t.Fatal("Expected values-common ConfigMap")
+		}
+		if commonConfigMap["domain"] != "example.com" {
+			t.Errorf("Expected domain 'example.com', got '%s'", commonConfigMap["domain"])
+		}
+
+		var csiKustomization *blueprintv1alpha1.Kustomization
+		var monitoringKustomization *blueprintv1alpha1.Kustomization
+		for i := range generated.Kustomizations {
+			if generated.Kustomizations[i].Name == "csi" {
+				csiKustomization = &generated.Kustomizations[i]
+			}
+			if generated.Kustomizations[i].Name == "monitoring" {
+				monitoringKustomization = &generated.Kustomizations[i]
+			}
+		}
+
+		if csiKustomization == nil {
+			t.Fatal("Expected csi kustomization")
+		}
+		if len(csiKustomization.Substitutions) != 2 {
+			t.Fatalf("Expected 2 substitutions for csi, got %d", len(csiKustomization.Substitutions))
+		}
+		if csiKustomization.Substitutions["volume_path"] != "/custom/volumes" {
+			t.Errorf("Expected volume_path '/custom/volumes', got '%s'", csiKustomization.Substitutions["volume_path"])
+		}
+		if csiKustomization.Substitutions["storage_class"] != "fast-ssd" {
+			t.Errorf("Expected storage_class 'fast-ssd', got '%s'", csiKustomization.Substitutions["storage_class"])
+		}
+
+		if monitoringKustomization == nil {
+			t.Fatal("Expected monitoring kustomization")
+		}
+		if len(monitoringKustomization.Substitutions) != 1 {
+			t.Fatalf("Expected 1 substitution for monitoring, got %d", len(monitoringKustomization.Substitutions))
+		}
+		if monitoringKustomization.Substitutions["retention_days"] != "30" {
+			t.Errorf("Expected retention_days '30', got '%s'", monitoringKustomization.Substitutions["retention_days"])
+		}
+	})
+
+	t.Run("WithOCISubstitutionsOnly", func(t *testing.T) {
+		handler, mocks := setup(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		handler.shims.Stat = os.Stat
+		handler.shims.ReadDir = os.ReadDir
+		handler.shims.ReadFile = os.ReadFile
+		handler.shims.YamlUnmarshal = yaml.Unmarshal
+		handler.shims.YamlMarshal = yaml.Marshal
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+
+		ociSubstitutionsContent := `common:
+  domain: oci.example.com
+  region: us-east-1
+csi:
+  volume_path: /oci/volumes
+`
+		if err := os.WriteFile(filepath.Join(mocks.Runtime.TemplateRoot, "substitutions"), []byte(ociSubstitutionsContent), 0644); err != nil {
+			t.Fatalf("Failed to write OCI substitutions file: %v", err)
+		}
+
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "csi",
+					Path: "csi",
+				},
+			},
+		}
+
+		_, err := handler.GetLocalTemplateData()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		generated := handler.Generate()
+
+		if generated.ConfigMaps == nil {
+			t.Fatal("Expected ConfigMaps to be set from OCI substitutions")
+		}
+		commonConfigMap, exists := generated.ConfigMaps["values-common"]
+		if !exists {
+			t.Fatal("Expected values-common ConfigMap from OCI")
+		}
+		if commonConfigMap["domain"] != "oci.example.com" {
+			t.Errorf("Expected domain 'oci.example.com', got '%s'", commonConfigMap["domain"])
+		}
+		if commonConfigMap["region"] != "us-east-1" {
+			t.Errorf("Expected region 'us-east-1', got '%s'", commonConfigMap["region"])
+		}
+
+		var csiKustomization *blueprintv1alpha1.Kustomization
+		for i := range generated.Kustomizations {
+			if generated.Kustomizations[i].Name == "csi" {
+				csiKustomization = &generated.Kustomizations[i]
+				break
+			}
+		}
+
+		if csiKustomization == nil {
+			t.Fatal("Expected csi kustomization")
+		}
+		if len(csiKustomization.Substitutions) != 1 {
+			t.Fatalf("Expected 1 substitution for csi from OCI, got %d", len(csiKustomization.Substitutions))
+		}
+		if csiKustomization.Substitutions["volume_path"] != "/oci/volumes" {
+			t.Errorf("Expected volume_path '/oci/volumes', got '%s'", csiKustomization.Substitutions["volume_path"])
+		}
+	})
+
+	t.Run("WithOCISubstitutionsMergedWithContext", func(t *testing.T) {
+		handler, mocks := setup(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"substitutions": map[string]any{
+					"common": map[string]any{
+						"region": "us-west-2",
+					},
+					"csi": map[string]any{
+						"storage_class": "fast-ssd",
+					},
+				},
+			}, nil
+		}
+		handler.shims.Stat = os.Stat
+		handler.shims.ReadDir = os.ReadDir
+		handler.shims.ReadFile = os.ReadFile
+		handler.shims.YamlUnmarshal = yaml.Unmarshal
+		handler.shims.YamlMarshal = yaml.Marshal
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+
+		ociSubstitutionsContent := `common:
+  domain: oci.example.com
+  region: us-east-1
+csi:
+  volume_path: /oci/volumes
+`
+		if err := os.WriteFile(filepath.Join(mocks.Runtime.TemplateRoot, "substitutions"), []byte(ociSubstitutionsContent), 0644); err != nil {
+			t.Fatalf("Failed to write OCI substitutions file: %v", err)
+		}
+
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "csi",
+					Path: "csi",
+				},
+			},
+		}
+
+		_, err := handler.GetLocalTemplateData()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		generated := handler.Generate()
+
+		if generated.ConfigMaps == nil {
+			t.Fatal("Expected ConfigMaps to be set")
+		}
+		commonConfigMap, exists := generated.ConfigMaps["values-common"]
+		if !exists {
+			t.Fatal("Expected values-common ConfigMap")
+		}
+		if commonConfigMap["domain"] != "oci.example.com" {
+			t.Errorf("Expected domain 'oci.example.com' from OCI, got '%s'", commonConfigMap["domain"])
+		}
+		if commonConfigMap["region"] != "us-west-2" {
+			t.Errorf("Expected region 'us-west-2' from context (overriding OCI), got '%s'", commonConfigMap["region"])
+		}
+
+		var csiKustomization *blueprintv1alpha1.Kustomization
+		for i := range generated.Kustomizations {
+			if generated.Kustomizations[i].Name == "csi" {
+				csiKustomization = &generated.Kustomizations[i]
+				break
+			}
+		}
+
+		if csiKustomization == nil {
+			t.Fatal("Expected csi kustomization")
+		}
+		if len(csiKustomization.Substitutions) != 2 {
+			t.Fatalf("Expected 2 substitutions for csi (merged from OCI and context), got %d", len(csiKustomization.Substitutions))
+		}
+		if csiKustomization.Substitutions["volume_path"] != "/oci/volumes" {
+			t.Errorf("Expected volume_path '/oci/volumes' from OCI, got '%s'", csiKustomization.Substitutions["volume_path"])
+		}
+		if csiKustomization.Substitutions["storage_class"] != "fast-ssd" {
+			t.Errorf("Expected storage_class 'fast-ssd' from context, got '%s'", csiKustomization.Substitutions["storage_class"])
+		}
+	})
 }
