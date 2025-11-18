@@ -4391,6 +4391,17 @@ func TestBaseBlueprintHandler_Generate(t *testing.T) {
 			},
 		}
 
+		tmpDir := t.TempDir()
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+		handler.shims.Stat = os.Stat
+		handler.shims.ReadDir = os.ReadDir
+		handler.shims.ReadFile = os.ReadFile
+		handler.shims.YamlUnmarshal = yaml.Unmarshal
+		handler.shims.YamlMarshal = yaml.Marshal
+
 		_, err := handler.GetLocalTemplateData()
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
