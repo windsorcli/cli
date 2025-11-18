@@ -4310,7 +4310,7 @@ func TestBaseBlueprintHandler_Generate(t *testing.T) {
 			}
 			return []string{}
 		}
-		
+
 		buildIDPath := filepath.Join(mocks.Runtime.ProjectRoot, ".windsor", ".build-id")
 		if err := os.MkdirAll(filepath.Dir(buildIDPath), 0755); err != nil {
 			t.Fatalf("Failed to create .windsor directory: %v", err)
@@ -4318,7 +4318,7 @@ func TestBaseBlueprintHandler_Generate(t *testing.T) {
 		if err := os.WriteFile(buildIDPath, []byte("build-123"), 0644); err != nil {
 			t.Fatalf("Failed to write build ID file: %v", err)
 		}
-		
+
 		handler.blueprint = blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{
 				Name: "test-blueprint",
@@ -4366,7 +4366,7 @@ func TestBaseBlueprintHandler_Generate(t *testing.T) {
 						"domain": "example.com",
 					},
 					"csi": map[string]any{
-						"volume_path": "/custom/volumes",
+						"volume_path":   "/custom/volumes",
 						"storage_class": "fast-ssd",
 					},
 					"monitoring": map[string]any{
