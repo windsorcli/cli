@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 	"text/template"
-
 )
 
 // The ShellTest is a test suite for the Shell interface and its implementations.
@@ -24,34 +23,13 @@ import (
 // Test Setup
 // =============================================================================
 
-// Mock functions for testing
-var (
-	Command    func(name string, args ...string) *exec.Cmd
-	CmdStart   func(cmd *exec.Cmd) error
-	CmdWait    func(cmd *exec.Cmd) error
-	CmdRun     func(cmd *exec.Cmd) error
-	StdoutPipe func(cmd *exec.Cmd) (io.ReadCloser, error)
-	StderrPipe func(cmd *exec.Cmd) (io.ReadCloser, error)
-	Getwd      func() (string, error)
-	Stat       func(name string) (os.FileInfo, error)
-)
-
-type Mocks struct {
+type ShellTestMocks struct {
 	Shims  *Shims
 	TmpDir string
 }
 
-type SetupOptions struct {
-}
-
-// setupMocks creates a new set of mocks for testing
-func setupMocks(t *testing.T) *Mocks {
-	t.Helper()
-
-	// Create temp dir
-	tmpDir := t.TempDir()
-
-	// Create shims with mock implementations
+// setupDefaultShims creates a new Shims instance with default implementations
+func setupDefaultShims(tmpDir string) *Shims {
 	shims := NewShims()
 
 	// Mock command execution with proper cleanup
@@ -90,7 +68,7 @@ func setupMocks(t *testing.T) *Mocks {
 		r, w := io.Pipe()
 		go func() {
 			if _, err := w.Write([]byte("test output\n")); err != nil {
-				t.Errorf("Failed to write to stdout pipe: %v", err)
+				// Ignore error in goroutine
 			}
 			w.Close()
 		}()
@@ -101,7 +79,7 @@ func setupMocks(t *testing.T) *Mocks {
 		r, w := io.Pipe()
 		go func() {
 			if _, err := w.Write([]byte("error\n")); err != nil {
-				t.Errorf("Failed to write to stderr pipe: %v", err)
+				// Ignore error in goroutine
 			}
 			w.Close()
 		}()
@@ -110,7 +88,7 @@ func setupMocks(t *testing.T) *Mocks {
 
 	// Mock file operations
 	shims.Getwd = func() (string, error) {
-		return "/test/dir", nil
+		return tmpDir, nil
 	}
 
 	shims.Stat = func(name string) (os.FileInfo, error) {
@@ -158,7 +136,7 @@ func setupMocks(t *testing.T) *Mocks {
 	}
 
 	shims.UserHomeDir = func() (string, error) {
-		return "/home/test", nil
+		return tmpDir, nil
 	}
 
 	// Mock random operations with proper cleanup
@@ -197,7 +175,7 @@ func setupMocks(t *testing.T) *Mocks {
 
 	// Mock filepath operations
 	shims.Glob = func(pattern string) ([]string, error) {
-		return []string{"/test/dir/test"}, nil
+		return []string{filepath.Join(tmpDir, "test")}, nil
 	}
 
 	shims.Join = func(elem ...string) string {
@@ -208,10 +186,23 @@ func setupMocks(t *testing.T) *Mocks {
 		return scanner.Text()
 	}
 
-	return &Mocks{
-		Shims:  shims,
+	return shims
+}
+
+// setupShellMocks creates a new set of mocks for testing
+func setupShellMocks(t *testing.T) *ShellTestMocks {
+	t.Helper()
+
+	// Create temp dir
+	tmpDir := t.TempDir()
+
+	// Create initial mocks with defaults
+	mocks := &ShellTestMocks{
+		Shims:  setupDefaultShims(tmpDir),
 		TmpDir: tmpDir,
 	}
+
+	return mocks
 }
 
 // =============================================================================
@@ -263,9 +254,9 @@ func TestShell_SetVerbosity(t *testing.T) {
 // =============================================================================
 
 func TestShell_GetProjectRoot(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupShellMocks(t)
 		shell := NewDefaultShell()
 		shell.shims = mocks.Shims
 		return shell, mocks
@@ -382,9 +373,9 @@ func TestShell_GetProjectRoot(t *testing.T) {
 }
 
 func TestShell_Exec(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupShellMocks(t)
 		shell := NewDefaultShell()
 		shell.shims = mocks.Shims
 		return shell, mocks
@@ -488,9 +479,9 @@ func TestShell_Exec(t *testing.T) {
 }
 
 func TestShell_ExecSudo(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupShellMocks(t)
 		shell := NewDefaultShell()
 		shell.shims = mocks.Shims
 		return shell, mocks
@@ -719,9 +710,9 @@ func TestShell_ExecSudo(t *testing.T) {
 }
 
 func TestShell_ExecSilent(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupShellMocks(t)
 		shell := NewDefaultShell()
 		shell.shims = mocks.Shims
 		return shell, mocks
@@ -898,9 +889,9 @@ func TestShell_ExecSilent(t *testing.T) {
 }
 
 func TestShell_GetSessionToken(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupShellMocks(t)
 		shell := NewDefaultShell()
 		shell.shims = mocks.Shims
 		return shell, mocks
@@ -970,9 +961,9 @@ func TestShell_GetSessionToken(t *testing.T) {
 }
 
 func TestShell_CheckResetFlags(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupShellMocks(t)
 		shell := NewDefaultShell()
 		shell.shims = mocks.Shims
 		return shell, mocks
@@ -1103,9 +1094,9 @@ func TestShell_CheckResetFlags(t *testing.T) {
 }
 
 func TestShell_GenerateRandomString(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupShellMocks(t)
 		shell := NewDefaultShell()
 		shell.shims = mocks.Shims
 		return shell, mocks
@@ -1130,9 +1121,9 @@ func TestShell_GenerateRandomString(t *testing.T) {
 }
 
 func TestShell_InstallHook(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupShellMocks(t)
 		shell := NewDefaultShell()
 		shell.shims = mocks.Shims
 		return shell, mocks
@@ -1367,9 +1358,9 @@ func captureStdout(t *testing.T, f func()) string {
 }
 
 func TestShell_AddCurrentDirToTrustedFile(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupShellMocks(t)
 		shell := NewDefaultShell()
 		shell.shims = mocks.Shims
 		return shell, mocks
@@ -1619,9 +1610,9 @@ func TestShell_AddCurrentDirToTrustedFile(t *testing.T) {
 }
 
 func TestShell_CheckTrustedDirectory(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupShellMocks(t)
 		shell := NewDefaultShell()
 		shell.shims = mocks.Shims
 		return shell, mocks
@@ -1810,9 +1801,9 @@ func TestShell_CheckTrustedDirectory(t *testing.T) {
 }
 
 func TestShell_WriteResetToken(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupShellMocks(t)
 		shell := NewDefaultShell()
 		shell.shims = mocks.Shims
 		return shell, mocks
@@ -2007,9 +1998,9 @@ func TestShell_WriteResetToken(t *testing.T) {
 }
 
 func TestShell_Reset(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupShellMocks(t)
 		shell := NewDefaultShell()
 		shell.shims = mocks.Shims
 		return shell, mocks
@@ -2235,9 +2226,9 @@ func TestShell_Reset(t *testing.T) {
 }
 
 func TestShell_ResetSessionToken(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupShellMocks(t)
 		shell := NewDefaultShell()
 		shell.shims = mocks.Shims
 		return shell, mocks
@@ -2302,9 +2293,9 @@ func TestShell_ResetSessionToken(t *testing.T) {
 }
 
 func TestShell_ExecProgress(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupShellMocks(t)
 		shell := NewDefaultShell()
 		shell.shims = mocks.Shims
 		return shell, mocks
@@ -2853,9 +2844,9 @@ func TestShell_ExecProgress(t *testing.T) {
 
 func TestShell_RegisterSecret(t *testing.T) {
 	// setup creates a new shell with mocked dependencies for testing
-	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupShellMocks(t)
 		shell := NewDefaultShell()
 		return shell, mocks
 	}
@@ -2931,9 +2922,9 @@ func TestShell_RegisterSecret(t *testing.T) {
 
 func TestShell_scrubString(t *testing.T) {
 	// setup creates a new shell with mocked dependencies for testing
-	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupShellMocks(t)
 		shell := NewDefaultShell()
 		return shell, mocks
 	}
@@ -3185,7 +3176,7 @@ func TestShell_scrubString(t *testing.T) {
 func TestScrubbingWriter(t *testing.T) {
 	setup := func(t *testing.T) (*DefaultShell, *bytes.Buffer) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupShellMocks(t)
 		shell := NewDefaultShell()
 		shell.shims = mocks.Shims
 

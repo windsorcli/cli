@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	v1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/runtime/secrets"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -18,14 +20,20 @@ import (
 // Test Setup
 // =============================================================================
 
-// setupEnvironmentMocks creates mock components for testing the Runtime
-func setupEnvironmentMocks(t *testing.T) *Mocks {
+// RuntimeTestMocks contains all the mock dependencies for testing the Runtime
+type RuntimeTestMocks struct {
+	ConfigHandler config.ConfigHandler
+	Shell         shell.Shell
+	Runtime       *Runtime
+}
+
+// setupRuntimeMocks creates mock components for testing the Runtime with optional overrides
+func setupRuntimeMocks(t *testing.T) *RuntimeTestMocks {
 	t.Helper()
 
 	configHandler := config.NewMockConfigHandler()
 	mockShell := shell.NewMockShell()
 
-	// Set up basic configuration
 	configHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 		switch key {
 		case "docker.enabled", "cluster.enabled", "terraform.enabled":
@@ -46,7 +54,6 @@ func setupEnvironmentMocks(t *testing.T) *Mocks {
 		}
 	}
 
-	// Set up shell mock to return output
 	mockShell.RenderEnvVarsFunc = func(envVars map[string]string, export bool) string {
 		var result string
 		for key, value := range envVars {
@@ -67,22 +74,18 @@ func setupEnvironmentMocks(t *testing.T) *Mocks {
 		return result
 	}
 
-	// Set up session token mock
 	mockShell.GetSessionTokenFunc = func() (string, error) {
 		return "mock-session-token", nil
 	}
 
-	// Set up GetProjectRoot mock
 	mockShell.GetProjectRootFunc = func() (string, error) {
 		return "/test/project", nil
 	}
 
-	// Set up GetContext mock
 	configHandler.GetContextFunc = func() string {
 		return "test-context"
 	}
 
-	// Create execution context - paths will be set automatically by NewRuntime
 	rtOpts := []*Runtime{
 		{
 			Shell:         mockShell,
@@ -90,474 +93,19 @@ func setupEnvironmentMocks(t *testing.T) *Mocks {
 		},
 	}
 
-	ctx, err := NewRuntime(rtOpts...)
+	rt, err := NewRuntime(rtOpts...)
 	if err != nil {
 		t.Fatalf("Failed to create context: %v", err)
 	}
 
-	return &Mocks{
+	mocks := &RuntimeTestMocks{
 		ConfigHandler: configHandler,
 		Shell:         mockShell,
-		Runtime:       ctx,
+		Runtime:       rt,
 	}
+
+	return mocks
 }
-
-// Mocks contains all the mock dependencies for testing
-type Mocks struct {
-	ConfigHandler config.ConfigHandler
-	Shell         shell.Shell
-	Runtime       *Runtime
-}
-
-// =============================================================================
-// Test Constructor
-// =============================================================================
-
-func TestNewRuntime(t *testing.T) {
-	t.Run("CreatesContextWithDependencies", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-
-		ctx := mocks.Runtime
-
-		if ctx == nil {
-			t.Fatal("Expected context to be created")
-		}
-
-		if ctx.Shell != mocks.Shell {
-			t.Error("Expected shell to be set")
-		}
-
-		if ctx.ConfigHandler != mocks.ConfigHandler {
-			t.Error("Expected config handler to be set")
-		}
-
-		if ctx.envVars == nil {
-			t.Error("Expected envVars map to be initialized")
-		}
-
-		if ctx.aliases == nil {
-			t.Error("Expected aliases map to be initialized")
-		}
-
-		if ctx.ContextName != "test-context" {
-			t.Errorf("Expected ContextName to be 'test-context', got: %s", ctx.ContextName)
-		}
-
-		if ctx.ProjectRoot != "/test/project" {
-			t.Errorf("Expected ProjectRoot to be '/test/project', got: %s", ctx.ProjectRoot)
-		}
-
-		expectedConfigRoot := filepath.Join("/test/project", "contexts", "test-context")
-		if ctx.ConfigRoot != expectedConfigRoot {
-			t.Errorf("Expected ConfigRoot to be %q, got: %s", expectedConfigRoot, ctx.ConfigRoot)
-		}
-
-		expectedTemplateRoot := filepath.Join("/test/project", "contexts", "_template")
-		if ctx.TemplateRoot != expectedTemplateRoot {
-			t.Errorf("Expected TemplateRoot to be %q, got: %s", expectedTemplateRoot, ctx.TemplateRoot)
-		}
-	})
-
-	t.Run("ErrorWhenContextIsNil", func(t *testing.T) {
-		_, err := NewRuntime(nil)
-
-		if err != nil {
-			t.Errorf("Expected no error when opts is nil, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorWhenRuntimeIsNil", func(t *testing.T) {
-		_, err := NewRuntime(nil)
-
-		if err != nil {
-			t.Errorf("Expected no error when opts is nil, got: %v", err)
-		}
-	})
-
-	t.Run("CreatesShellWhenNotProvided", func(t *testing.T) {
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetContextFunc = func() string {
-			return "test"
-		}
-
-		rtOpts := []*Runtime{
-			{
-				ConfigHandler: mockConfigHandler,
-			},
-		}
-
-		result, err := NewRuntime(rtOpts...)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		if result.Shell == nil {
-			t.Error("Expected shell to be created")
-		}
-	})
-
-	t.Run("CreatesConfigHandlerWhenNotProvided", func(t *testing.T) {
-		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/test", nil
-		}
-
-		rtOpts := []*Runtime{
-			{
-				Shell: mockShell,
-			},
-		}
-
-		result, err := NewRuntime(rtOpts...)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		if result.ConfigHandler == nil {
-			t.Error("Expected config handler to be created")
-		}
-	})
-}
-
-// =============================================================================
-// Test LoadEnvironment
-// =============================================================================
-
-func TestRuntime_LoadEnvironment(t *testing.T) {
-	t.Run("LoadsEnvironmentSuccessfully", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-
-		err := ctx.LoadEnvironment(false)
-
-		// The context should load successfully with the default WindsorEnv printer
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		// Check that the WindsorEnv printer was initialized
-		if ctx.EnvPrinters.WindsorEnv == nil {
-			t.Error("Expected WindsorEnv printer to be initialized")
-		}
-
-		// Check that environment variables were loaded
-		if len(ctx.envVars) == 0 {
-			t.Error("Expected environment variables to be loaded")
-		}
-	})
-
-	t.Run("HandlesConfigHandlerNotLoaded", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-
-		// Set config handler to nil to test error handling
-		ctx.ConfigHandler = nil
-
-		err := ctx.LoadEnvironment(false)
-
-		if err == nil {
-			t.Error("Expected error when config handler is not loaded")
-		}
-	})
-
-	t.Run("HandlesEnvPrinterInitializationError", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-
-		err := ctx.LoadEnvironment(false)
-
-		// This should not error since the default WindsorEnv printer has working initialization
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		// The WindsorEnv printer should be initialized after LoadEnvironment
-		if ctx.EnvPrinters.WindsorEnv == nil {
-			t.Error("Expected WindsorEnv printer to be initialized")
-		}
-	})
-}
-
-// =============================================================================
-
-// =============================================================================
-// Test Getter Methods
-// =============================================================================
-
-func TestRuntime_GetEnvVars(t *testing.T) {
-	t.Run("ReturnsCopyOfEnvVars", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-
-		original := map[string]string{
-			"TEST_VAR1": "value1",
-			"TEST_VAR2": "value2",
-		}
-		ctx.envVars = original
-
-		copy := ctx.GetEnvVars()
-
-		if len(copy) != len(original) {
-			t.Error("Expected copy to have same length as original")
-		}
-
-		// Modify the copy
-		copy["NEW_VAR"] = "new_value"
-
-		// Original should be unchanged
-		if len(ctx.envVars) != len(original) {
-			t.Error("Expected original to be unchanged")
-		}
-	})
-}
-
-func TestRuntime_GetAliases(t *testing.T) {
-	t.Run("ReturnsCopyOfAliases", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-
-		original := map[string]string{
-			"test1": "echo test1",
-			"test2": "echo test2",
-		}
-		ctx.aliases = original
-
-		copy := ctx.GetAliases()
-
-		if len(copy) != len(original) {
-			t.Error("Expected copy to have same length as original")
-		}
-
-		// Modify the copy
-		copy["new"] = "echo new"
-
-		// Original should be unchanged
-		if len(ctx.aliases) != len(original) {
-			t.Error("Expected original to be unchanged")
-		}
-	})
-}
-
-// =============================================================================
-// Test Private Methods
-// =============================================================================
-
-func TestRuntime_loadSecrets(t *testing.T) {
-	t.Run("LoadsSecretsSuccessfully", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-
-		// Set up mock secrets providers
-		mockSopsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
-		mockOnepasswordProvider := secrets.NewMockSecretsProvider(mocks.Shell)
-
-		ctx.SecretsProviders.Sops = mockSopsProvider
-		ctx.SecretsProviders.Onepassword = mockOnepasswordProvider
-
-		err := ctx.loadSecrets()
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesSecretsProviderError", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-
-		// Set up mock secrets provider that returns an error
-		mockProvider := secrets.NewMockSecretsProvider(mocks.Shell)
-		mockProvider.LoadSecretsFunc = func() error {
-			return errors.New("secrets load failed")
-		}
-
-		ctx.SecretsProviders.Sops = mockProvider
-
-		err := ctx.loadSecrets()
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-
-		if !strings.Contains(err.Error(), "secrets load failed") {
-			t.Errorf("Expected secrets load error, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesNilProviders", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-
-		// Leave providers as nil
-		ctx.SecretsProviders.Sops = nil
-		ctx.SecretsProviders.Onepassword = nil
-
-		err := ctx.loadSecrets()
-		if err != nil {
-			t.Fatalf("Expected no error with nil providers, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesMixedProviders", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-
-		// Set up one provider that works and one that's nil
-		mockProvider := secrets.NewMockSecretsProvider(mocks.Shell)
-		ctx.SecretsProviders.Sops = mockProvider
-		ctx.SecretsProviders.Onepassword = nil
-
-		err := ctx.loadSecrets()
-		if err != nil {
-			t.Fatalf("Expected no error with mixed providers, got: %v", err)
-		}
-	})
-}
-
-func TestRuntime_initializeSecretsProviders(t *testing.T) {
-	t.Run("InitializesSopsProviderWhenEnabled", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-
-		// Enable SOPS in config
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "secrets.sops.enabled" {
-				return true
-			}
-			return false
-		}
-
-		ctx.initializeSecretsProviders()
-
-		if ctx.SecretsProviders.Sops == nil {
-			t.Error("Expected SOPS provider to be initialized")
-		}
-	})
-
-	t.Run("InitializesOnepasswordProviderWhenEnabled", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-
-		// Enable 1Password in config
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "secrets.onepassword.enabled" {
-				return true
-			}
-			return false
-		}
-
-		ctx.initializeSecretsProviders()
-
-		if ctx.SecretsProviders.Onepassword == nil {
-			t.Error("Expected 1Password provider to be initialized")
-		}
-	})
-
-	t.Run("SkipsProvidersWhenDisabled", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-
-		// Disable both providers
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			return false
-		}
-
-		ctx.initializeSecretsProviders()
-
-		if ctx.SecretsProviders.Sops != nil {
-			t.Error("Expected SOPS provider to be nil when disabled")
-		}
-
-		if ctx.SecretsProviders.Onepassword != nil {
-			t.Error("Expected 1Password provider to be nil when disabled")
-		}
-	})
-
-	t.Run("DoesNotOverrideExistingProviders", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-
-		// Pre-set a provider
-		existingProvider := secrets.NewMockSecretsProvider(mocks.Shell)
-		ctx.SecretsProviders.Sops = existingProvider
-
-		// Enable SOPS in config
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "secrets.sops.enabled" {
-				return true
-			}
-			return false
-		}
-
-		ctx.initializeSecretsProviders()
-
-		// Should still be the same provider
-		if ctx.SecretsProviders.Sops != existingProvider {
-			t.Error("Expected existing provider to be preserved")
-		}
-	})
-}
-
-func TestRuntime_LoadEnvironment_WithSecrets(t *testing.T) {
-	t.Run("LoadsEnvironmentWithSecretsSuccessfully", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-
-		// Set up mock secrets providers
-		mockSopsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
-		mockOnepasswordProvider := secrets.NewMockSecretsProvider(mocks.Shell)
-
-		ctx.SecretsProviders.Sops = mockSopsProvider
-		ctx.SecretsProviders.Onepassword = mockOnepasswordProvider
-
-		err := ctx.LoadEnvironment(true) // Enable secrets loading
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesSecretsLoadError", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-
-		// Set up mock secrets provider that returns an error
-		mockProvider := secrets.NewMockSecretsProvider(mocks.Shell)
-		mockProvider.LoadSecretsFunc = func() error {
-			return errors.New("secrets load failed")
-		}
-
-		ctx.SecretsProviders.Sops = mockProvider
-
-		err := ctx.LoadEnvironment(true) // Enable secrets loading
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-
-		if !strings.Contains(err.Error(), "secrets load failed") {
-			t.Errorf("Expected secrets load error, got: %v", err)
-		}
-	})
-}
-
-func TestRuntime_initializeComponents_EdgeCases(t *testing.T) {
-	t.Run("ReturnsNil", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-
-		err := ctx.initializeComponents()
-		if err != nil {
-			t.Errorf("Expected nil, got: %v", err)
-		}
-	})
-}
-
-// =============================================================================
-// Test Helpers
-// =============================================================================
 
 type MockToolsManager struct {
 	WriteManifestFunc func() error
@@ -586,86 +134,611 @@ func (m *MockToolsManager) Check() error {
 	return nil
 }
 
-type MockEnvPrinter struct {
-	GetEnvVarsFunc      func() (map[string]string, error)
-	GetAliasFunc        func() (map[string]string, error)
-	PostEnvHookFunc     func(directory ...string) error
-	GetManagedEnvFunc   func() []string
-	GetManagedAliasFunc func() []string
-	SetManagedEnvFunc   func(env string)
-	SetManagedAliasFunc func(alias string)
-	ResetFunc           func()
-}
+// =============================================================================
+// Test Constructor
+// =============================================================================
 
-func (m *MockEnvPrinter) GetEnvVars() (map[string]string, error) {
-	if m.GetEnvVarsFunc != nil {
-		return m.GetEnvVarsFunc()
-	}
-	return make(map[string]string), nil
-}
+func TestRuntime_NewRuntime(t *testing.T) {
+	t.Run("CreatesContextWithDependencies", func(t *testing.T) {
+		// Given a runtime with dependencies
+		mocks := setupRuntimeMocks(t)
 
-func (m *MockEnvPrinter) GetAlias() (map[string]string, error) {
-	if m.GetAliasFunc != nil {
-		return m.GetAliasFunc()
-	}
-	return make(map[string]string), nil
-}
+		// When the runtime is created
+		rt := mocks.Runtime
 
-func (m *MockEnvPrinter) PostEnvHook(directory ...string) error {
-	if m.PostEnvHookFunc != nil {
-		return m.PostEnvHookFunc(directory...)
-	}
-	return nil
-}
+		// Then all dependencies should be set correctly
 
-func (m *MockEnvPrinter) GetManagedEnv() []string {
-	if m.GetManagedEnvFunc != nil {
-		return m.GetManagedEnvFunc()
-	}
-	return []string{}
-}
+		if rt == nil {
+			t.Fatal("Expected context to be created")
+		}
 
-func (m *MockEnvPrinter) GetManagedAlias() []string {
-	if m.GetManagedAliasFunc != nil {
-		return m.GetManagedAliasFunc()
-	}
-	return []string{}
-}
+		if rt.Shell != mocks.Shell {
+			t.Error("Expected shell to be set")
+		}
 
-func (m *MockEnvPrinter) SetManagedEnv(env string) {
-	if m.SetManagedEnvFunc != nil {
-		m.SetManagedEnvFunc(env)
-	}
-}
+		if rt.ConfigHandler != mocks.ConfigHandler {
+			t.Error("Expected config handler to be set")
+		}
 
-func (m *MockEnvPrinter) SetManagedAlias(alias string) {
-	if m.SetManagedAliasFunc != nil {
-		m.SetManagedAliasFunc(alias)
-	}
-}
+		if rt.envVars == nil {
+			t.Error("Expected envVars map to be initialized")
+		}
 
-func (m *MockEnvPrinter) Reset() {
-	if m.ResetFunc != nil {
-		m.ResetFunc()
-	}
+		if rt.aliases == nil {
+			t.Error("Expected aliases map to be initialized")
+		}
+
+		if rt.ContextName != "test-context" {
+			t.Errorf("Expected ContextName to be 'test-context', got: %s", rt.ContextName)
+		}
+
+		if rt.ProjectRoot != "/test/project" {
+			t.Errorf("Expected ProjectRoot to be '/test/project', got: %s", rt.ProjectRoot)
+		}
+
+		expectedConfigRoot := filepath.Join("/test/project", "contexts", "test-context")
+		if rt.ConfigRoot != expectedConfigRoot {
+			t.Errorf("Expected ConfigRoot to be %q, got: %s", expectedConfigRoot, rt.ConfigRoot)
+		}
+
+		expectedTemplateRoot := filepath.Join("/test/project", "contexts", "_template")
+		if rt.TemplateRoot != expectedTemplateRoot {
+			t.Errorf("Expected TemplateRoot to be %q, got: %s", expectedTemplateRoot, rt.TemplateRoot)
+		}
+	})
+
+	t.Run("ErrorWhenContextIsNil", func(t *testing.T) {
+		// Given nil options
+		// When NewRuntime is called
+		_, err := NewRuntime(nil)
+
+		// Then no error should be returned
+
+		if err != nil {
+			t.Errorf("Expected no error when opts is nil, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenRuntimeIsNil", func(t *testing.T) {
+		// Given nil options
+		// When NewRuntime is called
+		_, err := NewRuntime(nil)
+
+		// Then no error should be returned
+
+		if err != nil {
+			t.Errorf("Expected no error when opts is nil, got: %v", err)
+		}
+	})
+
+	t.Run("CreatesShellWhenNotProvided", func(t *testing.T) {
+		// Given a runtime with config handler but no shell
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextFunc = func() string {
+			return "test"
+		}
+
+		rtOpts := []*Runtime{
+			{
+				ConfigHandler: mockConfigHandler,
+			},
+		}
+
+		// When NewRuntime is called
+		result, err := NewRuntime(rtOpts...)
+
+		// Then shell should be created
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if result.Shell == nil {
+			t.Error("Expected shell to be created")
+		}
+	})
+
+	t.Run("CreatesConfigHandlerWhenNotProvided", func(t *testing.T) {
+		// Given a runtime with shell but no config handler
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/test", nil
+		}
+
+		rtOpts := []*Runtime{
+			{
+				Shell: mockShell,
+			},
+		}
+
+		// When NewRuntime is called
+		result, err := NewRuntime(rtOpts...)
+
+		// Then config handler should be created
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if result.ConfigHandler == nil {
+			t.Error("Expected config handler to be created")
+		}
+	})
+
+	t.Run("ErrorWhenGetProjectRootFails", func(t *testing.T) {
+		// Given a shell that fails to get project root
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("failed to get project root")
+		}
+
+		rtOpts := []*Runtime{
+			{
+				Shell: mockShell,
+			},
+		}
+
+		// When NewRuntime is called
+		_, err := NewRuntime(rtOpts...)
+
+		// Then an error should be returned
+
+		if err == nil {
+			t.Error("Expected error when GetProjectRoot fails")
+		}
+
+		if !strings.Contains(err.Error(), "failed to get project root") {
+			t.Errorf("Expected error about getting project root, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenGetProjectRootFailsOnSecondCall", func(t *testing.T) {
+		// Given a shell that fails to get project root on second call
+		mockShell := shell.NewMockShell()
+		callCount := 0
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			callCount++
+			if callCount == 1 {
+				return "", nil
+			}
+			return "", fmt.Errorf("failed to get project root")
+		}
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextFunc = func() string {
+			return ""
+		}
+
+		rtOpts := []*Runtime{
+			{
+				Shell:         mockShell,
+				ConfigHandler: mockConfigHandler,
+				ProjectRoot:   "",
+			},
+		}
+
+		// When NewRuntime is called
+		_, err := NewRuntime(rtOpts...)
+
+		// Then an error should be returned
+
+		if err == nil {
+			t.Error("Expected error when GetProjectRoot fails on second call")
+		}
+
+		if !strings.Contains(err.Error(), "failed to get project root") {
+			t.Errorf("Expected error about getting project root, got: %v", err)
+		}
+	})
+
+	t.Run("DefaultsContextNameToLocalWhenEmpty", func(t *testing.T) {
+		// Given a config handler with empty context name
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/test/project", nil
+		}
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextFunc = func() string {
+			return ""
+		}
+
+		rtOpts := []*Runtime{
+			{
+				Shell:         mockShell,
+				ConfigHandler: mockConfigHandler,
+			},
+		}
+
+		// When NewRuntime is called
+		rt, err := NewRuntime(rtOpts...)
+
+		// Then context name should default to "local"
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if rt.ContextName != "local" {
+			t.Errorf("Expected ContextName to be 'local', got: %s", rt.ContextName)
+		}
+	})
+
+	t.Run("HandlesAllOverridePaths", func(t *testing.T) {
+		// Given runtime options with all paths and dependencies overridden
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/test/project", nil
+		}
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextFunc = func() string {
+			return "test-context"
+		}
+
+		mockToolsManager := &MockToolsManager{}
+		mockSopsProvider := secrets.NewMockSecretsProvider(mockShell)
+		mockOnepasswordProvider := secrets.NewMockSecretsProvider(mockShell)
+		mockAwsEnv := env.NewMockEnvPrinter()
+		mockAzureEnv := env.NewMockEnvPrinter()
+		mockDockerEnv := env.NewMockEnvPrinter()
+		mockKubeEnv := env.NewMockEnvPrinter()
+		mockTalosEnv := env.NewMockEnvPrinter()
+		mockTerraformEnv := env.NewMockEnvPrinter()
+		mockWindsorEnv := env.NewMockEnvPrinter()
+
+		rtOpts := []*Runtime{
+			{
+				Shell:         mockShell,
+				ConfigHandler: mockConfigHandler,
+				ContextName:   "custom-context",
+				ProjectRoot:   "/custom/project",
+				ConfigRoot:    "/custom/config",
+				TemplateRoot:  "/custom/template",
+				ToolsManager:  mockToolsManager,
+			},
+		}
+		rtOpts[0].SecretsProviders.Sops = mockSopsProvider
+		rtOpts[0].SecretsProviders.Onepassword = mockOnepasswordProvider
+		rtOpts[0].EnvPrinters.AwsEnv = mockAwsEnv
+		rtOpts[0].EnvPrinters.AzureEnv = mockAzureEnv
+		rtOpts[0].EnvPrinters.DockerEnv = mockDockerEnv
+		rtOpts[0].EnvPrinters.KubeEnv = mockKubeEnv
+		rtOpts[0].EnvPrinters.TalosEnv = mockTalosEnv
+		rtOpts[0].EnvPrinters.TerraformEnv = mockTerraformEnv
+		rtOpts[0].EnvPrinters.WindsorEnv = mockWindsorEnv
+
+		// When NewRuntime is called
+		rt, err := NewRuntime(rtOpts...)
+
+		// Then all overrides should be applied correctly
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if rt.ContextName != "custom-context" {
+			t.Errorf("Expected ContextName to be 'custom-context', got: %s", rt.ContextName)
+		}
+
+		if rt.ProjectRoot != "/test/project" {
+			t.Errorf("Expected ProjectRoot to be '/test/project' (from GetProjectRoot), got: %s", rt.ProjectRoot)
+		}
+
+		if rt.ConfigRoot != "/custom/config" {
+			t.Errorf("Expected ConfigRoot to be '/custom/config', got: %s", rt.ConfigRoot)
+		}
+
+		if rt.TemplateRoot != "/custom/template" {
+			t.Errorf("Expected TemplateRoot to be '/custom/template', got: %s", rt.TemplateRoot)
+		}
+
+		if rt.ToolsManager != mockToolsManager {
+			t.Error("Expected ToolsManager to be set")
+		}
+
+		if rt.SecretsProviders.Sops != mockSopsProvider {
+			t.Error("Expected Sops provider to be set")
+		}
+
+		if rt.SecretsProviders.Onepassword != mockOnepasswordProvider {
+			t.Error("Expected Onepassword provider to be set")
+		}
+
+		if rt.EnvPrinters.AwsEnv != mockAwsEnv {
+			t.Error("Expected AwsEnv to be set")
+		}
+
+		if rt.EnvPrinters.AzureEnv != mockAzureEnv {
+			t.Error("Expected AzureEnv to be set")
+		}
+
+		if rt.EnvPrinters.DockerEnv != mockDockerEnv {
+			t.Error("Expected DockerEnv to be set")
+		}
+
+		if rt.EnvPrinters.KubeEnv != mockKubeEnv {
+			t.Error("Expected KubeEnv to be set")
+		}
+
+		if rt.EnvPrinters.TalosEnv != mockTalosEnv {
+			t.Error("Expected TalosEnv to be set")
+		}
+
+		if rt.EnvPrinters.TerraformEnv != mockTerraformEnv {
+			t.Error("Expected TerraformEnv to be set")
+		}
+
+		if rt.EnvPrinters.WindsorEnv != mockWindsorEnv {
+			t.Error("Expected WindsorEnv to be set")
+		}
+	})
 }
 
 // =============================================================================
-// Test CheckTools
+// Test Public Methods
 // =============================================================================
+
+func TestRuntime_LoadEnvironment(t *testing.T) {
+	t.Run("LoadsEnvironmentSuccessfully", func(t *testing.T) {
+		// Given a runtime with mocks
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		// When LoadEnvironment is called
+		err := rt.LoadEnvironment(false)
+
+		// Then environment should load successfully
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if rt.EnvPrinters.WindsorEnv == nil {
+			t.Error("Expected WindsorEnv printer to be initialized")
+		}
+
+		if len(rt.envVars) == 0 {
+			t.Error("Expected environment variables to be loaded")
+		}
+	})
+
+	t.Run("HandlesConfigHandlerNotLoaded", func(t *testing.T) {
+		// Given a runtime with nil config handler
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		rt.ConfigHandler = nil
+
+		// When LoadEnvironment is called
+		err := rt.LoadEnvironment(false)
+
+		// Then an error should be returned
+
+		if err == nil {
+			t.Error("Expected error when config handler is not loaded")
+		}
+	})
+
+	t.Run("HandlesEnvPrinterInitializationError", func(t *testing.T) {
+		// Given a runtime with mocks
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		// When LoadEnvironment is called
+		err := rt.LoadEnvironment(false)
+
+		// Then environment should load successfully
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if rt.EnvPrinters.WindsorEnv == nil {
+			t.Error("Expected WindsorEnv printer to be initialized")
+		}
+	})
+
+	t.Run("ErrorWhenGetEnvVarsFails", func(t *testing.T) {
+		// Given a runtime with an env printer that fails to get env vars
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockEnvPrinter := env.NewMockEnvPrinter()
+		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return nil, fmt.Errorf("failed to get env vars")
+		}
+		rt.EnvPrinters.WindsorEnv = mockEnvPrinter
+
+		// When LoadEnvironment is called
+		err := rt.LoadEnvironment(false)
+
+		// Then an error should be returned
+
+		if err == nil {
+			t.Error("Expected error when GetEnvVars fails")
+		}
+
+		if !strings.Contains(err.Error(), "error getting environment variables") {
+			t.Errorf("Expected error about getting environment variables, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenGetAliasFails", func(t *testing.T) {
+		// Given a runtime with an env printer that fails to get aliases
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockEnvPrinter := env.NewMockEnvPrinter()
+		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return map[string]string{}, nil
+		}
+		mockEnvPrinter.GetAliasFunc = func() (map[string]string, error) {
+			return nil, fmt.Errorf("failed to get aliases")
+		}
+		rt.EnvPrinters.WindsorEnv = mockEnvPrinter
+
+		// When LoadEnvironment is called
+		err := rt.LoadEnvironment(false)
+
+		// Then an error should be returned
+
+		if err == nil {
+			t.Error("Expected error when GetAlias fails")
+		}
+
+		if !strings.Contains(err.Error(), "error getting aliases") {
+			t.Errorf("Expected error about getting aliases, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenPostEnvHookFails", func(t *testing.T) {
+		// Given a runtime with an env printer that fails to execute post env hook
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockEnvPrinter := env.NewMockEnvPrinter()
+		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return map[string]string{}, nil
+		}
+		mockEnvPrinter.GetAliasFunc = func() (map[string]string, error) {
+			return map[string]string{}, nil
+		}
+		mockEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
+			return fmt.Errorf("failed to execute post env hook")
+		}
+		rt.EnvPrinters.WindsorEnv = mockEnvPrinter
+
+		// When LoadEnvironment is called
+		err := rt.LoadEnvironment(false)
+
+		// Then an error should be returned
+
+		if err == nil {
+			t.Error("Expected error when PostEnvHook fails")
+		}
+
+		if !strings.Contains(err.Error(), "failed to execute post env hooks") {
+			t.Errorf("Expected error about executing post env hooks, got: %v", err)
+		}
+	})
+
+	t.Run("LoadsEnvironmentWithSecretsSuccessfully", func(t *testing.T) {
+		// Given a runtime with secrets providers
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockSopsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
+		mockOnepasswordProvider := secrets.NewMockSecretsProvider(mocks.Shell)
+
+		rt.SecretsProviders.Sops = mockSopsProvider
+		rt.SecretsProviders.Onepassword = mockOnepasswordProvider
+
+		// When LoadEnvironment is called with secrets enabled
+		err := rt.LoadEnvironment(true)
+
+		// Then environment should load successfully
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesSecretsLoadError", func(t *testing.T) {
+		// Given a runtime with a secrets provider that fails to load
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockProvider := secrets.NewMockSecretsProvider(mocks.Shell)
+		mockProvider.LoadSecretsFunc = func() error {
+			return errors.New("secrets load failed")
+		}
+
+		rt.SecretsProviders.Sops = mockProvider
+
+		// When LoadEnvironment is called with secrets enabled
+		err := rt.LoadEnvironment(true)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "secrets load failed") {
+			t.Errorf("Expected secrets load error, got: %v", err)
+		}
+	})
+}
+
+func TestRuntime_GetEnvVars(t *testing.T) {
+	t.Run("ReturnsCopyOfEnvVars", func(t *testing.T) {
+		// Given a runtime with environment variables
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		original := map[string]string{
+			"TEST_VAR1": "value1",
+			"TEST_VAR2": "value2",
+		}
+		rt.envVars = original
+
+		// When GetEnvVars is called
+		copy := rt.GetEnvVars()
+
+		// Then a copy should be returned that doesn't affect the original
+		if len(copy) != len(original) {
+			t.Error("Expected copy to have same length as original")
+		}
+
+		copy["NEW_VAR"] = "new_value"
+
+		if len(rt.envVars) != len(original) {
+			t.Error("Expected original to be unchanged")
+		}
+	})
+}
+
+func TestRuntime_GetAliases(t *testing.T) {
+	t.Run("ReturnsCopyOfAliases", func(t *testing.T) {
+		// Given a runtime with aliases
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		original := map[string]string{
+			"test1": "echo test1",
+			"test2": "echo test2",
+		}
+		rt.aliases = original
+
+		// When GetAliases is called
+		copy := rt.GetAliases()
+
+		// Then a copy should be returned that doesn't affect the original
+		if len(copy) != len(original) {
+			t.Error("Expected copy to have same length as original")
+		}
+
+		copy["new"] = "echo new"
+
+		if len(rt.aliases) != len(original) {
+			t.Error("Expected original to be unchanged")
+		}
+	})
+}
 
 func TestRuntime_CheckTools(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
+		// Given a runtime with a tools manager
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
 
 		mockToolsManager := &MockToolsManager{}
 		mockToolsManager.CheckFunc = func() error {
 			return nil
 		}
-		ctx.ToolsManager = mockToolsManager
+		rt.ToolsManager = mockToolsManager
 
-		err := ctx.CheckTools()
+		// When CheckTools is called
+		err := rt.CheckTools()
+
+		// Then no error should be returned
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -673,8 +746,9 @@ func TestRuntime_CheckTools(t *testing.T) {
 	})
 
 	t.Run("InitializesToolsManagerWhenNil", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
+		// Given a runtime with nil tools manager
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
@@ -684,27 +758,34 @@ func TestRuntime_CheckTools(t *testing.T) {
 			return nil
 		}
 
-		ctx.ToolsManager = nil
+		rt.ToolsManager = nil
 
-		err := ctx.CheckTools()
+		// When CheckTools is called
+		err := rt.CheckTools()
+
+		// Then tools manager should be initialized
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
 
-		if ctx.ToolsManager == nil {
+		if rt.ToolsManager == nil {
 			t.Error("Expected ToolsManager to be initialized")
 		}
 	})
 
 	t.Run("HandlesToolsManagerUnavailable", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
+		// Given a runtime with nil tools manager and config handler
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
 
-		ctx.ToolsManager = nil
-		ctx.ConfigHandler = nil
+		rt.ToolsManager = nil
+		rt.ConfigHandler = nil
 
-		err := ctx.CheckTools()
+		// When CheckTools is called
+		err := rt.CheckTools()
+
+		// Then an error should be returned
 
 		if err == nil {
 			t.Error("Expected error when ToolsManager cannot be initialized")
@@ -716,16 +797,20 @@ func TestRuntime_CheckTools(t *testing.T) {
 	})
 
 	t.Run("HandlesToolsManagerCheckError", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
+		// Given a runtime with a tools manager that fails to check
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
 
 		mockToolsManager := &MockToolsManager{}
 		mockToolsManager.CheckFunc = func() error {
 			return errors.New("tools check failed")
 		}
-		ctx.ToolsManager = mockToolsManager
+		rt.ToolsManager = mockToolsManager
 
-		err := ctx.CheckTools()
+		// When CheckTools is called
+		err := rt.CheckTools()
+
+		// Then an error should be returned
 
 		if err == nil {
 			t.Error("Expected error when ToolsManager.Check fails")
@@ -739,19 +824,19 @@ func TestRuntime_CheckTools(t *testing.T) {
 			t.Errorf("Expected error to contain original error, got: %v", err)
 		}
 	})
-
 }
 
 func TestRuntime_HandleSessionReset(t *testing.T) {
 	t.Run("ResetsWhenNoSessionToken", func(t *testing.T) {
+		// Given a runtime with no session token
 		t.Cleanup(func() {
 			os.Unsetenv("NO_CACHE")
 			os.Unsetenv("WINDSOR_SESSION_TOKEN")
 		})
 		os.Unsetenv("WINDSOR_SESSION_TOKEN")
 
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
 
 		mockShell := mocks.Shell.(*shell.MockShell)
 		resetCalled := false
@@ -762,7 +847,10 @@ func TestRuntime_HandleSessionReset(t *testing.T) {
 			return false, nil
 		}
 
-		err := ctx.HandleSessionReset()
+		// When HandleSessionReset is called
+		err := rt.HandleSessionReset()
+
+		// Then reset should be called
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -774,12 +862,13 @@ func TestRuntime_HandleSessionReset(t *testing.T) {
 	})
 
 	t.Run("ResetsWhenResetFlagSet", func(t *testing.T) {
+		// Given a runtime with reset flag set
 		t.Cleanup(func() {
 			os.Unsetenv("NO_CACHE")
 		})
 
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
 
 		mockShell := mocks.Shell.(*shell.MockShell)
 		resetCalled := false
@@ -790,7 +879,10 @@ func TestRuntime_HandleSessionReset(t *testing.T) {
 			return true, nil
 		}
 
-		err := ctx.HandleSessionReset()
+		// When HandleSessionReset is called
+		err := rt.HandleSessionReset()
+
+		// Then reset should be called
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -802,8 +894,9 @@ func TestRuntime_HandleSessionReset(t *testing.T) {
 	})
 
 	t.Run("SkipsResetWhenSessionTokenAndNoResetFlag", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
+		// Given a runtime with session token and no reset flag
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
 
 		t.Setenv("WINDSOR_SESSION_TOKEN", "test-token")
 
@@ -816,7 +909,10 @@ func TestRuntime_HandleSessionReset(t *testing.T) {
 			return false, nil
 		}
 
-		err := ctx.HandleSessionReset()
+		// When HandleSessionReset is called
+		err := rt.HandleSessionReset()
+
+		// Then reset should not be called
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -828,9 +924,13 @@ func TestRuntime_HandleSessionReset(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenShellNotInitialized", func(t *testing.T) {
-		ctx := &Runtime{}
+		// Given a runtime with nil shell
+		rt := &Runtime{}
 
-		err := ctx.HandleSessionReset()
+		// When HandleSessionReset is called
+		err := rt.HandleSessionReset()
+
+		// Then an error should be returned
 
 		if err == nil {
 			t.Error("Expected error when Shell is nil")
@@ -842,15 +942,19 @@ func TestRuntime_HandleSessionReset(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenCheckResetFlagsFails", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
+		// Given a runtime with a shell that fails to check reset flags
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
 
 		mockShell := mocks.Shell.(*shell.MockShell)
 		mockShell.CheckResetFlagsFunc = func() (bool, error) {
 			return false, fmt.Errorf("check reset flags failed")
 		}
 
-		err := ctx.HandleSessionReset()
+		// When HandleSessionReset is called
+		err := rt.HandleSessionReset()
+
+		// Then an error should be returned
 
 		if err == nil {
 			t.Error("Expected error when CheckResetFlags fails")
@@ -860,19 +964,24 @@ func TestRuntime_HandleSessionReset(t *testing.T) {
 			t.Errorf("Expected error about check reset flags, got: %v", err)
 		}
 	})
+
 }
 
 func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 	t.Run("SkipsWhenConfigAlreadyLoaded", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
+		// Given a runtime with config already loaded
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.IsLoadedFunc = func() bool {
 			return true
 		}
 
-		err := ctx.ApplyConfigDefaults()
+		// When ApplyConfigDefaults is called
+		err := rt.ApplyConfigDefaults()
+
+		// Then no error should be returned
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -880,9 +989,10 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 	})
 
 	t.Run("SetsDefaultsForDevMode", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-		ctx.ContextName = "local"
+		// Given a runtime in dev mode
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "local"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.IsLoadedFunc = func() bool {
@@ -907,7 +1017,10 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			return nil
 		}
 
-		err := ctx.ApplyConfigDefaults()
+		// When ApplyConfigDefaults is called
+		err := rt.ApplyConfigDefaults()
+
+		// Then dev mode defaults should be set
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -927,9 +1040,13 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenConfigHandlerNotAvailable", func(t *testing.T) {
-		ctx := &Runtime{}
+		// Given a runtime with nil config handler
+		rt := &Runtime{}
 
-		err := ctx.ApplyConfigDefaults()
+		// When ApplyConfigDefaults is called
+		err := rt.ApplyConfigDefaults()
+
+		// Then an error should be returned
 
 		if err == nil {
 			t.Error("Expected error when ConfigHandler is nil")
@@ -941,9 +1058,10 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenSetDevFails", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-		ctx.ContextName = "local"
+		// Given a runtime with a config handler that fails to set dev
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "local"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.IsLoadedFunc = func() bool {
@@ -962,7 +1080,10 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			return nil
 		}
 
-		err := ctx.ApplyConfigDefaults()
+		// When ApplyConfigDefaults is called
+		err := rt.ApplyConfigDefaults()
+
+		// Then an error should be returned
 
 		if err == nil {
 			t.Error("Expected error when Set dev fails")
@@ -974,9 +1095,10 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 	})
 
 	t.Run("SetsDefaultsForNonDevMode", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-		ctx.ContextName = "prod"
+		// Given a runtime not in dev mode
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "prod"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.IsLoadedFunc = func() bool {
@@ -999,8 +1121,10 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			return nil
 		}
 
-		err := ctx.ApplyConfigDefaults()
+		// When ApplyConfigDefaults is called
+		err := rt.ApplyConfigDefaults()
 
+		// Then defaults should be set
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
@@ -1011,9 +1135,10 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 	})
 
 	t.Run("SetsVMDriverForDockerDesktop", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-		ctx.ContextName = "local"
+		// Given a runtime in dev mode with Docker Desktop
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "local"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.IsLoadedFunc = func() bool {
@@ -1037,8 +1162,10 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			return nil
 		}
 
-		err := ctx.ApplyConfigDefaults()
+		// When ApplyConfigDefaults is called
+		err := rt.ApplyConfigDefaults()
 
+		// Then VM driver should be set
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
@@ -1056,10 +1183,96 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 	})
 
+	t.Run("UsesFullConfigForDevModeWithNonDockerDesktop", func(t *testing.T) {
+		// Given a runtime in dev mode with non-Docker Desktop VM driver
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "local"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.IsLoadedFunc = func() bool {
+			return false
+		}
+		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "colima"
+			}
+			return ""
+		}
+
+		setDefaultCalled := false
+		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+			setDefaultCalled = true
+			return nil
+		}
+
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			return nil
+		}
+
+		// When ApplyConfigDefaults is called
+		err := rt.ApplyConfigDefaults()
+
+		// Then full config should be set
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if !setDefaultCalled {
+			t.Error("Expected SetDefault to be called")
+		}
+	})
+
+	t.Run("UsesStandardConfigForNonDevMode", func(t *testing.T) {
+		// Given a runtime not in dev mode
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "prod"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.IsLoadedFunc = func() bool {
+			return false
+		}
+		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
+			return false
+		}
+
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+
+		setDefaultCalled := false
+		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+			setDefaultCalled = true
+			return nil
+		}
+
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			return nil
+		}
+
+		// When ApplyConfigDefaults is called
+		err := rt.ApplyConfigDefaults()
+
+		// Then standard config should be set
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if !setDefaultCalled {
+			t.Error("Expected SetDefault to be called")
+		}
+	})
+
 	t.Run("ErrorWhenSetDefaultFails", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-		ctx.ContextName = "local"
+		// Given a runtime with a config handler that fails to set default
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "local"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.IsLoadedFunc = func() bool {
@@ -1080,8 +1293,10 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			return nil
 		}
 
-		err := ctx.ApplyConfigDefaults()
+		// When ApplyConfigDefaults is called
+		err := rt.ApplyConfigDefaults()
 
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error when SetDefault fails")
 		}
@@ -1092,9 +1307,10 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenSetVMDriverFails", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-		ctx.ContextName = "local"
+		// Given a runtime with a config handler that fails to set VM driver
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "local"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.IsLoadedFunc = func() bool {
@@ -1118,8 +1334,10 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			return nil
 		}
 
-		err := ctx.ApplyConfigDefaults()
+		// When ApplyConfigDefaults is called
+		err := rt.ApplyConfigDefaults()
 
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error when Set vm.driver fails")
 		}
@@ -1130,9 +1348,10 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenSetProviderFails", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-		ctx.ContextName = "local"
+		// Given a runtime with a config handler that fails to set provider
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "local"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.IsLoadedFunc = func() bool {
@@ -1156,8 +1375,10 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			return nil
 		}
 
-		err := ctx.ApplyConfigDefaults()
+		// When ApplyConfigDefaults is called
+		err := rt.ApplyConfigDefaults()
 
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error when Set provider fails")
 		}
@@ -1170,9 +1391,10 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 
 func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 	t.Run("SetsAWSDefaults", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-		ctx.ContextName = "prod"
+		// Given a runtime with AWS provider
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "prod"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		setCalls := make(map[string]interface{})
@@ -1181,8 +1403,10 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 			return nil
 		}
 
-		err := ctx.ApplyProviderDefaults("aws")
+		// When ApplyProviderDefaults is called with "aws"
+		err := rt.ApplyProviderDefaults("aws")
 
+		// Then AWS defaults should be set
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
@@ -1197,9 +1421,10 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 	})
 
 	t.Run("SetsAzureDefaults", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-		ctx.ContextName = "prod"
+		// Given a runtime with Azure provider
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "prod"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		setCalls := make(map[string]interface{})
@@ -1208,8 +1433,10 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 			return nil
 		}
 
-		err := ctx.ApplyProviderDefaults("azure")
+		// When ApplyProviderDefaults is called with "azure"
+		err := rt.ApplyProviderDefaults("azure")
 
+		// Then Azure defaults should be set
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
@@ -1224,9 +1451,10 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 	})
 
 	t.Run("SetsGenericDefaults", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-		ctx.ContextName = "local"
+		// Given a runtime with generic provider
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "local"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		setCalls := make(map[string]interface{})
@@ -1235,8 +1463,10 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 			return nil
 		}
 
-		err := ctx.ApplyProviderDefaults("generic")
+		// When ApplyProviderDefaults is called with "generic"
+		err := rt.ApplyProviderDefaults("generic")
 
+		// Then generic defaults should be set
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
@@ -1247,9 +1477,13 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenConfigHandlerNotAvailable", func(t *testing.T) {
-		ctx := &Runtime{}
+		// Given a runtime with nil config handler
+		rt := &Runtime{}
 
-		err := ctx.ApplyProviderDefaults("aws")
+		// When ApplyProviderDefaults is called
+		err := rt.ApplyProviderDefaults("aws")
+
+		// Then an error should be returned
 
 		if err == nil {
 			t.Error("Expected error when ConfigHandler is nil")
@@ -1261,9 +1495,10 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenSetFails", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-		ctx.ContextName = "prod"
+		// Given a runtime with a config handler that fails to set
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "prod"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
@@ -1273,7 +1508,10 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 			return nil
 		}
 
-		err := ctx.ApplyProviderDefaults("aws")
+		// When ApplyProviderDefaults is called
+		err := rt.ApplyProviderDefaults("aws")
+
+		// Then an error should be returned
 
 		if err == nil {
 			t.Error("Expected error when Set fails")
@@ -1285,9 +1523,10 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 	})
 
 	t.Run("SetsDefaultsForDevModeWithNoProvider", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-		ctx.ContextName = "local"
+		// Given a runtime in dev mode with no provider
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "local"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -1309,7 +1548,10 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 			return nil
 		}
 
-		err := ctx.ApplyProviderDefaults("")
+		// When ApplyProviderDefaults is called with empty provider
+		err := rt.ApplyProviderDefaults("")
+
+		// Then dev mode defaults should be set
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -1321,9 +1563,10 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 	})
 
 	t.Run("GetsProviderFromConfig", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-		ctx.ContextName = "prod"
+		// Given a runtime with provider in config
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "prod"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -1339,7 +1582,10 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 			return nil
 		}
 
-		err := ctx.ApplyProviderDefaults("")
+		// When ApplyProviderDefaults is called with empty provider
+		err := rt.ApplyProviderDefaults("")
+
+		// Then provider defaults should be set from config
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -1351,9 +1597,10 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenSetClusterDriverFails", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-		ctx.ContextName = "prod"
+		// Given a runtime with a config handler that fails to set cluster driver
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "prod"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -1369,7 +1616,10 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 			return nil
 		}
 
-		err := ctx.ApplyProviderDefaults("generic")
+		// When ApplyProviderDefaults is called
+		err := rt.ApplyProviderDefaults("generic")
+
+		// Then an error should be returned
 
 		if err == nil {
 			t.Error("Expected error when Set cluster.driver fails")
@@ -1381,9 +1631,10 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenSetAzureDriverFails", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-		ctx.ContextName = "prod"
+		// Given a runtime with a config handler that fails to set Azure driver
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "prod"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
@@ -1393,7 +1644,10 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 			return nil
 		}
 
-		err := ctx.ApplyProviderDefaults("azure")
+		// When ApplyProviderDefaults is called with "azure"
+		err := rt.ApplyProviderDefaults("azure")
+
+		// Then an error should be returned
 
 		if err == nil {
 			t.Error("Expected error when Set cluster.driver fails for azure")
@@ -1405,9 +1659,10 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenSetDevModeClusterDriverFails", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
-		ctx.ContextName = "local"
+		// Given a runtime in dev mode with a config handler that fails to set cluster driver
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "local"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -1429,7 +1684,10 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 			return nil
 		}
 
-		err := ctx.ApplyProviderDefaults("")
+		// When ApplyProviderDefaults is called
+		err := rt.ApplyProviderDefaults("")
+
+		// Then an error should be returned
 
 		if err == nil {
 			t.Error("Expected error when Set cluster.driver fails for dev mode")
@@ -1443,8 +1701,9 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 
 func TestRuntime_PrepareTools(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
+		// Given a runtime with a tools manager
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
 
 		mockToolsManager := &MockToolsManager{}
 		mockToolsManager.CheckFunc = func() error {
@@ -1453,9 +1712,12 @@ func TestRuntime_PrepareTools(t *testing.T) {
 		mockToolsManager.InstallFunc = func() error {
 			return nil
 		}
-		ctx.ToolsManager = mockToolsManager
+		rt.ToolsManager = mockToolsManager
 
-		err := ctx.PrepareTools()
+		// When PrepareTools is called
+		err := rt.PrepareTools()
+
+		// Then no error should be returned
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -1463,16 +1725,20 @@ func TestRuntime_PrepareTools(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenCheckFails", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
+		// Given a runtime with a tools manager that fails to check
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
 
 		mockToolsManager := &MockToolsManager{}
 		mockToolsManager.CheckFunc = func() error {
 			return fmt.Errorf("tools check failed")
 		}
-		ctx.ToolsManager = mockToolsManager
+		rt.ToolsManager = mockToolsManager
 
-		err := ctx.PrepareTools()
+		// When PrepareTools is called
+		err := rt.PrepareTools()
+
+		// Then an error should be returned
 
 		if err == nil {
 			t.Error("Expected error when Check fails")
@@ -1484,8 +1750,9 @@ func TestRuntime_PrepareTools(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenInstallFails", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
+		// Given a runtime with a tools manager that fails to install
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
 
 		mockToolsManager := &MockToolsManager{}
 		mockToolsManager.CheckFunc = func() error {
@@ -1494,9 +1761,12 @@ func TestRuntime_PrepareTools(t *testing.T) {
 		mockToolsManager.InstallFunc = func() error {
 			return fmt.Errorf("tools install failed")
 		}
-		ctx.ToolsManager = mockToolsManager
+		rt.ToolsManager = mockToolsManager
 
-		err := ctx.PrepareTools()
+		// When PrepareTools is called
+		err := rt.PrepareTools()
+
+		// Then an error should be returned
 
 		if err == nil {
 			t.Error("Expected error when Install fails")
@@ -1506,17 +1776,43 @@ func TestRuntime_PrepareTools(t *testing.T) {
 			t.Errorf("Expected error about installing tools, got: %v", err)
 		}
 	})
+
+	t.Run("ErrorWhenToolsManagerCannotBeInitialized", func(t *testing.T) {
+		// Given a runtime with nil tools manager and config handler
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		rt.ToolsManager = nil
+		rt.ConfigHandler = nil
+
+		// When PrepareTools is called
+		err := rt.PrepareTools()
+
+		// Then an error should be returned
+
+		if err == nil {
+			t.Error("Expected error when ToolsManager cannot be initialized")
+		}
+
+		if !strings.Contains(err.Error(), "tools manager not available") {
+			t.Errorf("Expected error about tools manager not available, got: %v", err)
+		}
+	})
 }
 
 func TestRuntime_GetBuildID(t *testing.T) {
 	t.Run("CreatesNewBuildIDWhenNoneExists", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
+		// Given a runtime with no existing build ID
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
 
 		tmpDir := t.TempDir()
-		ctx.ProjectRoot = tmpDir
+		rt.ProjectRoot = tmpDir
 
-		buildID, err := ctx.GetBuildID()
+		// When GetBuildID is called
+		buildID, err := rt.GetBuildID()
+
+		// Then a new build ID should be created
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -1528,18 +1824,22 @@ func TestRuntime_GetBuildID(t *testing.T) {
 	})
 
 	t.Run("ReturnsExistingBuildID", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
+		// Given a runtime with an existing build ID
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
 
 		tmpDir := t.TempDir()
-		ctx.ProjectRoot = tmpDir
+		rt.ProjectRoot = tmpDir
 
-		buildID1, err := ctx.GetBuildID()
+		buildID1, err := rt.GetBuildID()
 		if err != nil {
 			t.Fatalf("Failed to get initial build ID: %v", err)
 		}
 
-		buildID2, err := ctx.GetBuildID()
+		// When GetBuildID is called again
+		buildID2, err := rt.GetBuildID()
+
+		// Then the same build ID should be returned
 		if err != nil {
 			t.Fatalf("Failed to get second build ID: %v", err)
 		}
@@ -1548,17 +1848,98 @@ func TestRuntime_GetBuildID(t *testing.T) {
 			t.Errorf("Expected build IDs to match, got %s and %s", buildID1, buildID2)
 		}
 	})
+
+	t.Run("ErrorWhenReadFileFails", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Skipping on Windows: os.Chmod with 0000 does not prevent file operations")
+		}
+
+		// Given a runtime with a build ID file that cannot be read
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		tmpDir := t.TempDir()
+		rt.ProjectRoot = tmpDir
+
+		buildIDDir := filepath.Join(tmpDir, ".windsor")
+		if err := os.MkdirAll(buildIDDir, 0750); err != nil {
+			t.Fatalf("Failed to create build ID directory: %v", err)
+		}
+
+		buildIDFile := filepath.Join(buildIDDir, ".build-id")
+		if err := os.WriteFile(buildIDFile, []byte("test-build-id"), 0600); err != nil {
+			t.Fatalf("Failed to write build ID file: %v", err)
+		}
+
+		if err := os.Chmod(buildIDDir, 0000); err != nil {
+			t.Fatalf("Failed to set directory permissions: %v", err)
+		}
+		defer os.Chmod(buildIDDir, 0750)
+
+		// When GetBuildID is called
+		_, err := rt.GetBuildID()
+
+		// Then an error should be returned
+
+		if err == nil {
+			t.Fatal("Expected error when ReadFile fails")
+		}
+
+		if !strings.Contains(err.Error(), "failed to read build ID file") {
+			t.Errorf("Expected error about reading build ID file, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenWriteBuildIDToFileFails", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Skipping on Windows: os.Chmod with 0000 does not prevent file operations")
+		}
+
+		// Given a runtime with a build ID directory that cannot be written to
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		tmpDir := t.TempDir()
+		rt.ProjectRoot = tmpDir
+
+		buildIDDir := filepath.Join(tmpDir, ".windsor")
+		if err := os.MkdirAll(buildIDDir, 0750); err != nil {
+			t.Fatalf("Failed to create build ID directory: %v", err)
+		}
+
+		if err := os.Chmod(buildIDDir, 0000); err != nil {
+			t.Fatalf("Failed to set directory permissions: %v", err)
+		}
+		defer os.Chmod(buildIDDir, 0750)
+
+		// When GetBuildID is called
+		_, err := rt.GetBuildID()
+
+		// Then an error should be returned
+
+		if err == nil {
+			t.Fatal("Expected error when writeBuildIDToFile fails")
+		}
+
+		if !strings.Contains(err.Error(), "failed to set build ID") && !strings.Contains(err.Error(), "failed to read build ID file") {
+			t.Errorf("Expected error about setting or reading build ID, got: %v", err)
+		}
+	})
 }
 
 func TestRuntime_GenerateBuildID(t *testing.T) {
 	t.Run("GeneratesAndSavesBuildID", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
+		// Given a runtime with no existing build ID
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
 
 		tmpDir := t.TempDir()
-		ctx.ProjectRoot = tmpDir
+		rt.ProjectRoot = tmpDir
 
-		buildID, err := ctx.GenerateBuildID()
+		// When GenerateBuildID is called
+		buildID, err := rt.GenerateBuildID()
+
+		// Then a new build ID should be generated and saved
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -1570,18 +1951,22 @@ func TestRuntime_GenerateBuildID(t *testing.T) {
 	})
 
 	t.Run("IncrementsBuildIDOnSubsequentCalls", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
+		// Given a runtime with an existing build ID
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
 
 		tmpDir := t.TempDir()
-		ctx.ProjectRoot = tmpDir
+		rt.ProjectRoot = tmpDir
 
-		buildID1, err := ctx.GenerateBuildID()
+		buildID1, err := rt.GenerateBuildID()
 		if err != nil {
 			t.Fatalf("Failed to generate first build ID: %v", err)
 		}
 
-		buildID2, err := ctx.GenerateBuildID()
+		// When GenerateBuildID is called again
+		buildID2, err := rt.GenerateBuildID()
+
+		// Then the build ID should be incremented
 		if err != nil {
 			t.Fatalf("Failed to generate second build ID: %v", err)
 		}
@@ -1592,13 +1977,17 @@ func TestRuntime_GenerateBuildID(t *testing.T) {
 	})
 
 	t.Run("ErrorOnInvalidFormat", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
+		// Given a runtime with an invalid build ID format
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
 
 		tmpDir := t.TempDir()
-		ctx.ProjectRoot = tmpDir
+		rt.ProjectRoot = tmpDir
 
-		buildID, err := ctx.incrementBuildID("invalid", "251112")
+		// When incrementBuildID is called with invalid format
+		buildID, err := rt.incrementBuildID("invalid", "251112")
+
+		// Then an error should be returned
 
 		if err == nil {
 			t.Error("Expected error for invalid format")
@@ -1610,13 +1999,17 @@ func TestRuntime_GenerateBuildID(t *testing.T) {
 	})
 
 	t.Run("ErrorOnInvalidCounter", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
+		// Given a runtime with an invalid build ID counter
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
 
 		tmpDir := t.TempDir()
-		ctx.ProjectRoot = tmpDir
+		rt.ProjectRoot = tmpDir
 
-		buildID, err := ctx.incrementBuildID("251112.123.abc", "251112")
+		// When incrementBuildID is called with invalid counter
+		buildID, err := rt.incrementBuildID("251112.123.abc", "251112")
+
+		// Then an error should be returned
 
 		if err == nil {
 			t.Error("Expected error for invalid counter")
@@ -1628,24 +2021,554 @@ func TestRuntime_GenerateBuildID(t *testing.T) {
 	})
 
 	t.Run("ResetsCounterOnDateChange", func(t *testing.T) {
-		mocks := setupEnvironmentMocks(t)
-		ctx := mocks.Runtime
+		// Given a runtime with a build ID from a previous date
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
 
 		tmpDir := t.TempDir()
-		ctx.ProjectRoot = tmpDir
+		rt.ProjectRoot = tmpDir
 
-		buildID, err := ctx.incrementBuildID("251111.123.5", "251112")
+		oldDate := "251111"
+		newDate := "251112"
+		existingBuildID := fmt.Sprintf("%s.123.5", oldDate)
+
+		// When incrementBuildID is called with a new date
+		buildID, err := rt.incrementBuildID(existingBuildID, newDate)
+
+		// Then the counter should be reset
 
 		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
+			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		if !strings.HasPrefix(buildID, "251112.") {
-			t.Error("Expected new date in build ID")
+		if !strings.HasPrefix(buildID, newDate) {
+			t.Errorf("Expected build ID to start with new date %s, got: %s", newDate, buildID)
 		}
 
 		if !strings.HasSuffix(buildID, ".1") {
-			t.Error("Expected counter to reset to 1")
+			t.Errorf("Expected build ID to end with .1, got: %s", buildID)
+		}
+	})
+
+	t.Run("IncrementsCounterOnSameDate", func(t *testing.T) {
+		// Given a runtime with a build ID from the same date
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		tmpDir := t.TempDir()
+		rt.ProjectRoot = tmpDir
+
+		date := "251112"
+		existingBuildID := fmt.Sprintf("%s.123.5", date)
+
+		// When incrementBuildID is called with the same date
+		buildID, err := rt.incrementBuildID(existingBuildID, date)
+
+		// Then the counter should be incremented
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if !strings.HasPrefix(buildID, date) {
+			t.Errorf("Expected build ID to start with date %s, got: %s", date, buildID)
+		}
+
+		if !strings.Contains(buildID, ".123.6") {
+			t.Errorf("Expected build ID to contain incremented counter .123.6, got: %s", buildID)
+		}
+	})
+
+	t.Run("ErrorWhenWriteBuildIDToFileFails", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Skipping on Windows: os.Chmod with 0000 does not prevent file operations")
+		}
+
+		// Given a runtime with a build ID directory that cannot be written to
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		tmpDir := t.TempDir()
+		rt.ProjectRoot = tmpDir
+
+		buildIDDir := filepath.Join(tmpDir, ".windsor")
+		if err := os.MkdirAll(buildIDDir, 0750); err != nil {
+			t.Fatalf("Failed to create build ID directory: %v", err)
+		}
+
+		if err := os.Chmod(buildIDDir, 0000); err != nil {
+			t.Fatalf("Failed to set directory permissions: %v", err)
+		}
+		defer os.Chmod(buildIDDir, 0750)
+
+		// When GenerateBuildID is called
+		_, err := rt.GenerateBuildID()
+
+		// Then an error should be returned
+
+		if err == nil {
+			t.Fatal("Expected error when writeBuildIDToFile fails")
+		}
+
+		if !strings.Contains(err.Error(), "failed to set build ID") && !strings.Contains(err.Error(), "failed to read build ID file") {
+			t.Errorf("Expected error about setting or reading build ID, got: %v", err)
+		}
+	})
+}
+
+// =============================================================================
+// Test Private Methods
+// =============================================================================
+
+func TestRuntime_loadSecrets(t *testing.T) {
+	t.Run("LoadsSecretsSuccessfully", func(t *testing.T) {
+		// Given a runtime with secrets providers
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockSopsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
+		mockOnepasswordProvider := secrets.NewMockSecretsProvider(mocks.Shell)
+
+		rt.SecretsProviders.Sops = mockSopsProvider
+		rt.SecretsProviders.Onepassword = mockOnepasswordProvider
+
+		// When loadSecrets is called
+		err := rt.loadSecrets()
+
+		// Then secrets should load successfully
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesSecretsProviderError", func(t *testing.T) {
+		// Given a runtime with a secrets provider that fails to load
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockProvider := secrets.NewMockSecretsProvider(mocks.Shell)
+		mockProvider.LoadSecretsFunc = func() error {
+			return errors.New("secrets load failed")
+		}
+
+		rt.SecretsProviders.Sops = mockProvider
+
+		// When loadSecrets is called
+		err := rt.loadSecrets()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "secrets load failed") {
+			t.Errorf("Expected secrets load error, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesNilProviders", func(t *testing.T) {
+		// Given a runtime with nil secrets providers
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		rt.SecretsProviders.Sops = nil
+		rt.SecretsProviders.Onepassword = nil
+
+		// When loadSecrets is called
+		err := rt.loadSecrets()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error with nil providers, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesMixedProviders", func(t *testing.T) {
+		// Given a runtime with mixed secrets providers
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockProvider := secrets.NewMockSecretsProvider(mocks.Shell)
+		rt.SecretsProviders.Sops = mockProvider
+		rt.SecretsProviders.Onepassword = nil
+
+		// When loadSecrets is called
+		err := rt.loadSecrets()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error with mixed providers, got: %v", err)
+		}
+	})
+}
+
+func TestRuntime_initializeSecretsProviders(t *testing.T) {
+	t.Run("InitializesSopsProviderWhenEnabled", func(t *testing.T) {
+		// Given a runtime with SOPS enabled in config
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "secrets.sops.enabled" {
+				return true
+			}
+			return false
+		}
+
+		// When initializeSecretsProviders is called
+		rt.initializeSecretsProviders()
+
+		// Then SOPS provider should be initialized
+
+		if rt.SecretsProviders.Sops == nil {
+			t.Error("Expected SOPS provider to be initialized")
+		}
+	})
+
+	t.Run("InitializesOnepasswordProviderWhenEnabled", func(t *testing.T) {
+		// Given a runtime with 1Password enabled in config
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "secrets.onepassword.enabled" {
+				return true
+			}
+			return false
+		}
+
+		// When initializeSecretsProviders is called
+		rt.initializeSecretsProviders()
+
+		// Then 1Password provider should be initialized
+
+		if rt.SecretsProviders.Onepassword == nil {
+			t.Error("Expected 1Password provider to be initialized")
+		}
+	})
+
+	t.Run("SkipsProvidersWhenDisabled", func(t *testing.T) {
+		// Given a runtime with secrets providers disabled
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+
+		// When initializeSecretsProviders is called
+		rt.initializeSecretsProviders()
+
+		// Then providers should not be initialized
+
+		if rt.SecretsProviders.Sops != nil {
+			t.Error("Expected SOPS provider to be nil when disabled")
+		}
+
+		if rt.SecretsProviders.Onepassword != nil {
+			t.Error("Expected 1Password provider to be nil when disabled")
+		}
+	})
+
+	t.Run("DoesNotOverrideExistingProviders", func(t *testing.T) {
+		// Given a runtime with an existing secrets provider
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		existingProvider := secrets.NewMockSecretsProvider(mocks.Shell)
+		rt.SecretsProviders.Sops = existingProvider
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "secrets.sops.enabled" {
+				return true
+			}
+			return false
+		}
+
+		// When initializeSecretsProviders is called
+		rt.initializeSecretsProviders()
+
+		// Then existing provider should be preserved
+		if rt.SecretsProviders.Sops != existingProvider {
+			t.Error("Expected existing provider to be preserved")
+		}
+	})
+}
+
+func TestRuntime_initializeComponents_EdgeCases(t *testing.T) {
+	t.Run("ReturnsNil", func(t *testing.T) {
+		// Given a runtime with mocks
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		// When initializeComponents is called
+		err := rt.initializeComponents()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected nil, got: %v", err)
+		}
+	})
+}
+
+func TestRuntime_initializeEnvPrinters(t *testing.T) {
+	t.Run("InitializesAwsEnvWhenEnabled", func(t *testing.T) {
+		// Given a runtime with AWS enabled
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "aws.enabled" {
+				return true
+			}
+			return false
+		}
+
+		// When initializeEnvPrinters is called
+		rt.initializeEnvPrinters()
+
+		// Then AWS env printer should be initialized
+
+		if rt.EnvPrinters.AwsEnv == nil {
+			t.Error("Expected AwsEnv to be initialized")
+		}
+	})
+
+	t.Run("InitializesAzureEnvWhenEnabled", func(t *testing.T) {
+		// Given a runtime with Azure enabled
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "azure.enabled" {
+				return true
+			}
+			return false
+		}
+
+		// When initializeEnvPrinters is called
+		rt.initializeEnvPrinters()
+
+		// Then Azure env printer should be initialized
+
+		if rt.EnvPrinters.AzureEnv == nil {
+			t.Error("Expected AzureEnv to be initialized")
+		}
+	})
+
+	t.Run("InitializesDockerEnvWhenEnabled", func(t *testing.T) {
+		// Given a runtime with Docker enabled
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "docker.enabled" {
+				return true
+			}
+			return false
+		}
+
+		// When initializeEnvPrinters is called
+		rt.initializeEnvPrinters()
+
+		// Then Docker env printer should be initialized
+
+		if rt.EnvPrinters.DockerEnv == nil {
+			t.Error("Expected DockerEnv to be initialized")
+		}
+	})
+
+	t.Run("InitializesKubeEnvWhenEnabled", func(t *testing.T) {
+		// Given a runtime with cluster enabled
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "cluster.enabled" {
+				return true
+			}
+			return false
+		}
+
+		// When initializeEnvPrinters is called
+		rt.initializeEnvPrinters()
+
+		// Then Kube env printer should be initialized
+
+		if rt.EnvPrinters.KubeEnv == nil {
+			t.Error("Expected KubeEnv to be initialized")
+		}
+	})
+
+	t.Run("InitializesTalosEnvWhenDriverIsTalos", func(t *testing.T) {
+		// Given a runtime with Talos cluster driver
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.driver" {
+				return "talos"
+			}
+			return ""
+		}
+
+		// When initializeEnvPrinters is called
+		rt.initializeEnvPrinters()
+
+		// Then Talos env printer should be initialized
+
+		if rt.EnvPrinters.TalosEnv == nil {
+			t.Error("Expected TalosEnv to be initialized")
+		}
+	})
+
+	t.Run("InitializesTalosEnvWhenDriverIsOmni", func(t *testing.T) {
+		// Given a runtime with Omni cluster driver
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.driver" {
+				return "omni"
+			}
+			return ""
+		}
+
+		// When initializeEnvPrinters is called
+		rt.initializeEnvPrinters()
+
+		// Then Talos env printer should be initialized
+
+		if rt.EnvPrinters.TalosEnv == nil {
+			t.Error("Expected TalosEnv to be initialized")
+		}
+	})
+
+	t.Run("InitializesTerraformEnvWhenEnabled", func(t *testing.T) {
+		// Given a runtime with Terraform enabled
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "terraform.enabled" {
+				return true
+			}
+			return false
+		}
+
+		// When initializeEnvPrinters is called
+		rt.initializeEnvPrinters()
+
+		// Then Terraform env printer should be initialized
+
+		if rt.EnvPrinters.TerraformEnv == nil {
+			t.Error("Expected TerraformEnv to be initialized")
+		}
+	})
+
+	t.Run("InitializesWindsorEnvAlways", func(t *testing.T) {
+		// Given a runtime with mocks
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		// When initializeEnvPrinters is called
+		rt.initializeEnvPrinters()
+
+		// Then Windsor env printer should always be initialized
+
+		if rt.EnvPrinters.WindsorEnv == nil {
+			t.Error("Expected WindsorEnv to be initialized")
+		}
+	})
+
+	t.Run("SkipsInitializationWhenShellIsNil", func(t *testing.T) {
+		// Given a runtime with nil shell
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		rt.Shell = nil
+
+		// When initializeEnvPrinters is called
+		rt.initializeEnvPrinters()
+
+		// Then env printers should not be initialized
+
+		if rt.EnvPrinters.AwsEnv != nil {
+			t.Error("Expected AwsEnv not to be initialized when Shell is nil")
+		}
+	})
+
+	t.Run("SkipsInitializationWhenConfigHandlerIsNil", func(t *testing.T) {
+		// Given a runtime with nil config handler
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		rt.ConfigHandler = nil
+
+		// When initializeEnvPrinters is called
+		rt.initializeEnvPrinters()
+
+		// Then env printers should not be initialized
+
+		if rt.EnvPrinters.AwsEnv != nil {
+			t.Error("Expected AwsEnv not to be initialized when ConfigHandler is nil")
+		}
+	})
+
+	t.Run("DoesNotOverrideExistingPrinters", func(t *testing.T) {
+		// Given a runtime with an existing env printer
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		existingAwsEnv := env.NewMockEnvPrinter()
+		rt.EnvPrinters.AwsEnv = existingAwsEnv
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "aws.enabled" {
+				return true
+			}
+			return false
+		}
+
+		// When initializeEnvPrinters is called
+		rt.initializeEnvPrinters()
+
+		// Then existing printer should be preserved
+
+		if rt.EnvPrinters.AwsEnv != existingAwsEnv {
+			t.Error("Expected existing AwsEnv to be preserved")
+		}
+	})
+
+	t.Run("InitializesWindsorEnvWithSecretsProviders", func(t *testing.T) {
+		// Given a runtime with secrets providers
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockSopsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
+		mockOnepasswordProvider := secrets.NewMockSecretsProvider(mocks.Shell)
+		rt.SecretsProviders.Sops = mockSopsProvider
+		rt.SecretsProviders.Onepassword = mockOnepasswordProvider
+
+		// When initializeEnvPrinters is called
+		rt.initializeEnvPrinters()
+
+		// Then Windsor env printer should be initialized with secrets providers
+
+		if rt.EnvPrinters.WindsorEnv == nil {
+			t.Error("Expected WindsorEnv to be initialized with secrets providers")
 		}
 	})
 }

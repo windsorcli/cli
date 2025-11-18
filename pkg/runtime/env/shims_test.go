@@ -6,9 +6,11 @@ import (
 
 func TestNewShims(t *testing.T) {
 	t.Run("CreatesShimsWithAllFunctions", func(t *testing.T) {
+		// Given a new Shims instance
+		// When NewShims is called
 		shims := NewShims()
 
-		// Verify all shim functions are initialized
+		// Then all shim functions should be initialized
 		if shims.Stat == nil {
 			t.Error("Stat shim not initialized")
 		}

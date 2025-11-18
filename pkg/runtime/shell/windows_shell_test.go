@@ -20,9 +20,9 @@ import (
 
 // TestDefaultShell_GetProjectRoot tests the GetProjectRoot method on Windows systems
 func TestDefaultShell_GetProjectRoot(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupShellMocks(t)
 		shell := NewDefaultShell()
 		shell.shims = mocks.Shims
 		return shell, mocks
@@ -74,9 +74,9 @@ func TestDefaultShell_GetProjectRoot(t *testing.T) {
 
 // TestDefaultShell_UnsetEnvs tests the UnsetEnvs method on Windows systems
 func TestDefaultShell_UnsetEnvs(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupShellMocks(t)
 		shell := NewDefaultShell()
 		shell.shims = mocks.Shims
 		return shell, mocks
@@ -117,9 +117,9 @@ func TestDefaultShell_UnsetEnvs(t *testing.T) {
 
 // TestDefaultShell_UnsetAlias tests the UnsetAlias method on Windows systems
 func TestDefaultShell_UnsetAlias(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
 		t.Helper()
-		mocks := setupMocks(t)
+		mocks := setupShellMocks(t)
 		shell := NewDefaultShell()
 		shell.shims = mocks.Shims
 		return shell, mocks

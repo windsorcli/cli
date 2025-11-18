@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
@@ -17,9 +18,8 @@ import (
 // =============================================================================
 
 // setupTerraformEnvMocks creates and configures mock objects for Terraform environment tests.
-func setupTerraformEnvMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
-	// Pass the mock config handler to setupMocks
-	mocks := setupMocks(t, opts...)
+func setupTerraformEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMocks {
+	mocks := setupEnvMocks(t, overrides...)
 
 	mocks.Shims.Getwd = func() (string, error) {
 		// Use platform-agnostic path
@@ -66,7 +66,7 @@ func setupTerraformEnvMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 
 // TestTerraformEnv_GetEnvVars tests the GetEnvVars method of the TerraformEnvPrinter
 func TestTerraformEnv_GetEnvVars(t *testing.T) {
-	setup := func(t *testing.T) (*TerraformEnvPrinter, *Mocks) {
+	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
 		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
@@ -125,9 +125,9 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ErrorGettingProjectPath", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with failing Getwd
 		printer, mocks := setup(t)
 
-		// Mock Getwd to return an error
 		mocks.Shims.Getwd = func() (string, error) {
 			return "", fmt.Errorf("mock error getting current directory")
 		}
@@ -206,11 +206,12 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ErrorGettingConfigRoot", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with failing config root lookup
 		configHandler := config.NewMockConfigHandler()
 		configHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error getting config root")
 		}
-		mocks := setupTerraformEnvMocks(t, &SetupOptions{
+		mocks := setupTerraformEnvMocks(t, &EnvTestMocks{
 			ConfigHandler: configHandler,
 		})
 		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
@@ -335,7 +336,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 }
 
 func TestTerraformEnv_PostEnvHook(t *testing.T) {
-	setup := func(t *testing.T) (*TerraformEnvPrinter, *Mocks) {
+	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
 		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
@@ -427,7 +428,7 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 }
 
 func TestTerraformEnv_findRelativeTerraformProjectPath(t *testing.T) {
-	setup := func(t *testing.T) (*TerraformEnvPrinter, *Mocks) {
+	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
 		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
@@ -578,7 +579,7 @@ func TestTerraformEnv_sanitizeForK8s(t *testing.T) {
 }
 
 func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
-	setup := func(t *testing.T) (*TerraformEnvPrinter, *Mocks) {
+	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
 		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
@@ -894,7 +895,7 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 }
 
 func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
-	setup := func(t *testing.T) (*TerraformEnvPrinter, *Mocks) {
+	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
 		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
@@ -1152,7 +1153,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 }
 
 func TestTerraformEnv_processBackendConfig(t *testing.T) {
-	setup := func(t *testing.T) (*TerraformEnvPrinter, *Mocks) {
+	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
 		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
@@ -1240,7 +1241,7 @@ func TestTerraformEnv_processBackendConfig(t *testing.T) {
 }
 
 func TestTerraformEnv_DependencyResolution(t *testing.T) {
-	setup := func(t *testing.T) (*TerraformEnvPrinter, *Mocks) {
+	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
 		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
@@ -1249,6 +1250,7 @@ func TestTerraformEnv_DependencyResolution(t *testing.T) {
 	}
 
 	t.Run("ValidDependencyChain", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with valid dependency chain
 		printer, mocks := setup(t)
 
 		// Mock blueprint.yaml content
@@ -1332,6 +1334,7 @@ terraform:
 	})
 
 	t.Run("CircularDependencyDetection", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with circular dependencies
 		printer, mocks := setup(t)
 
 		// Mock blueprint.yaml content with circular dependencies
@@ -1376,6 +1379,7 @@ terraform:
 	})
 
 	t.Run("NonExistentDependency", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with non-existent dependency
 		printer, mocks := setup(t)
 
 		// Mock blueprint.yaml content with non-existent dependency
@@ -1414,6 +1418,7 @@ terraform:
 	})
 
 	t.Run("ComponentsWithoutNames", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with components without names
 		printer, mocks := setup(t)
 
 		// Mock blueprint.yaml content with components without names
@@ -1468,6 +1473,7 @@ terraform:
 	})
 
 	t.Run("EmptyTerraformOutput", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with empty terraform output
 		printer, mocks := setup(t)
 
 		// Mock blueprint.yaml content
@@ -1520,6 +1526,7 @@ terraform:
 	})
 
 	t.Run("NoCurrentComponent", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with no matching current component
 		printer, mocks := setup(t)
 
 		// Set up the current working directory to not match any component
@@ -1546,6 +1553,7 @@ terraform:
 
 func TestTerraformEnv_GenerateTerraformArgs(t *testing.T) {
 	t.Run("GeneratesCorrectArgsWithoutParallelism", func(t *testing.T) {
+		// Given a TerraformEnvPrinter without parallelism configuration
 		mocks := setupTerraformEnvMocks(t)
 
 		printer := &TerraformEnvPrinter{
@@ -1581,6 +1589,7 @@ func TestTerraformEnv_GenerateTerraformArgs(t *testing.T) {
 	})
 
 	t.Run("GeneratesCorrectArgsWithParallelism", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with parallelism configuration
 		mocks := setupTerraformEnvMocks(t)
 
 		// Mock blueprint.yaml content with parallelism
@@ -1642,6 +1651,7 @@ terraform:
 	})
 
 	t.Run("ParallelismOnlyAppliedToMatchingComponent", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with parallelism for a different component
 		mocks := setupTerraformEnvMocks(t)
 
 		// Mock blueprint.yaml with parallelism for different component
@@ -1691,6 +1701,7 @@ terraform:
 	})
 
 	t.Run("HandlesMissingBlueprintFile", func(t *testing.T) {
+		// Given a TerraformEnvPrinter without blueprint.yaml file
 		mocks := setupTerraformEnvMocks(t)
 
 		printer := &TerraformEnvPrinter{
@@ -1714,6 +1725,7 @@ terraform:
 	})
 
 	t.Run("CorrectArgumentOrdering", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with parallelism configuration
 		mocks := setupTerraformEnvMocks(t)
 
 		// Mock blueprint.yaml content with parallelism
@@ -1760,6 +1772,295 @@ terraform:
 		lastArg := args.ApplyArgs[len(args.ApplyArgs)-1]
 		if !strings.Contains(lastArg, "terraform.tfplan") {
 			t.Errorf("Expected last apply arg to contain terraform.tfplan, got %s", lastArg)
+		}
+	})
+}
+
+// TestTerraformEnv_getTerraformComponents tests the getTerraformComponents method of the TerraformEnvPrinter
+func TestTerraformEnv_getTerraformComponents(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
+		t.Helper()
+		mocks := setupTerraformEnvMocks(t)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.shims = mocks.Shims
+		return printer, mocks
+	}
+
+	t.Run("ErrorWhenGetConfigRootFails", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with failing GetConfigRoot
+		mocks := setupTerraformEnvMocks(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error getting config root")
+		}
+		printer := NewTerraformEnvPrinter(mocks.Shell, mockConfigHandler)
+		printer.shims = mocks.Shims
+
+		// When getTerraformComponents is called without projectPath
+		result := printer.getTerraformComponents()
+
+		// Then an empty slice should be returned
+		components, ok := result.([]blueprintv1alpha1.TerraformComponent)
+		if !ok {
+			t.Fatalf("Expected []blueprintv1alpha1.TerraformComponent, got %T", result)
+		}
+		if len(components) != 0 {
+			t.Errorf("Expected empty slice, got %v", components)
+		}
+	})
+
+	t.Run("ErrorWhenGetConfigRootFailsWithProjectPath", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with failing GetConfigRoot
+		mocks := setupTerraformEnvMocks(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error getting config root")
+		}
+		printer := NewTerraformEnvPrinter(mocks.Shell, mockConfigHandler)
+		printer.shims = mocks.Shims
+
+		// When getTerraformComponents is called with projectPath
+		result := printer.getTerraformComponents("test/path")
+
+		// Then nil should be returned
+		if result != nil {
+			t.Errorf("Expected nil, got %v", result)
+		}
+	})
+
+	t.Run("ErrorWhenReadFileFails", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with failing ReadFile
+		printer, mocks := setup(t)
+
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
+			if strings.Contains(filename, "blueprint.yaml") {
+				return nil, fmt.Errorf("mock error reading blueprint file")
+			}
+			return os.ReadFile(filename)
+		}
+
+		// When getTerraformComponents is called without projectPath
+		result := printer.getTerraformComponents()
+
+		// Then an empty slice should be returned
+		components, ok := result.([]blueprintv1alpha1.TerraformComponent)
+		if !ok {
+			t.Fatalf("Expected []blueprintv1alpha1.TerraformComponent, got %T", result)
+		}
+		if len(components) != 0 {
+			t.Errorf("Expected empty slice, got %v", components)
+		}
+	})
+
+	t.Run("ErrorWhenYamlUnmarshalFails", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with invalid YAML
+		printer, mocks := setup(t)
+
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
+			if strings.Contains(filename, "blueprint.yaml") {
+				return []byte("invalid: yaml: content"), nil
+			}
+			return os.ReadFile(filename)
+		}
+
+		// When getTerraformComponents is called without projectPath
+		result := printer.getTerraformComponents()
+
+		// Then an empty slice should be returned
+		components, ok := result.([]blueprintv1alpha1.TerraformComponent)
+		if !ok {
+			t.Fatalf("Expected []blueprintv1alpha1.TerraformComponent, got %T", result)
+		}
+		if len(components) != 0 {
+			t.Errorf("Expected empty slice, got %v", components)
+		}
+	})
+}
+
+// TestTerraformEnv_restoreEnvVar tests the restoreEnvVar method of the TerraformEnvPrinter
+func TestTerraformEnv_restoreEnvVar(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
+		t.Helper()
+		mocks := setupTerraformEnvMocks(t)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.shims = mocks.Shims
+		return printer, mocks
+	}
+
+	t.Run("RestoresValueWhenOriginalValueNotEmpty", func(t *testing.T) {
+		// Given a TerraformEnvPrinter and an environment variable with original value
+		printer, _ := setup(t)
+
+		testKey := "TEST_RESTORE_VAR"
+		originalValue := "original-value"
+		os.Setenv(testKey, "changed-value")
+		defer os.Unsetenv(testKey)
+
+		// When restoreEnvVar is called with original value
+		printer.restoreEnvVar(testKey, originalValue)
+
+		// Then the environment variable should be restored
+		if os.Getenv(testKey) != originalValue {
+			t.Errorf("Expected %s=%s, got %s", testKey, originalValue, os.Getenv(testKey))
+		}
+	})
+
+	t.Run("UnsetsValueWhenOriginalValueEmpty", func(t *testing.T) {
+		// Given a TerraformEnvPrinter and an environment variable with empty original value
+		printer, _ := setup(t)
+
+		testKey := "TEST_UNSET_VAR"
+		os.Setenv(testKey, "some-value")
+		defer os.Unsetenv(testKey)
+
+		// When restoreEnvVar is called with empty original value
+		printer.restoreEnvVar(testKey, "")
+
+		// Then the environment variable should be unset
+		if os.Getenv(testKey) != "" {
+			t.Errorf("Expected %s to be unset, got %s", testKey, os.Getenv(testKey))
+		}
+	})
+}
+
+// TestTerraformEnv_captureTerraformOutputs tests the captureTerraformOutputs method of the TerraformEnvPrinter
+func TestTerraformEnv_captureTerraformOutputs(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
+		t.Helper()
+		mocks := setupTerraformEnvMocks(t)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.shims = mocks.Shims
+		return printer, mocks
+	}
+
+	t.Run("ErrorWhenGetTerraformComponentsFails", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with failing getTerraformComponents
+		mocks := setupTerraformEnvMocks(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error getting config root")
+		}
+		printer := NewTerraformEnvPrinter(mocks.Shell, mockConfigHandler)
+		printer.shims = mocks.Shims
+
+		// When captureTerraformOutputs is called
+		result, err := printer.captureTerraformOutputs("/some/path")
+
+		// Then no error should be returned and empty map should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(result) != 0 {
+			t.Errorf("Expected empty map, got %v", result)
+		}
+	})
+
+	t.Run("ErrorWhenComponentPathNotFound", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with component path not found
+		printer, _ := setup(t)
+
+		// When captureTerraformOutputs is called with non-existent module path
+		result, err := printer.captureTerraformOutputs("/non/existent/path")
+
+		// Then no error should be returned and empty map should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(result) != 0 {
+			t.Errorf("Expected empty map, got %v", result)
+		}
+	})
+
+}
+
+// TestTerraformEnv_addDependencyVariables tests the addDependencyVariables method of the TerraformEnvPrinter
+func TestTerraformEnv_addDependencyVariables(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
+		t.Helper()
+		mocks := setupTerraformEnvMocks(t)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.shims = mocks.Shims
+		return printer, mocks
+	}
+
+	t.Run("NoOpWhenCurrentComponentIsNil", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with nil current component
+		mocks := setupTerraformEnvMocks(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error getting config root")
+		}
+		printer := NewTerraformEnvPrinter(mocks.Shell, mockConfigHandler)
+		printer.shims = mocks.Shims
+
+		terraformArgs := &TerraformArgs{
+			TerraformVars: make(map[string]string),
+		}
+
+		// When addDependencyVariables is called
+		err := printer.addDependencyVariables("non-existent/path", terraformArgs)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("NoOpWhenNoDependencies", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with component without dependencies
+		printer, mocks := setup(t)
+
+		configRoot, _ := mocks.ConfigHandler.GetConfigRoot()
+		blueprintPath := filepath.Join(configRoot, "blueprint.yaml")
+		blueprintYAML := `apiVersion: v1alpha1
+kind: Blueprint
+metadata:
+  name: test-blueprint
+terraform:
+  - path: test/path
+    fullPath: /some/path
+    dependsOn: []`
+
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
+			if filename == blueprintPath {
+				return []byte(blueprintYAML), nil
+			}
+			return os.ReadFile(filename)
+		}
+
+		terraformArgs := &TerraformArgs{
+			TerraformVars: make(map[string]string),
+		}
+
+		// When addDependencyVariables is called
+		err := printer.addDependencyVariables("test/path", terraformArgs)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("NoOpWhenGetTerraformComponentsReturnsEmpty", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with empty components
+		mocks := setupTerraformEnvMocks(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error getting config root")
+		}
+		printer := NewTerraformEnvPrinter(mocks.Shell, mockConfigHandler)
+		printer.shims = mocks.Shims
+
+		terraformArgs := &TerraformArgs{
+			TerraformVars: make(map[string]string),
+		}
+
+		// When addDependencyVariables is called
+		err := printer.addDependencyVariables("test/path", terraformArgs)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 }
