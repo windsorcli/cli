@@ -74,16 +74,12 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 			return fmt.Sprintf("colima version %s", constants.MinimumVersionColima), nil
 		case name == "limactl" && args[0] == "--version":
 			return fmt.Sprintf("limactl version %s", constants.MinimumVersionLima), nil
-		case name == "kubectl" && args[0] == "version" && args[1] == "--client":
-			return fmt.Sprintf("Client Version: v%s", constants.MinimumVersionKubectl), nil
 		case name == "talosctl" && args[0] == "version" && args[1] == "--client" && args[2] == "--short":
 			return fmt.Sprintf("v%s", constants.MinimumVersionTalosctl), nil
 		case name == "terraform" && args[0] == "version":
 			return fmt.Sprintf("Terraform v%s", constants.MinimumVersionTerraform), nil
 		case name == "op" && args[0] == "--version":
 			return fmt.Sprintf("1Password CLI %s", constants.MinimumVersion1Password), nil
-		case name == "aws" && args[0] == "--version":
-			return fmt.Sprintf("aws-cli/%s Python/3.13.3 Darwin/24.0.0 exe/x86_64", constants.MinimumVersionAWSCLI), nil
 		}
 		return "", fmt.Errorf("command not found")
 	}
@@ -111,7 +107,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 
 	execLookPath = func(name string) (string, error) {
 		switch name {
-		case "docker", "docker-compose", "docker-cli-plugin-docker-compose", "kubectl", "talosctl", "terraform", "op", "colima", "limactl":
+		case "docker", "docker-compose", "docker-cli-plugin-docker-compose", "talosctl", "terraform", "op", "colima", "limactl":
 			return "/usr/bin/" + name, nil
 		default:
 			return "", exec.ErrNotFound
@@ -240,11 +236,9 @@ func TestToolsManager_Check(t *testing.T) {
 			"docker-compose": {"version"},
 			"colima":         {"version"},
 			"limactl":        {"--version"},
-			"kubectl":        {"version", "--client"},
 			"talosctl":       {"version", "--client", "--short"},
 			"terraform":      {"version"},
 			"op":             {"--version"},
-			"aws":            {"--version"},
 		}
 		// When checking tool versions
 		err := toolsManager.Check()
@@ -263,11 +257,9 @@ func TestToolsManager_Check(t *testing.T) {
 				!strings.Contains(output, constants.MinimumVersionDockerCompose) &&
 				!strings.Contains(output, constants.MinimumVersionColima) &&
 				!strings.Contains(output, constants.MinimumVersionLima) &&
-				!strings.Contains(output, constants.MinimumVersionKubectl) &&
 				!strings.Contains(output, constants.MinimumVersionTalosctl) &&
 				!strings.Contains(output, constants.MinimumVersionTerraform) &&
-				!strings.Contains(output, constants.MinimumVersion1Password) &&
-				!strings.Contains(output, constants.MinimumVersionAWSCLI) {
+				!strings.Contains(output, constants.MinimumVersion1Password) {
 				t.Errorf("Expected %s version check to pass, got output: %s", tool, output)
 			}
 		}
@@ -291,32 +283,13 @@ func TestToolsManager_Check(t *testing.T) {
 		}
 	})
 
-	t.Run("ClusterDisabled", func(t *testing.T) {
-		// When cluster is disabled in config
-		mocks, toolsManager := setup(t, defaultConfig)
-		mocks.ConfigHandler.Set("cluster.enabled", false)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
-			if name == "kubectl" {
-				return "", exec.ErrNotFound
-			}
-			return originalExecLookPath(name)
-		}
-		err := toolsManager.Check()
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected Check to succeed when cluster is disabled, but got error: %v", err)
-		}
-	})
-
 	t.Run("AllToolsDisabled", func(t *testing.T) {
 		// When all tools are disabled in config
 		mocks, toolsManager := setup(t, defaultConfig)
 		mocks.ConfigHandler.Set("docker.enabled", false)
-		mocks.ConfigHandler.Set("cluster.enabled", false)
 		originalExecLookPath := execLookPath
 		execLookPath = func(name string) (string, error) {
-			if name == "docker" || name == "docker-compose" || name == "docker-cli-plugin-docker-compose" || name == "kubectl" {
+			if name == "docker" || name == "docker-compose" || name == "docker-cli-plugin-docker-compose" {
 				return "", exec.ErrNotFound
 			}
 			return originalExecLookPath(name)
@@ -343,24 +316,6 @@ func TestToolsManager_Check(t *testing.T) {
 		// Then an error indicating docker check failed should be returned
 		if err == nil || !strings.Contains(err.Error(), "docker check failed") {
 			t.Errorf("Expected Check to fail when docker is enabled but not available, but got: %v", err)
-		}
-	})
-
-	t.Run("ClusterEnabledButNotAvailable", func(t *testing.T) {
-		// When cluster is enabled but kubectl not available in PATH
-		mocks, toolsManager := setup(t, defaultConfig)
-		mocks.ConfigHandler.Set("cluster.enabled", true)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
-			if name == "kubectl" {
-				return "", exec.ErrNotFound
-			}
-			return originalExecLookPath(name)
-		}
-		err := toolsManager.Check()
-		// Then an error indicating kubectl check failed should be returned
-		if err == nil || !strings.Contains(err.Error(), "kubectl check failed") {
-			t.Errorf("Expected Check to fail when cluster is enabled but not available, but got: %v", err)
 		}
 	})
 
@@ -443,13 +398,11 @@ contexts:
 		// Given multiple tools are enabled but fail checks
 		mocks, toolsManager := setup(t, defaultConfig)
 		mocks.ConfigHandler.Set("docker.enabled", true)
-		mocks.ConfigHandler.Set("aws.enabled", true)
-		mocks.ConfigHandler.Set("cluster.enabled", true)
 
 		// Mock failures for multiple tools
 		originalExecLookPath := execLookPath
 		execLookPath = func(name string) (string, error) {
-			if name == "docker" || name == "aws" || name == "kubectl" {
+			if name == "docker" {
 				return "", fmt.Errorf("%s is not available in the PATH", name)
 			}
 			return originalExecLookPath(name)
@@ -747,58 +700,6 @@ func TestToolsManager_checkColima(t *testing.T) {
 	})
 }
 
-// Tests for Kubectl version validation
-func TestToolsManager_checkKubectl(t *testing.T) {
-	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
-		t.Helper()
-		mocks := setupMocks(t)
-		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
-		return mocks, toolsManager
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// When kubectl is available with correct version
-		_, toolsManager := setup(t)
-		err := toolsManager.checkKubectl()
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected checkKubectl to succeed, but got error: %v", err)
-		}
-	})
-
-	t.Run("KubectlVersionInvalidResponse", func(t *testing.T) {
-		// When kubectl returns an invalid version response
-		mocks, toolsManager := setup(t)
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
-			if name == "kubectl" && args[0] == "version" {
-				return "Invalid version response", nil
-			}
-			return "", fmt.Errorf("command not found")
-		}
-		err := toolsManager.checkKubectl()
-		// Then an error indicating version extraction failed should be returned
-		if err == nil || !strings.Contains(err.Error(), "failed to extract kubectl version") {
-			t.Errorf("Expected failed to extract kubectl version error, got %v", err)
-		}
-	})
-
-	t.Run("VersionTooLow", func(t *testing.T) {
-		// When kubectl version is below minimum required version
-		mocks, toolsManager := setup(t)
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
-			if name == "kubectl" && args[0] == "version" && args[1] == "--client" {
-				return "Client Version: v1.20.0", nil
-			}
-			return "", fmt.Errorf("command not found")
-		}
-		err := toolsManager.checkKubectl()
-		// Then an error indicating version is too low should be returned
-		if err == nil || !strings.Contains(err.Error(), "kubectl version 1.20.0 is below the minimum required version 1.27.0") {
-			t.Errorf("Expected kubectl version too low error, got %v", err)
-		}
-	})
-}
-
 // Tests for Terraform version validation
 func TestToolsManager_checkTerraform(t *testing.T) {
 	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
@@ -955,93 +856,6 @@ func TestToolsManager_checkOnePassword(t *testing.T) {
 		// Then an error indicating version is too low should be returned
 		if err == nil || !strings.Contains(err.Error(), "1Password CLI version 1.0.0 is below the minimum required version") {
 			t.Errorf("Expected 1Password CLI version too low error, got %v", err)
-		}
-	})
-}
-
-// Tests for AWS CLI version validation
-func TestToolsManager_checkAwsCli(t *testing.T) {
-	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
-		t.Helper()
-		mocks := setupMocks(t)
-		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
-		return mocks, toolsManager
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given AWS CLI is available with correct version
-		mocks, toolsManager := setup(t)
-		execLookPath = func(name string) (string, error) {
-			return "/usr/bin/" + name, nil
-		}
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
-			if name == "aws" && args[0] == "--version" {
-				return "aws-cli/2.15.0", nil
-			}
-			return "", fmt.Errorf("command not found")
-		}
-		// When checking AWS CLI version
-		err := toolsManager.checkAwsCli()
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected checkAwsCli to succeed, but got error: %v", err)
-		}
-	})
-
-	t.Run("AwsCliNotAvailable", func(t *testing.T) {
-		// Given AWS CLI is not found in PATH
-		_, toolsManager := setup(t)
-		execLookPath = func(name string) (string, error) {
-			if name == "aws" {
-				return "", fmt.Errorf("aws cli is not available in the PATH")
-			}
-			return "/usr/bin/" + name, nil
-		}
-		// When checking AWS CLI version
-		err := toolsManager.checkAwsCli()
-		// Then an error indicating AWS CLI is not available should be returned
-		if err == nil || !strings.Contains(err.Error(), "aws cli is not available in the PATH") {
-			t.Errorf("Expected aws cli not available error, got %v", err)
-		}
-	})
-
-	t.Run("AwsCliVersionInvalidResponse", func(t *testing.T) {
-		// Given AWS CLI version response is invalid
-		mocks, toolsManager := setup(t)
-		execLookPath = func(name string) (string, error) {
-			return "/usr/bin/" + name, nil
-		}
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
-			if name == "aws" && args[0] == "--version" {
-				return "Invalid version response", nil
-			}
-			return "", fmt.Errorf("command not found")
-		}
-		// When checking AWS CLI version
-		err := toolsManager.checkAwsCli()
-		// Then an error indicating version extraction failed should be returned
-		if err == nil || !strings.Contains(err.Error(), "failed to extract aws cli version") {
-			t.Errorf("Expected failed to extract aws cli version error, got %v", err)
-		}
-	})
-
-	t.Run("AwsCliVersionTooLow", func(t *testing.T) {
-		// Given AWS CLI version is below minimum required version
-		mocks, toolsManager := setup(t)
-		execLookPath = func(name string) (string, error) {
-			return "/usr/bin/" + name, nil
-		}
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
-			if name == "aws" && args[0] == "--version" {
-				return "aws-cli/1.0.0", nil
-			}
-			return "", fmt.Errorf("command not found")
-		}
-		// When checking AWS CLI version
-		err := toolsManager.checkAwsCli()
-		// Then an error indicating version is too low should be returned
-		if err == nil || !strings.Contains(err.Error(), "aws cli version 1.0.0 is below the minimum required version") {
-			t.Errorf("Expected aws cli version too low error, got %v", err)
 		}
 	})
 }
