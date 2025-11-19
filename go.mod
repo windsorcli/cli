@@ -11,7 +11,7 @@ require (
 	github.com/expr-lang/expr v1.17.6
 	github.com/fluxcd/helm-controller/api v1.4.3
 	github.com/fluxcd/kustomize-controller/api v1.7.2
-	github.com/fluxcd/pkg/apis/kustomize v1.13.0
+	github.com/fluxcd/pkg/apis/kustomize v1.14.0
 	github.com/fluxcd/pkg/apis/meta v1.23.0
 	github.com/fluxcd/source-controller/api v1.7.3
 	github.com/getsops/sops/v3 v3.11.0
@@ -215,7 +215,7 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/apiextensions-apiserver v0.34.1 // indirect
+	k8s.io/apiextensions-apiserver v0.34.2 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20250710124328-f3f2b991d03b // indirect
 	k8s.io/utils v0.0.0-20250820121507-0af2bda4dd1d // indirect
