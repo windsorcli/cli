@@ -14,6 +14,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// =============================================================================
+// Types
+// =============================================================================
+
 // Blueprint is a configuration blueprint for initializing a project.
 type Blueprint struct {
 	// Kind is the blueprint type, following Kubernetes conventions.
@@ -128,6 +132,10 @@ type TerraformComponent struct {
 	Parallelism *int `yaml:"parallelism,omitempty"`
 }
 
+// =============================================================================
+// Public Methods
+// =============================================================================
+
 // DeepCopy creates a deep copy of the TerraformComponent object.
 func (t *TerraformComponent) DeepCopy() *TerraformComponent {
 	if t == nil {
@@ -236,6 +244,10 @@ type SubstituteReference struct {
 	// Optional indicates if the resource is optional.
 	Optional bool `yaml:"optional,omitempty"`
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // DeepCopy creates a deep copy of the Blueprint object.
 func (b *Blueprint) DeepCopy() *Blueprint {
@@ -389,6 +401,196 @@ func (b *Blueprint) StrategicMerge(overlays ...*Blueprint) error {
 	}
 	return nil
 }
+
+// ReplaceTerraformComponent replaces an existing TerraformComponent with the provided component.
+// If a component with the same Path and Source exists, it is completely replaced. Otherwise, the component is appended.
+// Returns an error if a dependency cycle is detected during sorting.
+func (b *Blueprint) ReplaceTerraformComponent(component TerraformComponent) error {
+	for i, existing := range b.TerraformComponents {
+		if existing.Path == component.Path && existing.Source == component.Source {
+			b.TerraformComponents[i] = component
+			return b.sortTerraform()
+		}
+	}
+	b.TerraformComponents = append(b.TerraformComponents, component)
+	return b.sortTerraform()
+}
+
+// ReplaceKustomization replaces an existing Kustomization with the provided kustomization.
+// If a kustomization with the same Name exists, it is completely replaced. Otherwise, the kustomization is appended.
+// Returns an error if a dependency cycle is detected during sorting.
+func (b *Blueprint) ReplaceKustomization(kustomization Kustomization) error {
+	for i, existing := range b.Kustomizations {
+		if existing.Name == kustomization.Name {
+			b.Kustomizations[i] = kustomization
+			return b.sortKustomize()
+		}
+	}
+	b.Kustomizations = append(b.Kustomizations, kustomization)
+	return b.sortKustomize()
+}
+
+// DeepCopy creates a deep copy of the Kustomization object.
+func (k *Kustomization) DeepCopy() *Kustomization {
+	if k == nil {
+		return nil
+	}
+
+	return &Kustomization{
+		Name:          k.Name,
+		Path:          k.Path,
+		Source:        k.Source,
+		DependsOn:     slices.Clone(k.DependsOn),
+		Interval:      k.Interval,
+		RetryInterval: k.RetryInterval,
+		Timeout:       k.Timeout,
+		Patches:       slices.Clone(k.Patches),
+		Wait:          k.Wait,
+		Force:         k.Force,
+		Prune:         k.Prune,
+		Components:    slices.Clone(k.Components),
+		Cleanup:       slices.Clone(k.Cleanup),
+		Destroy:       k.Destroy,
+		Substitutions: maps.Clone(k.Substitutions),
+	}
+}
+
+// ToFluxKustomization converts a blueprint Kustomization to a Flux Kustomization.
+// It takes the namespace for the kustomization, the default source name to use if no source is specified,
+// and the list of sources to determine the source kind (GitRepository or OCIRepository).
+// PostBuild is constructed based on the kustomization's Substitutions field.
+func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName string, sources []Source) kustomizev1.Kustomization {
+	dependsOn := make([]kustomizev1.DependencyReference, len(k.DependsOn))
+	for idx, dep := range k.DependsOn {
+		dependsOn[idx] = kustomizev1.DependencyReference{
+			Name:      dep,
+			Namespace: namespace,
+		}
+	}
+
+	sourceName := k.Source
+	if sourceName == "" {
+		sourceName = defaultSourceName
+	}
+
+	sourceKind := "GitRepository"
+	for _, source := range sources {
+		if source.Name == sourceName && strings.HasPrefix(source.Url, "oci://") {
+			sourceKind = "OCIRepository"
+			break
+		}
+	}
+
+	path := k.Path
+	if path == "" {
+		path = "kustomize"
+	} else {
+		path = strings.ReplaceAll(path, "\\", "/")
+		if path != "kustomize" && !strings.HasPrefix(path, "kustomize/") {
+			path = "kustomize/" + path
+		}
+	}
+
+	interval := metav1.Duration{Duration: constants.DefaultFluxKustomizationInterval}
+	if k.Interval != nil && k.Interval.Duration != 0 {
+		interval = *k.Interval
+	}
+
+	retryInterval := metav1.Duration{Duration: constants.DefaultFluxKustomizationRetryInterval}
+	if k.RetryInterval != nil && k.RetryInterval.Duration != 0 {
+		retryInterval = *k.RetryInterval
+	}
+
+	timeout := metav1.Duration{Duration: constants.DefaultFluxKustomizationTimeout}
+	if k.Timeout != nil && k.Timeout.Duration != 0 {
+		timeout = *k.Timeout
+	}
+
+	wait := constants.DefaultFluxKustomizationWait
+	if k.Wait != nil {
+		wait = *k.Wait
+	}
+
+	force := constants.DefaultFluxKustomizationForce
+	if k.Force != nil {
+		force = *k.Force
+	}
+
+	prune := true
+	if k.Prune != nil {
+		prune = *k.Prune
+	}
+
+	deletionPolicy := "MirrorPrune"
+	if k.Destroy == nil || *k.Destroy {
+		deletionPolicy = "WaitForTermination"
+	}
+
+	patches := make([]kustomize.Patch, 0, len(k.Patches))
+	for _, p := range k.Patches {
+		if p.Patch != "" {
+			var target *kustomize.Selector
+			if p.Target != nil {
+				target = &kustomize.Selector{
+					Kind:      p.Target.Kind,
+					Name:      p.Target.Name,
+					Namespace: p.Target.Namespace,
+				}
+			}
+			patches = append(patches, kustomize.Patch{
+				Patch:  p.Patch,
+				Target: target,
+			})
+		}
+	}
+
+	var postBuild *kustomizev1.PostBuild
+	if len(k.Substitutions) > 0 {
+		configMapName := fmt.Sprintf("values-%s", k.Name)
+		postBuild = &kustomizev1.PostBuild{
+			SubstituteFrom: []kustomizev1.SubstituteReference{
+				{
+					Kind:     "ConfigMap",
+					Name:     configMapName,
+					Optional: false,
+				},
+			},
+		}
+	}
+
+	return kustomizev1.Kustomization{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Kustomization",
+			APIVersion: "kustomize.toolkit.fluxcd.io/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      k.Name,
+			Namespace: namespace,
+		},
+		Spec: kustomizev1.KustomizationSpec{
+			SourceRef: kustomizev1.CrossNamespaceSourceReference{
+				Kind: sourceKind,
+				Name: sourceName,
+			},
+			Path:           path,
+			DependsOn:      dependsOn,
+			Interval:       interval,
+			RetryInterval:  &retryInterval,
+			Timeout:        &timeout,
+			Wait:           wait,
+			Force:          force,
+			Prune:          prune,
+			DeletionPolicy: deletionPolicy,
+			Patches:        patches,
+			Components:     k.Components,
+			PostBuild:      postBuild,
+		},
+	}
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
 
 // strategicMergeTerraformComponent performs a strategic merge of the provided TerraformComponent into the Blueprint.
 // It merges values, appends unique dependencies, updates fields if provided, and maintains dependency order.
@@ -591,164 +793,6 @@ func (b *Blueprint) calculateDependencyDepth(componentIndex int, nameToIndex map
 		}
 	}
 	return maxDepth
-}
-
-// DeepCopy creates a deep copy of the Kustomization object.
-func (k *Kustomization) DeepCopy() *Kustomization {
-	if k == nil {
-		return nil
-	}
-
-	return &Kustomization{
-		Name:          k.Name,
-		Path:          k.Path,
-		Source:        k.Source,
-		DependsOn:     slices.Clone(k.DependsOn),
-		Interval:      k.Interval,
-		RetryInterval: k.RetryInterval,
-		Timeout:       k.Timeout,
-		Patches:       slices.Clone(k.Patches),
-		Wait:          k.Wait,
-		Force:         k.Force,
-		Prune:         k.Prune,
-		Components:    slices.Clone(k.Components),
-		Cleanup:       slices.Clone(k.Cleanup),
-		Destroy:       k.Destroy,
-		Substitutions: maps.Clone(k.Substitutions),
-	}
-}
-
-// ToFluxKustomization converts a blueprint Kustomization to a Flux Kustomization.
-// It takes the namespace for the kustomization, the default source name to use if no source is specified,
-// and the list of sources to determine the source kind (GitRepository or OCIRepository).
-// PostBuild is constructed based on the kustomization's Substitutions field.
-func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName string, sources []Source) kustomizev1.Kustomization {
-	dependsOn := make([]kustomizev1.DependencyReference, len(k.DependsOn))
-	for idx, dep := range k.DependsOn {
-		dependsOn[idx] = kustomizev1.DependencyReference{
-			Name:      dep,
-			Namespace: namespace,
-		}
-	}
-
-	sourceName := k.Source
-	if sourceName == "" {
-		sourceName = defaultSourceName
-	}
-
-	sourceKind := "GitRepository"
-	for _, source := range sources {
-		if source.Name == sourceName && strings.HasPrefix(source.Url, "oci://") {
-			sourceKind = "OCIRepository"
-			break
-		}
-	}
-
-	path := k.Path
-	if path == "" {
-		path = "kustomize"
-	} else {
-		path = strings.ReplaceAll(path, "\\", "/")
-		if path != "kustomize" && !strings.HasPrefix(path, "kustomize/") {
-			path = "kustomize/" + path
-		}
-	}
-
-	interval := metav1.Duration{Duration: constants.DefaultFluxKustomizationInterval}
-	if k.Interval != nil && k.Interval.Duration != 0 {
-		interval = *k.Interval
-	}
-
-	retryInterval := metav1.Duration{Duration: constants.DefaultFluxKustomizationRetryInterval}
-	if k.RetryInterval != nil && k.RetryInterval.Duration != 0 {
-		retryInterval = *k.RetryInterval
-	}
-
-	timeout := metav1.Duration{Duration: constants.DefaultFluxKustomizationTimeout}
-	if k.Timeout != nil && k.Timeout.Duration != 0 {
-		timeout = *k.Timeout
-	}
-
-	wait := constants.DefaultFluxKustomizationWait
-	if k.Wait != nil {
-		wait = *k.Wait
-	}
-
-	force := constants.DefaultFluxKustomizationForce
-	if k.Force != nil {
-		force = *k.Force
-	}
-
-	prune := true
-	if k.Prune != nil {
-		prune = *k.Prune
-	}
-
-	deletionPolicy := "MirrorPrune"
-	if k.Destroy == nil || *k.Destroy {
-		deletionPolicy = "WaitForTermination"
-	}
-
-	patches := make([]kustomize.Patch, 0, len(k.Patches))
-	for _, p := range k.Patches {
-		if p.Patch != "" {
-			var target *kustomize.Selector
-			if p.Target != nil {
-				target = &kustomize.Selector{
-					Kind:      p.Target.Kind,
-					Name:      p.Target.Name,
-					Namespace: p.Target.Namespace,
-				}
-			}
-			patches = append(patches, kustomize.Patch{
-				Patch:  p.Patch,
-				Target: target,
-			})
-		}
-	}
-
-	var postBuild *kustomizev1.PostBuild
-	if len(k.Substitutions) > 0 {
-		configMapName := fmt.Sprintf("values-%s", k.Name)
-		postBuild = &kustomizev1.PostBuild{
-			SubstituteFrom: []kustomizev1.SubstituteReference{
-				{
-					Kind:     "ConfigMap",
-					Name:     configMapName,
-					Optional: false,
-				},
-			},
-		}
-	}
-
-	return kustomizev1.Kustomization{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Kustomization",
-			APIVersion: "kustomize.toolkit.fluxcd.io/v1",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      k.Name,
-			Namespace: namespace,
-		},
-		Spec: kustomizev1.KustomizationSpec{
-			SourceRef: kustomizev1.CrossNamespaceSourceReference{
-				Kind: sourceKind,
-				Name: sourceName,
-			},
-			Path:           path,
-			DependsOn:      dependsOn,
-			Interval:       interval,
-			RetryInterval:  &retryInterval,
-			Timeout:        &timeout,
-			Wait:           wait,
-			Force:          force,
-			Prune:          prune,
-			DeletionPolicy: deletionPolicy,
-			Patches:        patches,
-			Components:     k.Components,
-			PostBuild:      postBuild,
-		},
-	}
 }
 
 // sortTerraform reorders the Blueprint's TerraformComponents so that dependencies precede dependents.

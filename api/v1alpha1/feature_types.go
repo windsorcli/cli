@@ -38,15 +38,27 @@ type ConditionalTerraformComponent struct {
 	// When is a CEL expression that determines if this terraform component should be applied.
 	// If empty, the component is always applied when the parent feature matches.
 	When string `yaml:"when,omitempty"`
+
+	// Strategy determines how this component is merged into the blueprint.
+	// Valid values are "merge" (default, strategic merge) and "replace" (replaces existing component entirely).
+	// If empty or "merge", the component is merged with existing components matching the same Path and Source.
+	// If "replace", the component completely replaces any existing component with the same Path and Source.
+	Strategy string `yaml:"strategy,omitempty"`
 }
 
 // ConditionalKustomization extends Kustomization with conditional logic support.
 type ConditionalKustomization struct {
 	Kustomization `yaml:",inline"`
 
-	// When is a CEL expression that determines if this kustomization should be applied.
+	// When is an expression that determines if this kustomization should be applied.
 	// If empty, the kustomization is always applied when the parent feature matches.
 	When string `yaml:"when,omitempty"`
+
+	// Strategy determines how this kustomization is merged into the blueprint.
+	// Valid values are "merge" (default, strategic merge) and "replace" (replaces existing kustomization entirely).
+	// If empty or "merge", the kustomization is merged with existing kustomizations matching the same Name.
+	// If "replace", the kustomization completely replaces any existing kustomization with the same Name.
+	Strategy string `yaml:"strategy,omitempty"`
 }
 
 // DeepCopy creates a deep copy of the Feature object.
@@ -90,6 +102,7 @@ func (c *ConditionalTerraformComponent) DeepCopy() *ConditionalTerraformComponen
 	return &ConditionalTerraformComponent{
 		TerraformComponent: *c.TerraformComponent.DeepCopy(),
 		When:               c.When,
+		Strategy:           c.Strategy,
 	}
 }
 
@@ -102,5 +115,6 @@ func (c *ConditionalKustomization) DeepCopy() *ConditionalKustomization {
 	return &ConditionalKustomization{
 		Kustomization: *c.Kustomization.DeepCopy(),
 		When:          c.When,
+		Strategy:      c.Strategy,
 	}
 }

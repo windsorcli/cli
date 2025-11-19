@@ -3070,6 +3070,263 @@ terraform:
 			t.Errorf("Expected inputs evaluation error, got %v", err)
 		}
 	})
+
+	t.Run("ReplacesTerraformComponentWithReplaceStrategy", func(t *testing.T) {
+		handler := setup(t)
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+terraform:
+  - path: network/vpc
+    source: core
+    inputs:
+      cidr: 10.0.0.0/16
+      enable_dns: true
+    dependsOn:
+      - backend
+`)
+
+		replaceFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: replace-feature
+terraform:
+  - path: network/vpc
+    source: core
+    strategy: replace
+    inputs:
+      cidr: 172.16.0.0/16
+    dependsOn:
+      - new-dependency
+`)
+
+		templateData := map[string][]byte{
+			"blueprint":              baseBlueprint,
+			"features/replace.yaml":  replaceFeature,
+		}
+
+		config := map[string]any{}
+
+		err := handler.processFeatures(templateData, config)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(handler.blueprint.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 terraform component, got %d", len(handler.blueprint.TerraformComponents))
+		}
+
+		component := handler.blueprint.TerraformComponents[0]
+		if component.Path != "network/vpc" {
+			t.Errorf("Expected path 'network/vpc', got '%s'", component.Path)
+		}
+		if len(component.Inputs) != 1 {
+			t.Errorf("Expected 1 input (replaced), got %d", len(component.Inputs))
+		}
+		if component.Inputs["cidr"] != "172.16.0.0/16" {
+			t.Errorf("Expected new cidr value, got %v", component.Inputs["cidr"])
+		}
+		if component.Inputs["enable_dns"] != nil {
+			t.Errorf("Expected old enable_dns to be removed, got %v", component.Inputs["enable_dns"])
+		}
+		if len(component.DependsOn) != 1 {
+			t.Errorf("Expected 1 dependency (replaced), got %d", len(component.DependsOn))
+		}
+		if component.DependsOn[0] != "new-dependency" {
+			t.Errorf("Expected new dependency, got %v", component.DependsOn)
+		}
+	})
+
+	t.Run("MergesTerraformComponentWithDefaultStrategy", func(t *testing.T) {
+		handler := setup(t)
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+terraform:
+  - path: network/vpc
+    source: core
+    inputs:
+      cidr: 10.0.0.0/16
+    dependsOn:
+      - backend
+`)
+
+		mergeFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: merge-feature
+terraform:
+  - path: network/vpc
+    source: core
+    strategy: merge
+    inputs:
+      enable_dns: true
+    dependsOn:
+      - security
+`)
+
+		templateData := map[string][]byte{
+			"blueprint":            baseBlueprint,
+			"features/merge.yaml":  mergeFeature,
+		}
+
+		config := map[string]any{}
+
+		err := handler.processFeatures(templateData, config)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(handler.blueprint.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 terraform component, got %d", len(handler.blueprint.TerraformComponents))
+		}
+
+		component := handler.blueprint.TerraformComponents[0]
+		if len(component.Inputs) != 2 {
+			t.Errorf("Expected 2 inputs (merged), got %d", len(component.Inputs))
+		}
+		if component.Inputs["cidr"] != "10.0.0.0/16" {
+			t.Errorf("Expected original cidr value preserved, got %v", component.Inputs["cidr"])
+		}
+		if component.Inputs["enable_dns"] != true {
+			t.Errorf("Expected new enable_dns value added, got %v", component.Inputs["enable_dns"])
+		}
+		if len(component.DependsOn) != 2 {
+			t.Errorf("Expected 2 dependencies (merged), got %d", len(component.DependsOn))
+		}
+	})
+
+	t.Run("ReplacesKustomizationWithReplaceStrategy", func(t *testing.T) {
+		handler := setup(t)
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+kustomize:
+  - name: ingress
+    path: original-path
+    source: original-source
+    components:
+      - nginx
+      - cert-manager
+    dependsOn:
+      - pki
+      - dns
+`)
+
+		replaceFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: replace-feature
+kustomize:
+  - name: ingress
+    strategy: replace
+    path: new-path
+    source: new-source
+    components:
+      - traefik
+    dependsOn:
+      - new-dependency
+`)
+
+		templateData := map[string][]byte{
+			"blueprint":              baseBlueprint,
+			"features/replace.yaml":  replaceFeature,
+		}
+
+		config := map[string]any{}
+
+		err := handler.processFeatures(templateData, config)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(handler.blueprint.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(handler.blueprint.Kustomizations))
+		}
+
+		kustomization := handler.blueprint.Kustomizations[0]
+		if kustomization.Name != "ingress" {
+			t.Errorf("Expected name 'ingress', got '%s'", kustomization.Name)
+		}
+		if kustomization.Path != "new-path" {
+			t.Errorf("Expected path 'new-path', got '%s'", kustomization.Path)
+		}
+		if kustomization.Source != "new-source" {
+			t.Errorf("Expected source 'new-source', got '%s'", kustomization.Source)
+		}
+		if len(kustomization.Components) != 1 {
+			t.Errorf("Expected 1 component (replaced), got %d", len(kustomization.Components))
+		}
+		if kustomization.Components[0] != "traefik" {
+			t.Errorf("Expected component 'traefik', got %v", kustomization.Components)
+		}
+		if len(kustomization.DependsOn) != 1 {
+			t.Errorf("Expected 1 dependency (replaced), got %d", len(kustomization.DependsOn))
+		}
+		if kustomization.DependsOn[0] != "new-dependency" {
+			t.Errorf("Expected new dependency, got %v", kustomization.DependsOn)
+		}
+	})
+
+	t.Run("MergesKustomizationWithDefaultStrategy", func(t *testing.T) {
+		handler := setup(t)
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+kustomize:
+  - name: ingress
+    path: original-path
+    components:
+      - nginx
+    dependsOn:
+      - pki
+`)
+
+		mergeFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: merge-feature
+kustomize:
+  - name: ingress
+    strategy: merge
+    components:
+      - cert-manager
+    dependsOn:
+      - dns
+`)
+
+		templateData := map[string][]byte{
+			"blueprint":            baseBlueprint,
+			"features/merge.yaml":  mergeFeature,
+		}
+
+		config := map[string]any{}
+
+		err := handler.processFeatures(templateData, config)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(handler.blueprint.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(handler.blueprint.Kustomizations))
+		}
+
+		kustomization := handler.blueprint.Kustomizations[0]
+		if len(kustomization.Components) != 2 {
+			t.Errorf("Expected 2 components (merged), got %d", len(kustomization.Components))
+		}
+		if len(kustomization.DependsOn) != 2 {
+			t.Errorf("Expected 2 dependencies (merged), got %d", len(kustomization.DependsOn))
+		}
+	})
 }
 
 func TestBaseBlueprintHandler_setRepositoryDefaults(t *testing.T) {

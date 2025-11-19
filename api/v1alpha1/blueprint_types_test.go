@@ -725,6 +725,302 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 	})
 }
 
+func TestBlueprint_ReplaceTerraformComponent(t *testing.T) {
+	t.Run("ReplacesExistingComponent", func(t *testing.T) {
+		// Given a base blueprint with a terraform component
+		base := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{
+					Path:      "network/vpc",
+					Source:    "core",
+					Inputs:    map[string]any{"cidr": "10.0.0.0/16", "enable_dns": false},
+					DependsOn: []string{"backend", "security"},
+					Destroy:   ptrBool(true),
+				},
+			},
+		}
+
+		// When replacing with a new component
+		replacement := TerraformComponent{
+			Path:      "network/vpc",
+			Source:    "core",
+			Inputs:    map[string]any{"cidr": "172.16.0.0/16"},
+			DependsOn: []string{"new-dependency"},
+			Destroy:   ptrBool(false),
+			Parallelism: intPtr(5),
+		}
+
+		err := base.ReplaceTerraformComponent(replacement)
+
+		// Then should replace the component entirely
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+		if len(base.TerraformComponents) != 1 {
+			t.Errorf("Expected 1 component, got %d", len(base.TerraformComponents))
+		}
+
+		replaced := base.TerraformComponents[0]
+		if replaced.Path != "network/vpc" {
+			t.Errorf("Expected path 'network/vpc', got '%s'", replaced.Path)
+		}
+		if len(replaced.Inputs) != 1 {
+			t.Errorf("Expected 1 input (replaced), got %d", len(replaced.Inputs))
+		}
+		if replaced.Inputs["cidr"] != "172.16.0.0/16" {
+			t.Errorf("Expected new cidr value, got %v", replaced.Inputs["cidr"])
+		}
+		if replaced.Inputs["enable_dns"] != nil {
+			t.Errorf("Expected old enable_dns to be removed, got %v", replaced.Inputs["enable_dns"])
+		}
+		if len(replaced.DependsOn) != 1 {
+			t.Errorf("Expected 1 dependency (replaced), got %d", len(replaced.DependsOn))
+		}
+		if replaced.DependsOn[0] != "new-dependency" {
+			t.Errorf("Expected new dependency, got %v", replaced.DependsOn)
+		}
+		if replaced.Destroy == nil || *replaced.Destroy != false {
+			t.Errorf("Expected destroy=false, got %v", replaced.Destroy)
+		}
+		if replaced.Parallelism == nil || *replaced.Parallelism != 5 {
+			t.Errorf("Expected parallelism=5, got %v", replaced.Parallelism)
+		}
+	})
+
+	t.Run("AppendsNewComponent", func(t *testing.T) {
+		// Given a base blueprint with existing components
+		base := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{Path: "existing", Source: "core"},
+			},
+		}
+
+		// When replacing with a component that doesn't exist
+		newComponent := TerraformComponent{
+			Path:   "new-component",
+			Source: "core",
+			Inputs: map[string]any{"key": "value"},
+		}
+
+		err := base.ReplaceTerraformComponent(newComponent)
+
+		// Then should append the new component
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+		if len(base.TerraformComponents) != 2 {
+			t.Errorf("Expected 2 components, got %d", len(base.TerraformComponents))
+		}
+
+		found := false
+		for _, comp := range base.TerraformComponents {
+			if comp.Path == "new-component" {
+				found = true
+				if comp.Inputs["key"] != "value" {
+					t.Errorf("Expected new component inputs to be preserved")
+				}
+			}
+		}
+		if !found {
+			t.Errorf("Expected new component to be added")
+		}
+	})
+
+	t.Run("MaintainsDependencyOrder", func(t *testing.T) {
+		// Given a base blueprint with ordered components
+		base := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{Path: "backend", Source: "core"},
+				{Path: "network", Source: "core"},
+				{Path: "cluster", Source: "core", DependsOn: []string{"network"}},
+			},
+		}
+
+		// When replacing network component with new dependencies
+		replacement := TerraformComponent{
+			Path:      "network",
+			Source:    "core",
+			DependsOn: []string{"backend", "new-dep"},
+		}
+
+		err := base.ReplaceTerraformComponent(replacement)
+
+		// Then should maintain dependency order
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		networkIndex := -1
+		clusterIndex := -1
+		for i, comp := range base.TerraformComponents {
+			if comp.Path == "network" {
+				networkIndex = i
+			}
+			if comp.Path == "cluster" {
+				clusterIndex = i
+			}
+		}
+
+		if networkIndex == -1 || clusterIndex == -1 {
+			t.Fatal("Expected both network and cluster components")
+		}
+
+		if networkIndex >= clusterIndex {
+			t.Errorf("Expected network (index %d) to come before cluster (index %d) due to dependency", networkIndex, clusterIndex)
+		}
+	})
+}
+
+func TestBlueprint_ReplaceKustomization(t *testing.T) {
+	t.Run("ReplacesExistingKustomization", func(t *testing.T) {
+		// Given a base blueprint with a kustomization
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name:       "ingress",
+					Path:       "original-path",
+					Source:     "original-source",
+					Components: []string{"nginx", "cert-manager"},
+					DependsOn:  []string{"pki", "dns"},
+					Destroy:    ptrBool(true),
+				},
+			},
+		}
+
+		// When replacing with a new kustomization
+		replacement := Kustomization{
+			Name:       "ingress",
+			Path:       "new-path",
+			Source:     "new-source",
+			Components: []string{"traefik"},
+			DependsOn:  []string{"new-dependency"},
+			Destroy:    ptrBool(false),
+		}
+
+		err := base.ReplaceKustomization(replacement)
+
+		// Then should replace the kustomization entirely
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+		if len(base.Kustomizations) != 1 {
+			t.Errorf("Expected 1 kustomization, got %d", len(base.Kustomizations))
+		}
+
+		replaced := base.Kustomizations[0]
+		if replaced.Name != "ingress" {
+			t.Errorf("Expected name 'ingress', got '%s'", replaced.Name)
+		}
+		if replaced.Path != "new-path" {
+			t.Errorf("Expected path 'new-path', got '%s'", replaced.Path)
+		}
+		if replaced.Source != "new-source" {
+			t.Errorf("Expected source 'new-source', got '%s'", replaced.Source)
+		}
+		if len(replaced.Components) != 1 {
+			t.Errorf("Expected 1 component (replaced), got %d", len(replaced.Components))
+		}
+		if replaced.Components[0] != "traefik" {
+			t.Errorf("Expected component 'traefik', got %v", replaced.Components)
+		}
+		if len(replaced.DependsOn) != 1 {
+			t.Errorf("Expected 1 dependency (replaced), got %d", len(replaced.DependsOn))
+		}
+		if replaced.DependsOn[0] != "new-dependency" {
+			t.Errorf("Expected new dependency, got %v", replaced.DependsOn)
+		}
+		if replaced.Destroy == nil || *replaced.Destroy != false {
+			t.Errorf("Expected destroy=false, got %v", replaced.Destroy)
+		}
+	})
+
+	t.Run("AppendsNewKustomization", func(t *testing.T) {
+		// Given a base blueprint with existing kustomizations
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{Name: "existing", Path: "existing-path"},
+			},
+		}
+
+		// When replacing with a kustomization that doesn't exist
+		newKustomization := Kustomization{
+			Name:       "new-kustomization",
+			Path:       "new-path",
+			Components: []string{"component1"},
+		}
+
+		err := base.ReplaceKustomization(newKustomization)
+
+		// Then should append the new kustomization
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+		if len(base.Kustomizations) != 2 {
+			t.Errorf("Expected 2 kustomizations, got %d", len(base.Kustomizations))
+		}
+
+		found := false
+		for i := range base.Kustomizations {
+			k := base.Kustomizations[i]
+			if k.Name == "new-kustomization" {
+				found = true
+				if k.Path != "new-path" {
+					t.Errorf("Expected new kustomization path to be preserved")
+				}
+				if len(k.Components) != 1 || k.Components[0] != "component1" {
+					t.Errorf("Expected new kustomization components to be preserved")
+				}
+			}
+		}
+		if !found {
+			t.Errorf("Expected new kustomization to be added")
+		}
+	})
+
+	t.Run("MaintainsDependencyOrder", func(t *testing.T) {
+		// Given a base blueprint with ordered kustomizations
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{Name: "pki", Path: "pki"},
+				{Name: "ingress", Path: "ingress", DependsOn: []string{"pki"}},
+			},
+		}
+
+		// When replacing pki with new dependencies
+		replacement := Kustomization{
+			Name:      "pki",
+			Path:      "pki",
+			DependsOn: []string{"base"},
+		}
+
+		err := base.ReplaceKustomization(replacement)
+
+		// Then should maintain dependency order
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		pkiIndex := -1
+		ingressIndex := -1
+		for i, k := range base.Kustomizations {
+			if k.Name == "pki" {
+				pkiIndex = i
+			}
+			if k.Name == "ingress" {
+				ingressIndex = i
+			}
+		}
+
+		if pkiIndex == -1 || ingressIndex == -1 {
+			t.Fatal("Expected both pki and ingress kustomizations")
+		}
+
+		if pkiIndex >= ingressIndex {
+			t.Errorf("Expected pki (index %d) to come before ingress (index %d) due to dependency", pkiIndex, ingressIndex)
+		}
+	})
+}
+
 func TestBlueprint_DeepCopy(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		blueprint := &Blueprint{

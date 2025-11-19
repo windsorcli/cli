@@ -645,15 +645,30 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 						component.Inputs = make(map[string]any)
 					}
 
-					component.Inputs = b.deepMergeMaps(component.Inputs, filteredInputs)
+					if terraformComponent.Strategy == "replace" {
+						component.Inputs = filteredInputs
+					} else {
+						component.Inputs = b.deepMergeMaps(component.Inputs, filteredInputs)
+					}
 				}
 			}
 
-			tempBlueprint := &blueprintv1alpha1.Blueprint{
-				TerraformComponents: []blueprintv1alpha1.TerraformComponent{component},
+			strategy := terraformComponent.Strategy
+			if strategy == "" {
+				strategy = "merge"
 			}
-			if err := b.blueprint.StrategicMerge(tempBlueprint); err != nil {
-				return fmt.Errorf("failed to merge terraform component: %w", err)
+
+			if strategy == "replace" {
+				if err := b.blueprint.ReplaceTerraformComponent(component); err != nil {
+					return fmt.Errorf("failed to replace terraform component: %w", err)
+				}
+			} else {
+				tempBlueprint := &blueprintv1alpha1.Blueprint{
+					TerraformComponents: []blueprintv1alpha1.TerraformComponent{component},
+				}
+				if err := b.blueprint.StrategicMerge(tempBlueprint); err != nil {
+					return fmt.Errorf("failed to merge terraform component: %w", err)
+				}
 			}
 		}
 
@@ -686,11 +701,22 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 			// Clear substitutions as they are used for ConfigMap generation and should not appear in the final blueprint
 			kustomizationCopy.Substitutions = nil
 
-			tempBlueprint := &blueprintv1alpha1.Blueprint{
-				Kustomizations: []blueprintv1alpha1.Kustomization{kustomizationCopy},
+			strategy := kustomization.Strategy
+			if strategy == "" {
+				strategy = "merge"
 			}
-			if err := b.blueprint.StrategicMerge(tempBlueprint); err != nil {
-				return fmt.Errorf("failed to merge kustomization: %w", err)
+
+			if strategy == "replace" {
+				if err := b.blueprint.ReplaceKustomization(kustomizationCopy); err != nil {
+					return fmt.Errorf("failed to replace kustomization: %w", err)
+				}
+			} else {
+				tempBlueprint := &blueprintv1alpha1.Blueprint{
+					Kustomizations: []blueprintv1alpha1.Kustomization{kustomizationCopy},
+				}
+				if err := b.blueprint.StrategicMerge(tempBlueprint); err != nil {
+					return fmt.Errorf("failed to merge kustomization: %w", err)
+				}
 			}
 		}
 	}
