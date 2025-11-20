@@ -529,7 +529,7 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 	patches := make([]kustomize.Patch, 0, len(k.Patches))
 	for _, p := range k.Patches {
 		patchContent := p.Patch
-		if patchContent == "" && p.Path != "" {
+		if patchContent == "" && p.Path == "" {
 			continue
 		}
 		var target *kustomize.Selector
