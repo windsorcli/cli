@@ -165,6 +165,7 @@ func (b *BaseBlueprintHandler) LoadBlueprint() error {
 // the file is only written if it does not already exist. The method ensures the target directory exists,
 // marshals the blueprint to YAML, and writes the file using the configured shims.
 // Terraform inputs and kustomization substitutions are manually cleared to prevent them from appearing in the final blueprint.yaml.
+// Also writes patches from Features and local templates to the context patches directory.
 func (b *BaseBlueprintHandler) Write(overwrite ...bool) error {
 	shouldOverwrite := false
 	if len(overwrite) > 0 {
@@ -178,12 +179,6 @@ func (b *BaseBlueprintHandler) Write(overwrite ...bool) error {
 
 	yamlPath := filepath.Join(configRoot, "blueprint.yaml")
 
-	if !shouldOverwrite {
-		if _, err := b.shims.Stat(yamlPath); err == nil {
-			return nil
-		}
-	}
-
 	if err := b.shims.MkdirAll(filepath.Dir(yamlPath), 0755); err != nil {
 		return fmt.Errorf("error creating directory: %w", err)
 	}
@@ -192,9 +187,29 @@ func (b *BaseBlueprintHandler) Write(overwrite ...bool) error {
 		return fmt.Errorf("error setting repository defaults: %w", err)
 	}
 
+	for _, kustomization := range b.blueprint.Kustomizations {
+		strategicMergePatchesToWrite, _ := b.categorizePatches(kustomization)
+		if len(strategicMergePatchesToWrite) > 0 {
+			kustomizationWithPatches := kustomization
+			kustomizationWithPatches.Patches = strategicMergePatchesToWrite
+			if err := b.writeLocalTemplatePatches(kustomizationWithPatches, shouldOverwrite); err != nil {
+				return fmt.Errorf("error writing patches to context: %w", err)
+			}
+		}
+	}
+
+	if !shouldOverwrite {
+		if _, err := b.shims.Stat(yamlPath); err == nil {
+			return nil
+		}
+	}
+
 	cleanedBlueprint := b.blueprint.DeepCopy()
 	for i := range cleanedBlueprint.TerraformComponents {
 		cleanedBlueprint.TerraformComponents[i].Inputs = map[string]any{}
+	}
+	for i := range cleanedBlueprint.Kustomizations {
+		cleanedBlueprint.Kustomizations[i].Patches = nil
 	}
 
 	data, err := b.shims.YamlMarshal(cleanedBlueprint)
@@ -266,6 +281,107 @@ func (b *BaseBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
 	for i := range generated.Kustomizations {
 		if subs, exists := b.featureSubstitutions[generated.Kustomizations[i].Name]; exists {
 			generated.Kustomizations[i].Substitutions = maps.Clone(subs)
+		}
+
+		strategicMergePatchesToWrite, inlinePatches := b.categorizePatches(generated.Kustomizations[i])
+
+		if len(strategicMergePatchesToWrite) > 0 {
+			kustomizationWithPatches := generated.Kustomizations[i]
+			kustomizationWithPatches.Patches = strategicMergePatchesToWrite
+			b.writeLocalTemplatePatches(kustomizationWithPatches, true)
+			generated.Kustomizations[i].Patches = inlinePatches
+		} else {
+			generated.Kustomizations[i].Patches = inlinePatches
+		}
+
+		configRoot := b.runtime.ConfigRoot
+		if configRoot != "" {
+			patchesDir := filepath.Join(configRoot, "patches", generated.Kustomizations[i].Name)
+			if _, err := b.shims.Stat(patchesDir); err == nil {
+				var discoveredPatches []blueprintv1alpha1.BlueprintPatch
+				err := b.shims.Walk(patchesDir, func(path string, info os.FileInfo, err error) error {
+					if err != nil {
+						return err
+					}
+					if info.IsDir() {
+						return nil
+					}
+					if !strings.HasSuffix(strings.ToLower(info.Name()), ".yaml") && !strings.HasSuffix(strings.ToLower(info.Name()), ".yml") {
+						return nil
+					}
+					data, err := b.shims.ReadFile(path)
+					if err != nil {
+						return nil
+					}
+					patchContent := string(data)
+					relPath, err := filepath.Rel(patchesDir, path)
+					if err != nil {
+						return nil
+					}
+					defaultNamespace := b.runtime.ConfigHandler.GetContext()
+					isJSON6902, target := func() (bool, *kustomize.Selector) {
+						decoder := yaml.NewDecoder(strings.NewReader(patchContent))
+						for {
+							var doc map[string]any
+							if err := decoder.Decode(&doc); err != nil {
+								if err == io.EOF {
+									break
+								}
+								continue
+							}
+							if doc == nil {
+								continue
+							}
+							hasAPIVersion := false
+							hasKind := false
+							hasMetadata := false
+							if _, ok := doc["apiVersion"]; ok {
+								hasAPIVersion = true
+							}
+							if _, ok := doc["kind"]; ok {
+								hasKind = true
+							}
+							if _, ok := doc["metadata"]; ok {
+								hasMetadata = true
+							}
+							if hasAPIVersion && hasKind && hasMetadata {
+								for key, v := range doc {
+									if key == "patch" || key == "patches" {
+										if arr, ok := v.([]any); ok {
+											if len(arr) > 0 {
+												if firstItem, ok := arr[0].(map[string]any); ok {
+													if _, ok := firstItem["op"].(string); ok {
+														if _, hasPath := firstItem["path"]; hasPath {
+															return true, b.extractTargetFromPatchData(doc, defaultNamespace)
+														}
+													}
+												}
+											}
+										}
+									}
+								}
+								return false, nil
+							}
+						}
+						return false, nil
+					}()
+					patch := blueprintv1alpha1.BlueprintPatch{
+						Path:  relPath,
+						Patch: patchContent,
+					}
+					if isJSON6902 && target != nil {
+						patch.Target = target
+					}
+					discoveredPatches = append(discoveredPatches, patch)
+					return nil
+				})
+				if err == nil && len(discoveredPatches) > 0 {
+					for j := range discoveredPatches {
+						discoveredPatches[j].Path = ""
+					}
+					generated.Kustomizations[i].Patches = append(generated.Kustomizations[i].Patches, discoveredPatches...)
+				}
+			}
 		}
 	}
 
@@ -698,6 +814,16 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 				maps.Copy(b.featureSubstitutions[kustomizationCopy.Name], evaluatedSubstitutions)
 			}
 
+			for j := range kustomizationCopy.Patches {
+				if kustomizationCopy.Patches[j].Patch != "" {
+					evaluated, err := b.featureEvaluator.InterpolateString(kustomizationCopy.Patches[j].Patch, config, feature.Path)
+					if err != nil {
+						return fmt.Errorf("failed to evaluate patch for kustomization '%s': %w", kustomizationCopy.Name, err)
+					}
+					kustomizationCopy.Patches[j].Patch = evaluated
+				}
+			}
+
 			// Clear substitutions as they are used for ConfigMap generation and should not appear in the final blueprint
 			kustomizationCopy.Substitutions = nil
 
@@ -1054,6 +1180,182 @@ func (b *BaseBlueprintHandler) isOCISource(sourceNameOrURL string) bool {
 		}
 	}
 	return false
+}
+
+// categorizePatches categorizes patches into strategic merge patches to write and inline patches to keep in-memory.
+// Returns strategic merge patches to write and inline patches (JSON 6902 or OCI patches).
+func (b *BaseBlueprintHandler) categorizePatches(kustomization blueprintv1alpha1.Kustomization) ([]blueprintv1alpha1.BlueprintPatch, []blueprintv1alpha1.BlueprintPatch) {
+	strategicMergePatchesToWrite := make([]blueprintv1alpha1.BlueprintPatch, 0)
+	inlinePatches := make([]blueprintv1alpha1.BlueprintPatch, 0)
+
+	for _, patch := range kustomization.Patches {
+		isLocalTemplatePatch := false
+		if patch.Path != "" && !strings.HasPrefix(patch.Path, "patches/") {
+			patchFilePath := filepath.Join(b.runtime.TemplateRoot, patch.Path)
+			if _, err := b.shims.Stat(patchFilePath); err == nil {
+				isLocalTemplatePatch = true
+			}
+		}
+
+		if patch.Target != nil {
+			if isLocalTemplatePatch && patch.Patch == "" && patch.Path != "" {
+				patchFilePath := filepath.Join(b.runtime.TemplateRoot, patch.Path)
+				data, err := b.shims.ReadFile(patchFilePath)
+				if err == nil {
+					patch.Patch = string(data)
+					patch.Path = ""
+				}
+			}
+			inlinePatches = append(inlinePatches, patch)
+		} else if patch.Patch != "" {
+			strategicMergePatchesToWrite = append(strategicMergePatchesToWrite, patch)
+		} else if isLocalTemplatePatch {
+			strategicMergePatchesToWrite = append(strategicMergePatchesToWrite, patch)
+		} else {
+			inlinePatches = append(inlinePatches, patch)
+		}
+	}
+
+	return strategicMergePatchesToWrite, inlinePatches
+}
+
+// writeLocalTemplatePatches writes patches from local _template to the context patches directory.
+// Patches are written to contexts/<context>/patches/<kustomize-name>/ as individual YAML files.
+// Each patch file is named using kind-name.yaml format extracted from the patch metadata.
+// Patch content is evaluated (jsonnet expressions are processed) before writing.
+// If overwrite is false, existing patch files are not overwritten.
+// Returns an error if directory creation or file writing fails.
+func (b *BaseBlueprintHandler) writeLocalTemplatePatches(kustomization blueprintv1alpha1.Kustomization, overwrite bool) error {
+	if len(kustomization.Patches) == 0 {
+		return nil
+	}
+
+	configRoot := b.runtime.ConfigRoot
+	if configRoot == "" {
+		return nil
+	}
+
+	patchesDir := filepath.Join(configRoot, "patches", kustomization.Name)
+	if err := b.shims.MkdirAll(patchesDir, 0755); err != nil {
+		return fmt.Errorf("failed to create patches directory: %w", err)
+	}
+
+	config := make(map[string]any)
+	contextValues, err := b.runtime.ConfigHandler.GetContextValues()
+	if err == nil {
+		for k, v := range contextValues {
+			if k != "substitutions" {
+				config[k] = v
+			}
+		}
+	}
+
+	patchMap := make(map[string]string)
+	for i, patch := range kustomization.Patches {
+		if patch.Path == "" && patch.Patch == "" {
+			continue
+		}
+
+		var patchContent string
+
+		if patch.Patch != "" {
+			patchContent = patch.Patch
+		} else if patch.Path != "" {
+			patchFileFullPath := filepath.Join(b.runtime.TemplateRoot, patch.Path)
+			data, err := b.shims.ReadFile(patchFileFullPath)
+			if err != nil {
+				continue
+			}
+			patchContent = string(data)
+			evaluated, err := b.featureEvaluator.InterpolateString(patchContent, config, filepath.Dir(patchFileFullPath))
+			if err != nil {
+				return fmt.Errorf("failed to evaluate patch file %s: %w", patch.Path, err)
+			}
+			patchContent = evaluated
+		} else {
+			continue
+		}
+
+		if strings.TrimSpace(patchContent) == "" {
+			continue
+		}
+
+		var patchFileName string
+		var doc map[string]any
+		if err := b.shims.YamlUnmarshal([]byte(patchContent), &doc); err == nil {
+			if kind, ok := doc["kind"].(string); ok {
+				if metadata, ok := doc["metadata"].(map[string]any); ok {
+					if name, ok := metadata["name"].(string); ok {
+						filename := fmt.Sprintf("%s-%s.yaml", strings.ToLower(kind), name)
+						invalidChars := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"}
+						for _, char := range invalidChars {
+							filename = strings.ReplaceAll(filename, char, "-")
+						}
+						patchFileName = filename
+					}
+				}
+			}
+		}
+		if patchFileName == "" {
+			patchFileName = fmt.Sprintf("%d.yaml", i)
+		}
+		existingContent, exists := patchMap[patchFileName]
+		if exists {
+			var existingDoc, newDoc map[string]any
+			if err := b.shims.YamlUnmarshal([]byte(existingContent), &existingDoc); err != nil {
+				return fmt.Errorf("failed to parse existing patch: %w", err)
+			}
+			if err := b.shims.YamlUnmarshal([]byte(patchContent), &newDoc); err != nil {
+				return fmt.Errorf("failed to parse new patch: %w", err)
+			}
+			existingKind, existingKindOk := existingDoc["kind"].(string)
+			var existingName string
+			var existingNameOk bool
+			if metadata, ok := existingDoc["metadata"].(map[string]any); ok {
+				if name, ok := metadata["name"].(string); ok {
+					existingName = name
+					existingNameOk = true
+				}
+			}
+			newKind, newKindOk := newDoc["kind"].(string)
+			var newName string
+			var newNameOk bool
+			if metadata, ok := newDoc["metadata"].(map[string]any); ok {
+				if name, ok := metadata["name"].(string); ok {
+					newName = name
+					newNameOk = true
+				}
+			}
+			if existingKindOk && existingNameOk && newKindOk && newNameOk &&
+				existingKind == newKind && existingName == newName {
+				merged := b.deepMergeMaps(existingDoc, newDoc)
+				mergedYAML, err := b.shims.YamlMarshal(merged)
+				if err != nil {
+					return fmt.Errorf("failed to marshal merged patch: %w", err)
+				}
+				patchMap[patchFileName] = strings.TrimSpace(string(mergedYAML))
+			} else {
+				patchMap[patchFileName] = strings.TrimSpace(existingContent) + "\n---\n" + strings.TrimSpace(patchContent)
+			}
+		} else {
+			patchMap[patchFileName] = strings.TrimSpace(patchContent)
+		}
+	}
+
+	for patchFileName, patchContent := range patchMap {
+		patchFilePath := filepath.Join(patchesDir, patchFileName)
+		if !overwrite {
+			if _, err := b.shims.Stat(patchFilePath); err == nil {
+				continue
+			}
+		}
+
+		if err := b.shims.WriteFile(patchFilePath, []byte(patchContent), 0644); err != nil {
+			return fmt.Errorf("failed to write patch file %s: %w", patchFilePath, err)
+		}
+	}
+
+	return nil
 }
 
 // mergeLegacySpecialVariables merges legacy special variables into the common values map for backward compatibility.

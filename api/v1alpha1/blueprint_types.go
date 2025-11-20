@@ -528,20 +528,22 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 
 	patches := make([]kustomize.Patch, 0, len(k.Patches))
 	for _, p := range k.Patches {
-		if p.Patch != "" {
-			var target *kustomize.Selector
-			if p.Target != nil {
-				target = &kustomize.Selector{
-					Kind:      p.Target.Kind,
-					Name:      p.Target.Name,
-					Namespace: p.Target.Namespace,
-				}
-			}
-			patches = append(patches, kustomize.Patch{
-				Patch:  p.Patch,
-				Target: target,
-			})
+		patchContent := p.Patch
+		if patchContent == "" && p.Path != "" {
+			continue
 		}
+		var target *kustomize.Selector
+		if p.Target != nil {
+			target = &kustomize.Selector{
+				Kind:      p.Target.Kind,
+				Name:      p.Target.Name,
+				Namespace: p.Target.Namespace,
+			}
+		}
+		patches = append(patches, kustomize.Patch{
+			Patch:  patchContent,
+			Target: target,
+		})
 	}
 
 	var postBuild *kustomizev1.PostBuild
@@ -625,6 +627,7 @@ func (b *Blueprint) strategicMergeTerraformComponent(component TerraformComponen
 
 // strategicMergeKustomization performs a strategic merge of the provided Kustomization into the Blueprint.
 // It merges unique components and dependencies, updates fields if provided, and maintains dependency order.
+// Patches from the provided kustomization are appended to existing patches.
 // Returns an error if a dependency cycle is detected during sorting.
 func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) error {
 	for i, existing := range b.Kustomizations {
@@ -648,6 +651,9 @@ func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) err
 			}
 			if kustomization.Destroy != nil {
 				existing.Destroy = kustomization.Destroy
+			}
+			if len(kustomization.Patches) > 0 {
+				existing.Patches = append(existing.Patches, kustomization.Patches...)
 			}
 			b.Kustomizations[i] = existing
 			return b.sortKustomize()
