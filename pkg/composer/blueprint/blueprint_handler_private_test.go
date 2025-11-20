@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fluxcd/pkg/apis/kustomize"
 	"github.com/goccy/go-yaml"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
@@ -3103,8 +3104,8 @@ terraform:
 `)
 
 		templateData := map[string][]byte{
-			"blueprint":              baseBlueprint,
-			"features/replace.yaml":  replaceFeature,
+			"blueprint":             baseBlueprint,
+			"features/replace.yaml": replaceFeature,
 		}
 
 		config := map[string]any{}
@@ -3170,8 +3171,8 @@ terraform:
 `)
 
 		templateData := map[string][]byte{
-			"blueprint":            baseBlueprint,
-			"features/merge.yaml":  mergeFeature,
+			"blueprint":           baseBlueprint,
+			"features/merge.yaml": mergeFeature,
 		}
 
 		config := map[string]any{}
@@ -3235,8 +3236,8 @@ kustomize:
 `)
 
 		templateData := map[string][]byte{
-			"blueprint":              baseBlueprint,
-			"features/replace.yaml":  replaceFeature,
+			"blueprint":             baseBlueprint,
+			"features/replace.yaml": replaceFeature,
 		}
 
 		config := map[string]any{}
@@ -3304,8 +3305,8 @@ kustomize:
 `)
 
 		templateData := map[string][]byte{
-			"blueprint":            baseBlueprint,
-			"features/merge.yaml":  mergeFeature,
+			"blueprint":           baseBlueprint,
+			"features/merge.yaml": mergeFeature,
 		}
 
 		config := map[string]any{}
@@ -4285,6 +4286,839 @@ func TestNewShims(t *testing.T) {
 		}
 		if shims.NewJsonnetVM == nil {
 			t.Error("Expected NewJsonnetVM to be set")
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_writeLocalTemplatePatches(t *testing.T) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *BlueprintTestMocks) {
+		t.Helper()
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+		return handler, mocks
+	}
+
+	t.Run("WritesPatchWithKindAndName", func(t *testing.T) {
+		handler, mocks := setup(t)
+		mocks.Runtime.ConfigRoot = "/test/config"
+		mocks.Runtime.TemplateRoot = "/test/template"
+
+		kustomization := blueprintv1alpha1.Kustomization{
+			Name: "test-kustomization",
+			Patches: []blueprintv1alpha1.BlueprintPatch{
+				{
+					Patch: `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-config
+data:
+  key: value`,
+				},
+			},
+		}
+
+		var writtenPath string
+		var writtenContent []byte
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			if strings.Contains(name, "patches/") {
+				writtenPath = name
+				writtenContent = data
+			}
+			return nil
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		mocks.Shims.YamlUnmarshal = yaml.Unmarshal
+		mocks.Shims.YamlMarshal = yaml.Marshal
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return make(map[string]any), nil
+		}
+
+		err := handler.writeLocalTemplatePatches(kustomization, true)
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		expectedPath := filepath.Join(mocks.Runtime.ConfigRoot, "patches", "test-kustomization", "configmap-test-config.yaml")
+		if writtenPath != expectedPath {
+			t.Errorf("Expected patch file at %s, got %s", expectedPath, writtenPath)
+		}
+
+		if len(writtenContent) == 0 {
+			t.Error("Expected patch content to be written")
+		}
+	})
+
+	t.Run("HandlesEmptyPatches", func(t *testing.T) {
+		handler, mocks := setup(t)
+		mocks.Runtime.ConfigRoot = "/test/config"
+
+		kustomization := blueprintv1alpha1.Kustomization{
+			Name:    "test-kustomization",
+			Patches: []blueprintv1alpha1.BlueprintPatch{},
+		}
+
+		var writeFileCalled bool
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			if strings.Contains(name, "patches/") {
+				writeFileCalled = true
+			}
+			return nil
+		}
+
+		err := handler.writeLocalTemplatePatches(kustomization, true)
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		if writeFileCalled {
+			t.Error("Expected WriteFile not to be called for empty patches")
+		}
+	})
+
+	t.Run("HandlesEmptyConfigRoot", func(t *testing.T) {
+		handler, mocks := setup(t)
+		mocks.Runtime.ConfigRoot = ""
+
+		kustomization := blueprintv1alpha1.Kustomization{
+			Name: "test-kustomization",
+			Patches: []blueprintv1alpha1.BlueprintPatch{
+				{
+					Patch: `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-config`,
+				},
+			},
+		}
+
+		var writeFileCalled bool
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			if strings.Contains(name, "patches/") {
+				writeFileCalled = true
+			}
+			return nil
+		}
+
+		err := handler.writeLocalTemplatePatches(kustomization, true)
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		if writeFileCalled {
+			t.Error("Expected WriteFile not to be called when ConfigRoot is empty")
+		}
+	})
+
+	t.Run("HandlesMkdirAllError", func(t *testing.T) {
+		handler, mocks := setup(t)
+		mocks.Runtime.ConfigRoot = "/test/config"
+
+		kustomization := blueprintv1alpha1.Kustomization{
+			Name: "test-kustomization",
+			Patches: []blueprintv1alpha1.BlueprintPatch{
+				{
+					Patch: `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-config`,
+				},
+			},
+		}
+
+		expectedError := fmt.Errorf("mkdir error")
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			if strings.Contains(path, "patches/") {
+				return expectedError
+			}
+			return nil
+		}
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return make(map[string]any), nil
+		}
+
+		err := handler.writeLocalTemplatePatches(kustomization, true)
+
+		if err == nil {
+			t.Error("Expected error from MkdirAll, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "failed to create patches directory") {
+			t.Errorf("Expected error about creating patches directory, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesWriteFileError", func(t *testing.T) {
+		handler, mocks := setup(t)
+		mocks.Runtime.ConfigRoot = "/test/config"
+
+		kustomization := blueprintv1alpha1.Kustomization{
+			Name: "test-kustomization",
+			Patches: []blueprintv1alpha1.BlueprintPatch{
+				{
+					Patch: `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-config`,
+				},
+			},
+		}
+
+		expectedError := fmt.Errorf("write file error")
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			if strings.Contains(name, "patches/") {
+				return expectedError
+			}
+			return nil
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		mocks.Shims.YamlUnmarshal = yaml.Unmarshal
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return make(map[string]any), nil
+		}
+
+		err := handler.writeLocalTemplatePatches(kustomization, true)
+
+		if err == nil {
+			t.Error("Expected error from WriteFile, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "failed to write patch file") {
+			t.Errorf("Expected error about writing patch file, got: %v", err)
+		}
+	})
+
+	t.Run("RespectsOverwriteFlag", func(t *testing.T) {
+		handler, mocks := setup(t)
+		mocks.Runtime.ConfigRoot = "/test/config"
+
+		kustomization := blueprintv1alpha1.Kustomization{
+			Name: "test-kustomization",
+			Patches: []blueprintv1alpha1.BlueprintPatch{
+				{
+					Patch: `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-config`,
+				},
+			},
+		}
+
+		var writeFileCalled bool
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			if strings.Contains(name, "patches/") {
+				writeFileCalled = true
+			}
+			return nil
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "patches/") {
+				return &mockFileInfo{name: "configmap-test-config.yaml", isDir: false}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		mocks.Shims.YamlUnmarshal = yaml.Unmarshal
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return make(map[string]any), nil
+		}
+
+		err := handler.writeLocalTemplatePatches(kustomization, false)
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		if writeFileCalled {
+			t.Error("Expected WriteFile not to be called when overwrite is false and file exists")
+		}
+
+		writeFileCalled = false
+		err = handler.writeLocalTemplatePatches(kustomization, true)
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		if !writeFileCalled {
+			t.Error("Expected WriteFile to be called when overwrite is true")
+		}
+	})
+
+	t.Run("EvaluatesPatchContentFromPath", func(t *testing.T) {
+		handler, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ConfigRoot = "/test/config"
+		mocks.Runtime.TemplateRoot = tmpDir
+
+		patchFile := filepath.Join(tmpDir, "kustomize", "patches", "test-patch.yaml")
+		if err := os.MkdirAll(filepath.Dir(patchFile), 0755); err != nil {
+			t.Fatalf("Failed to create patch directory: %v", err)
+		}
+
+		patchContent := `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-config`
+		if err := os.WriteFile(patchFile, []byte(patchContent), 0644); err != nil {
+			t.Fatalf("Failed to write patch file: %v", err)
+		}
+
+		kustomization := blueprintv1alpha1.Kustomization{
+			Name: "test-kustomization",
+			Patches: []blueprintv1alpha1.BlueprintPatch{
+				{
+					Path: "kustomize/patches/test-patch.yaml",
+				},
+			},
+		}
+
+		var writtenContent []byte
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			if strings.Contains(name, "patches/") {
+				writtenContent = data
+			}
+			return nil
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		mocks.Shims.ReadFile = os.ReadFile
+		mocks.Shims.YamlUnmarshal = yaml.Unmarshal
+		mocks.Shims.YamlMarshal = yaml.Marshal
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return make(map[string]any), nil
+		}
+
+		err := handler.writeLocalTemplatePatches(kustomization, true)
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		if len(writtenContent) == 0 {
+			t.Error("Expected patch content to be written")
+		}
+
+		if !strings.Contains(string(writtenContent), "test-config") {
+			t.Error("Expected written content to contain patch data")
+		}
+	})
+
+	t.Run("MergesPatchesWithSameKindAndName", func(t *testing.T) {
+		handler, mocks := setup(t)
+		mocks.Runtime.ConfigRoot = "/test/config"
+
+		kustomization := blueprintv1alpha1.Kustomization{
+			Name: "test-kustomization",
+			Patches: []blueprintv1alpha1.BlueprintPatch{
+				{
+					Patch: `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-config
+data:
+  key1: value1`,
+				},
+				{
+					Patch: `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-config
+data:
+  key2: value2`,
+				},
+			},
+		}
+
+		var writtenContent []byte
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			if strings.Contains(name, "patches/") {
+				writtenContent = data
+			}
+			return nil
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		mocks.Shims.YamlUnmarshal = yaml.Unmarshal
+		mocks.Shims.YamlMarshal = yaml.Marshal
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return make(map[string]any), nil
+		}
+
+		err := handler.writeLocalTemplatePatches(kustomization, true)
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		if len(writtenContent) == 0 {
+			t.Fatal("Expected merged patch content to be written")
+		}
+
+		var mergedDoc map[string]any
+		if err := yaml.Unmarshal(writtenContent, &mergedDoc); err != nil {
+			t.Fatalf("Failed to unmarshal merged patch: %v", err)
+		}
+
+		if data, ok := mergedDoc["data"].(map[string]any); ok {
+			if data["key1"] != "value1" {
+				t.Error("Expected key1 to be in merged patch")
+			}
+			if data["key2"] != "value2" {
+				t.Error("Expected key2 to be in merged patch")
+			}
+		} else {
+			t.Error("Expected data section in merged patch")
+		}
+	})
+
+	t.Run("AppendsPatchesWithDifferentKindOrName", func(t *testing.T) {
+		handler, mocks := setup(t)
+		mocks.Runtime.ConfigRoot = "/test/config"
+
+		kustomization := blueprintv1alpha1.Kustomization{
+			Name: "test-kustomization",
+			Patches: []blueprintv1alpha1.BlueprintPatch{
+				{
+					Patch: `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-1
+data:
+  key1: value1`,
+				},
+				{
+					Patch: `apiVersion: v1
+kind: Deployment
+metadata:
+  name: deployment-1
+spec:
+  replicas: 3`,
+				},
+			},
+		}
+
+		var writtenFiles = make(map[string][]byte)
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			if strings.Contains(name, "patches/") {
+				writtenFiles[name] = data
+			}
+			return nil
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		mocks.Shims.YamlUnmarshal = yaml.Unmarshal
+		mocks.Shims.YamlMarshal = yaml.Marshal
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return make(map[string]any), nil
+		}
+
+		err := handler.writeLocalTemplatePatches(kustomization, true)
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		if len(writtenFiles) == 0 {
+			t.Fatal("Expected patch files to be written")
+		}
+
+		foundConfigMap := false
+		foundDeployment := false
+		for path, content := range writtenFiles {
+			contentStr := string(content)
+			if strings.Contains(path, "configmap-config-1.yaml") {
+				foundConfigMap = true
+				if !strings.Contains(contentStr, "config-1") {
+					t.Error("Expected config-1 patch content")
+				}
+			}
+			if strings.Contains(path, "deployment-deployment-1.yaml") {
+				foundDeployment = true
+				if !strings.Contains(contentStr, "deployment-1") {
+					t.Error("Expected deployment-1 patch content")
+				}
+			}
+		}
+
+		if !foundConfigMap {
+			t.Error("Expected ConfigMap patch file to be written")
+		}
+		if !foundDeployment {
+			t.Error("Expected Deployment patch file to be written")
+		}
+	})
+
+	t.Run("SanitizesInvalidFilenameCharacters", func(t *testing.T) {
+		handler, mocks := setup(t)
+		mocks.Runtime.ConfigRoot = "/test/config"
+
+		kustomization := blueprintv1alpha1.Kustomization{
+			Name: "test-kustomization",
+			Patches: []blueprintv1alpha1.BlueprintPatch{
+				{
+					Patch: `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test/config:name*with?invalid"chars<|
+data:
+  key: value`,
+				},
+			},
+		}
+
+		var writtenPath string
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			if strings.Contains(name, "patches/") {
+				writtenPath = name
+			}
+			return nil
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		mocks.Shims.YamlUnmarshal = yaml.Unmarshal
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return make(map[string]any), nil
+		}
+
+		err := handler.writeLocalTemplatePatches(kustomization, true)
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		if writtenPath == "" {
+			t.Fatal("Expected patch file to be written")
+		}
+
+		fileName := filepath.Base(writtenPath)
+		invalidChars := []string{"/", "\\", ":", "*", "?", "\"", "<", "|"}
+		for _, char := range invalidChars {
+			if strings.Contains(fileName, char) {
+				t.Errorf("Expected invalid character '%s' to be sanitized from filename, got: %s", char, fileName)
+			}
+		}
+
+		if !strings.Contains(fileName, "configmap-test") {
+			t.Errorf("Expected sanitized filename to contain 'configmap-test', got: %s", fileName)
+		}
+
+		if !strings.HasSuffix(fileName, ".yaml") {
+			t.Errorf("Expected filename to end with .yaml, got: %s", fileName)
+		}
+	})
+
+	t.Run("SkipsPatchWhenReadFileFails", func(t *testing.T) {
+		handler, mocks := setup(t)
+		mocks.Runtime.ConfigRoot = "/test/config"
+		mocks.Runtime.TemplateRoot = "/test/template"
+
+		kustomization := blueprintv1alpha1.Kustomization{
+			Name: "test-kustomization",
+			Patches: []blueprintv1alpha1.BlueprintPatch{
+				{
+					Path: "kustomize/patches/test-patch.yaml",
+				},
+			},
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			if strings.Contains(name, "patches/test-patch.yaml") {
+				return nil, fmt.Errorf("read file error")
+			}
+			return nil, os.ErrNotExist
+		}
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return make(map[string]any), nil
+		}
+
+		var writeFileCalled bool
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			if strings.Contains(name, "patches/") {
+				writeFileCalled = true
+			}
+			return nil
+		}
+
+		err := handler.writeLocalTemplatePatches(kustomization, true)
+
+		if err != nil {
+			t.Errorf("Expected no error (patch skipped), got %v", err)
+		}
+
+		if writeFileCalled {
+			t.Error("Expected WriteFile not to be called when patch file cannot be read")
+		}
+	})
+
+	t.Run("UsesIndexWhenNoMetadata", func(t *testing.T) {
+		handler, mocks := setup(t)
+		mocks.Runtime.ConfigRoot = "/test/config"
+
+		kustomization := blueprintv1alpha1.Kustomization{
+			Name: "test-kustomization",
+			Patches: []blueprintv1alpha1.BlueprintPatch{
+				{
+					Patch: `apiVersion: v1
+data:
+  key: value`,
+				},
+			},
+		}
+
+		var writtenPath string
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			if strings.Contains(name, "patches/") {
+				writtenPath = name
+			}
+			return nil
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		mocks.Shims.YamlUnmarshal = yaml.Unmarshal
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return make(map[string]any), nil
+		}
+
+		err := handler.writeLocalTemplatePatches(kustomization, true)
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		if !strings.Contains(writtenPath, "0.yaml") {
+			t.Errorf("Expected filename with index 0, got: %s", filepath.Base(writtenPath))
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_categorizePatches(t *testing.T) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *BlueprintTestMocks) {
+		t.Helper()
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+		return handler, mocks
+	}
+
+	t.Run("CategorizesStrategicMergePatches", func(t *testing.T) {
+		handler, mocks := setup(t)
+		mocks.Runtime.TemplateRoot = "/test/template"
+
+		kustomization := blueprintv1alpha1.Kustomization{
+			Name: "test-kustomization",
+			Patches: []blueprintv1alpha1.BlueprintPatch{
+				{
+					Patch: `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-config`,
+				},
+			},
+		}
+
+		strategicMerge, inline := handler.categorizePatches(kustomization)
+
+		if len(strategicMerge) != 1 {
+			t.Errorf("Expected 1 strategic merge patch, got %d", len(strategicMerge))
+		}
+
+		if len(inline) != 0 {
+			t.Errorf("Expected 0 inline patches, got %d", len(inline))
+		}
+	})
+
+	t.Run("CategorizesInlinePatches", func(t *testing.T) {
+		handler, _ := setup(t)
+
+		kustomization := blueprintv1alpha1.Kustomization{
+			Name: "test-kustomization",
+			Patches: []blueprintv1alpha1.BlueprintPatch{
+				{
+					Target: &kustomize.Selector{
+						Kind: "ConfigMap",
+						Name: "test-config",
+					},
+					Patch: `[{"op": "replace", "path": "/data/key", "value": "newvalue"}]`,
+				},
+			},
+		}
+
+		strategicMerge, inline := handler.categorizePatches(kustomization)
+
+		if len(strategicMerge) != 0 {
+			t.Errorf("Expected 0 strategic merge patches, got %d", len(strategicMerge))
+		}
+
+		if len(inline) != 1 {
+			t.Errorf("Expected 1 inline patch, got %d", len(inline))
+		}
+	})
+
+	t.Run("CategorizesJSON6902Patches", func(t *testing.T) {
+		handler, _ := setup(t)
+
+		kustomization := blueprintv1alpha1.Kustomization{
+			Name: "test-kustomization",
+			Patches: []blueprintv1alpha1.BlueprintPatch{
+				{
+					Target: &kustomize.Selector{
+						Kind:      "Deployment",
+						Name:      "test-deployment",
+						Namespace: "default",
+					},
+					Patch: `[{"op": "replace", "path": "/spec/replicas", "value": 5}]`,
+				},
+			},
+		}
+
+		strategicMerge, inline := handler.categorizePatches(kustomization)
+
+		if len(strategicMerge) != 0 {
+			t.Errorf("Expected 0 strategic merge patches, got %d", len(strategicMerge))
+		}
+
+		if len(inline) != 1 {
+			t.Errorf("Expected 1 inline patch, got %d", len(inline))
+		}
+
+		if inline[0].Target == nil {
+			t.Error("Expected target to be set for JSON6902 patch")
+		}
+	})
+
+	t.Run("CategorizesLocalTemplatePatches", func(t *testing.T) {
+		handler, mocks := setup(t)
+		mocks.Runtime.TemplateRoot = "/test/template"
+
+		kustomization := blueprintv1alpha1.Kustomization{
+			Name: "test-kustomization",
+			Patches: []blueprintv1alpha1.BlueprintPatch{
+				{
+					Path: "kustomize/patches/test-patch.yaml",
+				},
+			},
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "template/kustomize/patches/test-patch.yaml") {
+				return &mockFileInfo{name: "test-patch.yaml", isDir: false}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		strategicMerge, inline := handler.categorizePatches(kustomization)
+
+		if len(strategicMerge) != 1 {
+			t.Errorf("Expected 1 strategic merge patch for local template, got %d", len(strategicMerge))
+		}
+
+		if len(inline) != 0 {
+			t.Errorf("Expected 0 inline patches, got %d", len(inline))
+		}
+	})
+
+	t.Run("HandlesEmptyPatches", func(t *testing.T) {
+		handler, _ := setup(t)
+
+		kustomization := blueprintv1alpha1.Kustomization{
+			Name:    "test-kustomization",
+			Patches: []blueprintv1alpha1.BlueprintPatch{},
+		}
+
+		strategicMerge, inline := handler.categorizePatches(kustomization)
+
+		if len(strategicMerge) != 0 {
+			t.Errorf("Expected 0 strategic merge patches, got %d", len(strategicMerge))
+		}
+
+		if len(inline) != 0 {
+			t.Errorf("Expected 0 inline patches, got %d", len(inline))
 		}
 	})
 }

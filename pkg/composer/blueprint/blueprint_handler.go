@@ -283,17 +283,6 @@ func (b *BaseBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
 			generated.Kustomizations[i].Substitutions = maps.Clone(subs)
 		}
 
-		strategicMergePatchesToWrite, inlinePatches := b.categorizePatches(generated.Kustomizations[i])
-
-		if len(strategicMergePatchesToWrite) > 0 {
-			kustomizationWithPatches := generated.Kustomizations[i]
-			kustomizationWithPatches.Patches = strategicMergePatchesToWrite
-			b.writeLocalTemplatePatches(kustomizationWithPatches, true)
-			generated.Kustomizations[i].Patches = inlinePatches
-		} else {
-			generated.Kustomizations[i].Patches = inlinePatches
-		}
-
 		configRoot := b.runtime.ConfigRoot
 		if configRoot != "" {
 			patchesDir := filepath.Join(configRoot, "patches", generated.Kustomizations[i].Name)

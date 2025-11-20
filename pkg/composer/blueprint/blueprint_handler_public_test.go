@@ -10,6 +10,7 @@ import (
 	"time"
 
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
+	"github.com/fluxcd/pkg/apis/kustomize"
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	"github.com/goccy/go-yaml"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -2053,6 +2054,151 @@ func TestBlueprintHandler_Write(t *testing.T) {
 		// Then an error should be returned
 		if err == nil {
 			t.Errorf("Expected error from WriteFile, got nil")
+		}
+	})
+
+	t.Run("WritesStrategicMergePatchesToDisk", func(t *testing.T) {
+		// Given a blueprint handler with kustomization containing strategic merge patches
+		handler, mocks := setup(t)
+		mocks.Runtime.ConfigRoot = "/test/config"
+		mocks.Runtime.TemplateRoot = "/test/template"
+
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Kind:       "Blueprint",
+			ApiVersion: "v1alpha1",
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+					Patches: []blueprintv1alpha1.BlueprintPatch{
+						{
+							Patch: `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-config
+data:
+  key: value`,
+						},
+					},
+				},
+			},
+		}
+
+		var writtenPatchPaths []string
+		var writtenPatchContents []string
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			if strings.Contains(name, "patches/") {
+				writtenPatchPaths = append(writtenPatchPaths, name)
+				writtenPatchContents = append(writtenPatchContents, string(data))
+			}
+			return nil
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "blueprint.yaml") {
+				return nil, os.ErrNotExist
+			}
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		mocks.Shims.YamlMarshal = func(v any) ([]byte, error) {
+			return []byte("kind: Blueprint\n"), nil
+		}
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return make(map[string]any), nil
+		}
+
+		// When Write is called
+		err := handler.Write()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And patch file should be written
+		if len(writtenPatchPaths) == 0 {
+			t.Error("Expected patch file to be written, but no patch files were written")
+		}
+
+		expectedPatchPath := filepath.Join(mocks.Runtime.ConfigRoot, "patches", "test-kustomization", "configmap-test-config.yaml")
+		found := false
+		for _, path := range writtenPatchPaths {
+			if path == expectedPatchPath {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected patch file to be written at %s, but got: %v", expectedPatchPath, writtenPatchPaths)
+		}
+	})
+
+	t.Run("SkipsWritingWhenNoStrategicMergePatches", func(t *testing.T) {
+		// Given a blueprint handler with kustomization containing only inline patches
+		handler, mocks := setup(t)
+		mocks.Runtime.ConfigRoot = "/test/config"
+
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Kind:       "Blueprint",
+			ApiVersion: "v1alpha1",
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+					Patches: []blueprintv1alpha1.BlueprintPatch{
+						{
+							Target: &kustomize.Selector{
+								Kind: "ConfigMap",
+								Name: "test-config",
+							},
+							Patch: `[{"op": "replace", "path": "/data/key", "value": "newvalue"}]`,
+						},
+					},
+				},
+			},
+		}
+
+		var writtenPatchPaths []string
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			if strings.Contains(name, "patches/") {
+				writtenPatchPaths = append(writtenPatchPaths, name)
+			}
+			return nil
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		mocks.Shims.YamlMarshal = func(v any) ([]byte, error) {
+			return []byte("kind: Blueprint\n"), nil
+		}
+
+		// When Write is called
+		err := handler.Write()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And no patch files should be written
+		if len(writtenPatchPaths) != 0 {
+			t.Errorf("Expected no patch files to be written, but got: %v", writtenPatchPaths)
 		}
 	})
 }
@@ -4624,6 +4770,403 @@ csi:
 		}
 		if csiKustomization.Substitutions["storage_class"] != "fast-ssd" {
 			t.Errorf("Expected storage_class 'fast-ssd' from context, got '%s'", csiKustomization.Substitutions["storage_class"])
+		}
+	})
+
+	t.Run("DoesNotWritePatchesDuringGeneration", func(t *testing.T) {
+		handler, mocks := setup(t)
+		mocks.Runtime.ConfigRoot = "/test/config"
+		mocks.Runtime.TemplateRoot = "/test/template"
+
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+					Patches: []blueprintv1alpha1.BlueprintPatch{
+						{
+							Patch: `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-config
+data:
+  key: value`,
+						},
+					},
+				},
+			},
+		}
+
+		var writeFileCalls []string
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			if strings.Contains(name, "patches/") {
+				writeFileCalls = append(writeFileCalls, name)
+			}
+			return nil
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return make(map[string]any), nil
+		}
+
+		generated := handler.Generate()
+
+		if generated == nil {
+			t.Fatal("Expected non-nil generated blueprint")
+		}
+
+		if len(writeFileCalls) > 0 {
+			t.Errorf("Expected no patch files to be written during Generate(), but got %d writes: %v", len(writeFileCalls), writeFileCalls)
+		}
+
+		if len(generated.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(generated.Kustomizations))
+		}
+
+		if len(generated.Kustomizations[0].Patches) == 0 {
+			t.Error("Expected patches to be preserved in generated blueprint")
+		}
+	})
+
+	t.Run("DiscoversPatchesFromDisk", func(t *testing.T) {
+		handler, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ConfigRoot = filepath.Join(tmpDir, "contexts", "test-context")
+		patchesDir := filepath.Join(mocks.Runtime.ConfigRoot, "patches", "test-kustomization")
+		if err := os.MkdirAll(patchesDir, 0755); err != nil {
+			t.Fatalf("Failed to create patches directory: %v", err)
+		}
+
+		patchContent := `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: discovered-config
+data:
+  key: value`
+		patchFile := filepath.Join(patchesDir, "configmap-discovered-config.yaml")
+		if err := os.WriteFile(patchFile, []byte(patchContent), 0644); err != nil {
+			t.Fatalf("Failed to write patch file: %v", err)
+		}
+
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+				},
+			},
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "patches/test-kustomization") {
+				return &mockFileInfo{name: "test-kustomization", isDir: true}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shims.Walk = filepath.Walk
+		mocks.Shims.ReadFile = os.ReadFile
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
+			return "test-context"
+		}
+
+		generated := handler.Generate()
+
+		if generated == nil {
+			t.Fatal("Expected non-nil generated blueprint")
+		}
+
+		if len(generated.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(generated.Kustomizations))
+		}
+
+		if len(generated.Kustomizations[0].Patches) == 0 {
+			t.Error("Expected discovered patches to be added to kustomization")
+		}
+
+		found := false
+		for _, patch := range generated.Kustomizations[0].Patches {
+			if strings.Contains(patch.Patch, "discovered-config") {
+				found = true
+				if patch.Path != "" {
+					t.Error("Expected discovered patch Path to be cleared")
+				}
+				break
+			}
+		}
+		if !found {
+			t.Error("Expected to find discovered patch in generated blueprint")
+		}
+	})
+
+	t.Run("AppliesFeatureSubstitutions", func(t *testing.T) {
+		handler, _ := setup(t)
+		handler.featureSubstitutions = map[string]map[string]string{
+			"test-kustomization": {
+				"domain": "example.com",
+				"region": "us-west-2",
+			},
+		}
+
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+				},
+			},
+		}
+
+		generated := handler.Generate()
+
+		if generated == nil {
+			t.Fatal("Expected non-nil generated blueprint")
+		}
+
+		if len(generated.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(generated.Kustomizations))
+		}
+
+		subs := generated.Kustomizations[0].Substitutions
+		if subs == nil {
+			t.Fatal("Expected substitutions to be set")
+		}
+
+		if subs["domain"] != "example.com" {
+			t.Errorf("Expected domain 'example.com', got '%s'", subs["domain"])
+		}
+
+		if subs["region"] != "us-west-2" {
+			t.Errorf("Expected region 'us-west-2', got '%s'", subs["region"])
+		}
+	})
+
+	t.Run("DiscoversJSON6902Patches", func(t *testing.T) {
+		handler, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ConfigRoot = filepath.Join(tmpDir, "contexts", "test-context")
+		patchesDir := filepath.Join(mocks.Runtime.ConfigRoot, "patches", "test-kustomization")
+		if err := os.MkdirAll(patchesDir, 0755); err != nil {
+			t.Fatalf("Failed to create patches directory: %v", err)
+		}
+
+		json6902PatchContent := `apiVersion: v1
+kind: Deployment
+metadata:
+  name: test-deployment
+  namespace: default
+patch:
+- op: replace
+  path: /spec/replicas
+  value: 5`
+		patchFile := filepath.Join(patchesDir, "deployment-patch.yaml")
+		if err := os.WriteFile(patchFile, []byte(json6902PatchContent), 0644); err != nil {
+			t.Fatalf("Failed to write patch file: %v", err)
+		}
+
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+				},
+			},
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "patches/test-kustomization") {
+				return &mockFileInfo{name: "test-kustomization", isDir: true}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shims.Walk = filepath.Walk
+		mocks.Shims.ReadFile = os.ReadFile
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
+			return "test-context"
+		}
+
+		generated := handler.Generate()
+
+		if generated == nil {
+			t.Fatal("Expected non-nil generated blueprint")
+		}
+
+		if len(generated.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(generated.Kustomizations))
+		}
+
+		found := false
+		for _, patch := range generated.Kustomizations[0].Patches {
+			if patch.Target != nil {
+				found = true
+				if patch.Target.Kind != "Deployment" {
+					t.Errorf("Expected target kind 'Deployment', got '%s'", patch.Target.Kind)
+				}
+				if patch.Target.Name != "test-deployment" {
+					t.Errorf("Expected target name 'test-deployment', got '%s'", patch.Target.Name)
+				}
+				break
+			}
+		}
+		if !found {
+			t.Error("Expected to find JSON6902 patch with target in generated blueprint")
+		}
+	})
+
+	t.Run("HandlesPatchDiscoveryErrors", func(t *testing.T) {
+		handler, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ConfigRoot = filepath.Join(tmpDir, "contexts", "test-context")
+		patchesDir := filepath.Join(mocks.Runtime.ConfigRoot, "patches", "test-kustomization")
+		if err := os.MkdirAll(patchesDir, 0755); err != nil {
+			t.Fatalf("Failed to create patches directory: %v", err)
+		}
+
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+				},
+			},
+		}
+
+		walkError := fmt.Errorf("walk error")
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "patches/test-kustomization") {
+				return &mockFileInfo{name: "patches", isDir: true}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shims.Walk = func(root string, fn filepath.WalkFunc) error {
+			return walkError
+		}
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
+			return "test-context"
+		}
+
+		generated := handler.Generate()
+
+		if generated == nil {
+			t.Fatal("Expected non-nil generated blueprint")
+		}
+
+		if len(generated.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(generated.Kustomizations))
+		}
+
+		if len(generated.Kustomizations[0].Patches) != 0 {
+			t.Error("Expected no patches when Walk returns error")
+		}
+	})
+
+	t.Run("SkipsNonYamlFilesInPatchDiscovery", func(t *testing.T) {
+		handler, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ConfigRoot = filepath.Join(tmpDir, "contexts", "test-context")
+		patchesDir := filepath.Join(mocks.Runtime.ConfigRoot, "patches", "test-kustomization")
+		if err := os.MkdirAll(patchesDir, 0755); err != nil {
+			t.Fatalf("Failed to create patches directory: %v", err)
+		}
+
+		patchContent := `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-config`
+		if err := os.WriteFile(filepath.Join(patchesDir, "configmap-test-config.yaml"), []byte(patchContent), 0644); err != nil {
+			t.Fatalf("Failed to write patch file: %v", err)
+		}
+
+		if err := os.WriteFile(filepath.Join(patchesDir, "not-a-patch.txt"), []byte("not yaml"), 0644); err != nil {
+			t.Fatalf("Failed to write non-patch file: %v", err)
+		}
+
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+				},
+			},
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "patches/test-kustomization") {
+				return &mockFileInfo{name: "test-kustomization", isDir: true}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shims.Walk = filepath.Walk
+		mocks.Shims.ReadFile = os.ReadFile
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
+			return "test-context"
+		}
+
+		generated := handler.Generate()
+
+		if generated == nil {
+			t.Fatal("Expected non-nil generated blueprint")
+		}
+
+		if len(generated.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(generated.Kustomizations))
+		}
+
+		if len(generated.Kustomizations[0].Patches) != 1 {
+			t.Errorf("Expected 1 discovered patch (yaml file only), got %d", len(generated.Kustomizations[0].Patches))
+		}
+	})
+
+	t.Run("HandlesEmptyConfigRoot", func(t *testing.T) {
+		handler, mocks := setup(t)
+		mocks.Runtime.ConfigRoot = ""
+
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+				},
+			},
+		}
+
+		generated := handler.Generate()
+
+		if generated == nil {
+			t.Fatal("Expected non-nil generated blueprint")
+		}
+
+		if len(generated.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(generated.Kustomizations))
+		}
+
+		if len(generated.Kustomizations[0].Patches) != 0 {
+			t.Error("Expected no patches when ConfigRoot is empty")
 		}
 	})
 }
