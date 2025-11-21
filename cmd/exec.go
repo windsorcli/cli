@@ -34,6 +34,8 @@ var execCmd = &cobra.Command{
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
+		rt.Shell.SetVerbosity(verbose)
+
 		if err := rt.Shell.CheckTrustedDirectory(); err != nil {
 			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
 		}
