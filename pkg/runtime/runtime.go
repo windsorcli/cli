@@ -599,8 +599,9 @@ func (rt *Runtime) incrementBuildID(existingBuildID, currentDate string) (string
 // It determines the appropriate default configuration (localhost, full, or standard) based on the VM driver
 // and dev mode settings. For dev mode, it also sets the provider to "generic" if not already set.
 // This method should be called before loading configuration from disk to ensure defaults are applied first.
-// The context name is read from rt.ContextName. Returns an error if any configuration operation fails.
-func (rt *Runtime) ApplyConfigDefaults() error {
+// The context name is read from rt.ContextName. Optional flagOverrides can be provided to check vm.driver
+// before it's set in config. Returns an error if any configuration operation fails.
+func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 	contextName := rt.ContextName
 	if contextName == "" {
 		contextName = "local"
@@ -625,6 +626,11 @@ func (rt *Runtime) ApplyConfigDefaults() error {
 		}
 
 		vmDriver := rt.ConfigHandler.GetString("vm.driver")
+		if vmDriver == "" && len(flagOverrides) > 0 && flagOverrides[0] != nil {
+			if driver, ok := flagOverrides[0]["vm.driver"].(string); ok && driver != "" {
+				vmDriver = driver
+			}
+		}
 		if isDevMode && vmDriver == "" {
 			switch runtime.GOOS {
 			case "darwin", "windows":

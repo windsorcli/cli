@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/runtime/shell/ssh"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/services"
@@ -74,37 +75,6 @@ func NewWorkstation(rt *runtime.Runtime, opts ...*Workstation) (*Workstation, er
 		}
 	}
 
-	// Create NetworkManager if not already set
-	if workstation.NetworkManager == nil {
-		workstation.NetworkManager = network.NewBaseNetworkManager(rt)
-	}
-
-	// Create Services if not already set
-	if workstation.Services == nil {
-		serviceList, err := workstation.createServices()
-		if err != nil {
-			return nil, fmt.Errorf("failed to create services: %w", err)
-		}
-		workstation.Services = serviceList
-	}
-
-	// Create VirtualMachine if not already set
-	if workstation.VirtualMachine == nil {
-		vmDriver := workstation.ConfigHandler.GetString("vm.driver", "")
-		if vmDriver == "colima" {
-			workstation.VirtualMachine = virt.NewColimaVirt(rt)
-		}
-	}
-
-	// Create ContainerRuntime if not already set
-	if workstation.ContainerRuntime == nil {
-		dockerEnabled := workstation.ConfigHandler.GetBool("docker.enabled", false)
-		if dockerEnabled {
-			workstation.ContainerRuntime = virt.NewDockerVirt(rt, workstation.Services)
-		}
-	}
-
-	// Create SSHClient if not already set
 	if workstation.SSHClient == nil {
 		workstation.SSHClient = ssh.NewSSHClient()
 	}
@@ -116,21 +86,61 @@ func NewWorkstation(rt *runtime.Runtime, opts ...*Workstation) (*Workstation, er
 // Public Methods
 // =============================================================================
 
-// Up starts the workstation environment including VMs, containers, networking, and services.
-// It sets the NO_CACHE environment variable, launches the virtual machine if the driver is "colima",
-// initializes the network manager for all registered services, re-initializes DNS services,
-// writes service configurations, initializes and starts the container runtime if enabled,
-// configures networking components, and informs the user of successful environment setup.
+// Prepare creates all workstation components (network manager, services, virtual machine,
+// container runtime) and assigns IP addresses to services. This must be called after
+// configuration is loaded but before blueprint loading, as blueprint evaluation depends
+// on service addresses being set in config. Returns an error if any component creation
+// or IP assignment fails.
+func (w *Workstation) Prepare() error {
+	vmDriver := w.ConfigHandler.GetString("vm.driver")
+
+	if w.NetworkManager == nil {
+		if vmDriver == "colima" {
+			secureShell := shell.NewSecureShell(w.SSHClient)
+			networkInterfaceProvider := network.NewNetworkInterfaceProvider()
+			w.NetworkManager = network.NewColimaNetworkManager(w.Runtime, w.SSHClient, secureShell, networkInterfaceProvider)
+		} else {
+			w.NetworkManager = network.NewBaseNetworkManager(w.Runtime)
+		}
+	}
+
+	if w.Services == nil {
+		serviceList, err := w.createServices()
+		if err != nil {
+			return fmt.Errorf("failed to create services: %w", err)
+		}
+		w.Services = serviceList
+	}
+
+	if w.NetworkManager != nil {
+		if err := w.NetworkManager.AssignIPs(w.Services); err != nil {
+			return fmt.Errorf("failed to assign IPs to services: %w", err)
+		}
+	}
+
+	if vmDriver == "colima" && w.VirtualMachine == nil {
+		w.VirtualMachine = virt.NewColimaVirt(w.Runtime)
+	}
+
+	containerRuntimeEnabled := w.ConfigHandler.GetBool("docker.enabled")
+	if containerRuntimeEnabled && w.ContainerRuntime == nil {
+		w.ContainerRuntime = virt.NewDockerVirt(w.Runtime, w.Services)
+	}
+
+	return nil
+}
+
+// Up initializes the workstation environment: starts VMs, containers, networking, and services.
+// Sets NO_CACHE environment variable, starts the virtual machine if configured, writes service
+// configs, starts the container runtime if enabled, and configures networking. All components
+// must be created via Prepare() before calling Up(). Returns error on any failure.
 func (w *Workstation) Up() error {
 	if err := os.Setenv("NO_CACHE", "true"); err != nil {
 		return fmt.Errorf("Error setting NO_CACHE environment variable: %w", err)
 	}
 
 	vmDriver := w.ConfigHandler.GetString("vm.driver")
-	if vmDriver == "colima" {
-		if w.VirtualMachine == nil {
-			return fmt.Errorf("no virtual machine found")
-		}
+	if vmDriver == "colima" && w.VirtualMachine != nil {
 		if err := w.VirtualMachine.Up(); err != nil {
 			return fmt.Errorf("error running virtual machine Up command: %w", err)
 		}
@@ -142,11 +152,7 @@ func (w *Workstation) Up() error {
 		}
 	}
 
-	containerRuntimeEnabled := w.ConfigHandler.GetBool("docker.enabled")
-	if containerRuntimeEnabled {
-		if w.ContainerRuntime == nil {
-			return fmt.Errorf("no container runtime found")
-		}
+	if w.ContainerRuntime != nil {
 		if err := w.ContainerRuntime.WriteConfig(); err != nil {
 			return fmt.Errorf("failed to write container runtime config: %w", err)
 		}
@@ -156,7 +162,6 @@ func (w *Workstation) Up() error {
 	}
 
 	if w.NetworkManager != nil {
-		// Only configure guest and host routes for colima
 		if vmDriver == "colima" {
 			if err := w.NetworkManager.ConfigureGuest(); err != nil {
 				return fmt.Errorf("error configuring guest: %w", err)
@@ -165,8 +170,6 @@ func (w *Workstation) Up() error {
 				return fmt.Errorf("error configuring host route: %w", err)
 			}
 		}
-
-		// Configure DNS if enabled
 		if dnsEnabled := w.ConfigHandler.GetBool("dns.enabled"); dnsEnabled {
 			if err := w.NetworkManager.ConfigureDNS(); err != nil {
 				return fmt.Errorf("error configuring DNS: %w", err)

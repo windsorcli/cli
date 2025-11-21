@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -46,10 +47,19 @@ func NewDockerEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) 
 func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
-	if dockerHostValue, dockerHostExists := e.shims.LookupEnv("DOCKER_HOST"); dockerHostExists {
-		envVars["DOCKER_HOST"] = dockerHostValue
-	} else {
-		vmDriver := e.configHandler.GetString("vm.driver")
+	vmDriver := e.configHandler.GetString("vm.driver")
+	_, dockerHostExists := e.shims.LookupEnv("DOCKER_HOST")
+	_, managedEnvExists := e.shims.LookupEnv("WINDSOR_MANAGED_ENV")
+
+	isDockerHostManaged := false
+	if managedEnvExists {
+		managedEnvStr := e.shims.Getenv("WINDSOR_MANAGED_ENV")
+		if strings.Contains(managedEnvStr, "DOCKER_HOST") {
+			isDockerHostManaged = true
+		}
+	}
+
+	if vmDriver != "" && (!dockerHostExists || isDockerHostManaged) {
 		homeDir, err := e.shims.UserHomeDir()
 		if err != nil {
 			return nil, fmt.Errorf("error retrieving user home directory: %w", err)
@@ -69,21 +79,25 @@ func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 		if e.shims.Goos() == "windows" {
 			contextName = "desktop-linux"
 			envVars["DOCKER_HOST"] = "npipe:////./pipe/docker_engine"
+			e.SetManagedEnv("DOCKER_HOST")
 		} else {
 			switch vmDriver {
 			case "colima":
 				contextName = fmt.Sprintf("colima-windsor-%s", configContext)
 				dockerHostPath := fmt.Sprintf("unix://%s/.colima/windsor-%s/docker.sock", homeDir, configContext)
 				envVars["DOCKER_HOST"] = dockerHostPath
+				e.SetManagedEnv("DOCKER_HOST")
 
 			case "docker-desktop":
 				contextName = "desktop-linux"
 				dockerHostPath := fmt.Sprintf("unix://%s/.docker/run/docker.sock", homeDir)
 				envVars["DOCKER_HOST"] = dockerHostPath
+				e.SetManagedEnv("DOCKER_HOST")
 
 			case "docker":
 				contextName = "default"
 				envVars["DOCKER_HOST"] = "unix:///var/run/docker.sock"
+				e.SetManagedEnv("DOCKER_HOST")
 
 			default:
 				contextName = "default"
@@ -109,11 +123,17 @@ func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 			}
 		}
 		envVars["DOCKER_CONFIG"] = filepath.ToSlash(dockerConfigDir)
+		e.SetManagedEnv("DOCKER_CONFIG")
+	} else if dockerHostExists {
+		if dockerHostValue, _ := e.shims.LookupEnv("DOCKER_HOST"); dockerHostValue != "" {
+			envVars["DOCKER_HOST"] = dockerHostValue
+		}
 	}
 
 	registryURL, _ := e.getRegistryURL()
 	if registryURL != "" {
 		envVars["REGISTRY_URL"] = registryURL
+		e.SetManagedEnv("REGISTRY_URL")
 	}
 
 	return envVars, nil

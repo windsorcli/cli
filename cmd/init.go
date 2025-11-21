@@ -123,6 +123,10 @@ var initCmd = &cobra.Command{
 			return err
 		}
 
+		if err := rt.HandleSessionReset(); err != nil {
+			return fmt.Errorf("failed to handle session reset: %w", err)
+		}
+
 		if err := proj.Initialize(initReset); err != nil {
 			return err
 		}

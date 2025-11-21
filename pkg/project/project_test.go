@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	v1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/provisioner"
@@ -277,35 +278,6 @@ func TestNewProject(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorOnApplyConfigDefaultsFailure", func(t *testing.T) {
-		mocks := setupProjectMocks(t)
-		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfig.IsLoadedFunc = func() bool {
-			return false
-		}
-		mockConfig.IsDevModeFunc = func(contextName string) bool {
-			return true
-		}
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			return ""
-		}
-		mockConfig.SetFunc = func(key string, value any) error {
-			if key == "dev" {
-				return fmt.Errorf("set dev failed")
-			}
-			return nil
-		}
-
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
-
-		if err == nil {
-			t.Fatal("Expected error for ApplyConfigDefaults failure")
-		}
-		if proj != nil {
-			t.Error("Expected Project to be nil on error")
-		}
-	})
-
 	t.Run("ErrorOnWorkstationCreationFailure", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -418,29 +390,6 @@ func TestNewProject(t *testing.T) {
 		}
 		if proj.Runtime == nil {
 			t.Error("Expected Runtime to be created")
-		}
-	})
-
-	t.Run("ErrorOnRuntimeCreationFailure", func(t *testing.T) {
-		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "", fmt.Errorf("failed to get project root")
-		}
-
-		proj, err := NewProject("test-context", &Project{
-			Runtime: &runtime.Runtime{
-				Shell: mockShell,
-			},
-		})
-
-		if err == nil {
-			t.Fatal("Expected error for runtime creation failure")
-		}
-		if proj != nil {
-			t.Error("Expected Project to be nil on error")
-		}
-		if !strings.Contains(err.Error(), "failed to initialize context") && !strings.Contains(err.Error(), "failed to get project root") && !strings.Contains(err.Error(), "config handler not available") {
-			t.Errorf("Expected error about initializing context, getting project root, or config handler, got: %v", err)
 		}
 	})
 
@@ -643,6 +592,93 @@ func TestProject_Configure(t *testing.T) {
 		}
 	})
 
+	t.Run("CallsApplyConfigDefaultsWithFlagOverrides", func(t *testing.T) {
+		// Given a project with flag overrides containing vm.driver=colima
+		mocks := setupProjectMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.IsLoadedFunc = func() bool {
+			return false
+		}
+		mockConfig.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+
+		var setDefaultConfig v1alpha1.Context
+		mockConfig.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+			setDefaultConfig = cfg
+			return nil
+		}
+		mockConfig.SetFunc = func(key string, value any) error {
+			return nil
+		}
+
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
+
+		flagOverrides := map[string]any{
+			"vm.driver": "colima",
+			"provider":  "generic",
+		}
+
+		// When Configure is called with flag overrides
+		err = proj.Configure(flagOverrides)
+
+		// Then ApplyConfigDefaults should be called with flag overrides, resulting in DefaultConfig_Full
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if setDefaultConfig.Network == nil || setDefaultConfig.Network.LoadBalancerIPs == nil {
+			t.Error("Expected DefaultConfig_Full with LoadBalancerIPs to be set (colima should use Full config)")
+		}
+
+		if setDefaultConfig.Cluster != nil && len(setDefaultConfig.Cluster.Workers.HostPorts) > 0 {
+			t.Error("Expected DefaultConfig_Full without hostports to be set (colima should not have hostports)")
+		}
+	})
+
+	t.Run("ErrorOnApplyConfigDefaultsFailure", func(t *testing.T) {
+		// Given a project where SetDefault fails
+		mocks := setupProjectMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.IsLoadedFunc = func() bool {
+			return false
+		}
+		mockConfig.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+
+		mockConfig.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+			return fmt.Errorf("set default failed")
+		}
+
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
+
+		// When Configure is called
+		err = proj.Configure(nil)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error for ApplyConfigDefaults failure")
+			return
+		}
+
+		if !strings.Contains(err.Error(), "failed to apply config defaults") {
+			t.Errorf("Expected error about apply config defaults, got: %v", err)
+		}
+	})
+
 }
 
 func TestProject_Initialize(t *testing.T) {
@@ -670,6 +706,10 @@ func TestProject_Initialize(t *testing.T) {
 		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
+		}
+
+		if err := proj.Configure(nil); err != nil {
+			t.Fatalf("Failed to configure project: %v", err)
 		}
 
 		if proj.Workstation == nil {
@@ -834,6 +874,10 @@ func TestProject_Initialize(t *testing.T) {
 			t.Fatalf("Failed to create project: %v", err)
 		}
 
+		if err := proj.Configure(nil); err != nil {
+			t.Fatalf("Failed to configure project: %v", err)
+		}
+
 		if proj.Workstation == nil {
 			t.Fatal("Expected workstation to be created")
 		}
@@ -851,7 +895,7 @@ func TestProject_Initialize(t *testing.T) {
 			return
 		}
 
-		if !strings.Contains(err.Error(), "failed to assign IPs to network manager") {
+		if !strings.Contains(err.Error(), "failed to assign IPs to services") {
 			t.Errorf("Expected specific error message, got: %v", err)
 		}
 	})
