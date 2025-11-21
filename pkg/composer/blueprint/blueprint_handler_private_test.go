@@ -4375,7 +4375,8 @@ data:
 
 		var writeFileCalled bool
 		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			if strings.Contains(name, "patches/") {
+			normalizedName := filepath.ToSlash(name)
+			if strings.Contains(normalizedName, "patches/") {
 				writeFileCalled = true
 			}
 			return nil
@@ -4410,7 +4411,8 @@ metadata:
 
 		var writeFileCalled bool
 		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			if strings.Contains(name, "patches/") {
+			normalizedName := filepath.ToSlash(name)
+			if strings.Contains(normalizedName, "patches/") {
 				writeFileCalled = true
 			}
 			return nil
@@ -4445,7 +4447,8 @@ metadata:
 
 		expectedError := fmt.Errorf("mkdir error")
 		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
-			if strings.Contains(path, "patches/") {
+			normalizedPath := filepath.ToSlash(path)
+			if strings.Contains(normalizedPath, "patches/") {
 				return expectedError
 			}
 			return nil
@@ -4484,7 +4487,8 @@ metadata:
 
 		expectedError := fmt.Errorf("write file error")
 		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			if strings.Contains(name, "patches/") {
+			normalizedName := filepath.ToSlash(name)
+			if strings.Contains(normalizedName, "patches/") {
 				return expectedError
 			}
 			return nil
@@ -4507,7 +4511,7 @@ metadata:
 		err := handler.writeLocalTemplatePatches(kustomization, true)
 
 		if err == nil {
-			t.Error("Expected error from WriteFile, got nil")
+			t.Fatal("Expected error from WriteFile, got nil")
 		}
 
 		if !strings.Contains(err.Error(), "failed to write patch file") {
@@ -4533,14 +4537,16 @@ metadata:
 
 		var writeFileCalled bool
 		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			if strings.Contains(name, "patches/") {
+			normalizedName := filepath.ToSlash(name)
+			if strings.Contains(normalizedName, "patches/") {
 				writeFileCalled = true
 			}
 			return nil
 		}
 
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if strings.Contains(name, "patches/") {
+			normalizedName := filepath.ToSlash(name)
+			if strings.Contains(normalizedName, "patches/") {
 				return &mockFileInfo{name: "configmap-test-config.yaml", isDir: false}, nil
 			}
 			return nil, os.ErrNotExist
@@ -4608,7 +4614,8 @@ metadata:
 
 		var writtenContent []byte
 		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			if strings.Contains(name, "patches/") {
+			normalizedName := filepath.ToSlash(name)
+			if strings.Contains(normalizedName, "patches/") {
 				writtenContent = data
 			}
 			return nil
@@ -4673,7 +4680,8 @@ data:
 
 		var writtenContent []byte
 		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			if strings.Contains(name, "patches/") {
+			normalizedName := filepath.ToSlash(name)
+			if strings.Contains(normalizedName, "patches/") {
 				writtenContent = data
 			}
 			return nil
@@ -4749,7 +4757,8 @@ spec:
 
 		var writtenFiles = make(map[string][]byte)
 		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			if strings.Contains(name, "patches/") {
+			normalizedName := filepath.ToSlash(name)
+			if strings.Contains(normalizedName, "patches/") {
 				writtenFiles[name] = data
 			}
 			return nil
@@ -4826,7 +4835,8 @@ data:
 
 		var writtenPath string
 		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			if strings.Contains(name, "patches/") {
+			normalizedName := filepath.ToSlash(name)
+			if strings.Contains(normalizedName, "patches/") {
 				writtenPath = name
 			}
 			return nil
@@ -4896,7 +4906,8 @@ data:
 		}
 
 		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			if strings.Contains(name, "patches/test-patch.yaml") {
+			normalizedName := filepath.ToSlash(name)
+			if strings.Contains(normalizedName, "patches/test-patch.yaml") {
 				return nil, fmt.Errorf("read file error")
 			}
 			return nil, os.ErrNotExist
@@ -4908,7 +4919,8 @@ data:
 
 		var writeFileCalled bool
 		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			if strings.Contains(name, "patches/") {
+			normalizedName := filepath.ToSlash(name)
+			if strings.Contains(normalizedName, "patches/") {
 				writeFileCalled = true
 			}
 			return nil
@@ -4942,7 +4954,8 @@ data:
 
 		var writtenPath string
 		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			if strings.Contains(name, "patches/") {
+			normalizedName := filepath.ToSlash(name)
+			if strings.Contains(normalizedName, "patches/") {
 				writtenPath = name
 			}
 			return nil
@@ -5087,7 +5100,8 @@ metadata:
 		}
 
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if strings.Contains(name, "template/kustomize/patches/test-patch.yaml") {
+			normalizedName := filepath.ToSlash(name)
+			if strings.Contains(normalizedName, "template/kustomize/patches/test-patch.yaml") {
 				return &mockFileInfo{name: "test-patch.yaml", isDir: false}, nil
 			}
 			return nil, os.ErrNotExist
