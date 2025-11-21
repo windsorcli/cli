@@ -664,22 +664,74 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 	return nil
 }
 
-// DeleteBlueprint deletes all kustomizations from the blueprint and handles cleanup kustomizations.
-// It first deletes all main kustomizations, then for each kustomization with cleanup paths, it applies
-// cleanup kustomizations and then deletes them. This method orchestrates the complete blueprint
-// teardown process in the correct order.
+// DeleteBlueprint deletes all kustomizations defined in the given blueprint in the specified namespace, handling both primary and cleanup kustomizations.
+// For each kustomization (in reverse dependency order), if cleanup steps are defined, it applies and waits for readiness of any cleanup kustomizations before deleting them.
+// Each cleanup kustomization is applied using server-side apply (SSA), waited for (proceeding even if not ready within timeout), and then deleted.
+// After cleanup (if present), the main kustomization is deleted. Errors are accumulated and reported at the end; the function continues attempts even after encountering failures.
+// Context: When DeletionPolicy:WaitForTermination is used on the main kustomization, dependent pods are terminated enabling proper PVC deletion after cleanup.
 func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 	defaultSourceName := blueprint.Metadata.Name
 
+	toDelete := []blueprintv1alpha1.Kustomization{}
 	for _, kustomization := range blueprint.Kustomizations {
-		if kustomization.Destroy != nil && !*kustomization.Destroy {
-			continue
+		if kustomization.Destroy == nil || *kustomization.Destroy {
+			toDelete = append(toDelete, kustomization)
+		}
+	}
+
+	if len(toDelete) == 0 {
+		return nil
+	}
+
+	nameToIndex := make(map[string]int)
+	for i, k := range toDelete {
+		nameToIndex[k.Name] = i
+	}
+
+	var sorted []int
+	visited := make(map[int]bool)
+	visiting := make(map[int]bool)
+
+	var visit func(int) error
+	visit = func(componentIndex int) error {
+		if visiting[componentIndex] {
+			return fmt.Errorf("cycle detected in dependency graph involving kustomization '%s'", toDelete[componentIndex].Name)
+		}
+		if visited[componentIndex] {
+			return nil
 		}
 
-		if err := k.DeleteKustomization(kustomization.Name, namespace); err != nil {
-			return fmt.Errorf("failed to delete kustomization %s: %w", kustomization.Name, err)
+		visiting[componentIndex] = true
+		for _, depName := range toDelete[componentIndex].DependsOn {
+			if depIndex, exists := nameToIndex[depName]; exists {
+				if err := visit(depIndex); err != nil {
+					visiting[componentIndex] = false
+					return err
+				}
+			}
 		}
+		visiting[componentIndex] = false
+		visited[componentIndex] = true
+		sorted = append(sorted, componentIndex)
+		return nil
+	}
 
+	for i := range toDelete {
+		if !visited[i] {
+			if err := visit(i); err != nil {
+				return fmt.Errorf("dependency cycle detected: %w", err)
+			}
+		}
+	}
+
+	for i, j := 0, len(sorted)-1; i < j; i, j = i+1, j-1 {
+		sorted[i], sorted[j] = sorted[j], sorted[i]
+	}
+
+	var errors []error
+
+	for _, idx := range sorted {
+		kustomization := toDelete[idx]
 		if len(kustomization.Cleanup) > 0 {
 			sourceName := kustomization.Source
 			if sourceName == "" {
@@ -706,9 +758,14 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 
 			for i, cleanupPath := range kustomization.Cleanup {
 				cleanupPathNormalized := strings.ReplaceAll(cleanupPath, "\\", "/")
-				fullCleanupPath := basePath + "/" + cleanupPathNormalized
+				fullCleanupPath := basePath + "/cleanup/" + cleanupPathNormalized
 
 				cleanupKustomizationName := fmt.Sprintf("%s-cleanup-%d", kustomization.Name, i)
+
+				timeout := metav1.Duration{Duration: 30 * time.Minute}
+				if kustomization.Timeout != nil && kustomization.Timeout.Duration != 0 {
+					timeout = *kustomization.Timeout
+				}
 
 				interval := metav1.Duration{Duration: constants.DefaultFluxKustomizationInterval}
 				if kustomization.Interval != nil && kustomization.Interval.Duration != 0 {
@@ -720,20 +777,8 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 					retryInterval = *kustomization.RetryInterval
 				}
 
-				timeout := metav1.Duration{Duration: constants.DefaultFluxKustomizationTimeout}
-				if kustomization.Timeout != nil && kustomization.Timeout.Duration != 0 {
-					timeout = *kustomization.Timeout
-				}
-
-				wait := constants.DefaultFluxKustomizationWait
-				if kustomization.Wait != nil {
-					wait = *kustomization.Wait
-				}
-
-				force := constants.DefaultFluxKustomizationForce
-				if kustomization.Force != nil {
-					force = *kustomization.Force
-				}
+				wait := true
+				force := true
 
 				cleanupKustomization := kustomizev1.Kustomization{
 					TypeMeta: metav1.TypeMeta{
@@ -759,15 +804,76 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 					},
 				}
 
+				cleanupSpin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+				cleanupSpin.Suffix = fmt.Sprintf(" 🧹 Applying cleanup kustomization for %s", kustomization.Name)
+				cleanupSpin.Start()
+
 				if err := k.ApplyKustomization(cleanupKustomization); err != nil {
-					return fmt.Errorf("failed to apply cleanup kustomization %s: %w", cleanupKustomizationName, err)
+					cleanupSpin.Stop()
+					errors = append(errors, fmt.Errorf("failed to apply cleanup kustomization %s: %w", cleanupKustomizationName, err))
+					continue
 				}
 
+				waitTimeout := time.After(k.kustomizationReconcileTimeout)
+				ticker := time.NewTicker(k.kustomizationWaitPollInterval)
+				cleanupReady := false
+
+			cleanupLoop:
+				for !cleanupReady {
+					select {
+					case <-waitTimeout:
+						break cleanupLoop
+					case <-ticker.C:
+						status, err := k.GetKustomizationStatus([]string{cleanupKustomizationName})
+						if err != nil {
+							cleanupSpin.Stop()
+							errors = append(errors, fmt.Errorf("cleanup kustomization %s failed: %w", cleanupKustomizationName, err))
+							break cleanupLoop
+						}
+						if status[cleanupKustomizationName] {
+							cleanupReady = true
+						}
+					}
+				}
+				ticker.Stop()
+				cleanupSpin.Stop()
+
+				if !cleanupReady {
+					fmt.Fprintf(os.Stderr, "Warning: Cleanup kustomization %s did not become ready within timeout, proceeding anyway\n", cleanupKustomizationName)
+				} else {
+					fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🧹 Applying cleanup kustomization for %s - \033[32mDone\033[0m\n", kustomization.Name)
+				}
+
+				cleanupDeleteSpin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+				cleanupDeleteSpin.Suffix = fmt.Sprintf(" 🗑️  Deleting cleanup kustomization %s", cleanupKustomizationName)
+				cleanupDeleteSpin.Start()
+
 				if err := k.DeleteKustomization(cleanupKustomizationName, namespace); err != nil {
-					return fmt.Errorf("failed to delete cleanup kustomization %s: %w", cleanupKustomizationName, err)
+					cleanupDeleteSpin.Stop()
+					errors = append(errors, fmt.Errorf("failed to delete cleanup kustomization %s: %w", cleanupKustomizationName, err))
+				} else {
+					cleanupDeleteSpin.Stop()
+					fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🗑️  Deleting cleanup kustomization %s - \033[32mDone\033[0m\n", cleanupKustomizationName)
 				}
 			}
 		}
+
+		deleteSpin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+		deleteSpin.Suffix = fmt.Sprintf(" 🗑️  Deleting kustomization %s", kustomization.Name)
+		deleteSpin.Start()
+
+		if err := k.DeleteKustomization(kustomization.Name, namespace); err != nil {
+			deleteSpin.Stop()
+			errors = append(errors, fmt.Errorf("failed to delete kustomization %s: %w", kustomization.Name, err))
+			fmt.Fprintf(os.Stderr, "Warning: failed to delete kustomization %s: %v\n", kustomization.Name, err)
+		} else {
+			deleteSpin.Stop()
+			fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🗑️  Deleting kustomization %s - \033[32mDone\033[0m\n", kustomization.Name)
+		}
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("deletion completed with %d error(s): %v", len(errors), errors[0])
 	}
 
 	return nil

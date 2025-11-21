@@ -206,13 +206,12 @@ func (i *Provisioner) Uninstall(blueprint *blueprintv1alpha1.Blueprint) error {
 	spin.Suffix = " " + message
 	spin.Start()
 
+	spin.Stop()
 	if err := i.KubernetesManager.DeleteBlueprint(blueprint, constants.DefaultFluxSystemNamespace); err != nil {
-		spin.Stop()
 		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
 		return fmt.Errorf("failed to delete blueprint: %w", err)
 	}
 
-	spin.Stop()
 	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
 
 	return nil
