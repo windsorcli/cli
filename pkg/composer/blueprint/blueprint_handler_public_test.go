@@ -2057,7 +2057,7 @@ func TestBlueprintHandler_Write(t *testing.T) {
 		}
 	})
 
-	t.Run("WritesStrategicMergePatchesToDisk", func(t *testing.T) {
+	t.Run("DoesNotWritePatchesToDisk", func(t *testing.T) {
 		// Given a blueprint handler with kustomization containing strategic merge patches
 		handler, mocks := setup(t)
 		mocks.Runtime.ConfigRoot = "/test/config"
@@ -2087,12 +2087,10 @@ data:
 		}
 
 		var writtenPatchPaths []string
-		var writtenPatchContents []string
 		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
 			normalizedName := filepath.ToSlash(name)
 			if strings.Contains(normalizedName, "patches/") {
 				writtenPatchPaths = append(writtenPatchPaths, name)
-				writtenPatchContents = append(writtenPatchContents, string(data))
 			}
 			return nil
 		}
@@ -2124,21 +2122,9 @@ data:
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// And patch file should be written
-		if len(writtenPatchPaths) == 0 {
-			t.Error("Expected patch file to be written, but no patch files were written")
-		}
-
-		expectedPatchPath := filepath.Join(mocks.Runtime.ConfigRoot, "patches", "test-kustomization", "configmap-test-config.yaml")
-		found := false
-		for _, path := range writtenPatchPaths {
-			if filepath.ToSlash(path) == filepath.ToSlash(expectedPatchPath) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("Expected patch file to be written at %s, but got: %v", expectedPatchPath, writtenPatchPaths)
+		// And no patch files should be written (patches are processed in memory only)
+		if len(writtenPatchPaths) != 0 {
+			t.Errorf("Expected no patch files to be written, but got: %v", writtenPatchPaths)
 		}
 	})
 
