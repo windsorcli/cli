@@ -760,10 +760,7 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 				cleanupPathNormalized := strings.ReplaceAll(cleanupPath, "\\", "/")
 				fullCleanupPath := basePath + "/cleanup/" + cleanupPathNormalized
 
-				cleanupKustomizationName := kustomization.Name + "-cleanup"
-				if len(kustomization.Cleanup) > 1 {
-					cleanupKustomizationName = fmt.Sprintf("%s-cleanup-%d", kustomization.Name, i)
-				}
+				cleanupKustomizationName := fmt.Sprintf("%s-cleanup-%d", kustomization.Name, i)
 
 				timeout := metav1.Duration{Duration: 30 * time.Minute}
 				if kustomization.Timeout != nil && kustomization.Timeout.Duration != 0 {
