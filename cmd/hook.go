@@ -14,9 +14,14 @@ var hookCmd = &cobra.Command{
 	SilenceUsage: true,
 	Args:         cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		var rtOpts []*runtime.Runtime
+		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
+			if rt, ok := overridesVal.(*runtime.Runtime); ok {
+				rtOpts = []*runtime.Runtime{rt}
+			}
+		}
 
-
-		rt, err := runtime.NewRuntime()
+		rt, err := runtime.NewRuntime(rtOpts...)
 		if err != nil {
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}

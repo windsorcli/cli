@@ -34,10 +34,14 @@ Examples:
 		if len(args) == 0 {
 			return fmt.Errorf("registry is required: windsor push registry/repo[:tag]")
 		}
+		var rtOpts []*runtime.Runtime
+		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
+			if rt, ok := overridesVal.(*runtime.Runtime); ok {
+				rtOpts = []*runtime.Runtime{rt}
+			}
+		}
 
-
-
-		rt, err := runtime.NewRuntime()
+		rt, err := runtime.NewRuntime(rtOpts...)
 		if err != nil {
 			return fmt.Errorf("failed to initialize context: %w", err)
 		}

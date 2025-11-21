@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 
@@ -41,12 +40,6 @@ type UpMocks struct {
 func setupUpTest(t *testing.T, opts ...*SetupOptions) *UpMocks {
 	t.Helper()
 
-	// Set up temporary directory and change to it
-	tmpDir := t.TempDir()
-	oldDir, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	t.Cleanup(func() { os.Chdir(oldDir) })
-
 	// Create mock config handler to control IsDevMode
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockConfigHandler.GetContextFunc = func() string { return "test-context" }
@@ -72,7 +65,6 @@ func setupUpTest(t *testing.T, opts ...*SetupOptions) *UpMocks {
 	mockConfigHandler.LoadConfigFunc = func() error { return nil }
 	mockConfigHandler.SaveConfigFunc = func(hasSetFlags ...bool) error { return nil }
 	mockConfigHandler.GenerateContextIDFunc = func() error { return nil }
-	mockConfigHandler.GetConfigRootFunc = func() (string, error) { return tmpDir + "/contexts/test-context", nil }
 
 	// Get base mocks with mock config handler
 	testOpts := &SetupOptions{}
@@ -81,6 +73,8 @@ func setupUpTest(t *testing.T, opts ...*SetupOptions) *UpMocks {
 	}
 	testOpts.ConfigHandler = mockConfigHandler
 	baseMocks := setupMocks(t, testOpts)
+	tmpDir := baseMocks.TmpDir
+	mockConfigHandler.GetConfigRootFunc = func() (string, error) { return tmpDir + "/contexts/test-context", nil }
 
 	// Add up-specific shell mock behaviors
 	baseMocks.Shell.CheckTrustedDirectoryFunc = func() error { return nil }

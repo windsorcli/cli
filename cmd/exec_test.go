@@ -39,27 +39,28 @@ func TestExecCmd(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
+		// Given proper output capture and mock setup
 		setup(t)
-		var mocks *Mocks
-		mocks = setupMocks(t)
+		mocks := setupMocks(t)
 		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
 			return "", nil
 		}
+
+		// When executing the exec command
 		cmd := createTestCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetContext(ctx)
-
-		args := []string{"go", "version"}
-		cmd.SetArgs(args)
-
+		cmd.SetArgs([]string{"go", "version"})
 		err := cmd.Execute()
 
+		// Then no error should occur
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("SuccessWithMultipleArgs", func(t *testing.T) {
+		// Given proper output capture and mock setup
 		setup(t)
 		mocks := setupMocks(t)
 		var capturedCommand string
@@ -70,19 +71,18 @@ func TestExecCmd(t *testing.T) {
 			return "", nil
 		}
 
+		// When executing the exec command with multiple arguments
 		cmd := createTestCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetContext(ctx)
-
-		args := []string{"test-command", "arg1", "arg2"}
-		cmd.SetArgs(args)
-
+		cmd.SetArgs([]string{"test-command", "arg1", "arg2"})
 		err := cmd.Execute()
 
+		// Then no error should occur
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-
+		// And command and args should be captured correctly
 		if capturedCommand != "test-command" {
 			t.Errorf("Expected command to be 'test-command', got %v", capturedCommand)
 		}
@@ -92,20 +92,21 @@ func TestExecCmd(t *testing.T) {
 	})
 
 	t.Run("NoCommandProvided", func(t *testing.T) {
+		// Given proper output capture
 		setup(t)
+
+		// When executing the exec command without arguments
 		cmd := createTestCmd()
 		ctx := context.Background()
 		cmd.SetContext(ctx)
-
-		args := []string{}
-		cmd.SetArgs(args)
-
+		cmd.SetArgs([]string{})
 		err := cmd.Execute()
 
+		// Then an error should occur
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-
+		// And error should contain usage message
 		expectedError := "requires at least 1 arg(s), only received 0"
 		if err.Error() != expectedError {
 			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
@@ -113,23 +114,23 @@ func TestExecCmd(t *testing.T) {
 	})
 
 	t.Run("SuccessWithVerbose", func(t *testing.T) {
+		// Given proper output capture and mock setup with verbose flag
 		setup(t)
-		var mocks *Mocks
-		mocks = setupMocks(t)
+		mocks := setupMocks(t)
 		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
 			return "", nil
 		}
+
+		// When executing the exec command with verbose flag
 		cmd := createTestCmd()
 		cmd.Flags().Bool("verbose", false, "Show verbose output")
 		cmd.Flags().Set("verbose", "true")
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetContext(ctx)
-
-		args := []string{"go", "version"}
-		cmd.SetArgs(args)
-
+		cmd.SetArgs([]string{"go", "version"})
 		err := cmd.Execute()
 
+		// Then no error should occur
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -193,15 +194,16 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 	})
 
 	t.Run("HandlesCheckTrustedDirectoryError", func(t *testing.T) {
+		// Given proper output capture and mock setup with untrusted directory
 		setup(t)
 		mocks := setupMocks(t)
-		// Reset context and verbose before setting up test
 		rootCmd.SetContext(context.Background())
 		verbose = false
 		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
 			return fmt.Errorf("not trusted")
 		}
 
+		// When executing the exec command
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 		t.Cleanup(func() {
@@ -209,31 +211,31 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 			rootCmd.SetArgs([]string{})
 			verbose = false
 		})
-
 		rootCmd.SetArgs([]string{"exec", "go", "version"})
-
 		err := Execute()
 
+		// Then an error should occur
 		if err == nil {
 			t.Error("Expected error when CheckTrustedDirectory fails")
 			return
 		}
-
+		// And error should contain trusted directory message
 		if !strings.Contains(err.Error(), "not in a trusted directory") {
 			t.Errorf("Expected error about trusted directory, got: %v", err)
 		}
 	})
 
 	t.Run("HandlesHandleSessionResetError", func(t *testing.T) {
+		// Given proper output capture and mock setup with reset check failure
 		setup(t)
 		mocks := setupMocks(t)
-		// Reset context and verbose before setting up test
 		rootCmd.SetContext(context.Background())
 		verbose = false
 		mocks.Shell.CheckResetFlagsFunc = func() (bool, error) {
 			return false, fmt.Errorf("reset check failed")
 		}
 
+		// When executing the exec command
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 		t.Cleanup(func() {
@@ -241,16 +243,15 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 			rootCmd.SetArgs([]string{})
 			verbose = false
 		})
-
 		rootCmd.SetArgs([]string{"exec", "go", "version"})
-
 		err := Execute()
 
+		// Then an error should occur
 		if err == nil {
 			t.Error("Expected error when HandleSessionReset fails")
 			return
 		}
-
+		// And error should contain reset flags message
 		if !strings.Contains(err.Error(), "failed to check reset flags") {
 			t.Errorf("Expected error about reset flags, got: %v", err)
 		}
@@ -422,15 +423,16 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 	})
 
 	t.Run("HandlesShellExecError", func(t *testing.T) {
+		// Given proper output capture and mock setup with exec failure
 		setup(t)
 		mocks := setupMocks(t)
-		// Reset context and verbose before setting up test
 		rootCmd.SetContext(context.Background())
 		verbose = false
 		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
 			return "", fmt.Errorf("command execution failed")
 		}
 
+		// When executing the exec command
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 		t.Cleanup(func() {
@@ -438,16 +440,15 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 			rootCmd.SetArgs([]string{})
 			verbose = false
 		})
-
 		rootCmd.SetArgs([]string{"exec", "go", "version"})
-
 		err := Execute()
 
+		// Then an error should occur
 		if err == nil {
 			t.Error("Expected error when Shell.Exec fails")
 			return
 		}
-
+		// And error should contain execution failure message
 		if !strings.Contains(err.Error(), "failed to execute command") {
 			t.Errorf("Expected error about command execution, got: %v", err)
 		}

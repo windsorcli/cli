@@ -17,61 +17,84 @@ import (
 )
 
 // =============================================================================
-// Runtime-based Tests
+// Test Setup
+// =============================================================================
+
+type BundleMocks struct {
+	ConfigHandler    config.ConfigHandler
+	Shell            *shell.MockShell
+	BlueprintHandler *blueprint.MockBlueprintHandler
+	ArtifactBuilder  *artifact.MockArtifact
+	Composer         *composer.Composer
+	Runtime          *Mocks
+	TmpDir           string
+}
+
+func setupBundleTest(t *testing.T, opts ...*SetupOptions) *BundleMocks {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	originalDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	t.Cleanup(func() {
+		os.Chdir(originalDir)
+	})
+
+	contextsDir := filepath.Join(tmpDir, "contexts")
+	templateDir := filepath.Join(contextsDir, "_template")
+	os.MkdirAll(templateDir, 0755)
+
+	baseMocks := setupMocks(t, opts...)
+
+	mockShell := shell.NewMockShell()
+	mockShell.GetProjectRootFunc = func() (string, error) {
+		return tmpDir, nil
+	}
+	mockShell.CheckTrustedDirectoryFunc = func() error {
+		return nil
+	}
+
+	mockConfigHandler := config.NewMockConfigHandler()
+	mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+		return map[string]any{}, nil
+	}
+	mockConfigHandler.GetContextFunc = func() string {
+		return "test-context"
+	}
+
+	baseMocks.Runtime.Shell = mockShell
+	baseMocks.Runtime.ConfigHandler = mockConfigHandler
+	baseMocks.Runtime.ProjectRoot = tmpDir
+
+	mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
+	mockBlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
+		return map[string][]byte{}, nil
+	}
+
+	comp := composer.NewComposer(baseMocks.Runtime)
+	comp.BlueprintHandler = mockBlueprintHandler
+
+	return &BundleMocks{
+		ConfigHandler:    mockConfigHandler,
+		Shell:            mockShell,
+		BlueprintHandler: mockBlueprintHandler,
+		ArtifactBuilder:  artifact.NewMockArtifact(),
+		Composer:         comp,
+		Runtime:          baseMocks,
+		TmpDir:           tmpDir,
+	}
+}
+
+// =============================================================================
+// Test Cases
 // =============================================================================
 
 func TestBundleCmdWithRuntime(t *testing.T) {
 	t.Run("SuccessWithRuntime", func(t *testing.T) {
-		// Set up temporary directory
-		tmpDir := t.TempDir()
-		originalDir, _ := os.Getwd()
-		defer func() {
-			os.Chdir(originalDir)
-		}()
-		os.Chdir(tmpDir)
+		// Given a properly configured bundle command
+		mocks := setupBundleTest(t)
 
-		// Create required directory structure
-		contextsDir := filepath.Join(tmpDir, "contexts")
-		templateDir := filepath.Join(contextsDir, "_template")
-		os.MkdirAll(templateDir, 0755)
-
-		// Mock shell
-		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return tmpDir, nil
-		}
-
-		// Mock config handler
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{}, nil
-		}
-		mockConfigHandler.GetContextFunc = func() string {
-			return "test-context"
-		}
-		mockShell.CheckTrustedDirectoryFunc = func() error {
-			return nil
-		}
-
-		// Get base mocks (includes ToolsManager)
-		baseMocks := setupMocks(t)
-
-		// Override Shell, ConfigHandler, and ProjectRoot in runtime
-		baseMocks.Runtime.Shell = mockShell
-		baseMocks.Runtime.ConfigHandler = mockConfigHandler
-		baseMocks.Runtime.ProjectRoot = tmpDir
-
-		// Mock blueprint handler
-		mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
-		mockBlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
-			return map[string][]byte{}, nil
-		}
-
-		// Create composer with mocked blueprint handler
-		comp := composer.NewComposer(baseMocks.Runtime)
-		comp.BlueprintHandler = mockBlueprintHandler
-
-		// Create test command
+		// When executing the bundle command with tag
 		cmd := &cobra.Command{
 			Use:   "bundle",
 			Short: "Bundle blueprints into a .tar.gz archive",
@@ -80,37 +103,29 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		cmd.Flags().StringP("output", "o", ".", "Output path for bundle archive")
 		cmd.Flags().StringP("tag", "t", "", "Tag in 'name:version' format")
 
-		// Set up context with runtime and composer overrides
 		ctx := context.Background()
-		ctx = context.WithValue(ctx, runtimeOverridesKey, baseMocks.Runtime)
-		ctx = context.WithValue(ctx, composerOverridesKey, comp)
+		ctx = context.WithValue(ctx, runtimeOverridesKey, mocks.Runtime.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetContext(ctx)
-
-		// Set arguments
 		cmd.SetArgs([]string{"--tag", "test:v1.0.0"})
-
-		// Execute command
 		err := cmd.Execute()
 
-		// Verify no error
+		// Then no error should occur
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("RuntimeSetupError", func(t *testing.T) {
-		// Set up temporary directory
+		// Given a bundle command without runtime setup
 		tmpDir := t.TempDir()
 		originalDir, _ := os.Getwd()
-		defer func() {
-			os.Chdir(originalDir)
-		}()
 		os.Chdir(tmpDir)
+		t.Cleanup(func() {
+			os.Chdir(originalDir)
+		})
 
-		// Create injector without required dependencies
-		// The runtime is now resilient and will create default dependencies
-
-		// Create test command
+		// When executing the bundle command
 		cmd := &cobra.Command{
 			Use:   "bundle",
 			Short: "Bundle blueprints into a .tar.gz archive",
@@ -119,66 +134,27 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		cmd.Flags().StringP("output", "o", ".", "Output path for bundle archive")
 		cmd.Flags().StringP("tag", "t", "", "Tag in 'name:version' format")
 
-		// Set up context
 		ctx := context.Background()
 		cmd.SetContext(ctx)
-
-		// Set arguments
 		cmd.SetArgs([]string{"--tag", "test:v1.0.0"})
-
-		// Execute command
 		err := cmd.Execute()
 
-		// Verify success - runtime is now resilient and creates default dependencies
+		// Then no error should occur (runtime is resilient)
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
 	})
 
 	t.Run("RuntimeExecutionError", func(t *testing.T) {
-		// Set up temporary directory
-		tmpDir := t.TempDir()
-		originalDir, _ := os.Getwd()
-		defer func() {
-			os.Chdir(originalDir)
-		}()
-		os.Chdir(tmpDir)
-
-		// Create required directory structure
-		contextsDir := filepath.Join(tmpDir, "contexts")
-		templateDir := filepath.Join(contextsDir, "_template")
-		os.MkdirAll(templateDir, 0755)
-
-		// Mock shell
-		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return tmpDir, nil
-		}
-
-		// Mock config handler
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{}, nil
-		}
-		mockConfigHandler.GetContextFunc = func() string {
-			return "test-context"
-		}
-
-		baseMocks := setupMocks(t)
-
-		// Override Shell, ConfigHandler, and ProjectRoot in runtime
-		baseMocks.Runtime.Shell = mockShell
-		baseMocks.Runtime.ConfigHandler = mockConfigHandler
-		baseMocks.Runtime.ProjectRoot = tmpDir
-
-		comp := composer.NewComposer(baseMocks.Runtime)
+		// Given a bundle command with artifact write failure
+		mocks := setupBundleTest(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		mockArtifactBuilder.WriteFunc = func(outputPath string, tag string) (string, error) {
 			return "", fmt.Errorf("failed to write artifact")
 		}
-		comp.ArtifactBuilder = mockArtifactBuilder
+		mocks.Composer.ArtifactBuilder = mockArtifactBuilder
 
-		// Create test command
+		// When executing the bundle command
 		cmd := &cobra.Command{
 			Use:   "bundle",
 			Short: "Bundle blueprints into a .tar.gz archive",
@@ -187,23 +163,19 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		cmd.Flags().StringP("output", "o", ".", "Output path for bundle archive")
 		cmd.Flags().StringP("tag", "t", "", "Tag in 'name:version' format")
 
-		// Set up context with runtime and composer overrides
 		ctx := context.Background()
-		ctx = context.WithValue(ctx, runtimeOverridesKey, baseMocks.Runtime)
-		ctx = context.WithValue(ctx, composerOverridesKey, comp)
+		ctx = context.WithValue(ctx, runtimeOverridesKey, mocks.Runtime.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetContext(ctx)
-
-		// Set arguments
 		cmd.SetArgs([]string{"--tag", "test:v1.0.0"})
-
-		// Execute command
 		err := cmd.Execute()
 
-		// Verify error
+		// Then an error should occur
 		if err == nil {
 			t.Error("Expected error, got nil")
 			return
 		}
+		// And error should contain bundle failure message
 		if !strings.Contains(err.Error(), "failed to bundle artifacts") {
 			t.Errorf("Expected error to contain 'failed to bundle artifacts', got %v", err)
 		}

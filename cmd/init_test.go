@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 
@@ -49,12 +48,6 @@ func setupInitTest(t *testing.T, opts ...*SetupOptions) *InitMocks {
 	initBlueprint = ""
 	initEndpoint = ""
 	initSetFlags = []string{}
-
-	// Set up temporary directory and change to it
-	tmpDir := t.TempDir()
-	oldDir, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	t.Cleanup(func() { os.Chdir(oldDir) })
 
 	// Get base mocks
 	baseMocks := setupMocks(t, opts...)

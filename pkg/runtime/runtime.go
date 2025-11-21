@@ -138,13 +138,17 @@ func NewRuntime(opts ...*Runtime) (*Runtime, error) {
 		rt.Shell = shell.NewDefaultShell()
 	}
 
-	projectRoot, err := rt.Shell.GetProjectRoot()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get project root: %w", err)
+	if rt.ProjectRoot == "" {
+		projectRoot, err := rt.Shell.GetProjectRoot()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get project root: %w", err)
+		}
+		rt.ProjectRoot = projectRoot
 	}
-	rt.ProjectRoot = projectRoot
 
 	if rt.ConfigHandler == nil {
+		// Only create real config handler if we have a real shell
+		// In tests, ConfigHandler should always be provided via overrides
 		rt.ConfigHandler = config.NewConfigHandler(rt.Shell)
 	}
 
@@ -161,14 +165,6 @@ func NewRuntime(opts ...*Runtime) (*Runtime, error) {
 	}
 	if rt.ContextName == "" {
 		rt.ContextName = "local"
-	}
-
-	if rt.ProjectRoot == "" {
-		projectRoot, err = rt.Shell.GetProjectRoot()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get project root: %w", err)
-		}
-		rt.ProjectRoot = projectRoot
 	}
 
 	if rt.ConfigRoot == "" {
