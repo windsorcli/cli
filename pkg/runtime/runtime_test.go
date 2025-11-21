@@ -1382,6 +1382,187 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			t.Errorf("Expected error about set provider, got: %v", err)
 		}
 	})
+
+	t.Run("UsesFullConfigWhenColimaInFlagOverrides", func(t *testing.T) {
+		// Given a runtime in dev mode with colima in flag overrides
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "local"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.IsLoadedFunc = func() bool {
+			return false
+		}
+		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+
+		var setDefaultConfig v1alpha1.Context
+		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+			setDefaultConfig = cfg
+			return nil
+		}
+
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			return nil
+		}
+
+		flagOverrides := map[string]any{
+			"vm.driver": "colima",
+		}
+
+		// When ApplyConfigDefaults is called with flag overrides
+		err := rt.ApplyConfigDefaults(flagOverrides)
+
+		// Then full config should be set (not localhost config)
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if setDefaultConfig.Network == nil || setDefaultConfig.Network.LoadBalancerIPs == nil {
+			t.Error("Expected DefaultConfig_Full with LoadBalancerIPs to be set")
+		}
+
+		if setDefaultConfig.Cluster != nil && len(setDefaultConfig.Cluster.Workers.HostPorts) > 0 {
+			t.Error("Expected DefaultConfig_Full without hostports to be set")
+		}
+	})
+
+	t.Run("UsesLocalhostConfigWhenDockerDesktopInFlagOverrides", func(t *testing.T) {
+		// Given a runtime in dev mode with docker-desktop in flag overrides
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "local"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.IsLoadedFunc = func() bool {
+			return false
+		}
+		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+
+		var setDefaultConfig v1alpha1.Context
+		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+			setDefaultConfig = cfg
+			return nil
+		}
+
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			return nil
+		}
+
+		flagOverrides := map[string]any{
+			"vm.driver": "docker-desktop",
+		}
+
+		// When ApplyConfigDefaults is called with flag overrides
+		err := rt.ApplyConfigDefaults(flagOverrides)
+
+		// Then localhost config should be set (with hostports)
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if setDefaultConfig.Cluster == nil || len(setDefaultConfig.Cluster.Workers.HostPorts) == 0 {
+			t.Error("Expected DefaultConfig_Localhost with hostports to be set")
+		}
+	})
+
+	t.Run("IgnoresFlagOverridesWhenVMDriverAlreadySet", func(t *testing.T) {
+		// Given a runtime in dev mode with vm.driver already set in config
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "local"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.IsLoadedFunc = func() bool {
+			return false
+		}
+		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "colima"
+			}
+			return ""
+		}
+
+		var setDefaultConfig v1alpha1.Context
+		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+			setDefaultConfig = cfg
+			return nil
+		}
+
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			return nil
+		}
+
+		flagOverrides := map[string]any{
+			"vm.driver": "docker-desktop",
+		}
+
+		// When ApplyConfigDefaults is called with flag overrides
+		err := rt.ApplyConfigDefaults(flagOverrides)
+
+		// Then config should use colima from config (not docker-desktop from overrides)
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if setDefaultConfig.Cluster != nil && len(setDefaultConfig.Cluster.Workers.HostPorts) > 0 {
+			t.Error("Expected DefaultConfig_Full without hostports to be set (colima), not localhost config")
+		}
+	})
+
+	t.Run("IgnoresEmptyFlagOverrides", func(t *testing.T) {
+		// Given a runtime in dev mode with empty flag overrides
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "local"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.IsLoadedFunc = func() bool {
+			return false
+		}
+		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+
+		setDefaultCalled := false
+		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+			setDefaultCalled = true
+			return nil
+		}
+
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			return nil
+		}
+
+		flagOverrides := map[string]any{}
+
+		// When ApplyConfigDefaults is called with empty flag overrides
+		err := rt.ApplyConfigDefaults(flagOverrides)
+
+		// Then defaults should still be applied (using OS default)
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if !setDefaultCalled {
+			t.Error("Expected SetDefault to be called even with empty flag overrides")
+		}
+	})
 }
 
 func TestRuntime_ApplyProviderDefaults(t *testing.T) {

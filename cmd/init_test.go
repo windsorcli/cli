@@ -1060,4 +1060,62 @@ func TestInitCmd(t *testing.T) {
 			t.Errorf("Expected error message to contain 'failed to add current directory to trusted file', got: %v", err)
 		}
 	})
+
+	t.Run("CallsHandleSessionReset", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// And tracking whether Shell.CheckResetFlags is called (which HandleSessionReset calls)
+		var checkResetFlagsCalled bool
+		mocks.Shell.Shell.CheckResetFlagsFunc = func() (bool, error) {
+			checkResetFlagsCalled = true
+			return false, nil
+		}
+
+		// When executing the init command
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+
+		// And CheckResetFlags should have been called (indicating HandleSessionReset was called)
+		if !checkResetFlagsCalled {
+			t.Error("Expected CheckResetFlags to be called (via HandleSessionReset), but it was not")
+		}
+	})
+
+	t.Run("HandlesHandleSessionResetError", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// And CheckResetFlags returns an error (which HandleSessionReset will propagate)
+		expectedError := fmt.Errorf("failed to check reset flags")
+		mocks.Shell.Shell.CheckResetFlagsFunc = func() (bool, error) {
+			return false, expectedError
+		}
+
+		// When executing the init command
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error when HandleSessionReset fails, got nil")
+			return
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "failed to handle session reset") {
+			t.Errorf("Expected error message to contain 'failed to handle session reset', got: %v", err)
+		}
+	})
 }

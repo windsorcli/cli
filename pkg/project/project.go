@@ -61,10 +61,6 @@ func NewProject(contextName string, opts ...*Project) (*Project, error) {
 	rt.ContextName = contextName
 	rt.ConfigRoot = filepath.Join(rt.ProjectRoot, "contexts", contextName)
 
-	if err := rt.ApplyConfigDefaults(); err != nil {
-		return nil, err
-	}
-
 	var comp *composer.Composer
 	if overrides != nil && overrides.Composer != nil {
 		comp = overrides.Composer
@@ -80,7 +76,7 @@ func NewProject(contextName string, opts ...*Project) (*Project, error) {
 	}
 
 	var ws *workstation.Workstation
-	if rt.ConfigHandler.IsDevMode(rt.ContextName) {
+	if rt.ConfigHandler.IsDevMode(contextName) {
 		if overrides != nil && overrides.Workstation != nil {
 			ws = overrides.Workstation
 		} else {
@@ -119,6 +115,10 @@ func (p *Project) Configure(flagOverrides map[string]any) error {
 		}
 	}
 
+	if err := p.Runtime.ApplyConfigDefaults(flagOverrides); err != nil {
+		return fmt.Errorf("failed to apply config defaults: %w", err)
+	}
+
 	providerOverride := ""
 	if flagOverrides != nil {
 		if prov, ok := flagOverrides["provider"].(string); ok {
@@ -148,14 +148,14 @@ func (p *Project) Configure(flagOverrides map[string]any) error {
 }
 
 // Initialize runs the complete initialization sequence for the project.
-// It initializes network, prepares context, generates infrastructure, prepares tools,
-// and bootstraps the environment. The overwrite parameter controls whether
-// infrastructure generation should overwrite existing files. Returns an error
-// if any step fails.
+// It prepares the workstation (creates services and assigns IPs), prepares context,
+// generates infrastructure, prepares tools, and bootstraps the environment.
+// The overwrite parameter controls whether infrastructure generation should overwrite
+// existing files. Returns an error if any step fails.
 func (p *Project) Initialize(overwrite bool) error {
-	if p.Workstation != nil && p.Workstation.NetworkManager != nil {
-		if err := p.Workstation.NetworkManager.AssignIPs(p.Workstation.Services); err != nil {
-			return fmt.Errorf("failed to assign IPs to network manager: %w", err)
+	if p.Workstation != nil {
+		if err := p.Workstation.Prepare(); err != nil {
+			return fmt.Errorf("failed to prepare workstation: %w", err)
 		}
 	}
 

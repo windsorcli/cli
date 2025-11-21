@@ -205,139 +205,155 @@ func setupWorkstationMocks(t *testing.T, opts ...func(*WorkstationTestMocks)) *W
 
 func TestNewWorkstation(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given
+		// Given a properly configured runtime with all required dependencies
 		mocks := setupWorkstationMocks(t)
 
-		// When
+		// When creating a new workstation with the runtime
 		workstation, err := NewWorkstation(mocks.Runtime)
 
-		// Then
+		// Then the workstation should be created successfully without errors
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
+		// And the workstation should not be nil
 		if workstation == nil {
 			t.Error("Expected workstation to be created")
 		}
+		// And the ConfigHandler should be set
 		if workstation.ConfigHandler == nil {
 			t.Error("Expected ConfigHandler to be set")
 		}
+		// And the Shell should be set
 		if workstation.Shell == nil {
 			t.Error("Expected Shell to be set")
 		}
 	})
 
 	t.Run("NilContext", func(t *testing.T) {
-		// Given
+		// Given a nil runtime is provided
 		_ = setupWorkstationMocks(t)
 
-		// When
+		// When creating a new workstation with nil runtime
 		workstation, err := NewWorkstation(nil)
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error for nil context")
 		}
+		// And the workstation should be nil
 		if workstation != nil {
 			t.Error("Expected workstation to be nil")
 		}
+		// And the error message should indicate runtime is required
 		if err.Error() != "runtime is required" {
 			t.Errorf("Expected specific error message, got: %v", err)
 		}
 	})
 
 	t.Run("NilConfigHandler", func(t *testing.T) {
-		// Given
+		// Given a runtime with nil ConfigHandler
 		mocks := setupWorkstationMocks(t)
 		rt := &ctxpkg.Runtime{
 			Shell: mocks.Shell,
 		}
 
-		// When
+		// When creating a new workstation with the incomplete runtime
 		workstation, err := NewWorkstation(rt)
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error for nil ConfigHandler")
 		}
+		// And the workstation should be nil
 		if workstation != nil {
 			t.Error("Expected workstation to be nil")
 		}
+		// And the error message should indicate ConfigHandler is required
 		if err.Error() != "ConfigHandler is required on runtime" {
 			t.Errorf("Expected specific error message, got: %v", err)
 		}
 	})
 
 	t.Run("NilShell", func(t *testing.T) {
-		// Given
+		// Given a runtime with nil Shell
 		mocks := setupWorkstationMocks(t)
 		rt := &ctxpkg.Runtime{
 			ConfigHandler: mocks.ConfigHandler,
 		}
 
-		// When
+		// When creating a new workstation with the incomplete runtime
 		workstation, err := NewWorkstation(rt)
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error for nil Shell")
 		}
+		// And the workstation should be nil
 		if workstation != nil {
 			t.Error("Expected workstation to be nil")
 		}
+		// And the error message should indicate Shell is required
 		if err.Error() != "Shell is required on runtime" {
 			t.Errorf("Expected specific error message, got: %v", err)
 		}
 	})
 
 	t.Run("NilRuntime", func(t *testing.T) {
-		// Given
+		// Given a nil runtime is provided
 		_ = setupWorkstationMocks(t)
 
-		// When
+		// When creating a new workstation with nil runtime
 		workstation, err := NewWorkstation(nil)
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error for nil injector")
 		}
+		// And the workstation should be nil
 		if workstation != nil {
 			t.Error("Expected workstation to be nil")
 		}
+		// And the error message should indicate runtime is required
 		if err.Error() != "runtime is required" {
 			t.Errorf("Expected specific error message, got: %v", err)
 		}
 	})
 
 	t.Run("CreatesDependencies", func(t *testing.T) {
-		// Given
+		// Given a properly configured runtime
 		mocks := setupWorkstationMocks(t)
 
-		// When
+		// When creating a new workstation
 		workstation, err := NewWorkstation(mocks.Runtime)
 
-		// Then
+		// Then the workstation should be created successfully
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
-		if workstation.NetworkManager == nil {
-			t.Error("Expected NetworkManager to be created")
-		}
-		if workstation.Services == nil {
-			t.Error("Expected Services to be created")
-		}
-		if workstation.VirtualMachine == nil {
-			t.Error("Expected VirtualMachine to be created")
-		}
-		if workstation.ContainerRuntime == nil {
-			t.Error("Expected ContainerRuntime to be created")
-		}
+		// And SSHClient should be created
 		if workstation.SSHClient == nil {
 			t.Error("Expected SSHClient to be created")
+		}
+		// And NetworkManager should not be created yet (created in Prepare)
+		if workstation.NetworkManager != nil {
+			t.Error("Expected NetworkManager not to be created in NewWorkstation (created in Prepare)")
+		}
+		// And Services should not be created yet (created in Prepare)
+		if workstation.Services != nil {
+			t.Error("Expected Services not to be created in NewWorkstation (created in Prepare)")
+		}
+		// And VirtualMachine should not be created yet (created in Prepare)
+		if workstation.VirtualMachine != nil {
+			t.Error("Expected VirtualMachine not to be created in NewWorkstation (created in Prepare)")
+		}
+		// And ContainerRuntime should not be created yet (created in Prepare)
+		if workstation.ContainerRuntime != nil {
+			t.Error("Expected ContainerRuntime not to be created in NewWorkstation (created in Prepare)")
 		}
 	})
 
 	t.Run("UsesExistingDependencies", func(t *testing.T) {
-		// Given
+		// Given a runtime and workstation options with pre-configured dependencies
 		mocks := setupWorkstationMocks(t)
 		opts := &Workstation{
 			Runtime:          mocks.Runtime,
@@ -348,25 +364,30 @@ func TestNewWorkstation(t *testing.T) {
 			SSHClient:        mocks.SSHClient,
 		}
 
-		// When
+		// When creating a new workstation with the provided options
 		workstation, err := NewWorkstation(mocks.Runtime, opts)
 
-		// Then
+		// Then the workstation should be created successfully
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
+		// And the existing NetworkManager should be used
 		if workstation.NetworkManager != mocks.NetworkManager {
 			t.Error("Expected existing NetworkManager to be used")
 		}
+		// And the existing Services should be used
 		if len(workstation.Services) != 1 {
 			t.Error("Expected existing Services to be used")
 		}
+		// And the existing VirtualMachine should be used
 		if workstation.VirtualMachine != mocks.VirtualMachine {
 			t.Error("Expected existing VirtualMachine to be used")
 		}
+		// And the existing ContainerRuntime should be used
 		if workstation.ContainerRuntime != mocks.ContainerRuntime {
 			t.Error("Expected existing ContainerRuntime to be used")
 		}
+		// And the existing SSHClient should be used
 		if workstation.SSHClient != mocks.SSHClient {
 			t.Error("Expected existing SSHClient to be used")
 		}
@@ -379,7 +400,7 @@ func TestNewWorkstation(t *testing.T) {
 
 func TestWorkstation_Up(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given
+		// Given a workstation with all dependencies configured
 		mocks := setupWorkstationMocks(t)
 		workstation, err := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
@@ -391,17 +412,17 @@ func TestWorkstation_Up(t *testing.T) {
 			t.Fatalf("Failed to create workstation: %v", err)
 		}
 
-		// When
+		// When calling Up() to start the workstation
 		err = workstation.Up()
 
-		// Then
+		// Then the workstation should start successfully without errors
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
 	})
 
 	t.Run("SetsNoCacheEnvironmentVariable", func(t *testing.T) {
-		// Given
+		// Given a workstation with all dependencies configured
 		mocks := setupWorkstationMocks(t)
 		workstation, err := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
@@ -413,20 +434,21 @@ func TestWorkstation_Up(t *testing.T) {
 			t.Fatalf("Failed to create workstation: %v", err)
 		}
 
-		// When
+		// When calling Up() to start the workstation
 		err = workstation.Up()
 
-		// Then
+		// Then the workstation should start successfully
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
+		// And the NO_CACHE environment variable should be set to "true"
 		if os.Getenv("NO_CACHE") != "true" {
 			t.Error("Expected NO_CACHE environment variable to be set")
 		}
 	})
 
 	t.Run("StartsVirtualMachine", func(t *testing.T) {
-		// Given
+		// Given a workstation with a virtual machine configured and a tracking flag for Up() calls
 		mocks := setupWorkstationMocks(t)
 		vmUpCalled := false
 		mocks.VirtualMachine.UpFunc = func(verbose ...bool) error {
@@ -443,20 +465,21 @@ func TestWorkstation_Up(t *testing.T) {
 			t.Fatalf("Failed to create workstation: %v", err)
 		}
 
-		// When
+		// When calling Up() to start the workstation
 		err = workstation.Up()
 
-		// Then
+		// Then the workstation should start successfully
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
+		// And VirtualMachine.Up() should be called
 		if !vmUpCalled {
 			t.Error("Expected VirtualMachine.Up to be called")
 		}
 	})
 
 	t.Run("StartsContainerRuntime", func(t *testing.T) {
-		// Given
+		// Given a workstation with a container runtime configured and a tracking flag for Up() calls
 		mocks := setupWorkstationMocks(t)
 		containerUpCalled := false
 		mocks.ContainerRuntime.UpFunc = func(verbose ...bool) error {
@@ -473,20 +496,21 @@ func TestWorkstation_Up(t *testing.T) {
 			t.Fatalf("Failed to create workstation: %v", err)
 		}
 
-		// When
+		// When calling Up() to start the workstation
 		err = workstation.Up()
 
-		// Then
+		// Then the workstation should start successfully
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
+		// And ContainerRuntime.Up() should be called
 		if !containerUpCalled {
 			t.Error("Expected ContainerRuntime.Up to be called")
 		}
 	})
 
 	t.Run("ConfiguresNetworking", func(t *testing.T) {
-		// Given
+		// Given a workstation with network manager configured and tracking flags for network configuration calls
 		mocks := setupWorkstationMocks(t)
 		hostRouteCalled := false
 		guestCalled := false
@@ -514,26 +538,29 @@ func TestWorkstation_Up(t *testing.T) {
 			t.Fatalf("Failed to create workstation: %v", err)
 		}
 
-		// When
+		// When calling Up() to start the workstation
 		err = workstation.Up()
 
-		// Then
+		// Then the workstation should start successfully
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
+		// And ConfigureHostRoute should be called
 		if !hostRouteCalled {
 			t.Error("Expected ConfigureHostRoute to be called")
 		}
+		// And ConfigureGuest should be called
 		if !guestCalled {
 			t.Error("Expected ConfigureGuest to be called")
 		}
+		// And ConfigureDNS should be called
 		if !dnsCalled {
 			t.Error("Expected ConfigureDNS to be called")
 		}
 	})
 
 	t.Run("WritesServiceConfigs", func(t *testing.T) {
-		// Given
+		// Given a workstation with services configured and a tracking flag for WriteConfig() calls
 		mocks := setupWorkstationMocks(t)
 		writeConfigCalled := false
 		for _, service := range mocks.Services {
@@ -552,20 +579,21 @@ func TestWorkstation_Up(t *testing.T) {
 			t.Fatalf("Failed to create workstation: %v", err)
 		}
 
-		// When
+		// When calling Up() to start the workstation
 		err = workstation.Up()
 
-		// Then
+		// Then the workstation should start successfully
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
+		// And WriteConfig() should be called on each service
 		if !writeConfigCalled {
 			t.Error("Expected service WriteConfig to be called")
 		}
 	})
 
 	t.Run("VirtualMachineUpError", func(t *testing.T) {
-		// Given
+		// Given a workstation with a virtual machine that will fail when starting
 		mocks := setupWorkstationMocks(t)
 		mocks.VirtualMachine.UpFunc = func(verbose ...bool) error {
 			return fmt.Errorf("VM start failed")
@@ -580,20 +608,21 @@ func TestWorkstation_Up(t *testing.T) {
 			t.Fatalf("Failed to create workstation: %v", err)
 		}
 
-		// When
+		// When calling Up() to start the workstation
 		err = workstation.Up()
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error for VM start failure")
 		}
+		// And the error message should indicate virtual machine Up command failure
 		if !strings.Contains(err.Error(), "error running virtual machine Up command") {
 			t.Errorf("Expected specific error message, got: %v", err)
 		}
 	})
 
 	t.Run("ContainerRuntimeUpError", func(t *testing.T) {
-		// Given
+		// Given a workstation with a container runtime that will fail when starting
 		mocks := setupWorkstationMocks(t)
 		mocks.ContainerRuntime.UpFunc = func(verbose ...bool) error {
 			return fmt.Errorf("container start failed")
@@ -608,13 +637,14 @@ func TestWorkstation_Up(t *testing.T) {
 			t.Fatalf("Failed to create workstation: %v", err)
 		}
 
-		// When
+		// When calling Up() to start the workstation
 		err = workstation.Up()
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error for container start failure")
 		}
+		// And the error message should indicate container runtime Up command failure
 		if !strings.Contains(err.Error(), "error running container runtime Up command") {
 			t.Errorf("Expected specific error message, got: %v", err)
 		}
