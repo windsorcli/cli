@@ -721,8 +721,13 @@ contexts:
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// And DOCKER_HOST should be set based on vm.driver
-		expectedDockerHost := fmt.Sprintf("unix://%s/.docker/run/docker.sock", filepath.ToSlash("/mock/home"))
+		// And DOCKER_HOST should be set based on vm.driver and OS
+		var expectedDockerHost string
+		if mocks.Shims.Goos() == "windows" {
+			expectedDockerHost = "npipe:////./pipe/docker_engine"
+		} else {
+			expectedDockerHost = fmt.Sprintf("unix://%s/.docker/run/docker.sock", filepath.ToSlash("/mock/home"))
+		}
 		if envVars["DOCKER_HOST"] != expectedDockerHost {
 			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
 		}
