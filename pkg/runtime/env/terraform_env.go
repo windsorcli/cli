@@ -118,11 +118,15 @@ func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath stri
 		return nil, fmt.Errorf("error getting config root: %w", err)
 	}
 
+	projectRoot, err := e.shell.GetProjectRoot()
+	if err != nil {
+		return nil, fmt.Errorf("error getting project root: %w", err)
+	}
+
 	patterns := []string{
+		filepath.Join(projectRoot, ".windsor", ".tf_modules", projectPath, "terraform.tfvars"),
 		filepath.Join(configRoot, "terraform", projectPath+".tfvars"),
 		filepath.Join(configRoot, "terraform", projectPath+".tfvars.json"),
-		filepath.Join(configRoot, "terraform", projectPath+"_generated.tfvars"),
-		filepath.Join(configRoot, "terraform", projectPath+"_generated.tfvars.json"),
 	}
 
 	var varFileArgs []string

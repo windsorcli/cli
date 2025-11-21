@@ -99,6 +99,7 @@ contexts:
 	rt := &runtime.Runtime{
 		ConfigHandler: configHandler,
 		Shell:         mockShell,
+		ProjectRoot:   tmpDir,
 	}
 
 	mocks := &TerraformTestMocks{
@@ -1340,8 +1341,8 @@ variable "disabled" { type = bool }`
 		}
 	})
 
-	t.Run("HandlesExistingTfvarsFileReadError", func(t *testing.T) {
-		// Given a resolver with an existing tfvars file that cannot be read (component without Source)
+	t.Run("HandlesRemoveTfvarsFilesReadDirError", func(t *testing.T) {
+		// Given a resolver with a ReadDir error when removing tfvars files
 		resolver, mocks := setup(t)
 
 		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
@@ -1365,44 +1366,36 @@ variable "disabled" { type = bool }`
 			t.Fatalf("Failed to write variables.tf: %v", err)
 		}
 
-		contextPath := mocks.Runtime.ConfigRoot
-		tfvarsPath := filepath.Join(contextPath, "terraform", "local-module.tfvars")
-		if err := os.MkdirAll(filepath.Dir(tfvarsPath), 0755); err != nil {
-			t.Fatalf("Failed to create context dir: %v", err)
-		}
-		if err := os.WriteFile(tfvarsPath, []byte("name = \"old\""), 0644); err != nil {
-			t.Fatalf("Failed to write existing tfvars: %v", err)
+		moduleDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "local-module")
+		if err := os.MkdirAll(moduleDir, 0755); err != nil {
+			t.Fatalf("Failed to create module dir: %v", err)
 		}
 
-		// Mock ReadFile to return error when checking existing file
-		originalReadFile := resolver.shims.ReadFile
-		resolver.shims.ReadFile = func(path string) ([]byte, error) {
-			if path == tfvarsPath {
-				return nil, fmt.Errorf("read error")
+		// Mock ReadDir to return error when removing tfvars files
+		originalReadDir := resolver.shims.ReadDir
+		resolver.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+			normalizedPath := filepath.Clean(path)
+			normalizedModuleDir := filepath.Clean(moduleDir)
+			if normalizedPath == normalizedModuleDir {
+				return nil, fmt.Errorf("readdir error")
 			}
-			return originalReadFile(path)
+			return originalReadDir(path)
 		}
 
-		// Mock Stat to return success (file exists)
-		originalStat := resolver.shims.Stat
-		resolver.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == tfvarsPath {
-				return nil, nil
-			}
-			return originalStat(path)
-		}
-
-		// When generating tfvars without overwrite
+		// When generating tfvars
 		err := resolver.GenerateTfvars(false)
 
 		// Then it should return an error
 		if err == nil {
-			t.Error("Expected error when existing file cannot be read")
+			t.Error("Expected error when ReadDir fails during tfvars removal")
+		}
+		if err != nil && !strings.Contains(err.Error(), "failed cleaning existing .tfvars") {
+			t.Errorf("Expected error about cleaning tfvars, got: %v", err)
 		}
 	})
 
-	t.Run("HandlesExistingTfvarsFileStatError", func(t *testing.T) {
-		// Given a resolver with a stat error on existing tfvars file (component without Source)
+	t.Run("HandlesRemoveTfvarsFilesStatError", func(t *testing.T) {
+		// Given a resolver with a stat error when checking module directory
 		resolver, mocks := setup(t)
 
 		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
@@ -1426,13 +1419,14 @@ variable "disabled" { type = bool }`
 			t.Fatalf("Failed to write variables.tf: %v", err)
 		}
 
-		contextPath := mocks.Runtime.ConfigRoot
-		tfvarsPath := filepath.Join(contextPath, "terraform", "local-module.tfvars")
+		moduleDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "local-module")
 
-		// Mock Stat to return non-NotExist error for the context tfvars file
+		// Mock Stat to return non-NotExist error for the module directory
 		originalStat := resolver.shims.Stat
 		resolver.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == tfvarsPath {
+			normalizedPath := filepath.Clean(path)
+			normalizedModuleDir := filepath.Clean(moduleDir)
+			if normalizedPath == normalizedModuleDir {
 				return nil, fmt.Errorf("stat error")
 			}
 			return originalStat(path)
@@ -1443,7 +1437,10 @@ variable "disabled" { type = bool }`
 
 		// Then it should return an error
 		if err == nil {
-			t.Error("Expected error when stat fails")
+			t.Error("Expected error when stat fails during tfvars removal")
+		}
+		if err != nil && !strings.Contains(err.Error(), "failed cleaning existing .tfvars") {
+			t.Errorf("Expected error about cleaning tfvars, got: %v", err)
 		}
 	})
 
@@ -1898,6 +1895,64 @@ variable "cluster_name" { type = string }`
 		// Then it should return an error
 		if err == nil {
 			t.Error("Expected error when ReadFile fails in parseVariablesFile")
+		}
+	})
+
+	t.Run("CleansUpOrphanedTfvars", func(t *testing.T) {
+		// Given a resolver with an orphaned tfvars file for a component that no longer exists
+		resolver, mocks := setup(t)
+
+		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
+		
+		// Create a component directory for a component that will not be in the blueprint
+		orphanedDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "orphaned-component")
+		if err := os.MkdirAll(orphanedDir, 0755); err != nil {
+			t.Fatalf("Failed to create orphaned dir: %v", err)
+		}
+		orphanedTfvars := filepath.Join(orphanedDir, "terraform.tfvars")
+		if err := os.WriteFile(orphanedTfvars, []byte("old_value = \"stale\""), 0644); err != nil {
+			t.Fatalf("Failed to write orphaned tfvars: %v", err)
+		}
+
+		// And a valid component that exists in the blueprint
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:     "test-module",
+					Source:   "git::https://github.com/test/module.git",
+					FullPath: filepath.Join(projectRoot, "terraform", "test-module"),
+					Inputs: map[string]any{
+						"cluster_name": "test-cluster",
+					},
+				},
+			}
+		}
+
+		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		if err := os.MkdirAll(variablesDir, 0755); err != nil {
+			t.Fatalf("Failed to create dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(variablesDir, "variables.tf"), []byte(`variable "cluster_name" { type = string }`), 0644); err != nil {
+			t.Fatalf("Failed to write variables.tf: %v", err)
+		}
+
+		// When generating tfvars
+		err := resolver.GenerateTfvars(false)
+
+		// Then it should succeed
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And the orphaned tfvars file should be removed
+		if _, err := os.Stat(orphanedTfvars); !os.IsNotExist(err) {
+			t.Errorf("Expected orphaned tfvars file to be removed, but it still exists")
+		}
+
+		// And the valid component's tfvars should still exist
+		validTfvars := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module", "terraform.tfvars")
+		if _, err := os.Stat(validTfvars); err != nil {
+			t.Errorf("Expected valid component tfvars to exist, got error: %v", err)
 		}
 	})
 

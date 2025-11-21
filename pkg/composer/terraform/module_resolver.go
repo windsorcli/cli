@@ -73,10 +73,10 @@ func NewBaseModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.Bluep
 // in the blueprint, it ensures a tfvars file is generated if not already handled by the input data.
 // The method uses the blueprint handler to retrieve TerraformComponents and determines the variables.tf
 // location based on component source (remote or local). Module resolution is handled by pkg/terraform.
+// Before generating new tfvars files, it cleans up orphaned tfvars files for components that no longer exist.
 func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 	h.reset = overwrite
 
-	contextPath := h.runtime.ConfigRoot
 	projectRoot := h.runtime.ProjectRoot
 
 	components := h.blueprintHandler.GetTerraformComponents()
@@ -87,7 +87,7 @@ func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 			componentValues = make(map[string]any)
 		}
 
-		if err := h.generateComponentTfvars(projectRoot, contextPath, component, componentValues); err != nil {
+		if err := h.generateComponentTfvars(projectRoot, component, componentValues); err != nil {
 			return fmt.Errorf("failed to generate tfvars for component %s: %w", component.Path, err)
 		}
 	}
@@ -191,29 +191,22 @@ func (h *BaseModuleResolver) parseVariablesFile(variablesTfPath string, protecte
 }
 
 // generateComponentTfvars generates tfvars files for a single Terraform component.
-// For components with a non-empty Source, only the module tfvars file is generated at .windsor/.tf_modules/<component.Path>/terraform.tfvars.
-// For components with an empty Source, only the context tfvars file is generated at <contextPath>/terraform/<component.Path>.tfvars.
+// All components write tfvars files to .windsor/.tf_modules/<component.Path>/terraform.tfvars,
+// regardless of whether they have a Source (remote) or not (local). This unifies the behavior
+// between local templates and OCI artifacts, preventing writes to the contexts folder.
 // Returns an error if variables.tf cannot be found or if tfvars file generation fails.
-func (h *BaseModuleResolver) generateComponentTfvars(projectRoot, contextPath string, component blueprintv1alpha1.TerraformComponent, componentValues map[string]any) error {
+func (h *BaseModuleResolver) generateComponentTfvars(projectRoot string, component blueprintv1alpha1.TerraformComponent, componentValues map[string]any) error {
 	variablesTfPath, err := h.findVariablesTfFileForComponent(projectRoot, component)
 	if err != nil {
 		return fmt.Errorf("failed to find variables.tf for component %s: %w", component.Path, err)
 	}
 
-	if component.Source != "" {
-		moduleTfvarsPath := filepath.Join(projectRoot, ".windsor", ".tf_modules", component.Path, "terraform.tfvars")
-		if err := h.removeTfvarsFiles(filepath.Dir(moduleTfvarsPath)); err != nil {
-			return fmt.Errorf("failed cleaning existing .tfvars in module dir %s: %w", filepath.Dir(moduleTfvarsPath), err)
-		}
-		if err := h.generateTfvarsFile(moduleTfvarsPath, variablesTfPath, componentValues, component.Source); err != nil {
-			return fmt.Errorf("failed to generate module tfvars file: %w", err)
-		}
-	} else {
-		terraformKey := "terraform/" + component.Path
-		tfvarsFilePath := filepath.Join(contextPath, terraformKey+".tfvars")
-		if err := h.generateTfvarsFile(tfvarsFilePath, variablesTfPath, componentValues, component.Source); err != nil {
-			return fmt.Errorf("failed to generate context tfvars file: %w", err)
-		}
+	moduleTfvarsPath := filepath.Join(projectRoot, ".windsor", ".tf_modules", component.Path, "terraform.tfvars")
+	if err := h.removeTfvarsFiles(filepath.Dir(moduleTfvarsPath)); err != nil {
+		return fmt.Errorf("failed cleaning existing .tfvars in module dir %s: %w", filepath.Dir(moduleTfvarsPath), err)
+	}
+	if err := h.generateTfvarsFile(moduleTfvarsPath, variablesTfPath, componentValues, component.Source); err != nil {
+		return fmt.Errorf("failed to generate module tfvars file: %w", err)
 	}
 
 	return nil

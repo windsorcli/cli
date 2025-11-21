@@ -48,11 +48,9 @@ func setupTerraformEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMo
 		if strings.Contains(nameSlash, "project/path.tfvars") ||
 			strings.Contains(nameSlash, "project/path.tfvars.json") ||
 			strings.Contains(nameSlash, "project\\path.tfvars") ||
-			strings.Contains(nameSlash, "project\\path.tfvars.json") {
+			strings.Contains(nameSlash, "project\\path.tfvars.json") ||
+			strings.Contains(nameSlash, ".windsor/.tf_modules/project/path/terraform.tfvars") {
 			return nil, nil
-		}
-		if strings.Contains(nameSlash, "project/path_generated.tfvars") {
-			return nil, os.ErrNotExist
 		}
 		return nil, os.ErrNotExist
 	}
@@ -84,24 +82,31 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 			osType = "windows"
 		}
 
-		// Get the actual config root
+		// Get the actual config root and project root
 		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
 		if err != nil {
 			t.Fatalf("Failed to get config root: %v", err)
+		}
+		projectRoot, err := mocks.Shell.GetProjectRoot()
+		if err != nil {
+			t.Fatalf("Failed to get project root: %v", err)
 		}
 
 		expectedEnvVars := map[string]string{
 			"TF_DATA_DIR":      filepath.ToSlash(filepath.Join(configRoot, ".terraform/project/path")),
 			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -force-copy -upgrade -backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate/project/path/terraform.tfstate"))),
-			"TF_CLI_ARGS_plan": fmt.Sprintf(`-out="%s" -var-file="%s" -var-file="%s"`,
+			"TF_CLI_ARGS_plan": fmt.Sprintf(`-out="%s" -var-file="%s" -var-file="%s" -var-file="%s"`,
 				filepath.ToSlash(filepath.Join(configRoot, ".terraform/project/path/terraform.tfplan")),
+				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", ".tf_modules", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
 			"TF_CLI_ARGS_apply": fmt.Sprintf(`"%s"`, filepath.ToSlash(filepath.Join(configRoot, ".terraform/project/path/terraform.tfplan"))),
-			"TF_CLI_ARGS_import": fmt.Sprintf(`-var-file="%s" -var-file="%s"`,
+			"TF_CLI_ARGS_import": fmt.Sprintf(`-var-file="%s" -var-file="%s" -var-file="%s"`,
+				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", ".tf_modules", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
-			"TF_CLI_ARGS_destroy": fmt.Sprintf(`-var-file="%s" -var-file="%s"`,
+			"TF_CLI_ARGS_destroy": fmt.Sprintf(`-var-file="%s" -var-file="%s" -var-file="%s"`,
+				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", ".tf_modules", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
 			"TF_VAR_context_path": filepath.ToSlash(configRoot),
@@ -275,10 +280,14 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 			return nil, nil
 		}
 
-		// Get the actual config root
+		// Get the actual config root and project root
 		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
 		if err != nil {
 			t.Fatalf("Failed to get config root: %v", err)
+		}
+		projectRoot, err := mocks.Shell.GetProjectRoot()
+		if err != nil {
+			t.Fatalf("Failed to get project root: %v", err)
 		}
 
 		// Mock Stat to handle both tfvars files
@@ -290,7 +299,8 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 			if strings.Contains(nameSlash, "project/path.tfvars") ||
 				strings.Contains(nameSlash, "project/path.tfvars.json") ||
 				strings.Contains(nameSlash, "project\\path.tfvars") ||
-				strings.Contains(nameSlash, "project\\path.tfvars.json") {
+				strings.Contains(nameSlash, "project\\path.tfvars.json") ||
+				strings.Contains(nameSlash, ".windsor/.tf_modules/project/path/terraform.tfvars") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -308,15 +318,18 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		expectedEnvVars := map[string]string{
 			"TF_DATA_DIR":      filepath.ToSlash(filepath.Join(configRoot, ".terraform/project/path")),
 			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -force-copy -upgrade -backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate/project/path/terraform.tfstate"))),
-			"TF_CLI_ARGS_plan": fmt.Sprintf(`-out="%s" -var-file="%s" -var-file="%s"`,
+			"TF_CLI_ARGS_plan": fmt.Sprintf(`-out="%s" -var-file="%s" -var-file="%s" -var-file="%s"`,
 				filepath.ToSlash(filepath.Join(configRoot, ".terraform/project/path/terraform.tfplan")),
+				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", ".tf_modules", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
 			"TF_CLI_ARGS_apply": fmt.Sprintf(`"%s"`, filepath.ToSlash(filepath.Join(configRoot, ".terraform/project/path/terraform.tfplan"))),
-			"TF_CLI_ARGS_import": fmt.Sprintf(`-var-file="%s" -var-file="%s"`,
+			"TF_CLI_ARGS_import": fmt.Sprintf(`-var-file="%s" -var-file="%s" -var-file="%s"`,
+				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", ".tf_modules", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
-			"TF_CLI_ARGS_destroy": fmt.Sprintf(`-var-file="%s" -var-file="%s"`,
+			"TF_CLI_ARGS_destroy": fmt.Sprintf(`-var-file="%s" -var-file="%s" -var-file="%s"`,
+				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", ".tf_modules", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
 			"TF_VAR_context_path": filepath.ToSlash(configRoot),
