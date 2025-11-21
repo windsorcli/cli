@@ -4325,7 +4325,8 @@ data:
 		var writtenPath string
 		var writtenContent []byte
 		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			if strings.Contains(name, "patches/") {
+			normalizedName := filepath.ToSlash(name)
+			if strings.Contains(normalizedName, "patches/") {
 				writtenPath = name
 				writtenContent = data
 			}
@@ -4354,7 +4355,7 @@ data:
 		}
 
 		expectedPath := filepath.Join(mocks.Runtime.ConfigRoot, "patches", "test-kustomization", "configmap-test-config.yaml")
-		if writtenPath != expectedPath {
+		if filepath.ToSlash(writtenPath) != filepath.ToSlash(expectedPath) {
 			t.Errorf("Expected patch file at %s, got %s", expectedPath, writtenPath)
 		}
 
@@ -4457,7 +4458,7 @@ metadata:
 		err := handler.writeLocalTemplatePatches(kustomization, true)
 
 		if err == nil {
-			t.Error("Expected error from MkdirAll, got nil")
+			t.Fatal("Expected error from MkdirAll, got nil")
 		}
 
 		if !strings.Contains(err.Error(), "failed to create patches directory") {
