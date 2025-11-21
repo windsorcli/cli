@@ -331,7 +331,7 @@ func (e *FeatureEvaluator) evaluateDefaultValue(value any, config map[string]any
 			return e.EvaluateValue(expr, config, featurePath)
 		}
 		if strings.Contains(v, "${") {
-			return e.interpolateString(v, config, featurePath)
+			return e.InterpolateString(v, config, featurePath)
 		}
 		return v, nil
 
@@ -385,8 +385,9 @@ func (e *FeatureEvaluator) extractExpression(s string) string {
 	return ""
 }
 
-// interpolateString replaces all ${expression} occurrences in a string with their evaluated values.
-func (e *FeatureEvaluator) interpolateString(s string, config map[string]any, featurePath string) (string, error) {
+// InterpolateString replaces all ${expression} occurrences in a string with their evaluated values.
+// This is used to process template expressions in patch content and other string values.
+func (e *FeatureEvaluator) InterpolateString(s string, config map[string]any, featurePath string) (string, error) {
 	result := s
 
 	for strings.Contains(result, "${") {
@@ -409,7 +410,16 @@ func (e *FeatureEvaluator) interpolateString(s string, config map[string]any, fe
 		if value == nil {
 			replacement = ""
 		} else {
-			replacement = fmt.Sprintf("%v", value)
+			switch value.(type) {
+			case map[string]any, []any:
+				yamlData, err := e.shims.YamlMarshal(value)
+				if err != nil {
+					return "", fmt.Errorf("failed to marshal expression result to YAML: %w", err)
+				}
+				replacement = strings.TrimSpace(string(yamlData))
+			default:
+				replacement = fmt.Sprintf("%v", value)
+			}
 		}
 
 		result = result[:start] + replacement + result[end+1:]
