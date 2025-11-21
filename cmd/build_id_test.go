@@ -3,9 +3,8 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"os"
 	"testing"
-
-	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 func TestBuildIDCmd(t *testing.T) {
@@ -20,9 +19,10 @@ func TestBuildIDCmd(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setup(t)
+		mocks := setupMocks(t)
 
-		// Set up command context with injector
-		ctx := context.Background()
+		// Set up command context with runtime override
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"build-id"})
@@ -44,9 +44,10 @@ func TestBuildIDCmd(t *testing.T) {
 	t.Run("SuccessWithNewFlag", func(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setup(t)
+		mocks := setupMocks(t)
 
-		// Set up command context with injector
-		ctx := context.Background()
+		// Set up command context with runtime override
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"build-id", "--new"})
@@ -122,9 +123,10 @@ func TestBuildIDCmd(t *testing.T) {
 	t.Run("PipelineSetupError", func(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setup(t)
+		mocks := setupMocks(t)
 
-		// Set up command context with injector
-		ctx := context.Background()
+		// Set up command context with runtime override
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"build-id"})
@@ -132,7 +134,7 @@ func TestBuildIDCmd(t *testing.T) {
 		// When executing the command
 		err := Execute()
 
-		// Then it should succeed (since we have proper mocks)
+		// Then no error should occur
 		if err != nil {
 			t.Errorf("Expected success with proper mocks, got error: %v", err)
 		}
@@ -146,9 +148,10 @@ func TestBuildIDCmd(t *testing.T) {
 	t.Run("PipelineExecuteError", func(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setup(t)
+		mocks := setupMocks(t)
 
-		// Set up command context with injector
-		ctx := context.Background()
+		// Set up command context with runtime override
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"build-id"})
@@ -156,7 +159,7 @@ func TestBuildIDCmd(t *testing.T) {
 		// When executing the command
 		err := Execute()
 
-		// Then it should succeed (since we have proper mocks)
+		// Then no error should occur
 		if err != nil {
 			t.Errorf("Expected success with proper mocks, got error: %v", err)
 		}
@@ -167,11 +170,16 @@ func TestBuildIDCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("MissingInjectorInContext", func(t *testing.T) {
-		// Given proper output capture and mock setup
+	t.Run("MissingRuntimeInContext", func(t *testing.T) {
+		// Given proper output capture with minimal mock setup
 		setup(t)
+		// Use a temp directory to avoid slow directory walking
+		tmpDir := t.TempDir()
+		oldDir, _ := os.Getwd()
+		os.Chdir(tmpDir)
+		t.Cleanup(func() { os.Chdir(oldDir) })
 
-		// Set up command context without injector
+		// Set up command context without runtime override
 		ctx := context.Background()
 		rootCmd.SetContext(ctx)
 
@@ -180,22 +188,21 @@ func TestBuildIDCmd(t *testing.T) {
 		// When executing the command
 		err := Execute()
 
-		// Then it should return an error (or succeed if injector is available globally)
+		// Then it may return an error or succeed depending on environment
 		if err != nil {
-			// Error is expected if injector is missing
-			t.Logf("Command failed as expected: %v", err)
+			t.Logf("Command failed as expected without runtime override: %v", err)
 		} else {
-			// Success is also acceptable if injector is available globally
-			t.Logf("Command succeeded (injector may be available globally)")
+			t.Logf("Command succeeded (runtime may be available from environment)")
 		}
 	})
 
 	t.Run("ContextWithNewFlag", func(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setup(t)
+		mocks := setupMocks(t)
 
-		// Set up command context with injector
-		ctx := context.Background()
+		// Set up command context with runtime override
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"build-id", "--new"})
@@ -217,9 +224,10 @@ func TestBuildIDCmd(t *testing.T) {
 	t.Run("ContextWithoutNewFlag", func(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setup(t)
+		mocks := setupMocks(t)
 
-		// Set up command context with injector
-		ctx := context.Background()
+		// Set up command context with runtime override
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"build-id"})
@@ -241,19 +249,10 @@ func TestBuildIDCmd(t *testing.T) {
 	t.Run("PipelineInitializationError", func(t *testing.T) {
 		// Given proper output capture and mock setup
 		setup(t)
+		mocks := setupMocks(t)
 
-		// Set up mocks with pipeline that fails to initialize
-		// Register a mock shell to prevent nil pointer dereference
-		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/test/project", nil
-		}
-		mockShell.CheckTrustedDirectoryFunc = func() error {
-			return nil
-		}
-
-		// Set up command context with injector
-		ctx := context.Background()
+		// Set up command context with runtime override
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"build-id"})
@@ -261,22 +260,18 @@ func TestBuildIDCmd(t *testing.T) {
 		// When executing the command
 		err := Execute()
 
-		// Then it should return an error (or succeed if real pipeline is used)
+		// Then no error should occur with proper mocks
 		if err != nil {
-			// Error is expected if mock pipeline is used
-			t.Logf("Command failed as expected: %v", err)
-		} else {
-			// Success is also acceptable if real pipeline is used
-			t.Logf("Command succeeded (real pipeline may be used instead of mock)")
+			t.Errorf("Expected success with proper mocks, got error: %v", err)
 		}
 	})
 
-	t.Run("InvalidInjectorType", func(t *testing.T) {
-		// Given proper output capture and mock setup
+	t.Run("InvalidRuntimeType", func(t *testing.T) {
+		// Given proper output capture
 		setup(t)
 
-		// Set up command context with invalid injector type
-		ctx := context.Background()
+		// Set up command context with invalid runtime type
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, "invalid")
 		rootCmd.SetContext(ctx)
 
 		rootCmd.SetArgs([]string{"build-id"})
@@ -284,13 +279,12 @@ func TestBuildIDCmd(t *testing.T) {
 		// When executing the command
 		err := Execute()
 
-		// Then it should return an error (or succeed if injector is available globally)
+		// Then it may succeed or fail depending on environment
+		// Invalid type is ignored and real runtime is used
 		if err != nil {
-			// Error is expected if injector type is invalid
-			t.Logf("Command failed as expected: %v", err)
+			t.Logf("Command failed as expected with invalid runtime type: %v", err)
 		} else {
-			// Success is also acceptable if injector is available globally
-			t.Logf("Command succeeded (injector may be available globally)")
+			t.Logf("Command succeeded (real runtime may be available from environment)")
 		}
 	})
 }

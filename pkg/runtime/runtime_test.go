@@ -293,14 +293,10 @@ func TestRuntime_NewRuntime(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenGetProjectRootFailsOnSecondCall", func(t *testing.T) {
-		// Given a shell that fails to get project root on second call
+		// Given a shell that fails to get project root
+		// Note: With the optimization, GetProjectRoot is only called once when ProjectRoot is empty
 		mockShell := shell.NewMockShell()
-		callCount := 0
 		mockShell.GetProjectRootFunc = func() (string, error) {
-			callCount++
-			if callCount == 1 {
-				return "", nil
-			}
 			return "", fmt.Errorf("failed to get project root")
 		}
 
@@ -321,12 +317,11 @@ func TestRuntime_NewRuntime(t *testing.T) {
 		_, err := NewRuntime(rtOpts...)
 
 		// Then an error should be returned
-
 		if err == nil {
-			t.Error("Expected error when GetProjectRoot fails on second call")
+			t.Error("Expected error when GetProjectRoot fails")
 		}
 
-		if !strings.Contains(err.Error(), "failed to get project root") {
+		if err != nil && !strings.Contains(err.Error(), "failed to get project root") {
 			t.Errorf("Expected error about getting project root, got: %v", err)
 		}
 	})
@@ -421,8 +416,8 @@ func TestRuntime_NewRuntime(t *testing.T) {
 			t.Errorf("Expected ContextName to be 'custom-context', got: %s", rt.ContextName)
 		}
 
-		if rt.ProjectRoot != "/test/project" {
-			t.Errorf("Expected ProjectRoot to be '/test/project' (from GetProjectRoot), got: %s", rt.ProjectRoot)
+		if rt.ProjectRoot != "/custom/project" {
+			t.Errorf("Expected ProjectRoot to be '/custom/project' (from override), got: %s", rt.ProjectRoot)
 		}
 
 		if rt.ConfigRoot != "/custom/config" {

@@ -24,7 +24,9 @@ var execCmd = &cobra.Command{
 
 		var rtOpts []*runtime.Runtime
 		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
-			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
+			if rt, ok := overridesVal.(*runtime.Runtime); ok {
+				rtOpts = []*runtime.Runtime{rt}
+			}
 		}
 
 		rt, err := runtime.NewRuntime(rtOpts...)

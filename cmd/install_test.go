@@ -37,12 +37,8 @@ func TestInstallCmd(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		oldDir, _ := os.Getwd()
-		os.Chdir(tmpDir)
-		t.Cleanup(func() { os.Chdir(oldDir) })
-
 		mocks := setupMocks(t)
+		tmpDir := mocks.TmpDir
 
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetContextFunc = func() string { return "test-context" }
@@ -89,12 +85,8 @@ func TestInstallCmd(t *testing.T) {
 	})
 
 	t.Run("SuccessWithWaitFlag", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		oldDir, _ := os.Getwd()
-		os.Chdir(tmpDir)
-		t.Cleanup(func() { os.Chdir(oldDir) })
-
 		mocks := setupMocks(t)
+		tmpDir := mocks.TmpDir
 
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetContextFunc = func() string { return "test-context" }
@@ -142,12 +134,8 @@ func TestInstallCmd(t *testing.T) {
 	})
 
 	t.Run("ErrorCheckingTrustedDirectory", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		oldDir, _ := os.Getwd()
-		os.Chdir(tmpDir)
-		t.Cleanup(func() { os.Chdir(oldDir) })
-
 		mocks := setupMocks(t)
+		tmpDir := mocks.TmpDir
 		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
 			return fmt.Errorf("not in trusted directory")
 		}

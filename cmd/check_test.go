@@ -5,6 +5,7 @@ import (
 	stdcontext "context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -22,31 +23,18 @@ func TestCheckCmd(t *testing.T) {
 	setup := func(t *testing.T, withConfig bool) (*bytes.Buffer, *bytes.Buffer) {
 		t.Helper()
 
-		// Change to a temporary directory
-		origDir, err := os.Getwd()
-		if err != nil {
-			t.Fatalf("Failed to get working directory: %v", err)
-		}
+		// Use setupMocks to get a temp dir without os.Chdir()
+		mocks := setupMocks(t)
+		tmpDir := mocks.TmpDir
 
-		tmpDir := t.TempDir()
-		if err := os.Chdir(tmpDir); err != nil {
-			t.Fatalf("Failed to change to temp directory: %v", err)
-		}
-
-		// Cleanup to change back to original directory
-		t.Cleanup(func() {
-			if err := os.Chdir(origDir); err != nil {
-				t.Logf("Warning: Failed to change back to original directory: %v", err)
-			}
-		})
-
-		// Create config file if requested
+		// Create config file if requested (using full path to avoid chdir)
 		if withConfig {
 			configContent := `contexts:
   default:
     tools:
       enabled: true`
-			if err := os.WriteFile("windsor.yaml", []byte(configContent), 0644); err != nil {
+			configPath := filepath.Join(tmpDir, "windsor.yaml")
+			if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
 				t.Fatalf("Failed to create config file: %v", err)
 			}
 		}
