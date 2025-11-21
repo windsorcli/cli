@@ -1898,64 +1898,6 @@ variable "cluster_name" { type = string }`
 		}
 	})
 
-	t.Run("CleansUpOrphanedTfvars", func(t *testing.T) {
-		// Given a resolver with an orphaned tfvars file for a component that no longer exists
-		resolver, mocks := setup(t)
-
-		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-
-		// Create a component directory for a component that will not be in the blueprint
-		orphanedDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "orphaned-component")
-		if err := os.MkdirAll(orphanedDir, 0755); err != nil {
-			t.Fatalf("Failed to create orphaned dir: %v", err)
-		}
-		orphanedTfvars := filepath.Join(orphanedDir, "terraform.tfvars")
-		if err := os.WriteFile(orphanedTfvars, []byte("old_value = \"stale\""), 0644); err != nil {
-			t.Fatalf("Failed to write orphaned tfvars: %v", err)
-		}
-
-		// And a valid component that exists in the blueprint
-		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{
-				{
-					Path:     "test-module",
-					Source:   "git::https://github.com/test/module.git",
-					FullPath: filepath.Join(projectRoot, "terraform", "test-module"),
-					Inputs: map[string]any{
-						"cluster_name": "test-cluster",
-					},
-				},
-			}
-		}
-
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
-		if err := os.MkdirAll(variablesDir, 0755); err != nil {
-			t.Fatalf("Failed to create dir: %v", err)
-		}
-		if err := os.WriteFile(filepath.Join(variablesDir, "variables.tf"), []byte(`variable "cluster_name" { type = string }`), 0644); err != nil {
-			t.Fatalf("Failed to write variables.tf: %v", err)
-		}
-
-		// When generating tfvars
-		err := resolver.GenerateTfvars(false)
-
-		// Then it should succeed
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		// And the orphaned tfvars file should be removed
-		if _, err := os.Stat(orphanedTfvars); !os.IsNotExist(err) {
-			t.Errorf("Expected orphaned tfvars file to be removed, but it still exists")
-		}
-
-		// And the valid component's tfvars should still exist
-		validTfvars := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module", "terraform.tfvars")
-		if _, err := os.Stat(validTfvars); err != nil {
-			t.Errorf("Expected valid component tfvars to exist, got error: %v", err)
-		}
-	})
-
 	t.Run("HandlesWriteVariableWithDescriptionInInfo", func(t *testing.T) {
 		// Given a resolver with a variable that has description in VariableInfo passed to writeVariable
 		resolver, mocks := setup(t)

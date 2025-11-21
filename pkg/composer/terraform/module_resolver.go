@@ -73,7 +73,6 @@ func NewBaseModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.Bluep
 // in the blueprint, it ensures a tfvars file is generated if not already handled by the input data.
 // The method uses the blueprint handler to retrieve TerraformComponents and determines the variables.tf
 // location based on component source (remote or local). Module resolution is handled by pkg/terraform.
-// Before generating new tfvars files, it cleans up orphaned tfvars files for components that no longer exist.
 func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 	h.reset = overwrite
 
