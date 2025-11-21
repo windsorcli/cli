@@ -10,8 +10,8 @@ import (
 	"time"
 
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
-	"github.com/fluxcd/pkg/apis/kustomize"
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
+	"github.com/fluxcd/pkg/apis/kustomize"
 	"github.com/goccy/go-yaml"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
@@ -2089,7 +2089,8 @@ data:
 		var writtenPatchPaths []string
 		var writtenPatchContents []string
 		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			if strings.Contains(name, "patches/") {
+			normalizedName := filepath.ToSlash(name)
+			if strings.Contains(normalizedName, "patches/") {
 				writtenPatchPaths = append(writtenPatchPaths, name)
 				writtenPatchContents = append(writtenPatchContents, string(data))
 			}
@@ -2131,7 +2132,7 @@ data:
 		expectedPatchPath := filepath.Join(mocks.Runtime.ConfigRoot, "patches", "test-kustomization", "configmap-test-config.yaml")
 		found := false
 		for _, path := range writtenPatchPaths {
-			if path == expectedPatchPath {
+			if filepath.ToSlash(path) == filepath.ToSlash(expectedPatchPath) {
 				found = true
 				break
 			}
@@ -2170,7 +2171,8 @@ data:
 
 		var writtenPatchPaths []string
 		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			if strings.Contains(name, "patches/") {
+			normalizedName := filepath.ToSlash(name)
+			if strings.Contains(normalizedName, "patches/") {
 				writtenPatchPaths = append(writtenPatchPaths, name)
 			}
 			return nil
@@ -4801,7 +4803,8 @@ data:
 
 		var writeFileCalls []string
 		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-			if strings.Contains(name, "patches/") {
+			normalizedName := filepath.ToSlash(name)
+			if strings.Contains(normalizedName, "patches/") {
 				writeFileCalls = append(writeFileCalls, name)
 			}
 			return nil
@@ -4866,7 +4869,8 @@ data:
 		}
 
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if strings.Contains(name, "patches/test-kustomization") {
+			normalizedName := filepath.ToSlash(name)
+			if strings.Contains(normalizedName, "patches/test-kustomization") {
 				return &mockFileInfo{name: "test-kustomization", isDir: true}, nil
 			}
 			return nil, os.ErrNotExist
@@ -4987,7 +4991,8 @@ patch:
 		}
 
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if strings.Contains(name, "patches/test-kustomization") {
+			normalizedName := filepath.ToSlash(name)
+			if strings.Contains(normalizedName, "patches/test-kustomization") {
 				return &mockFileInfo{name: "test-kustomization", isDir: true}, nil
 			}
 			return nil, os.ErrNotExist
@@ -5050,7 +5055,8 @@ patch:
 
 		walkError := fmt.Errorf("walk error")
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if strings.Contains(name, "patches/test-kustomization") {
+			normalizedName := filepath.ToSlash(name)
+			if strings.Contains(normalizedName, "patches/test-kustomization") {
 				return &mockFileInfo{name: "patches", isDir: true}, nil
 			}
 			return nil, os.ErrNotExist
@@ -5112,7 +5118,8 @@ metadata:
 		}
 
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if strings.Contains(name, "patches/test-kustomization") {
+			normalizedName := filepath.ToSlash(name)
+			if strings.Contains(normalizedName, "patches/test-kustomization") {
 				return &mockFileInfo{name: "test-kustomization", isDir: true}, nil
 			}
 			return nil, os.ErrNotExist
