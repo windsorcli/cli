@@ -1903,7 +1903,7 @@ variable "cluster_name" { type = string }`
 		resolver, mocks := setup(t)
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		
+
 		// Create a component directory for a component that will not be in the blueprint
 		orphanedDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "orphaned-component")
 		if err := os.MkdirAll(orphanedDir, 0755); err != nil {
