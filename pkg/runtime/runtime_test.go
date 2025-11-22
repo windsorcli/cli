@@ -394,7 +394,7 @@ func TestRuntime_NewRuntime(t *testing.T) {
 			},
 		}
 		rtOpts[0].SecretsProviders.Sops = mockSopsProvider
-		rtOpts[0].SecretsProviders.Onepassword = mockOnepasswordProvider
+		rtOpts[0].SecretsProviders.Onepassword = []secrets.SecretsProvider{mockOnepasswordProvider}
 		rtOpts[0].EnvPrinters.AwsEnv = mockAwsEnv
 		rtOpts[0].EnvPrinters.AzureEnv = mockAzureEnv
 		rtOpts[0].EnvPrinters.DockerEnv = mockDockerEnv
@@ -436,7 +436,7 @@ func TestRuntime_NewRuntime(t *testing.T) {
 			t.Error("Expected Sops provider to be set")
 		}
 
-		if rt.SecretsProviders.Onepassword != mockOnepasswordProvider {
+		if len(rt.SecretsProviders.Onepassword) != 1 || rt.SecretsProviders.Onepassword[0] != mockOnepasswordProvider {
 			t.Error("Expected Onepassword provider to be set")
 		}
 
@@ -625,7 +625,7 @@ func TestRuntime_LoadEnvironment(t *testing.T) {
 		mockOnepasswordProvider := secrets.NewMockSecretsProvider(mocks.Shell)
 
 		rt.SecretsProviders.Sops = mockSopsProvider
-		rt.SecretsProviders.Onepassword = mockOnepasswordProvider
+		rt.SecretsProviders.Onepassword = []secrets.SecretsProvider{mockOnepasswordProvider}
 
 		// When LoadEnvironment is called with secrets enabled
 		err := rt.LoadEnvironment(true)
@@ -2306,7 +2306,7 @@ func TestRuntime_loadSecrets(t *testing.T) {
 		mockOnepasswordProvider := secrets.NewMockSecretsProvider(mocks.Shell)
 
 		rt.SecretsProviders.Sops = mockSopsProvider
-		rt.SecretsProviders.Onepassword = mockOnepasswordProvider
+		rt.SecretsProviders.Onepassword = []secrets.SecretsProvider{mockOnepasswordProvider}
 
 		// When loadSecrets is called
 		err := rt.loadSecrets()
@@ -2402,26 +2402,34 @@ func TestRuntime_initializeSecretsProviders(t *testing.T) {
 		}
 	})
 
-	t.Run("InitializesOnepasswordProviderWhenEnabled", func(t *testing.T) {
-		// Given a runtime with 1Password enabled in config
+	t.Run("InitializesOnepasswordProviderWhenVaultsConfigured", func(t *testing.T) {
+		// Given a runtime with 1Password vaults configured
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "secrets.onepassword.enabled" {
-				return true
+		mockConfigHandler.GetFunc = func(key string) any {
+			if key == "secrets.onepassword.vaults" {
+				return map[string]any{
+					"personal": map[string]any{
+						"url":  "my.1password.com",
+						"name": "Personal",
+					},
+				}
 			}
-			return false
+			return nil
 		}
 
 		// When initializeSecretsProviders is called
 		rt.initializeSecretsProviders()
 
-		// Then 1Password provider should be initialized
+		// Then 1Password provider should be initialized for each vault
 
-		if rt.SecretsProviders.Onepassword == nil {
+		if len(rt.SecretsProviders.Onepassword) == 0 {
 			t.Error("Expected 1Password provider to be initialized")
+		}
+		if len(rt.SecretsProviders.Onepassword) != 1 {
+			t.Errorf("Expected 1 provider, got %d", len(rt.SecretsProviders.Onepassword))
 		}
 	})
 
@@ -2444,7 +2452,7 @@ func TestRuntime_initializeSecretsProviders(t *testing.T) {
 			t.Error("Expected SOPS provider to be nil when disabled")
 		}
 
-		if rt.SecretsProviders.Onepassword != nil {
+		if len(rt.SecretsProviders.Onepassword) > 0 {
 			t.Error("Expected 1Password provider to be nil when disabled")
 		}
 	})
@@ -2471,6 +2479,154 @@ func TestRuntime_initializeSecretsProviders(t *testing.T) {
 		// Then existing provider should be preserved
 		if rt.SecretsProviders.Sops != existingProvider {
 			t.Error("Expected existing provider to be preserved")
+		}
+	})
+
+	t.Run("InitializesMultipleVaults", func(t *testing.T) {
+		// Given a runtime with multiple 1Password vaults configured
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetFunc = func(key string) any {
+			if key == "secrets.onepassword.vaults" {
+				return map[string]any{
+					"personal": map[string]any{
+						"url":  "my.1password.com",
+						"name": "Personal",
+					},
+					"work": map[string]any{
+						"url":  "company.1password.com",
+						"name": "Work",
+					},
+				}
+			}
+			return nil
+		}
+
+		// When initializeSecretsProviders is called
+		rt.initializeSecretsProviders()
+
+		// Then multiple providers should be initialized
+		if len(rt.SecretsProviders.Onepassword) == 0 {
+			t.Error("Expected 1Password providers to be initialized")
+		}
+		if len(rt.SecretsProviders.Onepassword) != 2 {
+			t.Errorf("Expected 2 providers, got %d", len(rt.SecretsProviders.Onepassword))
+		}
+	})
+
+	t.Run("HandlesEmptyVaultsMap", func(t *testing.T) {
+		// Given a runtime with empty vaults map
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetFunc = func(key string) any {
+			if key == "secrets.onepassword.vaults" {
+				return map[string]any{}
+			}
+			return nil
+		}
+
+		// When initializeSecretsProviders is called
+		rt.initializeSecretsProviders()
+
+		// Then no providers should be initialized
+		if len(rt.SecretsProviders.Onepassword) > 0 {
+			t.Error("Expected no providers to be initialized for empty vaults map")
+		}
+	})
+
+	t.Run("HandlesInvalidVaultData", func(t *testing.T) {
+		// Given a runtime with invalid vault data structure
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetFunc = func(key string) any {
+			if key == "secrets.onepassword.vaults" {
+				return map[string]any{
+					"personal": "not-a-map",
+				}
+			}
+			return nil
+		}
+
+		// When initializeSecretsProviders is called
+		rt.initializeSecretsProviders()
+
+		// Then no providers should be initialized for invalid data
+		if len(rt.SecretsProviders.Onepassword) > 0 {
+			t.Error("Expected no providers to be initialized for invalid vault data")
+		}
+	})
+
+	t.Run("HandlesVaultWithExplicitID", func(t *testing.T) {
+		// Given a runtime with vault that has explicit ID field
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetFunc = func(key string) any {
+			if key == "secrets.onepassword.vaults" {
+				return map[string]any{
+					"personal": map[string]any{
+						"id":   "custom-vault-id",
+						"url":  "my.1password.com",
+						"name": "Personal",
+					},
+				}
+			}
+			return nil
+		}
+
+		// When initializeSecretsProviders is called
+		rt.initializeSecretsProviders()
+
+		// Then provider should be initialized with explicit ID
+		if len(rt.SecretsProviders.Onepassword) == 0 {
+			t.Error("Expected 1Password provider to be initialized")
+		}
+		if len(rt.SecretsProviders.Onepassword) != 1 {
+			t.Errorf("Expected 1 provider, got %d", len(rt.SecretsProviders.Onepassword))
+		}
+	})
+
+	t.Run("InitializesProvidersBeforeWindsorEnv", func(t *testing.T) {
+		// Given a runtime with vaults configured
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetFunc = func(key string) any {
+			if key == "secrets.onepassword.vaults" {
+				return map[string]any{
+					"personal": map[string]any{
+						"url":  "my.1password.com",
+						"name": "Personal",
+					},
+				}
+			}
+			return nil
+		}
+
+		// When LoadEnvironment is called
+		err := rt.LoadEnvironment(false)
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And providers should be initialized
+		if len(rt.SecretsProviders.Onepassword) == 0 {
+			t.Error("Expected 1Password providers to be initialized")
+		}
+
+		// And WindsorEnv should be initialized with providers
+		if rt.EnvPrinters.WindsorEnv == nil {
+			t.Error("Expected WindsorEnv to be initialized")
 		}
 	})
 }
@@ -2736,7 +2892,7 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		mockSopsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
 		mockOnepasswordProvider := secrets.NewMockSecretsProvider(mocks.Shell)
 		rt.SecretsProviders.Sops = mockSopsProvider
-		rt.SecretsProviders.Onepassword = mockOnepasswordProvider
+		rt.SecretsProviders.Onepassword = []secrets.SecretsProvider{mockOnepasswordProvider}
 
 		// When initializeEnvPrinters is called
 		rt.initializeEnvPrinters()
