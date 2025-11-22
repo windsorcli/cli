@@ -162,7 +162,8 @@ func (i *Provisioner) Install(blueprint *blueprintv1alpha1.Blueprint) error {
 
 // Wait waits for kustomizations from the blueprint to be ready. It initializes the kubernetes manager
 // if needed and polls the status of all kustomizations until they are ready or a timeout occurs.
-// Returns an error if the kubernetes manager is not configured, initialization fails, or waiting times out.
+// The timeout is calculated from the longest dependency chain in the blueprint. Returns an error if
+// the kubernetes manager is not configured, initialization fails, or waiting times out.
 func (i *Provisioner) Wait(blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -172,12 +173,7 @@ func (i *Provisioner) Wait(blueprint *blueprintv1alpha1.Blueprint) error {
 		return fmt.Errorf("kubernetes manager not configured")
 	}
 
-	kustomizationNames := make([]string, len(blueprint.Kustomizations))
-	for i, k := range blueprint.Kustomizations {
-		kustomizationNames[i] = k.Name
-	}
-
-	if err := i.KubernetesManager.WaitForKustomizations("⏳ Waiting for kustomizations to be ready", kustomizationNames...); err != nil {
+	if err := i.KubernetesManager.WaitForKustomizations("⏳ Waiting for kustomizations to be ready", blueprint); err != nil {
 		return fmt.Errorf("failed waiting for kustomizations: %w", err)
 	}
 

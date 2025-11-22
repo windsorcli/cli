@@ -76,12 +76,11 @@ func TestMockKubernetesManager_WaitForKustomizations(t *testing.T) {
 		return NewMockKubernetesManager()
 	}
 	msg := "msg"
-	name := "n"
 
 	t.Run("FuncSet", func(t *testing.T) {
 		manager := setup(t)
-		manager.WaitForKustomizationsFunc = func(m string, n ...string) error { return fmt.Errorf("err") }
-		err := manager.WaitForKustomizations(msg, name)
+		manager.WaitForKustomizationsFunc = func(m string, b *blueprintv1alpha1.Blueprint) error { return fmt.Errorf("err") }
+		err := manager.WaitForKustomizations(msg, nil)
 		if err == nil || err.Error() != "err" {
 			t.Errorf("Expected error 'err', got %v", err)
 		}
@@ -89,7 +88,7 @@ func TestMockKubernetesManager_WaitForKustomizations(t *testing.T) {
 
 	t.Run("FuncNotSet", func(t *testing.T) {
 		manager := setup(t)
-		err := manager.WaitForKustomizations(msg, name)
+		err := manager.WaitForKustomizations(msg, nil)
 		if err != nil {
 			t.Errorf("Expected nil, got %v", err)
 		}
