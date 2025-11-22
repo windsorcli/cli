@@ -37,6 +37,7 @@ type Provisioner struct {
 	KubernetesManager kubernetes.KubernetesManager
 	KubernetesClient  k8sclient.KubernetesClient
 	ClusterClient     cluster.ClusterClient
+	blueprintHandler  blueprint.BlueprintHandler
 }
 
 // =============================================================================
@@ -44,9 +45,8 @@ type Provisioner struct {
 // =============================================================================
 
 // NewProvisioner creates a new Provisioner instance with the provided runtime and blueprint handler.
-// It sets up all required provisioner handlers—terraform stack, kubernetes manager, kubernetes client,
-// and cluster client. The cluster client is created based on the cluster driver configuration (talos/omni).
-// Components are initialized lazily when needed by the Up() and Down() methods.
+// It sets up kubernetes manager and kubernetes client. Terraform stack and cluster client
+// are initialized lazily when needed by the Up(), Down(), and WaitForHealth() methods.
 // Returns a pointer to the Provisioner struct.
 func NewProvisioner(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler, opts ...*Provisioner) *Provisioner {
 	provisioner := &Provisioner{
@@ -77,19 +77,6 @@ func NewProvisioner(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHan
 		provisioner.KubernetesManager = kubernetes.NewKubernetesManager(provisioner.KubernetesClient)
 	}
 
-	if provisioner.TerraformStack == nil {
-		if rt.ConfigHandler != nil && rt.ConfigHandler.GetBool("terraform.enabled", false) {
-			provisioner.TerraformStack = terraforminfra.NewWindsorStack(rt, blueprintHandler)
-		}
-	}
-
-	if provisioner.ClusterClient == nil {
-		clusterDriver := rt.ConfigHandler.GetString("cluster.driver", "")
-		if clusterDriver == "talos" || clusterDriver == "omni" {
-			provisioner.ClusterClient = cluster.NewTalosClusterClient()
-		}
-	}
-
 	return provisioner
 }
 
@@ -107,7 +94,16 @@ func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 	}
 
 	if i.TerraformStack == nil {
-		return nil
+		if i.Runtime != nil && i.Runtime.ConfigHandler != nil {
+			terraformEnabled := i.Runtime.ConfigHandler.GetBool("terraform.enabled", false)
+			if terraformEnabled {
+				i.TerraformStack = terraforminfra.NewStack(i.Runtime)
+			} else {
+				return nil
+			}
+		} else {
+			return nil
+		}
 	}
 	if err := i.TerraformStack.Up(blueprint); err != nil {
 		return fmt.Errorf("failed to run terraform up: %w", err)
@@ -229,37 +225,51 @@ func (i *Provisioner) CheckNodeHealth(ctx context.Context, options NodeHealthChe
 		return fmt.Errorf("no health checks specified. Use --nodes and/or --k8s-endpoint flags to specify health checks to perform")
 	}
 
-	if hasNodeCheck && i.ClusterClient == nil && !hasK8sCheck {
-		return fmt.Errorf("no health checks specified. Use --nodes and/or --k8s-endpoint flags to specify health checks to perform")
-	}
-
-	if hasNodeCheck && i.ClusterClient != nil {
-		defer i.ClusterClient.Close()
-
-		var checkCtx context.Context
-		var cancel context.CancelFunc
-		if options.Timeout > 0 {
-			checkCtx, cancel = context.WithTimeout(ctx, options.Timeout)
-		} else {
-			checkCtx, cancel = context.WithCancel(ctx)
+	if hasNodeCheck {
+		if i.ClusterClient == nil {
+			if i.Runtime != nil && i.Runtime.ConfigHandler != nil {
+				clusterDriver := i.Runtime.ConfigHandler.GetString("cluster.driver", "")
+				if clusterDriver == "talos" || clusterDriver == "omni" {
+					i.ClusterClient = cluster.NewTalosClusterClient()
+				}
+			}
 		}
-		defer cancel()
 
-		if err := i.ClusterClient.WaitForNodesHealthy(checkCtx, options.Nodes, options.Version); err != nil {
-			if hasK8sCheck {
-				if outputFunc != nil {
-					outputFunc(fmt.Sprintf("Warning: Cluster client failed (%v), continuing with Kubernetes checks\n", err))
+		if i.ClusterClient == nil {
+			if !hasK8sCheck {
+				return fmt.Errorf("no health checks specified. Use --nodes and/or --k8s-endpoint flags to specify health checks to perform")
+			}
+			// If we have k8s check, we can continue without cluster client
+		}
+
+		if i.ClusterClient != nil {
+			defer i.ClusterClient.Close()
+
+			var checkCtx context.Context
+			var cancel context.CancelFunc
+			if options.Timeout > 0 {
+				checkCtx, cancel = context.WithTimeout(ctx, options.Timeout)
+			} else {
+				checkCtx, cancel = context.WithCancel(ctx)
+			}
+			defer cancel()
+
+			if err := i.ClusterClient.WaitForNodesHealthy(checkCtx, options.Nodes, options.Version); err != nil {
+				if hasK8sCheck {
+					if outputFunc != nil {
+						outputFunc(fmt.Sprintf("Warning: Cluster client failed (%v), continuing with Kubernetes checks\n", err))
+					}
+				} else {
+					return fmt.Errorf("nodes failed health check: %w", err)
 				}
 			} else {
-				return fmt.Errorf("nodes failed health check: %w", err)
-			}
-		} else {
-			if outputFunc != nil {
-				message := fmt.Sprintf("All %d nodes are healthy", len(options.Nodes))
-				if options.Version != "" {
-					message += fmt.Sprintf(" and running version %s", options.Version)
+				if outputFunc != nil {
+					message := fmt.Sprintf("All %d nodes are healthy", len(options.Nodes))
+					if options.Version != "" {
+						message += fmt.Sprintf(" and running version %s", options.Version)
+					}
+					outputFunc(message)
 				}
-				outputFunc(message)
 			}
 		}
 	}

@@ -1,6 +1,6 @@
 package terraform
 
-// The StackTest provides comprehensive test coverage for the Stack interface implementation.
+// The StackTest provides comprehensive test coverage for the Stack implementation.
 // It provides validation of stack initialization, component management, and infrastructure operations,
 // The StackTest ensures proper dependency injection and component lifecycle management,
 // verifying error handling, mock interactions, and infrastructure state management.
@@ -187,7 +187,7 @@ contexts:
 	}
 }
 
-// setupWindsorStackMocks creates mock components for testing the WindsorStack
+// setupWindsorStackMocks creates mock components for testing the Stack
 func setupWindsorStackMocks(t *testing.T, opts ...*SetupOptions) *TerraformTestMocks {
 	t.Helper()
 	mocks := setupTerraformMocks(t, opts...)
@@ -220,12 +220,15 @@ func setupWindsorStackMocks(t *testing.T, opts ...*SetupOptions) *TerraformTestM
 // Test Public Methods
 // =============================================================================
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
 func TestStack_NewStack(t *testing.T) {
-	setup := func(t *testing.T) (*BaseStack, *TerraformTestMocks) {
+	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
 		t.Helper()
-		mocks := setupTerraformMocks(t)
-		stack := NewBaseStack(mocks.Runtime, mocks.BlueprintHandler)
-		stack.shims = mocks.Shims
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
 		return stack, mocks
 	}
 
@@ -234,136 +237,15 @@ func TestStack_NewStack(t *testing.T) {
 
 		if stack == nil {
 			t.Errorf("Expected stack to be non-nil")
-		}
-	})
-}
-
-func TestStack_Initialize(t *testing.T) {
-	setup := func(t *testing.T) (*BaseStack, *TerraformTestMocks) {
-		t.Helper()
-		mocks := setupTerraformMocks(t)
-		stack := NewBaseStack(mocks.Runtime, mocks.BlueprintHandler)
-		stack.shims = mocks.Shims
-		return stack, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		stack, _ := setup(t)
-
-		if stack == nil {
-			t.Error("Expected stack to be created")
 		}
 	})
 }
 
 func TestStack_Up(t *testing.T) {
-	setup := func(t *testing.T) (*BaseStack, *TerraformTestMocks) {
-		t.Helper()
-		mocks := setupTerraformMocks(t)
-		stack := NewBaseStack(mocks.Runtime, mocks.BlueprintHandler)
-		stack.shims = mocks.Shims
-		return stack, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		stack, _ := setup(t)
-
-		blueprint := createTestBlueprint()
-		if err := stack.Up(blueprint); err != nil {
-			t.Errorf("Expected Up to return nil, got %v", err)
-		}
-	})
-
-	t.Run("UninitializedStack", func(t *testing.T) {
-		stack, _ := setup(t)
-
-		blueprint := createTestBlueprint()
-		if err := stack.Up(blueprint); err != nil {
-			t.Errorf("Expected Up to return nil even without initialization, got %v", err)
-		}
-	})
-
-	t.Run("NilInjector", func(t *testing.T) {
-		mocks := setupTerraformMocks(t)
-		stack := NewBaseStack(mocks.Runtime, mocks.BlueprintHandler)
-
-		blueprint := createTestBlueprint()
-		if err := stack.Up(blueprint); err != nil {
-			t.Errorf("Expected Up to return nil even with nil injector, got %v", err)
-		}
-	})
-}
-
-func TestStack_Down(t *testing.T) {
-	setup := func(t *testing.T) (*BaseStack, *TerraformTestMocks) {
-		t.Helper()
-		mocks := setupTerraformMocks(t)
-		stack := NewBaseStack(mocks.Runtime, mocks.BlueprintHandler)
-		stack.shims = mocks.Shims
-		return stack, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		stack, _ := setup(t)
-
-		blueprint := createTestBlueprint()
-		if err := stack.Down(blueprint); err != nil {
-			t.Errorf("Expected Down to return nil, got %v", err)
-		}
-	})
-
-	t.Run("UninitializedStack", func(t *testing.T) {
-		stack, _ := setup(t)
-
-		blueprint := createTestBlueprint()
-		if err := stack.Down(blueprint); err != nil {
-			t.Errorf("Expected Down to return nil even without initialization, got %v", err)
-		}
-	})
-
-	t.Run("NilInjector", func(t *testing.T) {
-		mocks := setupTerraformMocks(t)
-		stack := NewBaseStack(mocks.Runtime, mocks.BlueprintHandler)
-
-		blueprint := createTestBlueprint()
-		if err := stack.Down(blueprint); err != nil {
-			t.Errorf("Expected Down to return nil even with nil injector, got %v", err)
-		}
-	})
-}
-
-func TestStack_Interface(t *testing.T) {
-	t.Run("BaseStackImplementsStack", func(t *testing.T) {
-		var _ Stack = (*BaseStack)(nil)
-	})
-}
-
-// =============================================================================
-// Test Public Methods
-// =============================================================================
-
-func TestWindsorStack_NewWindsorStack(t *testing.T) {
-	setup := func(t *testing.T) (*WindsorStack, *TerraformTestMocks) {
+	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
 		t.Helper()
 		mocks := setupWindsorStackMocks(t)
-		stack := NewWindsorStack(mocks.Runtime, mocks.BlueprintHandler)
-		return stack, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		stack, _ := setup(t)
-
-		if stack == nil {
-			t.Errorf("Expected stack to be non-nil")
-		}
-	})
-}
-
-func TestWindsorStack_Up(t *testing.T) {
-	setup := func(t *testing.T) (*WindsorStack, *TerraformTestMocks) {
-		t.Helper()
-		mocks := setupWindsorStackMocks(t)
-		stack := NewWindsorStack(mocks.Runtime, mocks.BlueprintHandler)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
 		stack.shims = mocks.Shims
 		return stack, mocks
 	}
@@ -564,11 +446,11 @@ func TestWindsorStack_Up(t *testing.T) {
 	})
 }
 
-func TestWindsorStack_Down(t *testing.T) {
-	setup := func(t *testing.T) (*WindsorStack, *TerraformTestMocks) {
+func TestStack_Down(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
 		t.Helper()
 		mocks := setupWindsorStackMocks(t)
-		stack := NewWindsorStack(mocks.Runtime, mocks.BlueprintHandler)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
 		stack.shims = mocks.Shims
 
 		mocks.Blueprint.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {

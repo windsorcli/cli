@@ -56,7 +56,7 @@ func createTestBlueprint() *blueprintv1alpha1.Blueprint {
 type ProvisionerTestMocks struct {
 	ConfigHandler     config.ConfigHandler
 	Shell             *shell.MockShell
-	TerraformStack    *terraforminfra.MockStack
+	TerraformStack    terraforminfra.Stack
 	KubernetesManager *kubernetes.MockKubernetesManager
 	KubernetesClient  k8sclient.KubernetesClient
 	ClusterClient     *cluster.MockClusterClient
@@ -99,7 +99,6 @@ func setupProvisionerMocks(t *testing.T, opts ...func(*ProvisionerTestMocks)) *P
 		return "/test/project", nil
 	}
 
-	terraformStack := terraforminfra.NewMockStack()
 	kubernetesManager := kubernetes.NewMockKubernetesManager()
 	kubernetesClient := k8sclient.NewMockKubernetesClient()
 	clusterClient := cluster.NewMockClusterClient()
@@ -113,6 +112,10 @@ func setupProvisionerMocks(t *testing.T, opts ...func(*ProvisionerTestMocks)) *P
 		ConfigHandler: configHandler,
 		Shell:         mockShell,
 	}
+
+	terraformStack := terraforminfra.NewMockStack()
+	terraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint) error { return nil }
+	terraformStack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error { return nil }
 
 	mocks := &ProvisionerTestMocks{
 		ConfigHandler:     configHandler,
@@ -159,8 +162,8 @@ func TestNewProvisioner(t *testing.T) {
 			t.Error("Expected config handler to be set")
 		}
 
-		if provisioner.TerraformStack == nil {
-			t.Error("Expected terraform stack to be initialized")
+		if provisioner.TerraformStack != nil {
+			t.Error("Expected terraform stack to be nil (lazy loaded)")
 		}
 
 		if provisioner.KubernetesManager == nil {
@@ -185,8 +188,8 @@ func TestNewProvisioner(t *testing.T) {
 
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		if provisioner.ClusterClient == nil {
-			t.Error("Expected cluster client to be created for talos driver")
+		if provisioner.ClusterClient != nil {
+			t.Error("Expected cluster client to be nil (lazy loaded)")
 		}
 	})
 
@@ -203,8 +206,8 @@ func TestNewProvisioner(t *testing.T) {
 
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		if provisioner.ClusterClient == nil {
-			t.Error("Expected cluster client to be created for omni driver")
+		if provisioner.ClusterClient != nil {
+			t.Error("Expected cluster client to be nil (lazy loaded)")
 		}
 	})
 
@@ -268,7 +271,7 @@ func TestNewProvisioner(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
 		if provisioner.TerraformStack != nil {
-			t.Error("Expected terraform stack to be nil when terraform is disabled")
+			t.Error("Expected terraform stack to be nil (lazy loaded, and disabled in config)")
 		}
 	})
 
@@ -285,10 +288,6 @@ func TestProvisioner_Up(t *testing.T) {
 			TerraformStack: mocks.TerraformStack,
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
-			return nil
-		}
 
 		blueprint := createTestBlueprint()
 		err := provisioner.Up(blueprint)
@@ -315,8 +314,17 @@ func TestProvisioner_Up(t *testing.T) {
 
 	t.Run("SuccessSkipsTerraformWhenDisabled", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "terraform.enabled" {
+				return false
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-		provisioner.TerraformStack = nil
 
 		blueprint := createTestBlueprint()
 		err := provisioner.Up(blueprint)
@@ -328,20 +336,21 @@ func TestProvisioner_Up(t *testing.T) {
 
 	t.Run("ErrorTerraformStackUp", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
+			return fmt.Errorf("terraform stack up failed")
+		}
 		opts := &Provisioner{
-			TerraformStack: mocks.TerraformStack,
+			TerraformStack: mockStack,
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
-			return fmt.Errorf("up failed")
-		}
 
 		blueprint := createTestBlueprint()
 		err := provisioner.Up(blueprint)
 
 		if err == nil {
 			t.Error("Expected error for terraform stack up failure")
+			return
 		}
 
 		if !strings.Contains(err.Error(), "failed to run terraform up") {
@@ -358,10 +367,6 @@ func TestProvisioner_Down(t *testing.T) {
 			TerraformStack: mocks.TerraformStack,
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		mocks.TerraformStack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
-			return nil
-		}
 
 		blueprint := createTestBlueprint()
 		err := provisioner.Down(blueprint)
@@ -401,14 +406,14 @@ func TestProvisioner_Down(t *testing.T) {
 
 	t.Run("ErrorTerraformStackDown", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
+			return fmt.Errorf("terraform stack down failed")
+		}
 		opts := &Provisioner{
-			TerraformStack: mocks.TerraformStack,
+			TerraformStack: mockStack,
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		mocks.TerraformStack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
-			return fmt.Errorf("down failed")
-		}
 
 		blueprint := createTestBlueprint()
 		err := provisioner.Down(blueprint)
@@ -1343,6 +1348,16 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 
 	t.Run("ErrorNoHealthChecksWhenNodesProvidedButNoClusterClient", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.driver" {
+				return "" // No cluster driver set, so ClusterClient won't be created
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 		provisioner.ClusterClient = nil
 
