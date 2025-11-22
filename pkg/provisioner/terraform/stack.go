@@ -16,16 +16,16 @@ import (
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime"
 	envvars "github.com/windsorcli/cli/pkg/runtime/env"
 )
 
 // =============================================================================
-// Interfaces
+// Interface
 // =============================================================================
 
-// Stack is an interface that represents a stack of components.
+// Stack defines the interface for Terraform stack operations.
+// Both the Stack struct and MockStack implement this interface.
 type Stack interface {
 	Up(blueprint *blueprintv1alpha1.Blueprint) error
 	Down(blueprint *blueprintv1alpha1.Blueprint) error
@@ -35,16 +35,11 @@ type Stack interface {
 // Types
 // =============================================================================
 
-// BaseStack is a struct that implements the Stack interface.
-type BaseStack struct {
-	runtime          *runtime.Runtime
-	blueprintHandler blueprint.BlueprintHandler
-	shims            *Shims
-}
-
-// WindsorStack is a struct that implements the Stack interface.
-type WindsorStack struct {
-	BaseStack
+// TerraformStack manages Terraform infrastructure components by initializing and applying Terraform configurations.
+// It processes components in order, generating terraform arguments, running Terraform init, plan, and apply operations.
+type TerraformStack struct {
+	runtime      *runtime.Runtime
+	shims        *Shims
 	terraformEnv *envvars.TerraformEnvPrinter
 }
 
@@ -52,23 +47,11 @@ type WindsorStack struct {
 // Constructors
 // =============================================================================
 
-// NewBaseStack creates a new base stack of components.
-func NewBaseStack(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler) *BaseStack {
-	return &BaseStack{
-		runtime:          rt,
-		blueprintHandler: blueprintHandler,
-		shims:            NewShims(),
-	}
-}
-
-// NewWindsorStack creates a new WindsorStack.
-func NewWindsorStack(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler, opts ...*WindsorStack) *WindsorStack {
-	stack := &WindsorStack{
-		BaseStack: BaseStack{
-			runtime:          rt,
-			blueprintHandler: blueprintHandler,
-			shims:            NewShims(),
-		},
+// NewStack creates a new stack of components.
+func NewStack(rt *runtime.Runtime, opts ...*TerraformStack) Stack {
+	stack := &TerraformStack{
+		runtime: rt,
+		shims:   NewShims(),
 	}
 
 	if len(opts) > 0 && opts[0] != nil {
@@ -87,22 +70,12 @@ func NewWindsorStack(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHa
 	return stack
 }
 
-// Up creates a new stack of components.
-func (s *BaseStack) Up(blueprint *blueprintv1alpha1.Blueprint) error {
-	return nil
-}
-
-// Down destroys a stack of components.
-func (s *BaseStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
-	return nil
-}
-
 // Up creates a new stack of components by initializing and applying Terraform configurations.
 // It processes components in order, generating terraform arguments, running Terraform init,
 // plan, and apply operations, and cleaning up backend override files.
 // The method ensures proper directory management and terraform argument setup for each component.
 // The blueprint parameter is required to resolve terraform components.
-func (s *WindsorStack) Up(blueprint *blueprintv1alpha1.Blueprint) error {
+func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
@@ -196,7 +169,7 @@ func (s *WindsorStack) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 // creates backend override files, runs Terraform refresh, plan (with destroy flag), and destroy commands, and removes backend override files.
 // Components with Destroy set to false are skipped. Directory state is restored after execution. Errors are returned on any operation failure.
 // The blueprint parameter is required to resolve terraform components.
-func (s *WindsorStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
+func (s *TerraformStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
@@ -284,7 +257,7 @@ func (s *WindsorStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 // =============================================================================
 
 // resolveTerraformComponents resolves terraform components from the blueprint by resolving sources and paths.
-func (s *WindsorStack) resolveTerraformComponents(blueprint *blueprintv1alpha1.Blueprint, projectRoot string) []blueprintv1alpha1.TerraformComponent {
+func (s *TerraformStack) resolveTerraformComponents(blueprint *blueprintv1alpha1.Blueprint, projectRoot string) []blueprintv1alpha1.TerraformComponent {
 	blueprintCopy := *blueprint
 	s.resolveComponentSources(&blueprintCopy)
 	s.resolveComponentPaths(&blueprintCopy, projectRoot)
@@ -292,7 +265,7 @@ func (s *WindsorStack) resolveTerraformComponents(blueprint *blueprintv1alpha1.B
 }
 
 // resolveComponentSources resolves component source names to full URLs using blueprint sources.
-func (s *WindsorStack) resolveComponentSources(blueprint *blueprintv1alpha1.Blueprint) {
+func (s *TerraformStack) resolveComponentSources(blueprint *blueprintv1alpha1.Blueprint) {
 	resolvedComponents := make([]blueprintv1alpha1.TerraformComponent, len(blueprint.TerraformComponents))
 	copy(resolvedComponents, blueprint.TerraformComponents)
 
@@ -333,7 +306,7 @@ func (s *WindsorStack) resolveComponentSources(blueprint *blueprintv1alpha1.Blue
 }
 
 // resolveComponentPaths determines the full filesystem path for each Terraform component.
-func (s *WindsorStack) resolveComponentPaths(blueprint *blueprintv1alpha1.Blueprint, projectRoot string) {
+func (s *TerraformStack) resolveComponentPaths(blueprint *blueprintv1alpha1.Blueprint, projectRoot string) {
 	resolvedComponents := make([]blueprintv1alpha1.TerraformComponent, len(blueprint.TerraformComponents))
 	copy(resolvedComponents, blueprint.TerraformComponents)
 
@@ -355,7 +328,7 @@ func (s *WindsorStack) resolveComponentPaths(blueprint *blueprintv1alpha1.Bluepr
 }
 
 // isValidTerraformRemoteSource checks if the source is a valid Terraform module reference.
-func (s *WindsorStack) isValidTerraformRemoteSource(source string) bool {
+func (s *TerraformStack) isValidTerraformRemoteSource(source string) bool {
 	patterns := []string{
 		`^git::https://[^/]+/.*\.git(?:@.*)?$`,
 		`^git@[^:]+:.*\.git(?:@.*)?$`,
@@ -380,7 +353,7 @@ func (s *WindsorStack) isValidTerraformRemoteSource(source string) bool {
 }
 
 // isOCISource returns true if the provided source is an OCI repository reference.
-func (s *WindsorStack) isOCISource(sourceNameOrURL string, blueprint *blueprintv1alpha1.Blueprint) bool {
+func (s *TerraformStack) isOCISource(sourceNameOrURL string, blueprint *blueprintv1alpha1.Blueprint) bool {
 	if strings.HasPrefix(sourceNameOrURL, "oci://") {
 		return true
 	}
@@ -396,7 +369,7 @@ func (s *WindsorStack) isOCISource(sourceNameOrURL string, blueprint *blueprintv
 }
 
 // getTerraformEnv returns the terraform environment printer, checking the runtime if not set on the stack.
-func (s *WindsorStack) getTerraformEnv() *envvars.TerraformEnvPrinter {
+func (s *TerraformStack) getTerraformEnv() *envvars.TerraformEnvPrinter {
 	if s.terraformEnv != nil {
 		return s.terraformEnv
 	}
@@ -408,6 +381,3 @@ func (s *WindsorStack) getTerraformEnv() *envvars.TerraformEnvPrinter {
 	}
 	return nil
 }
-
-// Ensure BaseStack implements Stack
-var _ Stack = (*BaseStack)(nil)
