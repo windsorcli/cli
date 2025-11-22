@@ -352,7 +352,18 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		}
 		manager.client = kubernetesClient
 
-		err := manager.WaitForKustomizations("Waiting for kustomizations", "test-kustomization")
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+					Timeout: &metav1.Duration{
+						Duration: 200 * time.Millisecond,
+					},
+				},
+			},
+		}
+
+		err := manager.WaitForKustomizations("Waiting for kustomizations", blueprint)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -377,7 +388,18 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		}
 		manager.client = kubernetesClient
 
-		err := manager.WaitForKustomizations("Waiting for kustomizations", "test-kustomization")
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+					Timeout: &metav1.Duration{
+						Duration: 50 * time.Millisecond,
+					},
+				},
+			},
+		}
+
+		err := manager.WaitForKustomizations("Waiting for kustomizations", blueprint)
 		if err == nil {
 			t.Error("Expected timeout error, got nil")
 		}
@@ -393,7 +415,18 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		}
 		manager.client = kubernetesClient
 
-		err := manager.WaitForKustomizations("Waiting for kustomizations", "test-kustomization")
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+					Timeout: &metav1.Duration{
+						Duration: 50 * time.Millisecond,
+					},
+				},
+			},
+		}
+
+		err := manager.WaitForKustomizations("Waiting for kustomizations", blueprint)
 		if err == nil {
 			t.Error("Expected timeout error, got nil")
 		}
@@ -422,7 +455,18 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			return fmt.Errorf("forced conversion error")
 		}
 
-		err := manager.WaitForKustomizations("Waiting for kustomizations", "test-kustomization")
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+					Timeout: &metav1.Duration{
+						Duration: 50 * time.Millisecond,
+					},
+				},
+			},
+		}
+
+		err := manager.WaitForKustomizations("Waiting for kustomizations", blueprint)
 		if err == nil {
 			t.Error("Expected timeout error, got nil")
 		}
@@ -440,7 +484,18 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		}
 		manager.client = kubernetesClient
 
-		err := manager.WaitForKustomizations("Waiting for kustomizations", "test-kustomization")
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+					Timeout: &metav1.Duration{
+						Duration: 50 * time.Millisecond,
+					},
+				},
+			},
+		}
+
+		err := manager.WaitForKustomizations("Waiting for kustomizations", blueprint)
 		if err == nil {
 			t.Error("Expected timeout error, got nil")
 		}
@@ -465,7 +520,18 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		}
 		manager.client = kubernetesClient
 
-		err := manager.WaitForKustomizations("Waiting for kustomizations", "test-kustomization")
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+					Timeout: &metav1.Duration{
+						Duration: 50 * time.Millisecond,
+					},
+				},
+			},
+		}
+
+		err := manager.WaitForKustomizations("Waiting for kustomizations", blueprint)
 		if err == nil {
 			t.Error("Expected timeout error, got nil")
 		}
@@ -490,9 +556,81 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		}
 		manager.client = kubernetesClient
 
-		err := manager.WaitForKustomizations("Waiting for kustomizations", "test-kustomization")
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+					Timeout: &metav1.Duration{
+						Duration: 50 * time.Millisecond,
+					},
+				},
+			},
+		}
+
+		err := manager.WaitForKustomizations("Waiting for kustomizations", blueprint)
 		if err == nil {
 			t.Error("Expected timeout error, got nil")
+		}
+	})
+
+	t.Run("WithBlueprintCalculatesTimeout", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{
+				Object: map[string]any{
+					"status": map[string]any{
+						"conditions": []any{
+							map[string]any{
+								"type":   "Ready",
+								"status": "True",
+							},
+						},
+					},
+				},
+			}, nil
+		}
+		manager.client = kubernetesClient
+
+		timeout1 := 50 * time.Millisecond
+		timeout2 := 75 * time.Millisecond
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "k1",
+					Timeout: &metav1.Duration{
+						Duration: timeout1,
+					},
+				},
+				{
+					Name: "k2",
+					Timeout: &metav1.Duration{
+						Duration: timeout2,
+					},
+					DependsOn: []string{"k1"},
+				},
+			},
+		}
+
+		err := manager.WaitForKustomizations("Waiting for kustomizations", blueprint)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		calculatedTimeout := manager.calculateTotalWaitTime(blueprint)
+		expectedTimeout := timeout1 + timeout2
+		if calculatedTimeout != expectedTimeout {
+			t.Errorf("Expected calculated timeout %v, got %v", expectedTimeout, calculatedTimeout)
+		}
+	})
+
+	t.Run("WithBlueprintNilReturnsError", func(t *testing.T) {
+		manager := setup(t)
+		err := manager.WaitForKustomizations("Waiting for kustomizations", nil)
+		if err == nil {
+			t.Error("Expected error for nil blueprint, got nil")
+		}
+		if !strings.Contains(err.Error(), "blueprint not provided") {
+			t.Errorf("Expected 'blueprint not provided' error, got: %v", err)
 		}
 	})
 }

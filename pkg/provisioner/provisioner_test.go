@@ -506,7 +506,7 @@ func TestProvisioner_Install(t *testing.T) {
 func TestProvisioner_Wait(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.WaitForKustomizationsFunc = func(message string, names ...string) error {
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(message string, blueprint *blueprintv1alpha1.Blueprint) error {
 			return nil
 		}
 		opts := &Provisioner{
@@ -556,7 +556,7 @@ func TestProvisioner_Wait(t *testing.T) {
 
 	t.Run("ErrorWaitForKustomizations", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.WaitForKustomizationsFunc = func(message string, names ...string) error {
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(message string, blueprint *blueprintv1alpha1.Blueprint) error {
 			return fmt.Errorf("wait failed")
 		}
 		opts := &Provisioner{

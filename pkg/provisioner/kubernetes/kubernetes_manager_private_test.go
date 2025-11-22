@@ -7,7 +7,10 @@ import (
 	"testing"
 	"time"
 
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
@@ -451,6 +454,283 @@ func TestBaseKubernetesManager_getHelmRelease(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "failed to get helm release") {
 			t.Errorf("Expected get resource error, got: %v", err)
+		}
+	})
+}
+
+func TestBaseKubernetesManager_calculateTotalWaitTime(t *testing.T) {
+	setup := func(t *testing.T) *BaseKubernetesManager {
+		t.Helper()
+		mocks := setupKubernetesMocks(t)
+		manager := NewKubernetesManager(mocks.KubernetesClient)
+		return manager
+	}
+
+	t.Run("EmptyBlueprint", func(t *testing.T) {
+		manager := setup(t)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{},
+		}
+
+		timeout := manager.calculateTotalWaitTime(blueprint)
+		expected := constants.DefaultKustomizationWaitTotalTimeout
+		if timeout != expected {
+			t.Errorf("Expected default timeout %v, got %v", expected, timeout)
+		}
+	})
+
+	t.Run("SingleKustomizationNoDependencies", func(t *testing.T) {
+		manager := setup(t)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "k1",
+				},
+			},
+		}
+
+		timeout := manager.calculateTotalWaitTime(blueprint)
+		expected := constants.DefaultFluxKustomizationTimeout
+		if timeout != expected {
+			t.Errorf("Expected default timeout %v, got %v", expected, timeout)
+		}
+	})
+
+	t.Run("SingleKustomizationWithCustomTimeout", func(t *testing.T) {
+		manager := setup(t)
+		customTimeout := 10 * time.Minute
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "k1",
+					Timeout: &metav1.Duration{
+						Duration: customTimeout,
+					},
+				},
+			},
+		}
+
+		timeout := manager.calculateTotalWaitTime(blueprint)
+		if timeout != customTimeout {
+			t.Errorf("Expected custom timeout %v, got %v", customTimeout, timeout)
+		}
+	})
+
+	t.Run("SingleKustomizationWithZeroTimeout", func(t *testing.T) {
+		manager := setup(t)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "k1",
+					Timeout: &metav1.Duration{
+						Duration: 0,
+					},
+				},
+			},
+		}
+
+		timeout := manager.calculateTotalWaitTime(blueprint)
+		expected := constants.DefaultFluxKustomizationTimeout
+		if timeout != expected {
+			t.Errorf("Expected default timeout %v, got %v", expected, timeout)
+		}
+	})
+
+	t.Run("TwoKustomizationsWithDependency", func(t *testing.T) {
+		manager := setup(t)
+		timeout1 := 5 * time.Minute
+		timeout2 := 3 * time.Minute
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "k1",
+					Timeout: &metav1.Duration{
+						Duration: timeout1,
+					},
+				},
+				{
+					Name: "k2",
+					Timeout: &metav1.Duration{
+						Duration: timeout2,
+					},
+					DependsOn: []string{"k1"},
+				},
+			},
+		}
+
+		timeout := manager.calculateTotalWaitTime(blueprint)
+		expected := timeout1 + timeout2
+		if timeout != expected {
+			t.Errorf("Expected sum %v, got %v", expected, timeout)
+		}
+	})
+
+	t.Run("LongDependencyChain", func(t *testing.T) {
+		manager := setup(t)
+		timeout1 := 2 * time.Minute
+		timeout2 := 3 * time.Minute
+		timeout3 := 4 * time.Minute
+		timeout4 := 5 * time.Minute
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "k1",
+					Timeout: &metav1.Duration{
+						Duration: timeout1,
+					},
+				},
+				{
+					Name: "k2",
+					Timeout: &metav1.Duration{
+						Duration: timeout2,
+					},
+					DependsOn: []string{"k1"},
+				},
+				{
+					Name: "k3",
+					Timeout: &metav1.Duration{
+						Duration: timeout3,
+					},
+					DependsOn: []string{"k2"},
+				},
+				{
+					Name: "k4",
+					Timeout: &metav1.Duration{
+						Duration: timeout4,
+					},
+					DependsOn: []string{"k3"},
+				},
+			},
+		}
+
+		timeout := manager.calculateTotalWaitTime(blueprint)
+		expected := timeout1 + timeout2 + timeout3 + timeout4
+		if timeout != expected {
+			t.Errorf("Expected sum %v, got %v", expected, timeout)
+		}
+	})
+
+	t.Run("MultipleIndependentChains", func(t *testing.T) {
+		manager := setup(t)
+		timeout1 := 2 * time.Minute
+		timeout2 := 3 * time.Minute
+		timeout3 := 10 * time.Minute
+		timeout4 := 1 * time.Minute
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "k1",
+					Timeout: &metav1.Duration{
+						Duration: timeout1,
+					},
+				},
+				{
+					Name: "k2",
+					Timeout: &metav1.Duration{
+						Duration: timeout2,
+					},
+					DependsOn: []string{"k1"},
+				},
+				{
+					Name: "k3",
+					Timeout: &metav1.Duration{
+						Duration: timeout3,
+					},
+				},
+				{
+					Name: "k4",
+					Timeout: &metav1.Duration{
+						Duration: timeout4,
+					},
+					DependsOn: []string{"k3"},
+				},
+			},
+		}
+
+		timeout := manager.calculateTotalWaitTime(blueprint)
+		chain1Total := timeout1 + timeout2
+		chain2Total := timeout3 + timeout4
+		expected := chain2Total
+		if chain1Total > chain2Total {
+			expected = chain1Total
+		}
+		if timeout != expected {
+			t.Errorf("Expected max chain total %v, got %v", expected, timeout)
+		}
+	})
+
+	t.Run("ForkedDependencyChain", func(t *testing.T) {
+		manager := setup(t)
+		timeout1 := 2 * time.Minute
+		timeout2 := 3 * time.Minute
+		timeout3 := 4 * time.Minute
+		timeout4 := 5 * time.Minute
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "k1",
+					Timeout: &metav1.Duration{
+						Duration: timeout1,
+					},
+				},
+				{
+					Name: "k2",
+					Timeout: &metav1.Duration{
+						Duration: timeout2,
+					},
+					DependsOn: []string{"k1"},
+				},
+				{
+					Name: "k3",
+					Timeout: &metav1.Duration{
+						Duration: timeout3,
+					},
+					DependsOn: []string{"k1"},
+				},
+				{
+					Name: "k4",
+					Timeout: &metav1.Duration{
+						Duration: timeout4,
+					},
+					DependsOn: []string{"k2", "k3"},
+				},
+			},
+		}
+
+		timeout := manager.calculateTotalWaitTime(blueprint)
+		chain1Total := timeout1 + timeout2 + timeout4
+		chain2Total := timeout1 + timeout3 + timeout4
+		expected := chain2Total
+		if chain1Total > chain2Total {
+			expected = chain1Total
+		}
+		if timeout != expected {
+			t.Errorf("Expected max chain total %v, got %v", expected, timeout)
+		}
+	})
+
+	t.Run("MixedDefaultAndCustomTimeouts", func(t *testing.T) {
+		manager := setup(t)
+		customTimeout := 7 * time.Minute
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "k1",
+				},
+				{
+					Name: "k2",
+					Timeout: &metav1.Duration{
+						Duration: customTimeout,
+					},
+					DependsOn: []string{"k1"},
+				},
+			},
+		}
+
+		timeout := manager.calculateTotalWaitTime(blueprint)
+		expected := constants.DefaultFluxKustomizationTimeout + customTimeout
+		if timeout != expected {
+			t.Errorf("Expected sum %v, got %v", expected, timeout)
 		}
 	})
 }

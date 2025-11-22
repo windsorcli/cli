@@ -101,7 +101,7 @@ func TestInstallCmd(t *testing.T) {
 
 		mockKubernetesManager := kubernetes.NewMockKubernetesManager()
 		mockKubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
-		mockKubernetesManager.WaitForKustomizationsFunc = func(message string, names ...string) error { return nil }
+		mockKubernetesManager.WaitForKustomizationsFunc = func(message string, blueprint *blueprintv1alpha1.Blueprint) error { return nil }
 
 		// Override ConfigHandler and ProjectRoot in runtime
 		mocks.Runtime.ConfigHandler = mockConfigHandler
