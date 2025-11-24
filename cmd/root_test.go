@@ -189,6 +189,11 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 				return nil
 			}
 		}
+		if mockConfig.LoadSchemaFromBytesFunc == nil {
+			mockConfig.LoadSchemaFromBytesFunc = func(data []byte) error {
+				return nil
+			}
+		}
 		if mockConfig.LoadConfigStringFunc == nil {
 			mockConfig.LoadConfigStringFunc = func(content string) error {
 				// Parse YAML content if provided
@@ -213,6 +218,19 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 					return defaultValue[0]
 				}
 				return ""
+			}
+		}
+		if mockConfig.GetContextValuesFunc == nil {
+			mockConfig.GetContextValuesFunc = func() (map[string]any, error) {
+				addons := make(map[string]any)
+				// Initialize common addons with enabled: false to prevent evaluation errors
+				for _, addon := range []string{"object_store", "observability", "private_ca", "private_dns"} {
+					addons[addon] = map[string]any{"enabled": false}
+				}
+				return map[string]any{
+					"addons": addons,
+					"dev":    false,
+				}, nil
 			}
 		}
 	}

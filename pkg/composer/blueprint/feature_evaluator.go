@@ -24,8 +24,9 @@ import (
 
 // FeatureEvaluator provides lightweight expression evaluation for feature conditions.
 type FeatureEvaluator struct {
-	runtime *runtime.Runtime
-	shims   *Shims
+	runtime      *runtime.Runtime
+	shims        *Shims
+	templateData map[string][]byte
 }
 
 // =============================================================================
@@ -41,6 +42,13 @@ func NewFeatureEvaluator(rt *runtime.Runtime) *FeatureEvaluator {
 	}
 
 	return evaluator
+}
+
+// SetTemplateData sets the template data map for file resolution when loading from artifacts.
+// This allows jsonnet() and file() functions to access files from in-memory template data
+// instead of requiring them to exist on the filesystem.
+func (e *FeatureEvaluator) SetTemplateData(templateData map[string][]byte) {
+	e.templateData = templateData
 }
 
 // =============================================================================
@@ -432,9 +440,28 @@ func (e *FeatureEvaluator) InterpolateString(s string, config map[string]any, fe
 func (e *FeatureEvaluator) evaluateJsonnetFunction(pathArg string, config map[string]any, featurePath string) (any, error) {
 	path := e.resolvePath(pathArg, featurePath)
 
-	content, err := e.shims.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file %s: %w", path, err)
+	var content []byte
+	var err error
+
+	if e.templateData != nil {
+		content = e.lookupInTemplateData(pathArg, featurePath)
+		if content == nil && e.runtime != nil && e.runtime.TemplateRoot != "" {
+			if relPath, err := filepath.Rel(e.runtime.TemplateRoot, path); err == nil && !strings.HasPrefix(relPath, "..") {
+				relPath = strings.ReplaceAll(relPath, "\\", "/")
+				if data, exists := e.templateData["_template/"+relPath]; exists {
+					content = data
+				} else if data, exists := e.templateData[relPath]; exists {
+					content = data
+				}
+			}
+		}
+	}
+
+	if content == nil {
+		content, err = e.shims.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read file %s: %w", path, err)
+		}
 	}
 
 	enrichedConfig := e.buildContextMap(config)
@@ -607,12 +634,75 @@ func (e *FeatureEvaluator) buildHelperLibrary() string {
 func (e *FeatureEvaluator) evaluateFileFunction(pathArg string, featurePath string) (any, error) {
 	path := e.resolvePath(pathArg, featurePath)
 
-	content, err := e.shims.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file %s: %w", path, err)
+	var content []byte
+	var err error
+
+	if e.templateData != nil {
+		content = e.lookupInTemplateData(pathArg, featurePath)
+		if content == nil && e.runtime != nil && e.runtime.TemplateRoot != "" {
+			if relPath, err := filepath.Rel(e.runtime.TemplateRoot, path); err == nil && !strings.HasPrefix(relPath, "..") {
+				relPath = strings.ReplaceAll(relPath, "\\", "/")
+				if data, exists := e.templateData["_template/"+relPath]; exists {
+					content = data
+				} else if data, exists := e.templateData[relPath]; exists {
+					content = data
+				}
+			}
+		}
+	}
+
+	if content == nil {
+		content, err = e.shims.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read file %s: %w", path, err)
+		}
 	}
 
 	return string(content), nil
+}
+
+// lookupInTemplateData looks up a file in templateData by resolving the relative path from featurePath.
+// Returns the file content if found, nil otherwise.
+func (e *FeatureEvaluator) lookupInTemplateData(pathArg string, featurePath string) []byte {
+	if e.templateData == nil {
+		return nil
+	}
+
+	pathArg = strings.TrimSpace(pathArg)
+	if filepath.IsAbs(pathArg) {
+		return nil
+	}
+
+	if featurePath == "" {
+		return nil
+	}
+
+	var featureRelPath string
+	if e.runtime != nil && e.runtime.TemplateRoot != "" {
+		if rel, err := filepath.Rel(e.runtime.TemplateRoot, featurePath); err == nil && !strings.HasPrefix(rel, "..") {
+			featureRelPath = strings.ReplaceAll(rel, "\\", "/")
+		} else {
+			featureRelPath = featurePath
+		}
+	} else {
+		featureRelPath = featurePath
+	}
+
+	featureDir := filepath.Dir(featureRelPath)
+	if featureDir == "." {
+		featureDir = ""
+	}
+	resolvedRelPath := filepath.Clean(filepath.Join(featureDir, pathArg))
+	resolvedRelPath = strings.ReplaceAll(resolvedRelPath, "\\", "/")
+
+	if data, exists := e.templateData["_template/"+resolvedRelPath]; exists {
+		return data
+	}
+	if data, exists := e.templateData[resolvedRelPath]; exists {
+		return data
+	}
+
+	return nil
 }
 
 // resolvePath returns an absolute, cleaned file path based on the provided path and featurePath.

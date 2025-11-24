@@ -604,7 +604,7 @@ func (b *Blueprint) strategicMergeTerraformComponent(component TerraformComponen
 				if existing.Inputs == nil {
 					existing.Inputs = make(map[string]any)
 				}
-				maps.Copy(existing.Inputs, component.Inputs)
+				existing.Inputs = b.deepMergeMaps(existing.Inputs, component.Inputs)
 			}
 			for _, dep := range component.DependsOn {
 				if !slices.Contains(existing.DependsOn, dep) {
@@ -871,4 +871,22 @@ func (b *Blueprint) terraformTopologicalSort(pathToIndex map[string]int) []int {
 	}
 
 	return sorted
+}
+
+// deepMergeMaps returns a new map from a deep merge of base and overlay maps.
+// Overlay values take precedence; nested maps merge recursively. Non-map overlay values replace base values.
+func (b *Blueprint) deepMergeMaps(base, overlay map[string]any) map[string]any {
+	result := maps.Clone(base)
+	for k, overlayValue := range overlay {
+		if baseValue, exists := result[k]; exists {
+			if baseMap, baseIsMap := baseValue.(map[string]any); baseIsMap {
+				if overlayMap, overlayIsMap := overlayValue.(map[string]any); overlayIsMap {
+					result[k] = b.deepMergeMaps(baseMap, overlayMap)
+					continue
+				}
+			}
+		}
+		result[k] = overlayValue
+	}
+	return result
 }

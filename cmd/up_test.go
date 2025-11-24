@@ -81,7 +81,7 @@ func setupUpTest(t *testing.T, opts ...*SetupOptions) *UpMocks {
 
 	// Add blueprint handler mock
 	mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
-	mockBlueprintHandler.LoadBlueprintFunc = func() error { return nil }
+	mockBlueprintHandler.LoadBlueprintFunc = func(...string) error { return nil }
 	mockBlueprintHandler.WriteFunc = func(overwrite ...bool) error { return nil }
 	testBlueprint := &blueprintv1alpha1.Blueprint{
 		Metadata: blueprintv1alpha1.Metadata{Name: "test"},

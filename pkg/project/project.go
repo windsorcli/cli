@@ -151,8 +151,9 @@ func (p *Project) Configure(flagOverrides map[string]any) error {
 // It prepares the workstation (creates services and assigns IPs), prepares context,
 // generates infrastructure, prepares tools, and bootstraps the environment.
 // The overwrite parameter controls whether infrastructure generation should overwrite
-// existing files. Returns an error if any step fails.
-func (p *Project) Initialize(overwrite bool) error {
+// existing files. The optional blueprintURL parameter specifies the blueprint artifact
+// to load (OCI URL or local .tar.gz path). Returns an error if any step fails.
+func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
 	if p.Workstation != nil {
 		if err := p.Workstation.Prepare(); err != nil {
 			return fmt.Errorf("failed to prepare workstation: %w", err)
@@ -163,7 +164,7 @@ func (p *Project) Initialize(overwrite bool) error {
 		return fmt.Errorf("failed to generate context ID: %w", err)
 	}
 
-	if err := p.Composer.BlueprintHandler.LoadBlueprint(); err != nil {
+	if err := p.Composer.BlueprintHandler.LoadBlueprint(blueprintURL...); err != nil {
 		return fmt.Errorf("failed to load blueprint data: %w", err)
 	}
 

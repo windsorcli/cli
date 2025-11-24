@@ -65,6 +65,7 @@ type Shims struct {
 	JsonMarshal        func(any) ([]byte, error)
 	JsonUnmarshal      func([]byte, any) error
 	FilepathBase       func(string) string
+	FilepathAbs        func(string) (string, error)
 	NewJsonnetVM       func() JsonnetVM
 }
 
@@ -104,6 +105,7 @@ func NewShims() *Shims {
 		JsonMarshal:   json.Marshal,
 		JsonUnmarshal: json.Unmarshal,
 		FilepathBase:  filepath.Base,
+		FilepathAbs:   filepath.Abs,
 		NewJsonnetVM: func() JsonnetVM {
 			return &RealJsonnetVM{vm: jsonnet.MakeVM()}
 		},

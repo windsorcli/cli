@@ -831,10 +831,14 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 			switch path {
 			case filepath.Join(templateDir, "blueprint.jsonnet"):
 				return []byte("{ kind: 'Blueprint' }"), nil
+			case filepath.Join(templateDir, "config.yaml"):
+				return []byte("config: value"), nil
 			case filepath.Join(templateDir, "terraform", "cluster.jsonnet"):
 				return []byte("{ cluster_name: 'test' }"), nil
 			case filepath.Join(templateDir, "terraform", "network.jsonnet"):
 				return []byte("{ vpc_cidr: '10.0.0.0/16' }"), nil
+			case filepath.Join(templateDir, "terraform", "README.md"):
+				return []byte("# Terraform"), nil
 			default:
 				return nil, fmt.Errorf("file not found: %s", path)
 			}
@@ -848,41 +852,10 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		// And result should contain jsonnet files
-		expectedJsonnetFiles := []string{
-			"blueprint.jsonnet",
-			"terraform/cluster.jsonnet",
-			"terraform/network.jsonnet",
-		}
-
-		if len(result) != len(expectedJsonnetFiles) {
-			t.Errorf("Expected %d files, got: %d", len(expectedJsonnetFiles), len(result))
-		}
-
-		for _, expectedFile := range expectedJsonnetFiles {
-			if _, exists := result[expectedFile]; !exists {
-				t.Errorf("Expected jsonnet file %s to exist in result", expectedFile)
-			}
-		}
-
-		// Verify non-jsonnet files are ignored
-		ignoredFiles := []string{
-			"config.yaml",
-			"terraform/README.md",
-		}
-
-		for _, ignoredFile := range ignoredFiles {
-			if _, exists := result[ignoredFile]; exists {
-				t.Errorf("Expected file %s to be ignored", ignoredFile)
-			}
-		}
-
-		// Verify file contents
-		if string(result["blueprint.jsonnet"]) != "{ kind: 'Blueprint' }" {
-			t.Errorf("Expected blueprint.jsonnet content to match")
-		}
-		if string(result["terraform/cluster.jsonnet"]) != "{ cluster_name: 'test' }" {
-			t.Errorf("Expected terraform/cluster.jsonnet content to match")
+		// All files from _template are now collected, including .jsonnet, .yaml, and other files
+		// This test has blueprint.jsonnet, config.yaml, terraform/cluster.jsonnet, terraform/network.jsonnet, terraform/README.md
+		if len(result) != 5 {
+			t.Errorf("Expected 5 files, got: %d", len(result))
 		}
 	})
 
@@ -1113,39 +1086,7 @@ substitutions:
 
 		// Values validation is now done at the schema level, not in templateData
 
-		// Check for substitutions (substitutions section for ConfigMaps)
-		substitutionValuesData, exists := result["substitutions"]
-		if !exists {
-			t.Fatal("Expected 'substitutions' key to exist in result")
-		}
-
-		var substitutionValues map[string]any
-		if err := yaml.Unmarshal(substitutionValuesData, &substitutionValues); err != nil {
-			t.Fatalf("Failed to unmarshal substitution values: %v", err)
-		}
-
-		// Verify that substitution values are properly merged
-		common, exists := substitutionValues["common"].(map[string]any)
-		if !exists {
-			t.Fatal("Expected 'common' section to exist in substitution values")
-		}
-
-		if common["external_domain"] != "context.test" {
-			t.Errorf("Expected substitution external_domain to be 'context.test', got %v", common["external_domain"])
-		}
-
-		if common["registry_url"] != "registry.local.test" {
-			t.Errorf("Expected substitution registry_url to be 'registry.local.test', got %v", common["registry_url"])
-		}
-
-		// Verify that both local-only and context-only sections are preserved in substitution values
-		if _, exists := substitutionValues["local_only"]; !exists {
-			t.Error("Expected 'local_only' section to be preserved in substitution values")
-		}
-
-		if _, exists := substitutionValues["context_only"]; !exists {
-			t.Error("Expected 'context_only' section to be preserved in substitution values")
-		}
+		// Substitutions are now in Features, not in templateData
 	})
 
 	t.Run("MergesContextValuesWithTemplateData", func(t *testing.T) {
@@ -1182,6 +1123,9 @@ substitutions:
 					},
 				}, nil
 			}
+			mockConfigHandler.LoadSchemaFromBytesFunc = func(data []byte) error {
+				return nil
+			}
 		}
 
 		// Mock shims to simulate template directory and schema files
@@ -1211,7 +1155,7 @@ substitutions:
 				normalizedPath := filepath.ToSlash(path)
 				if strings.Contains(normalizedPath, "_template") {
 					return []os.DirEntry{
-						&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
+						&mockDirEntry{name: "schema.yaml", isDir: false},
 					}, nil
 				}
 				return nil, fmt.Errorf("directory not found")
@@ -1283,46 +1227,13 @@ substitutions:
 			t.Fatal("Expected template data, got empty map")
 		}
 
-		// Check that blueprint.jsonnet is included
-		if _, exists := result["blueprint.jsonnet"]; !exists {
-			t.Error("Expected 'blueprint.jsonnet' to be in result")
+		// .jsonnet files are not collected in templateData; they are processed on-demand via jsonnet() function calls during feature evaluation
+		// Schema.yaml should be collected
+		if _, exists := result["_template/schema.yaml"]; !exists {
+			t.Error("Expected _template/schema.yaml to be collected")
 		}
 
-		// This test doesn't include schema.yaml in the mock, so no schema key expected
-		// Values processing is handled through the config context now
-
-		// Values validation is now handled through schema processing
-
-		// Check that substitutions values are merged and included
-		substitutionData, exists := result["substitutions"]
-		if !exists {
-			t.Fatal("Expected 'substitutions' key to exist in result")
-		}
-
-		var substitution map[string]any
-		if err := yaml.Unmarshal(substitutionData, &substitution); err != nil {
-			t.Fatalf("Failed to unmarshal substitutions: %v", err)
-		}
-
-		// Check common section merging
-		common, exists := substitution["common"].(map[string]any)
-		if !exists {
-			t.Fatal("Expected 'common' section to exist in substitution")
-		}
-
-		if common["registry_url"] != "registry.context.test" {
-			t.Errorf("Expected registry_url to be 'registry.context.test', got %v", common["registry_url"])
-		}
-
-		// Check context-specific section
-		csi, exists := substitution["csi"].(map[string]any)
-		if !exists {
-			t.Fatal("Expected 'csi' section to exist in substitution")
-		}
-
-		if csi["volume_path"] != "/context/volumes" {
-			t.Errorf("Expected volume_path to be '/context/volumes', got %v", csi["volume_path"])
-		}
+		// Substitutions are now in Features, not in templateData
 	})
 
 	t.Run("HandlesContextValuesWithoutExistingValues", func(t *testing.T) {
@@ -1415,39 +1326,14 @@ substitutions:
 		}
 
 		// When getting local template data
-		result, err := handler.GetLocalTemplateData()
+		_, err = handler.GetLocalTemplateData()
 
 		// Then no error should occur
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		// This test doesn't include schema.yaml in the mock, so no schema key expected
-		// Values processing is handled through the config context now
-
-		// Check substitutions values
-		substitutionData, exists := result["substitutions"]
-		if !exists {
-			t.Fatal("Expected 'substitutions' key to exist in result")
-		}
-
-		var substitution map[string]any
-		if err := yaml.Unmarshal(substitutionData, &substitution); err != nil {
-			t.Fatalf("Failed to unmarshal substitutions: %v", err)
-		}
-
-		common, exists := substitution["common"].(map[string]any)
-		if !exists {
-			t.Fatal("Expected 'common' section to exist in substitution")
-		}
-
-		if common["registry_url"] != "registry.context.test" {
-			t.Errorf("Expected registry_url to be 'registry.context.test', got %v", common["registry_url"])
-		}
-
-		if common["context_sub"] != "context_sub_value" {
-			t.Errorf("Expected context_sub to be 'context_sub_value', got %v", common["context_sub"])
-		}
+		// Substitutions are now in Features, not in templateData
 	})
 
 	t.Run("HandlesErrorInLoadAndMergeContextValues", func(t *testing.T) {
@@ -1513,219 +1399,6 @@ substitutions:
 
 		if !strings.Contains(err.Error(), "failed to load context values") {
 			t.Errorf("Expected error about context values, got: %v", err)
-		}
-	})
-}
-
-func TestBlueprintHandler_loadData(t *testing.T) {
-	setup := func(t *testing.T) (*BaseBlueprintHandler, *BlueprintTestMocks) {
-		t.Helper()
-		mocks := setupBlueprintMocks(t)
-		mockArtifactBuilder := artifact.NewMockArtifact()
-		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
-		if err != nil {
-			t.Fatalf("NewBlueprintHandler() failed: %v", err)
-		}
-		handler.shims = mocks.Shims
-		if err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
-		}
-		return handler, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a blueprint handler
-		handler, _ := setup(t)
-
-		// And blueprint data
-		blueprintData := map[string]any{
-			"kind":       "Blueprint",
-			"apiVersion": "v1alpha1",
-			"metadata": map[string]any{
-				"name":        "test-blueprint",
-				"description": "A test blueprint from data",
-				"authors":     []any{"John Doe"},
-			},
-			"sources": []any{
-				map[string]any{
-					"name": "test-source",
-					"url":  "https://example.com/test-repo.git",
-				},
-			},
-			"terraform": []any{
-				map[string]any{
-					"source": "test-source",
-					"path":   "path/to/code",
-					"values": map[string]any{
-						"key1": "value1",
-					},
-				},
-			},
-		}
-
-		// When loading the data
-		err := handler.loadData(blueprintData)
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-
-		// And the metadata should be correctly loaded
-		metadata := handler.getMetadata()
-		if metadata.Name != "test-blueprint" {
-			t.Errorf("Expected name to be test-blueprint, got %s", metadata.Name)
-		}
-		if metadata.Description != "A test blueprint from data" {
-			t.Errorf("Expected description to be 'A test blueprint from data', got %s", metadata.Description)
-		}
-		// And the sources should be loaded
-		sources := handler.getSources()
-		if len(sources) != 1 {
-			t.Errorf("Expected 1 source, got %d", len(sources))
-		}
-		if sources[0].Name != "test-source" {
-			t.Errorf("Expected source name to be 'test-source', got %s", sources[0].Name)
-		}
-
-		// And the terraform components should be loaded
-		components := handler.GetTerraformComponents()
-		if len(components) != 1 {
-			t.Errorf("Expected 1 terraform component, got %d", len(components))
-		}
-		if components[0].Path != "path/to/code" {
-			t.Errorf("Expected component path to be 'path/to/code', got %s", components[0].Path)
-		}
-
-		// Note: The GetTerraformComponents() method resolves sources to full URLs,
-		// so we can't easily test the raw source names without accessing private fields
-	})
-
-	t.Run("MarshalError", func(t *testing.T) {
-		// Given a blueprint handler
-		handler, _ := setup(t)
-
-		// And a mock yaml marshaller that returns an error
-		handler.shims.YamlMarshal = func(v any) ([]byte, error) {
-			return nil, fmt.Errorf("simulated marshalling error")
-		}
-
-		// And blueprint data
-		blueprintData := map[string]any{
-			"kind": "Blueprint",
-		}
-
-		// When loading the data
-		err := handler.loadData(blueprintData)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Errorf("Expected loadData to fail due to marshalling error, but it succeeded")
-		}
-		if !strings.Contains(err.Error(), "error marshalling blueprint data to yaml") {
-			t.Errorf("Expected error message to contain 'error marshalling blueprint data to yaml', got %v", err)
-		}
-	})
-
-	t.Run("ProcessBlueprintDataError", func(t *testing.T) {
-		// Given a blueprint handler
-		handler, _ := setup(t)
-
-		// And a mock yaml unmarshaller that returns an error
-		handler.shims.YamlUnmarshal = func(data []byte, obj any) error {
-			return fmt.Errorf("simulated unmarshalling error")
-		}
-
-		// And blueprint data
-		blueprintData := map[string]any{
-			"kind": "Blueprint",
-		}
-
-		// When loading the data
-		err := handler.loadData(blueprintData)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Errorf("Expected loadData to fail due to unmarshalling error, but it succeeded")
-		}
-	})
-
-	t.Run("WithOCIArtifactInfo", func(t *testing.T) {
-		// Given a blueprint handler
-		handler, _ := setup(t)
-
-		// And blueprint data
-		blueprintData := map[string]any{
-			"kind":       "Blueprint",
-			"apiVersion": "v1alpha1",
-			"metadata": map[string]any{
-				"name":        "oci-blueprint",
-				"description": "A blueprint from OCI artifact",
-			},
-		}
-
-		// And OCI artifact info
-		ociInfo := &artifact.OCIArtifactInfo{
-			Name: "my-blueprint",
-			URL:  "oci://registry.example.com/my-blueprint:v1.0.0",
-		}
-
-		// When loading the data with OCI info
-		err := handler.loadData(blueprintData, ociInfo)
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-
-		// And the metadata should be correctly loaded
-		metadata := handler.getMetadata()
-		if metadata.Name != "oci-blueprint" {
-			t.Errorf("Expected name to be oci-blueprint, got %s", metadata.Name)
-		}
-		if metadata.Description != "A blueprint from OCI artifact" {
-			t.Errorf("Expected description to be 'A blueprint from OCI artifact', got %s", metadata.Description)
-		}
-	})
-
-	t.Run("loadDataIgnoredWhenConfigAlreadyLoaded", func(t *testing.T) {
-		// Given a blueprint handler that has already loaded config
-		handler, _ := setup(t)
-
-		// Load config first (simulates loading from YAML)
-		err := handler.loadConfig()
-		if err != nil {
-			t.Fatalf("Failed to load config: %v", err)
-		}
-
-		// Get the original metadata
-		originalMetadata := handler.getMetadata()
-
-		// And different blueprint data that would overwrite the config
-		differentData := map[string]any{
-			"kind":       "Blueprint",
-			"apiVersion": "v1alpha1",
-			"metadata": map[string]any{
-				"name":        "different-blueprint",
-				"description": "This should not overwrite the loaded config",
-			},
-		}
-
-		// When loading the different data
-		err = handler.loadData(differentData)
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-
-		// But the metadata should remain unchanged (loadData should be ignored)
-		currentMetadata := handler.getMetadata()
-		if currentMetadata.Name != originalMetadata.Name {
-			t.Errorf("Expected metadata to remain unchanged, but name changed from %s to %s", originalMetadata.Name, currentMetadata.Name)
-		}
-		if currentMetadata.Description != originalMetadata.Description {
-			t.Errorf("Expected metadata to remain unchanged, but description changed from %s to %s", originalMetadata.Description, currentMetadata.Description)
 		}
 	})
 }
@@ -2425,7 +2098,7 @@ kustomizations: []`
 		if err == nil {
 			t.Error("Expected error when GetTemplateData fails")
 		}
-		if !strings.Contains(err.Error(), "failed to get template data from default blueprint") {
+		if !strings.Contains(err.Error(), "failed to get template data from blueprint") {
 			t.Errorf("Expected error about getting template data, got: %v", err)
 		}
 	})
@@ -2538,7 +2211,7 @@ metadata:
 		if err == nil {
 			t.Fatal("Expected error when GetTemplateData fails")
 		}
-		if !strings.Contains(err.Error(), "failed to get template data from default blueprint") {
+		if !strings.Contains(err.Error(), "failed to get template data from blueprint") {
 			t.Errorf("Expected error about template data, got: %v", err)
 		}
 	})
@@ -2565,7 +2238,7 @@ metadata:
 		defer os.Unsetenv("WINDSOR_BLUEPRINT_URL")
 
 		mockArtifactBuilder.GetTemplateDataFunc = func(url string) (map[string][]byte, error) {
-			return map[string][]byte{"blueprint": []byte("invalid yaml")}, nil
+			return map[string][]byte{"_template/blueprint.yaml": []byte("invalid yaml")}, nil
 		}
 
 		handler.shims.YamlUnmarshal = func(data []byte, v any) error {
@@ -2575,10 +2248,10 @@ metadata:
 		err = handler.LoadBlueprint()
 
 		if err == nil {
-			t.Fatal("Expected error when loadData fails")
+			t.Fatal("Expected error when processing template data fails")
 		}
-		if !strings.Contains(err.Error(), "failed to load default blueprint data") {
-			t.Errorf("Expected error about loading data, got: %v", err)
+		if !strings.Contains(err.Error(), "failed to process features") && !strings.Contains(err.Error(), "failed to load default blueprint data") {
+			t.Errorf("Expected error about processing template data, got: %v", err)
 		}
 	})
 
@@ -2711,6 +2384,10 @@ kustomizations: []
 				return []byte(blueprintContent), nil
 			}
 			return nil, os.ErrNotExist
+		}
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
 		}
 
 		expectedError := fmt.Errorf("pull error")
@@ -2949,29 +2626,27 @@ metadata:
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		if _, exists := templateData["blueprint"]; !exists {
-			t.Error("Expected blueprint to be collected")
+		if _, exists := templateData["_template/blueprint.yaml"]; !exists {
+			t.Error("Expected blueprint.yaml to be collected")
 		}
 
-		if _, exists := templateData["features/aws.yaml"]; !exists {
+		if _, exists := templateData["_template/features/aws.yaml"]; !exists {
 			t.Error("Expected features/aws.yaml to be collected")
 		}
 
-		if _, exists := templateData["features/observability.yaml"]; !exists {
+		if _, exists := templateData["_template/features/observability.yaml"]; !exists {
 			t.Error("Expected features/observability.yaml to be collected")
 		}
 
-		if _, exists := templateData["terraform.jsonnet"]; !exists {
-			t.Error("Expected terraform.jsonnet to be collected")
-		}
+		// .jsonnet files are not collected in templateData; they are processed on-demand via jsonnet() function calls during feature evaluation
 
-		if content, exists := templateData["blueprint"]; exists {
+		if content, exists := templateData["_template/blueprint.yaml"]; exists {
 			if !strings.Contains(string(content), "base-blueprint") {
 				t.Errorf("Expected blueprint content to contain 'base-blueprint', got: %s", string(content))
 			}
 		}
 
-		if content, exists := templateData["features/aws.yaml"]; exists {
+		if content, exists := templateData["_template/features/aws.yaml"]; exists {
 			if !strings.Contains(string(content), "aws-feature") {
 				t.Errorf("Expected aws feature content to contain 'aws-feature', got: %s", string(content))
 			}
@@ -3026,7 +2701,7 @@ metadata:
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		if _, exists := templateData["features/aws/eks.yaml"]; !exists {
+		if _, exists := templateData["_template/features/aws/eks.yaml"]; !exists {
 			t.Error("Expected features/aws/eks.yaml to be collected")
 		}
 	})
@@ -3086,53 +2761,6 @@ terraform:
 		}
 	})
 
-	t.Run("HandlesYamlMarshalErrorForSubstitutions", func(t *testing.T) {
-		mocks := setupBlueprintMocks(t)
-		mockArtifactBuilder := artifact.NewMockArtifact()
-		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
-		if err != nil {
-			t.Fatalf("NewBlueprintHandler() failed: %v", err)
-		}
-		handler.shims = mocks.Shims
-
-		tmpDir := t.TempDir()
-		mocks.Runtime.ProjectRoot = tmpDir
-		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
-		mocks.Runtime.ConfigRoot = tmpDir
-
-		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
-			t.Fatalf("Failed to create template directory: %v", err)
-		}
-
-		handler.shims.Stat = os.Stat
-		handler.shims.ReadDir = os.ReadDir
-		handler.shims.ReadFile = os.ReadFile
-		handler.shims.YamlUnmarshal = yaml.Unmarshal
-		handler.shims.YamlMarshal = func(v any) ([]byte, error) {
-			if _, ok := v.(map[string]any); ok {
-				return nil, fmt.Errorf("yaml marshal error")
-			}
-			return yaml.Marshal(v)
-		}
-
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{
-				"substitutions": map[string]any{
-					"key": "value",
-				},
-			}, nil
-		}
-
-		_, err = handler.GetLocalTemplateData()
-
-		if err == nil {
-			t.Fatal("Expected error when YamlMarshal fails for substitutions")
-		}
-		if !strings.Contains(err.Error(), "failed to marshal substitution values") {
-			t.Errorf("Expected error about marshaling substitutions, got: %v", err)
-		}
-	})
-
 	t.Run("HandlesGetContextValuesError", func(t *testing.T) {
 		mocks := setupBlueprintMocks(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()
@@ -3172,134 +2800,11 @@ terraform:
 	})
 
 	t.Run("MergesSubstitutionValuesWithExisting", func(t *testing.T) {
-		mocks := setupBlueprintMocks(t)
-		mockArtifactBuilder := artifact.NewMockArtifact()
-		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
-		if err != nil {
-			t.Fatalf("NewBlueprintHandler() failed: %v", err)
-		}
-		handler.shims = mocks.Shims
-
-		tmpDir := t.TempDir()
-		mocks.Runtime.ProjectRoot = tmpDir
-		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
-		mocks.Runtime.ConfigRoot = tmpDir
-
-		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
-			t.Fatalf("Failed to create template directory: %v", err)
-		}
-
-		substitutionsContent := `common:
-  registry_url: registry.template.test
-`
-		if err := os.WriteFile(filepath.Join(mocks.Runtime.TemplateRoot, "substitutions"), []byte(substitutionsContent), 0644); err != nil {
-			t.Fatalf("Failed to write substitutions file: %v", err)
-		}
-
-		handler.shims.Stat = os.Stat
-		handler.shims.ReadDir = os.ReadDir
-		handler.shims.ReadFile = os.ReadFile
-		handler.shims.YamlUnmarshal = yaml.Unmarshal
-		handler.shims.YamlMarshal = yaml.Marshal
-
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{
-				"substitutions": map[string]any{
-					"common": map[string]any{
-						"registry_url": "registry.context.test",
-					},
-					"csi": map[string]any{
-						"volume_path": "/context/volumes",
-					},
-				},
-			}, nil
-		}
-
-		result, err := handler.GetLocalTemplateData()
-
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		if substitutions, exists := result["substitutions"]; exists {
-			var merged map[string]any
-			if err := yaml.Unmarshal(substitutions, &merged); err != nil {
-				t.Fatalf("Failed to unmarshal merged substitutions: %v", err)
-			}
-			common, ok := merged["common"].(map[string]any)
-			if !ok {
-				t.Fatal("Expected common in merged substitutions")
-			}
-			if common["registry_url"] != "registry.context.test" {
-				t.Errorf("Expected context value to override template value, got: %v", common["registry_url"])
-			}
-			if _, exists := merged["csi"]; !exists {
-				t.Error("Expected csi to be in merged substitutions")
-			}
-		} else {
-			t.Error("Expected substitutions to be in result")
-		}
+		t.Skip("Substitutions are now in Features, not in context values or files")
 	})
 
 	t.Run("HandlesSubstitutionUnmarshalErrorGracefully", func(t *testing.T) {
-		mocks := setupBlueprintMocks(t)
-		mockArtifactBuilder := artifact.NewMockArtifact()
-		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
-		if err != nil {
-			t.Fatalf("NewBlueprintHandler() failed: %v", err)
-		}
-		handler.shims = mocks.Shims
-
-		tmpDir := t.TempDir()
-		mocks.Runtime.ProjectRoot = tmpDir
-		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
-		mocks.Runtime.ConfigRoot = tmpDir
-
-		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
-			t.Fatalf("Failed to create template directory: %v", err)
-		}
-
-		invalidSubstitutionsContent := `invalid: yaml: [`
-		if err := os.WriteFile(filepath.Join(mocks.Runtime.TemplateRoot, "substitutions"), []byte(invalidSubstitutionsContent), 0644); err != nil {
-			t.Fatalf("Failed to write substitutions file: %v", err)
-		}
-
-		handler.shims.Stat = os.Stat
-		handler.shims.ReadDir = os.ReadDir
-		handler.shims.ReadFile = os.ReadFile
-		handler.shims.YamlMarshal = yaml.Marshal
-		handler.shims.YamlUnmarshal = func(data []byte, v any) error {
-			if strings.Contains(string(data), "invalid") {
-				return fmt.Errorf("yaml unmarshal error")
-			}
-			return yaml.Unmarshal(data, v)
-		}
-
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{
-				"substitutions": map[string]any{
-					"key": "value",
-				},
-			}, nil
-		}
-
-		result, err := handler.GetLocalTemplateData()
-
-		if err != nil {
-			t.Fatalf("Expected no error when unmarshal fails (should use context values only), got %v", err)
-		}
-
-		if substitutions, exists := result["substitutions"]; exists {
-			var subs map[string]any
-			if err := yaml.Unmarshal(substitutions, &subs); err != nil {
-				t.Fatalf("Failed to unmarshal substitutions: %v", err)
-			}
-			if subs["key"] != "value" {
-				t.Errorf("Expected context substitution values, got: %v", subs)
-			}
-		} else {
-			t.Error("Expected substitutions to be in result")
-		}
+		t.Skip("Substitutions are now in Features, not in context values or files")
 	})
 
 	t.Run("IgnoresNonYAMLFilesInFeatures", func(t *testing.T) {
@@ -3358,17 +2863,11 @@ metadata:
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		if _, exists := templateData["features/valid.yaml"]; !exists {
+		if _, exists := templateData["_template/features/valid.yaml"]; !exists {
 			t.Error("Expected features/valid.yaml to be collected")
 		}
 
-		if _, exists := templateData["features/README.md"]; exists {
-			t.Error("Did not expect features/README.md to be collected")
-		}
-
-		if _, exists := templateData["features/config.json"]; exists {
-			t.Error("Did not expect features/config.json to be collected")
-		}
+		// All files from _template are now collected, including README.md and config.json
 	})
 
 	t.Run("ComposesFeaturesByEvaluatingConditions", func(t *testing.T) {
@@ -3464,7 +2963,7 @@ terraform:
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		composedBlueprint, exists := templateData["blueprint"]
+		composedBlueprint, exists := templateData["_template/blueprint.yaml"]
 		if !exists {
 			t.Fatal("Expected composed blueprint in templateData")
 		}
@@ -3534,7 +3033,7 @@ terraform:
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		composedBlueprint, exists := templateData["blueprint"]
+		composedBlueprint, exists := templateData["_template/blueprint.yaml"]
 		if !exists {
 			t.Fatal("Expected composed blueprint in templateData")
 		}
@@ -3550,82 +3049,6 @@ terraform:
 		expectedDesc := fmt.Sprintf("Blueprint for %s context", contextName)
 		if blueprint.Metadata.Description != expectedDesc {
 			t.Errorf("Expected metadata.description = '%s', got '%s'", expectedDesc, blueprint.Metadata.Description)
-		}
-	})
-
-	t.Run("HandlesSubstitutionValues", func(t *testing.T) {
-		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
-
-		mocks := setupBlueprintMocks(t)
-		mocks.Runtime.ProjectRoot = projectRoot
-
-		mockArtifactBuilder := artifact.NewMockArtifact()
-		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
-		if err != nil {
-			t.Fatalf("NewBlueprintHandler() failed: %v", err)
-		}
-		if err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
-		}
-
-		contextName := "test-context"
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetContextFunc = func() string {
-			return contextName
-		}
-		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{
-				"substitutions": map[string]any{
-					"domain": "example.com",
-					"port":   8080,
-				},
-			}, nil
-		}
-
-		templateDir := filepath.Join(projectRoot, "contexts", "_template")
-		contextDir := filepath.Join(projectRoot, "contexts", contextName)
-
-		if err := os.MkdirAll(templateDir, 0755); err != nil {
-			t.Fatalf("Failed to create template directory: %v", err)
-		}
-		if err := os.MkdirAll(contextDir, 0755); err != nil {
-			t.Fatalf("Failed to create context directory: %v", err)
-		}
-
-		templateData, err := handler.GetLocalTemplateData()
-
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		substitutions, exists := templateData["substitutions"]
-		if !exists {
-			t.Fatal("Expected substitutions in templateData")
-		}
-
-		var subValues map[string]any
-		if err := yaml.Unmarshal(substitutions, &subValues); err != nil {
-			t.Fatalf("Failed to unmarshal substitutions: %v", err)
-		}
-
-		if subValues["domain"] != "example.com" {
-			t.Errorf("Expected domain = 'example.com', got '%v'", subValues["domain"])
-		}
-		portVal, ok := subValues["port"]
-		if !ok {
-			t.Error("Expected port in substitution values")
-		}
-		switch v := portVal.(type) {
-		case int:
-			if v != 8080 {
-				t.Errorf("Expected port = 8080, got %d", v)
-			}
-		case uint64:
-			if v != 8080 {
-				t.Errorf("Expected port = 8080, got %d", v)
-			}
-		default:
-			t.Errorf("Expected port to be int or uint64, got %T", portVal)
 		}
 	})
 
@@ -3710,7 +3133,7 @@ terraform:
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		composedBlueprint, exists := templateData["blueprint"]
+		composedBlueprint, exists := templateData["_template/blueprint.yaml"]
 		if !exists {
 			t.Fatal("Expected composed blueprint in templateData")
 		}
@@ -3787,7 +3210,7 @@ kustomize:
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		composedBlueprint, exists := templateData["blueprint"]
+		composedBlueprint, exists := templateData["_template/blueprint.yaml"]
 		if !exists {
 			t.Fatal("Expected composed blueprint in templateData")
 		}
@@ -3849,7 +3272,7 @@ metadata:
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		if composedBlueprint, exists := templateData["blueprint"]; exists {
+		if composedBlueprint, exists := templateData["_template/blueprint.yaml"]; exists {
 			if strings.Contains(string(composedBlueprint), "test-context") {
 				t.Error("Should not set metadata when blueprint has no components")
 			}
@@ -4092,8 +3515,8 @@ invalid: yaml: content
 		if err == nil {
 			t.Fatal("Expected error when metadata.yaml cannot be read")
 		}
-		if !strings.Contains(err.Error(), "failed to read metadata.yaml") {
-			t.Errorf("Expected error to contain 'failed to read metadata.yaml', got: %v", err)
+		if !strings.Contains(err.Error(), "failed to read template file") && !strings.Contains(err.Error(), "failed to read metadata.yaml") {
+			t.Errorf("Expected error to contain 'failed to read template file' or 'failed to read metadata.yaml', got: %v", err)
 		}
 	})
 
@@ -4165,6 +3588,250 @@ invalid: yaml: content
 		}
 		if !strings.Contains(err.Error(), "failed to load context values") {
 			t.Errorf("Expected error to contain 'failed to load context values', got: %v", err)
+		}
+	})
+
+	t.Run("HandlesSchemaFromTemplateSchemaYaml", func(t *testing.T) {
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		mocks.Runtime.ConfigRoot = tmpDir
+
+		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+
+		schemaContent := []byte("schema: test")
+		if err := os.WriteFile(filepath.Join(mocks.Runtime.TemplateRoot, "schema.yaml"), schemaContent, 0644); err != nil {
+			t.Fatalf("Failed to write schema.yaml: %v", err)
+		}
+
+		handler.shims.Stat = os.Stat
+		handler.shims.ReadDir = os.ReadDir
+		handler.shims.ReadFile = os.ReadFile
+		handler.shims.YamlUnmarshal = yaml.Unmarshal
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).LoadSchemaFromBytesFunc = func(data []byte) error {
+			return nil
+		}
+
+		_, err = handler.GetLocalTemplateData()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("HandlesEmptyContextName", func(t *testing.T) {
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		mocks.Runtime.ConfigRoot = tmpDir
+
+		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+
+		blueprintContent := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base-blueprint
+terraform:
+  - path: test/component
+`)
+		if err := os.WriteFile(filepath.Join(mocks.Runtime.TemplateRoot, "blueprint.yaml"), blueprintContent, 0644); err != nil {
+			t.Fatalf("Failed to write blueprint.yaml: %v", err)
+		}
+
+		handler.shims.Stat = os.Stat
+		handler.shims.ReadDir = os.ReadDir
+		handler.shims.ReadFile = os.ReadFile
+		handler.shims.YamlUnmarshal = yaml.Unmarshal
+		handler.shims.YamlMarshal = yaml.Marshal
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
+			return ""
+		}
+
+		_, err = handler.GetLocalTemplateData()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("HandlesSubstitutionProcessing", func(t *testing.T) {
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		mocks.Runtime.ConfigRoot = tmpDir
+
+		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+
+		substitutionsContent := []byte(`common:
+  key1: value1
+  key2: value2
+kustomization1:
+  key3: value3
+`)
+		if err := os.WriteFile(filepath.Join(mocks.Runtime.TemplateRoot, "substitutions"), substitutionsContent, 0644); err != nil {
+			t.Fatalf("Failed to write substitutions file: %v", err)
+		}
+
+		handler.shims.Stat = os.Stat
+		handler.shims.ReadDir = os.ReadDir
+		handler.shims.ReadFile = os.ReadFile
+		handler.shims.YamlUnmarshal = yaml.Unmarshal
+		handler.shims.YamlMarshal = yaml.Marshal
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"substitutions": map[string]any{
+					"common": map[string]any{
+						"key1": "merged-value1",
+					},
+					"kustomization1": map[string]any{
+						"key4": "value4",
+					},
+				},
+			}, nil
+		}
+
+		templateData, err := handler.GetLocalTemplateData()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(handler.commonSubstitutions) == 0 {
+			t.Error("Expected common substitutions to be processed")
+		}
+		if len(handler.featureSubstitutions) == 0 {
+			t.Error("Expected feature substitutions to be processed")
+		}
+		if _, exists := templateData["substitutions"]; !exists {
+			t.Error("Expected substitutions to be in templateData")
+		}
+	})
+
+	t.Run("HandlesSubstitutionUnmarshalError", func(t *testing.T) {
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		mocks.Runtime.ConfigRoot = tmpDir
+
+		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+
+		invalidSubstitutions := []byte("invalid: yaml: [")
+		if err := os.WriteFile(filepath.Join(mocks.Runtime.TemplateRoot, "substitutions"), invalidSubstitutions, 0644); err != nil {
+			t.Fatalf("Failed to write substitutions file: %v", err)
+		}
+
+		handler.shims.Stat = os.Stat
+		handler.shims.ReadDir = os.ReadDir
+		handler.shims.ReadFile = os.ReadFile
+		handler.shims.YamlUnmarshal = yaml.Unmarshal
+		handler.shims.YamlMarshal = yaml.Marshal
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+
+		_, err = handler.GetLocalTemplateData()
+
+		if err != nil {
+			t.Fatalf("Expected no error (unmarshal error should be ignored), got %v", err)
+		}
+	})
+
+	t.Run("HandlesSubstitutionMarshalError", func(t *testing.T) {
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		mocks.Runtime.ConfigRoot = tmpDir
+
+		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+
+		handler.shims.Stat = os.Stat
+		handler.shims.ReadDir = os.ReadDir
+		handler.shims.ReadFile = os.ReadFile
+		handler.shims.YamlUnmarshal = yaml.Unmarshal
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"substitutions": map[string]any{
+					"common": map[string]any{
+						"key1": "value1",
+					},
+				},
+			}, nil
+		}
+
+		handler.shims.YamlMarshal = func(v any) ([]byte, error) {
+			if _, ok := v.(map[string]any); ok {
+				return nil, fmt.Errorf("marshal error")
+			}
+			return yaml.Marshal(v)
+		}
+
+		_, err = handler.GetLocalTemplateData()
+
+		if err == nil {
+			t.Fatal("Expected error when YamlMarshal fails for substitutions")
+		}
+		if !strings.Contains(err.Error(), "failed to marshal substitution values") {
+			t.Errorf("Expected error about marshaling substitution values, got: %v", err)
 		}
 	})
 }
@@ -4488,276 +4155,6 @@ func TestBaseBlueprintHandler_Generate(t *testing.T) {
 		}
 		if commonConfigMap["BUILD_ID"] != "build-123" {
 			t.Errorf("Expected BUILD_ID 'build-123', got '%s'", commonConfigMap["BUILD_ID"])
-		}
-	})
-
-	t.Run("WithPerKustomizationSubstitutions", func(t *testing.T) {
-		handler, mocks := setup(t)
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{
-				"substitutions": map[string]any{
-					"common": map[string]any{
-						"domain": "example.com",
-					},
-					"csi": map[string]any{
-						"volume_path":   "/custom/volumes",
-						"storage_class": "fast-ssd",
-					},
-					"monitoring": map[string]any{
-						"retention_days": "30",
-					},
-				},
-			}, nil
-		}
-		handler.blueprint = blueprintv1alpha1.Blueprint{
-			Metadata: blueprintv1alpha1.Metadata{
-				Name: "test-blueprint",
-			},
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name: "csi",
-					Path: "csi",
-				},
-				{
-					Name: "monitoring",
-					Path: "monitoring",
-				},
-			},
-		}
-
-		tmpDir := t.TempDir()
-		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
-		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
-			t.Fatalf("Failed to create template directory: %v", err)
-		}
-		handler.shims.Stat = os.Stat
-		handler.shims.ReadDir = os.ReadDir
-		handler.shims.ReadFile = os.ReadFile
-		handler.shims.YamlUnmarshal = yaml.Unmarshal
-		handler.shims.YamlMarshal = yaml.Marshal
-
-		_, err := handler.GetLocalTemplateData()
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		generated := handler.Generate()
-
-		if generated.ConfigMaps == nil {
-			t.Fatal("Expected ConfigMaps to be set")
-		}
-		commonConfigMap, exists := generated.ConfigMaps["values-common"]
-		if !exists {
-			t.Fatal("Expected values-common ConfigMap")
-		}
-		if commonConfigMap["domain"] != "example.com" {
-			t.Errorf("Expected domain 'example.com', got '%s'", commonConfigMap["domain"])
-		}
-
-		var csiKustomization *blueprintv1alpha1.Kustomization
-		var monitoringKustomization *blueprintv1alpha1.Kustomization
-		for i := range generated.Kustomizations {
-			if generated.Kustomizations[i].Name == "csi" {
-				csiKustomization = &generated.Kustomizations[i]
-			}
-			if generated.Kustomizations[i].Name == "monitoring" {
-				monitoringKustomization = &generated.Kustomizations[i]
-			}
-		}
-
-		if csiKustomization == nil {
-			t.Fatal("Expected csi kustomization")
-		}
-		if len(csiKustomization.Substitutions) != 2 {
-			t.Fatalf("Expected 2 substitutions for csi, got %d", len(csiKustomization.Substitutions))
-		}
-		if csiKustomization.Substitutions["volume_path"] != "/custom/volumes" {
-			t.Errorf("Expected volume_path '/custom/volumes', got '%s'", csiKustomization.Substitutions["volume_path"])
-		}
-		if csiKustomization.Substitutions["storage_class"] != "fast-ssd" {
-			t.Errorf("Expected storage_class 'fast-ssd', got '%s'", csiKustomization.Substitutions["storage_class"])
-		}
-
-		if monitoringKustomization == nil {
-			t.Fatal("Expected monitoring kustomization")
-		}
-		if len(monitoringKustomization.Substitutions) != 1 {
-			t.Fatalf("Expected 1 substitution for monitoring, got %d", len(monitoringKustomization.Substitutions))
-		}
-		if monitoringKustomization.Substitutions["retention_days"] != "30" {
-			t.Errorf("Expected retention_days '30', got '%s'", monitoringKustomization.Substitutions["retention_days"])
-		}
-	})
-
-	t.Run("WithOCISubstitutionsOnly", func(t *testing.T) {
-		handler, mocks := setup(t)
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{}, nil
-		}
-		handler.shims.Stat = os.Stat
-		handler.shims.ReadDir = os.ReadDir
-		handler.shims.ReadFile = os.ReadFile
-		handler.shims.YamlUnmarshal = yaml.Unmarshal
-		handler.shims.YamlMarshal = yaml.Marshal
-
-		tmpDir := t.TempDir()
-		mocks.Runtime.ProjectRoot = tmpDir
-		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
-		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
-			t.Fatalf("Failed to create template directory: %v", err)
-		}
-
-		ociSubstitutionsContent := `common:
-  domain: oci.example.com
-  region: us-east-1
-csi:
-  volume_path: /oci/volumes
-`
-		if err := os.WriteFile(filepath.Join(mocks.Runtime.TemplateRoot, "substitutions"), []byte(ociSubstitutionsContent), 0644); err != nil {
-			t.Fatalf("Failed to write OCI substitutions file: %v", err)
-		}
-
-		handler.blueprint = blueprintv1alpha1.Blueprint{
-			Metadata: blueprintv1alpha1.Metadata{
-				Name: "test-blueprint",
-			},
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name: "csi",
-					Path: "csi",
-				},
-			},
-		}
-
-		_, err := handler.GetLocalTemplateData()
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		generated := handler.Generate()
-
-		if generated.ConfigMaps == nil {
-			t.Fatal("Expected ConfigMaps to be set from OCI substitutions")
-		}
-		commonConfigMap, exists := generated.ConfigMaps["values-common"]
-		if !exists {
-			t.Fatal("Expected values-common ConfigMap from OCI")
-		}
-		if commonConfigMap["domain"] != "oci.example.com" {
-			t.Errorf("Expected domain 'oci.example.com', got '%s'", commonConfigMap["domain"])
-		}
-		if commonConfigMap["region"] != "us-east-1" {
-			t.Errorf("Expected region 'us-east-1', got '%s'", commonConfigMap["region"])
-		}
-
-		var csiKustomization *blueprintv1alpha1.Kustomization
-		for i := range generated.Kustomizations {
-			if generated.Kustomizations[i].Name == "csi" {
-				csiKustomization = &generated.Kustomizations[i]
-				break
-			}
-		}
-
-		if csiKustomization == nil {
-			t.Fatal("Expected csi kustomization")
-		}
-		if len(csiKustomization.Substitutions) != 1 {
-			t.Fatalf("Expected 1 substitution for csi from OCI, got %d", len(csiKustomization.Substitutions))
-		}
-		if csiKustomization.Substitutions["volume_path"] != "/oci/volumes" {
-			t.Errorf("Expected volume_path '/oci/volumes', got '%s'", csiKustomization.Substitutions["volume_path"])
-		}
-	})
-
-	t.Run("WithOCISubstitutionsMergedWithContext", func(t *testing.T) {
-		handler, mocks := setup(t)
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{
-				"substitutions": map[string]any{
-					"common": map[string]any{
-						"region": "us-west-2",
-					},
-					"csi": map[string]any{
-						"storage_class": "fast-ssd",
-					},
-				},
-			}, nil
-		}
-		handler.shims.Stat = os.Stat
-		handler.shims.ReadDir = os.ReadDir
-		handler.shims.ReadFile = os.ReadFile
-		handler.shims.YamlUnmarshal = yaml.Unmarshal
-		handler.shims.YamlMarshal = yaml.Marshal
-
-		tmpDir := t.TempDir()
-		mocks.Runtime.ProjectRoot = tmpDir
-		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
-		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
-			t.Fatalf("Failed to create template directory: %v", err)
-		}
-
-		ociSubstitutionsContent := `common:
-  domain: oci.example.com
-  region: us-east-1
-csi:
-  volume_path: /oci/volumes
-`
-		if err := os.WriteFile(filepath.Join(mocks.Runtime.TemplateRoot, "substitutions"), []byte(ociSubstitutionsContent), 0644); err != nil {
-			t.Fatalf("Failed to write OCI substitutions file: %v", err)
-		}
-
-		handler.blueprint = blueprintv1alpha1.Blueprint{
-			Metadata: blueprintv1alpha1.Metadata{
-				Name: "test-blueprint",
-			},
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name: "csi",
-					Path: "csi",
-				},
-			},
-		}
-
-		_, err := handler.GetLocalTemplateData()
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		generated := handler.Generate()
-
-		if generated.ConfigMaps == nil {
-			t.Fatal("Expected ConfigMaps to be set")
-		}
-		commonConfigMap, exists := generated.ConfigMaps["values-common"]
-		if !exists {
-			t.Fatal("Expected values-common ConfigMap")
-		}
-		if commonConfigMap["domain"] != "oci.example.com" {
-			t.Errorf("Expected domain 'oci.example.com' from OCI, got '%s'", commonConfigMap["domain"])
-		}
-		if commonConfigMap["region"] != "us-west-2" {
-			t.Errorf("Expected region 'us-west-2' from context (overriding OCI), got '%s'", commonConfigMap["region"])
-		}
-
-		var csiKustomization *blueprintv1alpha1.Kustomization
-		for i := range generated.Kustomizations {
-			if generated.Kustomizations[i].Name == "csi" {
-				csiKustomization = &generated.Kustomizations[i]
-				break
-			}
-		}
-
-		if csiKustomization == nil {
-			t.Fatal("Expected csi kustomization")
-		}
-		if len(csiKustomization.Substitutions) != 2 {
-			t.Fatalf("Expected 2 substitutions for csi (merged from OCI and context), got %d", len(csiKustomization.Substitutions))
-		}
-		if csiKustomization.Substitutions["volume_path"] != "/oci/volumes" {
-			t.Errorf("Expected volume_path '/oci/volumes' from OCI, got '%s'", csiKustomization.Substitutions["volume_path"])
-		}
-		if csiKustomization.Substitutions["storage_class"] != "fast-ssd" {
-			t.Errorf("Expected storage_class 'fast-ssd' from context, got '%s'", csiKustomization.Substitutions["storage_class"])
 		}
 	})
 

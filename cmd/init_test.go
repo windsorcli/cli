@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -58,10 +59,11 @@ func setupInitTest(t *testing.T, opts ...*SetupOptions) *InitMocks {
 
 	// Add blueprint handler mock
 	mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
-	mockBlueprintHandler.LoadBlueprintFunc = func() error { return nil }
+	mockBlueprintHandler.LoadBlueprintFunc = func(...string) error { return nil }
 	mockBlueprintHandler.WriteFunc = func(overwrite ...bool) error { return nil }
-	// Configure tools manager (required by runInit)
+	// Configure tools manager (required by runInit and PrepareTools)
 	baseMocks.ToolsManager.InstallFunc = func() error { return nil }
+	baseMocks.ToolsManager.CheckFunc = func() error { return nil }
 
 	return &InitMocks{
 		ConfigHandler:    baseMocks.ConfigHandler,
@@ -330,10 +332,16 @@ func TestInitCmd(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupInitTest(t)
 
+		// And a composer with the mock blueprint handler
+		comp := composer.NewComposer(mocks.Runtime, &composer.Composer{
+			BlueprintHandler: mocks.BlueprintHandler,
+		})
+
 		// When executing the init command with blueprint flag
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		cmd.SetArgs([]string{"--blueprint", "full"})
+		ctx = context.WithValue(ctx, composerOverridesKey, comp)
+		cmd.SetArgs([]string{"--blueprint", "oci://ghcr.io/windsorcli/core:latest"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -398,10 +406,16 @@ func TestInitCmd(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupInitTest(t)
 
+		// And a composer with the mock blueprint handler
+		comp := composer.NewComposer(mocks.Runtime, &composer.Composer{
+			BlueprintHandler: mocks.BlueprintHandler,
+		})
+
 		// When executing the init command with multiple flags
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		cmd.SetArgs([]string{"--backend", "s3", "--vm-driver", "colima", "--docker", "--blueprint", "full"})
+		ctx = context.WithValue(ctx, composerOverridesKey, comp)
+		cmd.SetArgs([]string{"--backend", "s3", "--vm-driver", "colima", "--docker", "--blueprint", "oci://ghcr.io/windsorcli/core:latest"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -791,9 +805,15 @@ func TestInitCmd(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupInitTest(t)
 
+		// And a composer with the mock blueprint handler
+		comp := composer.NewComposer(mocks.Runtime, &composer.Composer{
+			BlueprintHandler: mocks.BlueprintHandler,
+		})
+
 		// When executing the init command with explicit blueprint
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, comp)
 		cmd.SetArgs([]string{"--blueprint", "oci://custom/blueprint:v1.0.0"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()

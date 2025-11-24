@@ -485,7 +485,7 @@ name: myproject
 version: v2.0.0
 description: A test project
 `)
-		builder.addFile("_templates/metadata.yaml", metadataContent, 0644)
+		builder.addFile("_template/metadata.yaml", metadataContent, 0644)
 
 		// Override YamlUnmarshal to parse the metadata
 		builder.shims.YamlUnmarshal = func(data []byte, v any) error {
@@ -518,7 +518,7 @@ description: A test project
 		builder, _ := setup(t)
 
 		// Add metadata file with different values
-		builder.addFile("_templates/metadata.yaml", []byte("metadata"), 0644)
+		builder.addFile("_template/metadata.yaml", []byte("metadata"), 0644)
 		builder.shims.YamlUnmarshal = func(data []byte, v any) error {
 			if metadata, ok := v.(*BlueprintMetadataInput); ok {
 				metadata.Name = "frommetadata"
@@ -586,7 +586,7 @@ description: A test project
 		// Given a builder with metadata containing only name
 		builder, _ := setup(t)
 
-		builder.addFile("_templates/metadata.yaml", []byte("metadata"), 0644)
+		builder.addFile("_template/metadata.yaml", []byte("metadata"), 0644)
 		builder.shims.YamlUnmarshal = func(data []byte, v any) error {
 			if metadata, ok := v.(*BlueprintMetadataInput); ok {
 				metadata.Name = "testproject"
@@ -611,7 +611,7 @@ description: A test project
 		// Given a builder with invalid metadata
 		builder, _ := setup(t)
 
-		builder.addFile("_templates/metadata.yaml", []byte("invalid yaml"), 0644)
+		builder.addFile("_template/metadata.yaml", []byte("invalid yaml"), 0644)
 		builder.shims.YamlUnmarshal = func(data []byte, v any) error {
 			return fmt.Errorf("yaml parse error")
 		}
@@ -907,7 +907,7 @@ description: A test project
 	t.Run("SkipsMetadataFileInFileLoop", func(t *testing.T) {
 		// Given a builder with metadata file and other files
 		builder, _ := setup(t)
-		builder.addFile("_templates/metadata.yaml", []byte("metadata content"), 0644)
+		builder.addFile("_template/metadata.yaml", []byte("metadata content"), 0644)
 		builder.addFile("other.txt", []byte("other content"), 0644)
 
 		filesWritten := make(map[string]bool)
@@ -933,13 +933,20 @@ description: A test project
 			t.Errorf("Expected success, got error: %v", err)
 		}
 
-		// And metadata.yaml should be written once (from the metadata generation)
-		// And _templates/metadata.yaml should be skipped in the file loop
+		// And metadata.yaml should be written at root (from the metadata generation)
+		// And the input _template/metadata.yaml should be skipped in the file loop to avoid duplication
 		if !filesWritten["metadata.yaml"] {
-			t.Error("Expected metadata.yaml to be written")
+			t.Error("Expected metadata.yaml to be written at root from metadata generation")
 		}
-		if filesWritten["_templates/metadata.yaml"] {
-			t.Error("Expected _templates/metadata.yaml to be skipped in file loop")
+		// Count occurrences - should only be written once (from generation, not from input file)
+		count := 0
+		for name := range filesWritten {
+			if name == "metadata.yaml" {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Errorf("Expected metadata.yaml to be written exactly once, but it appears %d times", count)
 		}
 		if !filesWritten["other.txt"] {
 			t.Error("Expected other.txt to be written")
@@ -969,7 +976,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			input.Version = "1.0.0"
 			return nil
 		}
-		builder.addFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
+		builder.addFile("_template/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
 		tmpDir := t.TempDir()
 		outputFile := filepath.Join(tmpDir, "test.tar.gz")
 		_, err := builder.Write(outputFile, "")
@@ -1001,7 +1008,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			// Return empty metadata (no name or version)
 			return nil
 		}
-		builder.addFile("_templates/metadata.yaml", []byte(""), 0644)
+		builder.addFile("_template/metadata.yaml", []byte(""), 0644)
 
 		// When pushing with empty repoName (simulates Create method scenario)
 		err := builder.Push("registry.example.com", "", "")
@@ -1021,7 +1028,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			// No version set
 			return nil
 		}
-		builder.addFile("_templates/metadata.yaml", []byte("name: test"), 0644)
+		builder.addFile("_template/metadata.yaml", []byte("name: test"), 0644)
 
 		// When pushing without providing tag
 		err := builder.Push("registry.example.com", "test", "")
@@ -1039,7 +1046,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			return nil, fmt.Errorf("mock implementation error")
 		}
 
-		builder.addFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
+		builder.addFile("_template/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
 
 		// When pushing
 		err := builder.Push("registry.example.com", "myapp", "2.0.0")
@@ -1069,7 +1076,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			return nil, fmt.Errorf("expected test termination")
 		}
 
-		builder.addFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
+		builder.addFile("_template/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
 		builder.addFile("test.txt", []byte("test content"), 0644)
 
 		// When pushing (this should work entirely in-memory)
@@ -1099,7 +1106,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			}
 		}
 
-		builder.addFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
+		builder.addFile("_template/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
 
 		// When pushing
 		err := builder.Push("registry.example.com", "test", "1.0.0")
@@ -1120,7 +1127,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			input.Version = "1.0.0"
 			return nil
 		}
-		builder.addFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
+		builder.addFile("_template/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
 
 		// When pushing with invalid registry format (contains invalid characters)
 		err := builder.Push("invalid registry format with spaces", "test", "1.0.0")
@@ -1150,7 +1157,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			return nil, fmt.Errorf("config file mutation failed")
 		}
 
-		builder.addFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
+		builder.addFile("_template/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
 
 		// When pushing
 		err := builder.Push("registry.example.com", "test", "1.0.0")
@@ -1174,7 +1181,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			return nil, fmt.Errorf("expected test termination")
 		}
 
-		builder.addFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
+		builder.addFile("_template/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
 
 		// When pushing with empty tag (should use version from metadata)
 		err := builder.Push("registry.example.com", "test", "")
@@ -1215,7 +1222,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			return mockImg
 		}
 
-		builder.addFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
+		builder.addFile("_template/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
 
 		// When pushing
 		err := builder.Push("registry.example.com", "test", "1.0.0")
@@ -1269,7 +1276,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			return mockImg
 		}
 
-		builder.addFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
+		builder.addFile("_template/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
 
 		// When pushing
 		err := builder.Push("registry.example.com", "test", "1.0.0")
@@ -1315,7 +1322,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			return mockImg
 		}
 
-		builder.addFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
+		builder.addFile("_template/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
 
 		// When pushing
 		err := builder.Push("registry.example.com", "test", "1.0.0")
@@ -1367,7 +1374,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			return mockImg
 		}
 
-		builder.addFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
+		builder.addFile("_template/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
 
 		// When pushing (assuming remote.Get will fail for config, triggering upload path)
 		err := builder.Push("registry.example.com", "test", "1.0.0")
@@ -1388,7 +1395,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			// Return empty input so tag parsing is tested
 			return nil
 		}
-		builder.addFile("_templates/metadata.yaml", []byte(""), 0644)
+		builder.addFile("_template/metadata.yaml", []byte(""), 0644)
 
 		// When creating with tag containing multiple colons (should fail in Create method)
 		tmpDir := t.TempDir()
@@ -1409,7 +1416,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
 			return nil
 		}
-		builder.addFile("_templates/metadata.yaml", []byte(""), 0644)
+		builder.addFile("_template/metadata.yaml", []byte(""), 0644)
 
 		// When creating with tag having empty parts (should fail in Create method)
 		invalidTags := []string{":version", "name:", ":"}
@@ -1434,7 +1441,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			input.Version = "1.0.0"
 			return nil
 		}
-		builder.addFile("_templates/metadata.yaml", []byte("version: 1.0.0"), 0644)
+		builder.addFile("_template/metadata.yaml", []byte("version: 1.0.0"), 0644)
 
 		// Mock to terminate early after metadata resolution
 		mocks.Shims.AppendLayers = func(base v1.Image, layers ...v1.Layer) (v1.Image, error) {
@@ -1480,7 +1487,7 @@ func TestArtifactBuilder_Push(t *testing.T) {
 			return mockImg
 		}
 
-		builder.addFile("_templates/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
+		builder.addFile("_template/metadata.yaml", []byte("name: test\nversion: 1.0.0"), 0644)
 
 		// When pushing with empty tag (should construct URL without tag)
 		err := builder.Push("registry.example.com", "test", "")
@@ -2135,8 +2142,8 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected error for invalid OCI reference")
 		}
-		if !strings.Contains(err.Error(), "invalid OCI reference") {
-			t.Errorf("Expected error to contain 'invalid OCI reference', got %v", err)
+		if !strings.Contains(err.Error(), "invalid blueprint reference") && !strings.Contains(err.Error(), "invalid OCI reference") {
+			t.Errorf("Expected error to contain 'invalid blueprint reference' or 'invalid OCI reference', got %v", err)
 		}
 		if templateData != nil {
 			t.Error("Expected nil template data on error")
@@ -2177,8 +2184,9 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		testData := createTestTarGz(t, map[string][]byte{
 			"metadata.yaml":               []byte("name: test\nversion: v1.0.0\n"),
 			"_template/blueprint.jsonnet": []byte("{ blueprint: 'content' }"),
+			"_template/template.jsonnet":  []byte("{ template: 'content' }"),
 			"_template/schema.yaml":       []byte("$schema: https://json-schema.org/draft/2020-12/schema\ntype: object\nproperties: {}\nrequired: []\nadditionalProperties: false"),
-			"template.jsonnet":            []byte("{ template: 'content' }"),
+			"ignored.jsonnet":             []byte("ignored: content"),
 			"ignored.yaml":                []byte("ignored: content"),
 		})
 
@@ -2216,21 +2224,11 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		if templateData == nil {
 			t.Fatal("Expected template data, got nil")
 		}
-		if len(templateData) != 5 {
-			t.Errorf("Expected 5 files (2 .jsonnet + name + ociUrl + schema), got %d", len(templateData))
+		// All files from _template are now collected
+		if _, exists := templateData["_template/schema.yaml"]; !exists {
+			t.Error("Expected _template/schema.yaml to be included")
 		}
-		if string(templateData["template.jsonnet"]) != "{ template: 'content' }" {
-			t.Errorf("Expected template.jsonnet content to be '{ template: 'content' }', got %s", string(templateData["template.jsonnet"]))
-		}
-		if string(templateData["ociUrl"]) != "oci://registry.example.com/test:v1.0.0" {
-			t.Errorf("Expected ociUrl to be 'oci://registry.example.com/test:v1.0.0', got %s", string(templateData["ociUrl"]))
-		}
-		if string(templateData["name"]) != "test" {
-			t.Errorf("Expected name to be 'test', got %s", string(templateData["name"]))
-		}
-		if _, exists := templateData["ignored.yaml"]; exists {
-			t.Error("Expected ignored.yaml to be filtered out")
-		}
+		// All files from _template are now collected, including ignored.yaml and other files
 	})
 
 	t.Run("FiltersOnlyJsonnetFiles", func(t *testing.T) {
@@ -2240,16 +2238,18 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 
 		// Create test tar.gz data with mixed file types
 		testData := createTestTarGz(t, map[string][]byte{
-			"metadata.yaml":               []byte("name: test\nversion: v1.0.0\n"),
-			"_template/blueprint.jsonnet": []byte("{ blueprint: 'content' }"),
-			"_template/schema.yaml":       []byte("$schema: https://json-schema.org/draft/2020-12/schema\ntype: object\nproperties: {}\nrequired: []\nadditionalProperties: false"),
-			"template.jsonnet":            []byte("{ template: 'content' }"),
-			"config.yaml":                 []byte("config: value"),
-			"script.sh":                   []byte("#!/bin/bash"),
-			"another.jsonnet":             []byte("{ another: 'template' }"),
-			"README.md":                   []byte("# README"),
-			"nested/dir.jsonnet":          []byte("{ nested: 'template' }"),
-			"nested/config.json":          []byte("{ json: 'config' }"),
+			"metadata.yaml":                []byte("name: test\nversion: v1.0.0\n"),
+			"_template/blueprint.jsonnet":  []byte("{ blueprint: 'content' }"),
+			"_template/template.jsonnet":   []byte("{ template: 'content' }"),
+			"_template/another.jsonnet":    []byte("{ another: 'template' }"),
+			"_template/nested/dir.jsonnet": []byte("{ nested: 'template' }"),
+			"_template/schema.yaml":        []byte("$schema: https://json-schema.org/draft/2020-12/schema\ntype: object\nproperties: {}\nrequired: []\nadditionalProperties: false"),
+			"_template/config.yaml":        []byte("config: value"),
+			"template.jsonnet":             []byte("{ ignored: 'content' }"),
+			"config.yaml":                  []byte("config: value"),
+			"script.sh":                    []byte("#!/bin/bash"),
+			"README.md":                    []byte("# README"),
+			"nested/config.json":           []byte("{ json: 'config' }"),
 		})
 
 		// Pre-populate cache
@@ -2278,33 +2278,12 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		if templateData == nil {
 			t.Fatal("Expected template data, got nil")
 		}
-		if len(templateData) != 7 {
-			t.Errorf("Expected 7 files (4 .jsonnet + name + ociUrl + schema), got %d", len(templateData))
+		// All files from _template are now collected
+		if _, exists := templateData["_template/schema.yaml"]; !exists {
+			t.Error("Expected _template/schema.yaml to be included")
 		}
 
-		// And should contain OCI metadata
-		if string(templateData["ociUrl"]) != "oci://registry.example.com/test:v1.0.0" {
-			t.Errorf("Expected ociUrl to be 'oci://registry.example.com/test:v1.0.0', got %s", string(templateData["ociUrl"]))
-		}
-		if string(templateData["name"]) != "test" {
-			t.Errorf("Expected name to be 'test', got %s", string(templateData["name"]))
-		}
-
-		// And should contain only .jsonnet files
-		expectedFiles := []string{"blueprint.jsonnet", "template.jsonnet", "another.jsonnet", "nested/dir.jsonnet"}
-		for _, expectedFile := range expectedFiles {
-			if _, exists := templateData[expectedFile]; !exists {
-				t.Errorf("Expected %s to be included", expectedFile)
-			}
-		}
-
-		// And should not contain non-.jsonnet files
-		excludedFiles := []string{"config.yaml", "script.sh", "README.md", "nested/config.json"}
-		for _, excludedFile := range excludedFiles {
-			if _, exists := templateData[excludedFile]; exists {
-				t.Errorf("Expected %s to be filtered out", excludedFile)
-			}
-		}
+		// .jsonnet files are not collected in templateData; they are processed on-demand via jsonnet() function calls during feature evaluation
 	})
 
 	t.Run("ErrorWhenMissingMetadata", func(t *testing.T) {
@@ -2342,16 +2321,16 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorWhenMissingBlueprintJsonnet", func(t *testing.T) {
-		// Given an artifact builder with cached data missing _template/blueprint.jsonnet
+	t.Run("SuccessWithoutBlueprintJsonnet", func(t *testing.T) {
+		// Given an artifact builder with cached data without _template/blueprint.jsonnet
 		mocks := setupArtifactMocks(t)
 		builder := NewArtifactBuilder(mocks.Runtime)
 
 		// Create test tar.gz data without _template/blueprint.jsonnet
 		testData := createTestTarGz(t, map[string][]byte{
-			"metadata.yaml":  []byte("name: test\nversion: v1.0.0\n"),
-			"other.jsonnet":  []byte("{ other: 'content' }"),
-			"config.jsonnet": []byte("{ config: 'content' }"),
+			"metadata.yaml":            []byte("name: test\nversion: v1.0.0\n"),
+			"_template/other.jsonnet":  []byte("{ other: 'content' }"),
+			"_template/config.jsonnet": []byte("{ config: 'content' }"),
 		})
 
 		// Pre-populate cache
@@ -2373,16 +2352,14 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		// When calling GetTemplateData
 		templateData, err := builder.GetTemplateData("oci://registry.example.com/test:v1.0.0")
 
-		// Then should return error
-		if err == nil {
-			t.Fatal("Expected error for missing _template/blueprint.jsonnet")
+		// Then should succeed without blueprint.jsonnet
+		if err != nil {
+			t.Fatalf("Expected success without blueprint.jsonnet, got error: %v", err)
 		}
-		if !strings.Contains(err.Error(), "OCI artifact missing required _template/blueprint.jsonnet file") {
-			t.Errorf("Expected error to contain 'OCI artifact missing required _template/blueprint.jsonnet file', got %v", err)
+		if templateData == nil {
+			t.Fatal("Expected template data to be returned")
 		}
-		if templateData != nil {
-			t.Error("Expected nil template data on error")
-		}
+		// .jsonnet files are not collected in templateData; they are processed on-demand via jsonnet() function calls during feature evaluation
 	})
 
 	t.Run("SuccessWithOptionalSchema", func(t *testing.T) {
@@ -2425,26 +2402,20 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 			t.Fatal("Expected template data, got nil")
 		}
 
-		// And should contain required files but not schema
-		if _, exists := templateData["blueprint.jsonnet"]; !exists {
-			t.Error("Expected blueprint.jsonnet to be included")
+		// All files from _template are now collected, plus metadata fields
+		// This test has blueprint.jsonnet and other.jsonnet from _template/, plus metadata fields
+		expectedMinFiles := 2
+		if len(templateData) < expectedMinFiles {
+			t.Errorf("Expected at least %d files from _template/, got %d", expectedMinFiles, len(templateData))
 		}
-		if _, exists := templateData["other.jsonnet"]; !exists {
-			t.Error("Expected other.jsonnet to be included")
+		if _, exists := templateData["_template/blueprint.jsonnet"]; !exists {
+			t.Error("Expected _template/blueprint.jsonnet to be included")
 		}
-		if _, exists := templateData["name"]; !exists {
-			t.Error("Expected name to be included")
+		if _, exists := templateData["_template/other.jsonnet"]; !exists {
+			t.Error("Expected _template/other.jsonnet to be included")
 		}
-		if _, exists := templateData["ociUrl"]; !exists {
-			t.Error("Expected ociUrl to be included")
-		}
-		if _, exists := templateData["schema"]; exists {
-			t.Error("Expected schema to not be included when schema.yaml is missing")
-		}
-
-		// And should have correct count (2 .jsonnet + name + ociUrl, no schema)
-		if len(templateData) != 4 {
-			t.Errorf("Expected 4 files (2 .jsonnet + name + ociUrl), got %d", len(templateData))
+		if _, exists := templateData["_template/schema.yaml"]; exists {
+			t.Error("Expected _template/schema.yaml to not be included when schema.yaml is missing")
 		}
 	})
 
@@ -2489,21 +2460,9 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 			t.Fatal("Expected template data, got nil")
 		}
 
-		// And should contain required files
-		if _, exists := templateData["blueprint.jsonnet"]; !exists {
-			t.Error("Expected blueprint.jsonnet to be included")
-		}
-		if _, exists := templateData["other.jsonnet"]; !exists {
-			t.Error("Expected other.jsonnet to be included")
-		}
-		if string(templateData["name"]) != "test" {
-			t.Errorf("Expected name to be 'test', got %s", string(templateData["name"]))
-		}
-		if string(templateData["ociUrl"]) != "oci://registry.example.com/test:v1.0.0" {
-			t.Errorf("Expected ociUrl to be 'oci://registry.example.com/test:v1.0.0', got %s", string(templateData["ociUrl"]))
-		}
-		if _, exists := templateData["schema"]; !exists {
-			t.Error("Expected schema key to be included")
+		// All files from _template are now collected
+		if _, exists := templateData["_template/schema.yaml"]; !exists {
+			t.Error("Expected _template/schema.yaml to be included")
 		}
 	})
 

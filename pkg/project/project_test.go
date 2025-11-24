@@ -85,6 +85,22 @@ func setupProjectMocks(t *testing.T, opts ...func(*ProjectTestMocks)) *ProjectTe
 		return nil
 	}
 
+	configHandler.LoadSchemaFromBytesFunc = func(data []byte) error {
+		return nil
+	}
+
+	configHandler.GetContextValuesFunc = func() (map[string]any, error) {
+		addons := make(map[string]any)
+		// Initialize common addons with enabled: false to prevent evaluation errors
+		for _, addon := range []string{"object_store", "observability", "private_ca", "private_dns"} {
+			addons[addon] = map[string]any{"enabled": false}
+		}
+		return map[string]any{
+			"addons": addons,
+			"dev":    false,
+		}, nil
+	}
+
 	mockShell.GetProjectRootFunc = func() (string, error) {
 		return tmpDir, nil
 	}
@@ -795,7 +811,7 @@ func TestProject_Initialize(t *testing.T) {
 		}
 
 		mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
-		mockBlueprintHandler.LoadBlueprintFunc = func() error {
+		mockBlueprintHandler.LoadBlueprintFunc = func(...string) error {
 			return fmt.Errorf("load blueprint failed")
 		}
 		proj.Composer.BlueprintHandler = mockBlueprintHandler

@@ -58,6 +58,8 @@ type Shims struct {
 	Setenv         func(key, value string) error
 	ReadDir        func(name string) ([]os.DirEntry, error)
 	RemoveAll      func(path string) error
+	FilepathAbs    func(path string) (string, error)
+	FilepathBase   func(path string) string
 }
 
 // =============================================================================
@@ -89,8 +91,10 @@ func NewShims() *Shims {
 		Create:    os.Create,
 		Copy:      io.Copy,
 		Chmod:     os.Chmod,
-		Setenv:    os.Setenv,
-		ReadDir:   os.ReadDir,
-		RemoveAll: os.RemoveAll,
+		Setenv:      os.Setenv,
+		ReadDir:     os.ReadDir,
+		RemoveAll:   os.RemoveAll,
+		FilepathAbs: filepath.Abs,
+		FilepathBase: filepath.Base,
 	}
 }

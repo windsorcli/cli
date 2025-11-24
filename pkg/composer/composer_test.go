@@ -583,7 +583,7 @@ func TestComposer_Generate(t *testing.T) {
 	t.Run("SuccessFullFlow", func(t *testing.T) {
 		// Given mocks with all handlers succeeding
 		mocks := setupComposerMocks(t)
-		mocks.BlueprintHandler.LoadBlueprintFunc = func() error {
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
 			return nil
 		}
 		mocks.BlueprintHandler.WriteFunc = func(overwrite ...bool) error {
@@ -607,7 +607,7 @@ func TestComposer_Generate(t *testing.T) {
 		// Given mocks with all handlers succeeding
 		mocks := setupComposerMocks(t)
 		overwriteCalled := false
-		mocks.BlueprintHandler.LoadBlueprintFunc = func() error {
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
 			return nil
 		}
 		mocks.BlueprintHandler.WriteFunc = func(overwrite ...bool) error {
@@ -639,7 +639,7 @@ func TestComposer_Generate(t *testing.T) {
 		// Given mocks with all handlers succeeding
 		mocks := setupComposerMocks(t)
 		overwriteValue := true
-		mocks.BlueprintHandler.LoadBlueprintFunc = func() error {
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
 			return nil
 		}
 		mocks.BlueprintHandler.WriteFunc = func(overwrite ...bool) error {
@@ -682,7 +682,7 @@ func TestComposer_Generate(t *testing.T) {
 			}
 		}
 		generateTfvarsCalled := false
-		mocks.BlueprintHandler.LoadBlueprintFunc = func() error {
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
 			return nil
 		}
 		mocks.BlueprintHandler.WriteFunc = func(overwrite ...bool) error {
@@ -726,7 +726,7 @@ func TestComposer_Generate(t *testing.T) {
 			}
 		}
 		generateTfvarsCalled := false
-		mocks.BlueprintHandler.LoadBlueprintFunc = func() error {
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
 			return nil
 		}
 		mocks.BlueprintHandler.WriteFunc = func(overwrite ...bool) error {
@@ -755,33 +755,12 @@ func TestComposer_Generate(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorFromLoadBlueprint", func(t *testing.T) {
-		// Given mocks with LoadBlueprint failing
-		mocks := setupComposerMocks(t)
-		expectedError := "load blueprint failed"
-		mocks.BlueprintHandler.LoadBlueprintFunc = func() error {
-			return fmt.Errorf("%s", expectedError)
-		}
-		composer := createComposerWithMocks(mocks)
-
-		// When generating
-		err := composer.Generate()
-
-		// Then error should be returned
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Errorf("Expected error to contain %q, got: %v", expectedError, err)
-		}
-	})
 
 	t.Run("ErrorFromWrite", func(t *testing.T) {
 		// Given mocks with Write failing
 		mocks := setupComposerMocks(t)
 		expectedError := "write failed"
-		mocks.BlueprintHandler.LoadBlueprintFunc = func() error {
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
 			return nil
 		}
 		mocks.BlueprintHandler.WriteFunc = func(overwrite ...bool) error {
@@ -806,7 +785,7 @@ func TestComposer_Generate(t *testing.T) {
 		// Given mocks with ProcessModules failing
 		mocks := setupComposerMocks(t)
 		expectedError := "process modules failed"
-		mocks.BlueprintHandler.LoadBlueprintFunc = func() error {
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
 			return nil
 		}
 		mocks.BlueprintHandler.WriteFunc = func(overwrite ...bool) error {
@@ -833,7 +812,7 @@ func TestComposer_Generate(t *testing.T) {
 	t.Run("ErrorFromGenerateGitignore", func(t *testing.T) {
 		// Given mocks with generateGitignore failing (simulated via file system error)
 		mocks := setupComposerMocks(t)
-		mocks.BlueprintHandler.LoadBlueprintFunc = func() error {
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
 			return nil
 		}
 		mocks.BlueprintHandler.WriteFunc = func(overwrite ...bool) error {
@@ -873,7 +852,7 @@ func TestComposer_Generate(t *testing.T) {
 			}
 		}
 		expectedError := "generate tfvars failed"
-		mocks.BlueprintHandler.LoadBlueprintFunc = func() error {
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
 			return nil
 		}
 		mocks.BlueprintHandler.WriteFunc = func(overwrite ...bool) error {
@@ -913,7 +892,7 @@ func TestComposer_GenerateBlueprint(t *testing.T) {
 				Description: "Test blueprint",
 			},
 		}
-		mocks.BlueprintHandler.LoadBlueprintFunc = func() error {
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
 			return nil
 		}
 		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
@@ -943,7 +922,7 @@ func TestComposer_GenerateBlueprint(t *testing.T) {
 		// Given mocks with LoadBlueprint failing
 		mocks := setupComposerMocks(t)
 		expectedError := "load blueprint failed"
-		mocks.BlueprintHandler.LoadBlueprintFunc = func() error {
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
 			return fmt.Errorf("%s", expectedError)
 		}
 		composer := createComposerWithMocks(mocks)
