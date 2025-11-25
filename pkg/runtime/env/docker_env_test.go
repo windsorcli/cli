@@ -630,6 +630,7 @@ contexts:
 
 	t.Run("DockerHostUnmanagedIsPreserved", func(t *testing.T) {
 		// Given a new DockerEnvPrinter with DOCKER_HOST set but not managed
+		os.Unsetenv("DOCKER_HOST")
 		mocks := setupDockerEnvMocks(t)
 		configStr := `
 version: v1alpha1
@@ -654,6 +655,12 @@ contexts:
 				return "DOCKER_CONFIG", true // DOCKER_HOST not in managed list
 			}
 			return "", false
+		}
+		mocks.Shims.Getenv = func(key string) string {
+			if key == "WINDSOR_MANAGED_ENV" {
+				return "DOCKER_CONFIG"
+			}
+			return ""
 		}
 
 		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
@@ -802,6 +809,7 @@ contexts:
 
 	t.Run("DockerHostEmptyStringIsPreserved", func(t *testing.T) {
 		// Given a new DockerEnvPrinter with DOCKER_HOST set to empty string (not managed)
+		os.Unsetenv("DOCKER_HOST")
 		mocks := setupDockerEnvMocks(t)
 		configStr := `
 version: v1alpha1
@@ -826,6 +834,12 @@ contexts:
 				return "DOCKER_CONFIG", true // DOCKER_HOST not in managed list
 			}
 			return "", false
+		}
+		mocks.Shims.Getenv = func(key string) string {
+			if key == "WINDSOR_MANAGED_ENV" {
+				return "DOCKER_CONFIG"
+			}
+			return ""
 		}
 
 		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
