@@ -1138,4 +1138,153 @@ func TestInitCmd(t *testing.T) {
 			t.Errorf("Expected error message to contain 'failed to handle session reset', got: %v", err)
 		}
 	})
+
+	t.Run("SwitchesToContextWhenContextNameProvided", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// And tracking whether WriteResetToken and SetContext are called
+		var writeResetTokenCalled bool
+		var setContextCalled bool
+		var setContextValue string
+
+		mocks.Shell.Shell.WriteResetTokenFunc = func() (string, error) {
+			writeResetTokenCalled = true
+			return "test-token", nil
+		}
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.SetContextFunc = func(context string) error {
+			setContextCalled = true
+			setContextValue = context
+			return nil
+		}
+
+		// When executing the init command with a context name
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		cmd.SetArgs([]string{"test-context"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+
+		// And WriteResetToken should have been called
+		if !writeResetTokenCalled {
+			t.Error("Expected WriteResetToken to be called when context name is provided, but it was not")
+		}
+
+		// And SetContext should have been called with the correct context name
+		if !setContextCalled {
+			t.Error("Expected SetContext to be called when context name is provided, but it was not")
+		}
+
+		if setContextValue != "test-context" {
+			t.Errorf("Expected SetContext to be called with 'test-context', got: %s", setContextValue)
+		}
+	})
+
+	t.Run("DoesNotSwitchContextWhenNoContextNameProvided", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// And tracking whether WriteResetToken and SetContext are called
+		var writeResetTokenCalled bool
+		var setContextCalled bool
+
+		mocks.Shell.Shell.WriteResetTokenFunc = func() (string, error) {
+			writeResetTokenCalled = true
+			return "test-token", nil
+		}
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.SetContextFunc = func(context string) error {
+			setContextCalled = true
+			return nil
+		}
+
+		// When executing the init command without a context name
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+
+		// And WriteResetToken should not have been called
+		if writeResetTokenCalled {
+			t.Error("Expected WriteResetToken to not be called when no context name is provided, but it was called")
+		}
+
+		// And SetContext should not have been called
+		if setContextCalled {
+			t.Error("Expected SetContext to not be called when no context name is provided, but it was called")
+		}
+	})
+
+	t.Run("HandlesSetContextError", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// And SetContext returns an error
+		expectedError := fmt.Errorf("failed to set context")
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.SetContextFunc = func(context string) error {
+			return expectedError
+		}
+
+		// When executing the init command with a context name
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		cmd.SetArgs([]string{"test-context"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error when SetContext fails, got nil")
+			return
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "failed to set context") {
+			t.Errorf("Expected error message to contain 'failed to set context', got: %v", err)
+		}
+	})
+
+	t.Run("HandlesWriteResetTokenError", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// And WriteResetToken returns an error
+		expectedError := fmt.Errorf("failed to write reset token")
+		mocks.Shell.Shell.WriteResetTokenFunc = func() (string, error) {
+			return "", expectedError
+		}
+
+		// When executing the init command with a context name
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		cmd.SetArgs([]string{"test-context"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error when WriteResetToken fails, got nil")
+			return
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "failed to write reset token") {
+			t.Errorf("Expected error message to contain 'failed to write reset token', got: %v", err)
+		}
+	})
 }

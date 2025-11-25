@@ -152,6 +152,16 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("failed to save configuration: %w", err)
 		}
 
+		if len(args) > 0 {
+			if _, err := rt.Shell.WriteResetToken(); err != nil {
+				return fmt.Errorf("failed to write reset token: %w", err)
+			}
+
+			if err := rt.ConfigHandler.SetContext(contextName); err != nil {
+				return fmt.Errorf("failed to set context: %w", err)
+			}
+		}
+
 		fmt.Fprintln(os.Stderr, "Initialization successful")
 
 		return nil
