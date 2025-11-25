@@ -1081,7 +1081,7 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("CallsHandleSessionReset", func(t *testing.T) {
+	t.Run("CallsHandleSessionResetWhenNoContextProvided", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupInitTest(t)
 
@@ -1092,7 +1092,7 @@ func TestInitCmd(t *testing.T) {
 			return false, nil
 		}
 
-		// When executing the init command
+		// When executing the init command without a context name
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{})
@@ -1143,14 +1143,20 @@ func TestInitCmd(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupInitTest(t)
 
-		// And tracking whether WriteResetToken and SetContext are called
+		// And tracking whether WriteResetToken, SetContext, and HandleSessionReset are called
 		var writeResetTokenCalled bool
 		var setContextCalled bool
 		var setContextValue string
+		var checkResetFlagsCalled bool
 
 		mocks.Shell.Shell.WriteResetTokenFunc = func() (string, error) {
 			writeResetTokenCalled = true
 			return "test-token", nil
+		}
+
+		mocks.Shell.Shell.CheckResetFlagsFunc = func() (bool, error) {
+			checkResetFlagsCalled = true
+			return false, nil
 		}
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -1185,19 +1191,30 @@ func TestInitCmd(t *testing.T) {
 		if setContextValue != "test-context" {
 			t.Errorf("Expected SetContext to be called with 'test-context', got: %s", setContextValue)
 		}
+
+		// And HandleSessionReset should NOT have been called (skipped when changing contexts)
+		if checkResetFlagsCalled {
+			t.Error("Expected HandleSessionReset to not be called when context name is provided, but it was called")
+		}
 	})
 
 	t.Run("DoesNotSwitchContextWhenNoContextNameProvided", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupInitTest(t)
 
-		// And tracking whether WriteResetToken and SetContext are called
+		// And tracking whether WriteResetToken, SetContext, and HandleSessionReset are called
 		var writeResetTokenCalled bool
 		var setContextCalled bool
+		var checkResetFlagsCalled bool
 
 		mocks.Shell.Shell.WriteResetTokenFunc = func() (string, error) {
 			writeResetTokenCalled = true
 			return "test-token", nil
+		}
+
+		mocks.Shell.Shell.CheckResetFlagsFunc = func() (bool, error) {
+			checkResetFlagsCalled = true
+			return false, nil
 		}
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -1226,6 +1243,11 @@ func TestInitCmd(t *testing.T) {
 		// And SetContext should not have been called
 		if setContextCalled {
 			t.Error("Expected SetContext to not be called when no context name is provided, but it was called")
+		}
+
+		// And HandleSessionReset SHOULD have been called (not skipped when not changing contexts)
+		if !checkResetFlagsCalled {
+			t.Error("Expected HandleSessionReset to be called when no context name is provided, but it was not")
 		}
 	})
 
