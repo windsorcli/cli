@@ -3273,9 +3273,19 @@ metadata:
 		}
 
 		if composedBlueprint, exists := templateData["_template/blueprint.yaml"]; exists {
-			if strings.Contains(string(composedBlueprint), "test-context") {
-				t.Error("Should not set metadata when blueprint has no components")
+			var blueprint blueprintv1alpha1.Blueprint
+			if err := yaml.Unmarshal(composedBlueprint, &blueprint); err != nil {
+				t.Fatalf("Failed to unmarshal blueprint: %v", err)
 			}
+			if blueprint.Metadata.Name != contextName {
+				t.Errorf("Expected metadata.name to be set to context name '%s' even when blueprint is empty, got '%s'", contextName, blueprint.Metadata.Name)
+			}
+			expectedDesc := fmt.Sprintf("Blueprint for %s context", contextName)
+			if blueprint.Metadata.Description != expectedDesc {
+				t.Errorf("Expected metadata.description to be '%s', got '%s'", expectedDesc, blueprint.Metadata.Description)
+			}
+		} else {
+			t.Error("Expected blueprint to be generated even when empty if context name is set")
 		}
 	})
 

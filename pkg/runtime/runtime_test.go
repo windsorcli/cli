@@ -1522,8 +1522,56 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 	})
 
+	t.Run("UsesDefaultConfigNoneWhenProviderIsNone", func(t *testing.T) {
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "test"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.IsLoadedFunc = func() bool {
+			return false
+		}
+		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
+			return false
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "provider" {
+				return "none"
+			}
+			return ""
+		}
+
+		var setDefaultConfig v1alpha1.Context
+		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+			setDefaultConfig = cfg
+			return nil
+		}
+
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			return nil
+		}
+
+		err := rt.ApplyConfigDefaults(nil)
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if setDefaultConfig.Provider == nil || *setDefaultConfig.Provider != "none" {
+			t.Error("Expected DefaultConfig_None to be set with provider 'none'")
+		}
+		if setDefaultConfig.Cluster != nil {
+			t.Error("Expected DefaultConfig_None to have no cluster config")
+		}
+		if setDefaultConfig.DNS != nil {
+			t.Error("Expected DefaultConfig_None to have no DNS config")
+		}
+		if setDefaultConfig.Terraform == nil || setDefaultConfig.Terraform.Enabled == nil || !*setDefaultConfig.Terraform.Enabled {
+			t.Error("Expected DefaultConfig_None to have terraform enabled")
+		}
+	})
+
 	t.Run("IgnoresEmptyFlagOverrides", func(t *testing.T) {
-		// Given a runtime in dev mode with empty flag overrides
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 		rt.ContextName = "local"
