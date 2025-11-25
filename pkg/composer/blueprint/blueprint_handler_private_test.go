@@ -334,9 +334,6 @@ func TestBaseBlueprintHandler_walkAndCollectTemplates(t *testing.T) {
 		if _, exists := templateData["blueprint"]; !exists {
 			t.Error("Expected 'blueprint' key to exist")
 		}
-		if _, exists := templateData["substitutions"]; !exists {
-			t.Error("Expected 'substitutions' key to exist")
-		}
 
 		if _, exists := templateData["_template/schema.yaml"]; !exists {
 			t.Error("Expected '_template/schema.yaml' key to exist")
@@ -2473,7 +2470,6 @@ kustomizations:
 		}
 	})
 
-
 	t.Run("HandlesRepositoryField", func(t *testing.T) {
 		handler := setup(t)
 		blueprintData := []byte(`kind: Blueprint
@@ -2660,7 +2656,7 @@ terraform:
 `)
 
 		templateData := map[string][]byte{
-			"blueprint.yaml":                    baseBlueprint,
+			"blueprint.yaml":                  baseBlueprint,
 			"_template/features/generic.yaml": genericFeature,
 		}
 
@@ -3630,7 +3626,7 @@ terraform:
       key2: "value"
 `)
 		templateData := map[string][]byte{
-			"blueprint.yaml":              baseBlueprint,
+			"blueprint.yaml":               baseBlueprint,
 			"_template/features/test.yaml": feature,
 		}
 		config := map[string]any{}
@@ -3673,7 +3669,7 @@ terraform:
       new: "value"
 `)
 		templateData := map[string][]byte{
-			"blueprint.yaml":              baseBlueprint,
+			"blueprint.yaml":               baseBlueprint,
 			"_template/features/test.yaml": feature,
 		}
 		config := map[string]any{}
@@ -3716,7 +3712,7 @@ kustomize:
       - new-component
 `)
 		templateData := map[string][]byte{
-			"blueprint.yaml":              baseBlueprint,
+			"blueprint.yaml":               baseBlueprint,
 			"_template/features/test.yaml": feature,
 		}
 		config := map[string]any{}
@@ -3761,7 +3757,7 @@ kustomize:
             key: ${value}
 `)
 		templateData := map[string][]byte{
-			"blueprint.yaml":              baseBlueprint,
+			"blueprint.yaml":               baseBlueprint,
 			"_template/features/test.yaml": feature,
 		}
 		config := map[string]any{
@@ -3790,7 +3786,6 @@ kustomize:
 		}
 	})
 
-
 	t.Run("HandlesInterpolateStringError", func(t *testing.T) {
 		handler := setup(t)
 		baseBlueprint := []byte(`kind: Blueprint
@@ -3808,7 +3803,7 @@ kustomize:
       - patch: ${invalid expression [[[
 `)
 		templateData := map[string][]byte{
-			"blueprint.yaml":              baseBlueprint,
+			"blueprint.yaml":               baseBlueprint,
 			"_template/features/test.yaml": feature,
 		}
 		config := map[string]any{}
@@ -5611,7 +5606,7 @@ metadata:
 		}
 
 		templateData := map[string][]byte{
-			"_metadata_name":        []byte("custom-artifact"),
+			"_metadata_name": []byte("custom-artifact"),
 			"_template/blueprint.yaml": []byte(`kind: Blueprint
 apiVersion: blueprints.windsorcli.dev/v1alpha1
 metadata:

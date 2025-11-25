@@ -441,17 +441,6 @@ func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 		}
 	}
 
-	if existingValues, exists := templateData["substitutions"]; exists {
-		var ociSubstitutionValues map[string]any
-		if err := b.shims.YamlUnmarshal(existingValues, &ociSubstitutionValues); err == nil {
-			if substitutionValues == nil {
-				substitutionValues = ociSubstitutionValues
-			} else {
-				substitutionValues = b.deepMergeMaps(ociSubstitutionValues, substitutionValues)
-			}
-		}
-	}
-
 	if len(substitutionValues) > 0 {
 		substitutionYAML, err := b.shims.YamlMarshal(substitutionValues)
 		if err != nil {
@@ -769,9 +758,8 @@ func (b *BaseBlueprintHandler) getKustomizations() []blueprintv1alpha1.Kustomiza
 
 // walkAndCollectTemplates recursively traverses the specified template directory and collects all files into the
 // templateData map. It adds the contents of each file by a normalized relative path key prefixed with "_template/".
-// Special files "schema.yaml", "blueprint.yaml", and "substitutions" are also stored under canonical keys
-// ("schema", "blueprint", "substitutions"). Directory entries are processed recursively. Any file or directory
-// traversal errors are returned.
+// Special files "schema.yaml" and "blueprint.yaml" are also stored under canonical keys ("schema", "blueprint").
+// Directory entries are processed recursively. Any file or directory traversal errors are returned.
 func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir string, templateData map[string][]byte) error {
 	entries, err := b.shims.ReadDir(templateDir)
 	if err != nil {
@@ -805,9 +793,6 @@ func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir string, templ
 				templateData[key] = content
 			case "blueprint.yaml":
 				templateData["blueprint"] = content
-				templateData[key] = content
-			case "substitutions":
-				templateData["substitutions"] = content
 				templateData[key] = content
 			default:
 				templateData[key] = content

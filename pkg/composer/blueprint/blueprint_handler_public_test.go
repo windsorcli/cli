@@ -3644,16 +3644,6 @@ terraform:
 			t.Fatalf("Failed to create template directory: %v", err)
 		}
 
-		substitutionsContent := []byte(`common:
-  key1: value1
-  key2: value2
-kustomization1:
-  key3: value3
-`)
-		if err := os.WriteFile(filepath.Join(mocks.Runtime.TemplateRoot, "substitutions"), substitutionsContent, 0644); err != nil {
-			t.Fatalf("Failed to write substitutions file: %v", err)
-		}
-
 		handler.shims.Stat = os.Stat
 		handler.shims.ReadDir = os.ReadDir
 		handler.shims.ReadFile = os.ReadFile
@@ -3664,69 +3654,31 @@ kustomization1:
 			return map[string]any{
 				"substitutions": map[string]any{
 					"common": map[string]any{
-						"key1": "merged-value1",
+						"key1": "value1",
+						"key2": "value2",
 					},
 					"kustomization1": map[string]any{
-						"key4": "value4",
+						"key3": "value3",
 					},
 				},
 			}, nil
 		}
 
-		templateData, err := handler.GetLocalTemplateData()
-
+		_, err = handler.GetLocalTemplateData()
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
+
 		if len(handler.commonSubstitutions) == 0 {
 			t.Error("Expected common substitutions to be processed")
 		}
 		if len(handler.featureSubstitutions) == 0 {
 			t.Error("Expected feature substitutions to be processed")
 		}
-		if _, exists := templateData["substitutions"]; !exists {
-			t.Error("Expected substitutions to be in templateData")
-		}
 	})
 
 	t.Run("HandlesSubstitutionUnmarshalError", func(t *testing.T) {
-		mocks := setupBlueprintMocks(t)
-		mockArtifactBuilder := artifact.NewMockArtifact()
-		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
-		if err != nil {
-			t.Fatalf("NewBlueprintHandler() failed: %v", err)
-		}
-		handler.shims = mocks.Shims
-
-		tmpDir := t.TempDir()
-		mocks.Runtime.ProjectRoot = tmpDir
-		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
-		mocks.Runtime.ConfigRoot = tmpDir
-
-		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
-			t.Fatalf("Failed to create template directory: %v", err)
-		}
-
-		invalidSubstitutions := []byte("invalid: yaml: [")
-		if err := os.WriteFile(filepath.Join(mocks.Runtime.TemplateRoot, "substitutions"), invalidSubstitutions, 0644); err != nil {
-			t.Fatalf("Failed to write substitutions file: %v", err)
-		}
-
-		handler.shims.Stat = os.Stat
-		handler.shims.ReadDir = os.ReadDir
-		handler.shims.ReadFile = os.ReadFile
-		handler.shims.YamlUnmarshal = yaml.Unmarshal
-		handler.shims.YamlMarshal = yaml.Marshal
-
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{}, nil
-		}
-
-		_, err = handler.GetLocalTemplateData()
-
-		if err != nil {
-			t.Fatalf("Expected no error (unmarshal error should be ignored), got %v", err)
-		}
+		t.Skip("Substitutions are now only in values.yaml (contextValues) or Features, not in files")
 	})
 
 	t.Run("HandlesSubstitutionMarshalError", func(t *testing.T) {
@@ -3775,7 +3727,7 @@ kustomization1:
 			t.Fatal("Expected error when YamlMarshal fails for substitutions")
 		}
 		if !strings.Contains(err.Error(), "failed to marshal substitution values") {
-			t.Errorf("Expected error about marshaling substitution values, got: %v", err)
+			t.Errorf("Expected error about marshaling substitutions, got: %v", err)
 		}
 	})
 }
