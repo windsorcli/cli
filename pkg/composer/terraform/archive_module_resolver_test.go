@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -978,67 +979,6 @@ func TestArchiveModuleResolver_extractModuleFromArchive(t *testing.T) {
 		}
 	})
 
-	t.Run("HandlesInvalidFileMode", func(t *testing.T) {
-		// Given a resolver with invalid file mode
-		resolver, _, tmpDir := setup(t)
-		archivePath := filepath.Join(tmpDir, "test-archive.tar.gz")
-
-		file, err := os.Create(archivePath)
-		if err != nil {
-			t.Fatalf("Failed to create archive file: %v", err)
-		}
-		gzipWriter := gzip.NewWriter(file)
-		tarWriter := tar.NewWriter(gzipWriter)
-
-		// Create a file with invalid mode (> 0777)
-		// Use 01000 (octal) = 512 (decimal), which when masked with 0777 becomes 0, which is valid
-		// Use 02000 (octal) = 1024 (decimal), which when masked with 0777 becomes 0, which is also valid
-		// Use 010000 (octal) = 4096 (decimal), which when masked with 0777 becomes 0
-		// Actually, we need a mode where (mode & 0777) > 0777, which is impossible
-		// The check is: modeValue < 0 || modeValue > 0777
-		// So we need modeValue to be > 0777, which means (mode & 0777) > 0777
-		// But mode & 0777 can never be > 0777, so this check will never fail for valid tar headers
-		// Let's use a negative mode value instead by setting a high bit
-		header := &tar.Header{
-			Name: "terraform/test-module/main.tf",
-			Mode: 07777, // This is 4095, which when masked with 0777 becomes 0777, which is valid
-			Size: 10,
-		}
-		// Actually, we can't create an invalid mode that passes the prefix check but fails the mode check
-		// The mode check is: modeValue := header.Mode & 0777; if modeValue < 0 || modeValue > 0777
-		// Since modeValue is the result of & 0777, it can never be > 0777
-		// So this test case is actually testing an impossible condition
-		// Let's skip it or test a different scenario
-		t.Skip("Invalid file mode test - mode & 0777 can never be > 0777, so this condition is unreachable")
-
-		if err := tarWriter.WriteHeader(header); err != nil {
-			t.Fatalf("Failed to write tar header: %v", err)
-		}
-		if _, err := tarWriter.Write([]byte("test data")); err != nil {
-			t.Fatalf("Failed to write tar content: %v", err)
-		}
-
-		tarWriter.Close()
-		gzipWriter.Close()
-		file.Close()
-
-		archiveData, err := os.ReadFile(archivePath)
-		if err != nil {
-			t.Fatalf("Failed to read archive: %v", err)
-		}
-
-		// When extracting
-		err = resolver.extractModuleFromArchive(archiveData, "terraform/test-module", "test-archive")
-
-		// Then it should return an error
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "invalid file mode") {
-			t.Errorf("Expected invalid file mode error, got: %v", err)
-		}
-	})
-
 	t.Run("HandlesChmodError", func(t *testing.T) {
 		// Given a resolver with chmod error
 		resolver, _, tmpDir := setup(t)
@@ -1115,14 +1055,19 @@ func TestArchiveModuleResolver_extractModuleFromArchive(t *testing.T) {
 		}
 
 		// And the .sh file should have executable permissions
+		// Note: On Windows, file permissions work differently and executable bits may not be preserved
 		scriptPath := filepath.Join(tmpDir, ".windsor", ".archive_extracted", "test-archive", "terraform", "test-module", "script.sh")
 		info, err := os.Stat(scriptPath)
 		if err != nil {
 			t.Errorf("Expected script.sh to exist, got error: %v", err)
 		} else {
 			mode := info.Mode()
-			if mode&0111 == 0 {
-				t.Errorf("Expected script.sh to have executable permissions, got mode: %o", mode)
+			// On Windows, executable permissions are not supported the same way
+			// Skip the permission check on Windows
+			if runtime.GOOS != "windows" {
+				if mode&0111 == 0 {
+					t.Errorf("Expected script.sh to have executable permissions, got mode: %o", mode)
+				}
 			}
 		}
 	})
@@ -1341,8 +1286,8 @@ func TestArchiveModuleResolver_processComponent(t *testing.T) {
 		resolver, _, tmpDir := setup(t)
 		archivePath := filepath.Join(tmpDir, "test-archive.tar.gz")
 		createTestArchive(t, archivePath, "terraform/test-module", map[string]string{
-			"terraform/test-module/main.tf":     `resource "test" "example" {}`,
-			"terraform/test-module/outputs.tf":  `output "test" {}`,
+			"terraform/test-module/main.tf":    `resource "test" "example" {}`,
+			"terraform/test-module/outputs.tf": `output "test" {}`,
 		})
 
 		component := blueprintv1alpha1.TerraformComponent{
@@ -1525,4 +1470,3 @@ func (m *mockTarReader) Next() (*tar.Header, error) {
 func (m *mockTarReader) Read(p []byte) (int, error) {
 	return 0, io.EOF
 }
-
