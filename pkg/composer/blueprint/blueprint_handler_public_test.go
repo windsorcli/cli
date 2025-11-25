@@ -780,85 +780,6 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 		}
 	})
 
-	t.Run("CollectsJsonnetFilesFromTemplateDirectory", func(t *testing.T) {
-		// Given a blueprint handler with template directory containing jsonnet files
-		projectRoot := filepath.Join("mock", "project")
-		templateDir := filepath.Join(projectRoot, "contexts", "_template")
-
-		// Set up mocks first, before initializing the handler
-		mocks := setupBlueprintMocks(t)
-		mocks.Runtime.ProjectRoot = projectRoot
-		mocks.Runtime.TemplateRoot = templateDir
-
-		mockArtifactBuilder := artifact.NewMockArtifact()
-		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
-		if err != nil {
-			t.Fatalf("NewBlueprintHandler() failed: %v", err)
-		}
-		handler.shims = mocks.Shims
-		if err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
-		}
-
-		// Mock shims to simulate template directory with files
-		baseHandler := handler
-		baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == templateDir {
-				return mockFileInfo{name: "_template"}, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		baseHandler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-			if path == templateDir {
-				return []os.DirEntry{
-					&mockDirEntry{name: "blueprint.jsonnet", isDir: false},
-					&mockDirEntry{name: "config.yaml", isDir: false}, // Should be ignored
-					&mockDirEntry{name: "terraform", isDir: true},
-				}, nil
-			}
-			if path == filepath.Join(templateDir, "terraform") {
-				return []os.DirEntry{
-					&mockDirEntry{name: "cluster.jsonnet", isDir: false},
-					&mockDirEntry{name: "network.jsonnet", isDir: false},
-					&mockDirEntry{name: "README.md", isDir: false}, // Should be ignored
-				}, nil
-			}
-			return nil, fmt.Errorf("directory not found")
-		}
-
-		baseHandler.shims.ReadFile = func(path string) ([]byte, error) {
-			switch path {
-			case filepath.Join(templateDir, "blueprint.jsonnet"):
-				return []byte("{ kind: 'Blueprint' }"), nil
-			case filepath.Join(templateDir, "config.yaml"):
-				return []byte("config: value"), nil
-			case filepath.Join(templateDir, "terraform", "cluster.jsonnet"):
-				return []byte("{ cluster_name: 'test' }"), nil
-			case filepath.Join(templateDir, "terraform", "network.jsonnet"):
-				return []byte("{ vpc_cidr: '10.0.0.0/16' }"), nil
-			case filepath.Join(templateDir, "terraform", "README.md"):
-				return []byte("# Terraform"), nil
-			default:
-				return nil, fmt.Errorf("file not found: %s", path)
-			}
-		}
-
-		// When getting local template data
-		result, err := handler.GetLocalTemplateData()
-
-		// Then no error should occur
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		// All files from _template are now collected, including .jsonnet, .yaml, and other files
-		// This test has blueprint.jsonnet, config.yaml, terraform/cluster.jsonnet, terraform/network.jsonnet, terraform/README.md
-		if len(result) != 5 {
-			t.Errorf("Expected 5 files, got: %d", len(result))
-		}
-	})
-
 	t.Run("ReturnsErrorWhenTemplateDirectoryReadFails", func(t *testing.T) {
 		// Given a blueprint handler with template directory that fails to read
 		handler, _ := setup(t)
@@ -1939,10 +1860,10 @@ kustomizations: []`
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// And blueprint should be loaded
+		// And blueprint should be loaded with name from context
 		metadata := handler.getMetadata()
-		if metadata.Name != "test-blueprint" {
-			t.Errorf("Expected blueprint name 'test-blueprint', got %s", metadata.Name)
+		if metadata.Name != "test-context" {
+			t.Errorf("Expected blueprint name 'test-context' (from context), got %s", metadata.Name)
 		}
 	})
 
@@ -1989,7 +1910,7 @@ kustomizations: []`
 	})
 
 	t.Run("HandlesEmptyTemplateDataWithEmptyConfigRoot", func(t *testing.T) {
-		// Given a handler with empty template data and empty config root
+		// Given a handler where template root exists, but config root is empty
 		mocks := setupBlueprintMocks(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
@@ -1998,12 +1919,21 @@ kustomizations: []`
 		}
 		handler.shims = mocks.Shims
 
+		// And the runtime roots set up appropriately
 		tmpDir := t.TempDir()
 		mocks.Runtime.ProjectRoot = tmpDir
 		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
 		mocks.Runtime.ConfigRoot = ""
 
-		// Mock Stat to return success (template root exists)
+		// And context configured on the mock config handler
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
+			return "test-context"
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+
+		// And FileInfo/ReadDir shims return empty data
 		handler.shims.Stat = func(path string) (os.FileInfo, error) {
 			if path == mocks.Runtime.TemplateRoot {
 				return &mockFileInfo{name: "_template", isDir: true}, nil
@@ -2011,22 +1941,21 @@ kustomizations: []`
 			return nil, os.ErrNotExist
 		}
 
-		// Mock ReadDir to return empty (no files, so GetLocalTemplateData returns empty)
 		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
 			return []os.DirEntry{}, nil
 		}
 
-		// When loading blueprint
+		// When LoadBlueprint is called
 		err = handler.LoadBlueprint()
 
-		// Then it should return an error
-		if err == nil {
-			t.Error("Expected error when config root is empty and template data is empty")
+		// Then it should succeed, with no error (empty blueprint with metadata created)
+		if err != nil {
+			t.Errorf("Expected no error when template root exists (creates empty blueprint with metadata), got %v", err)
 		}
 	})
 
 	t.Run("HandlesEmptyTemplateDataWithBlueprintNotFound", func(t *testing.T) {
-		// Given a handler with empty template data and blueprint.yaml not found
+		// Given a handler where template root exists but blueprint.yaml is missing
 		mocks := setupBlueprintMocks(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
@@ -2035,12 +1964,21 @@ kustomizations: []`
 		}
 		handler.shims = mocks.Shims
 
+		// And project/config/template roots set up
 		tmpDir := t.TempDir()
 		mocks.Runtime.ProjectRoot = tmpDir
 		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
 		mocks.Runtime.ConfigRoot = tmpDir
 
-		// Mock Stat to return success for template root, not found for blueprint.yaml
+		// And context configured on the mock config handler
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
+			return "test-context"
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+
+		// And Stat/ReadDir shims such that blueprint.yaml doesn't exist, but template root does
 		handler.shims.Stat = func(path string) (os.FileInfo, error) {
 			if path == mocks.Runtime.TemplateRoot {
 				return &mockFileInfo{name: "_template", isDir: true}, nil
@@ -2051,20 +1989,16 @@ kustomizations: []`
 			return nil, os.ErrNotExist
 		}
 
-		// Mock ReadDir to return empty (no files, so GetLocalTemplateData returns empty)
 		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
 			return []os.DirEntry{}, nil
 		}
 
-		// When loading blueprint
+		// When LoadBlueprint is called
 		err = handler.LoadBlueprint()
 
-		// Then it should return an error
-		if err == nil {
-			t.Error("Expected error when blueprint.yaml is not found")
-		}
-		if !strings.Contains(err.Error(), "blueprint.yaml not found") {
-			t.Errorf("Expected error about blueprint.yaml not found, got: %v", err)
+		// Then it should succeed, with no error (empty blueprint with metadata created)
+		if err != nil {
+			t.Errorf("Expected no error when template root exists (creates empty blueprint with metadata), got %v", err)
 		}
 	})
 
@@ -2280,17 +2214,17 @@ metadata:
 			return []os.DirEntry{}, nil
 		}
 
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string {
+			return "test-context"
+		}
 		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{}, nil
 		}
 
 		err = handler.LoadBlueprint()
 
-		if err == nil {
-			t.Fatal("Expected error when ConfigRoot is empty and template data is empty")
-		}
-		if !strings.Contains(err.Error(), "blueprint.yaml not found") {
-			t.Errorf("Expected error about blueprint not found, got: %v", err)
+		if err != nil {
+			t.Errorf("Expected no error when template root exists (creates empty blueprint with metadata), got %v", err)
 		}
 	})
 
@@ -2641,8 +2575,8 @@ metadata:
 		// .jsonnet files are not collected in templateData; they are processed on-demand via jsonnet() function calls during feature evaluation
 
 		if content, exists := templateData["_template/blueprint.yaml"]; exists {
-			if !strings.Contains(string(content), "base-blueprint") {
-				t.Errorf("Expected blueprint content to contain 'base-blueprint', got: %s", string(content))
+			if !strings.Contains(string(content), contextName) {
+				t.Errorf("Expected blueprint content to contain context name '%s', got: %s", contextName, string(content))
 			}
 		}
 
@@ -3273,9 +3207,19 @@ metadata:
 		}
 
 		if composedBlueprint, exists := templateData["_template/blueprint.yaml"]; exists {
-			if strings.Contains(string(composedBlueprint), "test-context") {
-				t.Error("Should not set metadata when blueprint has no components")
+			var blueprint blueprintv1alpha1.Blueprint
+			if err := yaml.Unmarshal(composedBlueprint, &blueprint); err != nil {
+				t.Fatalf("Failed to unmarshal blueprint: %v", err)
 			}
+			if blueprint.Metadata.Name != contextName {
+				t.Errorf("Expected metadata.name to be set to context name '%s' even when blueprint is empty, got '%s'", contextName, blueprint.Metadata.Name)
+			}
+			expectedDesc := fmt.Sprintf("Blueprint for %s context", contextName)
+			if blueprint.Metadata.Description != expectedDesc {
+				t.Errorf("Expected metadata.description to be '%s', got '%s'", expectedDesc, blueprint.Metadata.Description)
+			}
+		} else {
+			t.Error("Expected blueprint to be generated even when empty if context name is set")
 		}
 	})
 

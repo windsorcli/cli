@@ -2638,6 +2638,46 @@ terraform:
 		}
 	})
 
+	t.Run("SkipsInputEvaluationWhenFeatureConditionDoesNotMatch", func(t *testing.T) {
+		handler := setup(t)
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+`)
+
+		genericFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: generic-feature
+when: provider == "generic"
+terraform:
+  - path: cluster/talos
+    inputs:
+      cluster_endpoint: ${cluster.endpoint ?? "https://localhost:6443"}
+      controlplanes: ${values(cluster.controlplanes.nodes)}
+`)
+
+		templateData := map[string][]byte{
+			"blueprint.yaml":                    baseBlueprint,
+			"_template/features/generic.yaml": genericFeature,
+		}
+
+		config := map[string]any{
+			"provider": "none",
+		}
+
+		err := handler.processFeatures(templateData, config)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(handler.blueprint.TerraformComponents) != 0 {
+			t.Errorf("Expected 0 terraform components when feature condition doesn't match, got %d", len(handler.blueprint.TerraformComponents))
+		}
+	})
+
 	t.Run("HandlesProcessBlueprintDataError", func(t *testing.T) {
 		// Given a handler with invalid blueprint data
 		handler := setup(t)

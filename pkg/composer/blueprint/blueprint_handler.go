@@ -419,13 +419,13 @@ func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 		return nil, fmt.Errorf("failed to process features: %w", err)
 	}
 
-	if len(b.blueprint.TerraformComponents) > 0 || len(b.blueprint.Kustomizations) > 0 {
-		contextName := b.runtime.ConfigHandler.GetContext()
-		if contextName != "" {
-			b.blueprint.Metadata.Name = contextName
-			b.blueprint.Metadata.Description = fmt.Sprintf("Blueprint for %s context", contextName)
-		}
+	contextName := b.runtime.ConfigHandler.GetContext()
+	if contextName != "" {
+		b.blueprint.Metadata.Name = contextName
+		b.blueprint.Metadata.Description = fmt.Sprintf("Blueprint for %s context", contextName)
+	}
 
+	if len(b.blueprint.TerraformComponents) > 0 || len(b.blueprint.Kustomizations) > 0 || b.blueprint.Metadata.Name != "" {
 		composedBlueprintYAML, err := b.shims.YamlMarshal(b.blueprint)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal composed blueprint: %w", err)

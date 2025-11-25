@@ -19,12 +19,18 @@ import (
 	"github.com/windsorcli/cli/pkg/constants"
 )
 
-// DefaultConfig returns the default configuration
+// DefaultConfig returns the default configuration for non-dev contexts
+// Uses minimal config since non-dev contexts default to provider "none"
 var DefaultConfig = v1alpha1.Context{
-	Provider:  ptrString("generic"),
-	Cluster:   commonClusterConfig.Copy(),
+	Provider:  ptrString("none"),
 	Terraform: commonTerraformConfig.Copy(),
-	DNS:       commonDNSConfig.Copy(),
+}
+
+// DefaultConfig_None returns a minimal default configuration for provider "none"
+// with terraform enabled but no cluster or DNS settings
+var DefaultConfig_None = v1alpha1.Context{
+	Provider:  ptrString("none"),
+	Terraform: commonTerraformConfig.Copy(),
 }
 
 var commonDockerConfig = docker.DockerConfig{
@@ -112,31 +118,6 @@ var commonClusterConfig_WithHostPorts = cluster.ClusterConfig{
 		HostPorts: []string{"8080:30080/tcp", "8443:30443/tcp", "9292:30292/tcp", "8053:30053/udp"},
 		Volumes:   []string{"${WINDSOR_PROJECT_ROOT}/.volumes:/var/local"},
 	},
-}
-
-// Preserve the original commonClusterConfig for backwards compatibility with DefaultConfig
-var commonClusterConfig = cluster.ClusterConfig{
-	Enabled: ptrBool(true),
-	Driver:  ptrString("talos"),
-	ControlPlanes: cluster.NodeGroupConfig{
-		Count:  ptrInt(1),
-		CPU:    ptrInt(constants.DefaultTalosControlPlaneCPU),
-		Memory: ptrInt(constants.DefaultTalosControlPlaneRAM),
-		Nodes:  make(map[string]cluster.NodeConfig),
-	},
-	Workers: cluster.NodeGroupConfig{
-		Count:     ptrInt(1),
-		CPU:       ptrInt(constants.DefaultTalosWorkerCPU),
-		Memory:    ptrInt(constants.DefaultTalosWorkerRAM),
-		Nodes:     make(map[string]cluster.NodeConfig),
-		HostPorts: []string{},
-		Volumes:   []string{"${WINDSOR_PROJECT_ROOT}/.volumes:/var/local"},
-	},
-}
-
-var commonDNSConfig = dns.DNSConfig{
-	Enabled: ptrBool(true),
-	Domain:  ptrString("test"),
 }
 
 var DefaultConfig_Localhost = v1alpha1.Context{

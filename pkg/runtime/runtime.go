@@ -627,12 +627,12 @@ func (rt *Runtime) incrementBuildID(existingBuildID, currentDate string) (string
 	return fmt.Sprintf("%s.%s.%d", existingDate, existingRandom, existingCounter), nil
 }
 
-// ApplyConfigDefaults sets default configuration values based on context name, dev mode, and VM driver.
-// It determines the appropriate default configuration (localhost, full, or standard) based on the VM driver
-// and dev mode settings. For dev mode, it also sets the provider to "generic" if not already set.
-// This method should be called before loading configuration from disk to ensure defaults are applied first.
-// The context name is read from rt.ContextName. Optional flagOverrides can be provided to check vm.driver
-// before it's set in config. Returns an error if any configuration operation fails.
+// ApplyConfigDefaults applies base configuration defaults if no config is currently loaded.
+// It sets "dev" mode in config if the context is a dev context, chooses a default VM driver
+// (optionally honoring a value from flagOverrides), and sets provider to "generic" in dev mode if not already set.
+// After those, it loads a default configuration set, choosing among standard, full, localhost, or none
+// defaults depending on provider, dev mode, and vm.driver.
+// This must be called before loading from disk to ensure proper defaulting. Returns error on config operation failure.
 func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 	contextName := rt.ContextName
 	if contextName == "" {
@@ -672,7 +672,24 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 			}
 		}
 
-		if vmDriver == "docker-desktop" {
+		if isDevMode && rt.ConfigHandler.GetString("vm.driver") == "" && vmDriver != "" {
+			if err := rt.ConfigHandler.Set("vm.driver", vmDriver); err != nil {
+				return fmt.Errorf("failed to set vm.driver: %w", err)
+			}
+		}
+
+		if existingProvider == "" && isDevMode {
+			if err := rt.ConfigHandler.Set("provider", "generic"); err != nil {
+				return fmt.Errorf("failed to set provider from context name: %w", err)
+			}
+		}
+
+		provider := rt.ConfigHandler.GetString("provider")
+		if provider == "none" {
+			if err := rt.ConfigHandler.SetDefault(config.DefaultConfig_None); err != nil {
+				return fmt.Errorf("failed to set default config: %w", err)
+			}
+		} else if vmDriver == "docker-desktop" {
 			if err := rt.ConfigHandler.SetDefault(config.DefaultConfig_Localhost); err != nil {
 				return fmt.Errorf("failed to set default config: %w", err)
 			}
@@ -683,18 +700,6 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 		} else {
 			if err := rt.ConfigHandler.SetDefault(config.DefaultConfig); err != nil {
 				return fmt.Errorf("failed to set default config: %w", err)
-			}
-		}
-
-		if isDevMode && rt.ConfigHandler.GetString("vm.driver") == "" && vmDriver != "" {
-			if err := rt.ConfigHandler.Set("vm.driver", vmDriver); err != nil {
-				return fmt.Errorf("failed to set vm.driver: %w", err)
-			}
-		}
-
-		if existingProvider == "" && isDevMode {
-			if err := rt.ConfigHandler.Set("provider", "generic"); err != nil {
-				return fmt.Errorf("failed to set provider from context name: %w", err)
 			}
 		}
 	}
