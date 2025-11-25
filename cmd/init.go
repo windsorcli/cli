@@ -46,19 +46,35 @@ var initCmd = &cobra.Command{
 			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
 		}
 
+		contextName := "local"
+		changingContext := len(args) > 0
+		if changingContext {
+			contextName = args[0]
+
+			tempRt, err := runtime.NewRuntime(rtOpts...)
+			if err != nil {
+				return fmt.Errorf("failed to initialize context: %w", err)
+			}
+
+			if _, err := tempRt.Shell.WriteResetToken(); err != nil {
+				return fmt.Errorf("failed to write reset token: %w", err)
+			}
+
+			if err := tempRt.ConfigHandler.SetContext(contextName); err != nil {
+				return fmt.Errorf("failed to set context: %w", err)
+			}
+		}
+
 		rt, err := runtime.NewRuntime(rtOpts...)
 		if err != nil {
-			return fmt.Errorf("failed to initialize context: %w", err)
+			return fmt.Errorf("failed to initialize runtime: %w", err)
 		}
 
 		if err := rt.Shell.AddCurrentDirToTrustedFile(); err != nil {
 			return fmt.Errorf("failed to add current directory to trusted file: %w", err)
 		}
 
-		contextName := "local"
-		if len(args) > 0 {
-			contextName = args[0]
-		} else {
+		if !changingContext {
 			currentContext := rt.ConfigHandler.GetContext()
 			if currentContext != "" && currentContext != "local" {
 				contextName = currentContext
@@ -135,8 +151,10 @@ var initCmd = &cobra.Command{
 			return err
 		}
 
-		if err := rt.HandleSessionReset(); err != nil {
-			return fmt.Errorf("failed to handle session reset: %w", err)
+		if !changingContext {
+			if err := rt.HandleSessionReset(); err != nil {
+				return fmt.Errorf("failed to handle session reset: %w", err)
+			}
 		}
 
 		var blueprintURL []string
@@ -150,16 +168,6 @@ var initCmd = &cobra.Command{
 		hasSetFlags := len(initSetFlags) > 0
 		if err := proj.Runtime.ConfigHandler.SaveConfig(hasSetFlags); err != nil {
 			return fmt.Errorf("failed to save configuration: %w", err)
-		}
-
-		if len(args) > 0 {
-			if _, err := rt.Shell.WriteResetToken(); err != nil {
-				return fmt.Errorf("failed to write reset token: %w", err)
-			}
-
-			if err := rt.ConfigHandler.SetContext(contextName); err != nil {
-				return fmt.Errorf("failed to set context: %w", err)
-			}
 		}
 
 		fmt.Fprintln(os.Stderr, "Initialization successful")
