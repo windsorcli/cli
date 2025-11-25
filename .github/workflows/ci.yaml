@@ -44,7 +44,7 @@ jobs:
       - name: Install Aqua
         uses: aquaproj/aqua-installer@11dd79b4e498d471a9385aa9fb7f62bb5f52a73c # v4.0.4
         with:
-          aqua_version: v2.55.1
+          aqua_version: v2.55.2
 
       - name: Install tools
         run: aqua install
@@ -109,7 +109,7 @@ jobs:
       - name: Install Aqua
         uses: aquaproj/aqua-installer@11dd79b4e498d471a9385aa9fb7f62bb5f52a73c # v4.0.4
         with:
-          aqua_version: v2.55.1
+          aqua_version: v2.55.2
 
       - name: Install tools
         run: aqua install
