@@ -6,7 +6,7 @@ import (
 
 // MockBlueprintHandler is a mock implementation of BlueprintHandler interface for testing
 type MockBlueprintHandler struct {
-	LoadBlueprintFunc            func() error
+	LoadBlueprintFunc            func(...string) error
 	WriteFunc                    func(overwrite ...bool) error
 	GetTerraformComponentsFunc   func() []blueprintv1alpha1.TerraformComponent
 	WaitForKustomizationsFunc    func(message string, names ...string) error
@@ -31,9 +31,9 @@ func NewMockBlueprintHandler() *MockBlueprintHandler {
 // =============================================================================
 
 // LoadBlueprint calls the mock LoadBlueprintFunc if set, otherwise returns nil
-func (m *MockBlueprintHandler) LoadBlueprint() error {
+func (m *MockBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 	if m.LoadBlueprintFunc != nil {
-		return m.LoadBlueprintFunc()
+		return m.LoadBlueprintFunc(blueprintURL...)
 	}
 	return nil
 }

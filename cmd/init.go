@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
@@ -112,9 +113,20 @@ var initCmd = &cobra.Command{
 			}
 		}
 
-		proj, err := project.NewProject(contextName, &project.Project{
-			Runtime: rt,
-		})
+		var projectOpts *project.Project
+		if composerOverrideVal := cmd.Context().Value(composerOverridesKey); composerOverrideVal != nil {
+			compOverride := composerOverrideVal.(*composer.Composer)
+			projectOpts = &project.Project{
+				Runtime:  rt,
+				Composer: compOverride,
+			}
+		} else {
+			projectOpts = &project.Project{
+				Runtime: rt,
+			}
+		}
+
+		proj, err := project.NewProject(contextName, projectOpts)
 		if err != nil {
 			return err
 		}
@@ -127,7 +139,11 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("failed to handle session reset: %w", err)
 		}
 
-		if err := proj.Initialize(initReset); err != nil {
+		var blueprintURL []string
+		if initBlueprint != "" {
+			blueprintURL = []string{initBlueprint}
+		}
+		if err := proj.Initialize(initReset, blueprintURL...); err != nil {
 			return err
 		}
 

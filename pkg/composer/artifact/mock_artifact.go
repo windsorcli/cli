@@ -47,8 +47,11 @@ func (m *MockArtifact) Write(outputPath string, tag string) (string, error) {
 	return "", nil
 }
 
-// Push calls the mock PushFunc if set, otherwise returns nil
+// Push calls Bundle() first, then calls the mock PushFunc if set, otherwise returns nil
 func (m *MockArtifact) Push(registryBase string, repoName string, tag string) error {
+	if err := m.Bundle(); err != nil {
+		return err
+	}
 	if m.PushFunc != nil {
 		return m.PushFunc(registryBase, repoName, tag)
 	}

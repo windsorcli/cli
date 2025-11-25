@@ -72,7 +72,7 @@ func NewComposer(rt *runtime.Runtime, opts ...*Composer) *Composer {
 	}
 
 	if composer.TerraformResolver == nil {
-		composer.TerraformResolver = terraform.NewStandardModuleResolver(rt, composer.BlueprintHandler)
+		composer.TerraformResolver = terraform.NewCompositeModuleResolver(rt, composer.BlueprintHandler, composer.ArtifactBuilder)
 	}
 
 	return composer
@@ -123,16 +123,14 @@ func (r *Composer) Push(registryURL string) (string, error) {
 // Generate processes and deploys the complete project infrastructure.
 // It initializes all core resources, processes blueprints, and handles terraform modules
 // for the project. The optional overwrite parameter determines whether existing files
-// should be overwritten during blueprint processing. This is the main deployment method.
+// should be overwritten during blueprint processing. The optional blueprintURL parameter
+// specifies the blueprint artifact to load (OCI URL or local .tar.gz path). If not provided,
+// LoadBlueprint will use the default blueprint URL. This is the main deployment method.
 // Returns an error if any initialization or processing step fails.
 func (r *Composer) Generate(overwrite ...bool) error {
 	shouldOverwrite := false
 	if len(overwrite) > 0 {
 		shouldOverwrite = overwrite[0]
-	}
-
-	if err := r.BlueprintHandler.LoadBlueprint(); err != nil {
-		return fmt.Errorf("failed to load blueprint data: %w", err)
 	}
 
 	if err := r.BlueprintHandler.Write(shouldOverwrite); err != nil {

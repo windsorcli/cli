@@ -8,7 +8,13 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/composer"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/project"
+	"github.com/windsorcli/cli/pkg/provisioner"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
+	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
@@ -27,7 +33,33 @@ func setupDownTest(t *testing.T, opts ...*SetupOptions) *DownMocks {
 
 	baseMocks := setupMocks(t, opts...)
 
-	proj, err := project.NewProject("", &project.Project{Runtime: baseMocks.Runtime})
+	mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
+	mockBlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
+		return &blueprintv1alpha1.Blueprint{}
+	}
+
+	mockKubernetesManager := kubernetes.NewMockKubernetesManager()
+	mockKubernetesManager.DeleteBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
+		return nil
+	}
+
+	mockTerraformStack := terraforminfra.NewMockStack()
+	mockTerraformStack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
+		return nil
+	}
+
+	comp := composer.NewComposer(baseMocks.Runtime)
+	comp.BlueprintHandler = mockBlueprintHandler
+	mockProvisioner := provisioner.NewProvisioner(baseMocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
+		TerraformStack:    mockTerraformStack,
+		KubernetesManager: mockKubernetesManager,
+	})
+
+	proj, err := project.NewProject("", &project.Project{
+		Runtime:     baseMocks.Runtime,
+		Composer:    comp,
+		Provisioner: mockProvisioner,
+	})
 	if err != nil {
 		t.Fatalf("Failed to create project: %v", err)
 	}

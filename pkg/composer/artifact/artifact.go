@@ -3,9 +3,9 @@ package artifact
 import (
 	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"fmt"
 	"io"
-	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -142,7 +142,7 @@ func NewArtifactBuilder(rt *runtime.Runtime) *ArtifactBuilder {
 // Accepts optional tag in "name:version" format to override metadata.yaml values.
 // Tag takes precedence over existing metadata. If no metadata.yaml exists, tag is required.
 // OutputPath can be file or directory - generates filename from metadata if directory.
-// Creates compressed tar.gz with all files plus generated metadata.yaml at root.
+// Creates compressed tar.gz with all files including enriched metadata.yaml.
 // Returns the final output path of the created artifact file.
 func (a *ArtifactBuilder) Write(outputPath string, tag string) (string, error) {
 	if err := a.Bundle(); err != nil {
@@ -171,7 +171,7 @@ func (a *ArtifactBuilder) Write(outputPath string, tag string) (string, error) {
 // addFile stores a file with the specified path and content in the artifact for later packaging.
 // Files are held in memory until create() or Push() is called. The path becomes the relative
 // path within the generated tar.gz archive. Multiple calls with the same path will overwrite
-// the previous content. Special handling exists for "_templates/metadata.yaml" during packaging.
+// the previous content. Special handling exists for "_template/metadata.yaml" during packaging.
 func (a *ArtifactBuilder) addFile(path string, content []byte, mode os.FileMode) error {
 	a.files[path] = FileInfo{
 		Content: content,
@@ -182,10 +182,14 @@ func (a *ArtifactBuilder) addFile(path string, content []byte, mode os.FileMode)
 
 // Push uploads the artifact to an OCI registry with explicit blob handling to prevent MANIFEST_BLOB_UNKNOWN errors.
 // Implements robust blob upload strategy recommended by Red Hat for resolving registry upload issues.
-// Creates tarball in memory, constructs OCI image, uploads blobs explicitly, then uploads manifest.
+// Bundles files from the project, creates tarball in memory, constructs OCI image, uploads blobs explicitly, then uploads manifest.
 // Uses authenticated keychain for registry access and retry backoff for resilience.
 // Registry base should be the base URL (e.g., "ghcr.io/namespace"), repoName the repository name, tag the version.
 func (a *ArtifactBuilder) Push(registryBase string, repoName string, tag string) error {
+	if err := a.Bundle(); err != nil {
+		return fmt.Errorf("failed to bundle files: %w", err)
+	}
+
 	finalName, tagName, metadata, err := a.parseTagAndResolveMetadata(repoName, tag)
 	if err != nil {
 		return err
@@ -333,41 +337,58 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
 	return ociArtifacts, nil
 }
 
-// GetTemplateData extracts and returns template data from an OCI artifact reference.
-// Downloads and caches the OCI artifact, decompresses the tar.gz payload, and returns a map
-// with forward-slash file paths as keys and file contents as values. The returned map always includes
-// "ociUrl" (the original OCI reference), "name" (from metadata.yaml if present), and "values" (from values.yaml if present).
-// Only .jsonnet files are included as template data. Returns an error on invalid reference, download failure, or extraction error.
-func (a *ArtifactBuilder) GetTemplateData(ociRef string) (map[string][]byte, error) {
-	if !strings.HasPrefix(ociRef, "oci://") {
-		return nil, fmt.Errorf("invalid OCI reference: %s", ociRef)
+// GetTemplateData extracts and returns template data from an OCI artifact reference or local .tar.gz file.
+// For OCI references (oci://...), downloads and caches the artifact. For local .tar.gz files, reads from disk.
+// Decompresses the tar.gz payload and returns a map with all files from the _template directory using their relative paths as keys.
+// Files are stored with their relative paths from _template (e.g., "_template/schema.yaml", "_template/blueprint.yaml", "_template/features/base.yaml").
+// All files from _template/ are included - no filtering is performed.
+// The metadata name is extracted and stored in the returned map with the key "_metadata_name".
+// Returns an error on invalid reference, download failure, file read failure, or extraction error.
+func (a *ArtifactBuilder) GetTemplateData(blueprintRef string) (map[string][]byte, error) {
+	var tarData []byte
+
+	if strings.HasPrefix(blueprintRef, "oci://") {
+		registry, repository, tag, err := a.parseOCIRef(blueprintRef)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse OCI reference %s: %w", blueprintRef, err)
+		}
+
+		artifacts, err := a.Pull([]string{blueprintRef})
+		if err != nil {
+			return nil, fmt.Errorf("failed to pull OCI artifact %s: %w", blueprintRef, err)
+		}
+
+		cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+		var exists bool
+		tarData, exists = artifacts[cacheKey]
+		if !exists {
+			return nil, fmt.Errorf("failed to retrieve artifact data for %s", blueprintRef)
+		}
+	} else if strings.HasSuffix(blueprintRef, ".tar.gz") {
+		compressedData, err := a.shims.ReadFile(blueprintRef)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read local artifact file %s: %w", blueprintRef, err)
+		}
+
+		gzipReader, err := gzip.NewReader(bytes.NewReader(compressedData))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create gzip reader for %s: %w", blueprintRef, err)
+		}
+		defer gzipReader.Close()
+
+		tarData, err = a.shims.ReadAll(gzipReader)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decompress artifact file %s: %w", blueprintRef, err)
+		}
+	} else {
+		return nil, fmt.Errorf("invalid blueprint reference: %s (must be oci://... or path to .tar.gz file)", blueprintRef)
 	}
 
-	registry, repository, tag, err := a.parseOCIRef(ociRef)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse OCI reference %s: %w", ociRef, err)
-	}
+	artifactData := make(map[string][]byte)
+	tarReader := tar.NewReader(bytes.NewReader(tarData))
 
-	artifacts, err := a.Pull([]string{ociRef})
-	if err != nil {
-		return nil, fmt.Errorf("failed to pull OCI artifact %s: %w", ociRef, err)
-	}
-
-	cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
-	artifactData, exists := artifacts[cacheKey]
-	if !exists {
-		return nil, fmt.Errorf("failed to retrieve artifact data for %s", ociRef)
-	}
-
-	templateData := make(map[string][]byte)
-	templateData["ociUrl"] = []byte(ociRef)
-
-	tarReader := tar.NewReader(bytes.NewReader(artifactData))
-
-	var metadataName string
-	jsonnetFiles := make(map[string][]byte)
-	var hasMetadata, hasBlueprintJsonnet bool
-	var schemaContent []byte
+	var hasMetadata bool
+	var metadata BlueprintMetadata
 
 	for {
 		header, err := tarReader.Next()
@@ -381,55 +402,52 @@ func (a *ArtifactBuilder) GetTemplateData(ociRef string) (map[string][]byte, err
 			continue
 		}
 		name := filepath.ToSlash(header.Name)
-		switch {
-		case name == "metadata.yaml":
+
+		if name == "metadata.yaml" {
 			hasMetadata = true
 			content, err := io.ReadAll(tarReader)
 			if err != nil {
 				return nil, fmt.Errorf("failed to read metadata.yaml: %w", err)
 			}
-			var metadata BlueprintMetadata
 			if err := a.shims.YamlUnmarshal(content, &metadata); err != nil {
 				return nil, fmt.Errorf("failed to parse metadata.yaml: %w", err)
 			}
 			if err := ValidateCliVersion(constants.Version, metadata.CliVersion); err != nil {
 				return nil, err
 			}
-			metadataName = metadata.Name
-		case name == "_template/schema.yaml":
-			schemaContent, err = io.ReadAll(tarReader)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read _template/schema.yaml: %w", err)
-			}
-		case strings.HasSuffix(name, ".jsonnet"):
-			normalized := strings.TrimPrefix(name, "_template/")
-			if normalized == "blueprint.jsonnet" {
-				hasBlueprintJsonnet = true
-			}
-			content, err := io.ReadAll(tarReader)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read file %s: %w", name, err)
-			}
-			jsonnetFiles[filepath.ToSlash(normalized)] = content
+			continue
 		}
+
+		if !strings.HasPrefix(name, "_template/") {
+			continue
+		}
+
+		content, err := io.ReadAll(tarReader)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read file %s: %w", name, err)
+		}
+
+		artifactData[name] = content
 	}
 
 	if !hasMetadata {
 		return nil, fmt.Errorf("OCI artifact missing required metadata.yaml file")
 	}
-	if !hasBlueprintJsonnet {
-		return nil, fmt.Errorf("OCI artifact missing required _template/blueprint.jsonnet file")
+
+	if metadata.Name != "" {
+		artifactData["_metadata_name"] = []byte(metadata.Name)
+	}
+	if metadata.Version != "" {
+		artifactData["_metadata_version"] = []byte(metadata.Version)
+	}
+	if metadata.Description != "" {
+		artifactData["_metadata_description"] = []byte(metadata.Description)
+	}
+	if metadata.Author != "" {
+		artifactData["_metadata_author"] = []byte(metadata.Author)
 	}
 
-	templateData["name"] = []byte(metadataName)
-
-	if schemaContent != nil {
-		templateData["schema"] = schemaContent
-	}
-
-	maps.Copy(templateData, jsonnetFiles)
-
-	return templateData, nil
+	return artifactData, nil
 }
 
 // Bundle traverses the project directories and collects all relevant files to be
@@ -753,7 +771,7 @@ func (a *ArtifactBuilder) parseTagAndResolveMetadata(repoName, tag string) (stri
 		}
 	}
 
-	metadataFileInfo, hasMetadata := a.files["_templates/metadata.yaml"]
+	metadataFileInfo, hasMetadata := a.files["_template/metadata.yaml"]
 	var input BlueprintMetadataInput
 
 	if hasMetadata {
@@ -790,7 +808,7 @@ func (a *ArtifactBuilder) parseTagAndResolveMetadata(repoName, tag string) (stri
 		return "", "", nil, fmt.Errorf("version is required: provide via tag parameter or metadata.yaml")
 	}
 
-	metadata, err := a.generateMetadataWithNameVersion(input, finalName, finalVersion)
+	metadata, err := a.generateMetadata(input, finalName, finalVersion)
 	if err != nil {
 		return "", "", nil, fmt.Errorf("failed to generate metadata: %w", err)
 	}
@@ -798,79 +816,49 @@ func (a *ArtifactBuilder) parseTagAndResolveMetadata(repoName, tag string) (stri
 	return finalName, finalVersion, metadata, nil
 }
 
-// createTarballInMemory builds a compressed tar.gz archive in memory and returns the complete content as bytes.
-// Creates a gzip-compressed tar archive containing all stored files plus generated metadata.yaml.
-// The metadata.yaml file is always written first at the root of the archive.
-// Skips any existing "_templates/metadata.yaml" file to avoid duplication.
-// All files are written with 0644 permissions in the archive.
-// Returns the complete archive as a byte slice for in-memory operations like OCI push.
-func (a *ArtifactBuilder) createTarballInMemory(metadata []byte) ([]byte, error) {
-	var buf bytes.Buffer
-
-	gzipWriter := a.shims.NewGzipWriter(&buf)
-	defer gzipWriter.Close()
-
-	tarWriter := a.shims.NewTarWriter(gzipWriter)
-	defer tarWriter.Close()
-
-	metadataHeader := &tar.Header{
-		Name: "metadata.yaml",
-		Mode: 0644,
-		Size: int64(len(metadata)),
+// generateMetadata creates enriched metadata by merging input metadata with generated values.
+// Input metadata from _template/metadata.yaml provides base values, which are then enriched with git provenance,
+// builder info, and timestamp. Generated values (name, version, timestamp, git, builder) overwrite input values.
+// Returns marshaled YAML bytes ready for inclusion in tar archives as metadata.yaml at the root.
+func (a *ArtifactBuilder) generateMetadata(input BlueprintMetadataInput, name, version string) ([]byte, error) {
+	gitProvenance, err := a.getGitProvenance()
+	if err != nil {
+		gitProvenance = GitProvenance{}
 	}
 
-	if err := tarWriter.WriteHeader(metadataHeader); err != nil {
-		return nil, fmt.Errorf("failed to write metadata header: %w", err)
+	builderInfo, err := a.getBuilderInfo()
+	if err != nil {
+		builderInfo = BuilderInfo{}
 	}
 
-	if _, err := tarWriter.Write(metadata); err != nil {
-		return nil, fmt.Errorf("failed to write metadata: %w", err)
+	metadata := BlueprintMetadata{
+		Name:        name,
+		Description: input.Description,
+		Version:     version,
+		Author:      input.Author,
+		Tags:        input.Tags,
+		Homepage:    input.Homepage,
+		License:     input.License,
+		Timestamp:   time.Now().UTC().Format(time.RFC3339),
+		Git:         gitProvenance,
+		Builder:     builderInfo,
 	}
 
-	for path, fileInfo := range a.files {
-		if path == "_templates/metadata.yaml" {
-			continue
-		}
-
-		header := &tar.Header{
-			Name: path,
-			Mode: int64(fileInfo.Mode),
-			Size: int64(len(fileInfo.Content)),
-		}
-
-		if err := tarWriter.WriteHeader(header); err != nil {
-			return nil, fmt.Errorf("failed to write header for %s: %w", path, err)
-		}
-
-		if _, err := tarWriter.Write(fileInfo.Content); err != nil {
-			return nil, fmt.Errorf("failed to write content for %s: %w", path, err)
-		}
+	if input.CliVersion != "" {
+		metadata.CliVersion = input.CliVersion
 	}
 
-	if err := tarWriter.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close tar writer: %w", err)
-	}
-	if err := gzipWriter.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close gzip writer: %w", err)
-	}
-
-	return buf.Bytes(), nil
+	return a.shims.YamlMarshal(metadata)
 }
 
-// createTarballToDisk builds a compressed tar.gz archive and writes it directly to the specified file path.
-// Creates the output file at the specified path and writes a gzip-compressed tar archive.
-// The metadata.yaml file is always written first at the root of the archive.
-// Skips any existing "_templates/metadata.yaml" file to avoid duplication.
-// All files are written with 0644 permissions in the archive.
-// Properly closes writers to ensure all data is flushed to disk before returning.
-func (a *ArtifactBuilder) createTarballToDisk(outputPath string, metadata []byte) error {
-	outputFile, err := a.shims.Create(outputPath)
-	if err != nil {
-		return fmt.Errorf("failed to create output file: %w", err)
-	}
-	defer outputFile.Close()
-
-	gzipWriter := a.shims.NewGzipWriter(outputFile)
+// createTarball writes a compressed tar.gz archive to the provided writer.
+// Creates a gzip-compressed tar archive containing all stored files from a.files.
+// Writes metadata.yaml at the root of the archive (generated from _template/metadata.yaml if present).
+// Skips any existing "_template/metadata.yaml" file from the input files to avoid duplication.
+// All files are written with their stored permissions in the archive.
+// Properly closes writers to ensure all data is flushed before returning.
+func (a *ArtifactBuilder) createTarball(w io.Writer, metadata []byte) error {
+	gzipWriter := a.shims.NewGzipWriter(w)
 	defer gzipWriter.Close()
 
 	tarWriter := a.shims.NewTarWriter(gzipWriter)
@@ -891,7 +879,7 @@ func (a *ArtifactBuilder) createTarballToDisk(outputPath string, metadata []byte
 	}
 
 	for path, fileInfo := range a.files {
-		if path == "_templates/metadata.yaml" {
+		if path == "_template/metadata.yaml" {
 			continue
 		}
 
@@ -910,7 +898,45 @@ func (a *ArtifactBuilder) createTarballToDisk(outputPath string, metadata []byte
 		}
 	}
 
+	if err := tarWriter.Close(); err != nil {
+		return fmt.Errorf("failed to close tar writer: %w", err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		return fmt.Errorf("failed to close gzip writer: %w", err)
+	}
+
 	return nil
+}
+
+// createTarballInMemory builds a compressed tar.gz archive in memory and returns the complete content as bytes.
+// Creates a gzip-compressed tar archive containing all stored files from a.files.
+// Writes metadata.yaml at the root of the archive (generated from _template/metadata.yaml if present).
+// All files are written with their stored permissions in the archive.
+// Returns the complete archive as a byte slice for in-memory operations like OCI push.
+func (a *ArtifactBuilder) createTarballInMemory(metadata []byte) ([]byte, error) {
+	var buf bytes.Buffer
+
+	if err := a.createTarball(&buf, metadata); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+// createTarballToDisk builds a compressed tar.gz archive and writes it directly to the specified file path.
+// Creates the output file at the specified path and writes a gzip-compressed tar archive.
+// Writes metadata.yaml at the root of the archive (generated from _template/metadata.yaml if present).
+// Skips any existing "_template/metadata.yaml" file from the input files to avoid duplication.
+// All files are written with their stored permissions in the archive.
+// Properly closes writers to ensure all data is flushed to disk before returning.
+func (a *ArtifactBuilder) createTarballToDisk(outputPath string, metadata []byte) error {
+	outputFile, err := a.shims.Create(outputPath)
+	if err != nil {
+		return fmt.Errorf("failed to create output file: %w", err)
+	}
+	defer outputFile.Close()
+
+	return a.createTarball(outputFile, metadata)
 }
 
 // createOCIArtifactImage constructs an OCI image from a layer with generic OCI artifact media types and annotations.
@@ -1004,43 +1030,6 @@ func (a *ArtifactBuilder) resolveOutputPath(outputPath, name, version string) st
 	return outputPath
 }
 
-// generateMetadataWithNameVersion creates complete blueprint metadata by merging input metadata with name and version.
-// Combines input metadata with git provenance and builder information, then marshals
-// the complete metadata structure to YAML for embedding in the artifact.
-// Git provenance and builder info are best-effort - failures result in empty values rather than errors.
-// Includes timestamp in RFC3339 format for artifact creation tracking.
-// Returns marshaled YAML bytes ready for inclusion in tar archives.
-func (a *ArtifactBuilder) generateMetadataWithNameVersion(input BlueprintMetadataInput, name, version string) ([]byte, error) {
-	gitProvenance, err := a.getGitProvenance()
-	if err != nil {
-		gitProvenance = GitProvenance{}
-	}
-
-	builderInfo, err := a.getBuilderInfo()
-	if err != nil {
-		builderInfo = BuilderInfo{}
-	}
-
-	metadata := BlueprintMetadata{
-		Name:        name,
-		Description: input.Description,
-		Version:     version,
-		Author:      input.Author,
-		Tags:        input.Tags,
-		Homepage:    input.Homepage,
-		License:     input.License,
-		Timestamp:   time.Now().UTC().Format(time.RFC3339),
-		Git:         gitProvenance,
-		Builder:     builderInfo,
-	}
-
-	if input.CliVersion != "" {
-		metadata.CliVersion = input.CliVersion
-	}
-
-	return a.shims.YamlMarshal(metadata)
-}
-
 // getGitProvenance retrieves git repository information including commit SHA, tag, and remote URL.
 // Extracts git repository information for provenance tracking using shell commands.
 // Requires shell dependency to be available for git command execution.
@@ -1068,24 +1057,42 @@ func (a *ArtifactBuilder) getGitProvenance() (GitProvenance, error) {
 }
 
 // getBuilderInfo retrieves information about the current user building the artifact.
-// Extracts information about who/what built the artifact using git configuration.
-// Retrieves git user name and email configuration from git global or repository config.
+// Extracts information about who/what built the artifact using git configuration or environment variables.
+// First attempts to get user.name and user.email from git config (checks local config first, then global).
+// If git config is not available (common in CI/CD environments), falls back to common environment variables:
+// - USER, USERNAME, or GIT_AUTHOR_NAME for user name
+// - EMAIL, GIT_AUTHOR_EMAIL, or GIT_COMMITTER_EMAIL for email
 // Returns empty strings for missing configuration rather than errors for optional builder info.
 // Used for audit trails and artifact attribution in generated metadata.
 func (a *ArtifactBuilder) getBuilderInfo() (BuilderInfo, error) {
-	user, err := a.shell.ExecSilent("git", "config", "--get", "user.name")
-	if err != nil {
-		user = ""
+	var user, email string
+
+	getEnvVar := func(vars ...string) string {
+		for _, v := range vars {
+			if val := os.Getenv(v); val != "" {
+				return strings.TrimSpace(val)
+			}
+		}
+		return ""
 	}
 
-	email, err := a.shell.ExecSilent("git", "config", "--get", "user.email")
-	if err != nil {
-		email = ""
+	gitUser, err := a.shell.ExecSilent("git", "config", "--get", "user.name")
+	if err == nil && strings.TrimSpace(gitUser) != "" {
+		user = strings.TrimSpace(gitUser)
+	} else {
+		user = getEnvVar("USER", "USERNAME", "GIT_AUTHOR_NAME")
+	}
+
+	gitEmail, err := a.shell.ExecSilent("git", "config", "--get", "user.email")
+	if err == nil && strings.TrimSpace(gitEmail) != "" {
+		email = strings.TrimSpace(gitEmail)
+	} else {
+		email = getEnvVar("EMAIL", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL")
 	}
 
 	return BuilderInfo{
-		User:  strings.TrimSpace(user),
-		Email: strings.TrimSpace(email),
+		User:  user,
+		Email: email,
 	}, nil
 }
 
