@@ -35,6 +35,9 @@ var envCmd = &cobra.Command{
 		}
 
 		if err := rt.Shell.CheckTrustedDirectory(); err != nil {
+			if hook {
+				return nil
+			}
 			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
 		}
 

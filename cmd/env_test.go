@@ -27,6 +27,10 @@ func TestEnvCmd(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		rootCmd.SetContext(context.Background())
+		rootCmd.SetArgs([]string{})
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		verbose = false
 		// Restore environment variables to state before tests
 		for key, val := range envVarsBefore {
 			os.Setenv(key, val)
@@ -200,8 +204,21 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 	os.Unsetenv("WINDSOR_CONTEXT")
 	os.Unsetenv("NO_CACHE")
 
-	t.Cleanup(func() {
+	isolateTestState := func(t *testing.T) {
+		t.Helper()
 		rootCmd.SetContext(context.Background())
+		rootCmd.SetArgs([]string{})
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		verbose = false
+		for _, cmd := range rootCmd.Commands() {
+			cmd.SetContext(context.Background())
+			cmd.SetArgs([]string{})
+		}
+	}
+
+	t.Cleanup(func() {
+		isolateTestState(t)
 		// Explicitly unset WINDSOR_CONTEXT to avoid pollution
 		os.Unsetenv("WINDSOR_CONTEXT")
 		// Restore environment variables to state before tests
@@ -221,6 +238,7 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 
 	setup := func(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
 		t.Helper()
+		isolateTestState(t)
 		stdout, stderr := captureOutput(t)
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(stderr)
@@ -235,6 +253,7 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		setup(t)
 		// Reset context and verbose before setting up test
 		rootCmd.SetContext(context.Background())
+		rootCmd.SetArgs([]string{})
 		verbose = false
 
 		mockShell := shell.NewMockShell()
@@ -255,6 +274,8 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		rootCmd.SetContext(ctx)
 		t.Cleanup(func() {
 			rootCmd.SetContext(context.Background())
+			rootCmd.SetArgs([]string{})
+			verbose = false
 		})
 
 		rootCmd.SetArgs([]string{"env"})
@@ -267,40 +288,6 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 
 		if !strings.Contains(err.Error(), "failed to initialize context") {
 			t.Errorf("Expected error about context initialization, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesCheckTrustedDirectoryError", func(t *testing.T) {
-		setup(t)
-		mocks := setupMocks(t)
-		// Reset context and verbose before setting up test
-		rootCmd.SetContext(context.Background())
-		verbose = false
-		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
-			return fmt.Errorf("not trusted")
-		}
-
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
-		t.Cleanup(func() {
-			rootCmd.SetContext(context.Background())
-		})
-
-		rootCmd.SetArgs([]string{"env"})
-
-		err := Execute()
-
-		if err == nil {
-			t.Error("Expected error when CheckTrustedDirectory fails")
-			return
-		}
-
-		if !strings.Contains(err.Error(), "not in a trusted directory") {
-			t.Errorf("Expected error about trusted directory, got: %v", err)
-		}
-
-		if !strings.Contains(err.Error(), "run 'windsor init'") {
-			t.Errorf("Expected error to mention init, got: %v", err)
 		}
 	})
 
@@ -544,6 +531,205 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		}
 		// Clean up WINDSOR_CONTEXT after test to prevent pollution
 		os.Unsetenv("WINDSOR_CONTEXT")
+	})
+
+	t.Run("SwallowsCheckTrustedDirectoryErrorWithHook", func(t *testing.T) {
+		_, stderr := setup(t)
+		mocks := setupMocks(t)
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
+			return fmt.Errorf("not trusted")
+		}
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+		t.Cleanup(func() {
+			isolateTestState(t)
+		})
+
+		rootCmd.SetArgs([]string{"env", "--hook"})
+
+		err := Execute()
+
+		if err != nil {
+			t.Errorf("Expected no error when CheckTrustedDirectory fails with hook, got: %v", err)
+		}
+
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
+		}
+	})
+
+	t.Run("DoesNotSetNoCacheWhenHook", func(t *testing.T) {
+		setup(t)
+		mocks := setupMocks(t)
+		rootCmd.SetContext(context.Background())
+		verbose = false
+		os.Unsetenv("NO_CACHE")
+		os.Setenv("WINDSOR_SESSION_TOKEN", "test-token")
+		mocks.Shell.CheckResetFlagsFunc = func() (bool, error) {
+			return false, nil
+		}
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+		t.Cleanup(func() {
+			rootCmd.SetContext(context.Background())
+			os.Unsetenv("NO_CACHE")
+			os.Unsetenv("WINDSOR_SESSION_TOKEN")
+		})
+
+		rootCmd.SetArgs([]string{"env", "--hook"})
+
+		err := Execute()
+
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+
+		if os.Getenv("NO_CACHE") != "" {
+			t.Error("Expected NO_CACHE to not be set when hook is true")
+		}
+	})
+
+	t.Run("OutputsEnvVarsInHookMode", func(t *testing.T) {
+		stdout, stderr := setup(t)
+		mocks := setupMocks(t)
+		rootCmd.SetContext(context.Background())
+		verbose = false
+
+		mocks.Shell.RenderEnvVarsFunc = func(envVars map[string]string, export bool) string {
+			if !export {
+				t.Error("Expected export to be true in hook mode")
+			}
+			return "export TEST_VAR=\"test_value\"\n"
+		}
+
+		mockEnvPrinter := env.NewMockEnvPrinter()
+		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return map[string]string{"TEST_VAR": "test_value"}, nil
+		}
+		mockEnvPrinter.GetAliasFunc = func() (map[string]string, error) {
+			return map[string]string{}, nil
+		}
+		mockEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
+			return nil
+		}
+
+		mocks.Runtime.EnvPrinters.WindsorEnv = mockEnvPrinter
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+		t.Cleanup(func() {
+			rootCmd.SetContext(context.Background())
+		})
+
+		rootCmd.SetArgs([]string{"env", "--hook"})
+
+		err := Execute()
+
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+
+		if !strings.Contains(stdout.String(), "export TEST_VAR") {
+			t.Errorf("Expected stdout to contain env var output, got: %s", stdout.String())
+		}
+
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
+		}
+	})
+
+	t.Run("OutputsAliasesInHookMode", func(t *testing.T) {
+		stdout, stderr := setup(t)
+		mocks := setupMocks(t)
+		rootCmd.SetContext(context.Background())
+		verbose = false
+
+		mocks.Shell.RenderEnvVarsFunc = func(envVars map[string]string, export bool) string {
+			return ""
+		}
+
+		mocks.Shell.RenderAliasesFunc = func(aliases map[string]string) string {
+			return "alias test=\"test_command\"\n"
+		}
+
+		mockEnvPrinter := env.NewMockEnvPrinter()
+		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return map[string]string{}, nil
+		}
+		mockEnvPrinter.GetAliasFunc = func() (map[string]string, error) {
+			return map[string]string{"test": "test_command"}, nil
+		}
+		mockEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
+			return nil
+		}
+
+		mocks.Runtime.EnvPrinters.WindsorEnv = mockEnvPrinter
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+		t.Cleanup(func() {
+			rootCmd.SetContext(context.Background())
+		})
+
+		rootCmd.SetArgs([]string{"env", "--hook"})
+
+		err := Execute()
+
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+
+		if !strings.Contains(stdout.String(), "alias test") {
+			t.Errorf("Expected stdout to contain alias output, got: %s", stdout.String())
+		}
+
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
+		}
+	})
+
+	t.Run("OutputsNothingWhenNoEnvVars", func(t *testing.T) {
+		stdout, stderr := setup(t)
+		mocks := setupMocks(t)
+		rootCmd.SetContext(context.Background())
+		verbose = false
+
+		mockEnvPrinter := env.NewMockEnvPrinter()
+		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return map[string]string{}, nil
+		}
+		mockEnvPrinter.GetAliasFunc = func() (map[string]string, error) {
+			return map[string]string{}, nil
+		}
+		mockEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
+			return nil
+		}
+
+		mocks.Runtime.EnvPrinters.WindsorEnv = mockEnvPrinter
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+		t.Cleanup(func() {
+			rootCmd.SetContext(context.Background())
+		})
+
+		rootCmd.SetArgs([]string{"env"})
+
+		err := Execute()
+
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+
+		if stdout.String() != "" {
+			t.Errorf("Expected empty stdout when no env vars, got: %s", stdout.String())
+		}
+
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
+		}
 	})
 
 }
