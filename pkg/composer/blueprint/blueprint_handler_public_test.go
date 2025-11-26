@@ -2574,10 +2574,12 @@ metadata:
 
 		// .jsonnet files are not collected in templateData; they are processed on-demand via jsonnet() function calls during feature evaluation
 
-		if content, exists := templateData["_template/blueprint.yaml"]; exists {
+		if content, exists := templateData["blueprint"]; exists {
 			if !strings.Contains(string(content), contextName) {
 				t.Errorf("Expected blueprint content to contain context name '%s', got: %s", contextName, string(content))
 			}
+		} else {
+			t.Error("Expected composed blueprint in templateData")
 		}
 
 		if content, exists := templateData["_template/features/aws.yaml"]; exists {
@@ -2897,7 +2899,7 @@ terraform:
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		composedBlueprint, exists := templateData["_template/blueprint.yaml"]
+		composedBlueprint, exists := templateData["blueprint"]
 		if !exists {
 			t.Fatal("Expected composed blueprint in templateData")
 		}
@@ -2967,7 +2969,7 @@ terraform:
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		composedBlueprint, exists := templateData["_template/blueprint.yaml"]
+		composedBlueprint, exists := templateData["blueprint"]
 		if !exists {
 			t.Fatal("Expected composed blueprint in templateData")
 		}
@@ -3067,7 +3069,7 @@ terraform:
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		composedBlueprint, exists := templateData["_template/blueprint.yaml"]
+		composedBlueprint, exists := templateData["blueprint"]
 		if !exists {
 			t.Fatal("Expected composed blueprint in templateData")
 		}
@@ -3144,7 +3146,7 @@ kustomize:
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		composedBlueprint, exists := templateData["_template/blueprint.yaml"]
+		composedBlueprint, exists := templateData["blueprint"]
 		if !exists {
 			t.Fatal("Expected composed blueprint in templateData")
 		}
@@ -3206,7 +3208,7 @@ metadata:
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		if composedBlueprint, exists := templateData["_template/blueprint.yaml"]; exists {
+		if composedBlueprint, exists := templateData["blueprint"]; exists {
 			var blueprint blueprintv1alpha1.Blueprint
 			if err := yaml.Unmarshal(composedBlueprint, &blueprint); err != nil {
 				t.Fatalf("Failed to unmarshal blueprint: %v", err)

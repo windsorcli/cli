@@ -431,7 +431,6 @@ func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 			return nil, fmt.Errorf("failed to marshal composed blueprint: %w", err)
 		}
 		templateData["blueprint"] = composedBlueprintYAML
-		templateData["_template/blueprint.yaml"] = composedBlueprintYAML
 	}
 
 	var substitutionValues map[string]any
@@ -566,6 +565,9 @@ func (b *BaseBlueprintHandler) processOCIArtifact(templateData map[string][]byte
 				featureTemplateData[featureKey] = v
 			}
 		}
+	}
+	if blueprintData, exists := templateData["blueprint"]; exists {
+		featureTemplateData["blueprint"] = blueprintData
 	}
 
 	b.featureEvaluator.SetTemplateData(templateData)
@@ -758,7 +760,6 @@ func (b *BaseBlueprintHandler) getKustomizations() []blueprintv1alpha1.Kustomiza
 
 // walkAndCollectTemplates recursively traverses the specified template directory and collects all files into the
 // templateData map. It adds the contents of each file by a normalized relative path key prefixed with "_template/".
-// Special files "schema.yaml" and "blueprint.yaml" are also stored under canonical keys ("schema", "blueprint").
 // Directory entries are processed recursively. Any file or directory traversal errors are returned.
 func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir string, templateData map[string][]byte) error {
 	entries, err := b.shims.ReadDir(templateDir)
@@ -787,36 +788,23 @@ func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir string, templ
 			relPath = strings.ReplaceAll(relPath, "\\", "/")
 			key := "_template/" + relPath
 
-			switch entry.Name() {
-			case "schema.yaml":
-				templateData["schema"] = content
-				templateData[key] = content
-			case "blueprint.yaml":
-				templateData["blueprint"] = content
-				templateData[key] = content
-			default:
-				templateData[key] = content
-			}
+			templateData[key] = content
 		}
 	}
 
 	return nil
 }
 
-// processFeatures loads the base blueprint and merges features that match evaluated conditions.
-// It loads the base blueprint.yaml from templateData, loads features, evaluates their When expressions
-// against the provided config, and merges matching features into the base blueprint. Features and their
-// components are merged in deterministic order by feature name.
+// processFeatures applies blueprint features by evaluating conditional expressions and merging matching feature content into the blueprint.
+// It loads the base blueprint from the template data (from canonical or alternate blueprint file keys), unmarshals and merges it.
+// Then, it loads all features from template data, sorts them deterministically by feature name, and for each feature that matches
+// its condition (`When`), merges its Terraform components and Kustomizations that also match their conditions. Component and kustomization
+// inputs, substitutions, and patches are evaluated and processed per strategy, and the resulting objects are merged or replaced in the blueprint
+// according to the specified merge strategy.
 func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, config map[string]any) error {
-	var blueprintData []byte
-	var exists bool
-
-	if blueprintData, exists = templateData["blueprint"]; !exists {
-		if blueprintData, exists = templateData["_template/blueprint.yaml"]; !exists {
-			if blueprintData, exists = templateData["blueprint.yaml"]; !exists {
-				blueprintData = nil
-			}
-		}
+	blueprintData, _ := templateData["_template/blueprint.yaml"]
+	if blueprintData == nil {
+		blueprintData, _ = templateData["blueprint"]
 	}
 
 	if blueprintData != nil {
@@ -903,6 +891,8 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 						component.Inputs = b.deepMergeMaps(component.Inputs, filteredInputs)
 					}
 				}
+			} else {
+				component.Inputs = nil
 			}
 
 			strategy := terraformComponent.Strategy
@@ -960,7 +950,6 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 				}
 			}
 
-			// Clear substitutions as they are used for ConfigMap generation and should not appear in the final blueprint
 			kustomizationCopy.Substitutions = nil
 
 			strategy := kustomization.Strategy
@@ -1181,7 +1170,9 @@ func (b *BaseBlueprintHandler) processLocalArtifact(templateData map[string][]by
 	}
 
 	if _, exists := templateData["_template/blueprint.yaml"]; !exists {
-		return fmt.Errorf("blueprint.yaml not found in artifact template data")
+		if _, exists := templateData["blueprint"]; !exists {
+			return fmt.Errorf("blueprint not found in artifact template data")
+		}
 	}
 
 	if schemaData, exists := templateData["_template/schema.yaml"]; exists {
@@ -1204,6 +1195,9 @@ func (b *BaseBlueprintHandler) processLocalArtifact(templateData map[string][]by
 				featureTemplateData[featureKey] = v
 			}
 		}
+	}
+	if blueprintData, exists := templateData["blueprint"]; exists {
+		featureTemplateData["blueprint"] = blueprintData
 	}
 
 	b.featureEvaluator.SetTemplateData(templateData)
