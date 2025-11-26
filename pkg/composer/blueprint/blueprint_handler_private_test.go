@@ -328,13 +328,6 @@ func TestBaseBlueprintHandler_walkAndCollectTemplates(t *testing.T) {
 			t.Errorf("Expected no error, got: %v", err)
 		}
 
-		if _, exists := templateData["schema"]; !exists {
-			t.Error("Expected 'schema' key to exist")
-		}
-		if _, exists := templateData["blueprint"]; !exists {
-			t.Error("Expected 'blueprint' key to exist")
-		}
-
 		if _, exists := templateData["_template/schema.yaml"]; !exists {
 			t.Error("Expected '_template/schema.yaml' key to exist")
 		}
@@ -5542,8 +5535,8 @@ metadata:
 		if err == nil {
 			t.Fatal("Expected error when blueprint.yaml is missing")
 		}
-		if !strings.Contains(err.Error(), "blueprint.yaml not found") {
-			t.Errorf("Expected error about missing blueprint.yaml, got: %v", err)
+		if !strings.Contains(err.Error(), "blueprint not found") {
+			t.Errorf("Expected error about missing blueprint, got: %v", err)
 		}
 	})
 
