@@ -15,7 +15,7 @@ require (
 	github.com/fluxcd/pkg/apis/meta v1.23.0
 	github.com/fluxcd/source-controller/api v1.7.4
 	github.com/getsops/sops/v3 v3.11.0
-	github.com/goccy/go-yaml v1.18.0
+	github.com/goccy/go-yaml v1.19.0
 	github.com/google/go-containerregistry v0.20.7
 	github.com/google/go-jsonnet v0.21.0
 	github.com/hashicorp/hcl/v2 v2.24.0
