@@ -2114,6 +2114,164 @@ metadata:
 		}
 	})
 
+	t.Run("ProcessesOCISourcesWhenBlueprintYamlExists", func(t *testing.T) {
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		mocks.Runtime.ConfigRoot = tmpDir
+
+		blueprintPath := filepath.Join(mocks.Runtime.ConfigRoot, "blueprint.yaml")
+		blueprintContent := `apiVersion: v1alpha1
+kind: Blueprint
+metadata:
+  name: test-blueprint
+sources:
+  - name: oci-source
+    url: oci://ghcr.io/test/repo:latest
+terraformComponents: []
+kustomizations: []
+`
+		if err := os.WriteFile(blueprintPath, []byte(blueprintContent), 0644); err != nil {
+			t.Fatalf("Failed to write blueprint.yaml: %v", err)
+		}
+
+		handler.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == mocks.Runtime.TemplateRoot {
+				return nil, os.ErrNotExist
+			}
+			if path == blueprintPath {
+				return &mockFileInfo{name: "blueprint.yaml", isDir: false}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		handler.shims.ReadFile = func(path string) ([]byte, error) {
+			if path == blueprintPath {
+				return []byte(blueprintContent), nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"test": "value"}, nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).LoadSchemaFromBytesFunc = func(data []byte) error {
+			return nil
+		}
+
+		templateData := map[string][]byte{
+			"_template/schema.yaml": []byte("schema: test"),
+			"_template/features/base.yaml": []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+terraform:
+  - path: test-component
+    inputs:
+      test_input: "test_value"`),
+		}
+
+		callCount := 0
+		mockArtifactBuilder.GetTemplateDataFunc = func(url string) (map[string][]byte, error) {
+			callCount++
+			if url == "oci://ghcr.io/test/repo:latest" {
+				return templateData, nil
+			}
+			return nil, fmt.Errorf("unexpected URL: %s", url)
+		}
+
+		handler.shims.YamlUnmarshal = func(data []byte, v any) error {
+			return yaml.Unmarshal(data, v)
+		}
+
+		err = handler.LoadBlueprint()
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		if callCount == 0 {
+			t.Error("Expected GetTemplateData to be called to process OCI sources")
+		}
+	})
+
+	t.Run("HandlesProcessOCISourcesErrorWhenBlueprintYamlExists", func(t *testing.T) {
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.TemplateRoot = filepath.Join(tmpDir, "contexts", "_template")
+		mocks.Runtime.ConfigRoot = tmpDir
+
+		blueprintPath := filepath.Join(mocks.Runtime.ConfigRoot, "blueprint.yaml")
+		blueprintContent := `apiVersion: v1alpha1
+kind: Blueprint
+metadata:
+  name: test-blueprint
+sources:
+  - name: oci-source
+    url: oci://ghcr.io/test/repo:latest
+terraformComponents: []
+kustomizations: []
+`
+		if err := os.WriteFile(blueprintPath, []byte(blueprintContent), 0644); err != nil {
+			t.Fatalf("Failed to write blueprint.yaml: %v", err)
+		}
+
+		handler.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == mocks.Runtime.TemplateRoot {
+				return nil, os.ErrNotExist
+			}
+			if path == blueprintPath {
+				return &mockFileInfo{name: "blueprint.yaml", isDir: false}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		handler.shims.ReadFile = func(path string) ([]byte, error) {
+			if path == blueprintPath {
+				return []byte(blueprintContent), nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+
+		expectedError := fmt.Errorf("template data error")
+		mockArtifactBuilder.GetTemplateDataFunc = func(url string) (map[string][]byte, error) {
+			return nil, expectedError
+		}
+
+		handler.shims.YamlUnmarshal = func(data []byte, v any) error {
+			return yaml.Unmarshal(data, v)
+		}
+
+		err = handler.LoadBlueprint()
+
+		if err == nil {
+			t.Fatal("Expected error when processOCISourcesFromBlueprint fails")
+		}
+		if !strings.Contains(err.Error(), "failed to process OCI sources from blueprint") {
+			t.Errorf("Expected error about processing OCI sources, got: %v", err)
+		}
+	})
+
 	t.Run("HandlesGetTemplateDataErrorWhenNoLocalBlueprint", func(t *testing.T) {
 		mocks := setupBlueprintMocks(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()

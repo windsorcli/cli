@@ -695,10 +695,8 @@ func TestBaseBlueprintHandler_resolveComponentSources(t *testing.T) {
 		// When resolving component sources
 		handler.resolveComponentSources(blueprint)
 
-		// Then OCI source should be resolved (tag added only if URL doesn't contain ":" after "oci://")
-		// The code checks if baseURL contains ":", and "oci://registry.example.com/repo" contains ":" from "oci://"
-		// So tag won't be added unless we use a URL without ":" in the path portion
-		expectedSource := "oci://registry.example.com/repo//terraform/test-module"
+		// Then OCI source should be resolved with tag appended (since URL doesn't contain ":" after "oci://")
+		expectedSource := "oci://registry.example.com/repo:v1.0.0//terraform/test-module"
 		if blueprint.TerraformComponents[0].Source != expectedSource {
 			t.Errorf("Expected source '%s', got '%s'", expectedSource, blueprint.TerraformComponents[0].Source)
 		}
@@ -2577,7 +2575,7 @@ terraform:
 			"provider": "aws",
 		}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -2617,7 +2615,7 @@ terraform:
 			"provider": "gcp",
 		}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -2657,7 +2655,7 @@ terraform:
 			"provider": "none",
 		}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -2677,7 +2675,7 @@ terraform:
 		config := map[string]any{}
 
 		// When processing features
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		// Then it should return an error
 		if err == nil {
@@ -2698,7 +2696,7 @@ terraform:
 		config := map[string]any{}
 
 		// When processing features
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		// Then it should return an error
 		if err == nil {
@@ -2731,7 +2729,7 @@ terraform:
 		}
 		config := map[string]any{}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err == nil {
 			t.Fatal("Expected error when EvaluateDefaults fails")
@@ -2769,7 +2767,7 @@ terraform:
 		}
 		config := map[string]any{}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err == nil {
 			t.Fatal("Expected error when StrategicMerge fails due to dependency cycle")
@@ -2800,7 +2798,7 @@ kustomize:
 		}
 		config := map[string]any{}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err == nil {
 			t.Fatal("Expected error when EvaluateExpression fails for kustomization")
@@ -2832,7 +2830,7 @@ kustomize:
 		}
 		config := map[string]any{}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err == nil {
 			t.Fatal("Expected error when evaluateSubstitutions fails")
@@ -2872,7 +2870,7 @@ kustomize:
 		}
 		config := map[string]any{}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err == nil {
 			t.Fatal("Expected error when StrategicMerge fails due to dependency cycle")
@@ -2901,7 +2899,7 @@ when: invalid expression syntax [[[`)
 		config := map[string]any{}
 
 		// When processing features
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		// Then it should return an error
 		if err == nil {
@@ -2943,7 +2941,7 @@ terraform:
 			},
 		}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -2996,7 +2994,7 @@ terraform:
 			},
 		}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3039,7 +3037,7 @@ terraform:
 
 		config := map[string]any{}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3085,7 +3083,7 @@ kustomize:
 			},
 		}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3113,7 +3111,7 @@ metadata:
 
 		config := map[string]any{}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3140,7 +3138,7 @@ terraform:
 
 		config := map[string]any{}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3175,7 +3173,7 @@ terraform:
 
 		config := map[string]any{}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err == nil {
 			t.Error("Expected error for invalid condition, got nil")
@@ -3229,7 +3227,7 @@ terraform:
 			},
 		}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3315,7 +3313,7 @@ terraform:
 			},
 		}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err == nil {
 			t.Fatal("Expected error for invalid expression, got nil")
@@ -3363,7 +3361,7 @@ terraform:
 
 		config := map[string]any{}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3430,7 +3428,7 @@ terraform:
 
 		config := map[string]any{}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3495,7 +3493,7 @@ kustomize:
 
 		config := map[string]any{}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3564,7 +3562,7 @@ kustomize:
 
 		config := map[string]any{}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3594,7 +3592,7 @@ metadata:
 		}
 		config := map[string]any{}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3619,12 +3617,12 @@ terraform:
       key2: "value"
 `)
 		templateData := map[string][]byte{
-			"blueprint.yaml":               baseBlueprint,
+			"_template/blueprint.yaml":     baseBlueprint,
 			"_template/features/test.yaml": feature,
 		}
 		config := map[string]any{}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3662,12 +3660,12 @@ terraform:
       new: "value"
 `)
 		templateData := map[string][]byte{
-			"blueprint.yaml":               baseBlueprint,
+			"_template/blueprint.yaml":     baseBlueprint,
 			"_template/features/test.yaml": feature,
 		}
 		config := map[string]any{}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3705,12 +3703,12 @@ kustomize:
       - new-component
 `)
 		templateData := map[string][]byte{
-			"blueprint.yaml":               baseBlueprint,
+			"_template/blueprint.yaml":     baseBlueprint,
 			"_template/features/test.yaml": feature,
 		}
 		config := map[string]any{}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3750,7 +3748,7 @@ kustomize:
             key: ${value}
 `)
 		templateData := map[string][]byte{
-			"blueprint.yaml":               baseBlueprint,
+			"_template/blueprint.yaml":     baseBlueprint,
 			"_template/features/test.yaml": feature,
 		}
 		config := map[string]any{
@@ -3758,7 +3756,7 @@ kustomize:
 			"value": "test-value",
 		}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3796,12 +3794,12 @@ kustomize:
       - patch: ${invalid expression [[[
 `)
 		templateData := map[string][]byte{
-			"blueprint.yaml":               baseBlueprint,
+			"_template/blueprint.yaml":     baseBlueprint,
 			"_template/features/test.yaml": feature,
 		}
 		config := map[string]any{}
 
-		err := handler.processFeatures(templateData, config)
+		err := handler.processFeatures(templateData, config, false)
 
 		if err == nil {
 			t.Fatal("Expected error when InterpolateString fails")
@@ -5683,6 +5681,512 @@ metadata:
 		}
 		if handler.blueprint.Kustomizations[0].Source != "existing-source" {
 			t.Errorf("Expected kustomization source to remain 'existing-source', got: %s", handler.blueprint.Kustomizations[0].Source)
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_getSourceRef(t *testing.T) {
+	setup := func(t *testing.T) *BaseBlueprintHandler {
+		t.Helper()
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+		return handler
+	}
+
+	t.Run("ReturnsCommitWhenPresent", func(t *testing.T) {
+		handler := setup(t)
+		source := blueprintv1alpha1.Source{
+			Ref: blueprintv1alpha1.Reference{
+				Commit: "abc123",
+				SemVer: "1.0.0",
+				Tag:    "v1.0.0",
+				Branch: "main",
+			},
+		}
+
+		ref := handler.getSourceRef(source)
+
+		if ref != "abc123" {
+			t.Errorf("Expected commit 'abc123', got: %s", ref)
+		}
+	})
+
+	t.Run("ReturnsSemVerWhenCommitEmpty", func(t *testing.T) {
+		handler := setup(t)
+		source := blueprintv1alpha1.Source{
+			Ref: blueprintv1alpha1.Reference{
+				SemVer: "1.0.0",
+				Tag:    "v1.0.0",
+				Branch: "main",
+			},
+		}
+
+		ref := handler.getSourceRef(source)
+
+		if ref != "1.0.0" {
+			t.Errorf("Expected semver '1.0.0', got: %s", ref)
+		}
+	})
+
+	t.Run("ReturnsTagWhenCommitAndSemVerEmpty", func(t *testing.T) {
+		handler := setup(t)
+		source := blueprintv1alpha1.Source{
+			Ref: blueprintv1alpha1.Reference{
+				Tag:    "v1.0.0",
+				Branch: "main",
+			},
+		}
+
+		ref := handler.getSourceRef(source)
+
+		if ref != "v1.0.0" {
+			t.Errorf("Expected tag 'v1.0.0', got: %s", ref)
+		}
+	})
+
+	t.Run("ReturnsBranchWhenOthersEmpty", func(t *testing.T) {
+		handler := setup(t)
+		source := blueprintv1alpha1.Source{
+			Ref: blueprintv1alpha1.Reference{
+				Branch: "main",
+			},
+		}
+
+		ref := handler.getSourceRef(source)
+
+		if ref != "main" {
+			t.Errorf("Expected branch 'main', got: %s", ref)
+		}
+	})
+
+	t.Run("ReturnsEmptyWhenAllEmpty", func(t *testing.T) {
+		handler := setup(t)
+		source := blueprintv1alpha1.Source{
+			Ref: blueprintv1alpha1.Reference{},
+		}
+
+		ref := handler.getSourceRef(source)
+
+		if ref != "" {
+			t.Errorf("Expected empty string, got: %s", ref)
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_buildOCIURLWithRef(t *testing.T) {
+	setup := func(t *testing.T) *BaseBlueprintHandler {
+		t.Helper()
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+		return handler
+	}
+
+	t.Run("AppendsRefWhenNotPresent", func(t *testing.T) {
+		handler := setup(t)
+		source := blueprintv1alpha1.Source{
+			Url: "oci://ghcr.io/test/repo",
+			Ref: blueprintv1alpha1.Reference{
+				Tag: "v1.0.0",
+			},
+		}
+
+		ociURL := handler.buildOCIURLWithRef(source)
+
+		expected := "oci://ghcr.io/test/repo:v1.0.0"
+		if ociURL != expected {
+			t.Errorf("Expected %s, got: %s", expected, ociURL)
+		}
+	})
+
+	t.Run("DoesNotAppendRefWhenAlreadyPresent", func(t *testing.T) {
+		handler := setup(t)
+		source := blueprintv1alpha1.Source{
+			Url: "oci://ghcr.io/test/repo:latest",
+			Ref: blueprintv1alpha1.Reference{
+				Tag: "v1.0.0",
+			},
+		}
+
+		ociURL := handler.buildOCIURLWithRef(source)
+
+		expected := "oci://ghcr.io/test/repo:latest"
+		if ociURL != expected {
+			t.Errorf("Expected %s, got: %s", expected, ociURL)
+		}
+	})
+
+	t.Run("ReturnsOriginalURLWhenNoRef", func(t *testing.T) {
+		handler := setup(t)
+		source := blueprintv1alpha1.Source{
+			Url: "oci://ghcr.io/test/repo",
+			Ref: blueprintv1alpha1.Reference{},
+		}
+
+		ociURL := handler.buildOCIURLWithRef(source)
+
+		expected := "oci://ghcr.io/test/repo"
+		if ociURL != expected {
+			t.Errorf("Expected %s, got: %s", expected, ociURL)
+		}
+	})
+}
+
+func TestBaseBlueprintHandler_processOCISources(t *testing.T) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *BlueprintTestMocks) {
+		t.Helper()
+		mocks := setupBlueprintMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
+		if err != nil {
+			t.Fatalf("NewBlueprintHandler() failed: %v", err)
+		}
+		handler.shims = mocks.Shims
+		return handler, mocks
+	}
+
+	t.Run("ProcessesOCISourcesSuccessfully", func(t *testing.T) {
+		handler, mocks := setup(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"test": "value"}, nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).LoadSchemaFromBytesFunc = func(data []byte) error {
+			return nil
+		}
+
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name: "oci-source",
+					Url:  "oci://ghcr.io/test/repo:latest",
+				},
+			},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:   "test",
+					Source: "oci-source",
+					Inputs: map[string]any{
+						"user_key":     "user_value",
+						"conflict_key": "user_value",
+					},
+				},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name:   "test-kustomization",
+					Source: "oci-source",
+					Patches: []blueprintv1alpha1.BlueprintPatch{
+						{Patch: "user-patch"},
+					},
+				},
+			},
+		}
+
+		templateData := map[string][]byte{
+			"_template/schema.yaml": []byte("schema: test"),
+			"_template/features/base.yaml": []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+terraform:
+  - path: test
+    source: oci-source
+    inputs:
+      feature_key: "feature_value"
+      conflict_key: "feature_value"
+kustomize:
+  - name: test-kustomization
+    source: oci-source
+    patches:
+      - patch: "feature-patch"
+    substitutions:
+      feature_sub: "feature_val"`),
+		}
+
+		mockArtifactBuilder := handler.artifactBuilder.(*artifact.MockArtifact)
+		mockArtifactBuilder.GetTemplateDataFunc = func(url string) (map[string][]byte, error) {
+			if url == "oci://ghcr.io/test/repo:latest" {
+				return templateData, nil
+			}
+			return nil, fmt.Errorf("unexpected URL: %s", url)
+		}
+
+		err := handler.processOCISources()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Verify Terraform Components
+		components := handler.blueprint.TerraformComponents
+		foundComponent := false
+		for _, component := range components {
+			if component.Path == "test" {
+				foundComponent = true
+				if component.Source != "oci-source" {
+					t.Errorf("Expected component Source to be 'oci-source', got: %s", component.Source)
+				}
+				if component.Inputs == nil {
+					t.Error("Expected component Inputs to be set")
+				} else {
+					if component.Inputs["user_key"] != "user_value" {
+						t.Errorf("Expected user_key to be 'user_value', got: %v", component.Inputs["user_key"])
+					}
+					if component.Inputs["feature_key"] != "feature_value" {
+						t.Errorf("Expected feature_key to be 'feature_value', got: %v", component.Inputs["feature_key"])
+					}
+					if component.Inputs["conflict_key"] != "user_value" {
+						t.Errorf("Expected conflict_key to be 'user_value' (user precedence), got: %v", component.Inputs["conflict_key"])
+					}
+				}
+				break
+			}
+		}
+		if !foundComponent {
+			t.Error("Expected to find component 'test' in blueprint")
+		}
+
+		// Verify Kustomizations
+		kustomizations := handler.blueprint.Kustomizations
+		foundKustomization := false
+		for _, k := range kustomizations {
+			if k.Name == "test-kustomization" {
+				foundKustomization = true
+				// Verify Patches (Feature should be prepended, so [Feature, User])
+				if len(k.Patches) != 2 {
+					t.Errorf("Expected 2 patches, got %d", len(k.Patches))
+				} else {
+					if k.Patches[0].Patch != "feature-patch" {
+						t.Errorf("Expected first patch to be 'feature-patch', got '%s'", k.Patches[0].Patch)
+					}
+					if k.Patches[1].Patch != "user-patch" {
+						t.Errorf("Expected second patch to be 'user-patch', got '%s'", k.Patches[1].Patch)
+					}
+				}
+
+				// Verify Substitutions in handler map (since they are not written to blueprint kustomization object directly in this flow)
+				subs := handler.featureSubstitutions["test-kustomization"]
+				if subs == nil {
+					t.Error("Expected feature substitutions to be present")
+				} else {
+					if subs["feature_sub"] != "feature_val" {
+						t.Errorf("Expected feature_sub to be 'feature_val', got '%s'", subs["feature_sub"])
+					}
+				}
+				break
+			}
+		}
+		if !foundKustomization {
+			t.Error("Expected to find kustomization 'test-kustomization' in blueprint")
+		}
+	})
+
+	t.Run("SkipsNonOCISources", func(t *testing.T) {
+		handler, mocks := setup(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name: "git-source",
+					Url:  "git::https://example.com/repo.git",
+				},
+			},
+		}
+
+		mockArtifactBuilder := handler.artifactBuilder.(*artifact.MockArtifact)
+		mockArtifactBuilder.GetTemplateDataFunc = func(url string) (map[string][]byte, error) {
+			t.Error("GetTemplateData should not be called for non-OCI sources")
+			return nil, nil
+		}
+
+		err := handler.processOCISources()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilWhenNoSources", func(t *testing.T) {
+		handler, _ := setup(t)
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{},
+		}
+
+		err := handler.processOCISources()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilWhenArtifactBuilderNil", func(t *testing.T) {
+		handler, _ := setup(t)
+		handler.artifactBuilder = nil
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name: "oci-source",
+					Url:  "oci://ghcr.io/test/repo:latest",
+				},
+			},
+		}
+
+		err := handler.processOCISources()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesGetTemplateDataError", func(t *testing.T) {
+		handler, mocks := setup(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name: "oci-source",
+					Url:  "oci://ghcr.io/test/repo:latest",
+				},
+			},
+		}
+
+		expectedError := fmt.Errorf("template data error")
+		mockArtifactBuilder := handler.artifactBuilder.(*artifact.MockArtifact)
+		mockArtifactBuilder.GetTemplateDataFunc = func(url string) (map[string][]byte, error) {
+			return nil, expectedError
+		}
+
+		err := handler.processOCISources()
+
+		if err == nil {
+			t.Fatal("Expected error when GetTemplateData fails")
+		}
+		if !strings.Contains(err.Error(), "failed to get template data from OCI source") {
+			t.Errorf("Expected error about getting template data, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesProcessArtifactTemplateDataError", func(t *testing.T) {
+		handler, mocks := setup(t)
+		expectedError := fmt.Errorf("context values error")
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return nil, expectedError
+		}
+
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name: "oci-source",
+					Url:  "oci://ghcr.io/test/repo:latest",
+				},
+			},
+		}
+
+		mockArtifactBuilder := handler.artifactBuilder.(*artifact.MockArtifact)
+		mockArtifactBuilder.GetTemplateDataFunc = func(url string) (map[string][]byte, error) {
+			return map[string][]byte{}, nil
+		}
+
+		err := handler.processOCISources()
+
+		if err == nil {
+			t.Fatal("Expected error when processing OCI source fails")
+		}
+		if !strings.Contains(err.Error(), "failed to load context values") && !strings.Contains(err.Error(), "failed to process OCI source") {
+			t.Errorf("Expected error about loading context values or processing OCI source, got: %v", err)
+		}
+	})
+
+	t.Run("ProcessesMultipleOCISources", func(t *testing.T) {
+		handler, mocks := setup(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).LoadSchemaFromBytesFunc = func(data []byte) error {
+			return nil
+		}
+
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name: "oci-source-1",
+					Url:  "oci://ghcr.io/test/repo1:latest",
+				},
+				{
+					Name: "oci-source-2",
+					Url:  "oci://ghcr.io/test/repo2:v1.0.0",
+				},
+			},
+		}
+
+		callCount := 0
+		mockArtifactBuilder := handler.artifactBuilder.(*artifact.MockArtifact)
+		mockArtifactBuilder.GetTemplateDataFunc = func(url string) (map[string][]byte, error) {
+			callCount++
+			return map[string][]byte{}, nil
+		}
+
+		err := handler.processOCISources()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if callCount != 2 {
+			t.Errorf("Expected GetTemplateData to be called 2 times, got: %d", callCount)
+		}
+	})
+
+	t.Run("AppendsRefToOCIURL", func(t *testing.T) {
+		handler, mocks := setup(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).LoadSchemaFromBytesFunc = func(data []byte) error {
+			return nil
+		}
+
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name: "oci-source",
+					Url:  "oci://ghcr.io/test/repo",
+					Ref: blueprintv1alpha1.Reference{
+						Tag: "v1.0.0",
+					},
+				},
+			},
+		}
+
+		var calledURL string
+		mockArtifactBuilder := handler.artifactBuilder.(*artifact.MockArtifact)
+		mockArtifactBuilder.GetTemplateDataFunc = func(url string) (map[string][]byte, error) {
+			calledURL = url
+			return map[string][]byte{}, nil
+		}
+
+		err := handler.processOCISources()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		expectedURL := "oci://ghcr.io/test/repo:v1.0.0"
+		if calledURL != expectedURL {
+			t.Errorf("Expected URL %s, got: %s", expectedURL, calledURL)
 		}
 	})
 }

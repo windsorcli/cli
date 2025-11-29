@@ -106,6 +106,9 @@ func (b *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 				if err := b.loadConfig(); err != nil {
 					return fmt.Errorf("failed to load blueprint config: %w", err)
 				}
+				if err := b.processOCISources(); err != nil {
+					return fmt.Errorf("failed to process OCI sources from blueprint: %w", err)
+				}
 				return nil
 			}
 		}
@@ -415,7 +418,7 @@ func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 		}
 	}
 
-	if err := b.processFeatures(templateData, config); err != nil {
+	if err := b.processFeatures(templateData, config, false); err != nil {
 		return nil, fmt.Errorf("failed to process features: %w", err)
 	}
 
@@ -545,6 +548,23 @@ func (b *BaseBlueprintHandler) resolveBlueprintReference(blueprintURL ...string)
 // processOCIArtifact processes blueprint data from an OCI artifact.
 // It loads the schema, gets context values, processes features, and sets the OCI source on components.
 func (b *BaseBlueprintHandler) processOCIArtifact(templateData map[string][]byte, blueprintRef string) error {
+	if err := b.processArtifactTemplateData(templateData); err != nil {
+		return err
+	}
+
+	ociInfo, _ := artifact.ParseOCIReference(blueprintRef)
+	if ociInfo != nil {
+		b.setOCISource(ociInfo)
+	}
+
+	return nil
+}
+
+// processArtifactTemplateData processes template data from an artifact by loading schema, building feature template data,
+// setting it on the feature evaluator, and processing features. This common functionality is shared by processOCIArtifact,
+// processLocalArtifact, and processOCISources.
+// If sourceName is provided and non-empty, it sets the Source on components and kustomizations from Features that don't have a Source set.
+func (b *BaseBlueprintHandler) processArtifactTemplateData(templateData map[string][]byte, sourceName ...string) error {
 	if schemaData, exists := templateData["_template/schema.yaml"]; exists {
 		if err := b.runtime.ConfigHandler.LoadSchemaFromBytes(schemaData); err != nil {
 			return fmt.Errorf("failed to load schema from artifact: %w", err)
@@ -572,13 +592,8 @@ func (b *BaseBlueprintHandler) processOCIArtifact(templateData map[string][]byte
 
 	b.featureEvaluator.SetTemplateData(templateData)
 
-	if err := b.processFeatures(featureTemplateData, config); err != nil {
+	if err := b.processFeatures(featureTemplateData, config, false, sourceName...); err != nil {
 		return fmt.Errorf("failed to process features: %w", err)
-	}
-
-	ociInfo, _ := artifact.ParseOCIReference(blueprintRef)
-	if ociInfo != nil {
-		b.setOCISource(ociInfo)
 	}
 
 	return nil
@@ -642,6 +657,100 @@ func (b *BaseBlueprintHandler) pullOCISources() error {
 	}
 
 	return nil
+}
+
+// processOCISources processes all OCI sources listed in the blueprint's Sources section.
+// It extracts Features from each OCI artifact and applies their evaluated Inputs to existing components in the blueprint.
+// This ensures that Features and their Inputs are processed even when a blueprint.yaml already exists.
+// Components are not added from Features; only Inputs are applied to existing components.
+func (b *BaseBlueprintHandler) processOCISources() error {
+	sources := b.getSources()
+	if len(sources) == 0 {
+		return nil
+	}
+
+	if b.artifactBuilder == nil {
+		return nil
+	}
+
+	for _, source := range sources {
+		if !strings.HasPrefix(source.Url, "oci://") {
+			continue
+		}
+
+		ociURL := b.buildOCIURLWithRef(source)
+
+		templateData, err := b.artifactBuilder.GetTemplateData(ociURL)
+		if err != nil {
+			return fmt.Errorf("failed to get template data from OCI source %s: %w", ociURL, err)
+		}
+
+		if schemaData, exists := templateData["_template/schema.yaml"]; exists {
+			if err := b.runtime.ConfigHandler.LoadSchemaFromBytes(schemaData); err != nil {
+				return fmt.Errorf("failed to load schema from artifact: %w", err)
+			}
+		}
+
+		config, err := b.runtime.ConfigHandler.GetContextValues()
+		if err != nil {
+			return fmt.Errorf("failed to load context values: %w", err)
+		}
+
+		featureTemplateData := make(map[string][]byte)
+		for k, v := range templateData {
+			if featureKey, ok := strings.CutPrefix(k, "_template/"); ok {
+				if featureKey == "blueprint.yaml" {
+					featureTemplateData["blueprint"] = v
+				} else {
+					featureTemplateData[featureKey] = v
+				}
+			}
+		}
+		if blueprintData, exists := templateData["blueprint"]; exists {
+			featureTemplateData["blueprint"] = blueprintData
+		}
+
+		b.featureEvaluator.SetTemplateData(templateData)
+
+		if err := b.processFeatures(featureTemplateData, config, true, source.Name); err != nil {
+			return fmt.Errorf("failed to process OCI source %s: %w", source.Url, err)
+		}
+	}
+
+	return nil
+}
+
+// getSourceRef extracts the reference (commit, semver, tag, or branch) from a source in priority order.
+func (b *BaseBlueprintHandler) getSourceRef(source blueprintv1alpha1.Source) string {
+	ref := source.Ref.Commit
+	if ref == "" {
+		ref = source.Ref.SemVer
+	}
+	if ref == "" {
+		ref = source.Ref.Tag
+	}
+	if ref == "" {
+		ref = source.Ref.Branch
+	}
+	return ref
+}
+
+// buildOCIURLWithRef constructs a full OCI URL from a source, appending the ref as a tag if present and not already in the URL.
+func (b *BaseBlueprintHandler) buildOCIURLWithRef(source blueprintv1alpha1.Source) string {
+	ociURL := source.Url
+	ref := b.getSourceRef(source)
+	if ref != "" {
+		ociPrefix := "oci://"
+		if strings.HasPrefix(ociURL, ociPrefix) {
+			urlWithoutProtocol := ociURL[len(ociPrefix):]
+			if !strings.Contains(urlWithoutProtocol, ":") {
+				ociURL = ociURL + ":" + ref
+			}
+		} else if !strings.Contains(ociURL, ":") {
+			ociURL = ociURL + ":" + ref
+		}
+	}
+	return ociURL
 }
 
 // loadBlueprintConfigOverrides loads blueprint configuration overrides from the config root if they exist.
@@ -795,13 +904,16 @@ func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir string, templ
 	return nil
 }
 
-// processFeatures applies blueprint features by evaluating conditional expressions and merging matching feature content into the blueprint.
-// It loads the base blueprint from the template data (from canonical or alternate blueprint file keys), unmarshals and merges it.
-// Then, it loads all features from template data, sorts them deterministically by feature name, and for each feature that matches
-// its condition (`When`), merges its Terraform components and Kustomizations that also match their conditions. Component and kustomization
-// inputs, substitutions, and patches are evaluated and processed per strategy, and the resulting objects are merged or replaced in the blueprint
-// according to the specified merge strategy.
-func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, config map[string]any) error {
+// processFeatures evaluates and applies blueprint features by processing conditional logic and merging matching feature content into the target blueprint.
+// The method loads the base blueprint from provided template data (supporting both canonical and alternate keys), unmarshals it, and initially merges it with the handler's blueprint.
+// It then loads all feature files from the template data, sorting them deterministically by feature name to ensure consistent merge order.
+// For each feature whose conditional `When` expression evaluates to true, the function processes its Terraform components and Kustomizations, which may themselves have additional conditional logic.
+// Inputs, substitutions, and patches for each component and kustomization are evaluated and applied according to a merge or replace strategy as specified.
+// If sourceName is provided and non-empty, it sets the Source field on new components and Kustomizations if not already set from the feature definition.
+// If applyOnly is true, features will only apply Inputs and settings to already-existing components in the target blueprint; new resources are not added.
+// Merges and substitutions are performed in accordance with each merge strategy, ensuring correct accumulation of substitutions for later use.
+// Returns an error if conditional logic fails, unmarshalling fails, or a merge operation encounters an error.
+func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, config map[string]any, applyOnly bool, sourceName ...string) error {
 	blueprintData, _ := templateData["_template/blueprint.yaml"]
 	if blueprintData == nil {
 		blueprintData, _ = templateData["blueprint"]
@@ -843,6 +955,19 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 		return features[i].Metadata.Name < features[j].Metadata.Name
 	})
 
+	// Initialize featureBlueprint only if needed for accumulation
+	var featureBlueprint *blueprintv1alpha1.Blueprint
+	featureSubstitutionsByKustomization := make(map[string]map[string]string)
+
+	// Determine the target blueprint for feature application
+	// In applyOnly mode, we accumulate into featureBlueprint to later selectively apply to b.blueprint
+	// In normal mode, we apply directly to b.blueprint
+	targetBlueprint := &b.blueprint
+	if applyOnly {
+		featureBlueprint = &blueprintv1alpha1.Blueprint{}
+		targetBlueprint = featureBlueprint
+	}
+
 	for _, feature := range features {
 		if feature.When != "" {
 			matches, err := evaluator.EvaluateExpression(feature.When, config, feature.Path)
@@ -867,6 +992,10 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 
 			component := terraformComponent.TerraformComponent
 
+			if len(sourceName) > 0 && sourceName[0] != "" && component.Source == "" {
+				component.Source = sourceName[0]
+			}
+
 			if len(terraformComponent.Inputs) > 0 {
 				evaluatedInputs, err := evaluator.EvaluateDefaults(terraformComponent.Inputs, config, feature.Path)
 				if err != nil {
@@ -881,15 +1010,7 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 				}
 
 				if len(filteredInputs) > 0 {
-					if component.Inputs == nil {
-						component.Inputs = make(map[string]any)
-					}
-
-					if terraformComponent.Strategy == "replace" {
-						component.Inputs = filteredInputs
-					} else {
-						component.Inputs = b.deepMergeMaps(component.Inputs, filteredInputs)
-					}
+					component.Inputs = filteredInputs
 				}
 			} else {
 				component.Inputs = nil
@@ -901,14 +1022,14 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 			}
 
 			if strategy == "replace" {
-				if err := b.blueprint.ReplaceTerraformComponent(component); err != nil {
+				if err := targetBlueprint.ReplaceTerraformComponent(component); err != nil {
 					return fmt.Errorf("failed to replace terraform component: %w", err)
 				}
 			} else {
 				tempBlueprint := &blueprintv1alpha1.Blueprint{
 					TerraformComponents: []blueprintv1alpha1.TerraformComponent{component},
 				}
-				if err := b.blueprint.StrategicMerge(tempBlueprint); err != nil {
+				if err := targetBlueprint.StrategicMerge(tempBlueprint); err != nil {
 					return fmt.Errorf("failed to merge terraform component: %w", err)
 				}
 			}
@@ -927,17 +1048,21 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 
 			kustomizationCopy := kustomization.Kustomization
 
-			if len(kustomization.Substitutions) > 0 {
-				if b.featureSubstitutions[kustomizationCopy.Name] == nil {
-					b.featureSubstitutions[kustomizationCopy.Name] = make(map[string]string)
-				}
+			if len(sourceName) > 0 && sourceName[0] != "" && kustomizationCopy.Source == "" {
+				kustomizationCopy.Source = sourceName[0]
+			}
 
+			if len(kustomization.Substitutions) > 0 {
 				evaluatedSubstitutions, err := b.evaluateSubstitutions(kustomization.Substitutions, config, feature.Path)
 				if err != nil {
 					return fmt.Errorf("failed to evaluate substitutions for kustomization '%s': %w", kustomizationCopy.Name, err)
 				}
 
-				maps.Copy(b.featureSubstitutions[kustomizationCopy.Name], evaluatedSubstitutions)
+				if existingSubs, exists := featureSubstitutionsByKustomization[kustomizationCopy.Name]; exists {
+					maps.Copy(existingSubs, evaluatedSubstitutions)
+				} else {
+					featureSubstitutionsByKustomization[kustomizationCopy.Name] = evaluatedSubstitutions
+				}
 			}
 
 			for j := range kustomizationCopy.Patches {
@@ -958,17 +1083,81 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 			}
 
 			if strategy == "replace" {
-				if err := b.blueprint.ReplaceKustomization(kustomizationCopy); err != nil {
+				if err := targetBlueprint.ReplaceKustomization(kustomizationCopy); err != nil {
 					return fmt.Errorf("failed to replace kustomization: %w", err)
 				}
 			} else {
 				tempBlueprint := &blueprintv1alpha1.Blueprint{
 					Kustomizations: []blueprintv1alpha1.Kustomization{kustomizationCopy},
 				}
-				if err := b.blueprint.StrategicMerge(tempBlueprint); err != nil {
+				if err := targetBlueprint.StrategicMerge(tempBlueprint); err != nil {
 					return fmt.Errorf("failed to merge kustomization: %w", err)
 				}
 			}
+		}
+	}
+
+	if applyOnly {
+		featureComponentsByPath := make(map[string]blueprintv1alpha1.TerraformComponent)
+		for _, c := range featureBlueprint.TerraformComponents {
+			key := c.Path
+			if c.Source != "" {
+				key = c.Source + ":" + c.Path
+			}
+			featureComponentsByPath[key] = c
+		}
+
+		for i := range b.blueprint.TerraformComponents {
+			component := &b.blueprint.TerraformComponents[i]
+			key := component.Path
+			if component.Source != "" {
+				key = component.Source + ":" + component.Path
+			} else if len(sourceName) > 0 && sourceName[0] != "" {
+				key = sourceName[0] + ":" + component.Path
+			}
+
+			if featureComp, exists := featureComponentsByPath[key]; exists {
+				if component.Inputs == nil {
+					component.Inputs = make(map[string]any)
+				}
+				component.Inputs = b.deepMergeMaps(featureComp.Inputs, component.Inputs)
+
+				if component.Source == "" && len(sourceName) > 0 && sourceName[0] != "" {
+					component.Source = sourceName[0]
+				}
+			}
+		}
+
+		featureKustomizationsByName := make(map[string]blueprintv1alpha1.Kustomization)
+		for _, k := range featureBlueprint.Kustomizations {
+			featureKustomizationsByName[k.Name] = k
+		}
+
+		for i := range b.blueprint.Kustomizations {
+			kustomization := &b.blueprint.Kustomizations[i]
+			if featureKustom, exists := featureKustomizationsByName[kustomization.Name]; exists {
+				if len(featureKustom.Patches) > 0 {
+					kustomization.Patches = append(featureKustom.Patches, kustomization.Patches...)
+				}
+				if substitutions, exists := featureSubstitutionsByKustomization[kustomization.Name]; exists {
+					if b.featureSubstitutions[kustomization.Name] == nil {
+						b.featureSubstitutions[kustomization.Name] = make(map[string]string)
+					}
+					maps.Copy(b.featureSubstitutions[kustomization.Name], substitutions)
+				}
+				if kustomization.Source == "" && len(sourceName) > 0 && sourceName[0] != "" {
+					kustomization.Source = sourceName[0]
+				}
+			}
+		}
+
+	} else {
+		// Normal Mode: Apply all collected substitutions (components were already merged into b.blueprint via targetBlueprint)
+		for name, substitutions := range featureSubstitutionsByKustomization {
+			if b.featureSubstitutions[name] == nil {
+				b.featureSubstitutions[name] = make(map[string]string)
+			}
+			maps.Copy(b.featureSubstitutions[name], substitutions)
 		}
 	}
 
@@ -1040,21 +1229,16 @@ func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *blueprintv1alp
 					pathPrefix = "terraform"
 				}
 
-				ref := source.Ref.Commit
-				if ref == "" {
-					ref = source.Ref.SemVer
-				}
-				if ref == "" {
-					ref = source.Ref.Tag
-				}
-				if ref == "" {
-					ref = source.Ref.Branch
-				}
+				ref := b.getSourceRef(source)
 
 				if strings.HasPrefix(source.Url, "oci://") {
 					baseURL := source.Url
-					if ref != "" && !strings.Contains(baseURL, ":") {
-						baseURL = baseURL + ":" + ref
+					if ref != "" {
+						ociPrefix := "oci://"
+						urlWithoutProtocol := baseURL[len(ociPrefix):]
+						if !strings.Contains(urlWithoutProtocol, ":") {
+							baseURL = baseURL + ":" + ref
+						}
 					}
 					resolvedComponents[i].Source = baseURL + "//" + pathPrefix + "/" + component.Path
 				} else {
@@ -1175,35 +1359,8 @@ func (b *BaseBlueprintHandler) processLocalArtifact(templateData map[string][]by
 		}
 	}
 
-	if schemaData, exists := templateData["_template/schema.yaml"]; exists {
-		if err := b.runtime.ConfigHandler.LoadSchemaFromBytes(schemaData); err != nil {
-			return fmt.Errorf("failed to load schema from artifact: %w", err)
-		}
-	}
-
-	config, err := b.runtime.ConfigHandler.GetContextValues()
-	if err != nil {
-		return fmt.Errorf("failed to load context values: %w", err)
-	}
-
-	featureTemplateData := make(map[string][]byte)
-	for k, v := range templateData {
-		if featureKey, ok := strings.CutPrefix(k, "_template/"); ok {
-			if featureKey == "blueprint.yaml" {
-				featureTemplateData["blueprint"] = v
-			} else {
-				featureTemplateData[featureKey] = v
-			}
-		}
-	}
-	if blueprintData, exists := templateData["blueprint"]; exists {
-		featureTemplateData["blueprint"] = blueprintData
-	}
-
-	b.featureEvaluator.SetTemplateData(templateData)
-
-	if err := b.processFeatures(featureTemplateData, config); err != nil {
-		return fmt.Errorf("failed to process features: %w", err)
+	if err := b.processArtifactTemplateData(templateData); err != nil {
+		return err
 	}
 
 	fileSource := blueprintv1alpha1.Source{
@@ -1482,9 +1639,10 @@ func (b *BaseBlueprintHandler) mergeLegacySpecialVariables(mergedCommonValues ma
 	}
 }
 
-// validateValuesForSubstitution checks that all values are valid for Flux post-build variable substitution.
-// Permitted types are string, numeric, and boolean. Allows one level of map nesting if all nested values are scalar.
-// Slices and nested complex types are not allowed. Returns an error if any value is not a supported type.
+// validateValuesForSubstitution validates that the given values map contains only types supported for Flux post-build variable substitution.
+// Permitted types are string, numeric, and boolean scalars. A single level of map[string]any is allowed if all nested values are scalar.
+// Slices and nested complex types are not allowed. Returns an error describing the first unsupported value encountered,
+// or nil if all values are supported.
 func (b *BaseBlueprintHandler) validateValuesForSubstitution(values map[string]any) error {
 	var validate func(map[string]any, string, int) error
 	validate = func(values map[string]any, parentKey string, depth int) error {
@@ -1493,26 +1651,19 @@ func (b *BaseBlueprintHandler) validateValuesForSubstitution(values map[string]a
 			if parentKey != "" {
 				currentKey = parentKey + "." + key
 			}
-
-			// Handle nil values first to avoid panic in reflect.TypeOf
 			if value == nil {
 				return fmt.Errorf("values for post-build substitution cannot contain nil values, key '%s'", currentKey)
 			}
-
-			// Check if the value is a slice using reflection
 			if reflect.TypeOf(value).Kind() == reflect.Slice {
 				return fmt.Errorf("values for post-build substitution cannot contain slices, key '%s' has type %T", currentKey, value)
 			}
-
 			switch v := value.(type) {
 			case string, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, bool:
 				continue
 			case map[string]any:
-				// Post-build substitution should only allow flat key/value maps, no nesting at all
 				if depth >= 1 {
 					return fmt.Errorf("values for post-build substitution cannot contain nested maps, key '%s' has type %T", currentKey, v)
 				}
-				// Validate that the nested map only contains scalar values (no further nesting)
 				for nestedKey, nestedValue := range v {
 					nestedCurrentKey := currentKey + "." + nestedKey
 					switch nestedValue.(type) {
@@ -1521,7 +1672,6 @@ func (b *BaseBlueprintHandler) validateValuesForSubstitution(values map[string]a
 					case nil:
 						return fmt.Errorf("values for post-build substitution cannot contain nil values, key '%s'", nestedCurrentKey)
 					default:
-						// Check if it's a slice
 						if reflect.TypeOf(nestedValue).Kind() == reflect.Slice {
 							return fmt.Errorf("values for post-build substitution cannot contain slices, key '%s' has type %T", nestedCurrentKey, nestedValue)
 						}
