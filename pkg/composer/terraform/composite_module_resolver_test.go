@@ -68,7 +68,7 @@ func TestCompositeModuleResolver_ProcessModules(t *testing.T) {
 				{
 					Path:     "oci-module",
 					Source:   "oci://registry.example.com/module:latest//terraform/oci-module",
-					FullPath: filepath.Join(tmpDir, ".windsor", ".tf_modules", "oci-module"),
+					FullPath: filepath.Join(tmpDir, ".windsor", "contexts", "local", "terraform", "oci-module"),
 				},
 				{
 					Path:     "standard-module",
@@ -287,8 +287,9 @@ func TestCompositeModuleResolver_GenerateTfvars(t *testing.T) {
 		resolver, mocks := setup(t)
 		tmpDir := t.TempDir()
 		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.ContextName = "local"
 		
-		moduleDir := filepath.Join(tmpDir, ".windsor", ".tf_modules", "test-module")
+		moduleDir := filepath.Join(tmpDir, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(moduleDir, 0755); err != nil {
 			t.Fatalf("Failed to create module directory: %v", err)
 		}
@@ -332,8 +333,9 @@ func TestCompositeModuleResolver_GenerateTfvars(t *testing.T) {
 		resolver, mocks := setup(t)
 		tmpDir := t.TempDir()
 		mocks.Runtime.ProjectRoot = tmpDir
+		mocks.Runtime.ContextName = "local"
 		
-		moduleDir := filepath.Join(tmpDir, ".windsor", ".tf_modules", "test-module")
+		moduleDir := filepath.Join(tmpDir, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(moduleDir, 0755); err != nil {
 			t.Fatalf("Failed to create module directory: %v", err)
 		}

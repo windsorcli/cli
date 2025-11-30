@@ -21,6 +21,9 @@ func setupAzureEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMocks 
 	// Only load default config if ConfigHandler wasn't overridden
 	// If ConfigHandler was injected via overrides, assume test wants to control it
 	if len(overrides) == 0 || overrides[0] == nil || overrides[0].ConfigHandler == nil {
+		// Set the context environment variable first, before loading config
+		os.Setenv("WINDSOR_CONTEXT", "test-context")
+
 		configStr := `
 version: v1alpha1
 contexts:

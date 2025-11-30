@@ -634,22 +634,13 @@ func (rt *Runtime) incrementBuildID(existingBuildID, currentDate string) (string
 // defaults depending on provider, dev mode, and vm.driver.
 // This must be called before loading from disk to ensure proper defaulting. Returns error on config operation failure.
 func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
-	contextName := rt.ContextName
-	if contextName == "" {
-		contextName = "local"
-	}
-
 	if rt.ConfigHandler == nil {
 		return fmt.Errorf("config handler not available")
 	}
 
 	if !rt.ConfigHandler.IsLoaded() {
 		existingProvider := rt.ConfigHandler.GetString("provider")
-		contextName := rt.ContextName
-		if contextName == "" {
-			contextName = "local"
-		}
-		isDevMode := rt.ConfigHandler.IsDevMode(contextName)
+		isDevMode := rt.ConfigHandler.IsDevMode(rt.ContextName)
 
 		if isDevMode {
 			if err := rt.ConfigHandler.Set("dev", true); err != nil {
@@ -718,11 +709,6 @@ func (rt *Runtime) ApplyProviderDefaults(providerOverride string) error {
 		return fmt.Errorf("config handler not available")
 	}
 
-	contextName := rt.ContextName
-	if contextName == "" {
-		contextName = "local"
-	}
-
 	provider := providerOverride
 	if provider == "" {
 		provider = rt.ConfigHandler.GetString("provider")
@@ -749,7 +735,7 @@ func (rt *Runtime) ApplyProviderDefaults(providerOverride string) error {
 				return fmt.Errorf("failed to set cluster.driver: %w", err)
 			}
 		}
-	} else if rt.ConfigHandler.IsDevMode(contextName) {
+	} else if rt.ConfigHandler.IsDevMode(rt.ContextName) {
 		if rt.ConfigHandler.GetString("cluster.driver") == "" {
 			if err := rt.ConfigHandler.Set("cluster.driver", "talos"); err != nil {
 				return fmt.Errorf("failed to set cluster.driver: %w", err)

@@ -392,6 +392,7 @@ func setupBlueprintMocks(t *testing.T, opts ...func(*BlueprintTestMocks)) *Bluep
 		TemplateRoot:  filepath.Join(tmpDir, "contexts", "_template"),
 		ConfigHandler: configHandler,
 		Shell:         mockShell,
+		ContextName:   "local",
 	}
 
 	// Create mocks struct
@@ -605,7 +606,7 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 		}
 
 		// And the component should have the correct full path
-		expectedPath := filepath.FromSlash(filepath.Join(projectRoot, ".windsor", ".tf_modules", "path/to/module"))
+		expectedPath := filepath.FromSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "path/to/module"))
 		if resolvedComponents[0].FullPath != expectedPath {
 			t.Errorf("Expected path %q, got %q", expectedPath, resolvedComponents[0].FullPath)
 		}
@@ -679,7 +680,7 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 		}
 
 		// And the component should have the correct full path with backslashes preserved
-		expectedPath := filepath.Join(projectRoot, ".windsor", ".tf_modules", "path\\to\\module")
+		expectedPath := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "path\\to\\module")
 		if resolvedComponents[0].FullPath != expectedPath {
 			t.Errorf("Expected path %q, got %q", expectedPath, resolvedComponents[0].FullPath)
 		}
@@ -692,6 +693,7 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 		// And a project root directory
 		projectRoot := "/test/project"
 		handler.runtime.ProjectRoot = projectRoot
+		handler.runtime.ContextName = "local"
 
 		// And an OCI source
 		sources := []blueprintv1alpha1.Source{
@@ -729,7 +731,7 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 		}
 
 		// And the component should have the correct full path
-		expectedPath := filepath.FromSlash(filepath.Join(projectRoot, ".windsor", ".tf_modules", "cluster/talos"))
+		expectedPath := filepath.FromSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "cluster/talos"))
 		if resolvedComponents[0].FullPath != expectedPath {
 			t.Errorf("Expected path %q, got %q", expectedPath, resolvedComponents[0].FullPath)
 		}

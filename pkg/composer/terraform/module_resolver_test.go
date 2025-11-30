@@ -100,6 +100,7 @@ contexts:
 		ConfigHandler: configHandler,
 		Shell:         mockShell,
 		ProjectRoot:   tmpDir,
+		ContextName:   "local",
 	}
 
 	mocks := &TerraformTestMocks{
@@ -860,7 +861,7 @@ func TestBaseModuleResolver_GenerateTfvars(t *testing.T) {
 		resolver, mocks := setup(t)
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -896,7 +897,7 @@ func TestBaseModuleResolver_GenerateTfvars(t *testing.T) {
 		}
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -935,7 +936,7 @@ func TestBaseModuleResolver_GenerateTfvars(t *testing.T) {
 		}
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -979,7 +980,7 @@ func TestBaseModuleResolver_GenerateTfvars(t *testing.T) {
 		}
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -1015,7 +1016,7 @@ func TestBaseModuleResolver_GenerateTfvars(t *testing.T) {
 		}
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -1061,7 +1062,7 @@ func TestBaseModuleResolver_GenerateTfvars(t *testing.T) {
 		}
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -1090,7 +1091,7 @@ variable "metadata" { type = object({ nested = object({ value = string }) }) }`
 		resolver, mocks := setup(t)
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -1121,7 +1122,7 @@ variable "metadata" { type = object({ nested = object({ value = string }) }) }`
 		resolver, mocks := setup(t)
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -1179,7 +1180,7 @@ variable "list" {
 		}
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -1219,7 +1220,7 @@ variable "list" {
 		}
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -1260,7 +1261,7 @@ variable "empty_map" { type = map(string) }`
 		}
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -1286,7 +1287,7 @@ variable "disabled" { type = bool }`
 		resolver, mocks := setup(t)
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -1366,7 +1367,7 @@ variable "disabled" { type = bool }`
 			t.Fatalf("Failed to write variables.tf: %v", err)
 		}
 
-		moduleDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "local-module")
+		moduleDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "local-module")
 		if err := os.MkdirAll(moduleDir, 0755); err != nil {
 			t.Fatalf("Failed to create module dir: %v", err)
 		}
@@ -1419,7 +1420,7 @@ variable "disabled" { type = bool }`
 			t.Fatalf("Failed to write variables.tf: %v", err)
 		}
 
-		moduleDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "local-module")
+		moduleDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "local-module")
 
 		// Mock Stat to return non-NotExist error for the module directory
 		originalStat := resolver.shims.Stat
@@ -1449,7 +1450,7 @@ variable "disabled" { type = bool }`
 		resolver, mocks := setup(t)
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -1459,7 +1460,7 @@ variable "disabled" { type = bool }`
 
 		// Mock ReadDir to return error
 		resolver.shims.ReadDir = func(name string) ([]os.DirEntry, error) {
-			if strings.Contains(name, ".tf_modules") {
+			if strings.Contains(name, "contexts") {
 				return nil, fmt.Errorf("readdir error")
 			}
 			return setupDefaultShims().ReadDir(name)
@@ -1479,7 +1480,7 @@ variable "disabled" { type = bool }`
 		resolver, mocks := setup(t)
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -1536,7 +1537,7 @@ variable "disabled" { type = bool }`
 		}
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -1577,7 +1578,7 @@ variable "nested_map" { type = object({ inner = object({ deep = object({ value =
 		}
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -1603,7 +1604,7 @@ variable "nested_map" { type = object({ inner = object({ deep = object({ value =
 		resolver, mocks := setup(t)
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -1626,7 +1627,7 @@ variable "nested_map" { type = object({ inner = object({ deep = object({ value =
 		resolver, mocks := setup(t)
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -1662,7 +1663,7 @@ variable "nested_map" { type = object({ inner = object({ deep = object({ value =
 		resolver, mocks := setup(t)
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -1692,7 +1693,7 @@ variable "nested_map" { type = object({ inner = object({ deep = object({ value =
 		resolver, mocks := setup(t)
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -1718,7 +1719,7 @@ variable "cluster_name" { type = string }`
 		resolver, mocks := setup(t)
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -1778,7 +1779,7 @@ variable "cluster_name" { type = string }`
 		}
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -1811,7 +1812,7 @@ variable "cluster_name" { type = string }`
 		resolver, mocks := setup(t)
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -1875,7 +1876,7 @@ variable "cluster_name" { type = string }`
 		resolver, mocks := setup(t)
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -1917,7 +1918,7 @@ variable "cluster_name" { type = string }`
 		}
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -1957,7 +1958,7 @@ variable "cluster_name" { type = string }`
 		}
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -1979,7 +1980,7 @@ variable "cluster_name" { type = string }`
 		resolver, mocks := setup(t)
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
@@ -2005,7 +2006,7 @@ variable "cluster_name" { type = string }`
 		resolver, mocks := setup(t)
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "test-module")
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(variablesDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}

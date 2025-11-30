@@ -99,7 +99,7 @@ func setupTerraformMocks(t *testing.T, opts ...*SetupOptions) *TerraformTestMock
 			{
 				Source:   "git::https://github.com/terraform-aws-modules/terraform-aws-vpc.git//terraform/remote/path@v1.0.0",
 				Path:     "remote/path",
-				FullPath: filepath.Join(tmpDir, ".windsor", ".tf_modules", "remote", "path"),
+				FullPath: filepath.Join(tmpDir, ".windsor", "contexts", "local", "terraform", "remote", "path"),
 				Inputs: map[string]any{
 					"remote_variable1": "default_value",
 				},
@@ -193,7 +193,7 @@ func setupWindsorStackMocks(t *testing.T, opts ...*SetupOptions) *TerraformTestM
 	mocks := setupTerraformMocks(t, opts...)
 
 	projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
-	tfModulesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "remote", "path")
+	tfModulesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "remote", "path")
 	if err := os.MkdirAll(tfModulesDir, 0755); err != nil {
 		t.Fatalf("Failed to create tf modules directory: %v", err)
 	}
@@ -425,7 +425,7 @@ func TestStack_Up(t *testing.T) {
 	t.Run("ErrorRemovingBackendOverride", func(t *testing.T) {
 		stack, mocks := setup(t)
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
-		backendOverridePath := filepath.Join(projectRoot, ".windsor", ".tf_modules", "remote", "path", "backend_override.tf")
+		backendOverridePath := filepath.Join(projectRoot, ".windsor", "contexts", "local", "remote", "path", "backend_override.tf")
 		if err := os.MkdirAll(filepath.Dir(backendOverridePath), 0755); err != nil {
 			t.Fatalf("Failed to create directory: %v", err)
 		}
@@ -458,7 +458,7 @@ func TestStack_Down(t *testing.T) {
 				{
 					Source:   "source1",
 					Path:     "module/path1",
-					FullPath: filepath.Join(os.Getenv("WINDSOR_PROJECT_ROOT"), ".windsor", ".tf_modules", "remote", "path"),
+					FullPath: filepath.Join(os.Getenv("WINDSOR_PROJECT_ROOT"), ".windsor", "contexts", "local", "terraform", "remote", "path"),
 				},
 			}
 		}
@@ -541,13 +541,13 @@ func TestStack_Down(t *testing.T) {
 			{
 				Source:   "source1",
 				Path:     "module/path1",
-				FullPath: filepath.Join(projectRoot, ".windsor", ".tf_modules", "remote", "path1"),
+				FullPath: filepath.Join(projectRoot, ".windsor", "contexts", "local", "remote", "path1"),
 				Destroy:  &destroyFalse,
 			},
 			{
 				Source:   "source2",
 				Path:     "module/path2",
-				FullPath: filepath.Join(projectRoot, ".windsor", ".tf_modules", "remote", "path2"),
+				FullPath: filepath.Join(projectRoot, ".windsor", "contexts", "local", "remote", "path2"),
 			},
 		}
 
@@ -678,7 +678,7 @@ func TestStack_Down(t *testing.T) {
 	t.Run("ErrorRemovingBackendOverride", func(t *testing.T) {
 		stack, mocks := setup(t)
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
-		backendOverridePath := filepath.Join(projectRoot, ".windsor", ".tf_modules", "remote", "path", "backend_override.tf")
+		backendOverridePath := filepath.Join(projectRoot, ".windsor", "contexts", "local", "remote", "path", "backend_override.tf")
 		if err := os.MkdirAll(filepath.Dir(backendOverridePath), 0755); err != nil {
 			t.Fatalf("Failed to create directory: %v", err)
 		}

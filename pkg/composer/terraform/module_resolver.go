@@ -190,7 +190,7 @@ func (h *BaseModuleResolver) parseVariablesFile(variablesTfPath string, protecte
 }
 
 // generateComponentTfvars generates tfvars files for a single Terraform component.
-// All components write tfvars files to .windsor/.tf_modules/<component.Path>/terraform.tfvars,
+// All components write tfvars files to .windsor/contexts/<context>/terraform/<component.Path>/terraform.tfvars,
 // regardless of whether they have a Source (remote) or not (local). This unifies the behavior
 // between local templates and OCI artifacts, preventing writes to the contexts folder.
 // Returns an error if variables.tf cannot be found or if tfvars file generation fails.
@@ -200,7 +200,7 @@ func (h *BaseModuleResolver) generateComponentTfvars(projectRoot string, compone
 		return fmt.Errorf("failed to find variables.tf for component %s: %w", component.Path, err)
 	}
 
-	moduleTfvarsPath := filepath.Join(projectRoot, ".windsor", ".tf_modules", component.Path, "terraform.tfvars")
+	moduleTfvarsPath := filepath.Join(projectRoot, ".windsor", "contexts", h.runtime.ContextName, "terraform", component.Path, "terraform.tfvars")
 	if err := h.removeTfvarsFiles(filepath.Dir(moduleTfvarsPath)); err != nil {
 		return fmt.Errorf("failed cleaning existing .tfvars in module dir %s: %w", filepath.Dir(moduleTfvarsPath), err)
 	}
@@ -212,14 +212,14 @@ func (h *BaseModuleResolver) generateComponentTfvars(projectRoot string, compone
 }
 
 // findVariablesTfFileForComponent returns the path to the variables.tf file for the specified Terraform component.
-// If the component has a non-empty Source, the path is .windsor/.tf_modules/<component.Path>/variables.tf under the project root.
+// If the component has a non-empty Source, the path is .windsor/contexts/<context>/terraform/<component.Path>/variables.tf under the project root.
 // If the component has an empty Source, the path is terraform/<component.Path>/variables.tf under the project root.
 // Returns the variables.tf file path if it exists, or an error if not found.
 func (h *BaseModuleResolver) findVariablesTfFileForComponent(projectRoot string, component blueprintv1alpha1.TerraformComponent) (string, error) {
 	var variablesTfPath string
 
 	if component.Source != "" {
-		variablesTfPath = filepath.Join(projectRoot, ".windsor", ".tf_modules", component.Path, "variables.tf")
+		variablesTfPath = filepath.Join(projectRoot, ".windsor", "contexts", h.runtime.ContextName, "terraform", component.Path, "variables.tf")
 	} else {
 		variablesTfPath = filepath.Join(projectRoot, "terraform", component.Path, "variables.tf")
 	}

@@ -120,7 +120,7 @@ func TestArchiveModuleResolver_ProcessModules(t *testing.T) {
 				{
 					Path:     "test-module",
 					Source:   "file://" + archivePath + "//terraform/test-module",
-					FullPath: filepath.Join(tmpDir, ".windsor", ".tf_modules", "test-module"),
+					FullPath: filepath.Join(tmpDir, ".windsor", "contexts", "local", "terraform", "test-module"),
 				},
 			}
 		}
@@ -134,7 +134,7 @@ func TestArchiveModuleResolver_ProcessModules(t *testing.T) {
 		}
 
 		// And the module directory should be created
-		moduleDir := filepath.Join(tmpDir, ".windsor", ".tf_modules", "test-module")
+		moduleDir := filepath.Join(tmpDir, ".windsor", "contexts", "local", "terraform", "test-module")
 		if _, err := os.Stat(moduleDir); err != nil {
 			t.Errorf("Expected module directory to be created, got error: %v", err)
 		}
@@ -180,7 +180,7 @@ func TestArchiveModuleResolver_ProcessModules(t *testing.T) {
 				{
 					Path:     "test-module",
 					Source:   "file:///invalid/path.tar.gz//terraform/test-module",
-					FullPath: filepath.Join(tmpDir, ".windsor", ".tf_modules", "test-module"),
+					FullPath: filepath.Join(tmpDir, ".windsor", "contexts", "local", "terraform", "test-module"),
 				},
 			}
 		}
@@ -1130,7 +1130,7 @@ func TestArchiveModuleResolver_processComponent(t *testing.T) {
 		component := blueprintv1alpha1.TerraformComponent{
 			Path:     "test-module",
 			Source:   "file:///invalid/path.tar.gz//terraform/test-module",
-			FullPath: filepath.Join(tmpDir, ".windsor", ".tf_modules", "test-module"),
+			FullPath: filepath.Join(tmpDir, ".windsor", "contexts", "local", "terraform", "test-module"),
 		}
 
 		// Override MkdirAll to succeed
@@ -1159,7 +1159,7 @@ func TestArchiveModuleResolver_processComponent(t *testing.T) {
 		component := blueprintv1alpha1.TerraformComponent{
 			Path:     "test-module",
 			Source:   "file://" + archivePath + "//terraform/test-module",
-			FullPath: filepath.Join(tmpDir, ".windsor", ".tf_modules", "test-module"),
+			FullPath: filepath.Join(tmpDir, ".windsor", "contexts", "local", "terraform", "test-module"),
 		}
 
 		// Override shims for real file operations
@@ -1200,7 +1200,7 @@ func TestArchiveModuleResolver_processComponent(t *testing.T) {
 		component := blueprintv1alpha1.TerraformComponent{
 			Path:     "test-module",
 			Source:   "file://" + archivePath + "//terraform/test-module",
-			FullPath: filepath.Join(tmpDir, ".windsor", ".tf_modules", "test-module"),
+			FullPath: filepath.Join(tmpDir, ".windsor", "contexts", "local", "terraform", "test-module"),
 		}
 
 		// Override shims for real file operations
@@ -1246,7 +1246,7 @@ func TestArchiveModuleResolver_processComponent(t *testing.T) {
 		component := blueprintv1alpha1.TerraformComponent{
 			Path:     "test-module",
 			Source:   "file://" + archivePath + "//terraform/test-module",
-			FullPath: filepath.Join(tmpDir, ".windsor", ".tf_modules", "test-module"),
+			FullPath: filepath.Join(tmpDir, ".windsor", "contexts", "local", "terraform", "test-module"),
 		}
 
 		// Override shims for real file operations
@@ -1293,7 +1293,7 @@ func TestArchiveModuleResolver_processComponent(t *testing.T) {
 		component := blueprintv1alpha1.TerraformComponent{
 			Path:     "test-module",
 			Source:   "file://" + archivePath + "//terraform/test-module",
-			FullPath: filepath.Join(tmpDir, ".windsor", ".tf_modules", "test-module"),
+			FullPath: filepath.Join(tmpDir, ".windsor", "contexts", "local", "terraform", "test-module"),
 		}
 
 		// Override shims for real file operations
