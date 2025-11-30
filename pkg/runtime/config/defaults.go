@@ -19,20 +19,6 @@ import (
 	"github.com/windsorcli/cli/pkg/constants"
 )
 
-// DefaultConfig returns the default configuration for non-dev contexts
-// Uses minimal config since non-dev contexts default to provider "none"
-var DefaultConfig = v1alpha1.Context{
-	Provider:  ptrString("none"),
-	Terraform: commonTerraformConfig.Copy(),
-}
-
-// DefaultConfig_None returns a minimal default configuration for provider "none"
-// with terraform enabled but no cluster or DNS settings
-var DefaultConfig_None = v1alpha1.Context{
-	Provider:  ptrString("none"),
-	Terraform: commonTerraformConfig.Copy(),
-}
-
 var commonDockerConfig = docker.DockerConfig{
 	Enabled: ptrBool(true),
 	Registries: map[string]docker.RegistryConfig{
@@ -74,6 +60,12 @@ var commonTerraformConfig = terraform.TerraformConfig{
 	Backend: &terraform.BackendConfig{
 		Type: "local",
 	},
+}
+
+// commonClusterConfig_Minimal is a minimal cluster configuration with only enabled set to true.
+// Used for provider-specific configurations where the driver will be set by ApplyProviderDefaults.
+var commonClusterConfig_Minimal = cluster.ClusterConfig{
+	Enabled: ptrBool(true),
 }
 
 // commonClusterConfig_NoHostPorts is the base cluster configuration without hostports,
@@ -118,6 +110,15 @@ var commonClusterConfig_WithHostPorts = cluster.ClusterConfig{
 		HostPorts: []string{"8080:30080/tcp", "8443:30443/tcp", "9292:30292/tcp", "8053:30053/udp"},
 		Volumes:   []string{"${WINDSOR_PROJECT_ROOT}/.volumes:/var/local"},
 	},
+}
+
+// DefaultConfig returns the default configuration for non-dev contexts
+// Uses minimal config since non-dev contexts default to provider "none"
+// Includes cluster.enabled=true for provider-specific contexts (aws, azure)
+var DefaultConfig = v1alpha1.Context{
+	Provider:  ptrString("none"),
+	Terraform: commonTerraformConfig.Copy(),
+	Cluster:   commonClusterConfig_Minimal.Copy(),
 }
 
 var DefaultConfig_Localhost = v1alpha1.Context{

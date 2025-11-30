@@ -1558,16 +1558,16 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 
 		if setDefaultConfig.Provider == nil || *setDefaultConfig.Provider != "none" {
-			t.Error("Expected DefaultConfig_None to be set with provider 'none'")
+			t.Error("Expected DefaultConfig to be set with provider 'none'")
 		}
-		if setDefaultConfig.Cluster != nil {
-			t.Error("Expected DefaultConfig_None to have no cluster config")
+		if setDefaultConfig.Cluster == nil || setDefaultConfig.Cluster.Enabled == nil || !*setDefaultConfig.Cluster.Enabled {
+			t.Error("Expected DefaultConfig to have cluster.enabled=true")
 		}
 		if setDefaultConfig.DNS != nil {
-			t.Error("Expected DefaultConfig_None to have no DNS config")
+			t.Error("Expected DefaultConfig to have no DNS config")
 		}
 		if setDefaultConfig.Terraform == nil || setDefaultConfig.Terraform.Enabled == nil || !*setDefaultConfig.Terraform.Enabled {
-			t.Error("Expected DefaultConfig_None to have terraform enabled")
+			t.Error("Expected DefaultConfig to have terraform enabled")
 		}
 	})
 
