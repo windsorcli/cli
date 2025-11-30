@@ -686,7 +686,7 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 
 		provider := rt.ConfigHandler.GetString("provider")
 		if provider == "none" {
-			if err := rt.ConfigHandler.SetDefault(config.DefaultConfig_None); err != nil {
+			if err := rt.ConfigHandler.SetDefault(config.DefaultConfig); err != nil {
 				return fmt.Errorf("failed to set default config: %w", err)
 			}
 		} else if vmDriver == "docker-desktop" {
