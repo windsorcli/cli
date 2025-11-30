@@ -30,6 +30,9 @@ func setupDockerEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMocks
 	// Only load default config if ConfigHandler wasn't overridden
 	// If ConfigHandler was injected via overrides, assume test wants to control it
 	if len(overrides) == 0 || overrides[0] == nil || overrides[0].ConfigHandler == nil {
+		// Set the context environment variable first, before loading config
+		os.Setenv("WINDSOR_CONTEXT", "test-context")
+		
 		configStr := `
 version: v1alpha1
 contexts:
@@ -45,7 +48,7 @@ contexts:
 			t.Fatalf("Failed to load config: %v", err)
 		}
 
-		// Set the context
+		// Set the context (this also updates the environment variable)
 		mocks.ConfigHandler.SetContext("test-context")
 	}
 
@@ -1262,6 +1265,9 @@ contexts:
 		mocks := setupDockerEnvMocks(t, &EnvTestMocks{
 			ConfigHandler: config.NewConfigHandler(baseMocks.Shell),
 		})
+		// Set the context environment variable after setup (setupDockerEnvMocks may have reset it)
+		os.Setenv("WINDSOR_CONTEXT", "test-context")
+		
 		configStr := `
 version: v1alpha1
 contexts:
@@ -1276,6 +1282,9 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
+		// Set the context to ensure GetConfig() returns the right config
+		mocks.ConfigHandler.SetContext("test-context")
+		
 		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 

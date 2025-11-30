@@ -10,15 +10,16 @@ To ensure compatibility with Windsor, your Terraform project should adhere to a 
 
 ```plaintext
 .windsor/
-└── .tf_modules/
-    ├── cluster/
-    │   └── talos/
-    │       ├── main.tf
-    │       └── variables.tf
-    └── gitops/
-        └── flux/
-            ├── main.tf
-            └── variables.tf
+└── contexts/
+    └── local/
+        ├── cluster/
+        │   └── talos/
+        │       ├── main.tf
+        │       └── variables.tf
+        └── gitops/
+            └── flux/
+                ├── main.tf
+                └── variables.tf
 contexts/
 └── local/
     ├── .terraform/
@@ -69,7 +70,7 @@ kustomize:
   path: ""
 ```
 
-Modules like `cluster/talos` and `gitops/flux` are remote, with shims in `.windsor/.tf_modules/cluster/talos` and `.windsor/.tf_modules/gitops/flux`. Running `windsor up` applies these modules sequentially.
+Modules like `cluster/talos` and `gitops/flux` are remote, with shims in `.windsor/contexts/<context>/cluster/talos` and `.windsor/contexts/<context>/gitops/flux`. Running `windsor up` applies these modules sequentially.
 
 Store your Terraform code in a `terraform/` folder within your project. To reference it in `blueprint.yaml`, add a section without a `source` field. For example, if your code is in `terraform/example/my-app`, add:
 
@@ -85,9 +86,9 @@ terraform:
 Now, running `windsor up` will execute your module after the `gitops/flux` module.
 
 ## Importing Resources
-The Windsor CLI offers a unique method for importing and using remote Terraform modules. Running `windsor init local` unpacks shims that reference basic modules from Windsor's [core blueprint](https://github.com/windsorcli/core), stored in `.windsor/.tf_modules`.
+The Windsor CLI offers a unique method for importing and using remote Terraform modules. Running `windsor init local` unpacks shims that reference basic modules from Windsor's [core blueprint](https://github.com/windsorcli/core), stored in `.windsor/contexts/<context>/`.
 
-Think of the `tf_modules` folder as the remote module counterpart to the local `terraform` folder. Variables for these modules are located in `contexts/<context-name>/terraform/path/to/module.tfvars`.
+Think of the `contexts/<context>/` folder as the remote module counterpart to the local `terraform` folder. Variables for these modules are located in `.windsor/contexts/<context>/path/to/module/terraform.tfvars`.
 
 ## Terraform CLI Assistance
 

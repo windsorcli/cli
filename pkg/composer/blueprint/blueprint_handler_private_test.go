@@ -536,6 +536,7 @@ func TestBaseBlueprintHandler_resolveComponentPaths(t *testing.T) {
 		// Given a handler with components using remote sources
 		handler := setup(t)
 		handler.runtime.ProjectRoot = "/test/project"
+		handler.runtime.ContextName = "local"
 		blueprint := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{
@@ -548,8 +549,8 @@ func TestBaseBlueprintHandler_resolveComponentPaths(t *testing.T) {
 		// When resolving component paths
 		handler.resolveComponentPaths(blueprint)
 
-		// Then remote source components should use .windsor/.tf_modules path
-		if blueprint.TerraformComponents[0].FullPath != filepath.Join("/test/project", ".windsor", ".tf_modules", "test-module") {
+		// Then remote source components should use .windsor/contexts/<context> path
+		if blueprint.TerraformComponents[0].FullPath != filepath.Join("/test/project", ".windsor", "contexts", "local", "terraform", "test-module") {
 			t.Errorf("Expected FullPath for remote source, got: %s", blueprint.TerraformComponents[0].FullPath)
 		}
 	})
@@ -558,6 +559,7 @@ func TestBaseBlueprintHandler_resolveComponentPaths(t *testing.T) {
 		// Given a handler with components using OCI sources
 		handler := setup(t)
 		handler.runtime.ProjectRoot = "/test/project"
+		handler.runtime.ContextName = "local"
 		handler.blueprint = blueprintv1alpha1.Blueprint{
 			Sources: []blueprintv1alpha1.Source{
 				{
@@ -578,8 +580,8 @@ func TestBaseBlueprintHandler_resolveComponentPaths(t *testing.T) {
 		// When resolving component paths
 		handler.resolveComponentPaths(blueprint)
 
-		// Then OCI source components should use .windsor/.tf_modules path
-		if blueprint.TerraformComponents[0].FullPath != filepath.Join("/test/project", ".windsor", ".tf_modules", "test-module") {
+		// Then OCI source components should use .windsor/contexts/<context> path
+		if blueprint.TerraformComponents[0].FullPath != filepath.Join("/test/project", ".windsor", "contexts", "local", "terraform", "test-module") {
 			t.Errorf("Expected FullPath for OCI source, got: %s", blueprint.TerraformComponents[0].FullPath)
 		}
 	})

@@ -1266,7 +1266,7 @@ func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *blueprintv1alpha
 		componentCopy := component
 
 		if b.isValidTerraformRemoteSource(componentCopy.Source) || b.isOCISource(componentCopy.Source) || strings.HasPrefix(componentCopy.Source, "file://") {
-			componentCopy.FullPath = filepath.Join(projectRoot, ".windsor", ".tf_modules", componentCopy.Path)
+			componentCopy.FullPath = filepath.Join(projectRoot, ".windsor", "contexts", b.runtime.ContextName, "terraform", componentCopy.Path)
 		} else {
 			componentCopy.FullPath = filepath.Join(projectRoot, "terraform", componentCopy.Path)
 		}

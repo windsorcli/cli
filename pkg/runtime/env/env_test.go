@@ -49,8 +49,8 @@ func setupEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMocks {
 	// Set project root environment variable
 	os.Setenv("WINDSOR_PROJECT_ROOT", tmpDir)
 
-	// Set context default to test-context
-	os.Setenv("WINDSOR_CONTEXT", "test-context")
+	// Set context default to local
+	os.Setenv("WINDSOR_CONTEXT", "local")
 
 	// Create shell with project root matching temp dir
 	mockShell := shell.NewMockShell()

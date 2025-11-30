@@ -123,8 +123,10 @@ func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath stri
 		return nil, fmt.Errorf("error getting project root: %w", err)
 	}
 
+	contextName := e.configHandler.GetContext()
+
 	patterns := []string{
-		filepath.Join(projectRoot, ".windsor", ".tf_modules", projectPath, "terraform.tfvars"),
+		filepath.Join(projectRoot, ".windsor", "contexts", contextName, "terraform", projectPath, "terraform.tfvars"),
 		filepath.Join(configRoot, "terraform", projectPath+".tfvars"),
 		filepath.Join(configRoot, "terraform", projectPath+".tfvars.json"),
 	}
@@ -673,7 +675,7 @@ func (e *TerraformEnvPrinter) findRelativeTerraformProjectPath(directory ...stri
 
 	pathParts := strings.Split(currentPath, string(os.PathSeparator))
 	for i := len(pathParts) - 1; i >= 0; i-- {
-		if strings.EqualFold(pathParts[i], "terraform") || strings.EqualFold(pathParts[i], ".tf_modules") {
+		if strings.EqualFold(pathParts[i], "terraform") || strings.EqualFold(pathParts[i], "contexts") {
 			relativePath := filepath.Join(pathParts[i+1:]...)
 			return filepath.ToSlash(relativePath), nil
 		}

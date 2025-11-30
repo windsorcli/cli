@@ -99,12 +99,7 @@ func NewProject(contextName string, opts ...*Project) (*Project, error) {
 // This should be called after NewProject if command flags need to override
 // configuration values. Returns an error if loading or applying overrides fails.
 func (p *Project) Configure(flagOverrides map[string]any) error {
-	contextName := p.Runtime.ContextName
-	if contextName == "" {
-		contextName = "local"
-	}
-
-	if p.Runtime.ConfigHandler.IsDevMode(contextName) {
+	if p.Runtime.ConfigHandler.IsDevMode(p.Runtime.ContextName) {
 		if flagOverrides == nil {
 			flagOverrides = make(map[string]any)
 		}
@@ -189,7 +184,7 @@ func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
 
 // PerformCleanup removes context-specific artifacts including volumes, terraform modules,
 // and generated configuration files. It calls the config handler's Clean method to remove
-// saved state, then deletes the .volumes directory, .windsor/.tf_modules directory,
+// saved state, then deletes the .volumes directory, .windsor/contexts/<context> directory,
 // .windsor/Corefile, and .windsor/docker-compose.yaml. Returns an error if any cleanup step fails.
 func (p *Project) PerformCleanup() error {
 	if err := p.Runtime.ConfigHandler.Clean(); err != nil {
@@ -201,9 +196,9 @@ func (p *Project) PerformCleanup() error {
 		return fmt.Errorf("error deleting .volumes folder: %w", err)
 	}
 
-	tfModulesPath := filepath.Join(p.Runtime.ProjectRoot, ".windsor", ".tf_modules")
+	tfModulesPath := filepath.Join(p.Runtime.ProjectRoot, ".windsor", "contexts", p.Runtime.ContextName)
 	if err := os.RemoveAll(tfModulesPath); err != nil {
-		return fmt.Errorf("error deleting .windsor/.tf_modules folder: %w", err)
+		return fmt.Errorf("error deleting .windsor/contexts/%s folder: %w", p.Runtime.ContextName, err)
 	}
 
 	corefilePath := filepath.Join(p.Runtime.ProjectRoot, ".windsor", "Corefile")

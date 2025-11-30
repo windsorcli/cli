@@ -49,7 +49,7 @@ func setupTerraformEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMo
 			strings.Contains(nameSlash, "project/path.tfvars.json") ||
 			strings.Contains(nameSlash, "project\\path.tfvars") ||
 			strings.Contains(nameSlash, "project\\path.tfvars.json") ||
-			strings.Contains(nameSlash, ".windsor/.tf_modules/project/path/terraform.tfvars") {
+			strings.Contains(nameSlash, ".windsor/contexts/local/terraform/project/path/terraform.tfvars") {
 			return nil, nil
 		}
 		return nil, os.ErrNotExist
@@ -97,16 +97,16 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -force-copy -upgrade -backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate/project/path/terraform.tfstate"))),
 			"TF_CLI_ARGS_plan": fmt.Sprintf(`-out="%s" -var-file="%s" -var-file="%s" -var-file="%s"`,
 				filepath.ToSlash(filepath.Join(configRoot, ".terraform/project/path/terraform.tfplan")),
-				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", ".tf_modules", "project/path", "terraform.tfvars")),
+				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
 			"TF_CLI_ARGS_apply": fmt.Sprintf(`"%s"`, filepath.ToSlash(filepath.Join(configRoot, ".terraform/project/path/terraform.tfplan"))),
 			"TF_CLI_ARGS_import": fmt.Sprintf(`-var-file="%s" -var-file="%s" -var-file="%s"`,
-				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", ".tf_modules", "project/path", "terraform.tfvars")),
+				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
 			"TF_CLI_ARGS_destroy": fmt.Sprintf(`-var-file="%s" -var-file="%s" -var-file="%s"`,
-				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", ".tf_modules", "project/path", "terraform.tfvars")),
+				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
 			"TF_VAR_context_path": filepath.ToSlash(configRoot),
@@ -300,7 +300,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 				strings.Contains(nameSlash, "project/path.tfvars.json") ||
 				strings.Contains(nameSlash, "project\\path.tfvars") ||
 				strings.Contains(nameSlash, "project\\path.tfvars.json") ||
-				strings.Contains(nameSlash, ".windsor/.tf_modules/project/path/terraform.tfvars") {
+				strings.Contains(nameSlash, ".windsor/contexts/local/terraform/project/path/terraform.tfvars") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -320,16 +320,16 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -force-copy -upgrade -backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate/project/path/terraform.tfstate"))),
 			"TF_CLI_ARGS_plan": fmt.Sprintf(`-out="%s" -var-file="%s" -var-file="%s" -var-file="%s"`,
 				filepath.ToSlash(filepath.Join(configRoot, ".terraform/project/path/terraform.tfplan")),
-				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", ".tf_modules", "project/path", "terraform.tfvars")),
+				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
 			"TF_CLI_ARGS_apply": fmt.Sprintf(`"%s"`, filepath.ToSlash(filepath.Join(configRoot, ".terraform/project/path/terraform.tfplan"))),
 			"TF_CLI_ARGS_import": fmt.Sprintf(`-var-file="%s" -var-file="%s" -var-file="%s"`,
-				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", ".tf_modules", "project/path", "terraform.tfvars")),
+				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
 			"TF_CLI_ARGS_destroy": fmt.Sprintf(`-var-file="%s" -var-file="%s" -var-file="%s"`,
-				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", ".tf_modules", "project/path", "terraform.tfvars")),
+				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
 			"TF_VAR_context_path": filepath.ToSlash(configRoot),
@@ -1273,13 +1273,13 @@ metadata:
   name: test-blueprint
 terraform:
   - path: vpc
-    fullPath: /project/.windsor/.tf_modules/vpc
+    fullPath: /project/.windsor/contexts/local/terraform/vpc
     dependsOn: []
   - path: subnets
-    fullPath: /project/.windsor/.tf_modules/subnets
+    fullPath: /project/.windsor/contexts/local/terraform/subnets
     dependsOn: [vpc]
   - path: app
-    fullPath: /project/.windsor/.tf_modules/app
+    fullPath: /project/.windsor/contexts/local/terraform/app
     dependsOn: [subnets]`
 
 		// Mock ReadFile to return blueprint.yaml content
@@ -1357,13 +1357,13 @@ metadata:
   name: test-blueprint
 terraform:
   - path: a
-    fullPath: /project/.windsor/.tf_modules/a
+    fullPath: /project/.windsor/contexts/local/terraform/a
     dependsOn: [b]
   - path: b
-    fullPath: /project/.windsor/.tf_modules/b
+    fullPath: /project/.windsor/contexts/local/terraform/b
     dependsOn: [c]
   - path: c
-    fullPath: /project/.windsor/.tf_modules/c
+    fullPath: /project/.windsor/contexts/local/terraform/c
     dependsOn: [a]`
 
 		// Mock ReadFile to return blueprint.yaml content
@@ -1402,7 +1402,7 @@ metadata:
   name: test-blueprint
 terraform:
   - path: app
-    fullPath: /project/.windsor/.tf_modules/app
+    fullPath: /project/.windsor/contexts/local/terraform/app
     dependsOn: [nonexistent]`
 
 		// Mock ReadFile to return blueprint.yaml content
@@ -1441,10 +1441,10 @@ metadata:
   name: test-blueprint
 terraform:
   - path: vpc/main
-    fullPath: /project/.windsor/.tf_modules/vpc/main
+    fullPath: /project/.windsor/contexts/local/terraform/vpc/main
     dependsOn: []
   - path: app/frontend
-    fullPath: /project/.windsor/.tf_modules/app/frontend
+    fullPath: /project/.windsor/contexts/local/terraform/app/frontend
     dependsOn: [vpc/main]`
 
 		// Mock ReadFile to return blueprint.yaml content
@@ -1498,10 +1498,10 @@ metadata:
   name: test-blueprint
 terraform:
   - path: base
-    fullPath: /project/.windsor/.tf_modules/base
+    fullPath: /project/.windsor/contexts/local/terraform/base
     dependsOn: []
   - path: app
-    fullPath: /project/.windsor/.tf_modules/app
+    fullPath: /project/.windsor/contexts/local/terraform/app
     dependsOn: [base]`
 		originalReadFile := mocks.Shims.ReadFile
 		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
