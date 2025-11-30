@@ -650,7 +650,7 @@ func TestToolsManager_checkColima(t *testing.T) {
 		}
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 			if name == "colima" && args[0] == "version" {
-				return "Colima version 0.7.0", nil
+				return fmt.Sprintf("Colima version %s", constants.MinimumVersionColima), nil
 			}
 			return "", fmt.Errorf("command not found")
 		}
@@ -669,7 +669,7 @@ func TestToolsManager_checkColima(t *testing.T) {
 				return "Invalid version response", nil
 			}
 			if name == "colima" && args[0] == "version" {
-				return "Colima version 0.7.0", nil
+				return fmt.Sprintf("Colima version %s", constants.MinimumVersionColima), nil
 			}
 			return "", fmt.Errorf("command not found")
 		}
@@ -688,7 +688,7 @@ func TestToolsManager_checkColima(t *testing.T) {
 				return "Limactl version 0.5.0", nil
 			}
 			if name == "colima" && args[0] == "version" {
-				return "Colima version 0.7.0", nil
+				return fmt.Sprintf("Colima version %s", constants.MinimumVersionColima), nil
 			}
 			return "", fmt.Errorf("command not found")
 		}
@@ -909,7 +909,7 @@ func Test_extractVersion(t *testing.T) {
 		{"VersionWithPrefix", "Client Version: v1.32.0", "1.32.0"},
 		{"VersionWithText", "Terraform v1.7.0", "1.7.0"},
 		{"VersionWithMultipleNumbers", "1Password CLI 2.25.0", "2.25.0"},
-		{"VersionWithColima", "Colima version 0.7.0", "0.7.0"},
+		{"VersionWithColima", fmt.Sprintf("Colima version %s", constants.MinimumVersionColima), constants.MinimumVersionColima},
 		{"VersionWithLima", "limactl version 1.0.0", "1.0.0"},
 		{"NoVersion", "Invalid version response", ""},
 		{"EmptyString", "", ""},
