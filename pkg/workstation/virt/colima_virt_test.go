@@ -458,6 +458,52 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 			t.Errorf("Expected MountType to be virtiofs, got %s", capturedConfig.MountType)
 		}
 	})
+
+	t.Run("NetworkConfiguration", func(t *testing.T) {
+		// Given a ColimaVirt with mock components
+		colimaVirt, mocks := setup(t)
+
+		// And a config capture mechanism
+		var capturedConfig *colimaConfig.Config
+		mocks.Shims.NewYAMLEncoder = func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
+			return &mockYAMLEncoder{
+				encodeFunc: func(v any) error {
+					if cfg, ok := v.(*colimaConfig.Config); ok {
+						capturedConfig = cfg
+					}
+					return nil
+				},
+				closeFunc: func() error {
+					return nil
+				},
+			}
+		}
+
+		// When calling WriteConfig
+		err := colimaVirt.WriteConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And the network configuration should have the correct values
+		if capturedConfig == nil {
+			t.Fatal("Expected config to be captured")
+		}
+		if !capturedConfig.Network.Address {
+			t.Error("Expected Network.Address to be true")
+		}
+		if capturedConfig.Network.Mode != "shared" {
+			t.Errorf("Expected Network.Mode to be 'shared', got %s", capturedConfig.Network.Mode)
+		}
+		if capturedConfig.Network.BridgeInterface != "" {
+			t.Errorf("Expected Network.BridgeInterface to be empty, got %s", capturedConfig.Network.BridgeInterface)
+		}
+		if capturedConfig.Network.PreferredRoute {
+			t.Error("Expected Network.PreferredRoute to be false")
+		}
+	})
 }
 
 func TestColimaVirt_Up(t *testing.T) {

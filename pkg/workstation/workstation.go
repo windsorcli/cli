@@ -141,6 +141,9 @@ func (w *Workstation) Up() error {
 
 	vmDriver := w.ConfigHandler.GetString("vm.driver")
 	if vmDriver == "colima" && w.VirtualMachine != nil {
+		if err := w.VirtualMachine.WriteConfig(); err != nil {
+			return fmt.Errorf("error writing virtual machine config: %w", err)
+		}
 		if err := w.VirtualMachine.Up(); err != nil {
 			return fmt.Errorf("error running virtual machine Up command: %w", err)
 		}

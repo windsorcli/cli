@@ -94,7 +94,7 @@ const DefaultNetworkCIDR = "10.5.0.0/16"
 
 const KubernetesShortTimeout = 200 * time.Millisecond
 
-const MinimumVersionColima = "0.7.0"
+const MinimumVersionColima = "0.9.0"
 
 const MinimumVersionDocker = "23.0.0"
 
