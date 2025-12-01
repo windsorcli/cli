@@ -755,7 +755,6 @@ func TestComposer_Generate(t *testing.T) {
 		}
 	})
 
-
 	t.Run("ErrorFromWrite", func(t *testing.T) {
 		// Given mocks with Write failing
 		mocks := setupComposerMocks(t)
@@ -1068,16 +1067,25 @@ func TestComposer_generateGitignore(t *testing.T) {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		// And file should not duplicate the entry
+		// And file should not duplicate the entry (commented entry stays commented)
 		content, readErr := os.ReadFile(gitignorePath)
 		if readErr != nil {
 			t.Fatalf("Failed to read .gitignore: %v", readErr)
 		}
 
 		contentStr := string(content)
-		occurrences := strings.Count(contentStr, ".windsor/")
-		if occurrences != 1 {
-			t.Errorf("Expected .windsor/ to appear once, got %d occurrences", occurrences)
+		if !strings.Contains(contentStr, "# .windsor/") {
+			t.Error("Expected commented entry # .windsor/ to remain in file")
+		}
+		lines := strings.Split(contentStr, "\n")
+		uncommentedCount := 0
+		for _, line := range lines {
+			if strings.TrimSpace(line) == ".windsor/" {
+				uncommentedCount++
+			}
+		}
+		if uncommentedCount > 0 {
+			t.Errorf("Expected .windsor/ to not be added when commented, got %d uncommented occurrences", uncommentedCount)
 		}
 	})
 

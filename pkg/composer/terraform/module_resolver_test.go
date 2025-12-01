@@ -97,10 +97,11 @@ contexts:
 
 	// Create runtime
 	rt := &runtime.Runtime{
-		ConfigHandler: configHandler,
-		Shell:         mockShell,
-		ProjectRoot:   tmpDir,
-		ContextName:   "local",
+		ConfigHandler:      configHandler,
+		Shell:              mockShell,
+		ProjectRoot:        tmpDir,
+		ContextName:        "local",
+		WindsorScratchPath: filepath.Join(tmpDir, ".windsor", "contexts", "local"),
 	}
 
 	mocks := &TerraformTestMocks{

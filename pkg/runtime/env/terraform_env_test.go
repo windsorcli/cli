@@ -82,10 +82,14 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 			osType = "windows"
 		}
 
-		// Get the actual config root and project root
+		// Get the actual config root, windsor scratch path, and project root
 		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
 		if err != nil {
 			t.Fatalf("Failed to get config root: %v", err)
+		}
+		windsorScratchPath, err := mocks.ConfigHandler.GetWindsorScratchPath()
+		if err != nil {
+			t.Fatalf("Failed to get windsor scratch path: %v", err)
 		}
 		projectRoot, err := mocks.Shell.GetProjectRoot()
 		if err != nil {
@@ -93,14 +97,14 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		}
 
 		expectedEnvVars := map[string]string{
-			"TF_DATA_DIR":      filepath.ToSlash(filepath.Join(configRoot, ".terraform/project/path")),
-			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -force-copy -upgrade -backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate/project/path/terraform.tfstate"))),
+			"TF_DATA_DIR":      filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", "project/path")),
+			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -force-copy -upgrade -backend-config="path=%s"`, filepath.ToSlash(filepath.Join(windsorScratchPath, ".tfstate", "project/path", "terraform.tfstate"))),
 			"TF_CLI_ARGS_plan": fmt.Sprintf(`-out="%s" -var-file="%s" -var-file="%s" -var-file="%s"`,
-				filepath.ToSlash(filepath.Join(configRoot, ".terraform/project/path/terraform.tfplan")),
+				filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", "project/path", "terraform.tfplan")),
 				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
-				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
-				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
-			"TF_CLI_ARGS_apply": fmt.Sprintf(`"%s"`, filepath.ToSlash(filepath.Join(configRoot, ".terraform/project/path/terraform.tfplan"))),
+				filepath.ToSlash(filepath.Join(configRoot, "terraform", "project/path.tfvars")),
+				filepath.ToSlash(filepath.Join(configRoot, "terraform", "project/path.tfvars.json"))),
+			"TF_CLI_ARGS_apply": fmt.Sprintf(`"%s"`, filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", "project/path", "terraform.tfplan"))),
 			"TF_CLI_ARGS_import": fmt.Sprintf(`-var-file="%s" -var-file="%s" -var-file="%s"`,
 				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
@@ -280,10 +284,14 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 			return nil, nil
 		}
 
-		// Get the actual config root and project root
+		// Get the actual config root, windsor scratch path, and project root
 		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
 		if err != nil {
 			t.Fatalf("Failed to get config root: %v", err)
+		}
+		windsorScratchPath, err := mocks.ConfigHandler.GetWindsorScratchPath()
+		if err != nil {
+			t.Fatalf("Failed to get windsor scratch path: %v", err)
 		}
 		projectRoot, err := mocks.Shell.GetProjectRoot()
 		if err != nil {
@@ -316,14 +324,14 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 
 		// And environment variables should be set correctly
 		expectedEnvVars := map[string]string{
-			"TF_DATA_DIR":      filepath.ToSlash(filepath.Join(configRoot, ".terraform/project/path")),
-			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -force-copy -upgrade -backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate/project/path/terraform.tfstate"))),
+			"TF_DATA_DIR":      filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform/project/path")),
+			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -force-copy -upgrade -backend-config="path=%s"`, filepath.ToSlash(filepath.Join(windsorScratchPath, ".tfstate/project/path/terraform.tfstate"))),
 			"TF_CLI_ARGS_plan": fmt.Sprintf(`-out="%s" -var-file="%s" -var-file="%s" -var-file="%s"`,
-				filepath.ToSlash(filepath.Join(configRoot, ".terraform/project/path/terraform.tfplan")),
+				filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", "project/path", "terraform.tfplan")),
 				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
-				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
-				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
-			"TF_CLI_ARGS_apply": fmt.Sprintf(`"%s"`, filepath.ToSlash(filepath.Join(configRoot, ".terraform/project/path/terraform.tfplan"))),
+				filepath.ToSlash(filepath.Join(configRoot, "terraform", "project/path.tfvars")),
+				filepath.ToSlash(filepath.Join(configRoot, "terraform", "project/path.tfvars.json"))),
+			"TF_CLI_ARGS_apply": fmt.Sprintf(`"%s"`, filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", "project/path", "terraform.tfplan"))),
 			"TF_CLI_ARGS_import": fmt.Sprintf(`-var-file="%s" -var-file="%s" -var-file="%s"`,
 				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
@@ -917,21 +925,20 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given a TerraformEnvPrinter with mock configuration
-		printer, _ := setup(t)
+		printer, mocks := setup(t)
 		projectPath := "project/path"
-		configRoot := "/mock/config/root"
+		configRoot, _ := mocks.ConfigHandler.GetConfigRoot()
+		windsorScratchPath, _ := mocks.ConfigHandler.GetWindsorScratchPath()
 
-		// When generateBackendConfigArgs is called
 		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
-		// Then no error should occur and the expected arguments should be returned
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
 
+		expectedPath := filepath.ToSlash(filepath.Join(windsorScratchPath, ".tfstate", projectPath, "terraform.tfstate"))
 		expectedArgs := []string{
-			`-backend-config=path=/mock/config/root/.tfstate/project/path/terraform.tfstate`,
+			fmt.Sprintf(`-backend-config=path=%s`, expectedPath),
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -940,22 +947,21 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("LocalBackendWithPrefix", func(t *testing.T) {
-		// Given a TerraformEnvPrinter with local backend and prefix configuration
 		printer, mocks := setup(t)
 		mocks.ConfigHandler.Set("terraform.backend.prefix", "mock-prefix/")
 		projectPath := "project/path"
-		configRoot := "/mock/config/root"
+		configRoot, _ := mocks.ConfigHandler.GetConfigRoot()
+		windsorScratchPath, _ := mocks.ConfigHandler.GetWindsorScratchPath()
 
-		// When generateBackendConfigArgs is called
 		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
-		// Then no error should occur and the expected arguments should be returned
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
 
+		expectedPath := filepath.ToSlash(filepath.Join(windsorScratchPath, ".tfstate", "mock-prefix", projectPath, "terraform.tfstate"))
 		expectedArgs := []string{
-			`-backend-config=path=/mock/config/root/.tfstate/mock-prefix/project/path/terraform.tfstate`,
+			fmt.Sprintf(`-backend-config=path=%s`, expectedPath),
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1022,23 +1028,22 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("BackendTfvarsFileExistsWithPrefix", func(t *testing.T) {
-		// Given a TerraformEnvPrinter with backend tfvars file and prefix configuration
 		printer, mocks := setup(t)
 		mocks.ConfigHandler.Set("terraform.backend.prefix", "mock-prefix/")
 		mocks.ConfigHandler.Set("context", "mock-context")
 		projectPath := "project/path"
-		configRoot := "/mock/config/root"
+		configRoot, _ := mocks.ConfigHandler.GetConfigRoot()
+		windsorScratchPath, _ := mocks.ConfigHandler.GetWindsorScratchPath()
 
-		// When generateBackendConfigArgs is called
 		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
-		// Then no error should occur and the expected arguments should be returned
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
 
+		expectedPath := filepath.ToSlash(filepath.Join(windsorScratchPath, ".tfstate", "mock-prefix", projectPath, "terraform.tfstate"))
 		expectedArgs := []string{
-			`-backend-config=path=/mock/config/root/.tfstate/mock-prefix/project/path/terraform.tfstate`,
+			fmt.Sprintf(`-backend-config=path=%s`, expectedPath),
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1047,13 +1052,12 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("BackendTfvarsFileExists", func(t *testing.T) {
-		// Given a TerraformEnvPrinter with a backend.tfvars file
 		printer, mocks := setup(t)
 		mocks.ConfigHandler.Set("context", "mock-context")
 		projectPath := "project/path"
-		configRoot := "/mock/config/root"
+		configRoot, _ := mocks.ConfigHandler.GetConfigRoot()
+		windsorScratchPath, _ := mocks.ConfigHandler.GetWindsorScratchPath()
 
-		// Mock Stat to return nil error for backend.tfvars
 		backendTfvarsPath := filepath.Join(configRoot, "terraform", "backend.tfvars")
 		mocks.Shims.Stat = func(path string) (os.FileInfo, error) {
 			if path == backendTfvarsPath {
@@ -1062,17 +1066,16 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 			return nil, fmt.Errorf("unexpected path: %s", path)
 		}
 
-		// When generateBackendConfigArgs is called
 		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
-		// Then no error should occur and backend.tfvars should be included
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
 
+		expectedPath := filepath.ToSlash(filepath.Join(windsorScratchPath, ".tfstate", projectPath, "terraform.tfstate"))
 		expectedArgs := []string{
 			fmt.Sprintf(`-backend-config=%s`, filepath.ToSlash(backendTfvarsPath)),
-			`-backend-config=path=/mock/config/root/.tfstate/project/path/terraform.tfstate`,
+			fmt.Sprintf(`-backend-config=path=%s`, expectedPath),
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1081,13 +1084,12 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("BackendTfvarsFileDoesNotExist", func(t *testing.T) {
-		// Given a TerraformEnvPrinter without a backend.tfvars file
 		printer, mocks := setup(t)
 		mocks.ConfigHandler.Set("context", "mock-context")
 		projectPath := "project/path"
-		configRoot := "/mock/config/root"
+		configRoot, _ := mocks.ConfigHandler.GetConfigRoot()
+		windsorScratchPath, _ := mocks.ConfigHandler.GetWindsorScratchPath()
 
-		// Mock Stat to return error for backend.tfvars
 		backendTfvarsPath := filepath.Join(configRoot, "terraform", "backend.tfvars")
 		mocks.Shims.Stat = func(path string) (os.FileInfo, error) {
 			if path == backendTfvarsPath {
@@ -1096,16 +1098,15 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 			return nil, fmt.Errorf("unexpected path: %s", path)
 		}
 
-		// When generateBackendConfigArgs is called
 		backendConfigArgs, err := printer.generateBackendConfigArgs(projectPath, configRoot, false)
 
-		// Then no error should occur and backend.tfvars should not be included
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
 
+		expectedPath := filepath.ToSlash(filepath.Join(windsorScratchPath, ".tfstate", projectPath, "terraform.tfstate"))
 		expectedArgs := []string{
-			`-backend-config=path=/mock/config/root/.tfstate/project/path/terraform.tfstate`,
+			fmt.Sprintf(`-backend-config=path=%s`, expectedPath),
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1734,6 +1735,77 @@ terraform:
 			if strings.Contains(arg, "parallelism") {
 				t.Errorf("Apply args should not contain parallelism without blueprint.yaml: %v", args.ApplyArgs)
 			}
+		}
+	})
+
+	t.Run("UsesWindsorScratchPathForTFDataDir", func(t *testing.T) {
+		mocks := setupTerraformEnvMocks(t)
+		windsorScratchPath, err := mocks.ConfigHandler.GetWindsorScratchPath()
+		if err != nil {
+			t.Fatalf("Failed to get windsor scratch path: %v", err)
+		}
+
+		printer := &TerraformEnvPrinter{
+			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler),
+		}
+
+		args, err := printer.GenerateTerraformArgs("test/path", "test/module")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		expectedTFDataDir := filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", "test/path"))
+		if args.TFDataDir != expectedTFDataDir {
+			t.Errorf("Expected TFDataDir to be %s, got %s", expectedTFDataDir, args.TFDataDir)
+		}
+
+		if args.TerraformVars["TF_DATA_DIR"] != expectedTFDataDir {
+			t.Errorf("Expected TF_DATA_DIR env var to be %s, got %s", expectedTFDataDir, args.TerraformVars["TF_DATA_DIR"])
+		}
+	})
+
+	t.Run("UsesWindsorScratchPathForTfstate", func(t *testing.T) {
+		mocks := setupTerraformEnvMocks(t)
+		windsorScratchPath, err := mocks.ConfigHandler.GetWindsorScratchPath()
+		if err != nil {
+			t.Fatalf("Failed to get windsor scratch path: %v", err)
+		}
+
+		printer := &TerraformEnvPrinter{
+			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler),
+		}
+
+		args, err := printer.GenerateTerraformArgs("test/path", "test/module")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		expectedTfstatePath := filepath.ToSlash(filepath.Join(windsorScratchPath, ".tfstate", "test/path", "terraform.tfstate"))
+		if !strings.Contains(args.TerraformVars["TF_CLI_ARGS_init"], expectedTfstatePath) {
+			t.Errorf("Expected TF_CLI_ARGS_init to contain %s, got %s", expectedTfstatePath, args.TerraformVars["TF_CLI_ARGS_init"])
+		}
+	})
+
+	t.Run("HandlesGetWindsorScratchPathError", func(t *testing.T) {
+		mocks := setupTerraformEnvMocks(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return "/mock/config/root", nil
+		}
+		mockConfigHandler.GetWindsorScratchPathFunc = func() (string, error) {
+			return "", fmt.Errorf("windsor scratch path error")
+		}
+
+		printer := &TerraformEnvPrinter{
+			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Shell, mockConfigHandler),
+		}
+
+		_, err := printer.GenerateTerraformArgs("test/path", "test/module")
+		if err == nil {
+			t.Error("Expected error when GetWindsorScratchPath fails")
+		}
+		if !strings.Contains(err.Error(), "windsor scratch path") {
+			t.Errorf("Expected error about windsor scratch path, got: %v", err)
 		}
 	})
 

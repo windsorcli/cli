@@ -930,6 +930,60 @@ func TestMockConfigHandler_GetConfigRoot(t *testing.T) {
 	})
 }
 
+// TestMockConfigHandler_GetWindsorScratchPath tests the GetWindsorScratchPath method of MockConfigHandler
+func TestMockConfigHandler_GetWindsorScratchPath(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedResult := "/mock/windsor/scratch/path"
+		mockConfigHandler.GetWindsorScratchPathFunc = func() (string, error) {
+			return expectedResult, nil
+		}
+
+		result, err := mockConfigHandler.GetWindsorScratchPath()
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if result != expectedResult {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		expectedError := fmt.Errorf("mock get windsor scratch path error")
+		mockConfigHandler.GetWindsorScratchPathFunc = func() (string, error) {
+			return "", expectedError
+		}
+
+		result, err := mockConfigHandler.GetWindsorScratchPath()
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+		if result != "" {
+			t.Errorf("Expected empty result, got %v", result)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		result, err := mockConfigHandler.GetWindsorScratchPath()
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		expectedResult := "mock-windsor-scratch-path"
+		if result != expectedResult {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+}
+
 // TestMockConfigHandler_Clean tests the Clean method of MockConfigHandler
 func TestMockConfigHandler_Clean(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {

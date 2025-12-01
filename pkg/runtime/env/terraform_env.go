@@ -118,15 +118,13 @@ func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath stri
 		return nil, fmt.Errorf("error getting config root: %w", err)
 	}
 
-	projectRoot, err := e.shell.GetProjectRoot()
+	windsorScratchPath, err := e.configHandler.GetWindsorScratchPath()
 	if err != nil {
-		return nil, fmt.Errorf("error getting project root: %w", err)
+		return nil, fmt.Errorf("error getting windsor scratch path: %w", err)
 	}
 
-	contextName := e.configHandler.GetContext()
-
 	patterns := []string{
-		filepath.Join(projectRoot, ".windsor", "contexts", contextName, "terraform", projectPath, "terraform.tfvars"),
+		filepath.Join(windsorScratchPath, "terraform", projectPath, "terraform.tfvars"),
 		filepath.Join(configRoot, "terraform", projectPath+".tfvars"),
 		filepath.Join(configRoot, "terraform", projectPath+".tfvars.json"),
 	}
@@ -145,7 +143,7 @@ func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath stri
 		}
 	}
 
-	tfDataDir := filepath.ToSlash(filepath.Join(configRoot, ".terraform", projectPath))
+	tfDataDir := filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", projectPath))
 	tfPlanPath := filepath.ToSlash(filepath.Join(tfDataDir, "terraform.tfplan"))
 
 	backendConfigArgs, err := e.generateBackendConfigArgs(projectPath, configRoot, false)
@@ -528,7 +526,11 @@ func (e *TerraformEnvPrinter) generateBackendConfigArgs(projectPath, configRoot 
 
 	switch backend {
 	case "local":
-		path := filepath.Join(configRoot, ".tfstate")
+		windsorScratchPath, err := e.configHandler.GetWindsorScratchPath()
+		if err != nil {
+			return nil, fmt.Errorf("error getting windsor scratch path: %w", err)
+		}
+		path := filepath.Join(windsorScratchPath, ".tfstate")
 		if prefix != "" {
 			path = filepath.Join(path, prefix)
 		}

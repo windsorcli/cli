@@ -70,12 +70,6 @@ func (v *DockerVirt) Up() error {
 			return fmt.Errorf("failed to determine compose command: %w", err)
 		}
 
-		if v.configHandler.GetString("vm.driver") == "colima" {
-			if err := v.WriteConfig(); err != nil {
-				return fmt.Errorf("error regenerating docker compose config: %w", err)
-			}
-		}
-
 		projectRoot := v.runtime.ProjectRoot
 		composeFilePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
 

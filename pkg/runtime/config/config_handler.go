@@ -36,6 +36,7 @@ type ConfigHandler interface {
 	IsDevMode(contextName string) bool
 	SetContext(context string) error
 	GetConfigRoot() (string, error)
+	GetWindsorScratchPath() (string, error)
 	Clean() error
 	IsLoaded() bool
 	GenerateContextID() error
@@ -705,16 +706,43 @@ func (c *configHandler) GetConfigRoot() (string, error) {
 	return configRoot, nil
 }
 
+// GetWindsorScratchPath retrieves the windsor scratch directory path based on the current context
+func (c *configHandler) GetWindsorScratchPath() (string, error) {
+	context := c.GetContext()
+	projectRoot, err := c.shell.GetProjectRoot()
+	if err != nil {
+		return "", err
+	}
+	windsorScratchPath := filepath.Join(projectRoot, windsorDirName, contextDirName, context)
+	return windsorScratchPath, nil
+}
+
 // Clean cleans up context specific artifacts
 func (c *configHandler) Clean() error {
+	windsorScratchPath, err := c.GetWindsorScratchPath()
+	if err != nil {
+		return fmt.Errorf("error getting windsor scratch path: %w", err)
+	}
+
+	dirsToDelete := []string{".terraform", ".tfstate"}
+
+	for _, dir := range dirsToDelete {
+		path := filepath.Join(windsorScratchPath, dir)
+		if _, err := c.shims.Stat(path); err == nil {
+			if err := c.shims.RemoveAll(path); err != nil {
+				return fmt.Errorf("error deleting %s: %w", path, err)
+			}
+		}
+	}
+
 	configRoot, err := c.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("error getting config root: %w", err)
 	}
 
-	dirsToDelete := []string{".kube", ".talos", ".omni", ".aws", ".terraform", ".tfstate"}
+	dirsToDeleteFromConfigRoot := []string{".kube", ".talos", ".omni", ".aws"}
 
-	for _, dir := range dirsToDelete {
+	for _, dir := range dirsToDeleteFromConfigRoot {
 		path := filepath.Join(configRoot, dir)
 		if _, err := c.shims.Stat(path); err == nil {
 			if err := c.shims.RemoveAll(path); err != nil {
