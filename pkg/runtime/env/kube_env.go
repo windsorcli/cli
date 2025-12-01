@@ -66,7 +66,14 @@ func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars["K8S_AUTH_KUBECONFIG"] = kubeConfigPath
 
 	projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
-	volumeDir := filepath.Join(projectRoot, ".volumes")
+	if projectRoot == "" {
+		return envVars, nil
+	}
+	absProjectRoot, err := filepath.Abs(projectRoot)
+	if err != nil {
+		return nil, fmt.Errorf("error converting WINDSOR_PROJECT_ROOT to absolute path: %w", err)
+	}
+	volumeDir := filepath.Join(absProjectRoot, ".volumes")
 
 	_, err = e.shims.Stat(volumeDir)
 	if err != nil {
@@ -125,7 +132,12 @@ func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 					if strings.HasSuffix(dir.Name(), string(pvc.UID)) {
 						envVarName := fmt.Sprintf("PV_%s_%s", sanitizeEnvVar(pvc.Namespace), sanitizeEnvVar(pvc.Name))
 						if _, exists := existingEnvVars[envVarName]; !exists {
-							envVars[envVarName] = filepath.Join(volumeDir, dir.Name())
+							volumePath := filepath.Join(volumeDir, dir.Name())
+							absPath, err := filepath.Abs(volumePath)
+							if err != nil {
+								return nil, fmt.Errorf("error converting volume path to absolute: %w", err)
+							}
+							envVars[envVarName] = absPath
 						}
 						break
 					}
