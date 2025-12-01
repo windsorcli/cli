@@ -2405,6 +2405,43 @@ func TestConfigHandler_GetConfigRoot(t *testing.T) {
 	})
 }
 
+func TestConfigHandler_GetWindsorScratchPath(t *testing.T) {
+	t.Run("ReturnsWindsorScratchPath", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+
+		handler := NewConfigHandler(mocks.Shell)
+		handler.SetContext("test-context")
+
+		path, err := handler.GetWindsorScratchPath()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		expectedPath := filepath.Join(tmpDir, ".windsor", "contexts", "test-context")
+		if path != expectedPath {
+			t.Errorf("Expected path='%s', got '%s'", expectedPath, path)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenShellFails", func(t *testing.T) {
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "", os.ErrPermission
+		}
+
+		handler := NewConfigHandler(mockShell)
+		handler.SetContext("test")
+
+		_, err := handler.GetWindsorScratchPath()
+
+		if err == nil {
+			t.Error("Expected error when GetProjectRoot fails")
+		}
+	})
+}
+
 func TestConfigHandler_Clean(t *testing.T) {
 	t.Run("RemovesConfigDirectories", func(t *testing.T) {
 		mocks := setupConfigMocks(t)

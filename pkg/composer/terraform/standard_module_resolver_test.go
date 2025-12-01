@@ -1,12 +1,12 @@
 package terraform
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
-
-	"encoding/json"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -145,19 +145,16 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 	})
 
 	t.Run("HandlesGetConfigRootError", func(t *testing.T) {
-		// Given a resolver with config handler GetConfigRoot returning error
-		resolver, mocks := setup(t)
-		mockConfigHandler := config.NewMockConfigHandler()
-		_ = mocks
-		resolver.BaseModuleResolver.runtime.ConfigHandler = mockConfigHandler
-		resolver.BaseModuleResolver.runtime.ConfigRoot = ""
+		// Given a resolver with empty WindsorScratchPath
+		resolver, _ := setup(t)
+		resolver.BaseModuleResolver.runtime.WindsorScratchPath = ""
 
 		// When ProcessModules is called
 		err := resolver.ProcessModules()
 
-		// Then an error is returned indicating failure to get config root
-		if err == nil || !strings.Contains(err.Error(), "config root is empty") {
-			t.Errorf("Expected config root error, got: %v", err)
+		// Then an error is returned indicating failure to get windsor scratch path
+		if err == nil || !strings.Contains(err.Error(), "windsor scratch path is empty") {
+			t.Errorf("Expected windsor scratch path error, got: %v", err)
 		}
 	})
 
@@ -220,6 +217,112 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 		// Then an error is returned indicating failure to write main.tf
 		if err == nil || !strings.Contains(err.Error(), "failed to write main.tf") {
 			t.Errorf("Expected write main.tf error, got: %v", err)
+		}
+	})
+
+	t.Run("UsesWindsorScratchPathForTFDataDir", func(t *testing.T) {
+		resolver, mocks := setup(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+		expectedWindsorScratchPath := filepath.Join(tmpDir, ".windsor", "contexts", "local")
+		resolver.BaseModuleResolver.runtime.WindsorScratchPath = expectedWindsorScratchPath
+
+		var actualTFDataDir string
+		resolver.BaseModuleResolver.shims.Setenv = func(key, value string) error {
+			if key == "TF_DATA_DIR" {
+				actualTFDataDir = value
+			}
+			return nil
+		}
+
+		resolver.BaseModuleResolver.shims.JsonUnmarshal = func(data []byte, v any) error {
+			return json.Unmarshal(data, v)
+		}
+
+		mocks.Shell.ExecProgressFunc = func(msg, cmd string, args ...string) (string, error) {
+			if cmd == "terraform" && len(args) > 0 && args[0] == "init" {
+				return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-01-09T16:25:03Z","type":"log","message":"- main in /path/to/module"}`, nil
+			}
+			return "", nil
+		}
+
+		err := resolver.ProcessModules()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		expectedTFDataDir := filepath.Join(expectedWindsorScratchPath, ".terraform", "test-module")
+		if actualTFDataDir != expectedTFDataDir {
+			t.Errorf("Expected TF_DATA_DIR to be %s, got %s", expectedTFDataDir, actualTFDataDir)
+		}
+	})
+
+	t.Run("UsesWindsorScratchPathForModulePath", func(t *testing.T) {
+		resolver, mocks := setup(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+		expectedWindsorScratchPath := filepath.Join(tmpDir, ".windsor", "contexts", "local")
+		resolver.BaseModuleResolver.runtime.WindsorScratchPath = expectedWindsorScratchPath
+
+		var modulePathUsed string
+		resolver.BaseModuleResolver.shims.Stat = func(path string) (os.FileInfo, error) {
+			if strings.Contains(path, "variables.tf") && strings.Contains(path, ".terraform") {
+				modulePathUsed = filepath.Dir(path)
+			}
+			return nil, os.ErrNotExist
+		}
+
+		resolver.BaseModuleResolver.shims.JsonUnmarshal = func(data []byte, v any) error {
+			return json.Unmarshal(data, v)
+		}
+
+		mocks.Shell.ExecProgressFunc = func(msg, cmd string, args ...string) (string, error) {
+			if cmd == "terraform" && len(args) > 0 && args[0] == "init" {
+				return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-01-09T16:25:03Z","type":"log","message":"- main in /path/to/module"}`, nil
+			}
+			return "", nil
+		}
+
+		err := resolver.ProcessModules()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		expectedModulePath := filepath.Join(expectedWindsorScratchPath, ".terraform", "test-module", "modules", "main", "terraform", "test-module")
+		if modulePathUsed != "" && modulePathUsed != expectedModulePath {
+			t.Errorf("Expected module path to be %s, got %s", expectedModulePath, modulePathUsed)
+		}
+	})
+
+	t.Run("HandlesEmptyWindsorScratchPath", func(t *testing.T) {
+		resolver, mocks := setup(t)
+		tmpDir := t.TempDir()
+		moduleDir := filepath.Join(tmpDir, "terraform", "test-module")
+		os.MkdirAll(moduleDir, 0755)
+
+		resolver.BaseModuleResolver.runtime.WindsorScratchPath = ""
+
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:     "test-module",
+					Source:   "git::https://github.com/test/module.git",
+					FullPath: moduleDir,
+				},
+			}
+		}
+
+		resolver.BaseModuleResolver.shims.Chdir = func(path string) error {
+			return nil
+		}
+
+		err := resolver.ProcessModules()
+
+		if err == nil {
+			t.Error("Expected error when WindsorScratchPath is empty")
+		}
+		if err != nil && !strings.Contains(err.Error(), "windsor scratch path is empty") {
+			t.Errorf("Expected error about empty windsor scratch path, got: %v", err)
 		}
 	})
 
