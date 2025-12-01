@@ -17,6 +17,7 @@ import (
 	"github.com/windsorcli/cli/pkg/workstation"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/services"
+	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
 
 // =============================================================================
@@ -738,6 +739,97 @@ func TestProject_Initialize(t *testing.T) {
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("CallsContainerRuntimeWriteConfig", func(t *testing.T) {
+		mocks := setupProjectMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "docker.enabled" {
+				return true
+			}
+			return false
+		}
+
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
+
+		if err := proj.Configure(nil); err != nil {
+			t.Fatalf("Failed to configure project: %v", err)
+		}
+
+		if proj.Workstation == nil {
+			t.Fatal("Expected workstation to be created")
+		}
+
+		writeConfigCalled := false
+		mockContainerRuntime := virt.NewMockVirt()
+		mockContainerRuntime.WriteConfigFunc = func() error {
+			writeConfigCalled = true
+			return nil
+		}
+		proj.Workstation.ContainerRuntime = mockContainerRuntime
+		proj.Workstation.NetworkManager = nil
+
+		err = proj.Initialize(false)
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if !writeConfigCalled {
+			t.Error("Expected ContainerRuntime.WriteConfig to be called")
+		}
+	})
+
+	t.Run("ErrorOnContainerRuntimeWriteConfigFailure", func(t *testing.T) {
+		mocks := setupProjectMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "docker.enabled" {
+				return true
+			}
+			return false
+		}
+
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
+
+		if err := proj.Configure(nil); err != nil {
+			t.Fatalf("Failed to configure project: %v", err)
+		}
+
+		if proj.Workstation == nil {
+			t.Fatal("Expected workstation to be created")
+		}
+
+		mockContainerRuntime := virt.NewMockVirt()
+		mockContainerRuntime.WriteConfigFunc = func() error {
+			return fmt.Errorf("write config failed")
+		}
+		proj.Workstation.ContainerRuntime = mockContainerRuntime
+		proj.Workstation.NetworkManager = nil
+
+		err = proj.Initialize(false)
+
+		if err == nil {
+			t.Error("Expected error for ContainerRuntime.WriteConfig failure")
+			return
+		}
+
+		if !strings.Contains(err.Error(), "failed to write container runtime config") {
+			t.Errorf("Expected specific error message, got: %v", err)
 		}
 	})
 
