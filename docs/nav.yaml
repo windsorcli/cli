@@ -4,6 +4,8 @@ nav:
   - 'Quick Start': quick-start.md
   - 'Guides':
     - 'Contexts': guides/contexts.md
+    - 'Blueprint Templates': guides/templates.md
+    - 'Sharing Blueprints': guides/sharing.md
     - 'Environment Injection': guides/environment-injection.md
     - 'Local Workstation': guides/local-workstation.md
     - 'Secrets Management': guides/secrets-management.md
@@ -17,3 +19,6 @@ nav:
     - 'Blueprint': reference/blueprint.md
     - 'Configuration': reference/configuration.md
     - 'Contexts': reference/contexts.md
+    - 'Features': reference/features.md
+    - 'Input Schema': reference/schema.md
+    - 'Blueprint Metadata': reference/metadata.md
