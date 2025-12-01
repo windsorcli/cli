@@ -83,12 +83,11 @@ func (h *StandardModuleResolver) ProcessModules() error {
 			return fmt.Errorf("failed to change to module directory for %s: %w", component.Path, err)
 		}
 
-		contextPath := h.runtime.ConfigRoot
-		if contextPath == "" {
-			return fmt.Errorf("failed to get config root: config root is empty")
+		if h.runtime.WindsorScratchPath == "" {
+			return fmt.Errorf("failed to get windsor scratch path: windsor scratch path is empty")
 		}
 
-		tfDataDir := filepath.Join(contextPath, ".terraform", component.Path)
+		tfDataDir := filepath.Join(h.runtime.WindsorScratchPath, ".terraform", component.Path)
 		if err := h.shims.Setenv("TF_DATA_DIR", tfDataDir); err != nil {
 			return fmt.Errorf("failed to set TF_DATA_DIR for %s: %w", component.Path, err)
 		}
@@ -139,7 +138,7 @@ func (h *StandardModuleResolver) ProcessModules() error {
 			}
 		}
 
-		modulePath := filepath.Join(contextPath, ".terraform", component.Path, "modules", "main", "terraform", component.Path)
+		modulePath := filepath.Join(h.runtime.WindsorScratchPath, ".terraform", component.Path, "modules", "main", "terraform", component.Path)
 		if detectedPath != "" {
 			if detectedPath != modulePath {
 				fmt.Printf("\033[33mWarning: Using detected module path %s instead of standard path %s\033[0m\n", detectedPath, modulePath)

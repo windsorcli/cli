@@ -26,6 +26,7 @@ type MockConfigHandler struct {
 	IsDevModeFunc           func(contextName string) bool
 	SetContextFunc          func(context string) error
 	GetConfigRootFunc       func() (string, error)
+	GetWindsorScratchPathFunc func() (string, error)
 	CleanFunc               func() error
 	GenerateContextIDFunc   func() error
 	LoadSchemaFunc          func(schemaPath string) error
@@ -195,6 +196,14 @@ func (m *MockConfigHandler) GetConfigRoot() (string, error) {
 		return m.GetConfigRootFunc()
 	}
 	return "mock-config-root", nil
+}
+
+// GetWindsorScratchPath calls the mock GetWindsorScratchPathFunc if set, otherwise returns a reasonable default string
+func (m *MockConfigHandler) GetWindsorScratchPath() (string, error) {
+	if m.GetWindsorScratchPathFunc != nil {
+		return m.GetWindsorScratchPathFunc()
+	}
+	return "mock-windsor-scratch-path", nil
 }
 
 // Clean calls the mock CleanFunc if set, otherwise returns nil

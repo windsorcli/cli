@@ -37,6 +37,9 @@ type Runtime struct {
 	// TemplateRoot is the template directory (<projectRoot>/contexts/_template)
 	TemplateRoot string
 
+	// WindsorScratchPath is the windsor scratch directory (<projectRoot>/.windsor/contexts/<contextName>)
+	WindsorScratchPath string
+
 	// Core dependencies
 	ConfigHandler config.ConfigHandler
 	Shell         shell.Shell
@@ -102,6 +105,9 @@ func NewRuntime(opts ...*Runtime) (*Runtime, error) {
 		}
 		if overrides.TemplateRoot != "" {
 			rt.TemplateRoot = overrides.TemplateRoot
+		}
+		if overrides.WindsorScratchPath != "" {
+			rt.WindsorScratchPath = overrides.WindsorScratchPath
 		}
 		if overrides.ToolsManager != nil {
 			rt.ToolsManager = overrides.ToolsManager
@@ -173,6 +179,9 @@ func NewRuntime(opts ...*Runtime) (*Runtime, error) {
 	}
 	if rt.TemplateRoot == "" {
 		rt.TemplateRoot = filepath.Join(rt.ProjectRoot, "contexts", "_template")
+	}
+	if rt.WindsorScratchPath == "" {
+		rt.WindsorScratchPath = filepath.Join(rt.ProjectRoot, ".windsor", "contexts", rt.ContextName)
 	}
 
 	return rt, nil
