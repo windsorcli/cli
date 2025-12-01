@@ -528,4 +528,154 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 			t.Errorf("Expected PV_TEST_NS_PVC_1=%s, got %s", expectedPath, envVars["PV_TEST_NS_PVC_1"])
 		}
 	})
+
+	t.Run("PVPathsAreAlwaysAbsolute", func(t *testing.T) {
+		// Given a KubeEnvPrinter with valid configuration
+		printer, mocks := setup(t)
+
+		// And WINDSOR_PROJECT_ROOT is set to a relative path
+		originalProjectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		relativeProjectRoot := "relative/path"
+		t.Setenv("WINDSOR_PROJECT_ROOT", relativeProjectRoot)
+
+		// And a mock ReadDir function that returns PVC directories
+		mocks.Shims.ReadDir = func(dirname string) ([]os.DirEntry, error) {
+			if strings.HasSuffix(dirname, "volumes") {
+				return []os.DirEntry{
+					mockDirEntry{name: "pvc-1234", isDir: true},
+				}, nil
+			}
+			return nil, errors.New("mock readDir error")
+		}
+
+		// And a mock Stat function that accepts the volume directory
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.HasSuffix(name, ".kube/config") || strings.HasSuffix(name, "volumes") {
+				return mockFileInfo{name: filepath.Base(name)}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// And a mock queryPersistentVolumeClaims function that returns a PVC
+		queryPersistentVolumeClaims = func(_ string) (*corev1.PersistentVolumeClaimList, error) {
+			return &corev1.PersistentVolumeClaimList{
+				Items: []corev1.PersistentVolumeClaim{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "pvc-1",
+							Namespace: "test-ns",
+							UID:       "1234",
+						},
+					},
+				},
+			}, nil
+		}
+
+		// When getting environment variables
+		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And envVars should not be nil
+		if envVars == nil {
+			t.Error("Expected non-nil envVars")
+		}
+
+		// And PV_TEST_NS_PVC_1 should be set
+		pvPath, exists := envVars["PV_TEST_NS_PVC_1"]
+		if !exists {
+			t.Error("Expected PV_TEST_NS_PVC_1 to be set")
+		}
+
+		// And the path should be absolute
+		if !filepath.IsAbs(pvPath) {
+			t.Errorf("Expected PV_TEST_NS_PVC_1 to be an absolute path, got %s", pvPath)
+		}
+
+		// Restore original project root
+		if originalProjectRoot != "" {
+			t.Setenv("WINDSOR_PROJECT_ROOT", originalProjectRoot)
+		}
+	})
+
+	t.Run("PVPathsAreAbsoluteWithRelativeWINDSOR_PROJECT_ROOT", func(t *testing.T) {
+		// Given a KubeEnvPrinter with valid configuration
+		printer, mocks := setup(t)
+
+		// And WINDSOR_PROJECT_ROOT is set to a relative path
+		originalProjectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		relativeProjectRoot := "../relative/path"
+		t.Setenv("WINDSOR_PROJECT_ROOT", relativeProjectRoot)
+
+		// And a mock ReadDir function that returns PVC directories
+		mocks.Shims.ReadDir = func(dirname string) ([]os.DirEntry, error) {
+			if strings.HasSuffix(dirname, "volumes") {
+				return []os.DirEntry{
+					mockDirEntry{name: "pvc-1234", isDir: true},
+					mockDirEntry{name: "pvc-5678", isDir: true},
+				}, nil
+			}
+			return nil, errors.New("mock readDir error")
+		}
+
+		// And a mock Stat function that accepts the volume directory
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.HasSuffix(name, ".kube/config") || strings.HasSuffix(name, "volumes") {
+				return mockFileInfo{name: filepath.Base(name)}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// And a mock queryPersistentVolumeClaims function that returns PVCs
+		queryPersistentVolumeClaims = func(_ string) (*corev1.PersistentVolumeClaimList, error) {
+			return &corev1.PersistentVolumeClaimList{
+				Items: []corev1.PersistentVolumeClaim{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "pvc-1",
+							Namespace: "test-ns",
+							UID:       "1234",
+						},
+					},
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "pvc-2",
+							Namespace: "test-ns",
+							UID:       "5678",
+						},
+					},
+				},
+			}, nil
+		}
+
+		// When getting environment variables
+		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And envVars should not be nil
+		if envVars == nil {
+			t.Error("Expected non-nil envVars")
+		}
+
+		// And all PV_* paths should be absolute
+		for key, value := range envVars {
+			if strings.HasPrefix(key, "PV_") {
+				if !filepath.IsAbs(value) {
+					t.Errorf("Expected %s to be an absolute path, got %s", key, value)
+				}
+			}
+		}
+
+		// Restore original project root
+		if originalProjectRoot != "" {
+			t.Setenv("WINDSOR_PROJECT_ROOT", originalProjectRoot)
+		}
+	})
 }
