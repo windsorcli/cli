@@ -176,8 +176,6 @@ func (r *Composer) generateGitignore() error {
 		".windsor/",
 		".volumes/",
 		"terraform/**/backend_override.tf",
-		".windsor/contexts/**/.terraform/",
-		".windsor/contexts/**/.tfstate/",
 		"contexts/**/.kube/",
 		"contexts/**/.talos/",
 		"contexts/**/.omni/",

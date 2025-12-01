@@ -145,19 +145,16 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 	})
 
 	t.Run("HandlesGetConfigRootError", func(t *testing.T) {
-		// Given a resolver with config handler GetConfigRoot returning error
-		resolver, mocks := setup(t)
-		mockConfigHandler := config.NewMockConfigHandler()
-		_ = mocks
-		resolver.BaseModuleResolver.runtime.ConfigHandler = mockConfigHandler
-		resolver.BaseModuleResolver.runtime.ConfigRoot = ""
+		// Given a resolver with empty WindsorScratchPath
+		resolver, _ := setup(t)
+		resolver.BaseModuleResolver.runtime.WindsorScratchPath = ""
 
 		// When ProcessModules is called
 		err := resolver.ProcessModules()
 
-		// Then an error is returned indicating failure to get config root
-		if err == nil || !strings.Contains(err.Error(), "config root is empty") {
-			t.Errorf("Expected config root error, got: %v", err)
+		// Then an error is returned indicating failure to get windsor scratch path
+		if err == nil || !strings.Contains(err.Error(), "windsor scratch path is empty") {
+			t.Errorf("Expected windsor scratch path error, got: %v", err)
 		}
 	})
 
