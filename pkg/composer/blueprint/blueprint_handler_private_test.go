@@ -5371,6 +5371,69 @@ metadata:
 			t.Errorf("Expected error about processing features, got: %v", err)
 		}
 	})
+
+	t.Run("SetsMetadataNameAndDescriptionFromContextName", func(t *testing.T) {
+		handler, mocks := setup(t)
+		handler.runtime.ContextName = "production"
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"test": "value"}, nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).LoadSchemaFromBytesFunc = func(data []byte) error {
+			return nil
+		}
+
+		templateData := map[string][]byte{
+			"_template/blueprint.yaml": []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: template
+  description: Base blueprint template for core services`),
+		}
+
+		err := handler.processOCIArtifact(templateData, "oci://ghcr.io/test/repo:latest")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if handler.blueprint.Metadata.Name != "production" {
+			t.Errorf("Expected metadata name to be 'production', got: %s", handler.blueprint.Metadata.Name)
+		}
+		expectedDescription := "Blueprint for production context"
+		if handler.blueprint.Metadata.Description != expectedDescription {
+			t.Errorf("Expected metadata description to be '%s', got: %s", expectedDescription, handler.blueprint.Metadata.Description)
+		}
+	})
+
+	t.Run("DoesNotSetMetadataWhenContextNameIsEmpty", func(t *testing.T) {
+		handler, mocks := setup(t)
+		handler.runtime.ContextName = ""
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"test": "value"}, nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).LoadSchemaFromBytesFunc = func(data []byte) error {
+			return nil
+		}
+
+		templateData := map[string][]byte{
+			"_template/blueprint.yaml": []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: template
+  description: Base blueprint template for core services`),
+		}
+
+		err := handler.processOCIArtifact(templateData, "oci://ghcr.io/test/repo:latest")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if handler.blueprint.Metadata.Name != "template" {
+			t.Errorf("Expected metadata name to remain 'template', got: %s", handler.blueprint.Metadata.Name)
+		}
+		if handler.blueprint.Metadata.Description != "Base blueprint template for core services" {
+			t.Errorf("Expected metadata description to remain unchanged, got: %s", handler.blueprint.Metadata.Description)
+		}
+	})
 }
 
 func TestBaseBlueprintHandler_pullOCISources(t *testing.T) {
@@ -5683,6 +5746,69 @@ metadata:
 		}
 		if handler.blueprint.Kustomizations[0].Source != "existing-source" {
 			t.Errorf("Expected kustomization source to remain 'existing-source', got: %s", handler.blueprint.Kustomizations[0].Source)
+		}
+	})
+
+	t.Run("SetsMetadataNameAndDescriptionFromContextName", func(t *testing.T) {
+		handler, mocks := setup(t)
+		handler.runtime.ContextName = "staging"
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"test": "value"}, nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).LoadSchemaFromBytesFunc = func(data []byte) error {
+			return nil
+		}
+
+		templateData := map[string][]byte{
+			"_template/blueprint.yaml": []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: template
+  description: Base blueprint template for core services`),
+		}
+
+		err := handler.processLocalArtifact(templateData, "../test.tar.gz")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if handler.blueprint.Metadata.Name != "staging" {
+			t.Errorf("Expected metadata name to be 'staging', got: %s", handler.blueprint.Metadata.Name)
+		}
+		expectedDescription := "Blueprint for staging context"
+		if handler.blueprint.Metadata.Description != expectedDescription {
+			t.Errorf("Expected metadata description to be '%s', got: %s", expectedDescription, handler.blueprint.Metadata.Description)
+		}
+	})
+
+	t.Run("DoesNotSetMetadataWhenContextNameIsEmpty", func(t *testing.T) {
+		handler, mocks := setup(t)
+		handler.runtime.ContextName = ""
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"test": "value"}, nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).LoadSchemaFromBytesFunc = func(data []byte) error {
+			return nil
+		}
+
+		templateData := map[string][]byte{
+			"_template/blueprint.yaml": []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: template
+  description: Base blueprint template for core services`),
+		}
+
+		err := handler.processLocalArtifact(templateData, "../test.tar.gz")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if handler.blueprint.Metadata.Name != "template" {
+			t.Errorf("Expected metadata name to remain 'template', got: %s", handler.blueprint.Metadata.Name)
+		}
+		if handler.blueprint.Metadata.Description != "Base blueprint template for core services" {
+			t.Errorf("Expected metadata description to remain unchanged, got: %s", handler.blueprint.Metadata.Description)
 		}
 	})
 }
