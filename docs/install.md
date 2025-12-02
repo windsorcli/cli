@@ -308,24 +308,6 @@ You can add the `windsor hook` to various shells as follows:
     eval "$(windsor hook zsh)"
     ```
 
-=== "FISH"
-    Add the following line to your `config.fish` file:
-    ```fish
-    eval (windsor hook fish)
-    ```
-
-=== "TCSH"
-    Add the following line to your `~/.tcshrc` file:
-    ```tcsh
-    eval `windsor hook tcsh`
-    ```
-
-=== "ELVISH"
-    Add the following line to your `rc.elv` file:
-    ```elvish
-    eval (windsor hook elvish)
-    ```
-
 === "POWERSHELL"
     Add the following line to your PowerShell profile script:
     ```powershell
