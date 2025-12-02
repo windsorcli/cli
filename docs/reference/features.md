@@ -170,7 +170,7 @@ Substitutions are:
 - Available in Kubernetes manifests via Flux's postBuild substitution
 - Support `${}` expression interpolation
 
-### Patches
+### Kustomization Patches
 
 Patches support expression interpolation in the `patch` field content using `${}` syntax.
 

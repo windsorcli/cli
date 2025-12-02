@@ -35,6 +35,7 @@ contexts/
 ### blueprint.yaml
 
 The base blueprint definition that serves as the foundation for all contexts. This file defines:
+
 - Repository configuration
 - Source definitions
 - Base Terraform components
@@ -71,6 +72,7 @@ kustomize:
 ### schema.yaml
 
 JSON Schema file that defines the expected structure and default values for configuration. The schema is used to:
+
 - Validate user configuration values from `windsor.yaml` and `values.yaml`
 - Provide default values for missing configuration keys
 - Ensure configuration consistency across contexts
@@ -78,7 +80,7 @@ JSON Schema file that defines the expected structure and default values for conf
 The schema file must be valid JSON Schema. Supported schema versions:
 - `https://json-schema.org/draft/2020-12/schema` - Standard JSON Schema Draft 2020-12
 
-**Note:** Windsor implements a subset of JSON Schema Draft 2020-12. See [Blueprint Reference](../reference/blueprint.md#input-schema-validation) for supported features.
+**Note:** Windsor implements a subset of JSON Schema Draft 2020-12. See [Schema Reference](../reference/schema.md) for supported features.
 
 Example:
 
@@ -113,6 +115,7 @@ cliVersion: ">=0.7.1"
 ```
 
 This ensures that blueprints are only used with compatible CLI versions. Version constraints support:
+
 - `>=0.7.1` - Requires CLI version 0.7.1 or higher
 - `~0.7.0` - Requires CLI version compatible with 0.7.x
 - `>=0.7.0 <0.8.0` - Requires CLI version between 0.7.0 (inclusive) and 0.8.0 (exclusive)
@@ -158,23 +161,8 @@ For detailed information about Features, see the [Features Reference](../referen
 ## File Resolution
 
 Files referenced in features (via `jsonnet()` or `file()` functions) are resolved relative to the feature file location within `_template/`:
+
 - Feature at `_template/features/aws.yaml` can reference `_template/features/config.jsonnet`
 - Use `../configs/config.jsonnet` for files in parent directories
-- Paths work with both local filesystem and in-memory template data (from archives)
-
-## Template Loading from Archives
-
-When loading blueprints from `.tar.gz` archives, the `_template` directory structure is preserved:
-
-```bash
-windsor init local --blueprint ./my-blueprint.tar.gz
-```
-
-The archive should contain:
-- `_template/blueprint.yaml` - The base blueprint definition
-- `_template/schema.yaml` - JSON Schema for configuration validation (optional)
-- `_template/features/` - Feature definitions (optional)
-- `_template/metadata.yaml` - Blueprint metadata including CLI version compatibility (optional)
-
-Archive paths can be absolute or relative to the blueprint.yaml file location.
+- Paths work with both local filesystem and in-memory template data (from OCI artifacts)
 

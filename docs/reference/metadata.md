@@ -1,5 +1,5 @@
 ---
-title: "Blueprint Metadata"
+title: "Metadata"
 description: "Reference for metadata.yaml file structure and fields"
 ---
 # Blueprint Metadata
@@ -45,9 +45,9 @@ If the CLI version doesn't satisfy the constraint, blueprint loading will fail w
 
 When using `windsor bundle` or `windsor push`, the metadata file is used to:
 
-1. **Automatic naming**: If `name` is specified, you can bundle without providing a tag:
+1. **Automatic naming**: If both `name` and `version` are specified, you can bundle without providing a tag:
    ```bash
-   windsor bundle  # Uses name from metadata.yaml
+   windsor bundle  # Uses name and version from metadata.yaml
    ```
 
 2. **Version tagging**: The `version` field is used for artifact tagging when pushing to registries.

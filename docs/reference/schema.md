@@ -1,31 +1,93 @@
 ---
-title: "Input Schema Validation"
+title: "Schema"
 description: "Reference for JSON Schema file structure and supported features"
 ---
 # Input Schema Validation
 
-Blueprints can include a JSON Schema file (`_template/schema.yaml`) that defines the expected structure and default values for configuration. The schema is used to:
+Blueprints can include a JSON Schema file (`_template/schema.yaml`) that defines the expected structure and default values for configuration.
 
-- Validate user configuration values
-- Provide default values for missing configuration keys
-- Ensure configuration consistency across contexts
+## Schema File Structure
 
-## Schema Format
+The schema file must be valid JSON Schema Draft 2020-12. The schema is located at `_template/schema.yaml` in blueprint templates.
 
-The schema file must be valid JSON Schema. Supported schema versions:
+```yaml
+$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  # ... property definitions
+```
 
-- `https://json-schema.org/draft/2020-12/schema` - Standard JSON Schema Draft 2020-12
+## Supported Types
 
-**Note:** Windsor implements a subset of JSON Schema Draft 2020-12. The following features are supported:
+Windsor supports the following JSON Schema types:
 
-- **Types**: `object`, `string`, `array`, `integer`, `boolean`, `null`
-- **Validation keywords**: `properties`, `required`, `enum`, `pattern` (for strings), `additionalProperties` (boolean or schema object), `items` (for arrays)
-- **Default values**: `default` keyword for providing default configuration values
-- **Nested objects**: Recursive validation of nested object structures
+| Type | Description |
+|------|-------------|
+| `object` | Key-value pairs |
+| `string` | Text values |
+| `array` | Ordered lists |
+| `integer` | Whole numbers |
+| `boolean` | True/false values |
+| `null` | Null values |
 
-Unsupported features include: `format`, `minimum`/`maximum`/`multipleOf`, `minLength`/`maxLength`, `minItems`/`maxItems`, `uniqueItems`, `allOf`/`anyOf`/`oneOf`/`not`, `$ref`/`$defs`, `const`, and others.
+## Supported Validation Keywords
 
-## Example Schema
+### Type Keywords
+
+| Keyword | Type | Description |
+|---------|------|-------------|
+| `type` | `string` | Data type of the value |
+
+### Object Keywords
+
+| Keyword | Type | Description |
+|---------|------|-------------|
+| `properties` | `object` | Object property definitions |
+| `required` | `array` | Required property names |
+| `additionalProperties` | `boolean` or `object` | Control additional properties. `false` disallows, object validates |
+
+### String Keywords
+
+| Keyword | Type | Description |
+|---------|------|-------------|
+| `enum` | `array` | Allowed values |
+| `pattern` | `string` | Regex pattern for validation |
+
+### Array Keywords
+
+| Keyword | Type | Description |
+|---------|------|-------------|
+| `items` | `object` | Schema for array items |
+
+### Default Values
+
+| Keyword | Type | Description |
+|---------|------|-------------|
+| `default` | `any` | Default value when property is missing |
+
+## Nested Objects
+
+Nested object structures are supported recursively. Each nested object can have its own `properties`, `required`, `additionalProperties`, and `default` values.
+
+## Unsupported Features
+
+The following JSON Schema Draft 2020-12 features are **not** supported:
+
+- **Numeric constraints**: `minimum`, `maximum`, `multipleOf`
+- **String length constraints**: `minLength`, `maxLength`
+- **Array constraints**: `minItems`, `maxItems`, `uniqueItems`
+- **Composition keywords**: `allOf`, `anyOf`, `oneOf`, `not`
+- **References**: `$ref`, `$defs`
+- **Format validation**: `format` keyword
+- **Constants**: `const` keyword
+- **Conditional validation**: `if`, `then`, `else`
+- **Dependent schemas**: `dependentSchemas`, `dependentRequired`
+
+## Schema File Location
+
+The schema file must be located at `contexts/_template/schema.yaml` in your blueprint template directory.
+
+## Example
 
 ```yaml
 $schema: https://json-schema.org/draft/2020-12/schema
@@ -62,27 +124,3 @@ properties:
     additionalProperties: false
 additionalProperties: false
 ```
-
-## Default Values
-
-Default values specified in the schema are automatically merged with user configuration. When a configuration key is missing, the schema default is used. This ensures that blueprint processing always has complete configuration values.
-
-## Schema Loading
-
-The schema is automatically loaded from:
-- `_template/schema.yaml` in blueprint archives or local template directories
-- `schema` key in template data (for OCI artifacts)
-
-If no schema is provided, configuration validation is skipped and defaults are not applied.
-
-## Usage in Features
-
-Schema defaults are available when evaluating feature conditions and inputs. This means you can rely on default values being present even if users don't explicitly configure them:
-
-```yaml
-# Feature condition can rely on schema defaults
-when: observability.enabled == true && observability.backend == 'quickwit'
-```
-
-The schema ensures that `observability.enabled` defaults to `false` and `observability.backend` defaults to `"quickwit"` if not specified in the user's configuration.
-
