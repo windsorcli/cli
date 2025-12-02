@@ -6,13 +6,20 @@ description: "This document describes how to install the Windsor CLI on your dev
 
 This document describes how to install the Windsor CLI on your development workstation as well as configuring `windsor hook` in your shell.
 
-## Installing with Homebrew
+## Installing with Package Managers
 
-```
-brew update
-brew tap windsorcli/cli
-brew install windsor
-```
+=== "Homebrew"
+    ```
+    brew update
+    brew tap windsorcli/cli
+    brew install windsor
+    ```
+
+=== "Chocolatey"
+    Execute the following command in PowerShell with administrative privileges:
+    ```
+    choco install windsor
+    ```
 
 ## Manual Installation
 
@@ -118,9 +125,15 @@ brew install windsor
     Execute the following commands in PowerShell with administrative privileges:
 
     ```powershell
-    New-Item -Path "C:\Program Files\Windsor" -ItemType Directory -Force ;
-    Invoke-WebRequest -Uri "https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_windows_amd64.tar.gz" -Headers @{"Accept"="application/octet-stream"} -OutFile "windsor_{{ config.extra.release_version }}_windows_amd64.tar.gz" ;
-    tar -xzf windsor_{{ config.extra.release_version }}_windows_amd64.tar.gz -C "C:\Program Files\Windsor" ;
+    $installDir = "C:\Program Files\Windsor"
+    New-Item -Path $installDir -ItemType Directory -Force
+    Invoke-WebRequest -Uri "https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_windows_amd64.zip" -Headers @{"Accept"="application/octet-stream"} -OutFile "windsor_{{ config.extra.release_version }}_windows_amd64.zip"
+    Expand-Archive -Path "windsor_{{ config.extra.release_version }}_windows_amd64.zip" -DestinationPath $installDir -Force
+    $currentPath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    if ($currentPath -notlike "*$installDir*") {
+        [Environment]::SetEnvironmentVariable("Path", "$currentPath;$installDir", "Machine")
+        $env:Path += ";$installDir"
+    }
     ```
 
     <details>
@@ -158,9 +171,15 @@ brew install windsor
     gpg --verify windsor_{{ config.extra.release_version }}_checksums.txt.sig windsor_{{ config.extra.release_version }}_checksums.txt
     ```
 
-    7. **Verify the checksums**:
+    7. **Verify the checksum**:
     ```powershell
-    Get-FileHash -Algorithm SHA256 -Path "windsor_{{ config.extra.release_version }}_checksums.txt" | Format-List
+    $expectedHash = (Select-String -Path "windsor_{{ config.extra.release_version }}_checksums.txt" -Pattern "windsor_{{ config.extra.release_version }}_windows_amd64.zip").Line.Split()[0]
+    $actualHash = (Get-FileHash -Algorithm SHA256 -Path "windsor_{{ config.extra.release_version }}_windows_amd64.zip").Hash.ToLower()
+    if ($expectedHash -eq $actualHash) {
+        Write-Host "Checksum verified successfully"
+    } else {
+        Write-Host "Checksum verification failed" -ForegroundColor Red
+    }
     ```
     </details>
 
@@ -287,24 +306,6 @@ You can add the `windsor hook` to various shells as follows:
     Add the following line at the end of the `~/.zshrc` file:
     ```sh
     eval "$(windsor hook zsh)"
-    ```
-
-=== "FISH"
-    Add the following line to your `config.fish` file:
-    ```fish
-    eval (windsor hook fish)
-    ```
-
-=== "TCSH"
-    Add the following line to your `~/.tcshrc` file:
-    ```tcsh
-    eval `windsor hook tcsh`
-    ```
-
-=== "ELVISH"
-    Add the following line to your `rc.elv` file:
-    ```elvish
-    eval (windsor hook elvish)
     ```
 
 === "POWERSHELL"
