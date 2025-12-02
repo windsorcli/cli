@@ -552,6 +552,12 @@ func (b *BaseBlueprintHandler) processOCIArtifact(templateData map[string][]byte
 		return err
 	}
 
+	contextName := b.runtime.ContextName
+	if contextName != "" {
+		b.blueprint.Metadata.Name = contextName
+		b.blueprint.Metadata.Description = fmt.Sprintf("Blueprint for %s context", contextName)
+	}
+
 	ociInfo, _ := artifact.ParseOCIReference(blueprintRef)
 	if ociInfo != nil {
 		b.setOCISource(ociInfo)
@@ -1361,6 +1367,12 @@ func (b *BaseBlueprintHandler) processLocalArtifact(templateData map[string][]by
 
 	if err := b.processArtifactTemplateData(templateData); err != nil {
 		return err
+	}
+
+	contextName := b.runtime.ContextName
+	if contextName != "" {
+		b.blueprint.Metadata.Name = contextName
+		b.blueprint.Metadata.Description = fmt.Sprintf("Blueprint for %s context", contextName)
 	}
 
 	fileSource := blueprintv1alpha1.Source{
