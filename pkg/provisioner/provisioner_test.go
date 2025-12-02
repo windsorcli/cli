@@ -332,6 +332,40 @@ func TestProvisioner_Up(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected no error when terraform is disabled, got: %v", err)
 		}
+
+		if provisioner.TerraformStack != nil {
+			t.Error("Expected TerraformStack to remain nil when terraform is disabled")
+		}
+	})
+
+	t.Run("SuccessInitializesTerraformStackLazily", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "terraform.enabled" {
+				return true
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+
+		if provisioner.TerraformStack != nil {
+			t.Error("Expected TerraformStack to be nil before Up() is called")
+		}
+
+		blueprint := createTestBlueprint()
+		err := provisioner.Up(blueprint)
+
+		if provisioner.TerraformStack == nil {
+			t.Error("Expected TerraformStack to be initialized after Up() when terraform is enabled, even if operation fails")
+		}
+
+		if err == nil {
+			t.Log("Up() succeeded (unexpected but not a test failure)")
+		}
 	})
 
 	t.Run("ErrorTerraformStackUp", func(t *testing.T) {
@@ -393,14 +427,57 @@ func TestProvisioner_Down(t *testing.T) {
 
 	t.Run("SuccessSkipsTerraformWhenDisabled", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "terraform.enabled" {
+				return false
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-		provisioner.TerraformStack = nil
 
 		blueprint := createTestBlueprint()
 		err := provisioner.Down(blueprint)
 
 		if err != nil {
 			t.Errorf("Expected no error when terraform is disabled, got: %v", err)
+		}
+
+		if provisioner.TerraformStack != nil {
+			t.Error("Expected TerraformStack to remain nil when terraform is disabled")
+		}
+	})
+
+	t.Run("SuccessInitializesTerraformStackLazily", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "terraform.enabled" {
+				return true
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+
+		if provisioner.TerraformStack != nil {
+			t.Error("Expected TerraformStack to be nil before Down() is called")
+		}
+
+		blueprint := createTestBlueprint()
+		err := provisioner.Down(blueprint)
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if provisioner.TerraformStack == nil {
+			t.Error("Expected TerraformStack to be initialized after Down() when terraform is enabled")
 		}
 	})
 
