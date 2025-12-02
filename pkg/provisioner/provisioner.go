@@ -93,17 +93,11 @@ func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 		return fmt.Errorf("blueprint not provided")
 	}
 
+	if err := i.ensureTerraformStack(); err != nil {
+		return err
+	}
 	if i.TerraformStack == nil {
-		if i.Runtime != nil && i.Runtime.ConfigHandler != nil {
-			terraformEnabled := i.Runtime.ConfigHandler.GetBool("terraform.enabled", false)
-			if terraformEnabled {
-				i.TerraformStack = terraforminfra.NewStack(i.Runtime)
-			} else {
-				return nil
-			}
-		} else {
-			return nil
-		}
+		return nil
 	}
 	if err := i.TerraformStack.Up(blueprint); err != nil {
 		return fmt.Errorf("failed to run terraform up: %w", err)
@@ -121,6 +115,9 @@ func (i *Provisioner) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 		return fmt.Errorf("blueprint not provided")
 	}
 
+	if err := i.ensureTerraformStack(); err != nil {
+		return err
+	}
 	if i.TerraformStack == nil {
 		return nil
 	}
@@ -223,11 +220,9 @@ func (i *Provisioner) CheckNodeHealth(ctx context.Context, options NodeHealthChe
 
 	if hasNodeCheck {
 		if i.ClusterClient == nil {
-			if i.Runtime != nil && i.Runtime.ConfigHandler != nil {
-				clusterDriver := i.Runtime.ConfigHandler.GetString("cluster.driver", "")
-				if clusterDriver == "talos" || clusterDriver == "omni" {
-					i.ClusterClient = cluster.NewTalosClusterClient()
-				}
+			clusterDriver := i.Runtime.ConfigHandler.GetString("cluster.driver", "")
+			if clusterDriver == "talos" || clusterDriver == "omni" {
+				i.ClusterClient = cluster.NewTalosClusterClient()
 			}
 		}
 
@@ -351,4 +346,20 @@ func (i *Provisioner) Close() {
 	if i.ClusterClient != nil {
 		i.ClusterClient.Close()
 	}
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// ensureTerraformStack initializes the TerraformStack if terraform is enabled and the stack is not already initialized.
+// Returns an error if initialization fails, or nil if terraform is disabled or already initialized.
+func (i *Provisioner) ensureTerraformStack() error {
+	if i.TerraformStack != nil {
+		return nil
+	}
+	if i.Runtime.ConfigHandler.GetBool("terraform.enabled", false) {
+		i.TerraformStack = terraforminfra.NewStack(i.Runtime)
+	}
+	return nil
 }
