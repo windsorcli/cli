@@ -84,14 +84,96 @@ You can import Kustomize resources from remote sources. To import a component fr
 ```yaml
 ...
 kustomize:
-  - name: system-csi
-    path: system-csi
+  - name: csi
+    path: csi
     source: core
     components:
       - longhorn
 ```
 
-This would result in importing the `system-csi` resource from `core`, and specifically using the `longhorn` driver. By including the `source` field referencing `core`, this reference will be used when the Kustomization is generated on your cluster.
+This would result in importing the `csi` resource from `core`, and specifically using the `longhorn` driver. By including the `source` field referencing `core`, this reference will be used when the Kustomization is generated on your cluster.
+
+## Context-Specific Patches
+
+Windsor automatically discovers and includes patches from your context directory. Patches placed in `contexts/<context>/patches/<kustomization-name>/` are automatically discovered and applied to the corresponding kustomization.
+
+### Directory Structure
+
+Place patch files in a directory named after the kustomization:
+
+```plaintext
+contexts/
+└── local/
+    ├── blueprint.yaml
+    └── patches/
+        └── my-app/
+            ├── increase-replicas.yaml
+            └── add-annotations.yaml
+```
+
+### Patch Discovery
+
+All `.yaml` and `.yml` files in `contexts/<context>/patches/<kustomization-name>/` are automatically discovered and added to the kustomization's patches. Windsor automatically detects the patch format:
+
+- **Strategic merge patches**: Standard Kubernetes resource YAML that will be merged into the base resources. See the [Kubernetes documentation on strategic merge patches](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/#create-apply-and-delete) for details.
+- **JSON 6902 patches**: Patches that use a Kubernetes resource structure with `apiVersion`, `kind`, and `metadata` fields, but include a `patches` field (instead of `spec`) containing an array of JSON 6902 operations. See [RFC 6902](https://www.rfc-editor.org/rfc/rfc6902) for the JSON Patch specification.
+
+### Examples
+
+For a kustomization named `my-app`, create patches in `contexts/local/patches/my-app/`:
+
+**Strategic Merge Patch:**
+
+```yaml
+# contexts/local/patches/my-app/increase-replicas.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+spec:
+  replicas: 5
+```
+
+**Strategic Merge Patch with Annotations:**
+
+```yaml
+# contexts/local/patches/my-app/add-annotations.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+  annotations:
+    environment: local
+    managed-by: windsor
+```
+
+**JSON 6902 Patch:**
+
+Windsor also supports JSON 6902 patches using a Kubernetes resource structure with a `patches` field:
+
+```yaml
+# contexts/local/patches/my-app/json-patch.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+  namespace: default
+patches:
+  - op: replace
+    path: /spec/replicas
+    value: 5
+  - op: add
+    path: /spec/template/metadata/annotations/environment
+    value: local
+```
+
+In this format, the `apiVersion`, `kind`, and `metadata` fields identify the target resource, while the `patches` field contains an array of JSON 6902 operations (`op`, `path`, `value`). Windsor automatically extracts the target selector from the resource metadata.
+
+These patches are automatically discovered and applied when the blueprint is processed. Patches defined in features (via the blueprint's `features/` directory) are merged with context-specific patches, with all patches being applied in order.
+
+For more information on patch formats, see:
+- [Kubernetes Kustomize documentation](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/)
+- [RFC 6902 - JSON Patch](https://www.rfc-editor.org/rfc/rfc6902)
 
 <div>
   {{ footer('Environment Injection', '../environment-injection/index.html', 'Local Workstation', '../local-workstation/index.html') }}

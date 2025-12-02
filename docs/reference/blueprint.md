@@ -26,6 +26,9 @@ kustomize: #...
 | `sources`   | `[]Source`             | Lists external resources referenced by the blueprint.                       |
 | `terraform` | `[]TerraformComponent` | Includes Terraform modules within the blueprint.                            |
 | `kustomize` | `[]Kustomization`      | Contains Kustomization configurations in the blueprint.                     |
+| `configMaps`| `map[string]map[string]string` | Standalone ConfigMaps to be created, not tied to specific kustomizations. These ConfigMaps are referenced by all kustomizations in PostBuild substitution. |
+
+For information about Features, see the [Features Reference](features.md). For schema validation, see the [Schema Reference](schema.md). For blueprint metadata, see the [Metadata Reference](metadata.md).
 
 ### Metadata
 Core information about the blueprint, including its identity and authors.
@@ -74,16 +77,24 @@ sources:
   - name: oci-source
     url: oci://ghcr.io/windsorcli/core:v0.3.0
     # No ref needed for OCI - version is in the URL
+  - name: archive-source
+    url: file://./archives/modules.tar.gz
+    # file:// URLs point to local tar.gz archives containing terraform modules
+    # The path within the archive (e.g., //terraform/modules) is automatically
+    # constructed from the source's pathPrefix and component path during resolution
 ```
 
 | Field        | Type       | Description                                      |
 |--------------|------------|--------------------------------------------------|
 | `name`       | `string`   | Identifies the source.                           |
-| `url`        | `string`   | The source location. Supports Git URLs and OCI URLs (oci://registry/repo:tag). |
-| `ref`        | `Reference`| Details the branch, tag, or commit to use. Not needed for OCI URLs with embedded tags. |
+| `url`        | `string`   | The source location. Supports Git URLs, OCI URLs (oci://registry/repo:tag), and file:// URLs for local archives. |
+| `pathPrefix` | `string`   | Prefix to the source path. Defaults to `terraform` if not specified. |
+| `ref`        | `Reference`| Details the branch, tag, or commit to use. Not needed for OCI URLs with embedded tags or file:// URLs. |
 | `secretName` | `string`   | The secret for source access.                    |
 
-**Note:** For OCI sources, the URL should include the tag/version directly (e.g., `oci://registry.example.com/repo:v1.0.0`). The `ref` field is optional for OCI sources when the tag is specified in the URL.
+**Note:** 
+- For OCI sources, the URL should include the tag/version directly (e.g., `oci://registry.example.com/repo:v1.0.0`). The `ref` field is optional for OCI sources when the tag is specified in the URL.
+- For file:// sources, the URL should be the path to a local `.tar.gz` archive file (relative to the blueprint.yaml directory or absolute), e.g., `file://./archives/modules.tar.gz`. The path within the archive (e.g., `terraform/cluster/talos`) is automatically constructed from the source's `pathPrefix` (defaults to `terraform`) and the component's `path` during resolution. The archive is automatically extracted and modules are made available for use in Terraform components.
 
 ### Reference
 A reference to a specific git state or version
@@ -92,6 +103,7 @@ A reference to a specific git state or version
 reference:
   branch: main
   tag: v1.0.0
+  semver: ~1.0.0
   name: refs/heads/main
   commit: 1a2b3c4d5e6f7g8h9i0j
 ```
@@ -100,6 +112,7 @@ reference:
 |---------|--------|--------------------------------------------------|
 | `branch`| `string` | Branch to use.                                 |
 | `tag`   | `string` | Tag to use.                                    |
+| `semver`| `string` | Semantic version constraint to use (e.g., `~1.0.0`, `>=1.0.0`). |
 | `name`  | `string` | Name of the reference.                         |
 | `commit`| `string` | Commit hash to use.                            |
 
@@ -115,14 +128,19 @@ terraform:
   # A Terraform module defined within the current blueprint source
   - path: apps/my-infra
     parallelism: 5
+  
+  # A Terraform module from a local archive source
+  - source: archive-source
+    path: cluster/talos
 ```
 
 | Field      | Type                             | Description                                      |
 |------------|----------------------------------|--------------------------------------------------|
-| `source`   | `string`                         | Source of the Terraform module. Must be included in the list of sources. |
-| `path`     | `string`                         | Path of the Terraform module relative to the `terraform/` folder.                    |
-| `values`   | `map[string]any`         | Configuration values for the module.             |
-| `variables`| `map[string]TerraformVariable`   | Input variables for the module.                  |
+| `source`   | `string`                         | Source of the Terraform module. Must be included in the list of sources. Supports Git repositories, OCI artifacts, and file:// archive URLs. |
+| `path`     | `string`                         | Path of the Terraform module relative to the `terraform/` folder (for Git/OCI sources) or within the archive (for file:// sources).                    |
+| `inputs`   | `map[string]any`                  | Configuration values for the module. These values can be expressions using `${}` syntax (e.g., `${cluster.name}`) or literals. Values with `${}` are evaluated as expressions, plain values are passed through as literals. These are used for generating tfvars files and are not written to the final context blueprint.yaml. |
+| `dependsOn`| `[]string`                       | Dependencies of this terraform component.        |
+| `destroy`  | `*bool`                          | Determines if the component should be destroyed during down operations. Defaults to true if not specified. |
 | `parallelism`| `int`                         | Limits the number of concurrent operations as Terraform walks the graph. Corresponds to the `-parallelism` flag. |
 
 ### Kustomization
@@ -154,16 +172,25 @@ kustomize:
 | `interval`    | `*metav1.Duration`  | Interval for applying the kustomization.         |
 | `retryInterval`| `*metav1.Duration` | Retry interval for a failed kustomization.       |
 | `timeout`     | `*metav1.Duration`  | Timeout for the kustomization to complete.       |
-| `patches`     | `[]kustomize.Patch` | Patches to apply to the kustomization.           |
+| `patches`     | `[]BlueprintPatch` | Patches to apply to the kustomization. Supports both blueprint format (path) and Flux format (patch + target). |
 | `wait`        | `*bool`             | Wait for the kustomization to be fully applied.  |
 | `force`       | `*bool`             | Force apply the kustomization.                   |
+| `prune`       | `*bool`             | Enable garbage collection of resources that are no longer present in the source. |
 | `components`  | `[]string`          | Components to include in the kustomization.      |
+| `cleanup`     | `[]string`          | Resources to clean up after the kustomization is applied. |
+| `destroy`     | `*bool`             | Determines if the kustomization should be destroyed during down operations. Defaults to true if not specified. |
+| `substitutions` | `map[string]string` | Values for post-build variable replacement, collected and stored in ConfigMaps for use by Flux postBuild substitution. All values are converted to strings. These are used for generating ConfigMaps and are not written to the final context blueprint.yaml. |
+
+#### Patches
+
+Patches are provided via Features, not directly in blueprint definitions. See the [Features Reference](features.md#kustomization-patches) for details on how to define patches in features.
 
 ## Cluster Variables
 When running `windsor install`, Kubernetes resources are applied. These resources include a configmap that introduces [post-build variables](https://fluxcd.io/flux/components/kustomize/kustomizations/#post-build-variable-substitution) into the Kubernetes manifests. These variables are outlined as follows:
 
 | Key                     | Description                                                        |
 |-------------------------|--------------------------------------------------------------------|
+| `BUILD_ID`              | Build identifier for artifact tagging, generated by `windsor build-id`. Format: YYMMDD.RANDOM.# |
 | `CONTEXT`               | Specifies the context name, e.g., local.                           |
 | `DOMAIN`                | The domain used for subdomain registration, e.g., test.            |
 | `LOADBALANCER_IP_END`   | The final IP in the range for load balancer assignments.           |

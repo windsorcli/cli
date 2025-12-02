@@ -4,7 +4,7 @@ description: "Best practices and special features for managing secrets securely 
 ---
 
 # Securing Secrets
-The Windsor CLI offers features and best practices to ensure the secure management of secrets within your projects. This section highlights these features and provides recommendations for securely handling secrets. Read more about [secrets management](../guides/secrets.md) in the corresponding guide.
+The Windsor CLI offers features and best practices to ensure the secure management of secrets within your projects. This section highlights these features and provides recommendations for securely handling secrets. Read more about [secrets management](../guides/secrets-management.md) in the corresponding guide.
 
 ## Risks and Mitigations
 
