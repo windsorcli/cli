@@ -262,14 +262,14 @@ kubectl get storageclass
 In your local development environment, these are both provided by [OpenEBS's dynamic-localpv-provisioner](https://github.com/openebs/dynamic-localpv-provisioner). To further validate, you should run through the [Hello World](../tutorial/hello-world.md) example and verify that you can see `.volumes/pvc-*`  folders mounted in to your project folder.
 
 <div>
-  {{ footer('Kustomize', '../kustomize/index.html', 'Secrets Management', '../secrets/index.html') }}
+  {{ footer('Contexts', '../contexts/index.html', 'Environment Injection', '../environment-injection/index.html') }}
 </div>
 
 <script>
   document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../kustomize/index.html'; 
+    window.location.href = '../contexts/index.html'; 
   });
   document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../secrets/index.html'; 
+    window.location.href = '../environment-injection/index.html'; 
   });
 </script>

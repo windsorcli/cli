@@ -261,3 +261,16 @@ Features are automatically loaded from:
 
 Features are processed in alphabetical order by name, then merged into the base blueprint.
 
+<div>
+  {{ footer('Contexts', '../contexts/index.html', 'Schema', '../schema/index.html') }}
+</div>
+
+<script>
+  document.getElementById('previousButton').addEventListener('click', function() {
+    window.location.href = '../contexts/index.html'; 
+  });
+  document.getElementById('nextButton').addEventListener('click', function() {
+    window.location.href = '../schema/index.html'; 
+  });
+</script>
+

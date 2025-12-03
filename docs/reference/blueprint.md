@@ -297,12 +297,12 @@ kustomize:
 ```
 
 <div>
-  {{ footer('Terraform', '../../guides/terraform/index.html', 'Configuration', '../configuration/index.html') }}
+  {{ footer('Securing Secrets', '../../security/secrets/index.html', 'Configuration', '../configuration/index.html') }}
 </div>
 
 <script>
   document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../../security/terraform/index.html'; 
+    window.location.href = '../../security/secrets/index.html'; 
   });
   document.getElementById('nextButton').addEventListener('click', function() {
     window.location.href = '../configuration/index.html'; 

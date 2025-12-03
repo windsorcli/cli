@@ -176,7 +176,7 @@ For more information on patch formats, see:
 - [RFC 6902 - JSON Patch](https://www.rfc-editor.org/rfc/rfc6902)
 
 <div>
-  {{ footer('Environment Injection', '../environment-injection/index.html', 'Local Workstation', '../local-workstation/index.html') }}
+  {{ footer('Environment Injection', '../environment-injection/index.html', 'Terraform', '../terraform/index.html') }}
 </div>
 
 <script>
@@ -184,6 +184,6 @@ For more information on patch formats, see:
     window.location.href = '../environment-injection/index.html'; 
   });
   document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../local-workstation/index.html'; 
+    window.location.href = '../terraform/index.html'; 
   });
 </script>

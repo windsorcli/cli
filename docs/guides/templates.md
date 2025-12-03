@@ -166,3 +166,16 @@ Files referenced in features (via `jsonnet()` or `file()` functions) are resolve
 - Use `../configs/config.jsonnet` for files in parent directories
 - Paths work with both local filesystem and in-memory template data (from OCI artifacts)
 
+<div>
+  {{ footer('Secrets Management', '../secrets-management/index.html', 'Sharing Blueprints', '../sharing/index.html') }}
+</div>
+
+<script>
+  document.getElementById('previousButton').addEventListener('click', function() {
+    window.location.href = '../secrets-management/index.html'; 
+  });
+  document.getElementById('nextButton').addEventListener('click', function() {
+    window.location.href = '../sharing/index.html'; 
+  });
+</script>
+
