@@ -136,3 +136,16 @@ windsor context get
 ```
 
 The current context is also available via the `WINDSOR_CONTEXT` environment variable.
+
+<div>
+  {{ footer('Configuration', '../configuration/index.html', 'Features', '../features/index.html') }}
+</div>
+
+<script>
+  document.getElementById('previousButton').addEventListener('click', function() {
+    window.location.href = '../configuration/index.html'; 
+  });
+  document.getElementById('nextButton').addEventListener('click', function() {
+    window.location.href = '../features/index.html'; 
+  });
+</script>

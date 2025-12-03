@@ -134,15 +134,15 @@ terraform apply
 <!-- Footer Start -->
 
 <div>
-  {{ footer('Secrets Management', '../secrets/index.html', 'Blueprints', '../../reference/blueprint/index.html') }}
+  {{ footer('Kustomize', '../kustomize/index.html', 'Secrets Management', '../secrets-management/index.html') }}
 </div>
 
 <script>
   document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../secrets/index.html'; 
+    window.location.href = '../kustomize/index.html'; 
   });
   document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../kustomize/index.html'; 
+    window.location.href = '../secrets-management/index.html'; 
   });
 </script>
 

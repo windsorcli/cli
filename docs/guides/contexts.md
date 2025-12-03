@@ -46,3 +46,16 @@ Additionally, the `WINDSOR_CONTEXT` environment variable is available to you.
 Contexts are generated from blueprint templates stored in `contexts/_template/`. These templates define reusable blueprint components, features, and schemas that are shared across all contexts. See the [Blueprint Templates](templates.md) guide for details on how templates work.
 
 For detailed reference information about contexts, see the [Contexts Reference](../reference/contexts.md).
+
+<div>
+  {{ footer('Quick Start', '../../quick-start/index.html', 'Local Workstation', '../local-workstation/index.html') }}
+</div>
+
+<script>
+  document.getElementById('previousButton').addEventListener('click', function() {
+    window.location.href = '../../quick-start/index.html'; 
+  });
+  document.getElementById('nextButton').addEventListener('click', function() {
+    window.location.href = '../local-workstation/index.html'; 
+  });
+</script>

@@ -276,3 +276,16 @@ If `cliVersion` is not specified in `metadata.yaml`, the CLI will:
 7. **Use descriptive names**: Make blueprint names clear and descriptive
 8. **Tag appropriately**: Use tags that indicate stability (e.g., `latest`, `v1.0.0`, `dev`)
 
+<div>
+  {{ footer('Blueprint Templates', '../templates/index.html', 'Hello, World!', '../../tutorial/hello-world/index.html') }}
+</div>
+
+<script>
+  document.getElementById('previousButton').addEventListener('click', function() {
+    window.location.href = '../templates/index.html'; 
+  });
+  document.getElementById('nextButton').addEventListener('click', function() {
+    window.location.href = '../../tutorial/hello-world/index.html'; 
+  });
+</script>
+

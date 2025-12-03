@@ -13,13 +13,13 @@ nav:
     - 'Sharing Blueprints': guides/sharing.md
   - 'Tutorial': 
     - 'Hello, World!': tutorial/hello-world.md
-    - 'Sharing Your Blueprint': tutorial/sharing-blueprint.md
   - 'Security':
     - 'Trusted Folders': security/trusted-folders.md
+    - 'Securing Secrets': security/secrets.md
   - 'Reference':
     - 'Blueprint': reference/blueprint.md
     - 'Configuration': reference/configuration.md
     - 'Contexts': reference/contexts.md
     - 'Features': reference/features.md
-    - 'Input Schema': reference/schema.md
-    - 'Blueprint Metadata': reference/metadata.md
+    - 'Schema': reference/schema.md
+    - 'Metadata': reference/metadata.md
