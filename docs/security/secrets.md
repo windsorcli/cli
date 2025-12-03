@@ -25,6 +25,24 @@ Windsor supports the `windsor env --decrypt` option, allowing you to decrypt sec
     MY_SECRET=********
     ```
 
+### Automatic Secret Scrubbing
+
+Windsor automatically scrubs secrets from all command output to prevent accidental exposure. When secrets are retrieved from SOPS-encrypted files or 1Password vaults, they are automatically registered for scrubbing. Any command executed internally by Windsor (such as Terraform operations) will have its output automatically sanitized before being displayed.
+
+**What gets scrubbed:**
+
+- All commands executed internally by Windsor
+- Standard output and error streams
+- Returned command results
+- Error messages that may contain secret values
+
+Any registered secret values appearing in command output are automatically replaced with `********` before being displayed. This helps prevent secrets from being accidentally exposed when:
+
+- Terraform commands output values or error messages containing secrets
+- Commands pass secrets as arguments and those values appear in error output
+- Debug or verbose output includes secret values
+- Command output is logged or captured
+
 ## Best Practices
 
 ### Limit Environment Injection
