@@ -30,7 +30,7 @@ type Blueprint struct {
 	Metadata Metadata `yaml:"metadata"`
 
 	// Repository details the source repository of the blueprint.
-	Repository Repository `yaml:"repository"`
+	Repository Repository `yaml:"repository,omitempty"`
 
 	// Sources are external resources referenced by the blueprint.
 	Sources []Source `yaml:"sources"`
@@ -64,7 +64,7 @@ type Repository struct {
 	Ref Reference `yaml:"ref"`
 
 	// SecretName is the secret for repository access.
-	SecretName string `yaml:"secretName,omitempty"`
+	SecretName *string `yaml:"secretName,omitempty"`
 }
 
 // Source is an external resource referenced by a blueprint.
@@ -269,7 +269,10 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 			Tag:    b.Repository.Ref.Tag,
 			Branch: b.Repository.Ref.Branch,
 		},
-		SecretName: b.Repository.SecretName,
+	}
+	if b.Repository.SecretName != nil {
+		secretNameCopy := *b.Repository.SecretName
+		repositoryCopy.SecretName = &secretNameCopy
 	}
 
 	sourcesCopy := make([]Source, len(b.Sources))
@@ -342,23 +345,7 @@ func (b *Blueprint) StrategicMerge(overlays ...*Blueprint) error {
 		}
 
 		if overlay.Repository.Url != "" {
-			b.Repository.Url = overlay.Repository.Url
-		}
-
-		if overlay.Repository.Ref.Commit != "" {
-			b.Repository.Ref.Commit = overlay.Repository.Ref.Commit
-		} else if overlay.Repository.Ref.Name != "" {
-			b.Repository.Ref.Name = overlay.Repository.Ref.Name
-		} else if overlay.Repository.Ref.SemVer != "" {
-			b.Repository.Ref.SemVer = overlay.Repository.Ref.SemVer
-		} else if overlay.Repository.Ref.Tag != "" {
-			b.Repository.Ref.Tag = overlay.Repository.Ref.Tag
-		} else if overlay.Repository.Ref.Branch != "" {
-			b.Repository.Ref.Branch = overlay.Repository.Ref.Branch
-		}
-
-		if overlay.Repository.SecretName != "" {
-			b.Repository.SecretName = overlay.Repository.SecretName
+			b.Repository = overlay.Repository
 		}
 
 		sourceMap := make(map[string]Source)

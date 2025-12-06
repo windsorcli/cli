@@ -617,11 +617,15 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 	}
 
 	if blueprint.Repository.Url != "" {
+		var secretName string
+		if blueprint.Repository.SecretName != nil {
+			secretName = *blueprint.Repository.SecretName
+		}
 		source := blueprintv1alpha1.Source{
 			Name:       blueprint.Metadata.Name,
 			Url:        blueprint.Repository.Url,
 			Ref:        blueprint.Repository.Ref,
-			SecretName: blueprint.Repository.SecretName,
+			SecretName: secretName,
 		}
 		if err := k.applyBlueprintSource(source, namespace); err != nil {
 			return fmt.Errorf("failed to apply blueprint repository: %w", err)
@@ -1055,7 +1059,9 @@ func (k *BaseKubernetesManager) waitForNodesReady(ctx context.Context, nodeNames
 // applyBlueprintGitRepository converts and applies a blueprint Source as a GitRepository.
 func (k *BaseKubernetesManager) applyBlueprintGitRepository(source blueprintv1alpha1.Source, namespace string) error {
 	sourceUrl := source.Url
-	if !strings.HasPrefix(sourceUrl, "http://") && !strings.HasPrefix(sourceUrl, "https://") {
+	if strings.HasPrefix(sourceUrl, "git@") && strings.Contains(sourceUrl, ":") {
+		sourceUrl = "ssh://" + strings.Replace(sourceUrl, ":", "/", 1)
+	} else if !strings.HasPrefix(sourceUrl, "http://") && !strings.HasPrefix(sourceUrl, "https://") && !strings.HasPrefix(sourceUrl, "ssh://") {
 		sourceUrl = "https://" + sourceUrl
 	}
 

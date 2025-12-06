@@ -343,6 +343,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 	})
 
 	t.Run("MergesMetadataAndRepository", func(t *testing.T) {
+		secretName := "base-secret"
+		updatedSecretName := "updated-secret"
 		// Given a base blueprint
 		base := &Blueprint{
 			Metadata: Metadata{
@@ -350,8 +352,9 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 				Description: "base description",
 			},
 			Repository: Repository{
-				Url: "base-url",
-				Ref: Reference{Branch: "main"},
+				Url:        "base-url",
+				Ref:        Reference{Branch: "main"},
+				SecretName: &secretName,
 			},
 		}
 
@@ -362,8 +365,9 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 				Description: "updated description",
 			},
 			Repository: Repository{
-				Url: "updated-url",
-				Ref: Reference{Tag: "v1.0.0"},
+				Url:        "updated-url",
+				Ref:        Reference{Tag: "v1.0.0"},
+				SecretName: &updatedSecretName,
 			},
 		}
 
@@ -378,12 +382,88 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 			t.Errorf("Expected description 'updated description', got '%s'", base.Metadata.Description)
 		}
 
-		// And repository should be updated
+		// And repository should be completely replaced (not merged field-by-field)
 		if base.Repository.Url != "updated-url" {
 			t.Errorf("Expected url 'updated-url', got '%s'", base.Repository.Url)
 		}
 		if base.Repository.Ref.Tag != "v1.0.0" {
 			t.Errorf("Expected tag 'v1.0.0', got '%s'", base.Repository.Ref.Tag)
+		}
+		if base.Repository.Ref.Branch != "" {
+			t.Errorf("Expected branch to be empty (replaced, not merged), got '%s'", base.Repository.Ref.Branch)
+		}
+		if base.Repository.SecretName == nil || *base.Repository.SecretName != "updated-secret" {
+			t.Errorf("Expected secretName to be 'updated-secret', got %v", base.Repository.SecretName)
+		}
+	})
+
+	t.Run("RepositoryReplacementWhenOverlayHasURL", func(t *testing.T) {
+		baseSecretName := "base-secret"
+		// Given a base blueprint with repository
+		base := &Blueprint{
+			Repository: Repository{
+				Url:        "base-url",
+				Ref:        Reference{Branch: "main", Commit: "abc123"},
+				SecretName: &baseSecretName,
+			},
+		}
+
+		// And an overlay with only URL set (no ref, no secretName)
+		overlay := &Blueprint{
+			Repository: Repository{
+				Url: "overlay-url",
+			},
+		}
+
+		// When strategic merging
+		base.StrategicMerge(overlay)
+
+		// Then repository should be completely replaced
+		if base.Repository.Url != "overlay-url" {
+			t.Errorf("Expected url 'overlay-url', got '%s'", base.Repository.Url)
+		}
+		if base.Repository.Ref.Branch != "" {
+			t.Errorf("Expected branch to be empty (replaced), got '%s'", base.Repository.Ref.Branch)
+		}
+		if base.Repository.Ref.Commit != "" {
+			t.Errorf("Expected commit to be empty (replaced), got '%s'", base.Repository.Ref.Commit)
+		}
+		if base.Repository.SecretName != nil {
+			t.Errorf("Expected secretName to be nil (replaced), got %v", base.Repository.SecretName)
+		}
+	})
+
+	t.Run("RepositoryNotReplacedWhenOverlayURLEmpty", func(t *testing.T) {
+		baseSecretName := "base-secret"
+		// Given a base blueprint with repository
+		base := &Blueprint{
+			Repository: Repository{
+				Url:        "base-url",
+				Ref:        Reference{Branch: "main"},
+				SecretName: &baseSecretName,
+			},
+		}
+
+		// And an overlay with empty URL
+		overlay := &Blueprint{
+			Repository: Repository{
+				Url: "",
+				Ref: Reference{Tag: "v1.0.0"},
+			},
+		}
+
+		// When strategic merging
+		base.StrategicMerge(overlay)
+
+		// Then repository should remain unchanged
+		if base.Repository.Url != "base-url" {
+			t.Errorf("Expected url 'base-url' to remain, got '%s'", base.Repository.Url)
+		}
+		if base.Repository.Ref.Branch != "main" {
+			t.Errorf("Expected branch 'main' to remain, got '%s'", base.Repository.Ref.Branch)
+		}
+		if base.Repository.SecretName == nil || *base.Repository.SecretName != "base-secret" {
+			t.Errorf("Expected secretName 'base-secret' to remain, got %v", base.Repository.SecretName)
 		}
 	})
 
