@@ -1,12 +1,10 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/pipelines"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 // getContextCmd represents the get command
@@ -16,28 +14,22 @@ var getContextCmd = &cobra.Command{
 	Long:         "Retrieve and display the current context from the configuration",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get shared dependency injector from context
-		injector := cmd.Context().Value(injectorKey).(di.Injector)
-
-		// Create output function
-		outputFunc := func(output string) {
-			fmt.Fprintln(cmd.OutOrStdout(), output)
+		var rtOpts []*runtime.Runtime
+		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
+			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
 		}
 
-		// Create execution context with operation and output function
-		ctx := context.WithValue(cmd.Context(), "operation", "get")
-		ctx = context.WithValue(ctx, "output", outputFunc)
-
-		// Set up the context pipeline
-		pipeline, err := pipelines.WithPipeline(injector, ctx, "contextPipeline")
+		rt, err := runtime.NewRuntime(rtOpts...)
 		if err != nil {
-			return fmt.Errorf("failed to set up context pipeline: %w", err)
+			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
-		// Execute the pipeline
-		if err := pipeline.Execute(ctx); err != nil {
-			return fmt.Errorf("Error executing context pipeline: %w", err)
+		if err := rt.ConfigHandler.LoadConfig(); err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
 		}
+
+		contextName := rt.ConfigHandler.GetContext()
+		fmt.Fprintln(cmd.OutOrStdout(), contextName)
 
 		return nil
 	},
@@ -48,31 +40,29 @@ var setContextCmd = &cobra.Command{
 	Use:          "set [context]",
 	Short:        "Set the current context",
 	Long:         "Set the current context in the configuration and save it",
-	Args:         cobra.ExactArgs(1), // Ensure exactly one argument is provided
+	Args:         cobra.ExactArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get shared dependency injector from context
-		injector := cmd.Context().Value(injectorKey).(di.Injector)
-
-		// Create output function
-		outputFunc := func(output string) {
-			fmt.Fprintln(cmd.OutOrStdout(), output)
+		var rtOpts []*runtime.Runtime
+		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
+			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
 		}
 
-		// Create execution context with operation, context name, and output function
-		ctx := context.WithValue(cmd.Context(), "operation", "set")
-		ctx = context.WithValue(ctx, "contextName", args[0])
-		ctx = context.WithValue(ctx, "output", outputFunc)
-
-		// Set up the context pipeline
-		pipeline, err := pipelines.WithPipeline(injector, ctx, "contextPipeline")
+		rt, err := runtime.NewRuntime(rtOpts...)
 		if err != nil {
-			return fmt.Errorf("failed to set up context pipeline: %w", err)
+			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
-		// Execute the pipeline
-		if err := pipeline.Execute(ctx); err != nil {
-			return fmt.Errorf("Error executing context pipeline: %w", err)
+		if err := rt.ConfigHandler.LoadConfig(); err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+
+		if _, err := rt.Shell.WriteResetToken(); err != nil {
+			return fmt.Errorf("failed to write reset token: %w", err)
+		}
+
+		if err := rt.ConfigHandler.SetContext(args[0]); err != nil {
+			return fmt.Errorf("failed to set context: %w", err)
 		}
 
 		return nil
@@ -97,7 +87,7 @@ var setContextAliasCmd = &cobra.Command{
 	Short:        "Alias for 'context set'",
 	SilenceUsage: true,
 	Long:         "Alias for 'context set'",
-	Args:         cobra.ExactArgs(1), // Ensure exactly one argument is provided
+	Args:         cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		rootCmd.SetArgs(append([]string{"context", "set"}, args...))
 		return rootCmd.Execute()
@@ -115,7 +105,6 @@ func init() {
 	contextCmd.AddCommand(getContextCmd)
 	contextCmd.AddCommand(setContextCmd)
 
-	// Add alias commands to rootCmd
 	rootCmd.AddCommand(getContextAliasCmd)
 	rootCmd.AddCommand(setContextAliasCmd)
 }

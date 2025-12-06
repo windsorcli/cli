@@ -1,12 +1,10 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/pipelines"
+	"github.com/windsorcli/cli/pkg/project"
 )
 
 var installWaitFlag bool
@@ -16,35 +14,45 @@ var installCmd = &cobra.Command{
 	Short:        "Install the blueprint's cluster-level services",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get shared dependency injector from context
-		injector := cmd.Context().Value(injectorKey).(di.Injector)
+		var opts []*project.Project
+		if overridesVal := cmd.Context().Value(projectOverridesKey); overridesVal != nil {
+			opts = []*project.Project{overridesVal.(*project.Project)}
+		}
 
-		// First, run the env pipeline in quiet mode to set up environment variables
-		envPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "envPipeline")
+		proj, err := project.NewProject("", opts...)
 		if err != nil {
-			return fmt.Errorf("failed to set up env pipeline: %w", err)
-		}
-		envCtx := context.WithValue(cmd.Context(), "quiet", true)
-		envCtx = context.WithValue(envCtx, "decrypt", true)
-		if err := envPipeline.Execute(envCtx); err != nil {
-			return fmt.Errorf("failed to set up environment: %w", err)
+			return err
 		}
 
-		// Then, run the install pipeline for blueprint installation
-		installPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "installPipeline")
+		proj.Runtime.Shell.SetVerbosity(verbose)
+
+		if err := proj.Runtime.Shell.CheckTrustedDirectory(); err != nil {
+			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+		}
+
+		if err := proj.Configure(nil); err != nil {
+			return err
+		}
+
+		if err := proj.Initialize(false); err != nil {
+			if !verbose {
+				return nil
+			}
+			return err
+		}
+
+		blueprint, err := proj.Composer.GenerateBlueprint()
 		if err != nil {
-			return fmt.Errorf("failed to set up install pipeline: %w", err)
+			return fmt.Errorf("error generating blueprint: %w", err)
+		}
+		if err := proj.Provisioner.Install(blueprint); err != nil {
+			return fmt.Errorf("error installing blueprint: %w", err)
 		}
 
-		// Create execution context with flags
-		ctx := cmd.Context()
 		if installWaitFlag {
-			ctx = context.WithValue(ctx, "wait", true)
-		}
-
-		// Execute the install pipeline
-		if err := installPipeline.Execute(ctx); err != nil {
-			return fmt.Errorf("Error executing install pipeline: %w", err)
+			if err := proj.Provisioner.Wait(blueprint); err != nil {
+				return fmt.Errorf("error waiting for kustomizations: %w", err)
+			}
 		}
 
 		return nil

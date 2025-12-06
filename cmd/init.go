@@ -1,16 +1,19 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/pipelines"
+	"github.com/windsorcli/cli/pkg/composer"
+	"github.com/windsorcli/cli/pkg/project"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
+
+// =============================================================================
+// Init Command
+// =============================================================================
 
 var (
 	initReset          bool
@@ -25,7 +28,7 @@ var (
 	initDocker         bool
 	initGitLivereload  bool
 	initProvider       string
-	initPlatform       string // Deprecated: use initProvider instead
+	initPlatform       string
 	initBlueprint      string
 	initEndpoint       string
 	initSetFlags       []string
@@ -38,121 +41,138 @@ var initCmd = &cobra.Command{
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		injector := cmd.Context().Value(injectorKey).(di.Injector)
-		ctx := cmd.Context()
-		if len(args) > 0 {
-			ctx = context.WithValue(ctx, "contextName", args[0])
+		var rtOpts []*runtime.Runtime
+		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
+			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
 		}
-		ctx = context.WithValue(ctx, "reset", initReset)
-		ctx = context.WithValue(ctx, "trust", true)
 
-		// Handle deprecated --platform flag (must come before automatic provider/blueprint setting)
+		contextName := "local"
+		changingContext := len(args) > 0
+		if changingContext {
+			contextName = args[0]
+
+			tempRt, err := runtime.NewRuntime(rtOpts...)
+			if err != nil {
+				return fmt.Errorf("failed to initialize context: %w", err)
+			}
+
+			if _, err := tempRt.Shell.WriteResetToken(); err != nil {
+				return fmt.Errorf("failed to write reset token: %w", err)
+			}
+
+			if err := tempRt.ConfigHandler.SetContext(contextName); err != nil {
+				return fmt.Errorf("failed to set context: %w", err)
+			}
+		}
+
+		rt, err := runtime.NewRuntime(rtOpts...)
+		if err != nil {
+			return fmt.Errorf("failed to initialize runtime: %w", err)
+		}
+
+		if err := rt.Shell.AddCurrentDirToTrustedFile(); err != nil {
+			return fmt.Errorf("failed to add current directory to trusted file: %w", err)
+		}
+
+		if !changingContext {
+			currentContext := rt.ConfigHandler.GetContext()
+			if currentContext != "" && currentContext != "local" {
+				contextName = currentContext
+			}
+		}
+
 		if initPlatform != "" {
 			fmt.Fprintf(os.Stderr, "\033[33mWarning: The --platform flag is deprecated and will be removed in a future version. Please use --provider instead.\033[0m\n")
 			initProvider = initPlatform
 		}
 
-		ctx = context.WithValue(ctx, "quiet", true)
-		ctx = context.WithValue(ctx, "decrypt", true)
-		envPipeline, err := pipelines.WithPipeline(injector, ctx, "envPipeline")
-		if err != nil {
-			return fmt.Errorf("failed to set up env pipeline: %w", err)
-		}
-		if err := envPipeline.Execute(ctx); err != nil {
-			return fmt.Errorf("failed to set up environment: %w", err)
-		}
-
-		// Set provider if context is "local" and no provider is specified
-		if len(args) > 0 && strings.HasPrefix(args[0], "local") && initProvider == "" {
-			initProvider = "local"
-		}
-
-		// Pass blueprint and provider to pipeline for decision logic
-		if initBlueprint != "" {
-			ctx = context.WithValue(ctx, "blueprint", initBlueprint)
-		}
+		// Build flag overrides map
+		flagOverrides := make(map[string]any)
 		if initProvider != "" {
-			ctx = context.WithValue(ctx, "provider", initProvider)
+			flagOverrides["provider"] = initProvider
 		}
-
-		configHandler := injector.Resolve("configHandler").(config.ConfigHandler)
-
-		// Set provider in context if it's been set (either via --provider or --platform)
-		if initProvider != "" {
-			if err := configHandler.SetContextValue("provider", initProvider); err != nil {
-				return fmt.Errorf("failed to set provider: %w", err)
-			}
-		}
-
-		// Set other configuration values
 		if initBackend != "" {
-			if err := configHandler.SetContextValue("terraform.backend.type", initBackend); err != nil {
-				return fmt.Errorf("failed to set terraform.backend.type: %w", err)
-			}
+			flagOverrides["terraform.backend.type"] = initBackend
 		}
 		if initAwsProfile != "" {
-			if err := configHandler.SetContextValue("aws.profile", initAwsProfile); err != nil {
-				return fmt.Errorf("failed to set aws.profile: %w", err)
-			}
+			flagOverrides["aws.profile"] = initAwsProfile
 		}
 		if initAwsEndpointURL != "" {
-			if err := configHandler.SetContextValue("aws.endpoint_url", initAwsEndpointURL); err != nil {
-				return fmt.Errorf("failed to set aws.endpoint_url: %w", err)
-			}
+			flagOverrides["aws.endpoint_url"] = initAwsEndpointURL
 		}
 		if initVmDriver != "" {
-			if err := configHandler.SetContextValue("vm.driver", initVmDriver); err != nil {
-				return fmt.Errorf("failed to set vm.driver: %w", err)
-			}
+			flagOverrides["vm.driver"] = initVmDriver
 		}
 		if initCpu > 0 {
-			if err := configHandler.SetContextValue("vm.cpu", initCpu); err != nil {
-				return fmt.Errorf("failed to set vm.cpu: %w", err)
-			}
+			flagOverrides["vm.cpu"] = initCpu
 		}
 		if initDisk > 0 {
-			if err := configHandler.SetContextValue("vm.disk", initDisk); err != nil {
-				return fmt.Errorf("failed to set vm.disk: %w", err)
-			}
+			flagOverrides["vm.disk"] = initDisk
 		}
 		if initMemory > 0 {
-			if err := configHandler.SetContextValue("vm.memory", initMemory); err != nil {
-				return fmt.Errorf("failed to set vm.memory: %w", err)
-			}
+			flagOverrides["vm.memory"] = initMemory
 		}
 		if initArch != "" {
-			if err := configHandler.SetContextValue("vm.arch", initArch); err != nil {
-				return fmt.Errorf("failed to set vm.arch: %w", err)
-			}
+			flagOverrides["vm.arch"] = initArch
 		}
 		if initDocker {
-			if err := configHandler.SetContextValue("docker.enabled", true); err != nil {
-				return fmt.Errorf("failed to set docker.enabled: %w", err)
-			}
+			flagOverrides["docker.enabled"] = true
 		}
 		if initGitLivereload {
-			if err := configHandler.SetContextValue("git.livereload.enabled", true); err != nil {
-				return fmt.Errorf("failed to set git.livereload.enabled: %w", err)
-			}
+			flagOverrides["git.livereload.enabled"] = true
 		}
 
 		for _, setFlag := range initSetFlags {
 			parts := strings.SplitN(setFlag, "=", 2)
 			if len(parts) == 2 {
-				if err := configHandler.SetContextValue(parts[0], parts[1]); err != nil {
-					return fmt.Errorf("failed to set %s: %w", parts[0], err)
-				}
+				flagOverrides[parts[0]] = parts[1]
 			}
 		}
 
-		ctx = context.WithValue(ctx, "quiet", false)
-		ctx = context.WithValue(ctx, "decrypt", false)
-		initPipeline, err := pipelines.WithPipeline(injector, ctx, "initPipeline")
-		if err != nil {
-			return fmt.Errorf("failed to set up init pipeline: %w", err)
+		var projectOpts *project.Project
+		if composerOverrideVal := cmd.Context().Value(composerOverridesKey); composerOverrideVal != nil {
+			compOverride := composerOverrideVal.(*composer.Composer)
+			projectOpts = &project.Project{
+				Runtime:  rt,
+				Composer: compOverride,
+			}
+		} else {
+			projectOpts = &project.Project{
+				Runtime: rt,
+			}
 		}
 
-		return initPipeline.Execute(ctx)
+		proj, err := project.NewProject(contextName, projectOpts)
+		if err != nil {
+			return err
+		}
+
+		if err := proj.Configure(flagOverrides); err != nil {
+			return err
+		}
+
+		if !changingContext {
+			if err := rt.HandleSessionReset(); err != nil {
+				return fmt.Errorf("failed to handle session reset: %w", err)
+			}
+		}
+
+		var blueprintURL []string
+		if initBlueprint != "" {
+			blueprintURL = []string{initBlueprint}
+		}
+		if err := proj.Initialize(initReset, blueprintURL...); err != nil {
+			return err
+		}
+
+		hasSetFlags := len(initSetFlags) > 0
+		if err := proj.Runtime.ConfigHandler.SaveConfig(hasSetFlags); err != nil {
+			return fmt.Errorf("failed to save configuration: %w", err)
+		}
+
+		fmt.Fprintln(os.Stderr, "Initialization successful")
+
+		return nil
 	},
 }
 
@@ -168,7 +188,7 @@ func init() {
 	initCmd.Flags().StringVar(&initArch, "vm-arch", "", "Specify the architecture for Colima")
 	initCmd.Flags().BoolVar(&initDocker, "docker", false, "Enable Docker")
 	initCmd.Flags().BoolVar(&initGitLivereload, "git-livereload", false, "Enable Git Livereload")
-	initCmd.Flags().StringVar(&initProvider, "provider", "", "Specify the provider to use [local|metal|aws|azure]")
+	initCmd.Flags().StringVar(&initProvider, "provider", "", "Specify the provider to use [none|generic|aws|azure]")
 	initCmd.Flags().StringVar(&initPlatform, "platform", "", "Deprecated: use --provider instead")
 	initCmd.Flags().StringVar(&initBlueprint, "blueprint", "", "Specify the blueprint to use")
 	initCmd.Flags().StringVar(&initEndpoint, "endpoint", "", "Specify the kubernetes API endpoint")

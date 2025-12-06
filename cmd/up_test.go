@@ -3,16 +3,22 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/pipelines"
-	"github.com/windsorcli/cli/pkg/shell"
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/composer"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/project"
+	"github.com/windsorcli/cli/pkg/provisioner"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
+	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
+	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 // =============================================================================
@@ -20,53 +26,99 @@ import (
 // =============================================================================
 
 type UpMocks struct {
-	Injector      di.Injector
-	ConfigHandler config.ConfigHandler
-	Shell         *shell.MockShell
-	Shims         *Shims
+	ConfigHandler     config.ConfigHandler
+	Shell             *shell.MockShell
+	Shims             *Shims
+	BlueprintHandler  *blueprint.MockBlueprintHandler
+	TerraformStack    *terraforminfra.MockStack
+	KubernetesManager *kubernetes.MockKubernetesManager
+	ToolsManager      *tools.MockToolsManager
+	Runtime           *runtime.Runtime
+	TmpDir            string
 }
 
 func setupUpTest(t *testing.T, opts ...*SetupOptions) *UpMocks {
 	t.Helper()
 
-	// Set up temporary directory and change to it
-	tmpDir := t.TempDir()
-	oldDir, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	t.Cleanup(func() { os.Chdir(oldDir) })
+	// Create mock config handler to control IsDevMode
+	mockConfigHandler := config.NewMockConfigHandler()
+	mockConfigHandler.GetContextFunc = func() string { return "test-context" }
+	mockConfigHandler.IsDevModeFunc = func(contextName string) bool { return false }
+	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return ""
+	}
+	mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+		switch key {
+		case "terraform.enabled":
+			return true
+		default:
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+	}
+	mockConfigHandler.IsLoadedFunc = func() bool { return true }
+	mockConfigHandler.LoadConfigFunc = func() error { return nil }
+	mockConfigHandler.SaveConfigFunc = func(hasSetFlags ...bool) error { return nil }
+	mockConfigHandler.GenerateContextIDFunc = func() error { return nil }
 
-	// Get base mocks
-	baseMocks := setupMocks(t, opts...)
+	// Get base mocks with mock config handler
+	testOpts := &SetupOptions{}
+	if len(opts) > 0 && opts[0] != nil {
+		testOpts = opts[0]
+	}
+	testOpts.ConfigHandler = mockConfigHandler
+	baseMocks := setupMocks(t, testOpts)
+	tmpDir := baseMocks.TmpDir
+	mockConfigHandler.GetConfigRootFunc = func() (string, error) { return tmpDir + "/contexts/test-context", nil }
 
-	// Register mock env pipeline in injector (needed since up runs env pipeline first)
-	mockEnvPipeline := pipelines.NewMockBasePipeline()
-	mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-	mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
-	baseMocks.Injector.Register("envPipeline", mockEnvPipeline)
+	// Add up-specific shell mock behaviors
+	baseMocks.Shell.CheckTrustedDirectoryFunc = func() error { return nil }
 
-	// Register mock init pipeline in injector (needed since up runs init pipeline second)
-	mockInitPipeline := pipelines.NewMockBasePipeline()
-	mockInitPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-	mockInitPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
-	baseMocks.Injector.Register("initPipeline", mockInitPipeline)
+	// Add blueprint handler mock
+	mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
+	mockBlueprintHandler.LoadBlueprintFunc = func(...string) error { return nil }
+	mockBlueprintHandler.WriteFunc = func(overwrite ...bool) error { return nil }
+	testBlueprint := &blueprintv1alpha1.Blueprint{
+		Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+	}
+	mockBlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
 
-	// Register mock up pipeline in injector
-	mockUpPipeline := pipelines.NewMockBasePipeline()
-	mockUpPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-	mockUpPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
-	baseMocks.Injector.Register("upPipeline", mockUpPipeline)
+	// Add terraform stack mock
+	mockTerraformStack := terraforminfra.NewMockStack()
+	mockTerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint) error { return nil }
+	mockTerraformStack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error { return nil }
 
-	// Register mock install pipeline in injector (needed since up conditionally runs install pipeline)
-	mockInstallPipeline := pipelines.NewMockBasePipeline()
-	mockInstallPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-	mockInstallPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
-	baseMocks.Injector.Register("installPipeline", mockInstallPipeline)
+	// Add kubernetes manager mock
+	mockKubernetesManager := kubernetes.NewMockKubernetesManager()
+	mockKubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
+	mockKubernetesManager.WaitForKustomizationsFunc = func(message string, blueprint *blueprintv1alpha1.Blueprint) error { return nil }
+
+	// Create runtime with all mocked dependencies
+	rt, err := runtime.NewRuntime(&runtime.Runtime{
+		Shell:         baseMocks.Shell,
+		ConfigHandler: baseMocks.ConfigHandler,
+		ProjectRoot:   tmpDir,
+		ToolsManager:  baseMocks.ToolsManager,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create runtime: %v", err)
+	}
 
 	return &UpMocks{
-		Injector:      baseMocks.Injector,
-		ConfigHandler: baseMocks.ConfigHandler,
-		Shell:         baseMocks.Shell,
-		Shims:         baseMocks.Shims,
+		ConfigHandler:     baseMocks.ConfigHandler,
+		Shell:             baseMocks.Shell,
+		Shims:             baseMocks.Shims,
+		BlueprintHandler:  mockBlueprintHandler,
+		TerraformStack:    mockTerraformStack,
+		KubernetesManager: mockKubernetesManager,
+		ToolsManager:      baseMocks.ToolsManager,
+		Runtime:           rt,
+		TmpDir:            tmpDir,
 	}
 }
 
@@ -99,12 +151,28 @@ func TestUpCmd(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupUpTest(t)
 
+		comp := composer.NewComposer(mocks.Runtime)
+		comp.BlueprintHandler = mocks.BlueprintHandler
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			KubernetesManager: mocks.KubernetesManager,
+		})
+
+		proj, err := project.NewProject("", &project.Project{
+			Runtime:     mocks.Runtime,
+			Composer:    comp,
+			Provisioner: mockProvisioner,
+		})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
+
 		// When executing the up command
 		cmd := createTestUpCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
-		err := cmd.Execute()
+		err = cmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -115,13 +183,28 @@ func TestUpCmd(t *testing.T) {
 	t.Run("SuccessWithInstallFlag", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupUpTest(t)
+		comp := composer.NewComposer(mocks.Runtime)
+		comp.BlueprintHandler = mocks.BlueprintHandler
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			KubernetesManager: mocks.KubernetesManager,
+		})
+
+		proj, err := project.NewProject("", &project.Project{
+			Runtime:     mocks.Runtime,
+			Composer:    comp,
+			Provisioner: mockProvisioner,
+		})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
 
 		// When executing the up command with install flag
 		cmd := createTestUpCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{"--install"})
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
-		err := cmd.Execute()
+		cmd.SetArgs([]string{"--install"})
+		err = cmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -132,15 +215,30 @@ func TestUpCmd(t *testing.T) {
 	t.Run("SuccessWithWaitFlag", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupUpTest(t)
+		comp := composer.NewComposer(mocks.Runtime)
+		comp.BlueprintHandler = mocks.BlueprintHandler
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			KubernetesManager: mocks.KubernetesManager,
+		})
+
+		proj, err := project.NewProject("", &project.Project{
+			Runtime:     mocks.Runtime,
+			Composer:    comp,
+			Provisioner: mockProvisioner,
+		})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
 
 		// When executing the up command with wait flag
 		cmd := createTestUpCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{"--wait"})
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
-		err := cmd.Execute()
+		cmd.SetArgs([]string{"--wait"})
+		err = cmd.Execute()
 
-		// Then no error should occur
+		// Then no error should occur (wait only works with install)
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
@@ -149,13 +247,28 @@ func TestUpCmd(t *testing.T) {
 	t.Run("SuccessWithInstallAndWaitFlags", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupUpTest(t)
+		comp := composer.NewComposer(mocks.Runtime)
+		comp.BlueprintHandler = mocks.BlueprintHandler
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			KubernetesManager: mocks.KubernetesManager,
+		})
+
+		proj, err := project.NewProject("", &project.Project{
+			Runtime:     mocks.Runtime,
+			Composer:    comp,
+			Provisioner: mockProvisioner,
+		})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
 
 		// When executing the up command with both install and wait flags
 		cmd := createTestUpCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"--install", "--wait"})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
+		err = cmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -163,318 +276,171 @@ func TestUpCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("SuccessWithVerboseContext", func(t *testing.T) {
+	t.Run("CheckTrustedDirectoryError", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupUpTest(t)
 
-		// When executing the up command with verbose context
-		cmd := createTestUpCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		ctx = context.WithValue(ctx, "verbose", true)
-		cmd.SetArgs([]string{})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
+		// And CheckTrustedDirectory that fails
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
+			return fmt.Errorf("not in trusted directory")
+		}
 
-		// Then no error should occur
+		comp := composer.NewComposer(mocks.Runtime)
+		comp.BlueprintHandler = mocks.BlueprintHandler
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			KubernetesManager: mocks.KubernetesManager,
+		})
+
+		proj, err := project.NewProject("", &project.Project{
+			Runtime:     mocks.Runtime,
+			Composer:    comp,
+			Provisioner: mockProvisioner,
+		})
 		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
+			t.Fatalf("Failed to create project: %v", err)
 		}
-	})
-
-	t.Run("EnvPipelineExecutionError", func(t *testing.T) {
-		// Given a temporary directory with mocked dependencies
-		mocks := setupUpTest(t)
-
-		// And an env pipeline that fails to execute
-		mockEnvPipeline := pipelines.NewMockBasePipeline()
-		mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error {
-			return fmt.Errorf("env pipeline execution failed")
-		}
-		mocks.Injector.Register("envPipeline", mockEnvPipeline)
 
 		// When executing the up command
 		cmd := createTestUpCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{})
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
-		err := cmd.Execute()
+		cmd.SetArgs([]string{})
+		err = cmd.Execute()
 
 		// Then an error should occur
 		if err == nil {
 			t.Error("Expected error, got nil")
+			return
 		}
-		if !strings.Contains(err.Error(), "failed to set up environment") {
-			t.Errorf("Expected env pipeline execution error, got: %v", err)
+		if !strings.Contains(err.Error(), "not in a trusted directory") {
+			t.Errorf("Expected trusted directory error, got: %v", err)
 		}
 	})
 
-	t.Run("InitPipelineExecutionError", func(t *testing.T) {
+	t.Run("ProvisionerUpError", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupUpTest(t)
 
-		// And an init pipeline that fails to execute
-		mockInitPipeline := pipelines.NewMockBasePipeline()
-		mockInitPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockInitPipeline.ExecuteFunc = func(ctx context.Context) error {
-			return fmt.Errorf("init pipeline execution failed")
+		// And terraform stack Up that fails
+		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
+			return fmt.Errorf("terraform stack up failed")
 		}
-		mocks.Injector.Register("initPipeline", mockInitPipeline)
+
+		comp := composer.NewComposer(mocks.Runtime)
+		comp.BlueprintHandler = mocks.BlueprintHandler
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			KubernetesManager: mocks.KubernetesManager,
+		})
+
+		proj, err := project.NewProject("", &project.Project{
+			Runtime:     mocks.Runtime,
+			Composer:    comp,
+			Provisioner: mockProvisioner,
+		})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
 
 		// When executing the up command
 		cmd := createTestUpCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{})
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
-		err := cmd.Execute()
+		cmd.SetArgs([]string{})
+		err = cmd.Execute()
 
 		// Then an error should occur
 		if err == nil {
 			t.Error("Expected error, got nil")
+			return
 		}
-		if !strings.Contains(err.Error(), "failed to initialize environment") {
-			t.Errorf("Expected init pipeline execution error, got: %v", err)
+		if !strings.Contains(err.Error(), "error starting infrastructure") {
+			t.Errorf("Expected infrastructure error, got: %v", err)
 		}
 	})
 
-	t.Run("UpPipelineExecutionError", func(t *testing.T) {
+	t.Run("ProvisionerInstallError", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupUpTest(t)
 
-		// And an up pipeline that fails to execute
-		mockUpPipeline := pipelines.NewMockBasePipeline()
-		mockUpPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockUpPipeline.ExecuteFunc = func(ctx context.Context) error {
-			return fmt.Errorf("up pipeline execution failed")
+		// And kubernetes manager ApplyBlueprint that fails
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
+			return fmt.Errorf("kubernetes apply failed")
 		}
-		mocks.Injector.Register("upPipeline", mockUpPipeline)
 
-		// When executing the up command
+		comp := composer.NewComposer(mocks.Runtime)
+		comp.BlueprintHandler = mocks.BlueprintHandler
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			KubernetesManager: mocks.KubernetesManager,
+		})
+
+		proj, err := project.NewProject("", &project.Project{
+			Runtime:     mocks.Runtime,
+			Composer:    comp,
+			Provisioner: mockProvisioner,
+		})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
+
+		// When executing the up command with install flag
 		cmd := createTestUpCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{})
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
-		err := cmd.Execute()
+		cmd.SetArgs([]string{"--install"})
+		err = cmd.Execute()
 
 		// Then an error should occur
 		if err == nil {
 			t.Error("Expected error, got nil")
+			return
 		}
-		if !strings.Contains(err.Error(), "Error executing up pipeline") {
-			t.Errorf("Expected up pipeline execution error, got: %v", err)
+		if !strings.Contains(err.Error(), "error installing blueprint") {
+			t.Errorf("Expected install error, got: %v", err)
 		}
 	})
 
-	t.Run("ContextPropagation", func(t *testing.T) {
+	t.Run("ProvisionerWaitError", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupUpTest(t)
 
-		// And an install pipeline that validates context values
-		installPipelineCalled := false
-		waitContextPassed := false
-		mockInstallPipeline := pipelines.NewMockBasePipeline()
-		mockInstallPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockInstallPipeline.ExecuteFunc = func(ctx context.Context) error {
-			installPipelineCalled = true
-			if ctx.Value("wait") == true {
-				waitContextPassed = true
-			}
-			return nil
+		// And kubernetes manager WaitForKustomizations that fails
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(message string, blueprint *blueprintv1alpha1.Blueprint) error {
+			return fmt.Errorf("wait for kustomizations failed")
 		}
-		mocks.Injector.Register("installPipeline", mockInstallPipeline)
+
+		comp := composer.NewComposer(mocks.Runtime)
+		comp.BlueprintHandler = mocks.BlueprintHandler
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			KubernetesManager: mocks.KubernetesManager,
+		})
+
+		proj, err := project.NewProject("", &project.Project{
+			Runtime:     mocks.Runtime,
+			Composer:    comp,
+			Provisioner: mockProvisioner,
+		})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
 
 		// When executing the up command with install and wait flags
 		cmd := createTestUpCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"--install", "--wait"})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then no error should occur and install pipeline should be called with wait context
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
-		if !installPipelineCalled {
-			t.Error("Expected install pipeline to be called when --install flag is set")
-		}
-		if !waitContextPassed {
-			t.Error("Expected wait context to be passed to install pipeline")
-		}
-	})
-
-	t.Run("InstallPipelineExecutionError", func(t *testing.T) {
-		// Given a temporary directory with mocked dependencies
-		mocks := setupUpTest(t)
-
-		// And an install pipeline that fails to execute
-		mockInstallPipeline := pipelines.NewMockBasePipeline()
-		mockInstallPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockInstallPipeline.ExecuteFunc = func(ctx context.Context) error {
-			return fmt.Errorf("install pipeline execution failed")
-		}
-		mocks.Injector.Register("installPipeline", mockInstallPipeline)
-
-		// When executing the up command with install flag
-		cmd := createTestUpCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{"--install"})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
+		err = cmd.Execute()
 
 		// Then an error should occur
 		if err == nil {
 			t.Error("Expected error, got nil")
+			return
 		}
-		if !strings.Contains(err.Error(), "Error executing install pipeline") {
-			t.Errorf("Expected install pipeline execution error, got: %v", err)
-		}
-	})
-
-	t.Run("VerboseContextPropagation", func(t *testing.T) {
-		// Given a temporary directory with mocked dependencies
-		mocks := setupUpTest(t)
-
-		// And an up pipeline that validates verbose context
-		verboseValidated := false
-		mockUpPipeline := pipelines.NewMockBasePipeline()
-		mockUpPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockUpPipeline.ExecuteFunc = func(ctx context.Context) error {
-			// Verify that verbose flag is properly propagated
-			if ctx.Value("verbose") == true {
-				verboseValidated = true
-			}
-			return nil
-		}
-		mocks.Injector.Register("upPipeline", mockUpPipeline)
-
-		// When executing the up command with verbose flag set in context
-		cmd := createTestUpCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		ctx = context.WithValue(ctx, "verbose", true)
-		cmd.SetArgs([]string{})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then no error should occur and verbose context should be validated
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
-		if !verboseValidated {
-			t.Error("Expected verbose context value to be properly propagated to up pipeline")
+		if !strings.Contains(err.Error(), "error waiting for kustomizations") {
+			t.Errorf("Expected wait error, got: %v", err)
 		}
 	})
-
-	t.Run("EnvPipelineContextValues", func(t *testing.T) {
-		// Given a temporary directory with mocked dependencies
-		mocks := setupUpTest(t)
-
-		// And an env pipeline that validates its context values
-		envContextValidated := false
-		mockEnvPipeline := pipelines.NewMockBasePipeline()
-		mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error {
-			// Verify that quiet and decrypt flags are set for env pipeline
-			if ctx.Value("quiet") == true && ctx.Value("decrypt") == true {
-				envContextValidated = true
-			}
-			return nil
-		}
-		mocks.Injector.Register("envPipeline", mockEnvPipeline)
-
-		// When executing the up command
-		cmd := createTestUpCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then no error should occur and env context should be validated
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
-		if !envContextValidated {
-			t.Error("Expected env pipeline to receive quiet=true and decrypt=true context values")
-		}
-	})
-
-	t.Run("MultipleFlagsCombination", func(t *testing.T) {
-		// Given a temporary directory with mocked dependencies
-		mocks := setupUpTest(t)
-
-		// When executing the up command with multiple flags
-		cmd := createTestUpCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		ctx = context.WithValue(ctx, "verbose", true)
-		cmd.SetArgs([]string{"--install", "--wait"})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
-	})
-
-	t.Run("PipelineOrchestrationOrder", func(t *testing.T) {
-		// Given a temporary directory with mocked dependencies
-		mocks := setupUpTest(t)
-
-		// And pipelines that track execution order
-		executionOrder := []string{}
-
-		mockEnvPipeline := pipelines.NewMockBasePipeline()
-		mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error {
-			executionOrder = append(executionOrder, "env")
-			return nil
-		}
-		mocks.Injector.Register("envPipeline", mockEnvPipeline)
-
-		mockInitPipeline := pipelines.NewMockBasePipeline()
-		mockInitPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockInitPipeline.ExecuteFunc = func(ctx context.Context) error {
-			executionOrder = append(executionOrder, "init")
-			return nil
-		}
-		mocks.Injector.Register("initPipeline", mockInitPipeline)
-
-		mockUpPipeline := pipelines.NewMockBasePipeline()
-		mockUpPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockUpPipeline.ExecuteFunc = func(ctx context.Context) error {
-			executionOrder = append(executionOrder, "up")
-			return nil
-		}
-		mocks.Injector.Register("upPipeline", mockUpPipeline)
-
-		mockInstallPipeline := pipelines.NewMockBasePipeline()
-		mockInstallPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockInstallPipeline.ExecuteFunc = func(ctx context.Context) error {
-			executionOrder = append(executionOrder, "install")
-			return nil
-		}
-		mocks.Injector.Register("installPipeline", mockInstallPipeline)
-
-		// When executing the up command with install flag
-		cmd := createTestUpCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{"--install"})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then no error should occur and pipelines should execute in correct order
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
-		expectedOrder := []string{"env", "init", "up", "install"}
-		if len(executionOrder) != len(expectedOrder) {
-			t.Errorf("Expected %d pipeline executions, got %d", len(expectedOrder), len(executionOrder))
-		}
-		for i, expected := range expectedOrder {
-			if i >= len(executionOrder) || executionOrder[i] != expected {
-				t.Errorf("Expected pipeline execution order %v, got %v", expectedOrder, executionOrder)
-				break
-			}
-		}
-	})
-
 }

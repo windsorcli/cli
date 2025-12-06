@@ -2,7 +2,7 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended",
-    "github>aquaproj/aqua-renovate-config#2.8.2",
+    "github>aquaproj/aqua-renovate-config#2.9.0",
     ":dependencyDashboard"
   ],
   "packageRules": [
@@ -83,7 +83,7 @@
         "/^pkg/constants/constants.go$/"
       ],
       "matchStrings": [
-        "// renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\n\\s*const\\s+\\S+\\s*=\\s*\"(?<currentValue>[^\"]+)\""
+        "// renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\n.*?(?<currentValue>v?\\d+\\.\\d+\\.\\d+[^\"\\s]*)"
       ],
       "datasourceTemplate": "{{datasource}}",
       "versioningTemplate": "semver"

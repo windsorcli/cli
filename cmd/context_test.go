@@ -2,13 +2,29 @@ package cmd
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 func TestContextCmd(t *testing.T) {
 	setup := func(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
 		t.Helper()
+
+		// Clear environment variables that could affect tests
+		origContext := os.Getenv("WINDSOR_CONTEXT")
+		os.Unsetenv("WINDSOR_CONTEXT")
+		t.Cleanup(func() {
+			if origContext != "" {
+				os.Setenv("WINDSOR_CONTEXT", origContext)
+			}
+		})
 
 		// Change to a temporary directory without a config file
 		origDir, err := os.Getwd()
@@ -34,30 +50,33 @@ func TestContextCmd(t *testing.T) {
 		return stdout, stderr
 	}
 
-	t.Run("GetContextNoConfig", func(t *testing.T) {
+	t.Run("GetContext", func(t *testing.T) {
 		// Given proper output capture in a directory without config
-		_, _ = setup(t)
+		stdout, _ := setup(t)
+		// Don't set up mocks - we want to test real behavior
 
 		rootCmd.SetArgs([]string{"context", "get"})
 
 		// When executing the command
 		err := Execute()
 
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// And error should contain init message
-		expectedError := "Error executing context pipeline: No context is available. Have you run `windsor init`?"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		// And should output default context (real behavior)
+		output := stdout.String()
+		expectedOutput := "local\n"
+		if output != expectedOutput {
+			t.Errorf("Expected output %q, got %q", expectedOutput, output)
 		}
 	})
 
 	t.Run("SetContextNoArgs", func(t *testing.T) {
 		// Given proper output capture in a directory without config
 		_, _ = setup(t)
+		setupMocks(t)
 
 		rootCmd.SetArgs([]string{"context", "set"})
 
@@ -76,51 +95,48 @@ func TestContextCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("SetContextNoConfig", func(t *testing.T) {
+	t.Run("SetContext", func(t *testing.T) {
 		// Given proper output capture in a directory without config
 		_, _ = setup(t)
+		setupMocks(t)
 
 		rootCmd.SetArgs([]string{"context", "set", "new-context"})
 
 		// When executing the command
 		err := Execute()
 
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		// And error should contain init message
-		expectedError := "Error executing context pipeline: No context is available. Have you run `windsor init`?"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
-	t.Run("GetContextAliasNoConfig", func(t *testing.T) {
+	t.Run("GetContextAlias", func(t *testing.T) {
 		// Given proper output capture in a directory without config
-		_, _ = setup(t)
+		stdout, _ := setup(t)
+		// Don't set up mocks - we want to test real behavior
 
 		rootCmd.SetArgs([]string{"get-context"})
 
 		// When executing the command
 		err := Execute()
 
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// And error should contain init message
-		expectedError := "Error executing context pipeline: No context is available. Have you run `windsor init`?"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		// And should output the current context (may be "local" or previously set context)
+		output := stdout.String()
+		if output == "" {
+			t.Error("Expected some output, got empty string")
 		}
 	})
 
 	t.Run("SetContextAliasNoArgs", func(t *testing.T) {
 		// Given proper output capture in a directory without config
 		_, _ = setup(t)
+		setupMocks(t)
 
 		rootCmd.SetArgs([]string{"set-context"})
 
@@ -139,24 +155,220 @@ func TestContextCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("SetContextAliasNoConfig", func(t *testing.T) {
+	t.Run("SetContextAlias", func(t *testing.T) {
 		// Given proper output capture in a directory without config
 		_, _ = setup(t)
+		setupMocks(t)
 
 		rootCmd.SetArgs([]string{"set-context", "new-context"})
 
 		// When executing the command
 		err := Execute()
 
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+}
+
+// =============================================================================
+// Test Error Scenarios
+// =============================================================================
+
+func TestContextCmd_ErrorScenarios(t *testing.T) {
+	t.Cleanup(func() {
+		rootCmd.SetContext(context.Background())
+	})
+
+	setup := func(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
+		t.Helper()
+		stdout, stderr := captureOutput(t)
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(stderr)
+		return stdout, stderr
+	}
+
+	t.Run("GetContext_HandlesNewRuntimeError", func(t *testing.T) {
+		setup(t)
+
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("project root error")
 		}
 
-		// And error should contain init message
-		expectedError := "Error executing context pipeline: No context is available. Have you run `windsor init`?"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		rtOverride := &runtime.Runtime{
+			Shell:       mockShell,
+			ProjectRoot: "",
+		}
+		_, err := runtime.NewRuntime(rtOverride)
+		if err == nil {
+			t.Fatal("Expected NewRuntime to fail with invalid shell")
+		}
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rtOverride)
+		rootCmd.SetContext(ctx)
+
+		rootCmd.SetArgs([]string{"context", "get"})
+
+		err = Execute()
+
+		if err == nil {
+			t.Error("Expected error when NewRuntime fails")
+			return
+		}
+
+		if !strings.Contains(err.Error(), "failed to initialize context") {
+			t.Errorf("Expected error about context initialization, got: %v", err)
+		}
+	})
+
+	t.Run("GetContext_HandlesLoadConfigError", func(t *testing.T) {
+		setup(t)
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.LoadConfigFunc = func() error {
+			return fmt.Errorf("config load failed")
+		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "test-context"
+		}
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+
+		rootCmd.SetArgs([]string{"context", "get"})
+
+		err := Execute()
+
+		if err == nil {
+			t.Error("Expected error when LoadConfig fails")
+		}
+
+		if !strings.Contains(err.Error(), "failed to load config") {
+			t.Errorf("Expected error about config loading, got: %v", err)
+		}
+	})
+
+	t.Run("SetContext_HandlesNewRuntimeError", func(t *testing.T) {
+		setup(t)
+
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("project root error")
+		}
+
+		rtOverride := &runtime.Runtime{
+			Shell:       mockShell,
+			ProjectRoot: "",
+		}
+		_, err := runtime.NewRuntime(rtOverride)
+		if err == nil {
+			t.Fatal("Expected NewRuntime to fail with invalid shell")
+		}
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rtOverride)
+		rootCmd.SetContext(ctx)
+
+		rootCmd.SetArgs([]string{"context", "set", "test-context"})
+
+		err = Execute()
+
+		if err == nil {
+			t.Error("Expected error when NewRuntime fails")
+		}
+
+		if !strings.Contains(err.Error(), "failed to initialize context") {
+			t.Errorf("Expected error about context initialization, got: %v", err)
+		}
+	})
+
+	t.Run("SetContext_HandlesLoadConfigError", func(t *testing.T) {
+		setup(t)
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.LoadConfigFunc = func() error {
+			return fmt.Errorf("config load failed")
+		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "test-context"
+		}
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+
+		rootCmd.SetArgs([]string{"context", "set", "test-context"})
+
+		err := Execute()
+
+		if err == nil {
+			t.Error("Expected error when LoadConfig fails")
+			return
+		}
+
+		if !strings.Contains(err.Error(), "failed to load config") {
+			t.Errorf("Expected error about config loading, got: %v", err)
+		}
+	})
+
+	t.Run("SetContext_HandlesWriteResetTokenError", func(t *testing.T) {
+		setup(t)
+		mocks := setupMocks(t)
+		mocks.Shell.WriteResetTokenFunc = func() (string, error) {
+			return "", fmt.Errorf("write reset token failed")
+		}
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+
+		rootCmd.SetArgs([]string{"context", "set", "test-context"})
+
+		err := Execute()
+
+		if err == nil {
+			t.Error("Expected error when WriteResetToken fails")
+			return
+		}
+
+		if !strings.Contains(err.Error(), "failed to write reset token") {
+			t.Errorf("Expected error about reset token, got: %v", err)
+		}
+	})
+
+	t.Run("SetContext_HandlesSetContextError", func(t *testing.T) {
+		setup(t)
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.LoadConfigFunc = func() error {
+			return nil
+		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "test-context"
+		}
+		mockConfigHandler.SetContextFunc = func(context string) error {
+			return fmt.Errorf("set context failed")
+		}
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+		mocks.Shell.WriteResetTokenFunc = func() (string, error) {
+			return "mock-reset-token", nil
+		}
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+
+		rootCmd.SetArgs([]string{"context", "set", "test-context"})
+
+		err := Execute()
+
+		if err == nil {
+			t.Error("Expected error when SetContext fails")
+			return
+		}
+
+		if !strings.Contains(err.Error(), "failed to set context") {
+			t.Errorf("Expected error about setting context, got: %v", err)
 		}
 	})
 }

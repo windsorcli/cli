@@ -1,12 +1,11 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/pipelines"
+	"github.com/windsorcli/cli/pkg/project"
 )
 
 var (
@@ -20,67 +19,60 @@ var upCmd = &cobra.Command{
 	Long:         "Set up the Windsor environment by executing necessary shell commands.",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get shared dependency injector from context
-		injector := cmd.Context().Value(injectorKey).(di.Injector)
+		var opts []*project.Project
+		if overridesVal := cmd.Context().Value(projectOverridesKey); overridesVal != nil {
+			opts = []*project.Project{overridesVal.(*project.Project)}
+		}
 
-		// First, run the env pipeline in quiet mode to set up environment variables
-		envPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "envPipeline")
+		proj, err := project.NewProject("", opts...)
 		if err != nil {
-			return fmt.Errorf("failed to set up env pipeline: %w", err)
-		}
-		envCtx := context.WithValue(cmd.Context(), "quiet", true)
-		envCtx = context.WithValue(envCtx, "decrypt", true)
-		if err := envPipeline.Execute(envCtx); err != nil {
-			return fmt.Errorf("failed to set up environment: %w", err)
+			return err
 		}
 
-		// Then, run the init pipeline to initialize the environment
-		var initPipeline pipelines.Pipeline
-		initPipeline, err = pipelines.WithPipeline(injector, cmd.Context(), "initPipeline")
+		proj.Runtime.Shell.SetVerbosity(verbose)
+
+		if err := proj.Runtime.Shell.CheckTrustedDirectory(); err != nil {
+			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+		}
+
+		if err := proj.Configure(nil); err != nil {
+			return err
+		}
+
+		if err := proj.Initialize(false); err != nil {
+			if !verbose {
+				return nil
+			}
+			return err
+		}
+
+		if proj.Workstation != nil {
+			if err := proj.Workstation.Up(); err != nil {
+				return fmt.Errorf("error starting workstation: %w", err)
+			}
+		}
+
+		blueprint, err := proj.Composer.GenerateBlueprint()
 		if err != nil {
-			return fmt.Errorf("failed to set up init pipeline: %w", err)
+			return fmt.Errorf("error generating blueprint: %w", err)
 		}
-		if err := initPipeline.Execute(cmd.Context()); err != nil {
-			return fmt.Errorf("failed to initialize environment: %w", err)
-		}
-
-		// Finally, run the up pipeline for infrastructure setup
-		upPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "upPipeline")
-		if err != nil {
-			return fmt.Errorf("failed to set up up pipeline: %w", err)
+		if err := proj.Provisioner.Up(blueprint); err != nil {
+			return fmt.Errorf("error starting infrastructure: %w", err)
 		}
 
-		// Create execution context with flags
-		ctx := cmd.Context()
 		if installFlag {
-			ctx = context.WithValue(ctx, "install", true)
-		}
-		if waitFlag {
-			ctx = context.WithValue(ctx, "wait", true)
-		}
-
-		// Execute the up pipeline
-		if err := upPipeline.Execute(ctx); err != nil {
-			return fmt.Errorf("Error executing up pipeline: %w", err)
-		}
-
-		// Run install pipeline if requested
-		if installFlag {
-			installPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "installPipeline")
-			if err != nil {
-				return fmt.Errorf("failed to set up install pipeline: %w", err)
+			if err := proj.Provisioner.Install(blueprint); err != nil {
+				return fmt.Errorf("error installing blueprint: %w", err)
 			}
 
-			// Create installation context with wait flag if needed
-			installCtx := cmd.Context()
 			if waitFlag {
-				installCtx = context.WithValue(installCtx, "wait", true)
-			}
-
-			if err := installPipeline.Execute(installCtx); err != nil {
-				return fmt.Errorf("Error executing install pipeline: %w", err)
+				if err := proj.Provisioner.Wait(blueprint); err != nil {
+					return fmt.Errorf("error waiting for kustomizations: %w", err)
+				}
 			}
 		}
+
+		fmt.Fprintln(os.Stderr, "Windsor environment set up successfully.")
 
 		return nil
 	},

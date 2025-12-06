@@ -143,6 +143,44 @@ docker tag my-image:latest ${REGISTRY_URL}/my-image:latest
 docker push ${REGISTRY_URL}/my-image:latest
 ```
 
+## Build ID Management
+
+Windsor provides a `build-id` command for managing build identifiers used for artifact tagging in local development environments. Build IDs are stored persistently in the `.windsor/.build-id` file and are available as the `BUILD_ID` environment variable and postBuild variable in Kustomizations.
+
+### Usage
+
+```bash
+windsor build-id                    # Output current build ID
+windsor build-id --new              # Generate and output new build ID
+```
+
+### Build ID Format
+
+Build IDs follow the format `YYMMDD.RANDOM.#` where:
+- `YYMMDD` is the current date (year, month, day)
+- `RANDOM` is a random three-digit number for collision prevention
+- `#` is a sequential counter incremented for each build on the same day
+
+### Examples
+
+```bash
+# Get the current build ID
+windsor build-id
+
+# Generate a new build ID and use it for Docker tagging
+BUILD_ID=$(windsor build-id --new) && docker build -t myapp:$BUILD_ID .
+
+# Use build ID with local registry
+BUILD_ID=$(windsor build-id --new)
+docker build -t ${REGISTRY_URL}/myapp:$BUILD_ID .
+docker push ${REGISTRY_URL}/myapp:$BUILD_ID
+```
+
+The `BUILD_ID` is automatically included in:
+- Environment variables available to all processes
+- Post-build variables in Kustomizations for Flux variable substitution
+- Cluster variables accessible in Kubernetes manifests
+
 ## Local GitOps
 A local GitOps workflow is provided by [git-livereload](https://github.com/windsorcli/git-livereload). When you save your files locally, they are updated within this container, and reflected as a new commit via [http://git.test](http://git.test). This feature is utilized by the internal gitops tooling ([Flux](https://github.com/fluxcd/flux2)), allowing you to persistently reflect your local Kubernetes manifests on to your local cluster.
 
@@ -224,14 +262,14 @@ kubectl get storageclass
 In your local development environment, these are both provided by [OpenEBS's dynamic-localpv-provisioner](https://github.com/openebs/dynamic-localpv-provisioner). To further validate, you should run through the [Hello World](../tutorial/hello-world.md) example and verify that you can see `.volumes/pvc-*`  folders mounted in to your project folder.
 
 <div>
-  {{ footer('Kustomize', '../kustomize/index.html', 'Secrets Management', '../secrets/index.html') }}
+  {{ footer('Contexts', '../contexts/index.html', 'Environment Injection', '../environment-injection/index.html') }}
 </div>
 
 <script>
   document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../kustomize/index.html'; 
+    window.location.href = '../contexts/index.html'; 
   });
   document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../secrets/index.html'; 
+    window.location.href = '../environment-injection/index.html'; 
   });
 </script>

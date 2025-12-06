@@ -111,15 +111,15 @@ For more details about Windsor's use of secrets along with our recommendations f
 <!-- Footer Start -->
 
 <div>
-  {{ footer('Local Workstation', '../local-workstation/index.html', 'Terraform', '../terraform/index.html') }}
+  {{ footer('Terraform', '../terraform/index.html', 'Blueprint Templates', '../templates/index.html') }}
 </div>
 
 <script>
   document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../local-workstation/index.html';
+    window.location.href = '../terraform/index.html';
   });
   document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../terraform/index.html';
+    window.location.href = '../templates/index.html';
   });
 </script>
 

@@ -1,12 +1,10 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/pipelines"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 var hookCmd = &cobra.Command{
@@ -16,24 +14,20 @@ var hookCmd = &cobra.Command{
 	SilenceUsage: true,
 	Args:         cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get shared dependency injector from context
-		injector := cmd.Context().Value(injectorKey).(di.Injector)
-
-		// Create execution context with shell type
-		ctx := context.WithValue(cmd.Context(), "shellType", args[0])
-		if verbose {
-			ctx = context.WithValue(ctx, "verbose", true)
+		var rtOpts []*runtime.Runtime
+		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
+			if rt, ok := overridesVal.(*runtime.Runtime); ok {
+				rtOpts = []*runtime.Runtime{rt}
+			}
 		}
 
-		// Set up the hook pipeline
-		pipeline, err := pipelines.WithPipeline(injector, ctx, "hookPipeline")
+		rt, err := runtime.NewRuntime(rtOpts...)
 		if err != nil {
-			return fmt.Errorf("failed to set up hook pipeline: %w", err)
+			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
-		// Execute the pipeline
-		if err := pipeline.Execute(ctx); err != nil {
-			return fmt.Errorf("Error executing hook pipeline: %w", err)
+		if err := rt.Shell.InstallHook(args[0]); err != nil {
+			return fmt.Errorf("error installing hook: %w", err)
 		}
 
 		return nil

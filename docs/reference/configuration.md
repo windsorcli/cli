@@ -22,6 +22,17 @@ contexts: #...
 ## Context
 The context sections configure details related to each context. These configurations include cloud service providers, Kubernetes cluster drivers, and a variety of configurations involving the local cloud virtualization. Further details about these sub-configurations follow.
 
+### Default Values
+
+Windsor applies default values for various configuration options when they are not explicitly specified:
+
+- **Cluster**: `cluster.enabled` defaults to `true` for all contexts. This ensures that cluster resources are available by default.
+- **Terraform**: `terraform.enabled` defaults to `true` with a `local` backend.
+- **Docker**: Docker is enabled by default with common registry configurations.
+- **Provider**: Defaults to `"none"` for non-dev contexts, `"generic"` for localhost contexts.
+
+These defaults ensure that basic functionality is available without requiring explicit configuration. You can override any default by explicitly setting the value in your `windsor.yaml` file.
+
 ### AWS
 Configuration details specific to the AWS cloud provider. Additionally, configures a Localstack service to simulate AWS resources locally.
 

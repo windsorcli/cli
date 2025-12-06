@@ -4,16 +4,22 @@ nav:
   - 'Quick Start': quick-start.md
   - 'Guides':
     - 'Contexts': guides/contexts.md
-    - 'Environment Injection': guides/environment-injection.md
     - 'Local Workstation': guides/local-workstation.md
-    - 'Secrets Management': guides/secrets-management.md
-    - 'Terraform': guides/terraform.md
+    - 'Environment Injection': guides/environment-injection.md
     - 'Kustomize': guides/kustomize.md
+    - 'Terraform': guides/terraform.md
+    - 'Secrets Management': guides/secrets-management.md
+    - 'Blueprint Templates': guides/templates.md
+    - 'Sharing Blueprints': guides/sharing.md
   - 'Tutorial': 
     - 'Hello, World!': tutorial/hello-world.md
   - 'Security':
     - 'Trusted Folders': security/trusted-folders.md
+    - 'Securing Secrets': security/secrets.md
   - 'Reference':
     - 'Blueprint': reference/blueprint.md
     - 'Configuration': reference/configuration.md
     - 'Contexts': reference/contexts.md
+    - 'Features': reference/features.md
+    - 'Schema': reference/schema.md
+    - 'Metadata': reference/metadata.md

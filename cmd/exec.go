@@ -1,12 +1,11 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/pipelines"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 // execCmd represents the exec command
@@ -17,41 +16,58 @@ var execCmd = &cobra.Command{
 	Args:         cobra.MinimumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Safety check for arguments
 		if len(args) == 0 {
 			return fmt.Errorf("no command provided")
 		}
 
-		// Get shared dependency injector from context
-		injector := cmd.Context().Value(injectorKey).(di.Injector)
+		verbose, _ := cmd.Flags().GetBool("verbose")
 
-		// First, run the env pipeline in quiet mode to set up environment variables
-		envPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "envPipeline")
+		var rtOpts []*runtime.Runtime
+		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
+			if rt, ok := overridesVal.(*runtime.Runtime); ok {
+				rtOpts = []*runtime.Runtime{rt}
+			}
+		}
+
+		rt, err := runtime.NewRuntime(rtOpts...)
 		if err != nil {
-			return fmt.Errorf("failed to set up env pipeline: %w", err)
+			return fmt.Errorf("failed to initialize context: %w", err)
 		}
 
-		// Execute env pipeline in quiet mode (inject environment variables without printing)
-		envCtx := context.WithValue(cmd.Context(), "quiet", true)
-		envCtx = context.WithValue(envCtx, "decrypt", true)
-		if err := envPipeline.Execute(envCtx); err != nil {
-			return fmt.Errorf("failed to set up environment: %w", err)
+		rt.Shell.SetVerbosity(verbose)
+
+		if err := rt.Shell.CheckTrustedDirectory(); err != nil {
+			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
 		}
 
-		// Then, run the exec pipeline to execute the command
-		execPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "execPipeline")
-		if err != nil {
-			return fmt.Errorf("failed to set up exec pipeline: %w", err)
+		if err := rt.HandleSessionReset(); err != nil {
+			return err
 		}
 
-		// Create execution context with command and arguments
-		execCtx := context.WithValue(cmd.Context(), "command", args[0])
+		if err := rt.ConfigHandler.LoadConfig(); err != nil {
+			return err
+		}
+
+		if err := rt.LoadEnvironment(true); err != nil {
+			if !verbose {
+				return nil
+			}
+			return fmt.Errorf("failed to load environment: %w", err)
+		}
+
+		for key, value := range rt.GetEnvVars() {
+			if err := os.Setenv(key, value); err != nil {
+				return fmt.Errorf("failed to set environment variable %s: %w", key, err)
+			}
+		}
+
+		command := args[0]
+		var commandArgs []string
 		if len(args) > 1 {
-			execCtx = context.WithValue(execCtx, "args", args[1:])
+			commandArgs = args[1:]
 		}
 
-		// Execute the command
-		if err := execPipeline.Execute(execCtx); err != nil {
+		if _, err := rt.Shell.Exec(command, commandArgs...); err != nil {
 			return fmt.Errorf("failed to execute command: %w", err)
 		}
 

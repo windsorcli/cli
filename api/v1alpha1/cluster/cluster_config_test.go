@@ -22,7 +22,6 @@ func TestClusterConfig_Merge(t *testing.T) {
 		base := &ClusterConfig{
 			Enabled:  ptrBool(true),
 			Driver:   ptrString("base-driver"),
-			Platform: ptrString("base-platform"),
 			Endpoint: ptrString("base-endpoint"),
 			Image:    ptrString("base-image"),
 			ControlPlanes: struct {
@@ -30,7 +29,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"-"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
@@ -52,7 +51,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"-"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
@@ -74,7 +73,6 @@ func TestClusterConfig_Merge(t *testing.T) {
 		overlay := &ClusterConfig{
 			Enabled:  ptrBool(false),
 			Driver:   ptrString("overlay-driver"),
-			Platform: ptrString("overlay-platform"),
 			Endpoint: ptrString("overlay-endpoint"),
 			Image:    ptrString("overlay-image"),
 			ControlPlanes: struct {
@@ -82,7 +80,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"-"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
@@ -104,7 +102,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"-"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
@@ -130,9 +128,6 @@ func TestClusterConfig_Merge(t *testing.T) {
 		}
 		if base.Driver == nil || *base.Driver != "overlay-driver" {
 			t.Errorf("Driver mismatch: expected 'overlay-driver', got '%s'", *base.Driver)
-		}
-		if base.Platform == nil || *base.Platform != "overlay-platform" {
-			t.Errorf("Platform mismatch: expected 'overlay-platform', got '%s'", *base.Platform)
 		}
 		if base.Endpoint == nil || *base.Endpoint != "overlay-endpoint" {
 			t.Errorf("Endpoint mismatch: expected 'overlay-endpoint', got '%s'", *base.Endpoint)
@@ -191,7 +186,6 @@ func TestClusterConfig_Merge(t *testing.T) {
 		base := &ClusterConfig{
 			Enabled:  nil,
 			Driver:   nil,
-			Platform: nil,
 			Endpoint: nil,
 			Image:    nil,
 			ControlPlanes: struct {
@@ -199,7 +193,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"-"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
@@ -216,7 +210,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"-"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
@@ -233,7 +227,6 @@ func TestClusterConfig_Merge(t *testing.T) {
 		overlay := &ClusterConfig{
 			Enabled:  nil,
 			Driver:   nil,
-			Platform: nil,
 			Endpoint: nil,
 			Image:    nil,
 			ControlPlanes: struct {
@@ -241,7 +234,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"-"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
@@ -258,7 +251,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"-"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
@@ -279,9 +272,6 @@ func TestClusterConfig_Merge(t *testing.T) {
 		}
 		if base.Driver != nil {
 			t.Errorf("Driver mismatch: expected nil, got '%s'", *base.Driver)
-		}
-		if base.Platform != nil {
-			t.Errorf("Platform mismatch: expected nil, got '%s'", *base.Platform)
 		}
 		if base.Endpoint != nil {
 			t.Errorf("Endpoint mismatch: expected nil, got '%s'", *base.Endpoint)
@@ -336,7 +326,6 @@ func TestClusterConfig_Copy(t *testing.T) {
 		original := &ClusterConfig{
 			Enabled:  ptrBool(true),
 			Driver:   ptrString("original-driver"),
-			Platform: ptrString("original-platform"),
 			Endpoint: ptrString("original-endpoint"),
 			Image:    ptrString("original-image"),
 			ControlPlanes: struct {
@@ -344,7 +333,7 @@ func TestClusterConfig_Copy(t *testing.T) {
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"-"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
@@ -366,7 +355,7 @@ func TestClusterConfig_Copy(t *testing.T) {
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"-"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
@@ -392,9 +381,6 @@ func TestClusterConfig_Copy(t *testing.T) {
 		}
 		if original.Driver == nil || copy.Driver == nil || *original.Driver != *copy.Driver {
 			t.Errorf("Driver mismatch: expected %v, got %v", *original.Driver, *copy.Driver)
-		}
-		if original.Platform == nil || copy.Platform == nil || *original.Platform != *copy.Platform {
-			t.Errorf("Platform mismatch: expected %v, got %v", *original.Platform, *copy.Platform)
 		}
 		if original.Endpoint == nil || copy.Endpoint == nil || *original.Endpoint != *copy.Endpoint {
 			t.Errorf("Endpoint mismatch: expected %v, got %v", *original.Endpoint, *copy.Endpoint)
