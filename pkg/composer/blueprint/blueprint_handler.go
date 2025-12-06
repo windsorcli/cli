@@ -1720,31 +1720,26 @@ func (b *BaseBlueprintHandler) deepMergeMaps(base, overlay map[string]any) map[s
 	return result
 }
 
-// setRepositoryDefaults sets the blueprint repository URL if not already specified.
-// Uses development URL if dev flag is enabled, otherwise falls back to git remote origin URL.
-// In dev mode, always overrides the URL even if it's already set.
+// setRepositoryDefaults sets or overrides the blueprint repository URL based on development mode and git configuration.
+// If development mode is enabled, the development URL is always used. Otherwise, the git remote origin URL is used if the URL is unset.
+// If a URL is set and the repository reference is empty, the branch is set to "main".
 func (b *BaseBlueprintHandler) setRepositoryDefaults() error {
 	devMode := b.runtime.ConfigHandler.GetBool("dev")
-
 	if devMode {
 		url := b.getDevelopmentRepositoryURL()
 		if url != "" {
 			b.blueprint.Repository.Url = url
-			return nil
 		}
 	}
-
-	// Only set from git remote if URL is not already set
-	if b.blueprint.Repository.Url != "" {
-		return nil
+	if b.blueprint.Repository.Url == "" {
+		gitURL, err := b.runtime.Shell.ExecSilent("git", "config", "--get", "remote.origin.url")
+		if err == nil && gitURL != "" {
+			b.blueprint.Repository.Url = b.normalizeGitURL(strings.TrimSpace(gitURL))
+		}
 	}
-
-	gitURL, err := b.runtime.Shell.ExecSilent("git", "config", "--get", "remote.origin.url")
-	if err == nil && gitURL != "" {
-		b.blueprint.Repository.Url = b.normalizeGitURL(strings.TrimSpace(gitURL))
-		return nil
+	if b.blueprint.Repository.Url != "" && b.blueprint.Repository.Ref == (blueprintv1alpha1.Reference{}) {
+		b.blueprint.Repository.Ref = blueprintv1alpha1.Reference{Branch: "main"}
 	}
-
 	return nil
 }
 

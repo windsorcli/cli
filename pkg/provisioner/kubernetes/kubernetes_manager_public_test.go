@@ -11,6 +11,7 @@ import (
 	"reflect"
 
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
+	meta "github.com/fluxcd/pkg/apis/meta"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
@@ -1686,6 +1687,109 @@ func TestBaseKubernetesManager_ApplyGitRepository(t *testing.T) {
 			t.Errorf("Expected error containing 'ToUnstructured requires a non-nil pointer to an object', got %v", err)
 		}
 	})
+
+	t.Run("SuccessWithSecretRef", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		var appliedObj *unstructured.Unstructured
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			appliedObj = obj
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+		}
+
+		secretName := "test-secret"
+		repo := &sourcev1.GitRepository{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-repo",
+				Namespace: "test-namespace",
+			},
+			Spec: sourcev1.GitRepositorySpec{
+				URL: "https://github.com/test/repo",
+				Interval: metav1.Duration{
+					Duration: time.Minute,
+				},
+				SecretRef: &meta.LocalObjectReference{
+					Name: secretName,
+				},
+			},
+		}
+
+		err := manager.ApplyGitRepository(repo)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if appliedObj == nil {
+			t.Fatal("Expected object to be applied")
+		}
+		spec, ok := appliedObj.Object["spec"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected spec to be present")
+		}
+		secretRef, exists := spec["secretRef"]
+		if !exists {
+			t.Error("Expected secretRef to be present in spec")
+		} else {
+			secretRefMap, ok := secretRef.(map[string]any)
+			if !ok {
+				t.Errorf("Expected secretRef to be a map, got %T", secretRef)
+			} else if secretRefMap["name"] != secretName {
+				t.Errorf("Expected secretRef name to be '%s', got '%v'", secretName, secretRefMap["name"])
+			}
+		}
+	})
+
+	t.Run("SuccessWithoutSecretRef", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		var appliedObj *unstructured.Unstructured
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			appliedObj = obj
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+		}
+
+		repo := &sourcev1.GitRepository{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-repo",
+				Namespace: "test-namespace",
+			},
+			Spec: sourcev1.GitRepositorySpec{
+				URL: "https://github.com/test/repo",
+				Interval: metav1.Duration{
+					Duration: time.Minute,
+				},
+				SecretRef: nil,
+			},
+		}
+
+		err := manager.ApplyGitRepository(repo)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if appliedObj == nil {
+			t.Fatal("Expected object to be applied")
+		}
+		spec, ok := appliedObj.Object["spec"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected spec to be present")
+		}
+		if _, exists := spec["secretRef"]; exists {
+			t.Error("Expected secretRef to not be present in spec when nil")
+		}
+	})
 }
 
 func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
@@ -3252,6 +3356,151 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		err := manager.ApplyBlueprint(blueprint, "test-namespace")
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("SuccessWithRepositoryAndSecretName", func(t *testing.T) {
+		manager := setup(t)
+		secretName := "test-secret"
+		var appliedRepo *sourcev1.GitRepository
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "gitrepositories" {
+				var repo sourcev1.GitRepository
+				if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &repo); err == nil {
+					appliedRepo = &repo
+				}
+			}
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+		}
+		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
+			return runtime.DefaultUnstructuredConverter.FromUnstructured(obj, target)
+		}
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Repository: blueprintv1alpha1.Repository{
+				Url:        "https://github.com/example/repo.git",
+				Ref:        blueprintv1alpha1.Reference{Branch: "main"},
+				SecretName: &secretName,
+			},
+		}
+
+		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if appliedRepo == nil {
+			t.Fatal("Expected GitRepository to be applied")
+		}
+		if appliedRepo.Spec.SecretRef == nil {
+			t.Error("Expected SecretRef to be set when SecretName is provided")
+		} else if appliedRepo.Spec.SecretRef.Name != secretName {
+			t.Errorf("Expected SecretRef.Name to be '%s', got '%s'", secretName, appliedRepo.Spec.SecretRef.Name)
+		}
+	})
+
+	t.Run("SuccessWithRepositoryAndNilSecretName", func(t *testing.T) {
+		manager := setup(t)
+		var appliedRepo *sourcev1.GitRepository
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "gitrepositories" {
+				var repo sourcev1.GitRepository
+				if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &repo); err == nil {
+					appliedRepo = &repo
+				}
+			}
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+		}
+		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
+			return runtime.DefaultUnstructuredConverter.FromUnstructured(obj, target)
+		}
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Repository: blueprintv1alpha1.Repository{
+				Url:        "https://github.com/example/repo.git",
+				Ref:        blueprintv1alpha1.Reference{Branch: "main"},
+				SecretName: nil,
+			},
+		}
+
+		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if appliedRepo == nil {
+			t.Fatal("Expected GitRepository to be applied")
+		}
+		if appliedRepo.Spec.SecretRef != nil {
+			t.Errorf("Expected SecretRef to be nil when SecretName is nil, got %v", appliedRepo.Spec.SecretRef)
+		}
+	})
+
+	t.Run("SuccessWithRepositoryAndEmptySecretName", func(t *testing.T) {
+		manager := setup(t)
+		emptySecretName := ""
+		var appliedRepo *sourcev1.GitRepository
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "gitrepositories" {
+				var repo sourcev1.GitRepository
+				if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &repo); err == nil {
+					appliedRepo = &repo
+				}
+			}
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+		}
+		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
+			return runtime.DefaultUnstructuredConverter.FromUnstructured(obj, target)
+		}
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Repository: blueprintv1alpha1.Repository{
+				Url:        "https://github.com/example/repo.git",
+				Ref:        blueprintv1alpha1.Reference{Branch: "main"},
+				SecretName: &emptySecretName,
+			},
+		}
+
+		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if appliedRepo == nil {
+			t.Fatal("Expected GitRepository to be applied")
+		}
+		if appliedRepo.Spec.SecretRef != nil {
+			t.Errorf("Expected SecretRef to be nil when SecretName is empty string, got %v", appliedRepo.Spec.SecretRef)
 		}
 	})
 

@@ -4016,6 +4016,168 @@ func TestBaseBlueprintHandler_setRepositoryDefaults(t *testing.T) {
 		}
 	})
 
+	t.Run("SetsDefaultBranchToMainWhenURLSetButRefEmpty", func(t *testing.T) {
+		handler := setup(t)
+		handler.blueprint.Repository.Url = "https://github.com/user/repo"
+		handler.blueprint.Repository.Ref = blueprintv1alpha1.Reference{}
+
+		mockConfigHandler := handler.runtime.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+
+		err := handler.setRepositoryDefaults()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if handler.blueprint.Repository.Ref.Branch != "main" {
+			t.Errorf("Expected default branch to be 'main', got '%s'", handler.blueprint.Repository.Ref.Branch)
+		}
+		if handler.blueprint.Repository.Url != "https://github.com/user/repo" {
+			t.Errorf("Expected URL to remain unchanged, got %s", handler.blueprint.Repository.Url)
+		}
+	})
+
+	t.Run("SetsDefaultBranchToMainWhenURLSetFromDevMode", func(t *testing.T) {
+		handler := setup(t)
+
+		mockConfigHandler := handler.runtime.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "dev" {
+				return true
+			}
+			return false
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.domain" {
+				return "test.com"
+			}
+			return ""
+		}
+
+		handler.runtime.ProjectRoot = "/path/to/project"
+		handler.shims.FilepathBase = func(path string) string {
+			return "project"
+		}
+
+		err := handler.setRepositoryDefaults()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		expectedURL := "http://git.test.com/git/project"
+		if handler.blueprint.Repository.Url != expectedURL {
+			t.Errorf("Expected URL to be %s, got %s", expectedURL, handler.blueprint.Repository.Url)
+		}
+		if handler.blueprint.Repository.Ref.Branch != "main" {
+			t.Errorf("Expected default branch to be 'main', got '%s'", handler.blueprint.Repository.Ref.Branch)
+		}
+	})
+
+	t.Run("SetsDefaultBranchToMainWhenURLSetFromGitRemote", func(t *testing.T) {
+		handler := setup(t)
+
+		mockConfigHandler := handler.runtime.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+
+		mockShell := handler.runtime.Shell.(*shell.MockShell)
+		mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "git" && len(args) == 3 && args[0] == "config" && args[2] == "remote.origin.url" {
+				return "https://github.com/user/repo.git\n", nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+
+		err := handler.setRepositoryDefaults()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if handler.blueprint.Repository.Url != "https://github.com/user/repo.git" {
+			t.Errorf("Expected URL to be set from git remote, got %s", handler.blueprint.Repository.Url)
+		}
+		if handler.blueprint.Repository.Ref.Branch != "main" {
+			t.Errorf("Expected default branch to be 'main', got '%s'", handler.blueprint.Repository.Ref.Branch)
+		}
+	})
+
+	t.Run("PreservesExistingRefWhenURLSet", func(t *testing.T) {
+		handler := setup(t)
+		handler.blueprint.Repository.Url = "https://github.com/user/repo"
+		handler.blueprint.Repository.Ref = blueprintv1alpha1.Reference{Branch: "develop"}
+
+		mockConfigHandler := handler.runtime.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+
+		err := handler.setRepositoryDefaults()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if handler.blueprint.Repository.Ref.Branch != "develop" {
+			t.Errorf("Expected branch to remain 'develop', got '%s'", handler.blueprint.Repository.Ref.Branch)
+		}
+		if handler.blueprint.Repository.Ref.Tag != "" {
+			t.Errorf("Expected tag to remain empty, got '%s'", handler.blueprint.Repository.Ref.Tag)
+		}
+	})
+
+	t.Run("PreservesExistingRefWhenRefHasTag", func(t *testing.T) {
+		handler := setup(t)
+		handler.blueprint.Repository.Url = "https://github.com/user/repo"
+		handler.blueprint.Repository.Ref = blueprintv1alpha1.Reference{Tag: "v1.0.0"}
+
+		mockConfigHandler := handler.runtime.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+
+		err := handler.setRepositoryDefaults()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if handler.blueprint.Repository.Ref.Tag != "v1.0.0" {
+			t.Errorf("Expected tag to remain 'v1.0.0', got '%s'", handler.blueprint.Repository.Ref.Tag)
+		}
+		if handler.blueprint.Repository.Ref.Branch != "" {
+			t.Errorf("Expected branch to remain empty, got '%s'", handler.blueprint.Repository.Ref.Branch)
+		}
+	})
+
+	t.Run("DoesNotSetBranchWhenURLEmpty", func(t *testing.T) {
+		handler := setup(t)
+		handler.blueprint.Repository.Url = ""
+		handler.blueprint.Repository.Ref = blueprintv1alpha1.Reference{}
+
+		mockConfigHandler := handler.runtime.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+
+		mockShell := handler.runtime.Shell.(*shell.MockShell)
+		mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			return "", fmt.Errorf("not a git repository")
+		}
+
+		err := handler.setRepositoryDefaults()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if handler.blueprint.Repository.Url != "" {
+			t.Errorf("Expected URL to remain empty, got %s", handler.blueprint.Repository.Url)
+		}
+		if handler.blueprint.Repository.Ref.Branch != "" {
+			t.Errorf("Expected branch to remain empty when URL is empty, got '%s'", handler.blueprint.Repository.Ref.Branch)
+		}
+	})
+
 }
 
 func TestBaseBlueprintHandler_normalizeGitURL(t *testing.T) {
