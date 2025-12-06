@@ -1,12 +1,11 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/pipelines"
+	"github.com/windsorcli/cli/pkg/project"
 )
 
 var (
@@ -22,55 +21,69 @@ var downCmd = &cobra.Command{
 	Long:         "Tear down the Windsor environment by executing necessary shell commands.",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get shared dependency injector from context
-		injector := cmd.Context().Value(injectorKey).(di.Injector)
+		var opts []*project.Project
+		if overridesVal := cmd.Context().Value(projectOverridesKey); overridesVal != nil {
+			opts = []*project.Project{overridesVal.(*project.Project)}
+		}
 
-		// First, run the env pipeline in quiet mode to set up environment variables
-		var envPipeline pipelines.Pipeline
-		envPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "envPipeline")
+		proj, err := project.NewProject("", opts...)
 		if err != nil {
-			return fmt.Errorf("failed to set up env pipeline: %w", err)
-		}
-		envCtx := context.WithValue(cmd.Context(), "quiet", true)
-		envCtx = context.WithValue(envCtx, "decrypt", true)
-		if err := envPipeline.Execute(envCtx); err != nil {
-			return fmt.Errorf("failed to set up environment: %w", err)
+			return err
 		}
 
-		// Then, run the init pipeline to initialize the environment
-		var initPipeline pipelines.Pipeline
-		initPipeline, err = pipelines.WithPipeline(injector, cmd.Context(), "initPipeline")
-		if err != nil {
-			return fmt.Errorf("failed to set up init pipeline: %w", err)
-		}
-		if err := initPipeline.Execute(cmd.Context()); err != nil {
-			return fmt.Errorf("failed to initialize environment: %w", err)
+		proj.Runtime.Shell.SetVerbosity(verbose)
+
+		if err := proj.Runtime.Shell.CheckTrustedDirectory(); err != nil {
+			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
 		}
 
-		// Finally, run the down pipeline for infrastructure teardown
-		downPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "downPipeline")
-		if err != nil {
-			return fmt.Errorf("failed to set up down pipeline: %w", err)
+		if err := proj.Configure(nil); err != nil {
+			return err
 		}
 
-		// Create execution context with flags
-		ctx := cmd.Context()
+		if err := proj.Initialize(false); err != nil {
+			if !verbose {
+				return nil
+			}
+			return err
+		}
+
+		if !skipK8sFlag {
+			blueprint, err := proj.Composer.GenerateBlueprint()
+			if err != nil {
+				return fmt.Errorf("error generating blueprint: %w", err)
+			}
+			if err := proj.Provisioner.Uninstall(blueprint); err != nil {
+				return fmt.Errorf("error running blueprint cleanup: %w", err)
+			}
+		} else {
+			fmt.Fprintln(os.Stderr, "Skipping Kubernetes cleanup (--skip-k8s set)")
+		}
+
+		if !skipTerraformFlag {
+			blueprint, err := proj.Composer.GenerateBlueprint()
+			if err != nil {
+				return fmt.Errorf("error generating blueprint: %w", err)
+			}
+			if err := proj.Provisioner.Down(blueprint); err != nil {
+				return fmt.Errorf("error tearing down infrastructure: %w", err)
+			}
+		} else {
+			fmt.Fprintln(os.Stderr, "Skipping Terraform cleanup (--skip-tf set)")
+		}
+
+		if proj.Workstation != nil && !skipDockerFlag {
+			if err := proj.Workstation.Down(); err != nil {
+				return fmt.Errorf("error tearing down workstation: %w", err)
+			}
+		} else if skipDockerFlag {
+			fmt.Fprintln(os.Stderr, "Skipping Docker container cleanup (--skip-docker set)")
+		}
+
 		if cleanFlag {
-			ctx = context.WithValue(ctx, "clean", true)
-		}
-		if skipK8sFlag {
-			ctx = context.WithValue(ctx, "skipK8s", true)
-		}
-		if skipTerraformFlag {
-			ctx = context.WithValue(ctx, "skipTerraform", true)
-		}
-		if skipDockerFlag {
-			ctx = context.WithValue(ctx, "skipDocker", true)
-		}
-
-		// Execute the down pipeline
-		if err := downPipeline.Execute(ctx); err != nil {
-			return fmt.Errorf("Error executing down pipeline: %w", err)
+			if err := proj.PerformCleanup(); err != nil {
+				return fmt.Errorf("error performing cleanup: %w", err)
+			}
 		}
 
 		return nil

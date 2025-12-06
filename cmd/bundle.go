@@ -1,12 +1,11 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/pipelines"
+	"github.com/windsorcli/cli/pkg/composer"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 // bundleCmd represents the bundle command
@@ -32,28 +31,32 @@ Examples:
   windsor bundle`,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get shared dependency injector from context
-		injector := cmd.Context().Value(injectorKey).(di.Injector)
+		var rtOpts []*runtime.Runtime
+		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
+			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
+		}
 
-		// Get tag and output path from flags
+		rt, err := runtime.NewRuntime(rtOpts...)
+		if err != nil {
+			return fmt.Errorf("failed to initialize context: %w", err)
+		}
+
+		var opts []*composer.Composer
+		if overridesVal := cmd.Context().Value(composerOverridesKey); overridesVal != nil {
+			opts = []*composer.Composer{overridesVal.(*composer.Composer)}
+		}
+
+		comp := composer.NewComposer(rt, opts...)
+
 		tag, _ := cmd.Flags().GetString("tag")
 		outputPath, _ := cmd.Flags().GetString("output")
 
-		// Set up the artifact pipeline
-		artifactPipeline, err := pipelines.WithPipeline(injector, cmd.Context(), "artifactPipeline")
+		actualOutputPath, err := comp.Bundle(outputPath, tag)
 		if err != nil {
-			return fmt.Errorf("failed to set up artifact pipeline: %w", err)
-		}
-
-		// Create execution context with bundle mode and parameters
-		ctx := context.WithValue(cmd.Context(), "artifactMode", "bundle")
-		ctx = context.WithValue(ctx, "outputPath", outputPath)
-		ctx = context.WithValue(ctx, "tag", tag)
-
-		// Execute the artifact pipeline in bundle mode
-		if err := artifactPipeline.Execute(ctx); err != nil {
 			return fmt.Errorf("failed to bundle artifacts: %w", err)
 		}
+
+		fmt.Printf("Blueprint bundled successfully: %s\n", actualOutputPath)
 
 		return nil
 	},

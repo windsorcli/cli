@@ -3,17 +3,17 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/composer"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/pipelines"
-	"github.com/windsorcli/cli/pkg/shell"
+	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 // =============================================================================
@@ -21,10 +21,12 @@ import (
 // =============================================================================
 
 type InitMocks struct {
-	Injector      di.Injector
-	ConfigHandler config.ConfigHandler
-	Shell         *shell.MockShell
-	Shims         *Shims
+	ConfigHandler    config.ConfigHandler
+	Shell            *Mocks
+	Shims            *Shims
+	BlueprintHandler *blueprint.MockBlueprintHandler
+	ToolsManager     *tools.MockToolsManager
+	Runtime          *runtime.Runtime
 }
 
 func setupInitTest(t *testing.T, opts ...*SetupOptions) *InitMocks {
@@ -48,12 +50,6 @@ func setupInitTest(t *testing.T, opts ...*SetupOptions) *InitMocks {
 	initEndpoint = ""
 	initSetFlags = []string{}
 
-	// Set up temporary directory and change to it
-	tmpDir := t.TempDir()
-	oldDir, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	t.Cleanup(func() { os.Chdir(oldDir) })
-
 	// Get base mocks
 	baseMocks := setupMocks(t, opts...)
 
@@ -61,23 +57,21 @@ func setupInitTest(t *testing.T, opts ...*SetupOptions) *InitMocks {
 	baseMocks.Shell.AddCurrentDirToTrustedFileFunc = func() error { return nil }
 	baseMocks.Shell.WriteResetTokenFunc = func() (string, error) { return "test-token", nil }
 
-	// Register mock env pipeline in injector (needed since init now runs env pipeline first)
-	mockEnvPipeline := pipelines.NewMockBasePipeline()
-	mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-	mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
-	baseMocks.Injector.Register("envPipeline", mockEnvPipeline)
-
-	// Register mock init pipeline in injector (following exec_test.go pattern)
-	mockInitPipeline := pipelines.NewMockBasePipeline()
-	mockInitPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-	mockInitPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
-	baseMocks.Injector.Register("initPipeline", mockInitPipeline)
+	// Add blueprint handler mock
+	mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
+	mockBlueprintHandler.LoadBlueprintFunc = func(...string) error { return nil }
+	mockBlueprintHandler.WriteFunc = func(overwrite ...bool) error { return nil }
+	// Configure tools manager (required by runInit and PrepareTools)
+	baseMocks.ToolsManager.InstallFunc = func() error { return nil }
+	baseMocks.ToolsManager.CheckFunc = func() error { return nil }
 
 	return &InitMocks{
-		Injector:      baseMocks.Injector,
-		ConfigHandler: baseMocks.ConfigHandler,
-		Shell:         baseMocks.Shell,
-		Shims:         baseMocks.Shims,
+		ConfigHandler:    baseMocks.ConfigHandler,
+		Shell:            baseMocks,
+		Shims:            baseMocks.Shims,
+		BlueprintHandler: mockBlueprintHandler,
+		ToolsManager:     baseMocks.ToolsManager,
+		Runtime:          baseMocks.Runtime,
 	}
 }
 
@@ -112,7 +106,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -129,7 +123,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with reset flag
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		ctx = context.WithValue(ctx, "reset", true)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
@@ -147,7 +141,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with context
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		ctx = context.WithValue(ctx, "contextName", "local")
 		cmd.SetArgs([]string{"test-context"})
 		cmd.SetContext(ctx)
@@ -165,7 +159,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with context and reset
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		ctx = context.WithValue(ctx, "contextName", "local")
 		ctx = context.WithValue(ctx, "reset", true)
 		cmd.SetArgs([]string{"test-context"})
@@ -184,7 +178,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with all flags
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		ctx = context.WithValue(ctx, "contextName", "local")
 		ctx = context.WithValue(ctx, "reset", true)
 		ctx = context.WithValue(ctx, "verbose", true)
@@ -198,68 +192,13 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("PipelineExecutionError", func(t *testing.T) {
-		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
-
-		// And a pipeline that fails to execute
-		mockPipeline := pipelines.NewMockBasePipeline()
-		mockPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockPipeline.ExecuteFunc = func(ctx context.Context) error {
-			return fmt.Errorf("pipeline execution failed")
-		}
-		mocks.Injector.Register("initPipeline", mockPipeline)
-
-		// When executing the init command
-		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "pipeline execution failed") {
-			t.Errorf("Expected pipeline execution error, got: %v", err)
-		}
-	})
-
-	t.Run("ConfigHandlerSetContextValueError", func(t *testing.T) {
-		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
-
-		// And a config handler that fails to set context values
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
-			return fmt.Errorf("failed to set %s", key)
-		}
-		mocks.Injector.Register("configHandler", mockConfigHandler)
-
-		// When executing the init command with flags that trigger config setting
-		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{"--backend", "local"})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to set terraform.backend.type") {
-			t.Errorf("Expected config handler error, got: %v", err)
-		}
-	})
-
 	t.Run("SuccessWithBackendFlag", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupInitTest(t)
 
 		// When executing the init command with backend flag
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{"--backend", "s3"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -276,7 +215,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with VM driver flag
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{"--vm-driver", "colima"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -293,7 +232,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with VM CPU flag
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{"--vm-cpu", "4"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -310,7 +249,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with VM disk flag
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{"--vm-disk", "100"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -327,7 +266,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with VM memory flag
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{"--vm-memory", "8192"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -344,7 +283,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with VM arch flag
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{"--vm-arch", "x86_64"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -361,7 +300,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with docker flag
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{"--docker"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -378,7 +317,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with git livereload flag
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{"--git-livereload"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -393,10 +332,16 @@ func TestInitCmd(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupInitTest(t)
 
+		// And a composer with the mock blueprint handler
+		comp := composer.NewComposer(mocks.Runtime, &composer.Composer{
+			BlueprintHandler: mocks.BlueprintHandler,
+		})
+
 		// When executing the init command with blueprint flag
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{"--blueprint", "full"})
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, comp)
+		cmd.SetArgs([]string{"--blueprint", "oci://ghcr.io/windsorcli/core:latest"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -412,7 +357,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with platform flag
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{"--provider", "local"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -429,7 +374,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with set flags
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{"--set", "cluster.endpoint=https://localhost:6443", "--set", "dns.domain=test.local"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -446,7 +391,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with invalid set flag format
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{"--set", "invalid-format"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -461,10 +406,16 @@ func TestInitCmd(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupInitTest(t)
 
+		// And a composer with the mock blueprint handler
+		comp := composer.NewComposer(mocks.Runtime, &composer.Composer{
+			BlueprintHandler: mocks.BlueprintHandler,
+		})
+
 		// When executing the init command with multiple flags
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{"--backend", "s3", "--vm-driver", "colima", "--docker", "--blueprint", "full"})
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, comp)
+		cmd.SetArgs([]string{"--backend", "s3", "--vm-driver", "colima", "--docker", "--blueprint", "oci://ghcr.io/windsorcli/core:latest"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -487,13 +438,13 @@ func TestInitCmd(t *testing.T) {
 
 		// If context is "local" and neither provider nor blueprint is set, set both
 		if len(args) > 0 && strings.HasPrefix(args[0], "local") && initProvider == "" && initBlueprint == "" {
-			initProvider = "local"
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+			initProvider = "generic"
+			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
 
 		// If provider is set and blueprint is not set, set blueprint (covers all providers, including local)
 		if initProvider != "" && initBlueprint == "" {
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
 
 		// If blueprint is set, use it (overrides all)
@@ -502,16 +453,16 @@ func TestInitCmd(t *testing.T) {
 		}
 
 		// Then both provider and blueprint should be set correctly
-		if initProvider != "local" {
-			t.Errorf("Expected provider to be 'local', got %s", initProvider)
+		if initProvider != "generic" {
+			t.Errorf("Expected provider to be 'generic', got %s", initProvider)
 		}
 
 		if blueprintCtx := ctx.Value("blueprint"); blueprintCtx == nil {
 			t.Errorf("Expected blueprint to be set in context for local context")
 		} else if blueprint, ok := blueprintCtx.(string); !ok {
 			t.Errorf("Expected blueprint context value to be a string")
-		} else if blueprint != constants.DEFAULT_OCI_BLUEPRINT_URL {
-			t.Errorf("Expected blueprint to be %s, got %s", constants.DEFAULT_OCI_BLUEPRINT_URL, blueprint)
+		} else if blueprint != constants.DefaultOCIBlueprintURL {
+			t.Errorf("Expected blueprint to be %s, got %s", constants.DefaultOCIBlueprintURL, blueprint)
 		}
 	})
 
@@ -528,13 +479,13 @@ func TestInitCmd(t *testing.T) {
 
 		// If context is "local" and neither provider nor blueprint is set, set both
 		if len(args) > 0 && strings.HasPrefix(args[0], "local") && initProvider == "" && initBlueprint == "" {
-			initProvider = "local"
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+			initProvider = "generic"
+			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
 
 		// If provider is set and blueprint is not set, set blueprint (covers all providers, including local)
 		if initProvider != "" && initBlueprint == "" {
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
 
 		// If blueprint is set, use it (overrides all)
@@ -551,8 +502,8 @@ func TestInitCmd(t *testing.T) {
 			t.Errorf("Expected blueprint to be set in context when explicit provider is specified")
 		} else if blueprint, ok := blueprintCtx.(string); !ok {
 			t.Errorf("Expected blueprint context value to be a string")
-		} else if blueprint != constants.DEFAULT_OCI_BLUEPRINT_URL {
-			t.Errorf("Expected blueprint to be %s, got %s", constants.DEFAULT_OCI_BLUEPRINT_URL, blueprint)
+		} else if blueprint != constants.DefaultOCIBlueprintURL {
+			t.Errorf("Expected blueprint to be %s, got %s", constants.DefaultOCIBlueprintURL, blueprint)
 		}
 	})
 
@@ -569,13 +520,13 @@ func TestInitCmd(t *testing.T) {
 
 		// If context is "local" and neither provider nor blueprint is set, set both
 		if len(args) > 0 && strings.HasPrefix(args[0], "local") && initProvider == "" && initBlueprint == "" {
-			initProvider = "local"
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+			initProvider = "generic"
+			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
 
 		// If provider is set and blueprint is not set, set blueprint (covers all providers, including local)
 		if initProvider != "" && initBlueprint == "" {
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
 
 		// If blueprint is set, use it (overrides all)
@@ -606,13 +557,13 @@ func TestInitCmd(t *testing.T) {
 
 		// If context is "local" and neither provider nor blueprint is set, set both
 		if len(args) > 0 && strings.HasPrefix(args[0], "local") && initProvider == "" && initBlueprint == "" {
-			initProvider = "local"
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+			initProvider = "generic"
+			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
 
 		// If provider is set and blueprint is not set, set blueprint (covers all providers, including local)
 		if initProvider != "" && initBlueprint == "" {
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
 
 		// If blueprint is set, use it (overrides all)
@@ -642,7 +593,7 @@ func TestInitCmd(t *testing.T) {
 
 		// If provider is set and blueprint is not set, set blueprint (covers all providers, including local)
 		if initProvider != "" && initBlueprint == "" {
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
 
 		if initBlueprint != "" {
@@ -654,8 +605,8 @@ func TestInitCmd(t *testing.T) {
 			t.Errorf("Expected blueprint to be set in context when provider is specified")
 		} else if blueprint, ok := blueprintCtx.(string); !ok {
 			t.Errorf("Expected blueprint context value to be a string")
-		} else if blueprint != constants.DEFAULT_OCI_BLUEPRINT_URL {
-			t.Errorf("Expected blueprint to be %s, got %s", constants.DEFAULT_OCI_BLUEPRINT_URL, blueprint)
+		} else if blueprint != constants.DefaultOCIBlueprintURL {
+			t.Errorf("Expected blueprint to be %s, got %s", constants.DefaultOCIBlueprintURL, blueprint)
 		}
 	})
 
@@ -671,7 +622,7 @@ func TestInitCmd(t *testing.T) {
 
 		// If provider is set and blueprint is not set, set blueprint (covers all providers, including local)
 		if initProvider != "" && initBlueprint == "" {
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
 
 		if initBlueprint != "" {
@@ -701,7 +652,7 @@ func TestInitCmd(t *testing.T) {
 
 		// Handle deprecated --platform flag and set blueprint
 		if initPlatform != "" && initProvider == "" && initBlueprint == "" {
-			initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
 
 		if initBlueprint != "" {
@@ -713,8 +664,8 @@ func TestInitCmd(t *testing.T) {
 			t.Errorf("Expected blueprint to be set in context when platform is specified")
 		} else if blueprint, ok := blueprintCtx.(string); !ok {
 			t.Errorf("Expected blueprint context value to be a string")
-		} else if blueprint != constants.DEFAULT_OCI_BLUEPRINT_URL {
-			t.Errorf("Expected blueprint to be %s, got %s", constants.DEFAULT_OCI_BLUEPRINT_URL, blueprint)
+		} else if blueprint != constants.DefaultOCIBlueprintURL {
+			t.Errorf("Expected blueprint to be %s, got %s", constants.DefaultOCIBlueprintURL, blueprint)
 		}
 	})
 
@@ -733,7 +684,7 @@ func TestInitCmd(t *testing.T) {
 				provider:          "",
 				blueprint:         "",
 				expectedProvider:  "local",
-				expectedBlueprint: constants.DEFAULT_OCI_BLUEPRINT_URL,
+				expectedBlueprint: constants.DefaultOCIBlueprintURL,
 			},
 			{
 				name:              "local-dev context with no flags",
@@ -741,7 +692,7 @@ func TestInitCmd(t *testing.T) {
 				provider:          "",
 				blueprint:         "",
 				expectedProvider:  "local",
-				expectedBlueprint: constants.DEFAULT_OCI_BLUEPRINT_URL,
+				expectedBlueprint: constants.DefaultOCIBlueprintURL,
 			},
 			{
 				name:              "local context with explicit provider",
@@ -749,7 +700,7 @@ func TestInitCmd(t *testing.T) {
 				provider:          "aws",
 				blueprint:         "",
 				expectedProvider:  "aws",
-				expectedBlueprint: constants.DEFAULT_OCI_BLUEPRINT_URL,
+				expectedBlueprint: constants.DefaultOCIBlueprintURL,
 			},
 			{
 				name:              "local context with explicit blueprint",
@@ -783,12 +734,12 @@ func TestInitCmd(t *testing.T) {
 				// If context is "local" and neither provider nor blueprint is set, set both
 				if len(tc.args) > 0 && strings.HasPrefix(tc.args[0], "local") && initProvider == "" && initBlueprint == "" {
 					initProvider = "local"
-					initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+					initBlueprint = constants.DefaultOCIBlueprintURL
 				}
 
 				// If provider is set and blueprint is not set, set blueprint (covers all providers, including local)
 				if initProvider != "" && initBlueprint == "" {
-					initBlueprint = constants.DEFAULT_OCI_BLUEPRINT_URL
+					initBlueprint = constants.DefaultOCIBlueprintURL
 				}
 
 				// If blueprint is set, use it (overrides all)
@@ -822,7 +773,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with local context (should auto-set provider and blueprint)
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{"local"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -839,7 +790,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with explicit provider
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{"--provider", "aws"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -854,9 +805,15 @@ func TestInitCmd(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupInitTest(t)
 
+		// And a composer with the mock blueprint handler
+		comp := composer.NewComposer(mocks.Runtime, &composer.Composer{
+			BlueprintHandler: mocks.BlueprintHandler,
+		})
+
 		// When executing the init command with explicit blueprint
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, comp)
 		cmd.SetArgs([]string{"--blueprint", "oci://custom/blueprint:v1.0.0"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -873,7 +830,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with simple flags
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{
 			"test-context",
 			"--reset",
@@ -896,7 +853,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with deprecated platform flag
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{"--platform", "aws"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -913,7 +870,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with both platform and provider flags
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{"--platform", "aws", "--provider", "azure"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -930,7 +887,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with platform flag (should override auto-set provider)
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{"local", "--platform", "aws"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -947,7 +904,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with context name that matches a provider
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{"aws"}) // No explicit provider flag
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -964,7 +921,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with "azure" context name
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{"azure"}) // No explicit provider flag
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -981,7 +938,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with "metal" context name
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{"metal"}) // No explicit provider flag
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -998,12 +955,12 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with "local" context name
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{"local"}) // No explicit provider flag
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
-		// Then no error should occur and "local" should be used as provider
+		// Then no error should occur and "generic" should be used as provider
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
@@ -1015,7 +972,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with explicit provider that differs from context name
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{"aws", "--provider", "azure"}) // Context name vs explicit provider
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -1032,7 +989,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with unknown context name
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{"unknown-context"}) // Unknown context name
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -1049,7 +1006,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When executing the init command with invalid set flag format
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{"--set", "invalid-format-without-equals"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -1060,58 +1017,296 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("RunEConfigHandlerError", func(t *testing.T) {
+	t.Run("AddsCurrentDirToTrustedFile", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupInitTest(t)
 
-		// And a config handler that fails to set values
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
-			return fmt.Errorf("failed to set %s", key)
+		// And tracking whether AddCurrentDirToTrustedFile is called
+		var addCurrentDirToTrustedFileCalled bool
+		mocks.Shell.Shell.AddCurrentDirToTrustedFileFunc = func() error {
+			addCurrentDirToTrustedFileCalled = true
+			return nil
 		}
-		mocks.Injector.Register("configHandler", mockConfigHandler)
 
-		// When executing the init command with flags that trigger config setting
-		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{"--docker"})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error from config handler, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to set docker.enabled") {
-			t.Errorf("Expected config handler error, got: %v", err)
-		}
-	})
-
-	t.Run("RunEPipelineError", func(t *testing.T) {
-		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
-
-		// And a pipeline that fails to execute
-		mockPipeline := pipelines.NewMockBasePipeline()
-		mockPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockPipeline.ExecuteFunc = func(ctx context.Context) error {
-			return fmt.Errorf("pipeline execution failed")
-		}
-		mocks.Injector.Register("initPipeline", mockPipeline)
+		// Override ProjectRoot in runtime
+		mocks.Runtime.ProjectRoot = mocks.Shell.TmpDir
 
 		// When executing the init command
 		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+
+		// And AddCurrentDirToTrustedFile should have been called
+		if !addCurrentDirToTrustedFileCalled {
+			t.Error("Expected AddCurrentDirToTrustedFile to be called, but it was not")
+		}
+	})
+
+	t.Run("HandlesAddCurrentDirToTrustedFileError", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// And AddCurrentDirToTrustedFile returns an error
+		expectedError := fmt.Errorf("failed to add current directory to trusted file")
+		mocks.Shell.Shell.AddCurrentDirToTrustedFileFunc = func() error {
+			return expectedError
+		}
+
+		// Override ProjectRoot in runtime
+		mocks.Runtime.ProjectRoot = mocks.Shell.TmpDir
+
+		// When executing the init command
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
 		// Then an error should occur
 		if err == nil {
-			t.Error("Expected error from pipeline, got nil")
+			t.Error("Expected error when AddCurrentDirToTrustedFile fails, got nil")
+			return
 		}
-		if !strings.Contains(err.Error(), "pipeline execution failed") {
-			t.Errorf("Expected pipeline error, got: %v", err)
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "failed to add current directory to trusted file") {
+			t.Errorf("Expected error message to contain 'failed to add current directory to trusted file', got: %v", err)
+		}
+	})
+
+	t.Run("CallsHandleSessionResetWhenNoContextProvided", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// And tracking whether Shell.CheckResetFlags is called (which HandleSessionReset calls)
+		var checkResetFlagsCalled bool
+		mocks.Shell.Shell.CheckResetFlagsFunc = func() (bool, error) {
+			checkResetFlagsCalled = true
+			return false, nil
+		}
+
+		// When executing the init command without a context name
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+
+		// And CheckResetFlags should have been called (indicating HandleSessionReset was called)
+		if !checkResetFlagsCalled {
+			t.Error("Expected CheckResetFlags to be called (via HandleSessionReset), but it was not")
+		}
+	})
+
+	t.Run("HandlesHandleSessionResetError", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// And CheckResetFlags returns an error (which HandleSessionReset will propagate)
+		expectedError := fmt.Errorf("failed to check reset flags")
+		mocks.Shell.Shell.CheckResetFlagsFunc = func() (bool, error) {
+			return false, expectedError
+		}
+
+		// When executing the init command
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error when HandleSessionReset fails, got nil")
+			return
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "failed to handle session reset") {
+			t.Errorf("Expected error message to contain 'failed to handle session reset', got: %v", err)
+		}
+	})
+
+	t.Run("SwitchesToContextWhenContextNameProvided", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// And tracking whether WriteResetToken, SetContext, and HandleSessionReset are called
+		var writeResetTokenCalled bool
+		var setContextCalled bool
+		var setContextValue string
+		var checkResetFlagsCalled bool
+
+		mocks.Shell.Shell.WriteResetTokenFunc = func() (string, error) {
+			writeResetTokenCalled = true
+			return "test-token", nil
+		}
+
+		mocks.Shell.Shell.CheckResetFlagsFunc = func() (bool, error) {
+			checkResetFlagsCalled = true
+			return false, nil
+		}
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.SetContextFunc = func(context string) error {
+			setContextCalled = true
+			setContextValue = context
+			return nil
+		}
+
+		// When executing the init command with a context name
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		cmd.SetArgs([]string{"test-context"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+
+		// And WriteResetToken should have been called
+		if !writeResetTokenCalled {
+			t.Error("Expected WriteResetToken to be called when context name is provided, but it was not")
+		}
+
+		// And SetContext should have been called with the correct context name
+		if !setContextCalled {
+			t.Error("Expected SetContext to be called when context name is provided, but it was not")
+		}
+
+		if setContextValue != "test-context" {
+			t.Errorf("Expected SetContext to be called with 'test-context', got: %s", setContextValue)
+		}
+
+		// And HandleSessionReset should NOT have been called (skipped when changing contexts)
+		if checkResetFlagsCalled {
+			t.Error("Expected HandleSessionReset to not be called when context name is provided, but it was called")
+		}
+	})
+
+	t.Run("DoesNotSwitchContextWhenNoContextNameProvided", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// And tracking whether WriteResetToken, SetContext, and HandleSessionReset are called
+		var writeResetTokenCalled bool
+		var setContextCalled bool
+		var checkResetFlagsCalled bool
+
+		mocks.Shell.Shell.WriteResetTokenFunc = func() (string, error) {
+			writeResetTokenCalled = true
+			return "test-token", nil
+		}
+
+		mocks.Shell.Shell.CheckResetFlagsFunc = func() (bool, error) {
+			checkResetFlagsCalled = true
+			return false, nil
+		}
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.SetContextFunc = func(context string) error {
+			setContextCalled = true
+			return nil
+		}
+
+		// When executing the init command without a context name
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+
+		// And WriteResetToken should not have been called
+		if writeResetTokenCalled {
+			t.Error("Expected WriteResetToken to not be called when no context name is provided, but it was called")
+		}
+
+		// And SetContext should not have been called
+		if setContextCalled {
+			t.Error("Expected SetContext to not be called when no context name is provided, but it was called")
+		}
+
+		// And HandleSessionReset SHOULD have been called (not skipped when not changing contexts)
+		if !checkResetFlagsCalled {
+			t.Error("Expected HandleSessionReset to be called when no context name is provided, but it was not")
+		}
+	})
+
+	t.Run("HandlesSetContextError", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// And SetContext returns an error
+		expectedError := fmt.Errorf("failed to set context")
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.SetContextFunc = func(context string) error {
+			return expectedError
+		}
+
+		// When executing the init command with a context name
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		cmd.SetArgs([]string{"test-context"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error when SetContext fails, got nil")
+			return
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "failed to set context") {
+			t.Errorf("Expected error message to contain 'failed to set context', got: %v", err)
+		}
+	})
+
+	t.Run("HandlesWriteResetTokenError", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// And WriteResetToken returns an error
+		expectedError := fmt.Errorf("failed to write reset token")
+		mocks.Shell.Shell.WriteResetTokenFunc = func() (string, error) {
+			return "", expectedError
+		}
+
+		// When executing the init command with a context name
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		cmd.SetArgs([]string{"test-context"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error when WriteResetToken fails, got nil")
+			return
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "failed to write reset token") {
+			t.Errorf("Expected error message to contain 'failed to write reset token', got: %v", err)
 		}
 	})
 }

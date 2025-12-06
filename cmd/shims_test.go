@@ -1,8 +1,3 @@
-// The shims_test package provides test utilities for the shims package
-// It contains mock implementations of system call wrappers
-// It enables testing of system-level operations
-// It facilitates dependency injection and test isolation
-
 package cmd
 
 import (

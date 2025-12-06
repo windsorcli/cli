@@ -4,52 +4,97 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/pipelines"
+	"github.com/windsorcli/cli/pkg/composer"
+	"github.com/windsorcli/cli/pkg/composer/artifact"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================
-// Pipeline-based Tests
+// Test Setup
 // =============================================================================
 
-func TestBundleCmdWithPipeline(t *testing.T) {
-	t.Run("SuccessWithPipeline", func(t *testing.T) {
-		// Set up temporary directory
-		tmpDir := t.TempDir()
-		originalDir, _ := os.Getwd()
-		defer func() {
-			os.Chdir(originalDir)
-		}()
-		os.Chdir(tmpDir)
+type BundleMocks struct {
+	ConfigHandler    config.ConfigHandler
+	Shell            *shell.MockShell
+	BlueprintHandler *blueprint.MockBlueprintHandler
+	ArtifactBuilder  *artifact.MockArtifact
+	Composer         *composer.Composer
+	Runtime          *Mocks
+	TmpDir           string
+}
 
-		// Create injector and mock artifact pipeline
-		injector := di.NewInjector()
-		mockArtifactPipeline := pipelines.NewMockBasePipeline()
-		mockArtifactPipeline.ExecuteFunc = func(ctx context.Context) error {
-			// Verify context values
-			mode, ok := ctx.Value("artifactMode").(string)
-			if !ok || mode != "bundle" {
-				return fmt.Errorf("expected artifactMode 'bundle', got %v", mode)
-			}
-			outputPath, ok := ctx.Value("outputPath").(string)
-			if !ok || outputPath != "." {
-				return fmt.Errorf("expected outputPath '.', got %v", outputPath)
-			}
-			tag, ok := ctx.Value("tag").(string)
-			if !ok || tag != "test:v1.0.0" {
-				return fmt.Errorf("expected tag 'test:v1.0.0', got %v", tag)
-			}
-			return nil
-		}
+func setupBundleTest(t *testing.T, opts ...*SetupOptions) *BundleMocks {
+	t.Helper()
 
-		// Register the mock pipeline
-		injector.Register("artifactPipeline", mockArtifactPipeline)
+	tmpDir := t.TempDir()
+	originalDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	t.Cleanup(func() {
+		os.Chdir(originalDir)
+	})
 
-		// Create test command
+	contextsDir := filepath.Join(tmpDir, "contexts")
+	templateDir := filepath.Join(contextsDir, "_template")
+	os.MkdirAll(templateDir, 0755)
+
+	baseMocks := setupMocks(t, opts...)
+
+	mockShell := shell.NewMockShell()
+	mockShell.GetProjectRootFunc = func() (string, error) {
+		return tmpDir, nil
+	}
+	mockShell.CheckTrustedDirectoryFunc = func() error {
+		return nil
+	}
+
+	mockConfigHandler := config.NewMockConfigHandler()
+	mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+		return map[string]any{}, nil
+	}
+	mockConfigHandler.GetContextFunc = func() string {
+		return "test-context"
+	}
+
+	baseMocks.Runtime.Shell = mockShell
+	baseMocks.Runtime.ConfigHandler = mockConfigHandler
+	baseMocks.Runtime.ProjectRoot = tmpDir
+
+	mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
+	mockBlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
+		return map[string][]byte{}, nil
+	}
+
+	comp := composer.NewComposer(baseMocks.Runtime)
+	comp.BlueprintHandler = mockBlueprintHandler
+
+	return &BundleMocks{
+		ConfigHandler:    mockConfigHandler,
+		Shell:            mockShell,
+		BlueprintHandler: mockBlueprintHandler,
+		ArtifactBuilder:  artifact.NewMockArtifact(),
+		Composer:         comp,
+		Runtime:          baseMocks,
+		TmpDir:           tmpDir,
+	}
+}
+
+// =============================================================================
+// Test Cases
+// =============================================================================
+
+func TestBundleCmdWithRuntime(t *testing.T) {
+	t.Run("SuccessWithRuntime", func(t *testing.T) {
+		// Given a properly configured bundle command
+		mocks := setupBundleTest(t)
+
+		// When executing the bundle command with tag
 		cmd := &cobra.Command{
 			Use:   "bundle",
 			Short: "Bundle blueprints into a .tar.gz archive",
@@ -58,37 +103,29 @@ func TestBundleCmdWithPipeline(t *testing.T) {
 		cmd.Flags().StringP("output", "o", ".", "Output path for bundle archive")
 		cmd.Flags().StringP("tag", "t", "", "Tag in 'name:version' format")
 
-		// Set up context
-		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		ctx := context.Background()
+		ctx = context.WithValue(ctx, runtimeOverridesKey, mocks.Runtime.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetContext(ctx)
-
-		// Set arguments
 		cmd.SetArgs([]string{"--tag", "test:v1.0.0"})
-
-		// Execute command
 		err := cmd.Execute()
 
-		// Verify no error
+		// Then no error should occur
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
-	t.Run("PipelineSetupError", func(t *testing.T) {
-		// Set up temporary directory
+	t.Run("RuntimeSetupError", func(t *testing.T) {
+		// Given a bundle command without runtime setup
 		tmpDir := t.TempDir()
 		originalDir, _ := os.Getwd()
-		defer func() {
-			os.Chdir(originalDir)
-		}()
 		os.Chdir(tmpDir)
+		t.Cleanup(func() {
+			os.Chdir(originalDir)
+		})
 
-		// Create injector without registering the pipeline
-		// This will cause WithPipeline to try to create a new one, which will fail
-		// because it requires the contexts/_template directory
-		injector := di.NewInjector()
-
-		// Create test command
+		// When executing the bundle command
 		cmd := &cobra.Command{
 			Use:   "bundle",
 			Short: "Bundle blueprints into a .tar.gz archive",
@@ -97,51 +134,27 @@ func TestBundleCmdWithPipeline(t *testing.T) {
 		cmd.Flags().StringP("output", "o", ".", "Output path for bundle archive")
 		cmd.Flags().StringP("tag", "t", "", "Tag in 'name:version' format")
 
-		// Set up context
-		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		ctx := context.Background()
 		cmd.SetContext(ctx)
-
-		// Set arguments
 		cmd.SetArgs([]string{"--tag", "test:v1.0.0"})
-
-		// Execute command
 		err := cmd.Execute()
 
-		// Verify error - the pipeline setup should fail because the real artifact pipeline
-		// requires the contexts/_template directory which doesn't exist in the test
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		expectedError := "failed to bundle artifacts: bundling failed: templates directory not found: contexts"
-		if err.Error()[:len(expectedError)] != expectedError {
-			t.Errorf("Expected error to start with %q, got %q", expectedError, err.Error())
-		}
-		// Verify the path separator is correct for the platform
-		if !strings.Contains(err.Error(), "contexts") {
-			t.Errorf("Expected error to contain 'contexts', got %q", err.Error())
+		// Then no error should occur (runtime is resilient)
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
 		}
 	})
 
-	t.Run("PipelineExecutionError", func(t *testing.T) {
-		// Set up temporary directory
-		tmpDir := t.TempDir()
-		originalDir, _ := os.Getwd()
-		defer func() {
-			os.Chdir(originalDir)
-		}()
-		os.Chdir(tmpDir)
-
-		// Create injector and mock artifact pipeline that fails
-		injector := di.NewInjector()
-		mockArtifactPipeline := pipelines.NewMockBasePipeline()
-		mockArtifactPipeline.ExecuteFunc = func(ctx context.Context) error {
-			return fmt.Errorf("pipeline execution failed")
+	t.Run("RuntimeExecutionError", func(t *testing.T) {
+		// Given a bundle command with artifact write failure
+		mocks := setupBundleTest(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+		mockArtifactBuilder.WriteFunc = func(outputPath string, tag string) (string, error) {
+			return "", fmt.Errorf("failed to write artifact")
 		}
+		mocks.Composer.ArtifactBuilder = mockArtifactBuilder
 
-		// Register the mock pipeline
-		injector.Register("artifactPipeline", mockArtifactPipeline)
-
-		// Create test command
+		// When executing the bundle command
 		cmd := &cobra.Command{
 			Use:   "bundle",
 			Short: "Bundle blueprints into a .tar.gz archive",
@@ -150,23 +163,21 @@ func TestBundleCmdWithPipeline(t *testing.T) {
 		cmd.Flags().StringP("output", "o", ".", "Output path for bundle archive")
 		cmd.Flags().StringP("tag", "t", "", "Tag in 'name:version' format")
 
-		// Set up context
-		ctx := context.WithValue(context.Background(), injectorKey, injector)
+		ctx := context.Background()
+		ctx = context.WithValue(ctx, runtimeOverridesKey, mocks.Runtime.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetContext(ctx)
-
-		// Set arguments
 		cmd.SetArgs([]string{"--tag", "test:v1.0.0"})
-
-		// Execute command
 		err := cmd.Execute()
 
-		// Verify error
+		// Then an error should occur
 		if err == nil {
 			t.Error("Expected error, got nil")
+			return
 		}
-		expectedError := "failed to bundle artifacts: pipeline execution failed"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		// And error should contain bundle failure message
+		if !strings.Contains(err.Error(), "failed to bundle artifacts") {
+			t.Errorf("Expected error to contain 'failed to bundle artifacts', got %v", err)
 		}
 	})
 }

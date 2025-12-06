@@ -3,65 +3,33 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/pipelines"
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/composer"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/project"
+	"github.com/windsorcli/cli/pkg/provisioner"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 )
-
-// =============================================================================
-// Test Setup
-// =============================================================================
-
-type InstallMocks struct {
-	*Mocks
-}
-
-func setupInstallTest(t *testing.T, opts ...*SetupOptions) *InstallMocks {
-	t.Helper()
-
-	// Setup base mocks
-	baseMocks := setupMocks(t, opts...)
-
-	// Register mock env pipeline in injector (needed since install runs env pipeline first)
-	mockEnvPipeline := pipelines.NewMockBasePipeline()
-	mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-	mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
-	baseMocks.Injector.Register("envPipeline", mockEnvPipeline)
-
-	// Register mock install pipeline in injector
-	mockInstallPipeline := pipelines.NewMockBasePipeline()
-	mockInstallPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-	mockInstallPipeline.ExecuteFunc = func(ctx context.Context) error { return nil }
-	baseMocks.Injector.Register("installPipeline", mockInstallPipeline)
-
-	return &InstallMocks{
-		Mocks: baseMocks,
-	}
-}
-
-// =============================================================================
-// Test Cases
-// =============================================================================
 
 func TestInstallCmd(t *testing.T) {
 	createTestInstallCmd := func() *cobra.Command {
-		// Create a new command with the same RunE as installCmd
 		cmd := &cobra.Command{
 			Use:   "install",
 			Short: "Install the blueprint's cluster-level services",
 			RunE:  installCmd.RunE,
 		}
 
-		// Copy all flags from installCmd to ensure they're available
 		installCmd.Flags().VisitAll(func(flag *pflag.Flag) {
 			cmd.Flags().AddFlag(flag)
 		})
 
-		// Disable help text printing
 		cmd.SilenceUsage = true
 		cmd.SilenceErrors = true
 
@@ -69,110 +37,188 @@ func TestInstallCmd(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given a temporary directory with mocked dependencies
-		mocks := setupInstallTest(t)
+		mocks := setupMocks(t)
+		tmpDir := mocks.TmpDir
 
-		// When executing the install command
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextFunc = func() string { return "test-context" }
+		mockConfigHandler.IsLoadedFunc = func() bool { return true }
+		mockConfigHandler.LoadConfigFunc = func() error { return nil }
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) { return tmpDir + "/contexts/test-context", nil }
+
+		mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
+		mockBlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
+			return &blueprintv1alpha1.Blueprint{}
+		}
+
+		mockKubernetesManager := kubernetes.NewMockKubernetesManager()
+		mockKubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
+
+		// Override ConfigHandler and ProjectRoot in runtime
+		mocks.Runtime.ConfigHandler = mockConfigHandler
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		comp := composer.NewComposer(mocks.Runtime)
+		comp.BlueprintHandler = mockBlueprintHandler
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
+			KubernetesManager: mockKubernetesManager,
+		})
+
+		proj, err := project.NewProject("", &project.Project{
+			Runtime:     mocks.Runtime,
+			Composer:    comp,
+			Provisioner: mockProvisioner,
+		})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
+
 		cmd := createTestInstallCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
-		err := cmd.Execute()
+		err = cmd.Execute()
 
-		// Then no error should occur
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
 	})
 
 	t.Run("SuccessWithWaitFlag", func(t *testing.T) {
-		// Given a temporary directory with mocked dependencies
-		mocks := setupInstallTest(t)
+		mocks := setupMocks(t)
+		tmpDir := mocks.TmpDir
 
-		// When executing the install command with wait flag
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextFunc = func() string { return "test-context" }
+		mockConfigHandler.IsLoadedFunc = func() bool { return true }
+		mockConfigHandler.LoadConfigFunc = func() error { return nil }
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) { return tmpDir + "/contexts/test-context", nil }
+
+		mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
+		mockBlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
+			return &blueprintv1alpha1.Blueprint{}
+		}
+
+		mockKubernetesManager := kubernetes.NewMockKubernetesManager()
+		mockKubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
+		mockKubernetesManager.WaitForKustomizationsFunc = func(message string, blueprint *blueprintv1alpha1.Blueprint) error { return nil }
+
+		// Override ConfigHandler and ProjectRoot in runtime
+		mocks.Runtime.ConfigHandler = mockConfigHandler
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		comp := composer.NewComposer(mocks.Runtime)
+		comp.BlueprintHandler = mockBlueprintHandler
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
+			KubernetesManager: mockKubernetesManager,
+		})
+
+		proj, err := project.NewProject("", &project.Project{
+			Runtime:     mocks.Runtime,
+			Composer:    comp,
+			Provisioner: mockProvisioner,
+		})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
+
 		cmd := createTestInstallCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetArgs([]string{"--wait"})
 		cmd.SetContext(ctx)
-		err := cmd.Execute()
+		err = cmd.Execute()
 
-		// Then no error should occur
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
 	})
 
-	t.Run("SuccessWithVerboseContext", func(t *testing.T) {
-		// Given a temporary directory with mocked dependencies
-		mocks := setupInstallTest(t)
+	t.Run("ErrorCheckingTrustedDirectory", func(t *testing.T) {
+		mocks := setupMocks(t)
+		tmpDir := mocks.TmpDir
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
+			return fmt.Errorf("not in trusted directory")
+		}
 
-		// When executing the install command with verbose context
-		cmd := createTestInstallCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		ctx = context.WithValue(ctx, "verbose", true)
-		cmd.SetArgs([]string{})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextFunc = func() string { return "test-context" }
+		mockConfigHandler.IsLoadedFunc = func() bool { return true }
+		mockConfigHandler.LoadConfigFunc = func() error { return nil }
 
-		// Then no error should occur
+		// Override ConfigHandler and ProjectRoot in runtime
+		mocks.Runtime.ConfigHandler = mockConfigHandler
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		comp := composer.NewComposer(mocks.Runtime)
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, nil)
+
+		proj, err := project.NewProject("", &project.Project{
+			Runtime:     mocks.Runtime,
+			Composer:    comp,
+			Provisioner: mockProvisioner,
+		})
 		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
+			t.Fatalf("Failed to create project: %v", err)
+		}
+
+		cmd := createTestInstallCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err = cmd.Execute()
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+			return
+		}
+		if !strings.Contains(err.Error(), "not in a trusted directory") {
+			t.Errorf("Expected trusted directory error, got: %v", err)
 		}
 	})
 
-	t.Run("ReturnsErrorWhenEnvPipelineSetupFails", func(t *testing.T) {
-		// Given a temporary directory with mocked dependencies
-		mocks := setupInstallTest(t)
+	t.Run("ErrorLoadingConfig", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		oldDir, _ := os.Getwd()
+		os.Chdir(tmpDir)
+		t.Cleanup(func() { os.Chdir(oldDir) })
 
-		// Override env pipeline to return error during execution
-		mockEnvPipeline := pipelines.NewMockBasePipeline()
-		mockEnvPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockEnvPipeline.ExecuteFunc = func(ctx context.Context) error {
-			return fmt.Errorf("env pipeline execution failed")
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.LoadConfigFunc = func() error {
+			return fmt.Errorf("config load failed")
 		}
-		mocks.Injector.Register("envPipeline", mockEnvPipeline)
+		mockConfigHandler.GetContextFunc = func() string { return "test-context" }
+		mockConfigHandler.IsLoadedFunc = func() bool { return false }
 
-		// When executing the install command
+		mocks := setupMocks(t, &SetupOptions{
+			ConfigHandler: mockConfigHandler,
+		})
+
+		// Override ConfigHandler and ProjectRoot in runtime
+		mocks.Runtime.ConfigHandler = mockConfigHandler
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		comp := composer.NewComposer(mocks.Runtime)
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, nil)
+
+		proj, err := project.NewProject("", &project.Project{
+			Runtime:     mocks.Runtime,
+			Composer:    comp,
+			Provisioner: mockProvisioner,
+		})
+		if err != nil {
+			t.Fatalf("Failed to create project: %v", err)
+		}
+
 		cmd := createTestInstallCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{})
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
-		err := cmd.Execute()
+		err = cmd.Execute()
 
-		// Then an error should be returned
 		if err == nil {
-			t.Fatal("Expected error, got nil")
+			t.Error("Expected error, got nil")
+			return
 		}
-		if !strings.Contains(err.Error(), "failed to set up environment") {
-			t.Errorf("Expected env pipeline setup error, got %q", err.Error())
-		}
-	})
-
-	t.Run("ReturnsErrorWhenInstallPipelineSetupFails", func(t *testing.T) {
-		// Given a temporary directory with mocked dependencies
-		mocks := setupInstallTest(t)
-
-		// Override install pipeline to return error during execution
-		mockInstallPipeline := pipelines.NewMockBasePipeline()
-		mockInstallPipeline.InitializeFunc = func(injector di.Injector, ctx context.Context) error { return nil }
-		mockInstallPipeline.ExecuteFunc = func(ctx context.Context) error {
-			return fmt.Errorf("install pipeline execution failed")
-		}
-		mocks.Injector.Register("installPipeline", mockInstallPipeline)
-
-		// When executing the install command
-		cmd := createTestInstallCmd()
-		ctx := context.WithValue(context.Background(), injectorKey, mocks.Injector)
-		cmd.SetArgs([]string{})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "Error executing install pipeline") {
-			t.Errorf("Expected install pipeline execution error, got %q", err.Error())
+		if !strings.Contains(err.Error(), "failed to load config") {
+			t.Errorf("Expected config load error, got: %v", err)
 		}
 	})
 }

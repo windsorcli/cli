@@ -1,0 +1,58 @@
+package cmd
+
+import (
+	"fmt"
+
+	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/runtime"
+)
+
+var buildIdNewFlag bool
+
+var buildIdCmd = &cobra.Command{
+	Use:   "build-id",
+	Short: "Manage build IDs for artifact tagging",
+	Long: `Manage build IDs for artifact tagging in local development environments.
+
+The build-id command provides functionality to retrieve and generate new build IDs
+that are used for tagging Docker images and other artifacts during development.
+Build IDs are stored persistently in the .windsor/.build-id file and are available
+as the BUILD_ID environment variable and postBuild variable in Kustomizations.
+
+Examples:
+  windsor build-id                    # Output current build ID
+  windsor build-id --new              # Generate and output new build ID
+  BUILD_ID=$(windsor build-id --new) && docker build -t myapp:$BUILD_ID .`,
+	SilenceUsage: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		var rtOpts []*runtime.Runtime
+		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
+			if rt, ok := overridesVal.(*runtime.Runtime); ok {
+				rtOpts = []*runtime.Runtime{rt}
+			}
+		}
+
+		rt, err := runtime.NewRuntime(rtOpts...)
+		if err != nil {
+			return fmt.Errorf("failed to initialize context: %w", err)
+		}
+
+		var buildID string
+		if buildIdNewFlag {
+			buildID, err = rt.GenerateBuildID()
+		} else {
+			buildID, err = rt.GetBuildID()
+		}
+		if err != nil {
+			return fmt.Errorf("failed to manage build ID: %w", err)
+		}
+
+		fmt.Printf("%s\n", buildID)
+		return nil
+	},
+}
+
+func init() {
+	buildIdCmd.Flags().BoolVar(&buildIdNewFlag, "new", false, "Generate a new build ID")
+	rootCmd.AddCommand(buildIdCmd)
+}
