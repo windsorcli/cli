@@ -1723,8 +1723,10 @@ func (b *BaseBlueprintHandler) deepMergeMaps(base, overlay map[string]any) map[s
 // setRepositoryDefaults sets or overrides the blueprint repository URL based on development mode and git configuration.
 // If development mode is enabled, the development URL is always used. Otherwise, the git remote origin URL is used if the URL is unset.
 // If a URL is set and the repository reference is empty, the branch is set to "main".
+// In dev mode, the secretName is set to "flux-system" if not already set.
 func (b *BaseBlueprintHandler) setRepositoryDefaults() error {
 	devMode := b.runtime.ConfigHandler.GetBool("dev")
+
 	if devMode {
 		url := b.getDevelopmentRepositoryURL()
 		if url != "" {
@@ -1739,6 +1741,10 @@ func (b *BaseBlueprintHandler) setRepositoryDefaults() error {
 	}
 	if b.blueprint.Repository.Url != "" && b.blueprint.Repository.Ref == (blueprintv1alpha1.Reference{}) {
 		b.blueprint.Repository.Ref = blueprintv1alpha1.Reference{Branch: "main"}
+	}
+	if devMode && b.blueprint.Repository.Url != "" && b.blueprint.Repository.SecretName == nil {
+		secretName := "flux-system"
+		b.blueprint.Repository.SecretName = &secretName
 	}
 	return nil
 }

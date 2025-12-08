@@ -4178,6 +4178,143 @@ func TestBaseBlueprintHandler_setRepositoryDefaults(t *testing.T) {
 		}
 	})
 
+	t.Run("SetsSecretNameToFluxSystemInDevModeWhenURLSet", func(t *testing.T) {
+		handler := setup(t)
+		handler.blueprint.Repository.Url = "http://git.test/git/tmp"
+
+		mockConfigHandler := handler.runtime.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "dev" {
+				return true
+			}
+			return false
+		}
+
+		err := handler.setRepositoryDefaults()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if handler.blueprint.Repository.SecretName == nil {
+			t.Error("Expected secretName to be set to 'flux-system', got nil")
+		} else if *handler.blueprint.Repository.SecretName != "flux-system" {
+			t.Errorf("Expected secretName to be 'flux-system', got '%s'", *handler.blueprint.Repository.SecretName)
+		}
+	})
+
+	t.Run("DoesNotSetSecretNameWhenDevModeIsFalse", func(t *testing.T) {
+		handler := setup(t)
+		handler.blueprint.Repository.Url = "https://github.com/user/repo"
+
+		mockConfigHandler := handler.runtime.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+
+		err := handler.setRepositoryDefaults()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if handler.blueprint.Repository.SecretName != nil {
+			t.Errorf("Expected secretName to be nil when dev mode is false, got '%s'", *handler.blueprint.Repository.SecretName)
+		}
+	})
+
+	t.Run("PreservesExistingSecretNameInDevMode", func(t *testing.T) {
+		handler := setup(t)
+		handler.blueprint.Repository.Url = "http://git.test/git/tmp"
+		existingSecretName := "custom-secret"
+		handler.blueprint.Repository.SecretName = &existingSecretName
+
+		mockConfigHandler := handler.runtime.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "dev" {
+				return true
+			}
+			return false
+		}
+
+		err := handler.setRepositoryDefaults()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if handler.blueprint.Repository.SecretName == nil {
+			t.Error("Expected secretName to be preserved, got nil")
+		} else if *handler.blueprint.Repository.SecretName != "custom-secret" {
+			t.Errorf("Expected secretName to remain 'custom-secret', got '%s'", *handler.blueprint.Repository.SecretName)
+		}
+	})
+
+	t.Run("DoesNotSetSecretNameWhenURLIsEmptyEvenInDevMode", func(t *testing.T) {
+		handler := setup(t)
+		handler.blueprint.Repository.Url = ""
+
+		mockConfigHandler := handler.runtime.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "dev" {
+				return true
+			}
+			return false
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+
+		mockShell := handler.runtime.Shell.(*shell.MockShell)
+		mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			return "", fmt.Errorf("not a git repository")
+		}
+
+		err := handler.setRepositoryDefaults()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if handler.blueprint.Repository.SecretName != nil {
+			t.Errorf("Expected secretName to be nil when URL is empty, got '%s'", *handler.blueprint.Repository.SecretName)
+		}
+	})
+
+	t.Run("SetsSecretNameToFluxSystemWhenDevModeSetsURL", func(t *testing.T) {
+		handler := setup(t)
+
+		mockConfigHandler := handler.runtime.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "dev" {
+				return true
+			}
+			return false
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.domain" {
+				return "test"
+			}
+			return ""
+		}
+
+		handler.runtime.ProjectRoot = "/path/to/project"
+		handler.shims.FilepathBase = func(path string) string {
+			return "project"
+		}
+
+		err := handler.setRepositoryDefaults()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		expectedURL := "http://git.test/git/project"
+		if handler.blueprint.Repository.Url != expectedURL {
+			t.Errorf("Expected URL to be %s, got %s", expectedURL, handler.blueprint.Repository.Url)
+		}
+		if handler.blueprint.Repository.SecretName == nil {
+			t.Error("Expected secretName to be set to 'flux-system', got nil")
+		} else if *handler.blueprint.Repository.SecretName != "flux-system" {
+			t.Errorf("Expected secretName to be 'flux-system', got '%s'", *handler.blueprint.Repository.SecretName)
+		}
+	})
+
 }
 
 func TestBaseBlueprintHandler_normalizeGitURL(t *testing.T) {
