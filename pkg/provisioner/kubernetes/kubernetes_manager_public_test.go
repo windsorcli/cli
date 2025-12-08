@@ -2867,7 +2867,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			if deletedResources[name] {
 				return nil, fmt.Errorf("the server could not find the requested resource")
 			}
-			if name == "test-kustomization-cleanup-0" {
+			if name == "test-kustomization-cleanup" {
 				return &unstructured.Unstructured{
 					Object: map[string]any{
 						"status": map[string]any{
@@ -2915,8 +2915,8 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		if len(applyCalls) != 1 {
 			t.Errorf("Expected 1 apply call for cleanup kustomization, got %d", len(applyCalls))
 		}
-		if applyCalls[0] != "test-kustomization-cleanup-0" {
-			t.Errorf("Expected apply call for 'test-kustomization-cleanup-0', got %s", applyCalls[0])
+		if applyCalls[0] != "test-kustomization-cleanup" {
+			t.Errorf("Expected apply call for 'test-kustomization-cleanup', got %s", applyCalls[0])
 		}
 	})
 
@@ -2936,7 +2936,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			if deletedResources[name] {
 				return nil, fmt.Errorf("the server could not find the requested resource")
 			}
-			if name == "test-kustomization-cleanup-0" || name == "test-kustomization-cleanup-1" {
+			if name == "test-kustomization-cleanup" {
 				return &unstructured.Unstructured{
 					Object: map[string]any{
 						"status": map[string]any{
@@ -2999,7 +2999,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			if deletedResources[name] {
 				return nil, fmt.Errorf("the server could not find the requested resource")
 			}
-			if name == "test-kustomization-cleanup-0" {
+			if name == "test-kustomization-cleanup" {
 				return &unstructured.Unstructured{
 					Object: map[string]any{
 						"status": map[string]any{
@@ -3069,7 +3069,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			if deletedResources[name] {
 				return nil, fmt.Errorf("the server could not find the requested resource")
 			}
-			if name == "test-kustomization-cleanup-0" {
+			if name == "test-kustomization-cleanup" {
 				return &unstructured.Unstructured{
 					Object: map[string]any{
 						"status": map[string]any{
@@ -3205,7 +3205,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			if deletedResources[name] {
 				return nil, fmt.Errorf("the server could not find the requested resource")
 			}
-			if name == "test-kustomization-cleanup-0" {
+			if name == "test-kustomization-cleanup" {
 				return &unstructured.Unstructured{
 					Object: map[string]any{
 						"status": map[string]any{
