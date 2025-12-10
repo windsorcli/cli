@@ -546,15 +546,15 @@ func (e *TerraformEnvPrinter) generateProvidersOverrideTf(directory ...string) e
 	}
 
 	azureClientSecret := e.shims.Getenv("AZURE_CLIENT_SECRET")
+	azureFederatedTokenFile := e.shims.Getenv("AZURE_FEDERATED_TOKEN_FILE")
 
-	if azureClientSecret == "" {
-		providersOverridePath := filepath.Join(currentPath, "providers_override.tf")
-		if _, err := e.shims.Stat(providersOverridePath); err == nil {
-			if err := e.shims.Remove(providersOverridePath); err != nil {
-				return fmt.Errorf("error removing providers_override.tf: %w", err)
-			}
-		}
-		return nil
+	var loginMode string
+	if azureFederatedTokenFile != "" {
+		loginMode = "workloadidentity"
+	} else if azureClientSecret != "" {
+		loginMode = "spn"
+	} else {
+		loginMode = "azurecli"
 	}
 
 	providerConfig := fmt.Sprintf(`provider "kubernetes" {
@@ -563,13 +563,13 @@ func (e *TerraformEnvPrinter) generateProvidersOverrideTf(directory ...string) e
     command     = "kubelogin"
     args = [
       "get-token",
-      "--login", "spn",
+      "--login", "%s",
       "--environment", "%s",
       "--server-id", "%s",
     ]
   }
 }
-`, azureEnv, constants.DefaultAKSOIDCServerID)
+`, loginMode, azureEnv, constants.DefaultAKSOIDCServerID)
 
 	providersOverridePath := filepath.Join(currentPath, "providers_override.tf")
 
