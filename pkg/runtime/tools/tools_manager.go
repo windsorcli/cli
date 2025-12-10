@@ -258,16 +258,25 @@ func (t *BaseToolsManager) checkKubelogin() error {
 		return fmt.Errorf("kubelogin version %s is below the minimum required version %s", version, constants.MinimumVersionKubelogin)
 	}
 
-	azureClientSecret := os.Getenv("AZURE_CLIENT_SECRET")
-	if azureClientSecret != "" {
-		azureClientID := os.Getenv("AZURE_CLIENT_ID")
-		azureTenantID := os.Getenv("AZURE_TENANT_ID")
+	validationRules := []struct {
+		triggerVar string
+		authMethod string
+	}{
+		{"AZURE_FEDERATED_TOKEN_FILE", "Workload Identity"},
+		{"AZURE_CLIENT_SECRET", "SPN"},
+	}
 
-		if azureClientID == "" {
-			return fmt.Errorf("AZURE_CLIENT_SECRET is set but AZURE_CLIENT_ID is missing - both are required for SPN authentication")
-		}
-		if azureTenantID == "" {
-			return fmt.Errorf("AZURE_CLIENT_SECRET is set but AZURE_TENANT_ID is missing - both are required for SPN authentication")
+	for _, rule := range validationRules {
+		if os.Getenv(rule.triggerVar) != "" {
+			azureClientID := os.Getenv("AZURE_CLIENT_ID")
+			azureTenantID := os.Getenv("AZURE_TENANT_ID")
+
+			if azureClientID == "" {
+				return fmt.Errorf("%s is set but AZURE_CLIENT_ID is missing - both are required for %s authentication", rule.triggerVar, rule.authMethod)
+			}
+			if azureTenantID == "" {
+				return fmt.Errorf("%s is set but AZURE_TENANT_ID is missing - both are required for %s authentication", rule.triggerVar, rule.authMethod)
+			}
 		}
 	}
 

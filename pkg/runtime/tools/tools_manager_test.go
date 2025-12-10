@@ -983,6 +983,65 @@ func TestToolsManager_checkKubelogin(t *testing.T) {
 		}
 	})
 
+	t.Run("AZURE_FEDERATED_TOKEN_FILESetButAZURE_CLIENT_IDMissing", func(t *testing.T) {
+		// Given AZURE_FEDERATED_TOKEN_FILE is set but AZURE_CLIENT_ID is missing
+		mocks, toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "kubelogin" {
+				return "/usr/bin/kubelogin", nil
+			}
+			return originalExecLookPath(name)
+		}
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+			if name == "kubelogin" && args[0] == "--version" {
+				return fmt.Sprintf("kubelogin version %s", constants.MinimumVersionKubelogin), nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+		os.Setenv("AZURE_FEDERATED_TOKEN_FILE", "/path/to/token")
+		defer os.Unsetenv("AZURE_FEDERATED_TOKEN_FILE")
+		os.Unsetenv("AZURE_CLIENT_ID")
+		os.Unsetenv("AZURE_TENANT_ID")
+		// When checking kubelogin
+		err := toolsManager.checkKubelogin()
+		// Then an error indicating AZURE_CLIENT_ID is missing should be returned
+		if err == nil || !strings.Contains(err.Error(), "AZURE_FEDERATED_TOKEN_FILE is set but AZURE_CLIENT_ID is missing") {
+			t.Errorf("Expected AZURE_CLIENT_ID missing error, got %v", err)
+		}
+	})
+
+	t.Run("AZURE_FEDERATED_TOKEN_FILESetButAZURE_TENANT_IDMissing", func(t *testing.T) {
+		// Given AZURE_FEDERATED_TOKEN_FILE is set but AZURE_TENANT_ID is missing
+		mocks, toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "kubelogin" {
+				return "/usr/bin/kubelogin", nil
+			}
+			return originalExecLookPath(name)
+		}
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+			if name == "kubelogin" && args[0] == "--version" {
+				return fmt.Sprintf("kubelogin version %s", constants.MinimumVersionKubelogin), nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+		os.Setenv("AZURE_FEDERATED_TOKEN_FILE", "/path/to/token")
+		os.Setenv("AZURE_CLIENT_ID", "test-client-id")
+		defer func() {
+			os.Unsetenv("AZURE_FEDERATED_TOKEN_FILE")
+			os.Unsetenv("AZURE_CLIENT_ID")
+		}()
+		os.Unsetenv("AZURE_TENANT_ID")
+		// When checking kubelogin
+		err := toolsManager.checkKubelogin()
+		// Then an error indicating AZURE_TENANT_ID is missing should be returned
+		if err == nil || !strings.Contains(err.Error(), "AZURE_FEDERATED_TOKEN_FILE is set but AZURE_TENANT_ID is missing") {
+			t.Errorf("Expected AZURE_TENANT_ID missing error, got %v", err)
+		}
+	})
+
 	t.Run("AZURE_CLIENT_SECRETSetButAZURE_CLIENT_IDMissing", func(t *testing.T) {
 		// Given AZURE_CLIENT_SECRET is set but AZURE_CLIENT_ID is missing
 		mocks, toolsManager := setup(t)

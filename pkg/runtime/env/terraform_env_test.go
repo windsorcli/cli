@@ -927,7 +927,100 @@ func TestTerraformEnv_generateProvidersOverrideTf(t *testing.T) {
 		return printer, mocks
 	}
 
-	t.Run("Success", func(t *testing.T) {
+	t.Run("SuccessWithWorkloadIdentity", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with Azure + AKS enabled and AZURE_FEDERATED_TOKEN_FILE set
+		printer, mocks := setup(t)
+		mocks.ConfigHandler.Set("azure.enabled", true)
+		mocks.ConfigHandler.Set("cluster.driver", "aks")
+		mocks.Shims.Getenv = func(key string) string {
+			if key == "AZURE_FEDERATED_TOKEN_FILE" {
+				return "/path/to/token/file"
+			}
+			return ""
+		}
+
+		// Mock WriteFile to capture the output
+		var writtenData []byte
+		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
+			writtenData = data
+			return nil
+		}
+
+		// When generateProvidersOverrideTf is called
+		err := printer.generateProvidersOverrideTf()
+
+		// Then no error should occur and the expected provider config with Workload Identity should be written
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		expectedContent := fmt.Sprintf(`provider "kubernetes" {
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "kubelogin"
+    args = [
+      "get-token",
+      "--login", "workloadidentity",
+      "--environment", "AzurePublicCloud",
+      "--server-id", "%s",
+    ]
+  }
+}
+`, constants.DefaultAKSOIDCServerID)
+		if string(writtenData) != expectedContent {
+			t.Errorf("Expected provider config %q, got %q", expectedContent, string(writtenData))
+		}
+	})
+
+	t.Run("WorkloadIdentityPriorityOverSPN", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with both AZURE_FEDERATED_TOKEN_FILE and AZURE_CLIENT_SECRET set
+		printer, mocks := setup(t)
+		mocks.ConfigHandler.Set("azure.enabled", true)
+		mocks.ConfigHandler.Set("cluster.driver", "aks")
+		mocks.Shims.Getenv = func(key string) string {
+			if key == "AZURE_FEDERATED_TOKEN_FILE" {
+				return "/path/to/token/file"
+			}
+			if key == "AZURE_CLIENT_SECRET" {
+				return "test-secret"
+			}
+			return ""
+		}
+
+		// Mock WriteFile to capture the output
+		var writtenData []byte
+		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
+			writtenData = data
+			return nil
+		}
+
+		// When generateProvidersOverrideTf is called
+		err := printer.generateProvidersOverrideTf()
+
+		// Then no error should occur and Workload Identity should be used (higher priority)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		expectedContent := fmt.Sprintf(`provider "kubernetes" {
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "kubelogin"
+    args = [
+      "get-token",
+      "--login", "workloadidentity",
+      "--environment", "AzurePublicCloud",
+      "--server-id", "%s",
+    ]
+  }
+}
+`, constants.DefaultAKSOIDCServerID)
+		if string(writtenData) != expectedContent {
+			t.Errorf("Expected provider config %q, got %q", expectedContent, string(writtenData))
+		}
+	})
+
+	t.Run("SuccessWithSPN", func(t *testing.T) {
 		// Given a TerraformEnvPrinter with Azure + AKS enabled and AZURE_CLIENT_SECRET set
 		printer, mocks := setup(t)
 		mocks.ConfigHandler.Set("azure.enabled", true)
@@ -949,7 +1042,7 @@ func TestTerraformEnv_generateProvidersOverrideTf(t *testing.T) {
 		// When generateProvidersOverrideTf is called
 		err := printer.generateProvidersOverrideTf()
 
-		// Then no error should occur and the expected provider config should be written
+		// Then no error should occur and the expected provider config with SPN should be written
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -961,6 +1054,48 @@ func TestTerraformEnv_generateProvidersOverrideTf(t *testing.T) {
     args = [
       "get-token",
       "--login", "spn",
+      "--environment", "AzurePublicCloud",
+      "--server-id", "%s",
+    ]
+  }
+}
+`, constants.DefaultAKSOIDCServerID)
+		if string(writtenData) != expectedContent {
+			t.Errorf("Expected provider config %q, got %q", expectedContent, string(writtenData))
+		}
+	})
+
+	t.Run("SuccessWithAzureCLI", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with Azure + AKS enabled but no AZURE_CLIENT_SECRET (fallback to Azure CLI)
+		printer, mocks := setup(t)
+		mocks.ConfigHandler.Set("azure.enabled", true)
+		mocks.ConfigHandler.Set("cluster.driver", "aks")
+		mocks.Shims.Getenv = func(key string) string {
+			return ""
+		}
+
+		// Mock WriteFile to capture the output
+		var writtenData []byte
+		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
+			writtenData = data
+			return nil
+		}
+
+		// When generateProvidersOverrideTf is called
+		err := printer.generateProvidersOverrideTf()
+
+		// Then no error should occur and the expected provider config with azurecli should be written
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		expectedContent := fmt.Sprintf(`provider "kubernetes" {
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "kubelogin"
+    args = [
+      "get-token",
+      "--login", "azurecli",
       "--environment", "AzurePublicCloud",
       "--server-id", "%s",
     ]
@@ -1095,37 +1230,36 @@ func TestTerraformEnv_generateProvidersOverrideTf(t *testing.T) {
 			return ""
 		}
 
-		// Mock Stat and Remove to verify file deletion
-		fileExists := true
-		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if strings.Contains(name, "providers_override.tf") {
-				if fileExists {
-					return nil, nil
-				}
-				return nil, os.ErrNotExist
-			}
-			return nil, os.ErrNotExist
-		}
-
-		var fileRemoved bool
-		mocks.Shims.Remove = func(name string) error {
-			if strings.Contains(name, "providers_override.tf") {
-				fileRemoved = true
-				fileExists = false
-				return nil
-			}
+		// Mock WriteFile to capture the output
+		var writtenData []byte
+		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
+			writtenData = data
 			return nil
 		}
 
 		// When generateProvidersOverrideTf is called
 		err := printer.generateProvidersOverrideTf()
 
-		// Then no error should occur and the file should be removed
+		// Then no error should occur and the expected provider config with azurecli should be written
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		if !fileRemoved {
-			t.Error("Expected providers_override.tf to be removed")
+
+		expectedContent := fmt.Sprintf(`provider "kubernetes" {
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "kubelogin"
+    args = [
+      "get-token",
+      "--login", "azurecli",
+      "--environment", "AzurePublicCloud",
+      "--server-id", "%s",
+    ]
+  }
+}
+`, constants.DefaultAKSOIDCServerID)
+		if string(writtenData) != expectedContent {
+			t.Errorf("Expected provider config %q, got %q", expectedContent, string(writtenData))
 		}
 	})
 
