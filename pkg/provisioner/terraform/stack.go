@@ -247,6 +247,10 @@ func (s *TerraformStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 		if err := s.shims.Remove(filepath.Join(component.FullPath, "backend_override.tf")); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("error removing backend_override.tf from %s: %w", component.Path, err)
 		}
+
+		if err := s.shims.Remove(filepath.Join(component.FullPath, "providers_override.tf")); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("error removing providers_override.tf from %s: %w", component.Path, err)
+		}
 	}
 
 	return nil

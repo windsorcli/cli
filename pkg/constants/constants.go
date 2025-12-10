@@ -112,6 +112,16 @@ const MinimumVersion1Password = "2.15.0"
 
 const MinimumVersionAWSCLI = "2.15.0"
 
+const MinimumVersionKubelogin = "0.1.7"
+
+// DefaultAKSOIDCServerID is the standard Azure AKS OIDC server ID (application ID of the
+// Microsoft-managed enterprise application "Azure Kubernetes Service AAD Server").
+// This is the same for all AKS clusters with AKS-managed Azure AD enabled.
+const DefaultAKSOIDCServerID = "6dae42f8-4368-4678-94ff-3960e28e3630"
+
+// DefaultAKSOIDCClientID is the standard Azure AKS OIDC client ID used for all AKS clusters.
+const DefaultAKSOIDCClientID = "80faf920-1908-4b52-b5ef-a8e7bedfc67a"
+
 const DefaultNodeHealthCheckTimeout = 5 * time.Minute
 
 const DefaultNodeHealthCheckPollInterval = 10 * time.Second

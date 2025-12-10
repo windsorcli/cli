@@ -10,6 +10,9 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	v1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/api/v1alpha1/azure"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
@@ -911,6 +914,385 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 }`
 		if string(writtenData) != expectedContent {
 			t.Errorf("Expected backend config %q, got %q", expectedContent, string(writtenData))
+		}
+	})
+}
+
+func TestTerraformEnv_generateProvidersOverrideTf(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
+		t.Helper()
+		mocks := setupTerraformEnvMocks(t)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.shims = mocks.Shims
+		return printer, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with Azure + AKS enabled and AZURE_CLIENT_SECRET set
+		printer, mocks := setup(t)
+		mocks.ConfigHandler.Set("azure.enabled", true)
+		mocks.ConfigHandler.Set("cluster.driver", "aks")
+		mocks.Shims.Getenv = func(key string) string {
+			if key == "AZURE_CLIENT_SECRET" {
+				return "test-secret"
+			}
+			return ""
+		}
+
+		// Mock WriteFile to capture the output
+		var writtenData []byte
+		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
+			writtenData = data
+			return nil
+		}
+
+		// When generateProvidersOverrideTf is called
+		err := printer.generateProvidersOverrideTf()
+
+		// Then no error should occur and the expected provider config should be written
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		expectedContent := fmt.Sprintf(`provider "kubernetes" {
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "kubelogin"
+    args = [
+      "get-token",
+      "--login", "spn",
+      "--environment", "AzurePublicCloud",
+      "--server-id", "%s",
+    ]
+  }
+}
+`, constants.DefaultAKSOIDCServerID)
+		if string(writtenData) != expectedContent {
+			t.Errorf("Expected provider config %q, got %q", expectedContent, string(writtenData))
+		}
+	})
+
+	t.Run("AzureNotEnabled", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with Azure disabled
+		printer, mocks := setup(t)
+		mocks.ConfigHandler.Set("azure.enabled", false)
+		mocks.ConfigHandler.Set("cluster.driver", "aks")
+
+		// Mock Stat and Remove to verify file deletion
+		fileExists := true
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "providers_override.tf") {
+				if fileExists {
+					return nil, nil
+				}
+				return nil, os.ErrNotExist
+			}
+			return nil, os.ErrNotExist
+		}
+
+		var fileRemoved bool
+		mocks.Shims.Remove = func(name string) error {
+			if strings.Contains(name, "providers_override.tf") {
+				fileRemoved = true
+				fileExists = false
+				return nil
+			}
+			return nil
+		}
+
+		// When generateProvidersOverrideTf is called
+		err := printer.generateProvidersOverrideTf()
+
+		// Then no error should occur and the file should be removed
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !fileRemoved {
+			t.Error("Expected providers_override.tf to be removed")
+		}
+	})
+
+	t.Run("NotAKS", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with Azure enabled but not AKS
+		printer, mocks := setup(t)
+		mocks.ConfigHandler.Set("azure.enabled", true)
+		mocks.ConfigHandler.Set("cluster.driver", "eks")
+
+		// Mock Stat and Remove to verify file deletion
+		fileExists := true
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "providers_override.tf") {
+				if fileExists {
+					return nil, nil
+				}
+				return nil, os.ErrNotExist
+			}
+			return nil, os.ErrNotExist
+		}
+
+		var fileRemoved bool
+		mocks.Shims.Remove = func(name string) error {
+			if strings.Contains(name, "providers_override.tf") {
+				fileRemoved = true
+				fileExists = false
+				return nil
+			}
+			return nil
+		}
+
+		// When generateProvidersOverrideTf is called
+		err := printer.generateProvidersOverrideTf()
+
+		// Then no error should occur and the file should be removed
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !fileRemoved {
+			t.Error("Expected providers_override.tf to be removed")
+		}
+	})
+
+	t.Run("NoAzureConfig", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with Azure enabled but no Azure config
+		printer, mocks := setup(t)
+		mocks.ConfigHandler.Set("azure.enabled", true)
+		mocks.ConfigHandler.Set("cluster.driver", "aks")
+
+		// Mock GetConfig to return nil
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return nil
+		}
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "azure.enabled" {
+				return true
+			}
+			return false
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.driver" {
+				return "aks"
+			}
+			return ""
+		}
+		printer.configHandler = mockConfigHandler
+
+		// When generateProvidersOverrideTf is called
+		err := printer.generateProvidersOverrideTf()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("AZURE_CLIENT_SECRETNotSet", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with Azure + AKS enabled but no AZURE_CLIENT_SECRET
+		printer, mocks := setup(t)
+		mocks.ConfigHandler.Set("azure.enabled", true)
+		mocks.ConfigHandler.Set("cluster.driver", "aks")
+		mocks.Shims.Getenv = func(key string) string {
+			return ""
+		}
+
+		// Mock Stat and Remove to verify file deletion
+		fileExists := true
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "providers_override.tf") {
+				if fileExists {
+					return nil, nil
+				}
+				return nil, os.ErrNotExist
+			}
+			return nil, os.ErrNotExist
+		}
+
+		var fileRemoved bool
+		mocks.Shims.Remove = func(name string) error {
+			if strings.Contains(name, "providers_override.tf") {
+				fileRemoved = true
+				fileExists = false
+				return nil
+			}
+			return nil
+		}
+
+		// When generateProvidersOverrideTf is called
+		err := printer.generateProvidersOverrideTf()
+
+		// Then no error should occur and the file should be removed
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !fileRemoved {
+			t.Error("Expected providers_override.tf to be removed")
+		}
+	})
+
+	t.Run("CustomAzureEnvironment", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with custom Azure environment
+		printer, mocks := setup(t)
+		mocks.ConfigHandler.Set("azure.enabled", true)
+		mocks.ConfigHandler.Set("cluster.driver", "aks")
+		mocks.Shims.Getenv = func(key string) string {
+			if key == "AZURE_CLIENT_SECRET" {
+				return "test-secret"
+			}
+			return ""
+		}
+
+		// Mock config with custom environment
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "azure.enabled" {
+				return true
+			}
+			return false
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.driver" {
+				return "aks"
+			}
+			return ""
+		}
+		azureEnv := "AzureUSGovernment"
+		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
+				Azure: &azure.AzureConfig{
+					Environment: &azureEnv,
+				},
+			}
+		}
+		printer.configHandler = mockConfigHandler
+
+		// Mock WriteFile to capture the output
+		var writtenData []byte
+		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
+			writtenData = data
+			return nil
+		}
+
+		// When generateProvidersOverrideTf is called
+		err := printer.generateProvidersOverrideTf()
+
+		// Then no error should occur and the expected provider config should be written with custom environment
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		expectedContent := fmt.Sprintf(`provider "kubernetes" {
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "kubelogin"
+    args = [
+      "get-token",
+      "--login", "spn",
+      "--environment", "AzureUSGovernment",
+      "--server-id", "%s",
+    ]
+  }
+}
+`, constants.DefaultAKSOIDCServerID)
+		if string(writtenData) != expectedContent {
+			t.Errorf("Expected provider config %q, got %q", expectedContent, string(writtenData))
+		}
+	})
+
+	t.Run("NoProjectPath", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with no Terraform project path
+		printer, mocks := setup(t)
+		mocks.Shims.Glob = func(pattern string) ([]string, error) {
+			return nil, nil
+		}
+
+		// When generateProvidersOverrideTf is called
+		err := printer.generateProvidersOverrideTf()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorGettingCurrentDirectory", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with failing Getwd
+		printer, mocks := setup(t)
+		mocks.Shims.Getwd = func() (string, error) {
+			return "", fmt.Errorf("mock error getting current directory")
+		}
+
+		// When generateProvidersOverrideTf is called
+		err := printer.generateProvidersOverrideTf()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Errorf("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error getting current directory") {
+			t.Errorf("Expected error message to contain 'error getting current directory', got %v", err)
+		}
+	})
+
+	t.Run("ErrorWritingFile", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with Azure + AKS enabled and AZURE_CLIENT_SECRET set
+		printer, mocks := setup(t)
+		mocks.ConfigHandler.Set("azure.enabled", true)
+		mocks.ConfigHandler.Set("cluster.driver", "aks")
+		mocks.Shims.Getenv = func(key string) string {
+			if key == "AZURE_CLIENT_SECRET" {
+				return "test-secret"
+			}
+			return ""
+		}
+
+		// Mock WriteFile to return error
+		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
+			return fmt.Errorf("mock error writing file")
+		}
+
+		// When generateProvidersOverrideTf is called
+		err := printer.generateProvidersOverrideTf()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Errorf("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error writing providers_override.tf") {
+			t.Errorf("Expected error message to contain 'error writing providers_override.tf', got %v", err)
+		}
+	})
+
+	t.Run("ErrorRemovingFile", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with Azure not enabled and existing file
+		printer, mocks := setup(t)
+		mocks.ConfigHandler.Set("azure.enabled", false)
+		mocks.ConfigHandler.Set("cluster.driver", "aks")
+
+		// Mock Stat to return file exists
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "providers_override.tf") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock Remove to return error
+		mocks.Shims.Remove = func(name string) error {
+			if strings.Contains(name, "providers_override.tf") {
+				return fmt.Errorf("mock error removing file")
+			}
+			return nil
+		}
+
+		// When generateProvidersOverrideTf is called
+		err := printer.generateProvidersOverrideTf()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Errorf("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error removing providers_override.tf") {
+			t.Errorf("Expected error message to contain 'error removing providers_override.tf', got %v", err)
 		}
 	})
 }
