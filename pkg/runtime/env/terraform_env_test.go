@@ -927,8 +927,7 @@ func TestTerraformEnv_generateProvidersOverrideTf(t *testing.T) {
 		return printer, mocks
 	}
 
-	t.Run("SuccessWithWorkloadIdentity", func(t *testing.T) {
-		// Given a TerraformEnvPrinter with Azure + AKS enabled and AZURE_FEDERATED_TOKEN_FILE set
+	t.Run("SuccessWithKubernetesPodWorkloadIdentity", func(t *testing.T) {
 		printer, mocks := setup(t)
 		mocks.ConfigHandler.Set("azure.enabled", true)
 		mocks.ConfigHandler.Set("cluster.driver", "aks")
@@ -938,18 +937,21 @@ func TestTerraformEnv_generateProvidersOverrideTf(t *testing.T) {
 			}
 			return ""
 		}
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == "/path/to/token/file" {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
 
-		// Mock WriteFile to capture the output
 		var writtenData []byte
 		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
 			writtenData = data
 			return nil
 		}
 
-		// When generateProvidersOverrideTf is called
 		err := printer.generateProvidersOverrideTf()
 
-		// Then no error should occur and the expected provider config with Workload Identity should be written
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -972,32 +974,28 @@ func TestTerraformEnv_generateProvidersOverrideTf(t *testing.T) {
 		}
 	})
 
-	t.Run("WorkloadIdentityPriorityOverSPN", func(t *testing.T) {
-		// Given a TerraformEnvPrinter with both AZURE_FEDERATED_TOKEN_FILE and AZURE_CLIENT_SECRET set
+	t.Run("SuccessWithGitHubActionsWorkloadIdentity", func(t *testing.T) {
 		printer, mocks := setup(t)
 		mocks.ConfigHandler.Set("azure.enabled", true)
 		mocks.ConfigHandler.Set("cluster.driver", "aks")
 		mocks.Shims.Getenv = func(key string) string {
-			if key == "AZURE_FEDERATED_TOKEN_FILE" {
-				return "/path/to/token/file"
+			if key == "ACTIONS_ID_TOKEN_REQUEST_TOKEN" {
+				return "test-token"
 			}
-			if key == "AZURE_CLIENT_SECRET" {
-				return "test-secret"
+			if key == "ACTIONS_ID_TOKEN_REQUEST_URL" {
+				return "https://test-url"
 			}
 			return ""
 		}
 
-		// Mock WriteFile to capture the output
 		var writtenData []byte
 		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
 			writtenData = data
 			return nil
 		}
 
-		// When generateProvidersOverrideTf is called
 		err := printer.generateProvidersOverrideTf()
 
-		// Then no error should occur and Workload Identity should be used (higher priority)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -1020,29 +1018,37 @@ func TestTerraformEnv_generateProvidersOverrideTf(t *testing.T) {
 		}
 	})
 
-	t.Run("SuccessWithSPN", func(t *testing.T) {
-		// Given a TerraformEnvPrinter with Azure + AKS enabled and AZURE_CLIENT_SECRET set
+	t.Run("GitHubActionsPriorityOverKubernetesPod", func(t *testing.T) {
 		printer, mocks := setup(t)
 		mocks.ConfigHandler.Set("azure.enabled", true)
 		mocks.ConfigHandler.Set("cluster.driver", "aks")
 		mocks.Shims.Getenv = func(key string) string {
-			if key == "AZURE_CLIENT_SECRET" {
-				return "test-secret"
+			if key == "ACTIONS_ID_TOKEN_REQUEST_TOKEN" {
+				return "test-token"
+			}
+			if key == "ACTIONS_ID_TOKEN_REQUEST_URL" {
+				return "https://test-url"
+			}
+			if key == "AZURE_FEDERATED_TOKEN_FILE" {
+				return "/path/to/token/file"
 			}
 			return ""
 		}
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == "/path/to/token/file" {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
 
-		// Mock WriteFile to capture the output
 		var writtenData []byte
 		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
 			writtenData = data
 			return nil
 		}
 
-		// When generateProvidersOverrideTf is called
 		err := printer.generateProvidersOverrideTf()
 
-		// Then no error should occur and the expected provider config with SPN should be written
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -1053,7 +1059,51 @@ func TestTerraformEnv_generateProvidersOverrideTf(t *testing.T) {
     command     = "kubelogin"
     args = [
       "get-token",
-      "--login", "spn",
+      "--login", "workloadidentity",
+      "--environment", "AzurePublicCloud",
+      "--server-id", "%s",
+    ]
+  }
+}
+`, constants.DefaultAKSOIDCServerID)
+		if string(writtenData) != expectedContent {
+			t.Errorf("Expected provider config %q, got %q", expectedContent, string(writtenData))
+		}
+	})
+
+	t.Run("KubernetesPodTokenFileNotExists", func(t *testing.T) {
+		printer, mocks := setup(t)
+		mocks.ConfigHandler.Set("azure.enabled", true)
+		mocks.ConfigHandler.Set("cluster.driver", "aks")
+		mocks.Shims.Getenv = func(key string) string {
+			if key == "AZURE_FEDERATED_TOKEN_FILE" {
+				return "/path/to/nonexistent/file"
+			}
+			return ""
+		}
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		var writtenData []byte
+		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
+			writtenData = data
+			return nil
+		}
+
+		err := printer.generateProvidersOverrideTf()
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		expectedContent := fmt.Sprintf(`provider "kubernetes" {
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "kubelogin"
+    args = [
+      "get-token",
+      "--login", "azurecli",
       "--environment", "AzurePublicCloud",
       "--server-id", "%s",
     ]
@@ -1264,18 +1314,13 @@ func TestTerraformEnv_generateProvidersOverrideTf(t *testing.T) {
 	})
 
 	t.Run("CustomAzureEnvironment", func(t *testing.T) {
-		// Given a TerraformEnvPrinter with custom Azure environment
 		printer, mocks := setup(t)
 		mocks.ConfigHandler.Set("azure.enabled", true)
 		mocks.ConfigHandler.Set("cluster.driver", "aks")
 		mocks.Shims.Getenv = func(key string) string {
-			if key == "AZURE_CLIENT_SECRET" {
-				return "test-secret"
-			}
 			return ""
 		}
 
-		// Mock config with custom environment
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			if key == "azure.enabled" {
@@ -1299,17 +1344,14 @@ func TestTerraformEnv_generateProvidersOverrideTf(t *testing.T) {
 		}
 		printer.configHandler = mockConfigHandler
 
-		// Mock WriteFile to capture the output
 		var writtenData []byte
 		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
 			writtenData = data
 			return nil
 		}
 
-		// When generateProvidersOverrideTf is called
 		err := printer.generateProvidersOverrideTf()
 
-		// Then no error should occur and the expected provider config should be written with custom environment
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -1320,7 +1362,7 @@ func TestTerraformEnv_generateProvidersOverrideTf(t *testing.T) {
     command     = "kubelogin"
     args = [
       "get-token",
-      "--login", "spn",
+      "--login", "azurecli",
       "--environment", "AzureUSGovernment",
       "--server-id", "%s",
     ]
