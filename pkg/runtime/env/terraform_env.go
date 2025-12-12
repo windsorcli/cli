@@ -15,6 +15,7 @@ import (
 
 	"github.com/goccy/go-yaml"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -106,7 +107,10 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 // PostEnvHook executes operations after setting the environment variables.
 func (e *TerraformEnvPrinter) PostEnvHook(directory ...string) error {
-	return e.generateBackendOverrideTf(directory...)
+	if err := e.generateBackendOverrideTf(directory...); err != nil {
+		return err
+	}
+	return e.generateProvidersOverrideTf(directory...)
 }
 
 // GenerateTerraformArgs constructs Terraform CLI arguments and environment variables for given project and module paths.
@@ -490,6 +494,101 @@ func (e *TerraformEnvPrinter) generateBackendOverrideTf(directory ...string) err
 	}
 
 	return nil
+}
+
+// generateProvidersOverrideTf creates a providers_override.tf file when using Azure + AKS
+// to configure Kubernetes provider authentication via Entra ID using kubelogin with SPN authentication.
+// Detects SPN mode when AZURE_CLIENT_SECRET is set and validates required environment variables.
+// This enables generic Kubernetes modules to work with AKS clusters using Entra AD authentication
+// without requiring provider blocks in the modules themselves.
+func (e *TerraformEnvPrinter) generateProvidersOverrideTf(directory ...string) error {
+	var currentPath string
+	if len(directory) > 0 {
+		currentPath = filepath.Clean(directory[0])
+	} else {
+		var err error
+		currentPath, err = e.shims.Getwd()
+		if err != nil {
+			return fmt.Errorf("error getting current directory: %w", err)
+		}
+	}
+
+	projectPath, err := e.findRelativeTerraformProjectPath(directory...)
+	if err != nil {
+		return fmt.Errorf("error finding project path: %w", err)
+	}
+
+	if projectPath == "" {
+		return nil
+	}
+
+	azureEnabled := e.configHandler.GetBool("azure.enabled", false)
+	clusterDriver := e.configHandler.GetString("cluster.driver", "")
+
+	if !azureEnabled || clusterDriver != "aks" {
+		providersOverridePath := filepath.Join(currentPath, "providers_override.tf")
+		if _, err := e.shims.Stat(providersOverridePath); err == nil {
+			if err := e.shims.Remove(providersOverridePath); err != nil {
+				return fmt.Errorf("error removing providers_override.tf: %w", err)
+			}
+		}
+		return nil
+	}
+
+	config := e.configHandler.GetConfig()
+	if config == nil || config.Azure == nil {
+		return nil
+	}
+
+	azureEnv := "AzurePublicCloud"
+	if config.Azure.Environment != nil {
+		azureEnv = *config.Azure.Environment
+	}
+
+	loginMode := e.detectKubeloginMode()
+
+	providerConfig := fmt.Sprintf(`provider "kubernetes" {
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "kubelogin"
+    args = [
+      "get-token",
+      "--login", "%s",
+      "--environment", "%s",
+      "--server-id", "%s",
+    ]
+  }
+}
+`, loginMode, azureEnv, constants.DefaultAKSOIDCServerID)
+
+	providersOverridePath := filepath.Join(currentPath, "providers_override.tf")
+
+	err = e.shims.WriteFile(providersOverridePath, []byte(providerConfig), os.ModePerm)
+	if err != nil {
+		return fmt.Errorf("error writing providers_override.tf: %w", err)
+	}
+
+	return nil
+}
+
+// detectKubeloginMode determines which kubelogin authentication mode to use based on
+// environment variables. Priority order: GitHub Actions OIDC, Kubernetes pod workload
+// identity, and fallback to Azure CLI for local development.
+func (e *TerraformEnvPrinter) detectKubeloginMode() string {
+	actionsToken := e.shims.Getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+	actionsURL := e.shims.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL")
+	if actionsToken != "" && actionsURL != "" {
+		return "workloadidentity"
+	}
+
+	federatedTokenFile := e.shims.Getenv("AZURE_FEDERATED_TOKEN_FILE")
+	if federatedTokenFile != "" {
+		if _, err := e.shims.Stat(federatedTokenFile); err == nil {
+			return "workloadidentity"
+		}
+	}
+
+	return "azurecli"
 }
 
 // generateBackendConfigArgs constructs backend config args for terraform commands.

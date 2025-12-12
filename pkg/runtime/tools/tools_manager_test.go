@@ -860,6 +860,280 @@ func TestToolsManager_checkOnePassword(t *testing.T) {
 	})
 }
 
+// Tests for kubelogin version validation
+func TestToolsManager_checkKubelogin(t *testing.T) {
+	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
+		t.Helper()
+		mocks := setupMocks(t)
+		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		return mocks, toolsManager
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given kubelogin is available with correct version
+		mocks, toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "kubelogin" {
+				return "/usr/bin/kubelogin", nil
+			}
+			return originalExecLookPath(name)
+		}
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+			if name == "kubelogin" && args[0] == "--version" {
+				return fmt.Sprintf("kubelogin version %s", constants.MinimumVersionKubelogin), nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+		// When checking kubelogin version
+		err := toolsManager.checkKubelogin()
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected checkKubelogin to succeed, but got error: %v", err)
+		}
+	})
+
+	t.Run("KubeloginNotAvailable", func(t *testing.T) {
+		// Given kubelogin is not found in PATH
+		_, toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "kubelogin" {
+				return "", exec.ErrNotFound
+			}
+			return originalExecLookPath(name)
+		}
+		// When checking kubelogin version
+		err := toolsManager.checkKubelogin()
+		// Then an error indicating kubelogin is not available should be returned
+		if err == nil || !strings.Contains(err.Error(), "kubelogin is not available in the PATH") {
+			t.Errorf("Expected kubelogin not available error, got %v", err)
+		}
+	})
+
+	t.Run("KubeloginVersionInvalidResponse", func(t *testing.T) {
+		// Given kubelogin version response is invalid
+		mocks, toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "kubelogin" {
+				return "/usr/bin/kubelogin", nil
+			}
+			return originalExecLookPath(name)
+		}
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+			if name == "kubelogin" && args[0] == "--version" {
+				return "Invalid version response", nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+		// When checking kubelogin version
+		err := toolsManager.checkKubelogin()
+		// Then an error indicating version extraction failed should be returned
+		if err == nil || !strings.Contains(err.Error(), "failed to extract kubelogin version") {
+			t.Errorf("Expected failed to extract kubelogin version error, got %v", err)
+		}
+	})
+
+	t.Run("KubeloginVersionTooLow", func(t *testing.T) {
+		// Given kubelogin version is below minimum required version
+		mocks, toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "kubelogin" {
+				return "/usr/bin/kubelogin", nil
+			}
+			return originalExecLookPath(name)
+		}
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+			if name == "kubelogin" && args[0] == "--version" {
+				return "kubelogin version 0.1.0", nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+		// When checking kubelogin version
+		err := toolsManager.checkKubelogin()
+		// Then an error indicating version is too low should be returned
+		if err == nil || !strings.Contains(err.Error(), "kubelogin version 0.1.0 is below the minimum required version") {
+			t.Errorf("Expected kubelogin version too low error, got %v", err)
+		}
+	})
+
+	t.Run("KubeloginCommandError", func(t *testing.T) {
+		// Given kubelogin command execution fails
+		mocks, toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "kubelogin" {
+				return "/usr/bin/kubelogin", nil
+			}
+			return originalExecLookPath(name)
+		}
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+			if name == "kubelogin" && args[0] == "--version" {
+				return "", fmt.Errorf("kubelogin is not available in the PATH")
+			}
+			return "", fmt.Errorf("command not found")
+		}
+		// When checking kubelogin version
+		err := toolsManager.checkKubelogin()
+		// Then an error indicating kubelogin is not available should be returned
+		if err == nil || !strings.Contains(err.Error(), "kubelogin is not available in the PATH") {
+			t.Errorf("Expected kubelogin is not available in the PATH error, got %v", err)
+		}
+	})
+
+	t.Run("AZURE_FEDERATED_TOKEN_FILESetButAZURE_CLIENT_IDMissing", func(t *testing.T) {
+		// Given AZURE_FEDERATED_TOKEN_FILE is set but AZURE_CLIENT_ID is missing
+		mocks, toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "kubelogin" {
+				return "/usr/bin/kubelogin", nil
+			}
+			return originalExecLookPath(name)
+		}
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+			if name == "kubelogin" && args[0] == "--version" {
+				return fmt.Sprintf("kubelogin version %s", constants.MinimumVersionKubelogin), nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+		os.Setenv("AZURE_FEDERATED_TOKEN_FILE", "/path/to/token")
+		defer os.Unsetenv("AZURE_FEDERATED_TOKEN_FILE")
+		os.Unsetenv("AZURE_CLIENT_ID")
+		os.Unsetenv("AZURE_TENANT_ID")
+		// When checking kubelogin
+		err := toolsManager.checkKubelogin()
+		// Then an error indicating AZURE_CLIENT_ID is missing should be returned
+		if err == nil || !strings.Contains(err.Error(), "AZURE_FEDERATED_TOKEN_FILE is set but AZURE_CLIENT_ID is missing") {
+			t.Errorf("Expected AZURE_CLIENT_ID missing error, got %v", err)
+		}
+	})
+
+	t.Run("AZURE_FEDERATED_TOKEN_FILESetButAZURE_TENANT_IDMissing", func(t *testing.T) {
+		// Given AZURE_FEDERATED_TOKEN_FILE is set but AZURE_TENANT_ID is missing
+		mocks, toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "kubelogin" {
+				return "/usr/bin/kubelogin", nil
+			}
+			return originalExecLookPath(name)
+		}
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+			if name == "kubelogin" && args[0] == "--version" {
+				return fmt.Sprintf("kubelogin version %s", constants.MinimumVersionKubelogin), nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+		os.Setenv("AZURE_FEDERATED_TOKEN_FILE", "/path/to/token")
+		os.Setenv("AZURE_CLIENT_ID", "test-client-id")
+		defer func() {
+			os.Unsetenv("AZURE_FEDERATED_TOKEN_FILE")
+			os.Unsetenv("AZURE_CLIENT_ID")
+		}()
+		os.Unsetenv("AZURE_TENANT_ID")
+		// When checking kubelogin
+		err := toolsManager.checkKubelogin()
+		// Then an error indicating AZURE_TENANT_ID is missing should be returned
+		if err == nil || !strings.Contains(err.Error(), "AZURE_FEDERATED_TOKEN_FILE is set but AZURE_TENANT_ID is missing") {
+			t.Errorf("Expected AZURE_TENANT_ID missing error, got %v", err)
+		}
+	})
+
+	t.Run("AZURE_CLIENT_SECRETSetButAZURE_CLIENT_IDMissing", func(t *testing.T) {
+		// Given AZURE_CLIENT_SECRET is set but AZURE_CLIENT_ID is missing
+		mocks, toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "kubelogin" {
+				return "/usr/bin/kubelogin", nil
+			}
+			return originalExecLookPath(name)
+		}
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+			if name == "kubelogin" && args[0] == "--version" {
+				return fmt.Sprintf("kubelogin version %s", constants.MinimumVersionKubelogin), nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+		os.Setenv("AZURE_CLIENT_SECRET", "test-secret")
+		defer os.Unsetenv("AZURE_CLIENT_SECRET")
+		os.Unsetenv("AZURE_CLIENT_ID")
+		os.Unsetenv("AZURE_TENANT_ID")
+		// When checking kubelogin
+		err := toolsManager.checkKubelogin()
+		// Then an error indicating AZURE_CLIENT_ID is missing should be returned
+		if err == nil || !strings.Contains(err.Error(), "AZURE_CLIENT_SECRET is set but AZURE_CLIENT_ID is missing") {
+			t.Errorf("Expected AZURE_CLIENT_ID missing error, got %v", err)
+		}
+	})
+
+	t.Run("AZURE_CLIENT_SECRETSetButAZURE_TENANT_IDMissing", func(t *testing.T) {
+		// Given AZURE_CLIENT_SECRET is set but AZURE_TENANT_ID is missing
+		mocks, toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "kubelogin" {
+				return "/usr/bin/kubelogin", nil
+			}
+			return originalExecLookPath(name)
+		}
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+			if name == "kubelogin" && args[0] == "--version" {
+				return fmt.Sprintf("kubelogin version %s", constants.MinimumVersionKubelogin), nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+		os.Setenv("AZURE_CLIENT_SECRET", "test-secret")
+		os.Setenv("AZURE_CLIENT_ID", "test-client-id")
+		defer func() {
+			os.Unsetenv("AZURE_CLIENT_SECRET")
+			os.Unsetenv("AZURE_CLIENT_ID")
+		}()
+		os.Unsetenv("AZURE_TENANT_ID")
+		// When checking kubelogin
+		err := toolsManager.checkKubelogin()
+		// Then an error indicating AZURE_TENANT_ID is missing should be returned
+		if err == nil || !strings.Contains(err.Error(), "AZURE_CLIENT_SECRET is set but AZURE_TENANT_ID is missing") {
+			t.Errorf("Expected AZURE_TENANT_ID missing error, got %v", err)
+		}
+	})
+
+	t.Run("AZURE_CLIENT_SECRETSetWithAllRequiredVars", func(t *testing.T) {
+		// Given AZURE_CLIENT_SECRET is set with all required environment variables
+		mocks, toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "kubelogin" {
+				return "/usr/bin/kubelogin", nil
+			}
+			return originalExecLookPath(name)
+		}
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+			if name == "kubelogin" && args[0] == "--version" {
+				return fmt.Sprintf("kubelogin version %s", constants.MinimumVersionKubelogin), nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+		os.Setenv("AZURE_CLIENT_SECRET", "test-secret")
+		os.Setenv("AZURE_CLIENT_ID", "test-client-id")
+		os.Setenv("AZURE_TENANT_ID", "test-tenant-id")
+		defer func() {
+			os.Unsetenv("AZURE_CLIENT_SECRET")
+			os.Unsetenv("AZURE_CLIENT_ID")
+			os.Unsetenv("AZURE_TENANT_ID")
+		}()
+		// When checking kubelogin
+		err := toolsManager.checkKubelogin()
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected checkKubelogin to succeed with all required env vars, but got error: %v", err)
+		}
+	})
+}
+
 // =============================================================================
 // Test Helpers
 // =============================================================================

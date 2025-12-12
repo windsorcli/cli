@@ -444,6 +444,32 @@ func TestStack_Up(t *testing.T) {
 			t.Errorf("Expected remove error, got: %v", err)
 		}
 	})
+
+	t.Run("ErrorRemovingProvidersOverride", func(t *testing.T) {
+		stack, mocks := setup(t)
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		providersOverridePath := filepath.Join(projectRoot, ".windsor", "contexts", "local", "remote", "path", "providers_override.tf")
+		if err := os.MkdirAll(filepath.Dir(providersOverridePath), 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+		if err := os.WriteFile(providersOverridePath, []byte("test"), 0644); err != nil {
+			t.Fatalf("Failed to create providers override file: %v", err)
+		}
+		mocks.Shims.Remove = func(path string) error {
+			if strings.Contains(path, "providers_override.tf") {
+				return fmt.Errorf("remove error")
+			}
+			return nil
+		}
+		blueprint := createTestBlueprint()
+		err := stack.Up(blueprint)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error removing providers override file") {
+			t.Errorf("Expected remove error, got: %v", err)
+		}
+	})
 }
 
 func TestStack_Down(t *testing.T) {
@@ -694,6 +720,32 @@ func TestStack_Down(t *testing.T) {
 			t.Error("Expected error, got nil")
 		}
 		if !strings.Contains(err.Error(), "error removing backend_override.tf") {
+			t.Errorf("Expected remove error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorRemovingProvidersOverride", func(t *testing.T) {
+		stack, mocks := setup(t)
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		providersOverridePath := filepath.Join(projectRoot, ".windsor", "contexts", "local", "remote", "path", "providers_override.tf")
+		if err := os.MkdirAll(filepath.Dir(providersOverridePath), 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+		if err := os.WriteFile(providersOverridePath, []byte("test"), 0644); err != nil {
+			t.Fatalf("Failed to create providers override file: %v", err)
+		}
+		mocks.Shims.Remove = func(path string) error {
+			if strings.Contains(path, "providers_override.tf") {
+				return fmt.Errorf("remove error")
+			}
+			return nil
+		}
+		blueprint := createTestBlueprint()
+		err := stack.Down(blueprint)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error removing providers_override.tf") {
 			t.Errorf("Expected remove error, got: %v", err)
 		}
 	})
