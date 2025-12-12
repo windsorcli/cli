@@ -3816,7 +3816,7 @@ terraform:
 
 		templateData := map[string][]byte{
 			"_template/blueprint.yaml":        baseBlueprint,
-			"_template/features/merge.yaml":  mergeFeature,
+			"_template/features/merge.yaml":   mergeFeature,
 			"_template/features/replace.yaml": replaceFeature,
 			"_template/features/remove.yaml":  removeFeature,
 		}
