@@ -545,17 +545,7 @@ func (e *TerraformEnvPrinter) generateProvidersOverrideTf(directory ...string) e
 		azureEnv = *config.Azure.Environment
 	}
 
-	azureClientSecret := e.shims.Getenv("AZURE_CLIENT_SECRET")
-	azureFederatedTokenFile := e.shims.Getenv("AZURE_FEDERATED_TOKEN_FILE")
-
-	var loginMode string
-	if azureFederatedTokenFile != "" {
-		loginMode = "workloadidentity"
-	} else if azureClientSecret != "" {
-		loginMode = "spn"
-	} else {
-		loginMode = "azurecli"
-	}
+	loginMode := e.detectKubeloginMode()
 
 	providerConfig := fmt.Sprintf(`provider "kubernetes" {
   exec {
@@ -579,6 +569,26 @@ func (e *TerraformEnvPrinter) generateProvidersOverrideTf(directory ...string) e
 	}
 
 	return nil
+}
+
+// detectKubeloginMode determines which kubelogin authentication mode to use based on
+// environment variables. Priority order: GitHub Actions OIDC, Kubernetes pod workload
+// identity, and fallback to Azure CLI for local development.
+func (e *TerraformEnvPrinter) detectKubeloginMode() string {
+	actionsToken := e.shims.Getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+	actionsURL := e.shims.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL")
+	if actionsToken != "" && actionsURL != "" {
+		return "workloadidentity"
+	}
+
+	federatedTokenFile := e.shims.Getenv("AZURE_FEDERATED_TOKEN_FILE")
+	if federatedTokenFile != "" {
+		if _, err := e.shims.Stat(federatedTokenFile); err == nil {
+			return "workloadidentity"
+		}
+	}
+
+	return "azurecli"
 }
 
 // generateBackendConfigArgs constructs backend config args for terraform commands.
