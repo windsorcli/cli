@@ -51,7 +51,7 @@ jobs:
 
       - name: Cache Go Modules (Linux/macOS)
         if: ${{ matrix.os != 'windows-latest' }}
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@a7833574556fa59680c1b7cb190c1735db73ebf0 # v5
         with:
           path: |
             ~/.cache/go-build
@@ -62,7 +62,7 @@ jobs:
 
       - name: Cache Go Modules (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@a7833574556fa59680c1b7cb190c1735db73ebf0 # v5
         with:
           path: |
             D:\\go-cache
@@ -115,7 +115,7 @@ jobs:
         run: aqua install
 
       - name: Cache Go Modules
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@a7833574556fa59680c1b7cb190c1735db73ebf0 # v5
         with:
           path: |
             ~/.cache/go-build
