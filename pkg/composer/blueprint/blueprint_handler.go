@@ -961,18 +961,17 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 		return features[i].Metadata.Name < features[j].Metadata.Name
 	})
 
-	// Initialize featureBlueprint only if needed for accumulation
 	var featureBlueprint *blueprintv1alpha1.Blueprint
 	featureSubstitutionsByKustomization := make(map[string]map[string]string)
 
-	// Determine the target blueprint for feature application
-	// In applyOnly mode, we accumulate into featureBlueprint to later selectively apply to b.blueprint
-	// In normal mode, we apply directly to b.blueprint
 	targetBlueprint := &b.blueprint
 	if applyOnly {
 		featureBlueprint = &blueprintv1alpha1.Blueprint{}
 		targetBlueprint = featureBlueprint
 	}
+
+	var deferredRemovalsTerraform []blueprintv1alpha1.TerraformComponent
+	var deferredRemovalsKustomize []blueprintv1alpha1.Kustomization
 
 	for _, feature := range features {
 		if feature.When != "" {
@@ -1027,11 +1026,14 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 				strategy = "merge"
 			}
 
-			if strategy == "replace" {
+			switch strategy {
+			case "remove":
+				deferredRemovalsTerraform = append(deferredRemovalsTerraform, component)
+			case "replace":
 				if err := targetBlueprint.ReplaceTerraformComponent(component); err != nil {
 					return fmt.Errorf("failed to replace terraform component: %w", err)
 				}
-			} else {
+			default:
 				tempBlueprint := &blueprintv1alpha1.Blueprint{
 					TerraformComponents: []blueprintv1alpha1.TerraformComponent{component},
 				}
@@ -1058,48 +1060,71 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 				kustomizationCopy.Source = sourceName[0]
 			}
 
-			if len(kustomization.Substitutions) > 0 {
-				evaluatedSubstitutions, err := b.evaluateSubstitutions(kustomization.Substitutions, config, feature.Path)
-				if err != nil {
-					return fmt.Errorf("failed to evaluate substitutions for kustomization '%s': %w", kustomizationCopy.Name, err)
-				}
-
-				if existingSubs, exists := featureSubstitutionsByKustomization[kustomizationCopy.Name]; exists {
-					maps.Copy(existingSubs, evaluatedSubstitutions)
-				} else {
-					featureSubstitutionsByKustomization[kustomizationCopy.Name] = evaluatedSubstitutions
-				}
-			}
-
-			for j := range kustomizationCopy.Patches {
-				if kustomizationCopy.Patches[j].Patch != "" {
-					evaluated, err := b.featureEvaluator.InterpolateString(kustomizationCopy.Patches[j].Patch, config, feature.Path)
-					if err != nil {
-						return fmt.Errorf("failed to evaluate patch for kustomization '%s': %w", kustomizationCopy.Name, err)
-					}
-					kustomizationCopy.Patches[j].Patch = evaluated
-				}
-			}
-
-			kustomizationCopy.Substitutions = nil
-
 			strategy := kustomization.Strategy
 			if strategy == "" {
 				strategy = "merge"
 			}
 
-			if strategy == "replace" {
-				if err := targetBlueprint.ReplaceKustomization(kustomizationCopy); err != nil {
-					return fmt.Errorf("failed to replace kustomization: %w", err)
+			if strategy == "remove" {
+				if len(kustomization.Substitutions) > 0 {
+					evaluatedSubstitutions, err := b.evaluateSubstitutions(kustomization.Substitutions, config, feature.Path)
+					if err != nil {
+						return fmt.Errorf("failed to evaluate substitutions for kustomization '%s': %w", kustomizationCopy.Name, err)
+					}
+					kustomizationCopy.Substitutions = evaluatedSubstitutions
 				}
+				deferredRemovalsKustomize = append(deferredRemovalsKustomize, kustomizationCopy)
 			} else {
-				tempBlueprint := &blueprintv1alpha1.Blueprint{
-					Kustomizations: []blueprintv1alpha1.Kustomization{kustomizationCopy},
+				if len(kustomization.Substitutions) > 0 {
+					evaluatedSubstitutions, err := b.evaluateSubstitutions(kustomization.Substitutions, config, feature.Path)
+					if err != nil {
+						return fmt.Errorf("failed to evaluate substitutions for kustomization '%s': %w", kustomizationCopy.Name, err)
+					}
+
+					if existingSubs, exists := featureSubstitutionsByKustomization[kustomizationCopy.Name]; exists {
+						maps.Copy(existingSubs, evaluatedSubstitutions)
+					} else {
+						featureSubstitutionsByKustomization[kustomizationCopy.Name] = evaluatedSubstitutions
+					}
 				}
-				if err := targetBlueprint.StrategicMerge(tempBlueprint); err != nil {
-					return fmt.Errorf("failed to merge kustomization: %w", err)
+
+				for j := range kustomizationCopy.Patches {
+					if kustomizationCopy.Patches[j].Patch != "" {
+						evaluated, err := b.featureEvaluator.InterpolateString(kustomizationCopy.Patches[j].Patch, config, feature.Path)
+						if err != nil {
+							return fmt.Errorf("failed to evaluate patch for kustomization '%s': %w", kustomizationCopy.Name, err)
+						}
+						kustomizationCopy.Patches[j].Patch = evaluated
+					}
+				}
+
+				kustomizationCopy.Substitutions = nil
+
+				if strategy == "replace" {
+					if err := targetBlueprint.ReplaceKustomization(kustomizationCopy); err != nil {
+						return fmt.Errorf("failed to replace kustomization: %w", err)
+					}
+				} else {
+					tempBlueprint := &blueprintv1alpha1.Blueprint{
+						Kustomizations: []blueprintv1alpha1.Kustomization{kustomizationCopy},
+					}
+					if err := targetBlueprint.StrategicMerge(tempBlueprint); err != nil {
+						return fmt.Errorf("failed to merge kustomization: %w", err)
+					}
 				}
 			}
+		}
+	}
+
+	for _, removal := range deferredRemovalsTerraform {
+		if err := targetBlueprint.RemoveTerraformComponent(removal); err != nil {
+			return fmt.Errorf("failed to remove terraform component: %w", err)
+		}
+	}
+
+	for _, removal := range deferredRemovalsKustomize {
+		if err := targetBlueprint.RemoveKustomization(removal); err != nil {
+			return fmt.Errorf("failed to remove kustomization: %w", err)
 		}
 	}
 

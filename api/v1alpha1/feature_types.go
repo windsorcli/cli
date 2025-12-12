@@ -40,9 +40,11 @@ type ConditionalTerraformComponent struct {
 	When string `yaml:"when,omitempty"`
 
 	// Strategy determines how this component is merged into the blueprint.
-	// Valid values are "merge" (default, strategic merge) and "replace" (replaces existing component entirely).
+	// Valid values are "merge" (default), "replace", and "remove".
 	// If empty or "merge", the component is merged with existing components matching the same Path and Source.
 	// If "replace", the component completely replaces any existing component with the same Path and Source.
+	// If "remove", the component's non-index fields (everything except Path and Source) are removed from the
+	// matching existing component. Remove operations are always applied last after all merge/replace operations.
 	Strategy string `yaml:"strategy,omitempty"`
 }
 
@@ -55,9 +57,11 @@ type ConditionalKustomization struct {
 	When string `yaml:"when,omitempty"`
 
 	// Strategy determines how this kustomization is merged into the blueprint.
-	// Valid values are "merge" (default, strategic merge) and "replace" (replaces existing kustomization entirely).
+	// Valid values are "merge" (default), "replace", and "remove".
 	// If empty or "merge", the kustomization is merged with existing kustomizations matching the same Name.
 	// If "replace", the kustomization completely replaces any existing kustomization with the same Name.
+	// If "remove", the kustomization's non-index fields (everything except Name) are removed from the
+	// matching existing kustomization. Remove operations are always applied last after all merge/replace operations.
 	Strategy string `yaml:"strategy,omitempty"`
 }
 

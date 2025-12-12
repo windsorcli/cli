@@ -417,6 +417,84 @@ func (b *Blueprint) ReplaceKustomization(kustomization Kustomization) error {
 	return b.sortKustomize()
 }
 
+// RemoveTerraformComponent removes specified non-index fields from an existing TerraformComponent.
+// It finds a component matching the same Path and Source, then removes inputs, dependencies, and other
+// fields that are specified in the removal component. Index fields (Path, Source) are not affected.
+// If no matching component exists, no action is taken.
+func (b *Blueprint) RemoveTerraformComponent(removal TerraformComponent) error {
+	for i, existing := range b.TerraformComponents {
+		if existing.Path == removal.Path && existing.Source == removal.Source {
+			if len(removal.Inputs) > 0 && existing.Inputs != nil {
+				for key := range removal.Inputs {
+					delete(existing.Inputs, key)
+				}
+			}
+
+			if len(removal.DependsOn) > 0 {
+				existing.DependsOn = slices.DeleteFunc(existing.DependsOn, func(dep string) bool {
+					return slices.Contains(removal.DependsOn, dep)
+				})
+			}
+
+			b.TerraformComponents[i] = existing
+			return b.sortTerraform()
+		}
+	}
+	return nil
+}
+
+// RemoveKustomization removes specified non-index fields from an existing Kustomization.
+// It finds a kustomization matching the same Name, then removes patches, components, dependencies,
+// cleanup items, and substitutions that are specified in the removal kustomization.
+// The index field (Name) is not affected. If no matching kustomization exists, no action is taken.
+func (b *Blueprint) RemoveKustomization(removal Kustomization) error {
+	for i, existing := range b.Kustomizations {
+		if existing.Name == removal.Name {
+			if len(removal.DependsOn) > 0 {
+				existing.DependsOn = slices.DeleteFunc(existing.DependsOn, func(dep string) bool {
+					return slices.Contains(removal.DependsOn, dep)
+				})
+			}
+
+			if len(removal.Components) > 0 {
+				existing.Components = slices.DeleteFunc(existing.Components, func(comp string) bool {
+					return slices.Contains(removal.Components, comp)
+				})
+			}
+
+			if len(removal.Cleanup) > 0 {
+				existing.Cleanup = slices.DeleteFunc(existing.Cleanup, func(cleanup string) bool {
+					return slices.Contains(removal.Cleanup, cleanup)
+				})
+			}
+
+			if len(removal.Patches) > 0 {
+				existing.Patches = slices.DeleteFunc(existing.Patches, func(patch BlueprintPatch) bool {
+					for _, removalPatch := range removal.Patches {
+						if removalPatch.Path != "" && patch.Path == removalPatch.Path {
+							return true
+						}
+						if removalPatch.Patch != "" && patch.Patch == removalPatch.Patch {
+							return true
+						}
+					}
+					return false
+				})
+			}
+
+			if len(removal.Substitutions) > 0 && existing.Substitutions != nil {
+				for key := range removal.Substitutions {
+					delete(existing.Substitutions, key)
+				}
+			}
+
+			b.Kustomizations[i] = existing
+			return b.sortKustomize()
+		}
+	}
+	return nil
+}
+
 // DeepCopy creates a deep copy of the Kustomization object.
 func (k *Kustomization) DeepCopy() *Kustomization {
 	if k == nil {

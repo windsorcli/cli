@@ -1101,6 +1101,452 @@ func TestBlueprint_ReplaceKustomization(t *testing.T) {
 	})
 }
 
+func TestBlueprint_RemoveTerraformComponent(t *testing.T) {
+	t.Run("RemovesInputsFromExistingComponent", func(t *testing.T) {
+		base := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{
+					Path:      "network/vpc",
+					Source:    "core",
+					Inputs:    map[string]any{"cidr": "10.0.0.0/16", "enable_dns": true, "keep_this": "value"},
+					DependsOn: []string{"backend", "security"},
+				},
+			},
+		}
+
+		removal := TerraformComponent{
+			Path:   "network/vpc",
+			Source: "core",
+			Inputs: map[string]any{"cidr": nil, "enable_dns": nil},
+		}
+
+		err := base.RemoveTerraformComponent(removal)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+		if len(base.TerraformComponents) != 1 {
+			t.Errorf("Expected 1 component, got %d", len(base.TerraformComponents))
+		}
+
+		component := base.TerraformComponents[0]
+		if len(component.Inputs) != 1 {
+			t.Errorf("Expected 1 input remaining, got %d", len(component.Inputs))
+		}
+		if component.Inputs["keep_this"] != "value" {
+			t.Errorf("Expected 'keep_this' input to remain, got %v", component.Inputs)
+		}
+		if component.Inputs["cidr"] != nil {
+			t.Errorf("Expected 'cidr' input to be removed, got %v", component.Inputs["cidr"])
+		}
+		if component.Inputs["enable_dns"] != nil {
+			t.Errorf("Expected 'enable_dns' input to be removed, got %v", component.Inputs["enable_dns"])
+		}
+	})
+
+	t.Run("RemovesDependenciesFromExistingComponent", func(t *testing.T) {
+		base := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{
+					Path:      "network/vpc",
+					Source:    "core",
+					DependsOn: []string{"backend", "security", "keep_dep"},
+				},
+			},
+		}
+
+		removal := TerraformComponent{
+			Path:      "network/vpc",
+			Source:    "core",
+			DependsOn: []string{"backend", "security"},
+		}
+
+		err := base.RemoveTerraformComponent(removal)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		component := base.TerraformComponents[0]
+		if len(component.DependsOn) != 1 {
+			t.Errorf("Expected 1 dependency remaining, got %d: %v", len(component.DependsOn), component.DependsOn)
+		}
+		if component.DependsOn[0] != "keep_dep" {
+			t.Errorf("Expected 'keep_dep' dependency to remain, got %v", component.DependsOn)
+		}
+	})
+
+	t.Run("RemovesBothInputsAndDependencies", func(t *testing.T) {
+		base := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{
+					Path:      "network/vpc",
+					Source:    "core",
+					Inputs:    map[string]any{"cidr": "10.0.0.0/16", "keep_input": "value"},
+					DependsOn: []string{"backend", "keep_dep"},
+				},
+			},
+		}
+
+		removal := TerraformComponent{
+			Path:      "network/vpc",
+			Source:    "core",
+			Inputs:    map[string]any{"cidr": nil},
+			DependsOn: []string{"backend"},
+		}
+
+		err := base.RemoveTerraformComponent(removal)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		component := base.TerraformComponents[0]
+		if len(component.Inputs) != 1 {
+			t.Errorf("Expected 1 input remaining, got %d", len(component.Inputs))
+		}
+		if len(component.DependsOn) != 1 {
+			t.Errorf("Expected 1 dependency remaining, got %d", len(component.DependsOn))
+		}
+		if component.Inputs["keep_input"] != "value" {
+			t.Errorf("Expected 'keep_input' to remain")
+		}
+		if component.DependsOn[0] != "keep_dep" {
+			t.Errorf("Expected 'keep_dep' to remain")
+		}
+	})
+
+	t.Run("NoOpWhenComponentNotFound", func(t *testing.T) {
+		base := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{
+					Path:   "existing",
+					Source: "core",
+					Inputs: map[string]any{"key": "value"},
+				},
+			},
+		}
+
+		removal := TerraformComponent{
+			Path:   "non-existent",
+			Source: "core",
+			Inputs: map[string]any{"key": nil},
+		}
+
+		err := base.RemoveTerraformComponent(removal)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+		if len(base.TerraformComponents) != 1 {
+			t.Errorf("Expected 1 component unchanged, got %d", len(base.TerraformComponents))
+		}
+		if base.TerraformComponents[0].Inputs["key"] != "value" {
+			t.Errorf("Expected existing component to be unchanged")
+		}
+	})
+
+	t.Run("PreservesIndexFields", func(t *testing.T) {
+		base := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{
+					Path:      "network/vpc",
+					Source:    "core",
+					Inputs:    map[string]any{"cidr": "10.0.0.0/16"},
+					DependsOn: []string{"backend"},
+				},
+			},
+		}
+
+		removal := TerraformComponent{
+			Path:   "network/vpc",
+			Source: "core",
+			Inputs: map[string]any{"cidr": nil},
+		}
+
+		err := base.RemoveTerraformComponent(removal)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		component := base.TerraformComponents[0]
+		if component.Path != "network/vpc" {
+			t.Errorf("Expected Path to be preserved, got '%s'", component.Path)
+		}
+		if component.Source != "core" {
+			t.Errorf("Expected Source to be preserved, got '%s'", component.Source)
+		}
+	})
+}
+
+func TestBlueprint_RemoveKustomization(t *testing.T) {
+	t.Run("RemovesDependenciesFromExistingKustomization", func(t *testing.T) {
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name:       "ingress",
+					DependsOn:  []string{"pki", "dns", "keep_dep"},
+					Components: []string{"nginx"},
+				},
+			},
+		}
+
+		removal := Kustomization{
+			Name:      "ingress",
+			DependsOn: []string{"pki", "dns"},
+		}
+
+		err := base.RemoveKustomization(removal)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		kustomization := base.Kustomizations[0]
+		if len(kustomization.DependsOn) != 1 {
+			t.Errorf("Expected 1 dependency remaining, got %d: %v", len(kustomization.DependsOn), kustomization.DependsOn)
+		}
+		if kustomization.DependsOn[0] != "keep_dep" {
+			t.Errorf("Expected 'keep_dep' dependency to remain, got %v", kustomization.DependsOn)
+		}
+	})
+
+	t.Run("RemovesComponentsFromExistingKustomization", func(t *testing.T) {
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name:       "ingress",
+					Components: []string{"nginx", "cert-manager", "keep_component"},
+				},
+			},
+		}
+
+		removal := Kustomization{
+			Name:       "ingress",
+			Components: []string{"nginx", "cert-manager"},
+		}
+
+		err := base.RemoveKustomization(removal)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		kustomization := base.Kustomizations[0]
+		if len(kustomization.Components) != 1 {
+			t.Errorf("Expected 1 component remaining, got %d: %v", len(kustomization.Components), kustomization.Components)
+		}
+		if kustomization.Components[0] != "keep_component" {
+			t.Errorf("Expected 'keep_component' to remain, got %v", kustomization.Components)
+		}
+	})
+
+	t.Run("RemovesCleanupFromExistingKustomization", func(t *testing.T) {
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name:    "ingress",
+					Cleanup: []string{"old-resource", "another-resource", "keep_cleanup"},
+				},
+			},
+		}
+
+		removal := Kustomization{
+			Name:    "ingress",
+			Cleanup: []string{"old-resource", "another-resource"},
+		}
+
+		err := base.RemoveKustomization(removal)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		kustomization := base.Kustomizations[0]
+		if len(kustomization.Cleanup) != 1 {
+			t.Errorf("Expected 1 cleanup remaining, got %d: %v", len(kustomization.Cleanup), kustomization.Cleanup)
+		}
+		if kustomization.Cleanup[0] != "keep_cleanup" {
+			t.Errorf("Expected 'keep_cleanup' to remain, got %v", kustomization.Cleanup)
+		}
+	})
+
+	t.Run("RemovesPatchesByPath", func(t *testing.T) {
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name: "ingress",
+					Patches: []BlueprintPatch{
+						{Path: "patches/patch1.yaml"},
+						{Path: "patches/patch2.yaml"},
+						{Path: "patches/keep.yaml"},
+					},
+				},
+			},
+		}
+
+		removal := Kustomization{
+			Name: "ingress",
+			Patches: []BlueprintPatch{
+				{Path: "patches/patch1.yaml"},
+				{Path: "patches/patch2.yaml"},
+			},
+		}
+
+		err := base.RemoveKustomization(removal)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		kustomization := base.Kustomizations[0]
+		if len(kustomization.Patches) != 1 {
+			t.Errorf("Expected 1 patch remaining, got %d", len(kustomization.Patches))
+		}
+		if kustomization.Patches[0].Path != "patches/keep.yaml" {
+			t.Errorf("Expected 'patches/keep.yaml' to remain, got %v", kustomization.Patches)
+		}
+	})
+
+	t.Run("RemovesPatchesByContent", func(t *testing.T) {
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name: "ingress",
+					Patches: []BlueprintPatch{
+						{Patch: "apiVersion: v1\nkind: Service"},
+						{Patch: "apiVersion: v1\nkind: Deployment"},
+						{Patch: "apiVersion: v1\nkind: Keep"},
+					},
+				},
+			},
+		}
+
+		removal := Kustomization{
+			Name: "ingress",
+			Patches: []BlueprintPatch{
+				{Patch: "apiVersion: v1\nkind: Service"},
+				{Patch: "apiVersion: v1\nkind: Deployment"},
+			},
+		}
+
+		err := base.RemoveKustomization(removal)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		kustomization := base.Kustomizations[0]
+		if len(kustomization.Patches) != 1 {
+			t.Errorf("Expected 1 patch remaining, got %d", len(kustomization.Patches))
+		}
+		if kustomization.Patches[0].Patch != "apiVersion: v1\nkind: Keep" {
+			t.Errorf("Expected 'Keep' patch to remain, got %v", kustomization.Patches)
+		}
+	})
+
+	t.Run("RemovesSubstitutionsFromExistingKustomization", func(t *testing.T) {
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name: "ingress",
+					Substitutions: map[string]string{
+						"domain":    "example.com",
+						"region":    "us-west-2",
+						"keep_this": "value",
+					},
+				},
+			},
+		}
+
+		removal := Kustomization{
+			Name: "ingress",
+			Substitutions: map[string]string{
+				"domain": "",
+				"region": "",
+			},
+		}
+
+		err := base.RemoveKustomization(removal)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		kustomization := base.Kustomizations[0]
+		if len(kustomization.Substitutions) != 1 {
+			t.Errorf("Expected 1 substitution remaining, got %d: %v", len(kustomization.Substitutions), kustomization.Substitutions)
+		}
+		if kustomization.Substitutions["keep_this"] != "value" {
+			t.Errorf("Expected 'keep_this' substitution to remain, got %v", kustomization.Substitutions)
+		}
+	})
+
+	t.Run("NoOpWhenKustomizationNotFound", func(t *testing.T) {
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name:       "existing",
+					Components: []string{"component1"},
+				},
+			},
+		}
+
+		removal := Kustomization{
+			Name:       "non-existent",
+			Components: []string{"component1"},
+		}
+
+		err := base.RemoveKustomization(removal)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+		if len(base.Kustomizations) != 1 {
+			t.Errorf("Expected 1 kustomization unchanged, got %d", len(base.Kustomizations))
+		}
+		if len(base.Kustomizations[0].Components) != 1 {
+			t.Errorf("Expected existing kustomization to be unchanged")
+		}
+	})
+
+	t.Run("PreservesIndexField", func(t *testing.T) {
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name:       "ingress",
+					Path:       "original-path",
+					Source:     "original-source",
+					Components: []string{"nginx"},
+				},
+			},
+		}
+
+		removal := Kustomization{
+			Name:       "ingress",
+			Components: []string{"nginx"},
+		}
+
+		err := base.RemoveKustomization(removal)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		kustomization := base.Kustomizations[0]
+		if kustomization.Name != "ingress" {
+			t.Errorf("Expected Name to be preserved, got '%s'", kustomization.Name)
+		}
+		if kustomization.Path != "original-path" {
+			t.Errorf("Expected Path to be preserved, got '%s'", kustomization.Path)
+		}
+		if kustomization.Source != "original-source" {
+			t.Errorf("Expected Source to be preserved, got '%s'", kustomization.Source)
+		}
+	})
+}
+
 func TestBlueprint_DeepCopy(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		blueprint := &Blueprint{
