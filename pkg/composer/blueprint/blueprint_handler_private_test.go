@@ -3582,6 +3582,262 @@ kustomize:
 		}
 	})
 
+	t.Run("RemovesTerraformComponentFieldsWithRemoveStrategy", func(t *testing.T) {
+		handler := setup(t)
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+terraform:
+  - path: network/vpc
+    source: core
+    inputs:
+      cidr: 10.0.0.0/16
+      enable_dns: true
+      keep_this: value
+    dependsOn:
+      - backend
+      - security
+      - keep_dep
+`)
+
+		removeFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: remove-feature
+terraform:
+  - path: network/vpc
+    source: core
+    strategy: remove
+    inputs:
+      cidr: null
+      enable_dns: null
+    dependsOn:
+      - backend
+      - security
+`)
+
+		templateData := map[string][]byte{
+			"_template/blueprint.yaml":       baseBlueprint,
+			"_template/features/remove.yaml": removeFeature,
+		}
+
+		config := map[string]any{}
+
+		err := handler.processFeatures(templateData, config, false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(handler.blueprint.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 terraform component, got %d", len(handler.blueprint.TerraformComponents))
+		}
+
+		component := handler.blueprint.TerraformComponents[0]
+		if component.Path != "network/vpc" {
+			t.Errorf("Expected path 'network/vpc', got '%s'", component.Path)
+		}
+		if component.Source != "core" {
+			t.Errorf("Expected source 'core', got '%s'", component.Source)
+		}
+		if len(component.Inputs) != 1 {
+			t.Errorf("Expected 1 input remaining, got %d: %v", len(component.Inputs), component.Inputs)
+		}
+		if component.Inputs["keep_this"] != "value" {
+			t.Errorf("Expected 'keep_this' input to remain, got %v", component.Inputs)
+		}
+		if component.Inputs["cidr"] != nil {
+			t.Errorf("Expected 'cidr' input to be removed, got %v", component.Inputs["cidr"])
+		}
+		if len(component.DependsOn) != 1 {
+			t.Errorf("Expected 1 dependency remaining, got %d: %v", len(component.DependsOn), component.DependsOn)
+		}
+		if component.DependsOn[0] != "keep_dep" {
+			t.Errorf("Expected 'keep_dep' dependency to remain, got %v", component.DependsOn)
+		}
+	})
+
+	t.Run("RemovesKustomizationFieldsWithRemoveStrategy", func(t *testing.T) {
+		handler := setup(t)
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+kustomize:
+  - name: ingress
+    path: original-path
+    source: original-source
+    components:
+      - nginx
+      - cert-manager
+      - keep_component
+    dependsOn:
+      - pki
+      - dns
+      - keep_dep
+    cleanup:
+      - old-resource
+      - keep_cleanup
+    substitutions:
+      domain: example.com
+      keep_sub: value
+`)
+
+		removeFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: remove-feature
+kustomize:
+  - name: ingress
+    strategy: remove
+    components:
+      - nginx
+      - cert-manager
+    dependsOn:
+      - pki
+      - dns
+    cleanup:
+      - old-resource
+    substitutions:
+      domain: ""
+`)
+
+		templateData := map[string][]byte{
+			"_template/blueprint.yaml":       baseBlueprint,
+			"_template/features/remove.yaml": removeFeature,
+		}
+
+		config := map[string]any{}
+
+		err := handler.processFeatures(templateData, config, false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(handler.blueprint.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(handler.blueprint.Kustomizations))
+		}
+
+		kustomization := handler.blueprint.Kustomizations[0]
+		if kustomization.Name != "ingress" {
+			t.Errorf("Expected name 'ingress', got '%s'", kustomization.Name)
+		}
+		if kustomization.Path != "original-path" {
+			t.Errorf("Expected path 'original-path' to be preserved, got '%s'", kustomization.Path)
+		}
+		if kustomization.Source != "original-source" {
+			t.Errorf("Expected source 'original-source' to be preserved, got '%s'", kustomization.Source)
+		}
+		if len(kustomization.Components) != 1 {
+			t.Errorf("Expected 1 component remaining, got %d: %v", len(kustomization.Components), kustomization.Components)
+		}
+		if kustomization.Components[0] != "keep_component" {
+			t.Errorf("Expected 'keep_component' to remain, got %v", kustomization.Components)
+		}
+		if len(kustomization.DependsOn) != 1 {
+			t.Errorf("Expected 1 dependency remaining, got %d: %v", len(kustomization.DependsOn), kustomization.DependsOn)
+		}
+		if kustomization.DependsOn[0] != "keep_dep" {
+			t.Errorf("Expected 'keep_dep' dependency to remain, got %v", kustomization.DependsOn)
+		}
+		if len(kustomization.Cleanup) != 1 {
+			t.Errorf("Expected 1 cleanup remaining, got %d: %v", len(kustomization.Cleanup), kustomization.Cleanup)
+		}
+		if kustomization.Cleanup[0] != "keep_cleanup" {
+			t.Errorf("Expected 'keep_cleanup' to remain, got %v", kustomization.Cleanup)
+		}
+		if len(kustomization.Substitutions) != 1 {
+			t.Errorf("Expected 1 substitution remaining, got %d: %v", len(kustomization.Substitutions), kustomization.Substitutions)
+		}
+		if kustomization.Substitutions["keep_sub"] != "value" {
+			t.Errorf("Expected 'keep_sub' substitution to remain, got %v", kustomization.Substitutions)
+		}
+	})
+
+	t.Run("RemoveStrategyRunsLastAfterMergeAndReplace", func(t *testing.T) {
+		handler := setup(t)
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+terraform:
+  - path: network/vpc
+    source: core
+    inputs:
+      original: value
+    dependsOn:
+      - original-dep
+`)
+
+		mergeFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: merge-feature
+terraform:
+  - path: network/vpc
+    source: core
+    strategy: merge
+    inputs:
+      added_by_merge: value
+    dependsOn:
+      - added_by_merge
+`)
+
+		replaceFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: replace-feature
+terraform:
+  - path: network/vpc
+    source: core
+    strategy: replace
+    inputs:
+      added_by_replace: value
+    dependsOn:
+      - added_by_replace
+`)
+
+		removeFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: remove-feature
+terraform:
+  - path: network/vpc
+    source: core
+    strategy: remove
+    inputs:
+      added_by_replace: null
+    dependsOn:
+      - added_by_replace
+`)
+
+		templateData := map[string][]byte{
+			"_template/blueprint.yaml":        baseBlueprint,
+			"_template/features/merge.yaml":   mergeFeature,
+			"_template/features/replace.yaml": replaceFeature,
+			"_template/features/remove.yaml":  removeFeature,
+		}
+
+		config := map[string]any{}
+
+		err := handler.processFeatures(templateData, config, false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		component := handler.blueprint.TerraformComponents[0]
+		if component.Inputs["added_by_replace"] != nil {
+			t.Errorf("Expected 'added_by_replace' input to be removed by remove strategy, got %v", component.Inputs["added_by_replace"])
+		}
+		if contains(component.DependsOn, "added_by_replace") {
+			t.Errorf("Expected 'added_by_replace' dependency to be removed by remove strategy, got %v", component.DependsOn)
+		}
+	})
+
 	t.Run("HandlesBlueprintYamlKey", func(t *testing.T) {
 		handler := setup(t)
 		baseBlueprint := []byte(`kind: Blueprint
@@ -3724,6 +3980,270 @@ kustomize:
 		}
 		if kustomization.Components[0] != "new-component" {
 			t.Errorf("Expected 'new-component', got '%s'", kustomization.Components[0])
+		}
+	})
+
+	t.Run("RemovesTerraformComponentFieldsWithRemoveStrategy", func(t *testing.T) {
+		handler := setup(t)
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+terraform:
+  - path: network/vpc
+    source: core
+    inputs:
+      cidr: 10.0.0.0/16
+      enable_dns: true
+      keep_this: value
+    dependsOn:
+      - backend
+      - security
+      - keep_dep
+`)
+
+		removeFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: remove-feature
+terraform:
+  - path: network/vpc
+    source: core
+    strategy: remove
+    inputs:
+      cidr: null
+      enable_dns: null
+    dependsOn:
+      - backend
+      - security
+`)
+
+		templateData := map[string][]byte{
+			"_template/blueprint.yaml":       baseBlueprint,
+			"_template/features/remove.yaml": removeFeature,
+		}
+
+		config := map[string]any{}
+
+		err := handler.processFeatures(templateData, config, false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(handler.blueprint.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 terraform component, got %d", len(handler.blueprint.TerraformComponents))
+		}
+
+		component := handler.blueprint.TerraformComponents[0]
+		if component.Path != "network/vpc" {
+			t.Errorf("Expected path 'network/vpc', got '%s'", component.Path)
+		}
+		if component.Source != "core" {
+			t.Errorf("Expected source 'core', got '%s'", component.Source)
+		}
+		if len(component.Inputs) != 1 {
+			t.Errorf("Expected 1 input remaining, got %d", len(component.Inputs))
+		}
+		if component.Inputs["keep_this"] != "value" {
+			t.Errorf("Expected 'keep_this' input to remain, got %v", component.Inputs["keep_this"])
+		}
+		if component.Inputs["cidr"] != nil {
+			t.Errorf("Expected 'cidr' input to be removed, got %v", component.Inputs["cidr"])
+		}
+		if component.Inputs["enable_dns"] != nil {
+			t.Errorf("Expected 'enable_dns' input to be removed, got %v", component.Inputs["enable_dns"])
+		}
+		if len(component.DependsOn) != 1 {
+			t.Errorf("Expected 1 dependency remaining, got %d", len(component.DependsOn))
+		}
+		if component.DependsOn[0] != "keep_dep" {
+			t.Errorf("Expected 'keep_dep' dependency to remain, got %v", component.DependsOn)
+		}
+	})
+
+	t.Run("RemovesKustomizationFieldsWithRemoveStrategy", func(t *testing.T) {
+		handler := setup(t)
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+kustomize:
+  - name: ingress
+    path: original-path
+    source: original-source
+    components:
+      - nginx
+      - cert-manager
+      - keep_component
+    dependsOn:
+      - pki
+      - dns
+      - keep_dep
+    cleanup:
+      - old-resource
+      - keep_cleanup
+    substitutions:
+      domain: example.com
+      keep_this: value
+`)
+
+		removeFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: remove-feature
+kustomize:
+  - name: ingress
+    strategy: remove
+    components:
+      - nginx
+      - cert-manager
+    dependsOn:
+      - pki
+      - dns
+    cleanup:
+      - old-resource
+    substitutions:
+      domain: ""
+`)
+
+		templateData := map[string][]byte{
+			"_template/blueprint.yaml":       baseBlueprint,
+			"_template/features/remove.yaml": removeFeature,
+		}
+
+		config := map[string]any{}
+
+		err := handler.processFeatures(templateData, config, false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(handler.blueprint.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(handler.blueprint.Kustomizations))
+		}
+
+		kustomization := handler.blueprint.Kustomizations[0]
+		if kustomization.Name != "ingress" {
+			t.Errorf("Expected name 'ingress', got '%s'", kustomization.Name)
+		}
+		if kustomization.Path != "original-path" {
+			t.Errorf("Expected path 'original-path' to be preserved, got '%s'", kustomization.Path)
+		}
+		if kustomization.Source != "original-source" {
+			t.Errorf("Expected source 'original-source' to be preserved, got '%s'", kustomization.Source)
+		}
+		if len(kustomization.Components) != 1 {
+			t.Errorf("Expected 1 component remaining, got %d", len(kustomization.Components))
+		}
+		if kustomization.Components[0] != "keep_component" {
+			t.Errorf("Expected 'keep_component' to remain, got %v", kustomization.Components)
+		}
+		if len(kustomization.DependsOn) != 1 {
+			t.Errorf("Expected 1 dependency remaining, got %d", len(kustomization.DependsOn))
+		}
+		if kustomization.DependsOn[0] != "keep_dep" {
+			t.Errorf("Expected 'keep_dep' dependency to remain, got %v", kustomization.DependsOn)
+		}
+		if len(kustomization.Cleanup) != 1 {
+			t.Errorf("Expected 1 cleanup remaining, got %d", len(kustomization.Cleanup))
+		}
+		if kustomization.Cleanup[0] != "keep_cleanup" {
+			t.Errorf("Expected 'keep_cleanup' to remain, got %v", kustomization.Cleanup)
+		}
+		if len(kustomization.Substitutions) != 1 {
+			t.Errorf("Expected 1 substitution remaining, got %d: %v", len(kustomization.Substitutions), kustomization.Substitutions)
+		}
+		if kustomization.Substitutions["keep_this"] != "value" {
+			t.Errorf("Expected 'keep_this' substitution to remain, got %v", kustomization.Substitutions)
+		}
+		if _, exists := kustomization.Substitutions["domain"]; exists {
+			t.Errorf("Expected 'domain' substitution to be removed, but it still exists: %v", kustomization.Substitutions)
+		}
+	})
+
+	t.Run("RemoveStrategyRunsLastAfterMergeAndReplace", func(t *testing.T) {
+		handler := setup(t)
+
+		baseBlueprint := []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: base
+terraform:
+  - path: network/vpc
+    source: core
+    inputs:
+      original: value
+      to_remove: value
+    dependsOn:
+      - original_dep
+      - to_remove_dep
+`)
+
+		mergeFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: merge-feature
+terraform:
+  - path: network/vpc
+    source: core
+    strategy: merge
+    inputs:
+      merged: value
+    dependsOn:
+      - merged_dep
+`)
+
+		removeFeature := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: remove-feature
+terraform:
+  - path: network/vpc
+    source: core
+    strategy: remove
+    inputs:
+      to_remove: null
+    dependsOn:
+      - to_remove_dep
+`)
+
+		templateData := map[string][]byte{
+			"_template/blueprint.yaml":       baseBlueprint,
+			"_template/features/merge.yaml":  mergeFeature,
+			"_template/features/remove.yaml": removeFeature,
+		}
+
+		config := map[string]any{}
+
+		err := handler.processFeatures(templateData, config, false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(handler.blueprint.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 terraform component, got %d", len(handler.blueprint.TerraformComponents))
+		}
+
+		component := handler.blueprint.TerraformComponents[0]
+		if component.Inputs["original"] != "value" {
+			t.Errorf("Expected 'original' input to remain, got %v", component.Inputs["original"])
+		}
+		if component.Inputs["merged"] != "value" {
+			t.Errorf("Expected 'merged' input from merge feature to be present, got %v", component.Inputs["merged"])
+		}
+		if component.Inputs["to_remove"] != nil {
+			t.Errorf("Expected 'to_remove' input to be removed by remove strategy, got %v", component.Inputs["to_remove"])
+		}
+		if !contains(component.DependsOn, "original_dep") {
+			t.Errorf("Expected 'original_dep' dependency to remain, got %v", component.DependsOn)
+		}
+		if !contains(component.DependsOn, "merged_dep") {
+			t.Errorf("Expected 'merged_dep' dependency from merge feature to be present, got %v", component.DependsOn)
+		}
+		if contains(component.DependsOn, "to_remove_dep") {
+			t.Errorf("Expected 'to_remove_dep' dependency to be removed by remove strategy, got %v", component.DependsOn)
 		}
 	})
 
@@ -6616,4 +7136,13 @@ kustomize:
 			t.Errorf("Expected URL %s, got: %s", expectedURL, calledURL)
 		}
 	})
+}
+
+func contains(slice []string, value string) bool {
+	for _, item := range slice {
+		if item == value {
+			return true
+		}
+	}
+	return false
 }
