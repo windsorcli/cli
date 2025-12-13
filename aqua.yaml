@@ -31,3 +31,4 @@ packages:
 - name: 1password/cli@v2.30.3
 - name: fluxcd/flux2@v2.7.5
 - name: aws/aws-cli@2.32.15
+- name: twistedpair/google-cloud-sdk@549.0.1

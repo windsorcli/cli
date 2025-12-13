@@ -54,6 +54,7 @@ type Runtime struct {
 	EnvPrinters struct {
 		AwsEnv       env.EnvPrinter
 		AzureEnv     env.EnvPrinter
+		GcpEnv       env.EnvPrinter
 		DockerEnv    env.EnvPrinter
 		KubeEnv      env.EnvPrinter
 		TalosEnv     env.EnvPrinter
@@ -123,6 +124,9 @@ func NewRuntime(opts ...*Runtime) (*Runtime, error) {
 		}
 		if overrides.EnvPrinters.AzureEnv != nil {
 			rt.EnvPrinters.AzureEnv = overrides.EnvPrinters.AzureEnv
+		}
+		if overrides.EnvPrinters.GcpEnv != nil {
+			rt.EnvPrinters.GcpEnv = overrides.EnvPrinters.GcpEnv
 		}
 		if overrides.EnvPrinters.DockerEnv != nil {
 			rt.EnvPrinters.DockerEnv = overrides.EnvPrinters.DockerEnv
@@ -400,6 +404,9 @@ func (rt *Runtime) initializeEnvPrinters() {
 	if rt.EnvPrinters.AzureEnv == nil && rt.ConfigHandler.GetBool("azure.enabled", false) {
 		rt.EnvPrinters.AzureEnv = env.NewAzureEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
+	if rt.EnvPrinters.GcpEnv == nil && rt.ConfigHandler.GetBool("gcp.enabled", false) {
+		rt.EnvPrinters.GcpEnv = env.NewGcpEnvPrinter(rt.Shell, rt.ConfigHandler)
+	}
 	if rt.EnvPrinters.DockerEnv == nil && rt.ConfigHandler.GetBool("docker.enabled", false) {
 		rt.EnvPrinters.DockerEnv = env.NewDockerEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
@@ -487,6 +494,7 @@ func (rt *Runtime) getAllEnvPrinters() []env.EnvPrinter {
 	return []env.EnvPrinter{
 		rt.EnvPrinters.AwsEnv,
 		rt.EnvPrinters.AzureEnv,
+		rt.EnvPrinters.GcpEnv,
 		rt.EnvPrinters.DockerEnv,
 		rt.EnvPrinters.KubeEnv,
 		rt.EnvPrinters.TalosEnv,
@@ -710,6 +718,7 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 // ApplyProviderDefaults sets provider-specific configuration values based on the provider type.
 // For "aws", it enables AWS and sets the cluster driver to "eks".
 // For "azure", it enables Azure and sets the cluster driver to "aks".
+// For "gcp", it enables GCP and sets the cluster driver to "gke".
 // For "generic", it sets the cluster driver to "talos".
 // If no provider is set but dev mode is enabled, it defaults the cluster driver to "talos".
 // The context name is read from rt.ContextName. Returns an error if any configuration operation fails.
@@ -737,6 +746,13 @@ func (rt *Runtime) ApplyProviderDefaults(providerOverride string) error {
 				return fmt.Errorf("failed to set azure.enabled: %w", err)
 			}
 			if err := rt.ConfigHandler.Set("cluster.driver", "aks"); err != nil {
+				return fmt.Errorf("failed to set cluster.driver: %w", err)
+			}
+		case "gcp":
+			if err := rt.ConfigHandler.Set("gcp.enabled", true); err != nil {
+				return fmt.Errorf("failed to set gcp.enabled: %w", err)
+			}
+			if err := rt.ConfigHandler.Set("cluster.driver", "gke"); err != nil {
 				return fmt.Errorf("failed to set cluster.driver: %w", err)
 			}
 		case "generic":

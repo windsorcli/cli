@@ -182,6 +182,7 @@ func (r *Composer) generateGitignore() error {
 		"contexts/**/.omni/",
 		"contexts/**/.aws/",
 		"contexts/**/.azure/",
+		"contexts/**/.gcp/",
 	}
 
 	projectRoot := r.Runtime.ProjectRoot

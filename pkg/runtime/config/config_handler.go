@@ -740,7 +740,7 @@ func (c *configHandler) Clean() error {
 		return fmt.Errorf("error getting config root: %w", err)
 	}
 
-	dirsToDeleteFromConfigRoot := []string{".kube", ".talos", ".omni", ".aws"}
+	dirsToDeleteFromConfigRoot := []string{".kube", ".talos", ".omni", ".aws", ".gcp"}
 
 	for _, dir := range dirsToDeleteFromConfigRoot {
 		path := filepath.Join(configRoot, dir)
