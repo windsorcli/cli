@@ -30,6 +30,7 @@ type Shims struct {
 	YamlUnmarshal  func([]byte, any) error
 	YamlMarshal    func(any) ([]byte, error)
 	JsonUnmarshal  func([]byte, any) error
+	JsonMarshal    func(any) ([]byte, error)
 	Remove         func(string) error
 	RemoveAll      func(string) error
 	CryptoRandRead func([]byte) (int, error)
@@ -58,6 +59,7 @@ func NewShims() *Shims {
 		YamlUnmarshal:  yaml.Unmarshal,
 		YamlMarshal:    yaml.Marshal,
 		JsonUnmarshal:  json.Unmarshal,
+		JsonMarshal:    json.Marshal,
 		Remove:         os.Remove,
 		RemoveAll:      os.RemoveAll,
 		CryptoRandRead: func(b []byte) (int, error) { return rand.Read(b) },

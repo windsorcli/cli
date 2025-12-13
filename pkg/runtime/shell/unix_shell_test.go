@@ -274,6 +274,34 @@ func TestDefaultShell_renderEnvVarsWithExport(t *testing.T) {
 			t.Errorf("Expected empty output for empty env vars, got: %s", result)
 		}
 	})
+
+	t.Run("QuotesValuesWithSpecialCharacters", func(t *testing.T) {
+		// Given a shell with environment variables containing special characters
+		shell, _ := setup(t)
+		envVars := map[string]string{
+			"VAR1": `["item1","item2"]`,
+			"VAR2": `{"key": "value"}`,
+			"VAR3": "simple_value",
+			"VAR4": "value with spaces",
+		}
+
+		// When rendering environment variables with export
+		result := shell.renderEnvVarsWithExport(envVars)
+
+		// Then values with special characters should be quoted with single quotes
+		if !strings.Contains(result, "export VAR1='[\"item1\",\"item2\"]'\n") {
+			t.Errorf("Expected VAR1 to be quoted, got: %s", result)
+		}
+		if !strings.Contains(result, "export VAR2='{\"key\": \"value\"}'\n") {
+			t.Errorf("Expected VAR2 to be quoted, got: %s", result)
+		}
+		if !strings.Contains(result, "export VAR3=\"simple_value\"\n") {
+			t.Errorf("Expected VAR3 to use double quotes, got: %s", result)
+		}
+		if !strings.Contains(result, "export VAR4='value with spaces'\n") {
+			t.Errorf("Expected VAR4 to be quoted, got: %s", result)
+		}
+	})
 }
 
 // TestDefaultShell_RenderEnvVars tests the RenderEnvVars method on Unix systems

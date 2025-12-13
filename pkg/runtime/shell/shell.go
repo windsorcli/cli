@@ -673,6 +673,7 @@ func (s *DefaultShell) PrintEnvVars(envVars map[string]string, export bool) {
 
 // renderEnvVarsPlain returns environment variables in plain KEY=value format as a string, sorted by key.
 // If a value is empty, it returns KEY= with no value. Used for non-export output scenarios.
+// Values containing special characters are quoted with single quotes to ensure safe shell evaluation.
 func (s *DefaultShell) renderEnvVarsPlain(envVars map[string]string) string {
 	keys := make([]string, 0, len(envVars))
 	for k := range envVars {
@@ -685,10 +686,24 @@ func (s *DefaultShell) renderEnvVarsPlain(envVars map[string]string) string {
 		if envVars[k] == "" {
 			result.WriteString(fmt.Sprintf("%s=\n", k))
 		} else {
-			result.WriteString(fmt.Sprintf("%s=%s\n", k, envVars[k]))
+			value := s.quoteValueForShell(envVars[k], false)
+			result.WriteString(fmt.Sprintf("%s=%s\n", k, value))
 		}
 	}
 	return result.String()
+}
+
+// quoteValueForShell quotes a value appropriately for shell evaluation.
+// For Unix shells, uses single quotes with proper escaping. For Windows PowerShell, uses single quotes with PowerShell-style escaping.
+// If useDoubleQuotes is true and the value doesn't need quoting, uses double quotes; otherwise uses single quotes when needed.
+func (s *DefaultShell) quoteValueForShell(value string, useDoubleQuotes bool) string {
+	if !strings.ContainsAny(value, "[]{}()\"'$`\\ \t\n&|;<>*?~#") {
+		if useDoubleQuotes {
+			return "\"" + value + "\""
+		}
+		return value
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 // Ensure DefaultShell implements the Shell interface

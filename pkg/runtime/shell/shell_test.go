@@ -3329,4 +3329,92 @@ func TestDefaultShell_renderEnvVarsPlain(t *testing.T) {
 			t.Errorf("Expected empty output for empty env vars, got: %s", result)
 		}
 	})
+
+	t.Run("QuotesValuesWithSpecialCharacters", func(t *testing.T) {
+		// Given a shell with environment variables containing special characters
+		shell, _ := setup(t)
+		envVars := map[string]string{
+			"VAR1": `["item1","item2"]`,
+			"VAR2": `{"key": "value"}`,
+			"VAR3": "simple_value",
+			"VAR4": "value with spaces",
+			"VAR5": "value$with$dollars",
+		}
+
+		// When rendering plain environment variables
+		result := shell.renderEnvVarsPlain(envVars)
+
+		// Then values with special characters should be quoted
+		if !strings.Contains(result, "VAR1='[\"item1\",\"item2\"]'\n") {
+			t.Errorf("Expected VAR1 to be quoted, got: %s", result)
+		}
+		if !strings.Contains(result, "VAR2='{\"key\": \"value\"}'\n") {
+			t.Errorf("Expected VAR2 to be quoted, got: %s", result)
+		}
+		if !strings.Contains(result, "VAR3=simple_value\n") {
+			t.Errorf("Expected VAR3 to not be quoted, got: %s", result)
+		}
+		if !strings.Contains(result, "VAR4='value with spaces'\n") {
+			t.Errorf("Expected VAR4 to be quoted, got: %s", result)
+		}
+		if !strings.Contains(result, "VAR5='value$with$dollars'\n") {
+			t.Errorf("Expected VAR5 to be quoted, got: %s", result)
+		}
+	})
+}
+
+// TestDefaultShell_quoteValueForShell tests the quoteValueForShell method
+func TestDefaultShell_quoteValueForShell(t *testing.T) {
+	setup := func(t *testing.T) *DefaultShell {
+		t.Helper()
+		mocks := setupShellMocks(t)
+		shell := NewDefaultShell()
+		shell.shims = mocks.Shims
+		return shell
+	}
+
+	t.Run("QuotesValuesWithSpecialCharacters", func(t *testing.T) {
+		shell := setup(t)
+
+		testCases := []struct {
+			name     string
+			value    string
+			expected string
+		}{
+			{"JSONArray", `["item1","item2"]`, `'["item1","item2"]'`},
+			{"JSONObject", `{"key": "value"}`, `'{"key": "value"}'`},
+			{"WithSpaces", "value with spaces", "'value with spaces'"},
+			{"WithDollars", "value$test", "'value$test'"},
+			{"WithBrackets", "[test]", "'[test]'"},
+			{"SimpleValue", "simple", "simple"},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				result := shell.quoteValueForShell(tc.value, false)
+				if result != tc.expected {
+					t.Errorf("Expected %q, got %q", tc.expected, result)
+				}
+			})
+		}
+	})
+
+	t.Run("UsesDoubleQuotesWhenRequested", func(t *testing.T) {
+		shell := setup(t)
+
+		result := shell.quoteValueForShell("simple", true)
+		if result != `"simple"` {
+			t.Errorf("Expected \"simple\", got %q", result)
+		}
+	})
+
+	t.Run("EscapesSingleQuotesInValue", func(t *testing.T) {
+		shell := setup(t)
+
+		result := shell.quoteValueForShell("value'with'quotes", false)
+		expected := `'value'"'"'with'"'"'quotes'`
+		if result != expected {
+			t.Errorf("Expected %q, got %q", expected, result)
+		}
+	})
 }

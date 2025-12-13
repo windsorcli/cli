@@ -68,6 +68,7 @@ func (s *DefaultShell) RenderAliases(aliases map[string]string) string {
 // =============================================================================
 
 // renderEnvVarsWithExport returns environment variables with PowerShell commands as a string. Empty values trigger a removal command.
+// Values containing special characters are properly quoted for PowerShell.
 func (s *DefaultShell) renderEnvVarsWithExport(envVars map[string]string) string {
 	keys := make([]string, 0, len(envVars))
 	for k := range envVars {
@@ -80,8 +81,18 @@ func (s *DefaultShell) renderEnvVarsWithExport(envVars map[string]string) string
 		if envVars[k] == "" {
 			result.WriteString(fmt.Sprintf("Remove-Item Env:%s\n", k))
 		} else {
-			result.WriteString(fmt.Sprintf("$env:%s='%s'\n", k, envVars[k]))
+			value := s.quoteValueForPowerShell(envVars[k])
+			result.WriteString(fmt.Sprintf("$env:%s=%s\n", k, value))
 		}
 	}
 	return result.String()
+}
+
+// quoteValueForPowerShell quotes a value appropriately for PowerShell evaluation.
+// PowerShell uses single quotes for literal strings, escaping single quotes by doubling them.
+func (s *DefaultShell) quoteValueForPowerShell(value string) string {
+	if !strings.ContainsAny(value, "[]{}()\"'$`\\ \t\n&|;<>*?~#") {
+		return "'" + value + "'"
+	}
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
