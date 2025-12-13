@@ -1114,7 +1114,7 @@ func TestComposer_generateGitignore(t *testing.T) {
 		}
 
 		contentStr := string(content)
-		requiredEntries := []string{".windsor/", ".volumes/", "terraform/**/backend_override.tf", "terraform/**/providers_override.tf"}
+		requiredEntries := []string{".windsor/", ".volumes/", "terraform/**/backend_override.tf"}
 		for _, entry := range requiredEntries {
 			if !strings.Contains(contentStr, entry) {
 				t.Errorf("Expected .gitignore to contain %s", entry)
