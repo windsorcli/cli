@@ -65,6 +65,7 @@ func (s *DefaultShell) RenderAliases(aliases map[string]string) string {
 
 // renderEnvVarsWithExport returns environment variables in sorted order using export commands as a string.
 // If a variable's value is empty, it returns an unset command instead.
+// Values containing special characters are quoted with single quotes to ensure safe shell evaluation.
 func (s *DefaultShell) renderEnvVarsWithExport(envVars map[string]string) string {
 	keys := make([]string, 0, len(envVars))
 	for k := range envVars {
@@ -77,7 +78,8 @@ func (s *DefaultShell) renderEnvVarsWithExport(envVars map[string]string) string
 		if envVars[k] == "" {
 			result.WriteString(fmt.Sprintf("unset %s\n", k))
 		} else {
-			result.WriteString(fmt.Sprintf("export %s=\"%s\"\n", k, envVars[k]))
+			value := s.quoteValueForShell(envVars[k], true)
+			result.WriteString(fmt.Sprintf("export %s=%s\n", k, value))
 		}
 	}
 	return result.String()

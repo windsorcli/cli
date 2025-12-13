@@ -14,6 +14,8 @@ import (
 	"strings"
 
 	"github.com/goccy/go-yaml"
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclwrite"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -172,24 +174,39 @@ func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath stri
 	destroyArgs := []string{"-auto-approve"}
 	destroyArgs = append(destroyArgs, varFileArgs...)
 
-	var parallelismArg string
 	component := e.getTerraformComponent(projectPath)
 	if component != nil && component.Parallelism != nil {
-		parallelismArg = fmt.Sprintf(" -parallelism=%d", *component.Parallelism)
-		applyArgs = append(applyArgs, fmt.Sprintf("-parallelism=%d", *component.Parallelism))
-		destroyArgs = append(destroyArgs, fmt.Sprintf("-parallelism=%d", *component.Parallelism))
+		parallelismArg := fmt.Sprintf("-parallelism=%d", *component.Parallelism)
+		applyArgs = append(applyArgs, parallelismArg)
+		destroyArgs = append(destroyArgs, parallelismArg)
 	}
 
 	applyArgs = append(applyArgs, tfPlanPath)
+
+	applyArgsForEnv := make([]string, len(applyArgs))
+	for i, arg := range applyArgs {
+		if arg == tfPlanPath {
+			applyArgsForEnv[i] = fmt.Sprintf("\"%s\"", arg)
+		} else {
+			applyArgsForEnv[i] = arg
+		}
+	}
+
+	destroyArgsForEnv := []string{"-auto-approve"}
+	destroyArgsForEnv = append(destroyArgsForEnv, varFileArgsForEnv...)
+	if component != nil && component.Parallelism != nil {
+		parallelismArg := fmt.Sprintf("-parallelism=%d", *component.Parallelism)
+		destroyArgsForEnv = append(destroyArgsForEnv, parallelismArg)
+	}
 
 	terraformVars := make(map[string]string)
 	terraformVars["TF_DATA_DIR"] = strings.TrimSpace(tfDataDir)
 	terraformVars["TF_CLI_ARGS_init"] = strings.TrimSpace(fmt.Sprintf("-backend=true -force-copy -upgrade %s", strings.Join(backendConfigArgsForEnv, " ")))
 	terraformVars["TF_CLI_ARGS_plan"] = strings.TrimSpace(fmt.Sprintf("-out=\"%s\" %s", tfPlanPath, strings.Join(varFileArgsForEnv, " ")))
-	terraformVars["TF_CLI_ARGS_apply"] = strings.TrimSpace(fmt.Sprintf("\"%s\"%s", tfPlanPath, parallelismArg))
+	terraformVars["TF_CLI_ARGS_apply"] = strings.TrimSpace(strings.Join(applyArgsForEnv, " "))
 	terraformVars["TF_CLI_ARGS_refresh"] = strings.TrimSpace(strings.Join(varFileArgsForEnv, " "))
 	terraformVars["TF_CLI_ARGS_import"] = strings.TrimSpace(strings.Join(varFileArgsForEnv, " "))
-	terraformVars["TF_CLI_ARGS_destroy"] = strings.TrimSpace(fmt.Sprintf("%s%s", strings.Join(varFileArgsForEnv, " "), parallelismArg))
+	terraformVars["TF_CLI_ARGS_destroy"] = strings.TrimSpace(strings.Join(destroyArgsForEnv, " "))
 	terraformVars["TF_VAR_context_path"] = strings.TrimSpace(filepath.ToSlash(configRoot))
 	terraformVars["TF_VAR_context_id"] = strings.TrimSpace(e.configHandler.GetString("id", ""))
 
@@ -246,16 +263,33 @@ func (e *TerraformEnvPrinter) addDependencyVariables(projectPath string, terrafo
 		if component.Path == projectPath {
 			break
 		}
-		outputs, err := e.captureTerraformOutputs(component.FullPath)
+		outputs, err := e.captureTerraformOutputs(component.Path)
 		if err != nil {
 			continue
 		}
-		componentOutputs[component.Path] = outputs
+		if len(outputs) > 0 {
+			componentOutputs[component.Path] = outputs
+		}
 	}
+
+	definedVariables, err := e.getDefinedVariables(projectPath)
+	if err != nil {
+		return fmt.Errorf("error getting defined variables: %w", err)
+	}
+
+	existingVariables := e.getExistingVariables(projectPath)
 
 	for _, depPath := range currentComponent.DependsOn {
 		if outputs, exists := componentOutputs[depPath]; exists {
 			for outputKey, outputValue := range outputs {
+				if !definedVariables[outputKey] {
+					continue
+				}
+
+				if existingVariables[outputKey] {
+					continue
+				}
+
 				var valueStr string
 				switch v := outputValue.(type) {
 				case string:
@@ -265,7 +299,11 @@ func (e *TerraformEnvPrinter) addDependencyVariables(projectPath string, terrafo
 				case bool:
 					valueStr = fmt.Sprintf("%t", v)
 				default:
-					valueStr = fmt.Sprintf("%v", v)
+					jsonBytes, err := e.shims.JsonMarshal(v)
+					if err != nil {
+						continue
+					}
+					valueStr = string(jsonBytes)
 				}
 				varName := fmt.Sprintf("TF_VAR_%s", outputKey)
 				terraformArgs.TerraformVars[varName] = valueStr
@@ -344,25 +382,28 @@ func (e *TerraformEnvPrinter) resolveTerraformComponentDependencies(components [
 // captureTerraformOutputs executes terraform output with proper environment setup for the specified component.
 // It locates the component path, generates terraform arguments with backend configuration, sets environment variables,
 // creates backend_override.tf, runs terraform output, and performs cleanup. Returns an empty map for any error to avoid blocking the env pipeline.
-func (e *TerraformEnvPrinter) captureTerraformOutputs(modulePath string) (map[string]any, error) {
-	var componentPath string
-	componentsInterface := e.getTerraformComponents()
-	components, ok := componentsInterface.([]blueprintv1alpha1.TerraformComponent)
-	if !ok {
+func (e *TerraformEnvPrinter) captureTerraformOutputs(componentPath string) (map[string]any, error) {
+	component := e.getTerraformComponent(componentPath)
+	if component == nil {
 		return make(map[string]any), nil
 	}
-	for _, component := range components {
-		if component.FullPath == modulePath {
-			componentPath = component.Path
-			break
+
+	var absModulePath string
+	if component.Source != "" {
+		windsorScratchPath, err := e.configHandler.GetWindsorScratchPath()
+		if err != nil {
+			return make(map[string]any), nil
 		}
+		absModulePath = filepath.Join(windsorScratchPath, "terraform", component.Path)
+	} else {
+		projectRoot, err := e.shell.GetProjectRoot()
+		if err != nil {
+			return make(map[string]any), nil
+		}
+		absModulePath = filepath.Join(projectRoot, "terraform", component.Path)
 	}
 
-	if componentPath == "" {
-		return make(map[string]any), nil
-	}
-
-	terraformArgs, err := e.GenerateTerraformArgs(componentPath, modulePath)
+	terraformArgs, err := e.GenerateTerraformArgs(componentPath, absModulePath)
 	if err != nil {
 		return make(map[string]any), nil
 	}
@@ -373,13 +414,13 @@ func (e *TerraformEnvPrinter) captureTerraformOutputs(modulePath string) (map[st
 		return make(map[string]any), nil
 	}
 
-	if err := e.generateBackendOverrideTf(modulePath); err != nil {
+	if err := e.generateBackendOverrideTf(absModulePath); err != nil {
 		e.restoreEnvVar("TF_DATA_DIR", originalTFDataDir)
 		return make(map[string]any), nil
 	}
 
 	cleanup := func() {
-		backendOverridePath := filepath.Join(modulePath, "backend_override.tf")
+		backendOverridePath := filepath.Join(absModulePath, "backend_override.tf")
 		if _, err := e.shims.Stat(backendOverridePath); err == nil {
 			_ = e.shims.Remove(backendOverridePath)
 		}
@@ -387,10 +428,18 @@ func (e *TerraformEnvPrinter) captureTerraformOutputs(modulePath string) (map[st
 	}
 	defer cleanup()
 
-	outputArgs := []string{fmt.Sprintf("-chdir=%s", modulePath), "output", "-json"}
+	outputArgs := []string{fmt.Sprintf("-chdir=%s", absModulePath), "output", "-json"}
 	output, err := e.shell.ExecSilent("terraform", outputArgs...)
 	if err != nil {
-		return make(map[string]any), nil
+		initArgs := []string{fmt.Sprintf("-chdir=%s", absModulePath), "init"}
+		initArgs = append(initArgs, terraformArgs.InitArgs...)
+		if _, initErr := e.shell.ExecSilent("terraform", initArgs...); initErr != nil {
+			return make(map[string]any), nil
+		}
+		output, err = e.shell.ExecSilent("terraform", outputArgs...)
+		if err != nil {
+			return make(map[string]any), nil
+		}
 	}
 
 	if strings.TrimSpace(output) == "" || strings.TrimSpace(output) == "{}" {
@@ -412,6 +461,144 @@ func (e *TerraformEnvPrinter) captureTerraformOutputs(modulePath string) (map[st
 	}
 
 	return result, nil
+}
+
+// getDefinedVariables parses terraform files in the module directory to find all variable declarations.
+// Returns a map of variable names to true for variables that are defined in the module.
+func (e *TerraformEnvPrinter) getDefinedVariables(projectPath string) (map[string]bool, error) {
+	component := e.getTerraformComponent(projectPath)
+	if component == nil {
+		return make(map[string]bool), nil
+	}
+
+	var moduleDir string
+	if component.Source != "" {
+		windsorScratchPath, err := e.configHandler.GetWindsorScratchPath()
+		if err != nil {
+			return make(map[string]bool), nil
+		}
+		moduleDir = filepath.Join(windsorScratchPath, "terraform", component.Path)
+	} else {
+		projectRoot, err := e.shell.GetProjectRoot()
+		if err != nil {
+			return make(map[string]bool), nil
+		}
+		moduleDir = filepath.Join(projectRoot, "terraform", component.Path)
+	}
+
+	variables := make(map[string]bool)
+	pattern := filepath.Join(moduleDir, "*.tf")
+	matches, err := e.shims.Glob(pattern)
+	if err != nil {
+		return variables, nil
+	}
+
+	for _, tfFile := range matches {
+		content, err := e.shims.ReadFile(tfFile)
+		if err != nil {
+			continue
+		}
+
+		parsedFile, diags := hclwrite.ParseConfig(content, tfFile, hcl.Pos{Line: 1, Column: 1})
+		if diags.HasErrors() {
+			continue
+		}
+
+		for _, block := range parsedFile.Body().Blocks() {
+			if block.Type() == "variable" && len(block.Labels()) > 0 {
+				variableName := block.Labels()[0]
+				variables[variableName] = true
+			}
+		}
+	}
+
+	return variables, nil
+}
+
+// getExistingVariables returns a map of variable names that are already explicitly defined.
+// Checks component Inputs and tfvars files. TF_VAR_ environment variables are not checked
+// to allow dependency injection to always override previously injected values.
+func (e *TerraformEnvPrinter) getExistingVariables(projectPath string) map[string]bool {
+	existing := make(map[string]bool)
+
+	component := e.getTerraformComponent(projectPath)
+	if component != nil {
+		for key := range component.Inputs {
+			existing[key] = true
+		}
+	}
+
+	configRoot, err := e.configHandler.GetConfigRoot()
+	if err != nil {
+		return existing
+	}
+
+	windsorScratchPath, err := e.configHandler.GetWindsorScratchPath()
+	if err != nil {
+		return existing
+	}
+
+	var moduleDir string
+	if component != nil {
+		if component.Source != "" {
+			windsorScratchPath, err := e.configHandler.GetWindsorScratchPath()
+			if err == nil {
+				moduleDir = filepath.Join(windsorScratchPath, "terraform", component.Path)
+			}
+		} else {
+			projectRoot, err := e.shell.GetProjectRoot()
+			if err == nil {
+				moduleDir = filepath.Join(projectRoot, "terraform", component.Path)
+			}
+		}
+	}
+
+	tfvarsFiles := []string{
+		filepath.Join(windsorScratchPath, "terraform", projectPath, "terraform.tfvars"),
+		filepath.Join(configRoot, "terraform", projectPath+".tfvars"),
+		filepath.Join(configRoot, "terraform", projectPath+".tfvars.json"),
+	}
+
+	if moduleDir != "" {
+		moduleTfvarsPattern := filepath.Join(moduleDir, "*.tfvars")
+		moduleTfvarsJsonPattern := filepath.Join(moduleDir, "*.tfvars.json")
+		if matches, err := e.shims.Glob(moduleTfvarsPattern); err == nil {
+			tfvarsFiles = append(tfvarsFiles, matches...)
+		}
+		if matches, err := e.shims.Glob(moduleTfvarsJsonPattern); err == nil {
+			tfvarsFiles = append(tfvarsFiles, matches...)
+		}
+	}
+
+	for _, tfvarsPath := range tfvarsFiles {
+		tfvarsPath = filepath.FromSlash(tfvarsPath)
+		if _, err := e.shims.Stat(tfvarsPath); err != nil {
+			continue
+		}
+
+		content, err := e.shims.ReadFile(tfvarsPath)
+		if err != nil {
+			continue
+		}
+
+		if strings.HasSuffix(strings.ToLower(tfvarsPath), ".json") {
+			var tfvarsData map[string]any
+			if err := e.shims.JsonUnmarshal(content, &tfvarsData); err == nil {
+				for key := range tfvarsData {
+					existing[key] = true
+				}
+			}
+		} else {
+			parsedFile, diags := hclwrite.ParseConfig(content, tfvarsPath, hcl.Pos{Line: 1, Column: 1})
+			if !diags.HasErrors() {
+				for name := range parsedFile.Body().Attributes() {
+					existing[name] = true
+				}
+			}
+		}
+	}
+
+	return existing
 }
 
 // setEnvVar sets an environment variable using os.Setenv as a fallback since shims doesn't have Setenv
@@ -705,8 +892,10 @@ func (e *TerraformEnvPrinter) getTerraformComponent(projectPath string) *bluepri
 // getTerraformComponents loads and parses Terraform components from a blueprint.yaml file.
 // If projectPath is provided and not empty, it returns a pointer to the matching TerraformComponent or nil if not found.
 // If projectPath is not provided, it returns a slice of all TerraformComponent structs from blueprint.yaml.
-// For each component, the FullPath field is set to the resolved absolute path for sourced components, or the relative path for local components.
-func (e *TerraformEnvPrinter) getTerraformComponents(projectPath ...string) interface{} {
+// For each component, the FullPath field is set to the resolved absolute path:
+// - Sourced components: .windsor/contexts/<context>/terraform/<path>
+// - Local components: <projectRoot>/terraform/<path>
+func (e *TerraformEnvPrinter) getTerraformComponents(projectPath ...string) any {
 	configRoot, err := e.configHandler.GetConfigRoot()
 	if err != nil {
 		if len(projectPath) > 0 {
@@ -732,12 +921,17 @@ func (e *TerraformEnvPrinter) getTerraformComponents(projectPath ...string) inte
 		return []blueprintv1alpha1.TerraformComponent{}
 	}
 
-	for i := range blueprint.TerraformComponents {
-		component := &blueprint.TerraformComponents[i]
-		if component.Source != "" {
-			component.FullPath = filepath.Join(configRoot, "terraform", component.Path)
-		} else {
-			component.FullPath = component.Path
+	projectRoot, err := e.shell.GetProjectRoot()
+	if err == nil {
+		context := e.configHandler.GetContext()
+		windsorScratchPath := filepath.Join(projectRoot, ".windsor", "contexts", context)
+		for i := range blueprint.TerraformComponents {
+			component := &blueprint.TerraformComponents[i]
+			if component.Source != "" {
+				component.FullPath = filepath.Join(windsorScratchPath, "terraform", component.Path)
+			} else {
+				component.FullPath = filepath.Join(projectRoot, "terraform", component.Path)
+			}
 		}
 	}
 
