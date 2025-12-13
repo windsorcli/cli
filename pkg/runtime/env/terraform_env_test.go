@@ -2956,7 +2956,8 @@ terraform:
 
 		originalGlob := mocks.Shims.Glob
 		mocks.Shims.Glob = func(pattern string) ([]string, error) {
-			if strings.Contains(pattern, "test/path") && strings.HasSuffix(pattern, "*.tfvars") {
+			normalizedPattern := strings.ReplaceAll(pattern, "\\", "/")
+			if strings.Contains(normalizedPattern, "test/path") && strings.HasSuffix(normalizedPattern, "*.tfvars") {
 				return []string{moduleTfvarsPath}, nil
 			}
 			return originalGlob(pattern)
@@ -3008,7 +3009,8 @@ terraform:
 
 		originalGlob := mocks.Shims.Glob
 		mocks.Shims.Glob = func(pattern string) ([]string, error) {
-			if strings.Contains(pattern, "test/path") && strings.HasSuffix(pattern, "*.tfvars.json") {
+			normalizedPattern := strings.ReplaceAll(pattern, "\\", "/")
+			if strings.Contains(normalizedPattern, "test/path") && strings.HasSuffix(normalizedPattern, "*.tfvars.json") {
 				return []string{moduleJsonTfvarsPath}, nil
 			}
 			return originalGlob(pattern)
