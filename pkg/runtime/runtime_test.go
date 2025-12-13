@@ -38,7 +38,7 @@ func setupRuntimeMocks(t *testing.T) *RuntimeTestMocks {
 		switch key {
 		case "docker.enabled", "cluster.enabled", "terraform.enabled":
 			return true
-		case "aws.enabled", "azure.enabled":
+		case "aws.enabled", "azure.enabled", "gcp.enabled":
 			return false
 		default:
 			return false
@@ -1674,6 +1674,36 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 		}
 	})
 
+	t.Run("SetsGCPDefaults", func(t *testing.T) {
+		// Given a runtime with GCP provider
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "prod"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		setCalls := make(map[string]interface{})
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			setCalls[key] = value
+			return nil
+		}
+
+		// When ApplyProviderDefaults is called with "gcp"
+		err := rt.ApplyProviderDefaults("gcp")
+
+		// Then GCP defaults should be set
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if setCalls["gcp.enabled"] != true {
+			t.Error("Expected gcp.enabled to be set to true")
+		}
+
+		if setCalls["cluster.driver"] != "gke" {
+			t.Error("Expected cluster.driver to be set to gke")
+		}
+	})
+
 	t.Run("SetsGenericDefaults", func(t *testing.T) {
 		// Given a runtime with generic provider
 		mocks := setupRuntimeMocks(t)
@@ -2739,6 +2769,29 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 
 		if rt.EnvPrinters.AzureEnv == nil {
 			t.Error("Expected AzureEnv to be initialized")
+		}
+	})
+
+	t.Run("InitializesGcpEnvWhenEnabled", func(t *testing.T) {
+		// Given a runtime with GCP enabled
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "gcp.enabled" {
+				return true
+			}
+			return false
+		}
+
+		// When initializeEnvPrinters is called
+		rt.initializeEnvPrinters()
+
+		// Then GCP env printer should be initialized
+
+		if rt.EnvPrinters.GcpEnv == nil {
+			t.Error("Expected GcpEnv to be initialized")
 		}
 	})
 
