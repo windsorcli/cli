@@ -2719,7 +2719,7 @@ terraform:
     dependsOn: [dep1]
   - path: later
     fullPath: /project/terraform/later
-    dependsOn: []`
+    dependsOn: [current]`
 
 		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
 			if filename == blueprintPath {
@@ -2741,18 +2741,25 @@ terraform:
 
 		dep1OutputCallCount := 0
 		laterOutputCallCount := 0
+		var capturedComponentIDs []string
 
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "terraform" {
 				if len(args) > 2 && args[1] == "output" && args[2] == "-json" {
-					componentPath := args[0]
-					if strings.Contains(componentPath, "dep1") {
+					chdirArg := args[0]
+					componentPath := strings.TrimPrefix(chdirArg, "-chdir=")
+					if strings.Contains(componentPath, "dep1") || strings.HasSuffix(componentPath, "/dep1") {
 						dep1OutputCallCount++
+						capturedComponentIDs = append(capturedComponentIDs, "dep1")
 						return `{"dep1_var": {"value": "dep1-value"}}`, nil
 					}
-					if strings.Contains(componentPath, "later") {
+					if strings.Contains(componentPath, "later") || strings.HasSuffix(componentPath, "/later") {
 						laterOutputCallCount++
+						capturedComponentIDs = append(capturedComponentIDs, "later")
 						return `{"later_var": {"value": "later-value"}}`, nil
+					}
+					if strings.Contains(componentPath, "current") || strings.HasSuffix(componentPath, "/current") {
+						capturedComponentIDs = append(capturedComponentIDs, "current")
 					}
 				}
 				if len(args) > 1 && args[1] == "init" {
@@ -2781,7 +2788,7 @@ terraform:
 		}
 
 		if laterOutputCallCount > 0 {
-			t.Errorf("Expected later component outputs to NOT be captured (comes after current component), but captureTerraformOutputs was called %d times", laterOutputCallCount)
+			t.Errorf("Expected later component outputs to NOT be captured (comes after current component), but captureTerraformOutputs was called %d times. Captured component IDs: %v", laterOutputCallCount, capturedComponentIDs)
 		}
 
 		if val, exists := terraformArgs.TerraformVars["TF_VAR_dep1_var"]; !exists || val != "dep1-value" {
