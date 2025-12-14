@@ -18,6 +18,7 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	envvars "github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 // =============================================================================
@@ -210,7 +211,12 @@ func setupWindsorStackMocks(t *testing.T, opts ...*SetupOptions) *TerraformTestM
 		return nil, nil
 	}
 
-	terraformEnv := envvars.NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+	mockToolsManager := tools.NewMockToolsManager()
+	mockToolsManager.GetTerraformCommandFunc = func() string {
+		return "terraform"
+	}
+	mocks.Runtime.ToolsManager = mockToolsManager
+	terraformEnv := envvars.NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mockToolsManager)
 	mocks.Runtime.EnvPrinters.TerraformEnv = terraformEnv
 
 	return mocks

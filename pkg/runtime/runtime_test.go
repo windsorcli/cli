@@ -108,9 +108,10 @@ func setupRuntimeMocks(t *testing.T) *RuntimeTestMocks {
 }
 
 type MockToolsManager struct {
-	WriteManifestFunc func() error
-	InstallFunc       func() error
-	CheckFunc         func() error
+	WriteManifestFunc       func() error
+	InstallFunc             func() error
+	CheckFunc               func() error
+	GetTerraformCommandFunc func() string
 }
 
 func (m *MockToolsManager) WriteManifest() error {
@@ -132,6 +133,13 @@ func (m *MockToolsManager) Check() error {
 		return m.CheckFunc()
 	}
 	return nil
+}
+
+func (m *MockToolsManager) GetTerraformCommand() string {
+	if m.GetTerraformCommandFunc != nil {
+		return m.GetTerraformCommandFunc()
+	}
+	return "terraform"
 }
 
 // =============================================================================

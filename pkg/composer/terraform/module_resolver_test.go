@@ -16,6 +16,7 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 // =============================================================================
@@ -95,9 +96,16 @@ contexts:
 
 	shims := setupDefaultShims()
 
+	// Create mock tools manager
+	mockToolsManager := tools.NewMockToolsManager()
+	mockToolsManager.GetTerraformCommandFunc = func() string {
+		return "terraform"
+	}
+
 	// Create runtime
 	rt := &runtime.Runtime{
 		ConfigHandler:      configHandler,
+		ToolsManager:       mockToolsManager,
 		Shell:              mockShell,
 		ProjectRoot:        tmpDir,
 		ContextName:        "local",

@@ -2,9 +2,10 @@ package tools
 
 // MockToolsManager is a mock implementation of the ToolsManager interface for testing purposes.
 type MockToolsManager struct {
-	WriteManifestFunc func() error
-	InstallFunc       func() error
-	CheckFunc         func() error
+	WriteManifestFunc       func() error
+	InstallFunc             func() error
+	CheckFunc               func() error
+	GetTerraformCommandFunc func() string
 }
 
 // =============================================================================
@@ -42,6 +43,14 @@ func (m *MockToolsManager) Check() error {
 		return m.CheckFunc()
 	}
 	return nil
+}
+
+// GetTerraformCommand calls the mock GetTerraformCommandFunc if set, otherwise returns "terraform"
+func (m *MockToolsManager) GetTerraformCommand() string {
+	if m.GetTerraformCommandFunc != nil {
+		return m.GetTerraformCommandFunc()
+	}
+	return "terraform"
 }
 
 // Ensure MockToolsManager implements ToolsManager.

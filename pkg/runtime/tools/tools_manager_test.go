@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -721,19 +723,23 @@ func TestToolsManager_checkTerraform(t *testing.T) {
 	})
 
 	t.Run("TerraformNotAvailable", func(t *testing.T) {
-		// Given terraform is not found in PATH
+		// Given neither terraform nor tofu is found in PATH
 		_, toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		defer func() {
+			execLookPath = originalExecLookPath
+		}()
 		execLookPath = func(name string) (string, error) {
-			if name == "terraform" {
-				return "", fmt.Errorf("terraform is not available in the PATH")
+			if name == "terraform" || name == "tofu" {
+				return "", fmt.Errorf("%s is not available in the PATH", name)
 			}
 			return "/usr/bin/" + name, nil
 		}
 		// When checking terraform version
 		err := toolsManager.checkTerraform()
-		// Then an error indicating terraform is not available should be returned
-		if err == nil || !strings.Contains(err.Error(), "terraform is not available in the PATH") {
-			t.Errorf("Expected terraform not available error, got %v", err)
+		// Then an error indicating terraform or tofu is not available should be returned
+		if err == nil || (!strings.Contains(err.Error(), "terraform is not available in the PATH") && !strings.Contains(err.Error(), "tofu is not available in the PATH")) {
+			t.Errorf("Expected terraform or tofu not available error, got %v", err)
 		}
 	})
 
@@ -1202,4 +1208,573 @@ func Test_extractVersion(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Tests for GetTerraformCommand functionality
+func TestToolsManager_GetTerraformCommand(t *testing.T) {
+	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
+		t.Helper()
+		mocks := setupMocks(t)
+		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		return mocks, toolsManager
+	}
+
+	t.Run("ReturnsTerraformWhenConfigHandlerIsNil", func(t *testing.T) {
+		// Given a tools manager with nil config handler
+		shell := sh.NewMockShell()
+		toolsManager := NewToolsManager(nil, shell)
+		// When GetTerraformCommand is called
+		command := toolsManager.GetTerraformCommand()
+		// Then it should return "terraform"
+		if command != "terraform" {
+			t.Errorf("Expected 'terraform', got %s", command)
+		}
+	})
+
+	t.Run("ReturnsTofuWhenDriverIsOpentofu", func(t *testing.T) {
+		// Given a tools manager with opentofu driver configured
+		mocks, toolsManager := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
+		if err := os.WriteFile(windsorYaml, []byte(`terraform:
+  driver: opentofu
+`), 0644); err != nil {
+			t.Fatalf("Failed to write windsor.yaml: %v", err)
+		}
+		// When GetTerraformCommand is called
+		command := toolsManager.GetTerraformCommand()
+		// Then it should return "tofu"
+		if command != "tofu" {
+			t.Errorf("Expected 'tofu', got %s", command)
+		}
+	})
+
+	t.Run("ReturnsTofuWhenDriverIsTofu", func(t *testing.T) {
+		// Given a tools manager with tofu driver configured (alias)
+		mocks, toolsManager := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
+		if err := os.WriteFile(windsorYaml, []byte(`terraform:
+  driver: tofu
+`), 0644); err != nil {
+			t.Fatalf("Failed to write windsor.yaml: %v", err)
+		}
+		// When GetTerraformCommand is called
+		command := toolsManager.GetTerraformCommand()
+		// Then it should return "tofu"
+		if command != "tofu" {
+			t.Errorf("Expected 'tofu', got %s", command)
+		}
+	})
+
+	t.Run("ReturnsTofuWhenDriverIsOpenTofu", func(t *testing.T) {
+		// Given a tools manager with OpenTofu driver configured (case variation)
+		mocks, toolsManager := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
+		if err := os.WriteFile(windsorYaml, []byte(`terraform:
+  driver: OpenTofu
+`), 0644); err != nil {
+			t.Fatalf("Failed to write windsor.yaml: %v", err)
+		}
+		// When GetTerraformCommand is called
+		command := toolsManager.GetTerraformCommand()
+		// Then it should return "tofu"
+		if command != "tofu" {
+			t.Errorf("Expected 'tofu', got %s", command)
+		}
+	})
+
+	t.Run("ReturnsTofuWhenDriverIsOPENTOFU", func(t *testing.T) {
+		// Given a tools manager with OPENTOFU driver configured (uppercase)
+		mocks, toolsManager := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
+		if err := os.WriteFile(windsorYaml, []byte(`terraform:
+  driver: OPENTOFU
+`), 0644); err != nil {
+			t.Fatalf("Failed to write windsor.yaml: %v", err)
+		}
+		// When GetTerraformCommand is called
+		command := toolsManager.GetTerraformCommand()
+		// Then it should return "tofu"
+		if command != "tofu" {
+			t.Errorf("Expected 'tofu', got %s", command)
+		}
+	})
+
+	t.Run("ReturnsTofuWhenDriverIsTOFU", func(t *testing.T) {
+		// Given a tools manager with TOFU driver configured (uppercase alias)
+		mocks, toolsManager := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
+		if err := os.WriteFile(windsorYaml, []byte(`terraform:
+  driver: TOFU
+`), 0644); err != nil {
+			t.Fatalf("Failed to write windsor.yaml: %v", err)
+		}
+		// When GetTerraformCommand is called
+		command := toolsManager.GetTerraformCommand()
+		// Then it should return "tofu"
+		if command != "tofu" {
+			t.Errorf("Expected 'tofu', got %s", command)
+		}
+	})
+
+	t.Run("ReturnsTerraformWhenDriverIsTerraform", func(t *testing.T) {
+		// Given a tools manager with terraform driver configured
+		mocks, toolsManager := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
+		if err := os.WriteFile(windsorYaml, []byte(`terraform:
+  driver: terraform
+`), 0644); err != nil {
+			t.Fatalf("Failed to write windsor.yaml: %v", err)
+		}
+		// When GetTerraformCommand is called
+		command := toolsManager.GetTerraformCommand()
+		// Then it should return "terraform"
+		if command != "terraform" {
+			t.Errorf("Expected 'terraform', got %s", command)
+		}
+	})
+
+	t.Run("ReturnsTerraformWhenDriverNotConfigured", func(t *testing.T) {
+		// Given a tools manager with no driver configured
+		mocks, toolsManager := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
+		if err := os.WriteFile(windsorYaml, []byte(`contexts:
+  test: {}
+`), 0644); err != nil {
+			t.Fatalf("Failed to write windsor.yaml: %v", err)
+		}
+		originalExecLookPath := execLookPath
+		defer func() {
+			execLookPath = originalExecLookPath
+		}()
+		execLookPath = func(name string) (string, error) {
+			if name == "terraform" {
+				return "/usr/bin/terraform", nil
+			}
+			return "", exec.ErrNotFound
+		}
+		// When GetTerraformCommand is called
+		command := toolsManager.GetTerraformCommand()
+		// Then it should return "terraform" (detected)
+		if command != "terraform" {
+			t.Errorf("Expected 'terraform', got %s", command)
+		}
+	})
+}
+
+// Tests for getTerraformDriver functionality
+func TestToolsManager_getTerraformDriver(t *testing.T) {
+	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
+		t.Helper()
+		mocks := setupMocks(t)
+		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		return mocks, toolsManager
+	}
+
+	t.Run("FallsBackToDetectionWhenShellIsNil", func(t *testing.T) {
+		// Given a tools manager with nil shell
+		toolsManager := NewToolsManager(nil, nil)
+		originalExecLookPath := execLookPath
+		defer func() {
+			execLookPath = originalExecLookPath
+		}()
+		execLookPath = func(name string) (string, error) {
+			if name == "terraform" {
+				return "/usr/bin/terraform", nil
+			}
+			return "", exec.ErrNotFound
+		}
+		// When getTerraformDriver is called
+		driver := toolsManager.getTerraformDriver()
+		// Then it should return "terraform" (from detection)
+		if driver != "terraform" {
+			t.Errorf("Expected 'terraform', got %s", driver)
+		}
+	})
+
+	t.Run("FallsBackToDetectionWhenGetProjectRootFails", func(t *testing.T) {
+		// Given a tools manager with GetProjectRoot error
+		mocks, toolsManager := setup(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("failed to get project root")
+		}
+		originalExecLookPath := execLookPath
+		defer func() {
+			execLookPath = originalExecLookPath
+		}()
+		execLookPath = func(name string) (string, error) {
+			if name == "terraform" {
+				return "/usr/bin/terraform", nil
+			}
+			return "", exec.ErrNotFound
+		}
+		// When getTerraformDriver is called
+		driver := toolsManager.getTerraformDriver()
+		// Then it should return "terraform" (from detection)
+		if driver != "terraform" {
+			t.Errorf("Expected 'terraform', got %s", driver)
+		}
+	})
+
+	t.Run("FallsBackToDetectionWhenWindsorYamlNotExists", func(t *testing.T) {
+		// Given a tools manager with no windsor.yaml
+		mocks, toolsManager := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		originalExecLookPath := execLookPath
+		defer func() {
+			execLookPath = originalExecLookPath
+		}()
+		execLookPath = func(name string) (string, error) {
+			if name == "terraform" {
+				return "/usr/bin/terraform", nil
+			}
+			return "", exec.ErrNotFound
+		}
+		// When getTerraformDriver is called
+		driver := toolsManager.getTerraformDriver()
+		// Then it should return "terraform" (from detection)
+		if driver != "terraform" {
+			t.Errorf("Expected 'terraform', got %s", driver)
+		}
+	})
+
+	t.Run("FallsBackToDetectionWhenWindsorYamlReadFails", func(t *testing.T) {
+		// Given a tools manager with unreadable windsor.yaml
+		mocks, toolsManager := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
+		if err := os.WriteFile(windsorYaml, []byte(`test`), 0644); err != nil {
+			t.Fatalf("Failed to write windsor.yaml: %v", err)
+		}
+		if runtime.GOOS != "windows" {
+			if err := os.Chmod(windsorYaml, 0000); err != nil {
+				t.Fatalf("Failed to chmod windsor.yaml: %v", err)
+			}
+			defer os.Chmod(windsorYaml, 0644)
+		}
+		originalExecLookPath := execLookPath
+		defer func() {
+			execLookPath = originalExecLookPath
+		}()
+		execLookPath = func(name string) (string, error) {
+			if name == "terraform" {
+				return "/usr/bin/terraform", nil
+			}
+			return "", exec.ErrNotFound
+		}
+		// When getTerraformDriver is called
+		driver := toolsManager.getTerraformDriver()
+		// Then it should return "terraform" (from detection)
+		if driver != "terraform" {
+			t.Errorf("Expected 'terraform', got %s", driver)
+		}
+	})
+
+	t.Run("FallsBackToDetectionWhenYamlIsInvalid", func(t *testing.T) {
+		// Given a tools manager with invalid YAML
+		mocks, toolsManager := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
+		if err := os.WriteFile(windsorYaml, []byte(`invalid: yaml: [content`), 0644); err != nil {
+			t.Fatalf("Failed to write windsor.yaml: %v", err)
+		}
+		originalExecLookPath := execLookPath
+		defer func() {
+			execLookPath = originalExecLookPath
+		}()
+		execLookPath = func(name string) (string, error) {
+			if name == "terraform" {
+				return "/usr/bin/terraform", nil
+			}
+			return "", exec.ErrNotFound
+		}
+		// When getTerraformDriver is called
+		driver := toolsManager.getTerraformDriver()
+		// Then it should return "terraform" (from detection)
+		if driver != "terraform" {
+			t.Errorf("Expected 'terraform', got %s", driver)
+		}
+	})
+
+	t.Run("ReturnsOpentofuWhenDriverIsConfigured", func(t *testing.T) {
+		// Given a tools manager with opentofu driver configured
+		mocks, toolsManager := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
+		if err := os.WriteFile(windsorYaml, []byte(`terraform:
+  driver: opentofu
+`), 0644); err != nil {
+			t.Fatalf("Failed to write windsor.yaml: %v", err)
+		}
+		// When getTerraformDriver is called
+		driver := toolsManager.getTerraformDriver()
+		// Then it should return "opentofu"
+		if driver != "opentofu" {
+			t.Errorf("Expected 'opentofu', got %s", driver)
+		}
+	})
+
+	t.Run("ReturnsOpenTofuWhenDriverIsOpenTofu", func(t *testing.T) {
+		// Given a tools manager with OpenTofu driver configured (case variation)
+		mocks, toolsManager := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
+		if err := os.WriteFile(windsorYaml, []byte(`terraform:
+  driver: OpenTofu
+`), 0644); err != nil {
+			t.Fatalf("Failed to write windsor.yaml: %v", err)
+		}
+		// When getTerraformDriver is called
+		driver := toolsManager.getTerraformDriver()
+		// Then it should return "OpenTofu" (preserves case from config)
+		if driver != "OpenTofu" {
+			t.Errorf("Expected 'OpenTofu', got %s", driver)
+		}
+		// And GetTerraformCommand should still return "tofu" (case-insensitive)
+		command := toolsManager.GetTerraformCommand()
+		if command != "tofu" {
+			t.Errorf("Expected GetTerraformCommand to return 'tofu', got %s", command)
+		}
+	})
+
+	t.Run("ReturnsTofuWhenDriverIsTofu", func(t *testing.T) {
+		// Given a tools manager with tofu driver configured (alias)
+		mocks, toolsManager := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
+		if err := os.WriteFile(windsorYaml, []byte(`terraform:
+  driver: tofu
+`), 0644); err != nil {
+			t.Fatalf("Failed to write windsor.yaml: %v", err)
+		}
+		// When getTerraformDriver is called
+		driver := toolsManager.getTerraformDriver()
+		// Then it should return "tofu"
+		if driver != "tofu" {
+			t.Errorf("Expected 'tofu', got %s", driver)
+		}
+		// And GetTerraformCommand should return "tofu"
+		command := toolsManager.GetTerraformCommand()
+		if command != "tofu" {
+			t.Errorf("Expected GetTerraformCommand to return 'tofu', got %s", command)
+		}
+	})
+
+	t.Run("ReturnsTerraformWhenDriverIsConfigured", func(t *testing.T) {
+		// Given a tools manager with terraform driver configured
+		mocks, toolsManager := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
+		if err := os.WriteFile(windsorYaml, []byte(`terraform:
+  driver: terraform
+`), 0644); err != nil {
+			t.Fatalf("Failed to write windsor.yaml: %v", err)
+		}
+		// When getTerraformDriver is called
+		driver := toolsManager.getTerraformDriver()
+		// Then it should return "terraform"
+		if driver != "terraform" {
+			t.Errorf("Expected 'terraform', got %s", driver)
+		}
+	})
+
+	t.Run("FallsBackToDetectionWhenDriverIsEmpty", func(t *testing.T) {
+		// Given a tools manager with empty driver
+		mocks, toolsManager := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
+		if err := os.WriteFile(windsorYaml, []byte(`terraform:
+  driver: ""
+`), 0644); err != nil {
+			t.Fatalf("Failed to write windsor.yaml: %v", err)
+		}
+		originalExecLookPath := execLookPath
+		defer func() {
+			execLookPath = originalExecLookPath
+		}()
+		execLookPath = func(name string) (string, error) {
+			if name == "terraform" {
+				return "/usr/bin/terraform", nil
+			}
+			return "", exec.ErrNotFound
+		}
+		// When getTerraformDriver is called
+		driver := toolsManager.getTerraformDriver()
+		// Then it should return "terraform" (from detection)
+		if driver != "terraform" {
+			t.Errorf("Expected 'terraform', got %s", driver)
+		}
+	})
+
+	t.Run("FallsBackToDetectionWhenTerraformSectionMissing", func(t *testing.T) {
+		// Given a tools manager with no terraform section
+		mocks, toolsManager := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
+		if err := os.WriteFile(windsorYaml, []byte(`contexts:
+  test: {}
+`), 0644); err != nil {
+			t.Fatalf("Failed to write windsor.yaml: %v", err)
+		}
+		originalExecLookPath := execLookPath
+		defer func() {
+			execLookPath = originalExecLookPath
+		}()
+		execLookPath = func(name string) (string, error) {
+			if name == "terraform" {
+				return "/usr/bin/terraform", nil
+			}
+			return "", exec.ErrNotFound
+		}
+		// When getTerraformDriver is called
+		driver := toolsManager.getTerraformDriver()
+		// Then it should return "terraform" (from detection)
+		if driver != "terraform" {
+			t.Errorf("Expected 'terraform', got %s", driver)
+		}
+	})
+}
+
+// Tests for detectTerraformDriver functionality
+func TestToolsManager_detectTerraformDriver(t *testing.T) {
+	setup := func(t *testing.T) *BaseToolsManager {
+		t.Helper()
+		mocks := setupMocks(t)
+		return NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+	}
+
+	t.Run("ReturnsTerraformWhenTerraformAvailable", func(t *testing.T) {
+		// Given terraform is available in PATH
+		toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		defer func() {
+			execLookPath = originalExecLookPath
+		}()
+		execLookPath = func(name string) (string, error) {
+			if name == "terraform" {
+				return "/usr/bin/terraform", nil
+			}
+			return "", exec.ErrNotFound
+		}
+		// When detectTerraformDriver is called
+		driver := toolsManager.detectTerraformDriver()
+		// Then it should return "terraform"
+		if driver != "terraform" {
+			t.Errorf("Expected 'terraform', got %s", driver)
+		}
+	})
+
+	t.Run("ReturnsOpentofuWhenOnlyTofuAvailable", func(t *testing.T) {
+		// Given only tofu is available in PATH
+		toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		defer func() {
+			execLookPath = originalExecLookPath
+		}()
+		execLookPath = func(name string) (string, error) {
+			if name == "tofu" {
+				return "/usr/bin/tofu", nil
+			}
+			return "", exec.ErrNotFound
+		}
+		// When detectTerraformDriver is called
+		driver := toolsManager.detectTerraformDriver()
+		// Then it should return "opentofu"
+		if driver != "opentofu" {
+			t.Errorf("Expected 'opentofu', got %s", driver)
+		}
+	})
+
+	t.Run("ReturnsTerraformWhenNeitherAvailable", func(t *testing.T) {
+		// Given neither terraform nor tofu is available
+		toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		defer func() {
+			execLookPath = originalExecLookPath
+		}()
+		execLookPath = func(name string) (string, error) {
+			return "", exec.ErrNotFound
+		}
+		// When detectTerraformDriver is called
+		driver := toolsManager.detectTerraformDriver()
+		// Then it should return "terraform" (default)
+		if driver != "terraform" {
+			t.Errorf("Expected 'terraform', got %s", driver)
+		}
+	})
+
+	t.Run("PrefersTerraformOverTofu", func(t *testing.T) {
+		// Given both terraform and tofu are available
+		toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		defer func() {
+			execLookPath = originalExecLookPath
+		}()
+		execLookPath = func(name string) (string, error) {
+			if name == "terraform" || name == "tofu" {
+				return "/usr/bin/" + name, nil
+			}
+			return "", exec.ErrNotFound
+		}
+		// When detectTerraformDriver is called
+		driver := toolsManager.detectTerraformDriver()
+		// Then it should return "terraform" (preferred)
+		if driver != "terraform" {
+			t.Errorf("Expected 'terraform', got %s", driver)
+		}
+	})
 }

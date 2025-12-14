@@ -99,9 +99,10 @@ func (h *StandardModuleResolver) ProcessModules() error {
 			return fmt.Errorf("failed to set TF_DATA_DIR for %s: %w", componentID, err)
 		}
 
+		terraformCommand := h.runtime.ToolsManager.GetTerraformCommand()
 		output, err := h.runtime.Shell.ExecProgress(
 			fmt.Sprintf("📥 Loading component %s", componentID),
-			"terraform",
+			terraformCommand,
 			"init",
 			"--backend=false",
 			"-input=false",

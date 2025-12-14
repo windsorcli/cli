@@ -14,11 +14,17 @@ import (
 	"github.com/windsorcli/cli/api/v1alpha1/vm"
 )
 
+// RootTerraformConfig represents the root-level terraform configuration
+type RootTerraformConfig struct {
+	Driver string `yaml:"driver,omitempty"`
+}
+
 // Config represents the entire configuration
 type Config struct {
-	Version      string              `yaml:"version"`
-	ToolsManager string              `yaml:"toolsManager,omitempty"`
-	Contexts     map[string]*Context `yaml:"contexts"`
+	Version      string               `yaml:"version"`
+	ToolsManager string               `yaml:"toolsManager,omitempty"`
+	Terraform    *RootTerraformConfig `yaml:"terraform,omitempty"`
+	Contexts     map[string]*Context  `yaml:"contexts"`
 }
 
 // Context represents the context configuration

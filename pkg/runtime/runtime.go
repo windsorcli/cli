@@ -419,7 +419,8 @@ func (rt *Runtime) initializeEnvPrinters() {
 		rt.EnvPrinters.TalosEnv = env.NewTalosEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
 	if rt.EnvPrinters.TerraformEnv == nil && rt.ConfigHandler.GetBool("terraform.enabled", false) {
-		rt.EnvPrinters.TerraformEnv = env.NewTerraformEnvPrinter(rt.Shell, rt.ConfigHandler)
+		rt.initializeToolsManager()
+		rt.EnvPrinters.TerraformEnv = env.NewTerraformEnvPrinter(rt.Shell, rt.ConfigHandler, rt.ToolsManager)
 	}
 	if rt.EnvPrinters.WindsorEnv == nil {
 		secretsProviders := []secretsRuntime.SecretsProvider{}
