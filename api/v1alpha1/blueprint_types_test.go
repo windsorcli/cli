@@ -2509,7 +2509,7 @@ func TestBlueprint_validateTerraformComponents(t *testing.T) {
 		err := blueprint.validateTerraformComponents()
 
 		if err == nil {
-			t.Error("Expected error for same path with different sources (path is the component ID), got nil")
+			t.Error("Expected error for same path with different sources (Path must be unique regardless of Source), got nil")
 		}
 		if !strings.Contains(err.Error(), "duplicate") {
 			t.Errorf("Expected error message to contain 'duplicate', got '%s'", err.Error())

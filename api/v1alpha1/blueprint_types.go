@@ -405,7 +405,7 @@ func (b *Blueprint) StrategicMerge(overlays ...*Blueprint) error {
 }
 
 // ReplaceTerraformComponent replaces an existing TerraformComponent with the provided component.
-// Components are matched by component ID (name if provided, otherwise Path+Source for backward compatibility).
+// Components are matched by component ID (name if provided, otherwise Path).
 // If a matching component exists, it is completely replaced. Otherwise, the component is appended.
 // Returns an error if a dependency cycle is detected during sorting or if component IDs are not unique.
 func (b *Blueprint) ReplaceTerraformComponent(component TerraformComponent) error {
@@ -414,23 +414,12 @@ func (b *Blueprint) ReplaceTerraformComponent(component TerraformComponent) erro
 	for i, existing := range b.TerraformComponents {
 		existingID := existing.GetID()
 
-		shouldReplace := false
-		if component.Name != "" {
-			shouldReplace = existingID == componentID
-		} else {
-			shouldReplace = existing.Path == component.Path && existing.Source == component.Source
-		}
-
-		if shouldReplace {
+		if existingID == componentID {
 			b.TerraformComponents[i] = component
 			if err := b.sortTerraform(); err != nil {
 				return err
 			}
 			return b.validateTerraformComponents()
-		}
-
-		if existingID == componentID && !shouldReplace {
-			return fmt.Errorf("duplicate terraform component ID %q: component with name %q and path %q conflicts with existing component with name %q and path %q", componentID, component.Name, component.Path, existing.Name, existing.Path)
 		}
 	}
 	b.TerraformComponents = append(b.TerraformComponents, component)
@@ -455,7 +444,7 @@ func (b *Blueprint) ReplaceKustomization(kustomization Kustomization) error {
 }
 
 // RemoveTerraformComponent removes specified non-index fields from an existing TerraformComponent.
-// Components are matched by component ID (name if provided, otherwise Path+Source for backward compatibility).
+// Components are matched by component ID (name if provided, otherwise Path).
 // It removes inputs, dependencies, and other fields that are specified in the removal component.
 // Index fields (Name, Path, Source) are not affected. If no matching component exists, no action is taken.
 func (b *Blueprint) RemoveTerraformComponent(removal TerraformComponent) error {
@@ -463,14 +452,7 @@ func (b *Blueprint) RemoveTerraformComponent(removal TerraformComponent) error {
 	for i, existing := range b.TerraformComponents {
 		existingID := existing.GetID()
 
-		shouldRemove := false
-		if removal.Name != "" {
-			shouldRemove = existingID == removalID
-		} else {
-			shouldRemove = existing.Path == removal.Path && existing.Source == removal.Source
-		}
-
-		if shouldRemove {
+		if existingID == removalID {
 			if len(removal.Inputs) > 0 && existing.Inputs != nil {
 				for key := range removal.Inputs {
 					delete(existing.Inputs, key)
@@ -727,7 +709,7 @@ func (b *Blueprint) validateTerraformComponents() error {
 
 // strategicMergeTerraformComponent performs a strategic merge of the provided TerraformComponent into the Blueprint.
 // It merges values, appends unique dependencies, updates fields if provided, and maintains dependency order.
-// Components are matched by component ID (name if provided, otherwise Path+Source for backward compatibility).
+// Components are matched by component ID (name if provided, otherwise Path).
 // Returns an error if a dependency cycle is detected during sorting or if component IDs are not unique.
 func (b *Blueprint) strategicMergeTerraformComponent(component TerraformComponent) error {
 	componentID := component.GetID()
@@ -735,14 +717,7 @@ func (b *Blueprint) strategicMergeTerraformComponent(component TerraformComponen
 	for i, existing := range b.TerraformComponents {
 		existingID := existing.GetID()
 
-		shouldMerge := false
-		if component.Name != "" {
-			shouldMerge = existingID == componentID
-		} else {
-			shouldMerge = existing.Path == component.Path && existing.Source == component.Source
-		}
-
-		if shouldMerge {
+		if existingID == componentID {
 			if len(component.Inputs) > 0 {
 				if existing.Inputs == nil {
 					existing.Inputs = make(map[string]any)
@@ -768,10 +743,6 @@ func (b *Blueprint) strategicMergeTerraformComponent(component TerraformComponen
 				return err
 			}
 			return b.validateTerraformComponents()
-		}
-
-		if existingID == componentID && !shouldMerge {
-			return fmt.Errorf("duplicate terraform component ID %q: component with name %q and path %q conflicts with existing component with name %q and path %q", componentID, component.Name, component.Path, existing.Name, existing.Path)
 		}
 	}
 
