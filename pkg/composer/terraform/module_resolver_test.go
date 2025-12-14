@@ -472,7 +472,7 @@ variable "instance_type" {
 		// Given a resolver
 		resolver, _ := setup(t)
 
-		// And a temporary directory structure without variables.tf
+		// And a temporary directory structure without any .tf files
 		tmpDir := t.TempDir()
 		moduleDir := filepath.Join(tmpDir, "shim")
 		modulePath := filepath.Join(tmpDir, "source")
@@ -487,19 +487,22 @@ variable "instance_type" {
 		// When writing the shim variables.tf
 		err := resolver.writeShimVariablesTf(moduleDir, modulePath, "test-source")
 
-		// Then no error should be returned (missing variables.tf is not an error)
+		// Then no error should be returned (no .tf files is not an error)
 		if err != nil {
-			t.Errorf("Expected no error for missing variables.tf, got: %v", err)
+			t.Errorf("Expected no error for module with no .tf files, got: %v", err)
 		}
 
-		// And an empty variables.tf file should be created
+		// And variables.tf should not be created (no variables to write)
 		shimVariablesPath := filepath.Join(moduleDir, "variables.tf")
-		info, statErr := resolver.shims.Stat(shimVariablesPath)
-		if statErr != nil {
-			t.Errorf("Expected variables.tf to be created, got error: %v", statErr)
+		_, statErr := resolver.shims.Stat(shimVariablesPath)
+		if statErr == nil {
+			t.Error("Expected variables.tf not to be created when there are no variables")
 		}
-		if info != nil && info.Size() != 0 {
-			t.Errorf("Expected variables.tf to be empty, got size: %d", info.Size())
+
+		// And main.tf should be created
+		shimMainPath := filepath.Join(moduleDir, "main.tf")
+		if _, err := resolver.shims.Stat(shimMainPath); err != nil {
+			t.Errorf("Expected main.tf to be created, got error: %v", err)
 		}
 	})
 
@@ -519,22 +522,36 @@ variable "instance_type" {
 			t.Fatalf("Failed to create source directory: %v", err)
 		}
 
-		// And an invalid variables.tf file
-		variablesContent := `invalid hcl syntax {`
-		variablesPath := filepath.Join(modulePath, "variables.tf")
-		if err := resolver.shims.WriteFile(variablesPath, []byte(variablesContent), 0644); err != nil {
-			t.Fatalf("Failed to write variables.tf: %v", err)
+		// And an invalid .tf file (invalid files are skipped)
+		invalidContent := `invalid hcl syntax {`
+		invalidPath := filepath.Join(modulePath, "invalid.tf")
+		if err := resolver.shims.WriteFile(invalidPath, []byte(invalidContent), 0644); err != nil {
+			t.Fatalf("Failed to write invalid.tf: %v", err)
+		}
+
+		// And a valid .tf file with variables
+		validContent := `variable "test_var" { type = string }`
+		validPath := filepath.Join(modulePath, "main.tf")
+		if err := resolver.shims.WriteFile(validPath, []byte(validContent), 0644); err != nil {
+			t.Fatalf("Failed to write main.tf: %v", err)
 		}
 
 		// When writing the shim variables.tf
 		err := resolver.writeShimVariablesTf(moduleDir, modulePath, "test-source")
 
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error, got nil")
+		// Then no error should be returned (invalid files are skipped)
+		if err != nil {
+			t.Errorf("Expected no error when invalid file is skipped, got: %v", err)
 		}
-		if !strings.Contains(err.Error(), "failed to parse variables.tf") {
-			t.Errorf("Expected error about parsing variables.tf, got: %v", err)
+
+		// And the shim variables.tf should contain the valid variable
+		shimVariablesPath := filepath.Join(moduleDir, "variables.tf")
+		content, readErr := resolver.shims.ReadFile(shimVariablesPath)
+		if readErr != nil {
+			t.Errorf("Expected variables.tf to be created, got error: %v", readErr)
+		}
+		if content != nil && !strings.Contains(string(content), "test_var") {
+			t.Errorf("Expected variables.tf to contain test_var, got content: %s", string(content))
 		}
 	})
 }
@@ -1601,25 +1618,29 @@ variable "nested_map" { type = object({ inner = object({ deep = object({ value =
 	})
 
 	t.Run("HandlesGenerateTfvarsFileParseError", func(t *testing.T) {
-		// Given a resolver with generateTfvarsFile that fails to parse variables.tf
+		// Given a resolver with generateTfvarsFile that encounters invalid HCL in a .tf file
 		resolver, mocks := setup(t)
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
-		if err := os.MkdirAll(variablesDir, 0755); err != nil {
+		moduleDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
+		if err := os.MkdirAll(moduleDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
 		}
-		// Write invalid HCL
-		if err := os.WriteFile(filepath.Join(variablesDir, "variables.tf"), []byte(`invalid hcl syntax {`), 0644); err != nil {
-			t.Fatalf("Failed to write variables.tf: %v", err)
+		// Write invalid HCL - this file will be skipped during parsing
+		if err := os.WriteFile(filepath.Join(moduleDir, "invalid.tf"), []byte(`invalid hcl syntax {`), 0644); err != nil {
+			t.Fatalf("Failed to write invalid.tf: %v", err)
+		}
+		// Write a valid .tf file with variables
+		if err := os.WriteFile(filepath.Join(moduleDir, "main.tf"), []byte(`variable "test_var" { type = string }`), 0644); err != nil {
+			t.Fatalf("Failed to write main.tf: %v", err)
 		}
 
 		// When generating tfvars
 		err := resolver.GenerateTfvars(false)
 
-		// Then it should return an error
-		if err == nil {
-			t.Error("Expected error when parsing variables.tf fails")
+		// Then it should not return an error (invalid files are skipped)
+		if err != nil {
+			t.Errorf("Expected no error when invalid HCL file is skipped, got: %v", err)
 		}
 	})
 
@@ -1847,8 +1868,8 @@ variable "cluster_name" { type = string }`
 		}
 	})
 
-	t.Run("HandlesFindVariablesTfFileForComponentError", func(t *testing.T) {
-		// Given a resolver with a component that has no variables.tf file
+	t.Run("HandlesFindModulePathForComponentError", func(t *testing.T) {
+		// Given a resolver with a component that has no module directory
 		resolver, mocks := setup(t)
 
 		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
@@ -1868,35 +1889,26 @@ variable "cluster_name" { type = string }`
 
 		// Then it should return an error
 		if err == nil {
-			t.Error("Expected error when variables.tf is not found")
+			t.Error("Expected error when module directory is not found")
 		}
 	})
 
-	t.Run("HandlesParseVariablesFileReadError", func(t *testing.T) {
-		// Given a resolver with parseVariablesFile that fails to read
+	t.Run("HandlesParseVariablesFromModuleWithNoTfFiles", func(t *testing.T) {
+		// Given a resolver with a module directory that has no .tf files
 		resolver, mocks := setup(t)
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
-		if err := os.MkdirAll(variablesDir, 0755); err != nil {
+		moduleDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
+		if err := os.MkdirAll(moduleDir, 0755); err != nil {
 			t.Fatalf("Failed to create dir: %v", err)
-		}
-
-		// Mock ReadFile to return error
-		originalReadFile := resolver.shims.ReadFile
-		resolver.shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.HasSuffix(path, "variables.tf") {
-				return nil, fmt.Errorf("read error")
-			}
-			return originalReadFile(path)
 		}
 
 		// When generating tfvars
 		err := resolver.GenerateTfvars(false)
 
-		// Then it should return an error
-		if err == nil {
-			t.Error("Expected error when ReadFile fails in parseVariablesFile")
+		// Then it should not return an error (empty variables list is valid)
+		if err != nil {
+			t.Errorf("Expected no error when module has no .tf files, got: %v", err)
 		}
 	})
 

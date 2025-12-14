@@ -330,6 +330,27 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 		// Given a resolver with WriteFile shim returning error for variables.tf
 		resolver, _ := setup(t)
 		resolver.BaseModuleResolver.runtime.ConfigRoot = "/test/config"
+
+		// Mock Glob to return a variables.tf file so writeShimVariablesTf will try to process it
+		originalGlob := resolver.BaseModuleResolver.shims.Glob
+		resolver.BaseModuleResolver.shims.Glob = func(pattern string) ([]string, error) {
+			if strings.HasSuffix(pattern, "*.tf") {
+				// Return a variables.tf file for any .tf pattern
+				moduleDir := strings.TrimSuffix(pattern, "/*.tf")
+				return []string{filepath.Join(moduleDir, "variables.tf")}, nil
+			}
+			return originalGlob(pattern)
+		}
+
+		// Mock ReadFile to return variable content
+		originalReadFile := resolver.BaseModuleResolver.shims.ReadFile
+		resolver.BaseModuleResolver.shims.ReadFile = func(path string) ([]byte, error) {
+			if strings.HasSuffix(path, "variables.tf") {
+				return []byte(`variable "test" { type = string }`), nil
+			}
+			return originalReadFile(path)
+		}
+
 		resolver.BaseModuleResolver.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			if strings.HasSuffix(path, "variables.tf") {
 				return errors.New("write variables.tf error")

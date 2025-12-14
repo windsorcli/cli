@@ -71,8 +71,8 @@ func NewBaseModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.Bluep
 // contexts/<context>/terraform/<module_path>.tfvars. For each entry in the input data, it skips keys
 // not prefixed with "terraform/" and skips components not present in the blueprint. For all components
 // in the blueprint, it ensures a tfvars file is generated if not already handled by the input data.
-// The method uses the blueprint handler to retrieve TerraformComponents and determines the variables.tf
-// location based on component source (remote or local). Module resolution is handled by pkg/terraform.
+// The method uses the blueprint handler to retrieve TerraformComponents and parses variables from all
+// .tf files in the module directory based on component source (remote or local). Module resolution is handled by pkg/terraform.
 func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 	h.reset = overwrite
 
@@ -122,68 +122,91 @@ func (h *BaseModuleResolver) checkExistingTfvarsFile(tfvarsFilePath string) erro
 	return nil
 }
 
-// parseVariablesFile parses variables.tf and returns metadata about the variables.
-// It extracts variable names, descriptions, default values, and sensitivity flags.
-// Protected values are excluded from the returned metadata.
-func (h *BaseModuleResolver) parseVariablesFile(variablesTfPath string, protectedValues map[string]bool) ([]VariableInfo, error) {
-	variablesContent, err := h.shims.ReadFile(variablesTfPath)
+// parseVariablesFromModule parses all .tf files in a module directory and returns metadata about the variables.
+// It extracts variable names, descriptions, default values, and sensitivity flags from any .tf file in the module.
+// Protected values are excluded from the returned metadata. Returns an empty slice if no variables are found,
+// but returns an error if Glob fails (indicating a filesystem issue).
+func (h *BaseModuleResolver) parseVariablesFromModule(modulePath string, protectedValues map[string]bool) ([]VariableInfo, error) {
+	pattern := filepath.Join(modulePath, "*.tf")
+	matches, err := h.shims.Glob(pattern)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read variables.tf: %w", err)
+		return nil, fmt.Errorf("failed to find .tf files in module: %w", err)
 	}
 
-	variablesFile, diags := hclwrite.ParseConfig(variablesContent, variablesTfPath, hcl.Pos{Line: 1, Column: 1})
-	if diags.HasErrors() {
-		return nil, fmt.Errorf("failed to parse variables.tf: %w", diags)
+	if len(matches) == 0 {
+		return []VariableInfo{}, nil
 	}
 
-	var variables []VariableInfo
-	for _, block := range variablesFile.Body().Blocks() {
-		if block.Type() == "variable" && len(block.Labels()) > 0 {
-			variableName := block.Labels()[0]
+	variableMap := make(map[string]*VariableInfo)
 
-			if protectedValues[variableName] {
-				continue
-			}
-
-			info := VariableInfo{
-				Name: variableName,
-			}
-
-			if attr := block.Body().GetAttribute("description"); attr != nil {
-				exprBytes := attr.Expr().BuildTokens(nil).Bytes()
-				parsedExpr, diags := hclsyntax.ParseExpression(exprBytes, "description", hcl.Pos{Line: 1, Column: 1})
-				if !diags.HasErrors() {
-					val, diags := parsedExpr.Value(nil)
-					if !diags.HasErrors() && val.Type() == cty.String {
-						info.Description = val.AsString()
-					}
-				}
-			}
-
-			if attr := block.Body().GetAttribute("sensitive"); attr != nil {
-				exprBytes := attr.Expr().BuildTokens(nil).Bytes()
-				parsedExpr, diags := hclsyntax.ParseExpression(exprBytes, "sensitive", hcl.Pos{Line: 1, Column: 1})
-				if !diags.HasErrors() {
-					val, diags := parsedExpr.Value(nil)
-					if !diags.HasErrors() && val.Type() == cty.Bool {
-						info.Sensitive = val.True()
-					}
-				}
-			}
-
-			if attr := block.Body().GetAttribute("default"); attr != nil {
-				exprBytes := attr.Expr().BuildTokens(nil).Bytes()
-				parsedExpr, diags := hclsyntax.ParseExpression(exprBytes, "default", hcl.Pos{Line: 1, Column: 1})
-				if !diags.HasErrors() {
-					val, diags := parsedExpr.Value(nil)
-					if !diags.HasErrors() {
-						info.Default = convertFromCtyValue(val)
-					}
-				}
-			}
-
-			variables = append(variables, info)
+	for _, tfFile := range matches {
+		content, err := h.shims.ReadFile(tfFile)
+		if err != nil {
+			continue
 		}
+
+		parsedFile, diags := hclwrite.ParseConfig(content, tfFile, hcl.Pos{Line: 1, Column: 1})
+		if diags.HasErrors() {
+			continue
+		}
+
+		for _, block := range parsedFile.Body().Blocks() {
+			if block.Type() == "variable" && len(block.Labels()) > 0 {
+				variableName := block.Labels()[0]
+
+				if protectedValues[variableName] {
+					continue
+				}
+
+				if _, exists := variableMap[variableName]; exists {
+					continue
+				}
+
+				info := &VariableInfo{
+					Name: variableName,
+				}
+
+				if attr := block.Body().GetAttribute("description"); attr != nil {
+					exprBytes := attr.Expr().BuildTokens(nil).Bytes()
+					parsedExpr, diags := hclsyntax.ParseExpression(exprBytes, "description", hcl.Pos{Line: 1, Column: 1})
+					if !diags.HasErrors() {
+						val, diags := parsedExpr.Value(nil)
+						if !diags.HasErrors() && val.Type() == cty.String {
+							info.Description = val.AsString()
+						}
+					}
+				}
+
+				if attr := block.Body().GetAttribute("sensitive"); attr != nil {
+					exprBytes := attr.Expr().BuildTokens(nil).Bytes()
+					parsedExpr, diags := hclsyntax.ParseExpression(exprBytes, "sensitive", hcl.Pos{Line: 1, Column: 1})
+					if !diags.HasErrors() {
+						val, diags := parsedExpr.Value(nil)
+						if !diags.HasErrors() && val.Type() == cty.Bool {
+							info.Sensitive = val.True()
+						}
+					}
+				}
+
+				if attr := block.Body().GetAttribute("default"); attr != nil {
+					exprBytes := attr.Expr().BuildTokens(nil).Bytes()
+					parsedExpr, diags := hclsyntax.ParseExpression(exprBytes, "default", hcl.Pos{Line: 1, Column: 1})
+					if !diags.HasErrors() {
+						val, diags := parsedExpr.Value(nil)
+						if !diags.HasErrors() {
+							info.Default = convertFromCtyValue(val)
+						}
+					}
+				}
+
+				variableMap[variableName] = info
+			}
+		}
+	}
+
+	variables := make([]VariableInfo, 0, len(variableMap))
+	for _, info := range variableMap {
+		variables = append(variables, *info)
 	}
 
 	return variables, nil
@@ -193,49 +216,49 @@ func (h *BaseModuleResolver) parseVariablesFile(variablesTfPath string, protecte
 // All components write tfvars files to .windsor/contexts/<context>/terraform/<component.Path>/terraform.tfvars,
 // regardless of whether they have a Source (remote) or not (local). This unifies the behavior
 // between local templates and OCI artifacts, preventing writes to the contexts folder.
-// Returns an error if variables.tf cannot be found or if tfvars file generation fails.
+// Returns an error if tfvars file generation fails.
 func (h *BaseModuleResolver) generateComponentTfvars(projectRoot string, component blueprintv1alpha1.TerraformComponent, componentValues map[string]any) error {
-	variablesTfPath, err := h.findVariablesTfFileForComponent(projectRoot, component)
+	modulePath, err := h.findModulePathForComponent(projectRoot, component)
 	if err != nil {
-		return fmt.Errorf("failed to find variables.tf for component %s: %w", component.Path, err)
+		return fmt.Errorf("failed to find module path for component %s: %w", component.Path, err)
 	}
 
 	moduleTfvarsPath := filepath.Join(projectRoot, ".windsor", "contexts", h.runtime.ContextName, "terraform", component.Path, "terraform.tfvars")
 	if err := h.removeTfvarsFiles(filepath.Dir(moduleTfvarsPath)); err != nil {
 		return fmt.Errorf("failed cleaning existing .tfvars in module dir %s: %w", filepath.Dir(moduleTfvarsPath), err)
 	}
-	if err := h.generateTfvarsFile(moduleTfvarsPath, variablesTfPath, componentValues, component.Source); err != nil {
+	if err := h.generateTfvarsFile(moduleTfvarsPath, modulePath, componentValues, component.Source); err != nil {
 		return fmt.Errorf("failed to generate module tfvars file: %w", err)
 	}
 
 	return nil
 }
 
-// findVariablesTfFileForComponent returns the path to the variables.tf file for the specified Terraform component.
-// If the component has a non-empty Source, the path is .windsor/contexts/<context>/terraform/<component.Path>/variables.tf under the project root.
-// If the component has an empty Source, the path is terraform/<component.Path>/variables.tf under the project root.
-// Returns the variables.tf file path if it exists, or an error if not found.
-func (h *BaseModuleResolver) findVariablesTfFileForComponent(projectRoot string, component blueprintv1alpha1.TerraformComponent) (string, error) {
-	var variablesTfPath string
+// findModulePathForComponent returns the path to the module directory for the specified Terraform component.
+// If the component has a non-empty Source, the path is .windsor/contexts/<context>/terraform/<component.Path> under the project root.
+// If the component has an empty Source, the path is terraform/<component.Path> under the project root.
+// Returns the module directory path if it exists, or an error if not found.
+func (h *BaseModuleResolver) findModulePathForComponent(projectRoot string, component blueprintv1alpha1.TerraformComponent) (string, error) {
+	var modulePath string
 
 	if component.Source != "" {
-		variablesTfPath = filepath.Join(projectRoot, ".windsor", "contexts", h.runtime.ContextName, "terraform", component.Path, "variables.tf")
+		modulePath = filepath.Join(projectRoot, ".windsor", "contexts", h.runtime.ContextName, "terraform", component.Path)
 	} else {
-		variablesTfPath = filepath.Join(projectRoot, "terraform", component.Path, "variables.tf")
+		modulePath = filepath.Join(projectRoot, "terraform", component.Path)
 	}
 
-	if _, err := h.shims.Stat(variablesTfPath); err != nil {
-		return "", fmt.Errorf("variables.tf not found for component %s at %s", component.Path, variablesTfPath)
+	if _, err := h.shims.Stat(modulePath); err != nil {
+		return "", fmt.Errorf("module directory not found for component %s at %s", component.Path, modulePath)
 	}
 
-	return variablesTfPath, nil
+	return modulePath, nil
 }
 
-// generateTfvarsFile generates a tfvars file at the specified path using the provided variables.tf file and component values.
-// It parses the variables.tf file to extract variable definitions, merges them with the given component values (excluding protected values),
-// and writes a formatted tfvars file. If the file already exists and reset mode is not enabled, the function skips writing.
-// The function ensures the parent directory exists and returns an error if any file or directory operation fails.
-func (h *BaseModuleResolver) generateTfvarsFile(tfvarsFilePath, variablesTfPath string, componentValues map[string]any, source string) error {
+// generateTfvarsFile generates a tfvars file at the specified path using the provided module directory and component values.
+// It parses all .tf files in the module directory to extract variable definitions, merges them with the given component values
+// (excluding protected values), and writes a formatted tfvars file. If the file already exists and reset mode is not enabled,
+// the function skips writing. The function ensures the parent directory exists and returns an error if any file or directory operation fails.
+func (h *BaseModuleResolver) generateTfvarsFile(tfvarsFilePath, modulePath string, componentValues map[string]any, source string) error {
 	protectedValues := map[string]bool{
 		"context_path": true,
 		"os_type":      true,
@@ -251,9 +274,9 @@ func (h *BaseModuleResolver) generateTfvarsFile(tfvarsFilePath, variablesTfPath 
 		}
 	}
 
-	variables, err := h.parseVariablesFile(variablesTfPath, protectedValues)
+	variables, err := h.parseVariablesFromModule(modulePath, protectedValues)
 	if err != nil {
-		return fmt.Errorf("failed to parse variables.tf: %w", err)
+		return fmt.Errorf("failed to parse variables from module: %w", err)
 	}
 
 	mergedFile := hclwrite.NewEmptyFile()
@@ -602,71 +625,89 @@ func (h *BaseModuleResolver) writeShimMainTf(moduleDir, source string) error {
 	return nil
 }
 
-// writeShimVariablesTf creates the variables.tf file for the shim module by reading the original
-// module's variables.tf file and generating corresponding variable blocks and module arguments.
-// It parses variable definitions from the source module, creates shim variable blocks that preserve
-// all attributes (description, type, default, sensitive), and configures the main module block
-// to pass through all variables using var.variable_name references.
+// writeShimVariablesTf creates the variables.tf file for the shim module by parsing all .tf files
+// in the original module and generating corresponding variable blocks and module arguments.
+// It parses variable definitions from any .tf file in the source module, creates shim variable blocks
+// that preserve all attributes (description, type, default, sensitive), and configures the main
+// module block to pass through all variables using var.variable_name references.
 func (h *BaseModuleResolver) writeShimVariablesTf(moduleDir, modulePath, source string) error {
 	shimMainContent := hclwrite.NewEmptyFile()
 	shimBlock := shimMainContent.Body().AppendNewBlock("module", []string{"main"})
 	shimBody := shimBlock.Body()
 	shimBody.SetAttributeRaw("source", hclwrite.TokensForValue(cty.StringVal(source)))
 
-	variablesPath := filepath.Join(modulePath, "variables.tf")
-	if _, err := h.shims.Stat(variablesPath); err != nil {
-		if err := h.shims.WriteFile(filepath.Join(moduleDir, "variables.tf"), []byte{}, 0644); err != nil {
-			return fmt.Errorf("failed to write empty variables.tf: %w", err)
-		}
+	pattern := filepath.Join(modulePath, "*.tf")
+	matches, err := h.shims.Glob(pattern)
+	if err != nil {
+		return fmt.Errorf("failed to find .tf files in module: %w", err)
+	}
+
+	if len(matches) == 0 {
 		if err := h.shims.WriteFile(filepath.Join(moduleDir, "main.tf"), shimMainContent.Bytes(), 0644); err != nil {
 			return fmt.Errorf("failed to write shim main.tf: %w", err)
 		}
 		return nil
 	}
 
-	variablesContent, err := h.shims.ReadFile(variablesPath)
-	if err != nil {
-		return fmt.Errorf("failed to read variables.tf: %w", err)
+	variableMap := make(map[string]*hclwrite.Block)
+
+	for _, tfFile := range matches {
+		content, err := h.shims.ReadFile(tfFile)
+		if err != nil {
+			continue
+		}
+
+		parsedFile, diags := hclwrite.ParseConfig(content, tfFile, hcl.Pos{Line: 1, Column: 1})
+		if diags.HasErrors() {
+			continue
+		}
+
+		for _, block := range parsedFile.Body().Blocks() {
+			if block.Type() == "variable" {
+				labels := block.Labels()
+				if len(labels) > 0 {
+					variableName := labels[0]
+					if _, exists := variableMap[variableName]; !exists {
+						variableMap[variableName] = block
+					}
+				}
+			}
+		}
 	}
 
-	variablesFile, diags := hclwrite.ParseConfig(variablesContent, variablesPath, hcl.Pos{Line: 1, Column: 1})
-	if diags.HasErrors() {
-		return fmt.Errorf("failed to parse variables.tf: %w", diags)
+	if len(variableMap) == 0 {
+		if err := h.shims.WriteFile(filepath.Join(moduleDir, "main.tf"), shimMainContent.Bytes(), 0644); err != nil {
+			return fmt.Errorf("failed to write shim main.tf: %w", err)
+		}
+		return nil
 	}
 
 	shimVariablesContent := hclwrite.NewEmptyFile()
 	shimVariablesBody := shimVariablesContent.Body()
 
-	for _, block := range variablesFile.Body().Blocks() {
-		if block.Type() == "variable" {
-			labels := block.Labels()
-			if len(labels) > 0 {
-				variableName := labels[0]
+	for variableName, block := range variableMap {
+		shimBody.SetAttributeTraversal(variableName, hcl.Traversal{
+			hcl.TraverseRoot{Name: "var"},
+			hcl.TraverseAttr{Name: variableName},
+		})
 
-				shimBody.SetAttributeTraversal(variableName, hcl.Traversal{
-					hcl.TraverseRoot{Name: "var"},
-					hcl.TraverseAttr{Name: variableName},
-				})
+		shimBlock := shimVariablesBody.AppendNewBlock("variable", []string{variableName})
+		shimBlockBody := shimBlock.Body()
 
-				shimBlock := shimVariablesBody.AppendNewBlock("variable", []string{variableName})
-				shimBlockBody := shimBlock.Body()
+		if attr := block.Body().GetAttribute("description"); attr != nil {
+			shimBlockBody.SetAttributeRaw("description", attr.Expr().BuildTokens(nil))
+		}
 
-				if attr := block.Body().GetAttribute("description"); attr != nil {
-					shimBlockBody.SetAttributeRaw("description", attr.Expr().BuildTokens(nil))
-				}
+		if attr := block.Body().GetAttribute("type"); attr != nil {
+			shimBlockBody.SetAttributeRaw("type", attr.Expr().BuildTokens(nil))
+		}
 
-				if attr := block.Body().GetAttribute("type"); attr != nil {
-					shimBlockBody.SetAttributeRaw("type", attr.Expr().BuildTokens(nil))
-				}
+		if attr := block.Body().GetAttribute("default"); attr != nil {
+			shimBlockBody.SetAttributeRaw("default", attr.Expr().BuildTokens(nil))
+		}
 
-				if attr := block.Body().GetAttribute("default"); attr != nil {
-					shimBlockBody.SetAttributeRaw("default", attr.Expr().BuildTokens(nil))
-				}
-
-				if attr := block.Body().GetAttribute("sensitive"); attr != nil {
-					shimBlockBody.SetAttributeRaw("sensitive", attr.Expr().BuildTokens(nil))
-				}
-			}
+		if attr := block.Body().GetAttribute("sensitive"); attr != nil {
+			shimBlockBody.SetAttributeRaw("sensitive", attr.Expr().BuildTokens(nil))
 		}
 	}
 

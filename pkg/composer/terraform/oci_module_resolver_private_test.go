@@ -845,6 +845,42 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 		}
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 
+		// The extraction key is built from registry-repository-tag
+		extractionKey := "registry.example.com-module-latest"
+		modulePath := "terraform/test-module"
+		extractedPath := filepath.Join("/test/project", ".windsor", ".oci_extracted", extractionKey, modulePath)
+		variablesTfPath := filepath.Join(extractedPath, "variables.tf")
+
+		// Mock Glob to return a variables.tf file so writeShimVariablesTf will try to process it
+		originalGlob := resolver.BaseModuleResolver.shims.Glob
+		resolver.BaseModuleResolver.shims.Glob = func(pattern string) ([]string, error) {
+			// Match any pattern that ends with *.tf - be more permissive for cross-platform compatibility
+			if strings.HasSuffix(pattern, "*.tf") {
+				// Normalize paths for comparison (convert to forward slashes for consistent matching)
+				normalizedPattern := filepath.ToSlash(pattern)
+				// Check if this pattern is for the extracted module by looking for key identifiers
+				if strings.Contains(normalizedPattern, ".oci_extracted") ||
+					strings.Contains(normalizedPattern, extractionKey) ||
+					strings.Contains(normalizedPattern, "test-module") ||
+					strings.Contains(normalizedPattern, modulePath) {
+					return []string{variablesTfPath}, nil
+				}
+			}
+			return originalGlob(pattern)
+		}
+
+		// Mock ReadFile to return variable content
+		originalReadFile := resolver.BaseModuleResolver.shims.ReadFile
+		resolver.BaseModuleResolver.shims.ReadFile = func(path string) ([]byte, error) {
+			// Use normalized path comparison for cross-platform compatibility
+			normalizedPath := filepath.ToSlash(filepath.Clean(path))
+			normalizedVariablesTfPath := filepath.ToSlash(filepath.Clean(variablesTfPath))
+			if normalizedPath == normalizedVariablesTfPath || strings.HasSuffix(normalizedPath, "terraform/test-module/variables.tf") {
+				return []byte(`variable "test" { type = string }`), nil
+			}
+			return originalReadFile(path)
+		}
+
 		// Mock WriteFile to return error for variables.tf
 		resolver.BaseModuleResolver.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			if strings.HasSuffix(path, "variables.tf") {
@@ -859,6 +895,7 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 		// Then it should return an error
 		if err == nil {
 			t.Error("Expected error, got nil")
+			return
 		}
 		if !strings.Contains(err.Error(), "failed to write variables.tf") {
 			t.Errorf("Expected variables.tf write error, got: %v", err)
