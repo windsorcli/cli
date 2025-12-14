@@ -1296,10 +1296,20 @@ func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *blueprintv1alpha
 	for i, component := range resolvedComponents {
 		componentCopy := component
 
-		if b.isValidTerraformRemoteSource(componentCopy.Source) || b.isOCISource(componentCopy.Source) || strings.HasPrefix(componentCopy.Source, "file://") {
-			componentCopy.FullPath = filepath.Join(projectRoot, ".windsor", "contexts", b.runtime.ContextName, "terraform", componentCopy.Path)
+		var dirName string
+		if componentCopy.Name != "" {
+			dirName = componentCopy.Name
 		} else {
-			componentCopy.FullPath = filepath.Join(projectRoot, "terraform", componentCopy.Path)
+			dirName = componentCopy.Path
+		}
+
+		if componentCopy.Name != "" ||
+			b.isValidTerraformRemoteSource(componentCopy.Source) ||
+			b.isOCISource(componentCopy.Source) ||
+			strings.HasPrefix(componentCopy.Source, "file://") {
+			componentCopy.FullPath = filepath.Join(projectRoot, ".windsor", "contexts", b.runtime.ContextName, "terraform", dirName)
+		} else {
+			componentCopy.FullPath = filepath.Join(projectRoot, "terraform", dirName)
 		}
 
 		componentCopy.FullPath = filepath.FromSlash(componentCopy.FullPath)

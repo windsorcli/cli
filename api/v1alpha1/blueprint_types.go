@@ -105,6 +105,10 @@ type Reference struct {
 
 // TerraformComponent defines a Terraform module in a blueprint.
 type TerraformComponent struct {
+	// Name of the terraform component. If provided, this becomes the unique identifier
+	// instead of Path. Used for referencing in dependencies and context variables.
+	Name string `yaml:"name,omitempty"`
+
 	// Source of the Terraform module.
 	Source string `yaml:"source,omitempty"`
 
@@ -136,6 +140,15 @@ type TerraformComponent struct {
 // Public Methods
 // =============================================================================
 
+// GetID returns the unique identifier for this terraform component.
+// If Name is provided, it returns Name; otherwise, it returns Path.
+func (t *TerraformComponent) GetID() string {
+	if t.Name != "" {
+		return t.Name
+	}
+	return t.Path
+}
+
 // DeepCopy creates a deep copy of the TerraformComponent object.
 func (t *TerraformComponent) DeepCopy() *TerraformComponent {
 	if t == nil {
@@ -148,6 +161,7 @@ func (t *TerraformComponent) DeepCopy() *TerraformComponent {
 	copy(dependsOnCopy, t.DependsOn)
 
 	return &TerraformComponent{
+		Name:        t.Name,
 		Source:      t.Source,
 		Path:        t.Path,
 		FullPath:    t.FullPath,
@@ -386,21 +400,33 @@ func (b *Blueprint) StrategicMerge(overlays ...*Blueprint) error {
 			}
 		}
 	}
-	return nil
+
+	return b.validateTerraformComponents()
 }
 
 // ReplaceTerraformComponent replaces an existing TerraformComponent with the provided component.
-// If a component with the same Path and Source exists, it is completely replaced. Otherwise, the component is appended.
-// Returns an error if a dependency cycle is detected during sorting.
+// Components are matched by component ID (name if provided, otherwise Path).
+// If a matching component exists, it is completely replaced. Otherwise, the component is appended.
+// Returns an error if a dependency cycle is detected during sorting or if component IDs are not unique.
 func (b *Blueprint) ReplaceTerraformComponent(component TerraformComponent) error {
+	componentID := component.GetID()
+
 	for i, existing := range b.TerraformComponents {
-		if existing.Path == component.Path && existing.Source == component.Source {
+		existingID := existing.GetID()
+
+		if existingID == componentID {
 			b.TerraformComponents[i] = component
-			return b.sortTerraform()
+			if err := b.sortTerraform(); err != nil {
+				return err
+			}
+			return b.validateTerraformComponents()
 		}
 	}
 	b.TerraformComponents = append(b.TerraformComponents, component)
-	return b.sortTerraform()
+	if err := b.sortTerraform(); err != nil {
+		return err
+	}
+	return b.validateTerraformComponents()
 }
 
 // ReplaceKustomization replaces an existing Kustomization with the provided kustomization.
@@ -418,12 +444,15 @@ func (b *Blueprint) ReplaceKustomization(kustomization Kustomization) error {
 }
 
 // RemoveTerraformComponent removes specified non-index fields from an existing TerraformComponent.
-// It finds a component matching the same Path and Source, then removes inputs, dependencies, and other
-// fields that are specified in the removal component. Index fields (Path, Source) are not affected.
-// If no matching component exists, no action is taken.
+// Components are matched by component ID (name if provided, otherwise Path).
+// It removes inputs, dependencies, and other fields that are specified in the removal component.
+// Index fields (Name, Path, Source) are not affected. If no matching component exists, no action is taken.
 func (b *Blueprint) RemoveTerraformComponent(removal TerraformComponent) error {
+	removalID := removal.GetID()
 	for i, existing := range b.TerraformComponents {
-		if existing.Path == removal.Path && existing.Source == removal.Source {
+		existingID := existing.GetID()
+
+		if existingID == removalID {
 			if len(removal.Inputs) > 0 && existing.Inputs != nil {
 				for key := range removal.Inputs {
 					delete(existing.Inputs, key)
@@ -659,12 +688,36 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 // Private Methods
 // =============================================================================
 
+// validateTerraformComponents validates that all terraform component IDs are unique.
+// Component IDs are either the Name (if provided) or Path (if no name).
+// Returns an error if duplicate IDs are found.
+func (b *Blueprint) validateTerraformComponents() error {
+	idToComponent := make(map[string]TerraformComponent)
+
+	for _, component := range b.TerraformComponents {
+		componentID := component.GetID()
+
+		if existing, exists := idToComponent[componentID]; exists {
+			return fmt.Errorf("duplicate terraform component ID %q: component with name %q and path %q conflicts with existing component with name %q and path %q", componentID, component.Name, component.Path, existing.Name, existing.Path)
+		}
+
+		idToComponent[componentID] = component
+	}
+
+	return nil
+}
+
 // strategicMergeTerraformComponent performs a strategic merge of the provided TerraformComponent into the Blueprint.
 // It merges values, appends unique dependencies, updates fields if provided, and maintains dependency order.
-// Returns an error if a dependency cycle is detected during sorting.
+// Components are matched by component ID (name if provided, otherwise Path).
+// Returns an error if a dependency cycle is detected during sorting or if component IDs are not unique.
 func (b *Blueprint) strategicMergeTerraformComponent(component TerraformComponent) error {
+	componentID := component.GetID()
+
 	for i, existing := range b.TerraformComponents {
-		if existing.Path == component.Path && existing.Source == component.Source {
+		existingID := existing.GetID()
+
+		if existingID == componentID {
 			if len(component.Inputs) > 0 {
 				if existing.Inputs == nil {
 					existing.Inputs = make(map[string]any)
@@ -682,12 +735,22 @@ func (b *Blueprint) strategicMergeTerraformComponent(component TerraformComponen
 			if component.Parallelism != nil {
 				existing.Parallelism = component.Parallelism
 			}
+			if component.Name != "" {
+				existing.Name = component.Name
+			}
 			b.TerraformComponents[i] = existing
-			return b.sortTerraform()
+			if err := b.sortTerraform(); err != nil {
+				return err
+			}
+			return b.validateTerraformComponents()
 		}
 	}
+
 	b.TerraformComponents = append(b.TerraformComponents, component)
-	return b.sortTerraform()
+	if err := b.sortTerraform(); err != nil {
+		return err
+	}
+	return b.validateTerraformComponents()
 }
 
 // strategicMergeKustomization performs a strategic merge of the provided Kustomization into the Blueprint.

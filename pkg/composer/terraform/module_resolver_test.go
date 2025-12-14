@@ -554,6 +554,96 @@ variable "instance_type" {
 			t.Errorf("Expected variables.tf to contain test_var, got content: %s", string(content))
 		}
 	})
+
+	t.Run("AlphabetizesVariablesInShim", func(t *testing.T) {
+		// Given a resolver
+		resolver, _ := setup(t)
+
+		// And a temporary directory structure
+		tmpDir := t.TempDir()
+		moduleDir := filepath.Join(tmpDir, "shim")
+		modulePath := filepath.Join(tmpDir, "source")
+
+		if err := resolver.shims.MkdirAll(moduleDir, 0755); err != nil {
+			t.Fatalf("Failed to create shim directory: %v", err)
+		}
+		if err := resolver.shims.MkdirAll(modulePath, 0755); err != nil {
+			t.Fatalf("Failed to create source directory: %v", err)
+		}
+
+		// And source variables in non-alphabetical order
+		variablesContent := `
+variable "zebra" {
+  description = "Zebra variable"
+  type        = string
+}
+
+variable "alpha" {
+  description = "Alpha variable"
+  type        = string
+}
+
+variable "beta" {
+  description = "Beta variable"
+  type        = string
+}
+`
+		variablesPath := filepath.Join(modulePath, "variables.tf")
+		if err := resolver.shims.WriteFile(variablesPath, []byte(variablesContent), 0644); err != nil {
+			t.Fatalf("Failed to write variables.tf: %v", err)
+		}
+
+		// When writing the shim variables.tf
+		err := resolver.writeShimVariablesTf(moduleDir, modulePath, "test-source")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And the variables.tf should be created
+		shimVariablesPath := filepath.Join(moduleDir, "variables.tf")
+		content, err := resolver.shims.ReadFile(shimVariablesPath)
+		if err != nil {
+			t.Fatalf("Failed to read shim variables.tf: %v", err)
+		}
+
+		contentStr := string(content)
+
+		// And variables should appear in alphabetical order
+		alphaIndex := strings.Index(contentStr, "variable \"alpha\"")
+		betaIndex := strings.Index(contentStr, "variable \"beta\"")
+		zebraIndex := strings.Index(contentStr, "variable \"zebra\"")
+
+		if alphaIndex == -1 || betaIndex == -1 || zebraIndex == -1 {
+			t.Errorf("Expected all variables to be present in shim variables.tf")
+		}
+
+		if alphaIndex > betaIndex || betaIndex > zebraIndex {
+			t.Errorf("Expected variables in alphabetical order (alpha, beta, zebra), but found alpha at %d, beta at %d, zebra at %d", alphaIndex, betaIndex, zebraIndex)
+		}
+
+		// And main.tf should also have variables in alphabetical order
+		shimMainPath := filepath.Join(moduleDir, "main.tf")
+		mainContent, err := resolver.shims.ReadFile(shimMainPath)
+		if err != nil {
+			t.Fatalf("Failed to read shim main.tf: %v", err)
+		}
+
+		mainContentStr := string(mainContent)
+
+		alphaMainIndex := strings.Index(mainContentStr, "alpha")
+		betaMainIndex := strings.Index(mainContentStr, "beta")
+		zebraMainIndex := strings.Index(mainContentStr, "zebra")
+
+		if alphaMainIndex == -1 || betaMainIndex == -1 || zebraMainIndex == -1 {
+			t.Errorf("Expected all variables to be present in shim main.tf module arguments")
+		}
+
+		if alphaMainIndex > betaMainIndex || betaMainIndex > zebraMainIndex {
+			t.Errorf("Expected module arguments in alphabetical order (alpha, beta, zebra), but found alpha at %d, beta at %d, zebra at %d", alphaMainIndex, betaMainIndex, zebraMainIndex)
+		}
+	})
 }
 
 func TestBaseModuleResolver_writeShimOutputsTf(t *testing.T) {
@@ -1132,6 +1222,131 @@ variable "metadata" { type = object({ nested = object({ value = string }) }) }`
 		// Then it should succeed
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("AlphabetizesVariablesInTfvars", func(t *testing.T) {
+		// Given a resolver with variables in non-alphabetical order
+		resolver, mocks := setup(t)
+
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			projectRoot, _ := mocks.Shell.GetProjectRootFunc()
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:   "test-module",
+					Source: "git::https://github.com/test/module.git",
+					Inputs: map[string]any{
+						"zebra": "z-value",
+						"alpha": "a-value",
+						"beta":  "b-value",
+						"gamma": "g-value",
+					},
+					FullPath: filepath.Join(projectRoot, "terraform", "test-module"),
+				},
+			}
+		}
+
+		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
+		if err := os.MkdirAll(variablesDir, 0755); err != nil {
+			t.Fatalf("Failed to create dir: %v", err)
+		}
+		variablesTf := `variable "zebra" { type = string }
+variable "alpha" { type = string }
+variable "beta" { type = string }
+variable "gamma" { type = string }`
+		if err := os.WriteFile(filepath.Join(variablesDir, "variables.tf"), []byte(variablesTf), 0644); err != nil {
+			t.Fatalf("Failed to write variables.tf: %v", err)
+		}
+
+		// When generating tfvars
+		err := resolver.GenerateTfvars(false)
+
+		// Then it should succeed
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And the tfvars file should contain variables in alphabetical order
+		componentID := "test-module"
+		tfvarsPath := filepath.Join(mocks.Runtime.WindsorScratchPath, "terraform", componentID, "terraform.tfvars")
+		content, err := os.ReadFile(tfvarsPath)
+		if err != nil {
+			t.Fatalf("Failed to read generated tfvars file: %v", err)
+		}
+
+		contentStr := string(content)
+
+		// Find positions of variable assignments
+		alphaIndex := strings.Index(contentStr, "alpha")
+		betaIndex := strings.Index(contentStr, "beta")
+		gammaIndex := strings.Index(contentStr, "gamma")
+		zebraIndex := strings.Index(contentStr, "zebra")
+
+		if alphaIndex == -1 || betaIndex == -1 || gammaIndex == -1 || zebraIndex == -1 {
+			t.Errorf("Expected all variables to be present in tfvars file")
+		}
+
+		// Verify alphabetical order
+		if alphaIndex > betaIndex || betaIndex > gammaIndex || gammaIndex > zebraIndex {
+			t.Errorf("Expected variables in alphabetical order (alpha, beta, gamma, zebra), but found alpha at %d, beta at %d, gamma at %d, zebra at %d", alphaIndex, betaIndex, gammaIndex, zebraIndex)
+		}
+	})
+
+	t.Run("UsesComponentIDForNamedComponentTfvarsPath", func(t *testing.T) {
+		// Given a resolver with a named component
+		resolver, mocks := setup(t)
+
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			projectRoot, _ := mocks.Shell.GetProjectRootFunc()
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Name:   "cluster",
+					Path:   "terraform/complex/path/to/cluster",
+					Source: "",
+					Inputs: map[string]any{
+						"node_count": 3,
+					},
+					FullPath: filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "cluster"),
+				},
+			}
+		}
+
+		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
+		actualModulePath := filepath.Join(projectRoot, "terraform", "complex", "path", "to", "cluster")
+		if err := os.MkdirAll(actualModulePath, 0755); err != nil {
+			t.Fatalf("Failed to create actual module directory: %v", err)
+		}
+
+		shimPath := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "cluster")
+		if err := os.MkdirAll(shimPath, 0755); err != nil {
+			t.Fatalf("Failed to create shim directory: %v", err)
+		}
+
+		variablesTfPath := filepath.Join(actualModulePath, "variables.tf")
+		if err := os.WriteFile(variablesTfPath, []byte(`variable "node_count" { type = number }`), 0644); err != nil {
+			t.Fatalf("Failed to write variables.tf: %v", err)
+		}
+
+		// When generating tfvars
+		err := resolver.GenerateTfvars(false)
+
+		// Then it should succeed
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// And the tfvars file should be created using the component name (not path)
+		componentID := "cluster"
+		expectedTfvarsPath := filepath.Join(mocks.Runtime.WindsorScratchPath, "terraform", componentID, "terraform.tfvars")
+		if _, err := os.Stat(expectedTfvarsPath); err != nil {
+			t.Errorf("Expected tfvars file at %s (using component name), but file not found: %v", expectedTfvarsPath, err)
+		}
+
+		// And the tfvars file should NOT be at the path location
+		pathBasedTfvarsPath := filepath.Join(mocks.Runtime.WindsorScratchPath, "terraform", "complex", "path", "to", "cluster", "terraform.tfvars")
+		if _, err := os.Stat(pathBasedTfvarsPath); err == nil {
+			t.Errorf("Expected tfvars file NOT to be at path-based location %s, but file was found", pathBasedTfvarsPath)
 		}
 	})
 

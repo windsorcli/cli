@@ -445,6 +445,73 @@ func TestStack_Up(t *testing.T) {
 		}
 	})
 
+	t.Run("HandlesNamedComponent", func(t *testing.T) {
+		stack, _ := setup(t)
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+
+		namedComponentDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "cluster")
+		if err := os.MkdirAll(namedComponentDir, 0755); err != nil {
+			t.Fatalf("Failed to create named component directory: %v", err)
+		}
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{
+					Name:   "cluster",
+					Path:   "terraform/cluster",
+					Source: "",
+					Inputs: map[string]any{
+						"node_count": 3,
+					},
+				},
+			},
+		}
+
+		if err := stack.Up(blueprint); err != nil {
+			t.Errorf("Expected Up to succeed with named component, got %v", err)
+		}
+	})
+
+	t.Run("HandlesNamedComponentWithSource", func(t *testing.T) {
+		stack, _ := setup(t)
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+
+		namedComponentDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "network")
+		if err := os.MkdirAll(namedComponentDir, 0755); err != nil {
+			t.Fatalf("Failed to create named component directory: %v", err)
+		}
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name: "source1",
+					Url:  "https://github.com/example/example.git",
+					Ref:  blueprintv1alpha1.Reference{Branch: "main"},
+				},
+			},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{
+					Name:   "network",
+					Path:   "terraform/network",
+					Source: "source1",
+					Inputs: map[string]any{
+						"cidr": "10.0.0.0/16",
+					},
+				},
+			},
+		}
+
+		if err := stack.Up(blueprint); err != nil {
+			t.Errorf("Expected Up to succeed with named component with source, got %v", err)
+		}
+	})
+
 }
 
 func TestStack_Down(t *testing.T) {
@@ -696,6 +763,73 @@ func TestStack_Down(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "error removing backend_override.tf") {
 			t.Errorf("Expected remove error, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesNamedComponent", func(t *testing.T) {
+		stack, _ := setup(t)
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+
+		namedComponentDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "cluster")
+		if err := os.MkdirAll(namedComponentDir, 0755); err != nil {
+			t.Fatalf("Failed to create named component directory: %v", err)
+		}
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{
+					Name:   "cluster",
+					Path:   "terraform/cluster",
+					Source: "",
+					Inputs: map[string]any{
+						"node_count": 3,
+					},
+				},
+			},
+		}
+
+		if err := stack.Down(blueprint); err != nil {
+			t.Errorf("Expected Down to succeed with named component, got %v", err)
+		}
+	})
+
+	t.Run("HandlesNamedComponentWithSource", func(t *testing.T) {
+		stack, _ := setup(t)
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+
+		namedComponentDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "network")
+		if err := os.MkdirAll(namedComponentDir, 0755); err != nil {
+			t.Fatalf("Failed to create named component directory: %v", err)
+		}
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name: "source1",
+					Url:  "https://github.com/example/example.git",
+					Ref:  blueprintv1alpha1.Reference{Branch: "main"},
+				},
+			},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{
+					Name:   "network",
+					Path:   "terraform/network",
+					Source: "source1",
+					Inputs: map[string]any{
+						"cidr": "10.0.0.0/16",
+					},
+				},
+			},
+		}
+
+		if err := stack.Down(blueprint); err != nil {
+			t.Errorf("Expected Down to succeed with named component with source, got %v", err)
 		}
 	})
 

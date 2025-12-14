@@ -1774,6 +1774,75 @@ terraform:
 		}
 	})
 
+	t.Run("DiscoversTfvarsFilesForNamedComponent", func(t *testing.T) {
+		mocks := setupTerraformEnvMocks(t)
+		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
+		if err != nil {
+			t.Fatalf("Failed to get config root: %v", err)
+		}
+		windsorScratchPath, err := mocks.ConfigHandler.GetWindsorScratchPath()
+		if err != nil {
+			t.Fatalf("Failed to get windsor scratch path: %v", err)
+		}
+
+		componentName := "cluster"
+		userTfvarsPath := filepath.Join(configRoot, "terraform", componentName+".tfvars")
+		autoTfvarsPath := filepath.Join(windsorScratchPath, "terraform", componentName, "terraform.tfvars")
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			nameSlash := filepath.ToSlash(name)
+			userTfvarsSlash := filepath.ToSlash(userTfvarsPath)
+			autoTfvarsSlash := filepath.ToSlash(autoTfvarsPath)
+			if nameSlash == userTfvarsSlash || nameSlash == autoTfvarsSlash {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		blueprintYAML := fmt.Sprintf(`apiVersion: v1alpha1
+kind: Blueprint
+metadata:
+  name: test-blueprint
+terraform:
+  - name: %s
+    path: terraform/cluster`, componentName)
+
+		originalReadFile := mocks.Shims.ReadFile
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
+			if strings.Contains(filename, "blueprint.yaml") {
+				return []byte(blueprintYAML), nil
+			}
+			return originalReadFile(filename)
+		}
+
+		printer := &TerraformEnvPrinter{
+			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler),
+		}
+		printer.shims = mocks.Shims
+
+		args, err := printer.GenerateTerraformArgs(componentName, "test/module")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		planArgs := args.TerraformVars["TF_CLI_ARGS_plan"]
+		userTfvarsSlash := filepath.ToSlash(userTfvarsPath)
+		autoTfvarsSlash := filepath.ToSlash(autoTfvarsPath)
+
+		if !strings.Contains(planArgs, userTfvarsSlash) {
+			t.Errorf("Expected plan args to contain user tfvars file %s, got %s", userTfvarsSlash, planArgs)
+		}
+		if !strings.Contains(planArgs, autoTfvarsSlash) {
+			t.Errorf("Expected plan args to contain auto-generated tfvars file %s, got %s", autoTfvarsSlash, planArgs)
+		}
+
+		userTfvarsIndex := strings.Index(planArgs, userTfvarsSlash)
+		autoTfvarsIndex := strings.Index(planArgs, autoTfvarsSlash)
+		if autoTfvarsIndex > userTfvarsIndex {
+			t.Errorf("Expected auto-generated tfvars file to come before user file in args (so user can override), but auto at %d, user at %d", autoTfvarsIndex, userTfvarsIndex)
+		}
+	})
+
 	t.Run("UsesWindsorScratchPathForTFDataDir", func(t *testing.T) {
 		mocks := setupTerraformEnvMocks(t)
 		windsorScratchPath, err := mocks.ConfigHandler.GetWindsorScratchPath()
@@ -2628,6 +2697,106 @@ terraform:
 
 		if _, exists := terraformArgs.TerraformVars["TF_VAR_test_var"]; exists {
 			t.Error("Expected test_var to not be injected when getDefinedVariables fails")
+		}
+	})
+
+	t.Run("StopsAtNamedComponentAndDoesNotCaptureLaterComponents", func(t *testing.T) {
+		printer, mocks := setup(t)
+
+		configRoot, _ := mocks.ConfigHandler.GetConfigRoot()
+		blueprintPath := filepath.Join(configRoot, "blueprint.yaml")
+		blueprintYAML := `apiVersion: v1alpha1
+kind: Blueprint
+metadata:
+  name: test-blueprint
+terraform:
+  - path: dep1
+    fullPath: /project/terraform/dep1
+    dependsOn: []
+  - name: current
+    path: some/path
+    fullPath: /project/terraform/some/path
+    dependsOn: [dep1]
+  - path: later
+    fullPath: /project/terraform/later
+    dependsOn: [current]`
+
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
+			if filename == blueprintPath {
+				return []byte(blueprintYAML), nil
+			}
+			if strings.HasSuffix(filename, ".tf") && strings.Contains(filename, "current") {
+				return []byte(`variable "dep1_var" { type = string }`), nil
+			}
+			return os.ReadFile(filename)
+		}
+
+		originalGlob := mocks.Shims.Glob
+		mocks.Shims.Glob = func(pattern string) ([]string, error) {
+			if strings.Contains(pattern, "current") && strings.HasSuffix(pattern, "*.tf") {
+				return []string{filepath.Join(string(filepath.Separator), "project", ".windsor", "contexts", "local", "terraform", "current", "variables.tf")}, nil
+			}
+			return originalGlob(pattern)
+		}
+
+		dep1OutputCallCount := 0
+		laterOutputCallCount := 0
+		var capturedComponentIDs []string
+
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "terraform" {
+				if len(args) > 2 && args[1] == "output" && args[2] == "-json" {
+					chdirArg := args[0]
+					componentPath := strings.TrimPrefix(chdirArg, "-chdir=")
+					if strings.Contains(componentPath, "dep1") || strings.HasSuffix(componentPath, "/dep1") {
+						dep1OutputCallCount++
+						capturedComponentIDs = append(capturedComponentIDs, "dep1")
+						return `{"dep1_var": {"value": "dep1-value"}}`, nil
+					}
+					if strings.Contains(componentPath, "later") || strings.HasSuffix(componentPath, "/later") {
+						laterOutputCallCount++
+						capturedComponentIDs = append(capturedComponentIDs, "later")
+						return `{"later_var": {"value": "later-value"}}`, nil
+					}
+					if strings.Contains(componentPath, "current") || strings.HasSuffix(componentPath, "/current") {
+						capturedComponentIDs = append(capturedComponentIDs, "current")
+					}
+				}
+				if len(args) > 1 && args[1] == "init" {
+					return "", nil
+				}
+			}
+			return "", nil
+		}
+
+		terraformArgs := &TerraformArgs{
+			TerraformVars: make(map[string]string),
+		}
+
+		windsorScratchPath, _ := mocks.ConfigHandler.GetWindsorScratchPath()
+		mocks.Shims.Getwd = func() (string, error) {
+			return filepath.Join(windsorScratchPath, "terraform", "current"), nil
+		}
+
+		err := printer.addDependencyVariables("current", terraformArgs)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if dep1OutputCallCount == 0 {
+			t.Error("Expected dep1 outputs to be captured (it's a dependency)")
+		}
+
+		if laterOutputCallCount > 0 {
+			t.Errorf("Expected later component outputs to NOT be captured (comes after current component), but captureTerraformOutputs was called %d times. Captured component IDs: %v", laterOutputCallCount, capturedComponentIDs)
+		}
+
+		if val, exists := terraformArgs.TerraformVars["TF_VAR_dep1_var"]; !exists || val != "dep1-value" {
+			t.Errorf("Expected dep1_var to be injected from dependency, got %v", val)
+		}
+
+		if _, exists := terraformArgs.TerraformVars["TF_VAR_later_var"]; exists {
+			t.Error("Expected later_var to NOT be injected (component comes after current)")
 		}
 	})
 }
