@@ -3,7 +3,6 @@ package tools
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -217,11 +216,15 @@ func (t *BaseToolsManager) getTerraformDriver() string {
 	if err != nil {
 		return t.detectTerraformDriver()
 	}
-	rootConfigPath := filepath.Join(projectRoot, "windsor.yaml")
-	if _, err := os.Stat(rootConfigPath); err != nil {
+	root, err := os.OpenRoot(projectRoot)
+	if err != nil {
 		return t.detectTerraformDriver()
 	}
-	fileData, err := os.ReadFile(rootConfigPath)
+	defer root.Close()
+	if _, err := root.Stat("windsor.yaml"); err != nil {
+		return t.detectTerraformDriver()
+	}
+	fileData, err := root.ReadFile("windsor.yaml")
 	if err != nil {
 		return t.detectTerraformDriver()
 	}
