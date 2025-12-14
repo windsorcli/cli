@@ -845,6 +845,27 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 		}
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 
+		extractedPath := "/test/project/.windsor/.oci_extracted/registry-module-latest/terraform/test-module"
+		variablesTfPath := filepath.Join(extractedPath, "variables.tf")
+
+		// Mock Glob to return a variables.tf file so writeShimVariablesTf will try to process it
+		originalGlob := resolver.BaseModuleResolver.shims.Glob
+		resolver.BaseModuleResolver.shims.Glob = func(pattern string) ([]string, error) {
+			if strings.Contains(pattern, extractedPath) || strings.Contains(pattern, "terraform/test-module") {
+				return []string{variablesTfPath}, nil
+			}
+			return originalGlob(pattern)
+		}
+
+		// Mock ReadFile to return variable content
+		originalReadFile := resolver.BaseModuleResolver.shims.ReadFile
+		resolver.BaseModuleResolver.shims.ReadFile = func(path string) ([]byte, error) {
+			if path == variablesTfPath {
+				return []byte(`variable "test" { type = string }`), nil
+			}
+			return originalReadFile(path)
+		}
+
 		// Mock WriteFile to return error for variables.tf
 		resolver.BaseModuleResolver.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			if strings.HasSuffix(path, "variables.tf") {
