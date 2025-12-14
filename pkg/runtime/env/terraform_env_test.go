@@ -110,7 +110,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
-			"TF_CLI_ARGS_destroy": fmt.Sprintf(`-auto-approve -var-file="%s" -var-file="%s" -var-file="%s"`,
+			"TF_CLI_ARGS_destroy": fmt.Sprintf(`-var-file="%s" -var-file="%s" -var-file="%s"`,
 				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
@@ -337,7 +337,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
-			"TF_CLI_ARGS_destroy": fmt.Sprintf(`-auto-approve -var-file="%s" -var-file="%s" -var-file="%s"`,
+			"TF_CLI_ARGS_destroy": fmt.Sprintf(`-var-file="%s" -var-file="%s" -var-file="%s"`,
 				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
@@ -1610,8 +1610,8 @@ func TestTerraformEnv_GenerateTerraformArgs(t *testing.T) {
 			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler),
 		}
 
-		// When generating terraform args without parallelism
-		args, err := printer.GenerateTerraformArgs("test/path", "test/module")
+		// When generating terraform args without parallelism for interactive regular injection
+		args, err := printer.GenerateTerraformArgs("test/path", "test/module", true)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1623,8 +1623,8 @@ func TestTerraformEnv_GenerateTerraformArgs(t *testing.T) {
 			t.Errorf("Expected 1 apply arg, got %d: %v", len(args.ApplyArgs), args.ApplyArgs)
 		}
 
-		// And destroy args should contain only auto-approve
-		expectedDestroyArgs := []string{"-auto-approve"}
+		// And destroy args should not contain auto-approve for regular injection
+		expectedDestroyArgs := []string{}
 		if !reflect.DeepEqual(args.DestroyArgs, expectedDestroyArgs) {
 			t.Errorf("Expected destroy args %v, got %v", expectedDestroyArgs, args.DestroyArgs)
 		}
@@ -1665,8 +1665,8 @@ terraform:
 		}
 		printer.shims = mocks.Shims
 
-		// When generating terraform args with parallelism
-		args, err := printer.GenerateTerraformArgs("test/path", "test/module")
+		// When generating terraform args with parallelism for interactive regular injection
+		args, err := printer.GenerateTerraformArgs("test/path", "test/module", true)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1729,8 +1729,8 @@ terraform:
 			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler),
 		}
 
-		// When generating terraform args for component without parallelism
-		args, err := printer.GenerateTerraformArgs("test/path", "test/module")
+		// When generating terraform args for component without parallelism for interactive regular injection
+		args, err := printer.GenerateTerraformArgs("test/path", "test/module", true)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1758,8 +1758,8 @@ terraform:
 			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler),
 		}
 
-		// When generating terraform args without blueprint.yaml file
-		args, err := printer.GenerateTerraformArgs("test/path", "test/module")
+		// When generating terraform args without blueprint.yaml file for interactive regular injection
+		args, err := printer.GenerateTerraformArgs("test/path", "test/module", true)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1820,7 +1820,7 @@ terraform:
 		}
 		printer.shims = mocks.Shims
 
-		args, err := printer.GenerateTerraformArgs(componentName, "test/module")
+		args, err := printer.GenerateTerraformArgs(componentName, "test/module", true)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -1854,7 +1854,7 @@ terraform:
 			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler),
 		}
 
-		args, err := printer.GenerateTerraformArgs("test/path", "test/module")
+		args, err := printer.GenerateTerraformArgs("test/path", "test/module", true)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -1880,7 +1880,7 @@ terraform:
 			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler),
 		}
 
-		args, err := printer.GenerateTerraformArgs("test/path", "test/module")
+		args, err := printer.GenerateTerraformArgs("test/path", "test/module", true)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -1905,7 +1905,7 @@ terraform:
 			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Shell, mockConfigHandler),
 		}
 
-		_, err := printer.GenerateTerraformArgs("test/path", "test/module")
+		_, err := printer.GenerateTerraformArgs("test/path", "test/module", true)
 		if err == nil {
 			t.Error("Expected error when GetWindsorScratchPath fails")
 		}
@@ -1941,8 +1941,8 @@ terraform:
 		}
 		printer.shims = mocks.Shims
 
-		// When generating terraform args
-		args, err := printer.GenerateTerraformArgs("test/path", "test/module")
+		// When generating terraform args for interactive regular injection
+		args, err := printer.GenerateTerraformArgs("test/path", "test/module", true)
 
 		// Then no error should be returned
 		if err != nil {

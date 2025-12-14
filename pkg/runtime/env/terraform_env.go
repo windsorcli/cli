@@ -94,7 +94,7 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 		return envVars, nil
 	}
 
-	terraformArgs, err := e.GenerateTerraformArgs(projectPath, projectPath)
+	terraformArgs, err := e.GenerateTerraformArgs(projectPath, projectPath, true)
 	if err != nil {
 		return nil, fmt.Errorf("error generating terraform args: %w", err)
 	}
@@ -113,8 +113,10 @@ func (e *TerraformEnvPrinter) PostEnvHook(directory ...string) error {
 
 // GenerateTerraformArgs constructs Terraform CLI arguments and environment variables for given project and module paths.
 // Resolves config root, locates tfvars files, generates backend config args, and assembles all CLI/env values needed
-// for Terraform operations. Returns a TerraformArgs struct or error.
-func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath string) (*TerraformArgs, error) {
+// for Terraform operations. The interactive parameter controls whether -auto-approve is included in destroy args:
+// when false, -auto-approve is included for non-interactive stack-based operations; when true, it is excluded for interactive regular injection.
+// Returns a TerraformArgs struct or error.
+func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath string, interactive bool) (*TerraformArgs, error) {
 	configRoot, err := e.configHandler.GetConfigRoot()
 	if err != nil {
 		return nil, fmt.Errorf("error getting config root: %w", err)
@@ -183,7 +185,10 @@ func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath stri
 	planDestroyArgs := []string{"-destroy"}
 	planDestroyArgs = append(planDestroyArgs, varFileArgs...)
 
-	destroyArgs := []string{"-auto-approve"}
+	destroyArgs := []string{}
+	if !interactive {
+		destroyArgs = append(destroyArgs, "-auto-approve")
+	}
 	destroyArgs = append(destroyArgs, varFileArgs...)
 
 	if component != nil && component.Parallelism != nil {
@@ -203,7 +208,10 @@ func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath stri
 		}
 	}
 
-	destroyArgsForEnv := []string{"-auto-approve"}
+	destroyArgsForEnv := []string{}
+	if !interactive {
+		destroyArgsForEnv = append(destroyArgsForEnv, "-auto-approve")
+	}
 	destroyArgsForEnv = append(destroyArgsForEnv, varFileArgsForEnv...)
 	if component != nil && component.Parallelism != nil {
 		parallelismArg := fmt.Sprintf("-parallelism=%d", *component.Parallelism)
@@ -422,7 +430,7 @@ func (e *TerraformEnvPrinter) captureTerraformOutputs(componentPath string) (map
 		absModulePath = filepath.Join(projectRoot, "terraform", component.Path)
 	}
 
-	terraformArgs, err := e.GenerateTerraformArgs(componentPath, absModulePath)
+	terraformArgs, err := e.GenerateTerraformArgs(componentPath, absModulePath, true)
 	if err != nil {
 		return make(map[string]any), nil
 	}
