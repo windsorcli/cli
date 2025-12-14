@@ -132,9 +132,9 @@ func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath stri
 	}
 
 	patterns := []string{
+		filepath.Join(windsorScratchPath, "terraform", componentID, "terraform.tfvars"),
 		filepath.Join(configRoot, "terraform", componentID+".tfvars"),
 		filepath.Join(configRoot, "terraform", componentID+".tfvars.json"),
-		filepath.Join(windsorScratchPath, "terraform", componentID, "terraform.tfvars"),
 	}
 	if componentID != projectPath {
 		patterns = append(patterns,
