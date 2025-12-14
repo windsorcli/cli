@@ -721,19 +721,23 @@ func TestToolsManager_checkTerraform(t *testing.T) {
 	})
 
 	t.Run("TerraformNotAvailable", func(t *testing.T) {
-		// Given terraform is not found in PATH
+		// Given neither terraform nor tofu is found in PATH
 		_, toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		defer func() {
+			execLookPath = originalExecLookPath
+		}()
 		execLookPath = func(name string) (string, error) {
-			if name == "terraform" {
-				return "", fmt.Errorf("terraform is not available in the PATH")
+			if name == "terraform" || name == "tofu" {
+				return "", fmt.Errorf("%s is not available in the PATH", name)
 			}
 			return "/usr/bin/" + name, nil
 		}
 		// When checking terraform version
 		err := toolsManager.checkTerraform()
-		// Then an error indicating terraform is not available should be returned
-		if err == nil || !strings.Contains(err.Error(), "terraform is not available in the PATH") {
-			t.Errorf("Expected terraform not available error, got %v", err)
+		// Then an error indicating terraform or tofu is not available should be returned
+		if err == nil || (!strings.Contains(err.Error(), "terraform is not available in the PATH") && !strings.Contains(err.Error(), "tofu is not available in the PATH")) {
+			t.Errorf("Expected terraform or tofu not available error, got %v", err)
 		}
 	})
 

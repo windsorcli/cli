@@ -7,6 +7,7 @@ import (
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 // =============================================================================
@@ -18,6 +19,7 @@ type EnvTestMocks struct {
 	ConfigHandler config.ConfigHandler
 	Shell         *shell.MockShell
 	Shims         *Shims
+	ToolsManager  tools.ToolsManager
 }
 
 // setupDefaultShims creates a new Shims instance with default implementations
@@ -61,11 +63,18 @@ func setupEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMocks {
 	// Setup shims
 	shims := setupDefaultShims(tmpDir)
 
+	// Create mock tools manager
+	mockToolsManager := tools.NewMockToolsManager()
+	mockToolsManager.GetTerraformCommandFunc = func() string {
+		return "terraform"
+	}
+
 	// Create initial mocks with defaults
 	mocks := &EnvTestMocks{
 		Shell:         mockShell,
 		ConfigHandler: config.NewConfigHandler(mockShell),
 		Shims:         shims,
+		ToolsManager:  mockToolsManager,
 	}
 
 	// Apply any selective overrides
@@ -79,6 +88,9 @@ func setupEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMocks {
 		}
 		if override.Shims != nil {
 			mocks.Shims = override.Shims
+		}
+		if override.ToolsManager != nil {
+			mocks.ToolsManager = override.ToolsManager
 		}
 	}
 

@@ -19,6 +19,7 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 // =============================================================================
@@ -43,6 +44,7 @@ type TerraformArgs struct {
 // TerraformEnvPrinter is a struct that implements Terraform environment configuration
 type TerraformEnvPrinter struct {
 	BaseEnvPrinter
+	toolsManager tools.ToolsManager
 }
 
 // =============================================================================
@@ -50,9 +52,10 @@ type TerraformEnvPrinter struct {
 // =============================================================================
 
 // NewTerraformEnvPrinter creates a new TerraformEnvPrinter instance
-func NewTerraformEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *TerraformEnvPrinter {
+func NewTerraformEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler, toolsManager tools.ToolsManager) *TerraformEnvPrinter {
 	return &TerraformEnvPrinter{
 		BaseEnvPrinter: *NewBaseEnvPrinter(shell, configHandler),
+		toolsManager:   toolsManager,
 	}
 }
 
@@ -455,15 +458,19 @@ func (e *TerraformEnvPrinter) captureTerraformOutputs(componentPath string) (map
 	}
 	defer cleanup()
 
+	terraformCommand := e.toolsManager.GetTerraformCommand()
+	if terraformCommand == "" {
+		terraformCommand = "terraform"
+	}
 	outputArgs := []string{fmt.Sprintf("-chdir=%s", absModulePath), "output", "-json"}
-	output, err := e.shell.ExecSilent("terraform", outputArgs...)
+	output, err := e.shell.ExecSilent(terraformCommand, outputArgs...)
 	if err != nil {
 		initArgs := []string{fmt.Sprintf("-chdir=%s", absModulePath), "init"}
 		initArgs = append(initArgs, terraformArgs.InitArgs...)
-		if _, initErr := e.shell.ExecSilent("terraform", initArgs...); initErr != nil {
+		if _, initErr := e.shell.ExecSilent(terraformCommand, initArgs...); initErr != nil {
 			return make(map[string]any), nil
 		}
-		output, err = e.shell.ExecSilent("terraform", outputArgs...)
+		output, err = e.shell.ExecSilent(terraformCommand, outputArgs...)
 		if err != nil {
 			return make(map[string]any), nil
 		}

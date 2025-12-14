@@ -12,6 +12,7 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 // =============================================================================
@@ -68,7 +69,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
-		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mocks.ToolsManager)
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
@@ -224,7 +225,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		mocks := setupTerraformEnvMocks(t, &EnvTestMocks{
 			ConfigHandler: configHandler,
 		})
-		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mocks.ToolsManager)
 		printer.shims = mocks.Shims
 
 		// When GetEnvVars is called
@@ -361,7 +362,7 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
-		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mocks.ToolsManager)
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
@@ -453,7 +454,7 @@ func TestTerraformEnv_findRelativeTerraformProjectPath(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
-		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mocks.ToolsManager)
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
@@ -604,7 +605,7 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
-		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mocks.ToolsManager)
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
@@ -920,7 +921,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
-		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mocks.ToolsManager)
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
@@ -1171,7 +1172,7 @@ func TestTerraformEnv_processBackendConfig(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
-		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mocks.ToolsManager)
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
@@ -1259,7 +1260,7 @@ func TestTerraformEnv_DependencyResolution(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
-		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mocks.ToolsManager)
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
@@ -1608,6 +1609,7 @@ func TestTerraformEnv_GenerateTerraformArgs(t *testing.T) {
 
 		printer := &TerraformEnvPrinter{
 			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler),
+			toolsManager:   mocks.ToolsManager,
 		}
 
 		// When generating terraform args without parallelism for interactive regular injection
@@ -1662,6 +1664,7 @@ terraform:
 
 		printer := &TerraformEnvPrinter{
 			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler),
+			toolsManager:   mocks.ToolsManager,
 		}
 		printer.shims = mocks.Shims
 
@@ -1727,6 +1730,7 @@ terraform:
 
 		printer := &TerraformEnvPrinter{
 			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler),
+			toolsManager:   mocks.ToolsManager,
 		}
 
 		// When generating terraform args for component without parallelism for interactive regular injection
@@ -1756,6 +1760,7 @@ terraform:
 
 		printer := &TerraformEnvPrinter{
 			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler),
+			toolsManager:   mocks.ToolsManager,
 		}
 
 		// When generating terraform args without blueprint.yaml file for interactive regular injection
@@ -1817,6 +1822,7 @@ terraform:
 
 		printer := &TerraformEnvPrinter{
 			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler),
+			toolsManager:   mocks.ToolsManager,
 		}
 		printer.shims = mocks.Shims
 
@@ -1852,6 +1858,7 @@ terraform:
 
 		printer := &TerraformEnvPrinter{
 			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler),
+			toolsManager:   mocks.ToolsManager,
 		}
 
 		args, err := printer.GenerateTerraformArgs("test/path", "test/module", true)
@@ -1878,6 +1885,7 @@ terraform:
 
 		printer := &TerraformEnvPrinter{
 			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler),
+			toolsManager:   mocks.ToolsManager,
 		}
 
 		args, err := printer.GenerateTerraformArgs("test/path", "test/module", true)
@@ -1938,6 +1946,7 @@ terraform:
 
 		printer := &TerraformEnvPrinter{
 			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler),
+			toolsManager:   mocks.ToolsManager,
 		}
 		printer.shims = mocks.Shims
 
@@ -1971,7 +1980,7 @@ func TestTerraformEnv_getTerraformComponents(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
-		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mocks.ToolsManager)
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
@@ -1983,7 +1992,11 @@ func TestTerraformEnv_getTerraformComponents(t *testing.T) {
 		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error getting config root")
 		}
-		printer := NewTerraformEnvPrinter(mocks.Shell, mockConfigHandler)
+		mockToolsManager := tools.NewMockToolsManager()
+		mockToolsManager.GetTerraformCommandFunc = func() string {
+			return "terraform"
+		}
+		printer := NewTerraformEnvPrinter(mocks.Shell, mockConfigHandler, mockToolsManager)
 		printer.shims = mocks.Shims
 
 		// When getTerraformComponents is called without projectPath
@@ -2006,7 +2019,11 @@ func TestTerraformEnv_getTerraformComponents(t *testing.T) {
 		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error getting config root")
 		}
-		printer := NewTerraformEnvPrinter(mocks.Shell, mockConfigHandler)
+		mockToolsManager := tools.NewMockToolsManager()
+		mockToolsManager.GetTerraformCommandFunc = func() string {
+			return "terraform"
+		}
+		printer := NewTerraformEnvPrinter(mocks.Shell, mockConfigHandler, mockToolsManager)
 		printer.shims = mocks.Shims
 
 		// When getTerraformComponents is called with projectPath
@@ -2072,7 +2089,7 @@ func TestTerraformEnv_restoreEnvVar(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
-		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mocks.ToolsManager)
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
@@ -2118,7 +2135,7 @@ func TestTerraformEnv_captureTerraformOutputs(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
-		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mocks.ToolsManager)
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
@@ -2130,7 +2147,11 @@ func TestTerraformEnv_captureTerraformOutputs(t *testing.T) {
 		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error getting config root")
 		}
-		printer := NewTerraformEnvPrinter(mocks.Shell, mockConfigHandler)
+		mockToolsManager := tools.NewMockToolsManager()
+		mockToolsManager.GetTerraformCommandFunc = func() string {
+			return "terraform"
+		}
+		printer := NewTerraformEnvPrinter(mocks.Shell, mockConfigHandler, mockToolsManager)
 		printer.shims = mocks.Shims
 
 		// When captureTerraformOutputs is called
@@ -2261,7 +2282,7 @@ func TestTerraformEnv_addDependencyVariables(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
-		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mocks.ToolsManager)
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
@@ -2273,7 +2294,11 @@ func TestTerraformEnv_addDependencyVariables(t *testing.T) {
 		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error getting config root")
 		}
-		printer := NewTerraformEnvPrinter(mocks.Shell, mockConfigHandler)
+		mockToolsManager := tools.NewMockToolsManager()
+		mockToolsManager.GetTerraformCommandFunc = func() string {
+			return "terraform"
+		}
+		printer := NewTerraformEnvPrinter(mocks.Shell, mockConfigHandler, mockToolsManager)
 		printer.shims = mocks.Shims
 
 		terraformArgs := &TerraformArgs{
@@ -2331,7 +2356,11 @@ terraform:
 		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error getting config root")
 		}
-		printer := NewTerraformEnvPrinter(mocks.Shell, mockConfigHandler)
+		mockToolsManager := tools.NewMockToolsManager()
+		mockToolsManager.GetTerraformCommandFunc = func() string {
+			return "terraform"
+		}
+		printer := NewTerraformEnvPrinter(mocks.Shell, mockConfigHandler, mockToolsManager)
 		printer.shims = mocks.Shims
 
 		terraformArgs := &TerraformArgs{
@@ -2806,7 +2835,7 @@ func TestTerraformEnv_getDefinedVariables_Comprehensive(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
-		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mocks.ToolsManager)
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
@@ -3092,7 +3121,7 @@ func TestTerraformEnv_getExistingVariables_Comprehensive(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
-		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mocks.ToolsManager)
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
@@ -3300,7 +3329,7 @@ func TestTerraformEnv_captureTerraformOutputs_Comprehensive(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
-		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mocks.ToolsManager)
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}

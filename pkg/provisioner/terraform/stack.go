@@ -129,27 +129,28 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 			return fmt.Errorf("error creating backend override file for %s: %w", component.Path, err)
 		}
 
+		terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 		initArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "init"}
 		initArgs = append(initArgs, terraformArgs.InitArgs...)
-		_, err = s.runtime.Shell.ExecProgress(fmt.Sprintf("🌎 Initializing Terraform in %s", component.Path), "terraform", initArgs...)
+		_, err = s.runtime.Shell.ExecProgress(fmt.Sprintf("🌎 Initializing Terraform in %s", component.Path), terraformCommand, initArgs...)
 		if err != nil {
 			return fmt.Errorf("error running terraform init for %s: %w", component.Path, err)
 		}
 
 		refreshArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "refresh"}
 		refreshArgs = append(refreshArgs, terraformArgs.RefreshArgs...)
-		_, _ = s.runtime.Shell.ExecProgress(fmt.Sprintf("🔄 Refreshing Terraform state in %s", component.Path), "terraform", refreshArgs...)
+		_, _ = s.runtime.Shell.ExecProgress(fmt.Sprintf("🔄 Refreshing Terraform state in %s", component.Path), terraformCommand, refreshArgs...)
 
 		planArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "plan"}
 		planArgs = append(planArgs, terraformArgs.PlanArgs...)
-		_, err = s.runtime.Shell.ExecProgress(fmt.Sprintf("🌎 Planning Terraform changes in %s", component.Path), "terraform", planArgs...)
+		_, err = s.runtime.Shell.ExecProgress(fmt.Sprintf("🌎 Planning Terraform changes in %s", component.Path), terraformCommand, planArgs...)
 		if err != nil {
 			return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
 		}
 
 		applyArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "apply"}
 		applyArgs = append(applyArgs, terraformArgs.ApplyArgs...)
-		_, err = s.runtime.Shell.ExecProgress(fmt.Sprintf("🌎 Applying Terraform changes in %s", component.Path), "terraform", applyArgs...)
+		_, err = s.runtime.Shell.ExecProgress(fmt.Sprintf("🌎 Applying Terraform changes in %s", component.Path), terraformCommand, applyArgs...)
 		if err != nil {
 			return fmt.Errorf("error running terraform apply for %s: %w", component.Path, err)
 		}
@@ -230,19 +231,20 @@ func (s *TerraformStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 			return fmt.Errorf("error creating backend override file for %s: %w", component.Path, err)
 		}
 
+		terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 		refreshArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "refresh"}
 		refreshArgs = append(refreshArgs, terraformArgs.RefreshArgs...)
-		_, _ = s.runtime.Shell.ExecProgress(fmt.Sprintf("🔄 Refreshing Terraform state in %s", component.Path), "terraform", refreshArgs...)
+		_, _ = s.runtime.Shell.ExecProgress(fmt.Sprintf("🔄 Refreshing Terraform state in %s", component.Path), terraformCommand, refreshArgs...)
 
 		planArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "plan"}
 		planArgs = append(planArgs, terraformArgs.PlanDestroyArgs...)
-		if _, err := s.runtime.Shell.ExecProgress(fmt.Sprintf("🗑️  Planning terraform destroy for %s", component.Path), "terraform", planArgs...); err != nil {
+		if _, err := s.runtime.Shell.ExecProgress(fmt.Sprintf("🗑️  Planning terraform destroy for %s", component.Path), terraformCommand, planArgs...); err != nil {
 			return fmt.Errorf("error running terraform plan destroy for %s: %w", component.Path, err)
 		}
 
 		destroyArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "destroy"}
 		destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
-		if _, err := s.runtime.Shell.ExecProgress(fmt.Sprintf("🗑️  Destroying terraform for %s", component.Path), "terraform", destroyArgs...); err != nil {
+		if _, err := s.runtime.Shell.ExecProgress(fmt.Sprintf("🗑️  Destroying terraform for %s", component.Path), terraformCommand, destroyArgs...); err != nil {
 			return fmt.Errorf("error running terraform destroy for %s: %w", component.Path, err)
 		}
 

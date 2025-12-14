@@ -3,12 +3,14 @@ package tools
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/briandowns/spinner"
+	"github.com/goccy/go-yaml"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -27,6 +29,7 @@ type ToolsManager interface {
 	WriteManifest() error
 	Install() error
 	Check() error
+	GetTerraformCommand() string
 }
 
 // BaseToolsManager is the base implementation of the ToolsManager interface.
@@ -191,20 +194,78 @@ func (t *BaseToolsManager) checkColima() error {
 	return nil
 }
 
-// checkTerraform ensures Terraform is available in the system's PATH using execLookPath.
-// It checks for 'terraform' in the system's PATH and verifies its version.
+// GetTerraformCommand returns the terraform command to use (terraform or tofu) based on configuration.
+// Defaults to "terraform" if not specified in the root-level terraform config.
+func (t *BaseToolsManager) GetTerraformCommand() string {
+	if t.configHandler == nil {
+		return "terraform"
+	}
+	driver := t.getTerraformDriver()
+	if driver == "opentofu" {
+		return "tofu"
+	}
+	return "terraform"
+}
+
+// getTerraformDriver returns the terraform driver from root config, or detects which CLI is available.
+// If not specified in config, it checks for "terraform" first, then "tofu", defaulting to "terraform" if neither is found.
+func (t *BaseToolsManager) getTerraformDriver() string {
+	if t.shell == nil {
+		return t.detectTerraformDriver()
+	}
+	projectRoot, err := t.shell.GetProjectRoot()
+	if err != nil {
+		return t.detectTerraformDriver()
+	}
+	rootConfigPath := filepath.Join(projectRoot, "windsor.yaml")
+	if _, err := os.Stat(rootConfigPath); err != nil {
+		return t.detectTerraformDriver()
+	}
+	fileData, err := os.ReadFile(rootConfigPath)
+	if err != nil {
+		return t.detectTerraformDriver()
+	}
+	var rootConfig struct {
+		Terraform struct {
+			Driver string `yaml:"driver,omitempty"`
+		} `yaml:"terraform,omitempty"`
+	}
+	if err := yaml.Unmarshal(fileData, &rootConfig); err != nil {
+		return t.detectTerraformDriver()
+	}
+	if rootConfig.Terraform.Driver != "" {
+		return rootConfig.Terraform.Driver
+	}
+	return t.detectTerraformDriver()
+}
+
+// detectTerraformDriver detects which terraform CLI is available in the system PATH.
+// Checks for "terraform" first, then "tofu", defaulting to "terraform" if neither is found.
+func (t *BaseToolsManager) detectTerraformDriver() string {
+	if _, err := execLookPath("terraform"); err == nil {
+		return "terraform"
+	}
+	if _, err := execLookPath("tofu"); err == nil {
+		return "opentofu"
+	}
+	return "terraform"
+}
+
+// checkTerraform ensures Terraform or OpenTofu is available in the system's PATH using execLookPath.
+// It checks for the configured driver command in the system's PATH and verifies its version.
 // Returns nil if found and meets the minimum version requirement, else an error indicating it is not available or outdated.
 func (t *BaseToolsManager) checkTerraform() error {
-	if _, err := execLookPath("terraform"); err != nil {
-		return fmt.Errorf("terraform is not available in the PATH")
+	command := t.GetTerraformCommand()
+	if _, err := execLookPath(command); err != nil {
+		return fmt.Errorf("%s is not available in the PATH", command)
 	}
-	output, _ := t.shell.ExecSilent("terraform", "version")
+	output, _ := t.shell.ExecSilent(command, "version")
 	terraformVersion := extractVersion(output)
 	if terraformVersion == "" {
-		return fmt.Errorf("failed to extract terraform version")
+		return fmt.Errorf("failed to extract %s version", command)
 	}
 	if compareVersion(terraformVersion, constants.MinimumVersionTerraform) < 0 {
-		return fmt.Errorf("terraform version %s is below the minimum required version %s", terraformVersion, constants.MinimumVersionTerraform)
+		return fmt.Errorf("%s version %s is below the minimum required version %s", command, terraformVersion, constants.MinimumVersionTerraform)
 	}
 
 	return nil
