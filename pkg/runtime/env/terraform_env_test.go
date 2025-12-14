@@ -102,18 +102,18 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -force-copy -upgrade -backend-config="path=%s"`, filepath.ToSlash(filepath.Join(windsorScratchPath, ".tfstate", "project/path", "terraform.tfstate"))),
 			"TF_CLI_ARGS_plan": fmt.Sprintf(`-out="%s" -var-file="%s" -var-file="%s" -var-file="%s"`,
 				filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", "project/path", "terraform.tfplan")),
-				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform", "project/path.tfvars")),
-				filepath.ToSlash(filepath.Join(configRoot, "terraform", "project/path.tfvars.json"))),
+				filepath.ToSlash(filepath.Join(configRoot, "terraform", "project/path.tfvars.json")),
+				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars"))),
 			"TF_CLI_ARGS_apply": fmt.Sprintf(`"%s"`, filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", "project/path", "terraform.tfplan"))),
 			"TF_CLI_ARGS_import": fmt.Sprintf(`-var-file="%s" -var-file="%s" -var-file="%s"`,
-				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
-				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
+				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json")),
+				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars"))),
 			"TF_CLI_ARGS_destroy": fmt.Sprintf(`-auto-approve -var-file="%s" -var-file="%s" -var-file="%s"`,
-				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
-				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
+				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json")),
+				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars"))),
 			"TF_VAR_context_path": filepath.ToSlash(configRoot),
 			"TF_VAR_os_type":      osType,
 		}
@@ -329,18 +329,18 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -force-copy -upgrade -backend-config="path=%s"`, filepath.ToSlash(filepath.Join(windsorScratchPath, ".tfstate/project/path/terraform.tfstate"))),
 			"TF_CLI_ARGS_plan": fmt.Sprintf(`-out="%s" -var-file="%s" -var-file="%s" -var-file="%s"`,
 				filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", "project/path", "terraform.tfplan")),
-				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform", "project/path.tfvars")),
-				filepath.ToSlash(filepath.Join(configRoot, "terraform", "project/path.tfvars.json"))),
+				filepath.ToSlash(filepath.Join(configRoot, "terraform", "project/path.tfvars.json")),
+				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars"))),
 			"TF_CLI_ARGS_apply": fmt.Sprintf(`"%s"`, filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", "project/path", "terraform.tfplan"))),
 			"TF_CLI_ARGS_import": fmt.Sprintf(`-var-file="%s" -var-file="%s" -var-file="%s"`,
-				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
-				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
+				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json")),
+				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars"))),
 			"TF_CLI_ARGS_destroy": fmt.Sprintf(`-auto-approve -var-file="%s" -var-file="%s" -var-file="%s"`,
-				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
-				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
+				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json")),
+				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars"))),
 			"TF_VAR_context_path": filepath.ToSlash(configRoot),
 			"TF_VAR_os_type":      "windows",
 		}
@@ -1771,6 +1771,75 @@ terraform:
 			if strings.Contains(arg, "parallelism") {
 				t.Errorf("Apply args should not contain parallelism without blueprint.yaml: %v", args.ApplyArgs)
 			}
+		}
+	})
+
+	t.Run("DiscoversTfvarsFilesForNamedComponent", func(t *testing.T) {
+		mocks := setupTerraformEnvMocks(t)
+		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
+		if err != nil {
+			t.Fatalf("Failed to get config root: %v", err)
+		}
+		windsorScratchPath, err := mocks.ConfigHandler.GetWindsorScratchPath()
+		if err != nil {
+			t.Fatalf("Failed to get windsor scratch path: %v", err)
+		}
+
+		componentName := "cluster"
+		userTfvarsPath := filepath.Join(configRoot, "terraform", componentName+".tfvars")
+		autoTfvarsPath := filepath.Join(windsorScratchPath, "terraform", componentName, "terraform.tfvars")
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			nameSlash := filepath.ToSlash(name)
+			userTfvarsSlash := filepath.ToSlash(userTfvarsPath)
+			autoTfvarsSlash := filepath.ToSlash(autoTfvarsPath)
+			if nameSlash == userTfvarsSlash || nameSlash == autoTfvarsSlash {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		blueprintYAML := fmt.Sprintf(`apiVersion: v1alpha1
+kind: Blueprint
+metadata:
+  name: test-blueprint
+terraform:
+  - name: %s
+    path: terraform/cluster`, componentName)
+
+		originalReadFile := mocks.Shims.ReadFile
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
+			if strings.Contains(filename, "blueprint.yaml") {
+				return []byte(blueprintYAML), nil
+			}
+			return originalReadFile(filename)
+		}
+
+		printer := &TerraformEnvPrinter{
+			BaseEnvPrinter: *NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler),
+		}
+		printer.shims = mocks.Shims
+
+		args, err := printer.GenerateTerraformArgs(componentName, "test/module")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		planArgs := args.TerraformVars["TF_CLI_ARGS_plan"]
+		userTfvarsSlash := filepath.ToSlash(userTfvarsPath)
+		autoTfvarsSlash := filepath.ToSlash(autoTfvarsPath)
+
+		if !strings.Contains(planArgs, userTfvarsSlash) {
+			t.Errorf("Expected plan args to contain user tfvars file %s, got %s", userTfvarsSlash, planArgs)
+		}
+		if !strings.Contains(planArgs, autoTfvarsSlash) {
+			t.Errorf("Expected plan args to contain auto-generated tfvars file %s, got %s", autoTfvarsSlash, planArgs)
+		}
+
+		userTfvarsIndex := strings.Index(planArgs, userTfvarsSlash)
+		autoTfvarsIndex := strings.Index(planArgs, autoTfvarsSlash)
+		if userTfvarsIndex > autoTfvarsIndex {
+			t.Errorf("Expected user tfvars file to come before auto-generated file in args, but user at %d, auto at %d", userTfvarsIndex, autoTfvarsIndex)
 		}
 	})
 

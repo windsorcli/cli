@@ -125,10 +125,22 @@ func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath stri
 		return nil, fmt.Errorf("error getting windsor scratch path: %w", err)
 	}
 
+	component := e.getTerraformComponent(projectPath)
+	componentID := projectPath
+	if component != nil {
+		componentID = component.GetID()
+	}
+
 	patterns := []string{
-		filepath.Join(windsorScratchPath, "terraform", projectPath, "terraform.tfvars"),
-		filepath.Join(configRoot, "terraform", projectPath+".tfvars"),
-		filepath.Join(configRoot, "terraform", projectPath+".tfvars.json"),
+		filepath.Join(configRoot, "terraform", componentID+".tfvars"),
+		filepath.Join(configRoot, "terraform", componentID+".tfvars.json"),
+		filepath.Join(windsorScratchPath, "terraform", componentID, "terraform.tfvars"),
+	}
+	if componentID != projectPath {
+		patterns = append(patterns,
+			filepath.Join(configRoot, "terraform", projectPath+".tfvars"),
+			filepath.Join(configRoot, "terraform", projectPath+".tfvars.json"),
+		)
 	}
 
 	var varFileArgs []string
@@ -145,7 +157,7 @@ func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath stri
 		}
 	}
 
-	tfDataDir := filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", projectPath))
+	tfDataDir := filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", componentID))
 	tfPlanPath := filepath.ToSlash(filepath.Join(tfDataDir, "terraform.tfplan"))
 
 	backendConfigArgs, err := e.generateBackendConfigArgs(projectPath, configRoot, false)
@@ -174,7 +186,6 @@ func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath stri
 	destroyArgs := []string{"-auto-approve"}
 	destroyArgs = append(destroyArgs, varFileArgs...)
 
-	component := e.getTerraformComponent(projectPath)
 	if component != nil && component.Parallelism != nil {
 		parallelismArg := fmt.Sprintf("-parallelism=%d", *component.Parallelism)
 		applyArgs = append(applyArgs, parallelismArg)
@@ -268,7 +279,7 @@ func (e *TerraformEnvPrinter) addDependencyVariables(projectPath string, terrafo
 			continue
 		}
 		if len(outputs) > 0 {
-			componentOutputs[component.Path] = outputs
+			componentOutputs[component.GetID()] = outputs
 		}
 	}
 
@@ -279,8 +290,8 @@ func (e *TerraformEnvPrinter) addDependencyVariables(projectPath string, terrafo
 
 	existingVariables := e.getExistingVariables(projectPath)
 
-	for _, depPath := range currentComponent.DependsOn {
-		if outputs, exists := componentOutputs[depPath]; exists {
+	for _, depID := range currentComponent.DependsOn {
+		if outputs, exists := componentOutputs[depID]; exists {
 			for outputKey, outputValue := range outputs {
 				if !definedVariables[outputKey] {
 					continue
@@ -316,41 +327,42 @@ func (e *TerraformEnvPrinter) addDependencyVariables(projectPath string, terrafo
 
 // resolveTerraformComponentDependencies returns a topologically sorted slice of Terraform components,
 // ensuring that all dependencies are ordered before their dependents. It detects and reports missing
-// or circular dependencies. The function uses component.Path as the key.
+// or circular dependencies. The function uses component.GetID() as the key.
 // Returns an error if a dependency is missing or a cycle is detected.
 func (e *TerraformEnvPrinter) resolveTerraformComponentDependencies(components []blueprintv1alpha1.TerraformComponent) ([]blueprintv1alpha1.TerraformComponent, error) {
-	pathToComponent := make(map[string]blueprintv1alpha1.TerraformComponent)
-	pathToIndex := make(map[string]int)
+	componentByID := make(map[string]blueprintv1alpha1.TerraformComponent)
+	indexByID := make(map[string]int)
 
 	for i, component := range components {
-		pathToComponent[component.Path] = component
-		pathToIndex[component.Path] = i
+		id := component.GetID()
+		componentByID[id] = component
+		indexByID[id] = i
 	}
 
 	graph := make(map[string][]string)
 	inDegree := make(map[string]int)
 
-	for path := range pathToComponent {
-		graph[path] = []string{}
-		inDegree[path] = 0
+	for id := range componentByID {
+		graph[id] = []string{}
+		inDegree[id] = 0
 	}
 
-	for path, component := range pathToComponent {
-		for _, depPath := range component.DependsOn {
-			if _, exists := pathToComponent[depPath]; !exists {
-				return nil, fmt.Errorf("terraform component %q depends on %q which does not exist", path, depPath)
+	for id, component := range componentByID {
+		for _, depID := range component.DependsOn {
+			if _, exists := componentByID[depID]; !exists {
+				return nil, fmt.Errorf("terraform component %q depends on %q which does not exist", id, depID)
 			}
-			graph[depPath] = append(graph[depPath], path)
-			inDegree[path]++
+			graph[depID] = append(graph[depID], id)
+			inDegree[id]++
 		}
 	}
 
 	var queue []string
 	var sorted []string
 
-	for path, degree := range inDegree {
+	for id, degree := range inDegree {
 		if degree == 0 {
-			queue = append(queue, path)
+			queue = append(queue, id)
 		}
 	}
 
@@ -372,8 +384,8 @@ func (e *TerraformEnvPrinter) resolveTerraformComponentDependencies(components [
 	}
 
 	var sortedComponents []blueprintv1alpha1.TerraformComponent
-	for _, path := range sorted {
-		sortedComponents = append(sortedComponents, pathToComponent[path])
+	for _, id := range sorted {
+		sortedComponents = append(sortedComponents, componentByID[id])
 	}
 
 	return sortedComponents, nil
@@ -389,7 +401,13 @@ func (e *TerraformEnvPrinter) captureTerraformOutputs(componentPath string) (map
 	}
 
 	var absModulePath string
-	if component.Source != "" {
+	if component.Name != "" {
+		windsorScratchPath, err := e.configHandler.GetWindsorScratchPath()
+		if err != nil {
+			return make(map[string]any), nil
+		}
+		absModulePath = filepath.Join(windsorScratchPath, "terraform", component.Name)
+	} else if component.Source != "" {
 		windsorScratchPath, err := e.configHandler.GetWindsorScratchPath()
 		if err != nil {
 			return make(map[string]any), nil
@@ -472,7 +490,13 @@ func (e *TerraformEnvPrinter) getDefinedVariables(projectPath string) (map[strin
 	}
 
 	var moduleDir string
-	if component.Source != "" {
+	if component.Name != "" {
+		windsorScratchPath, err := e.configHandler.GetWindsorScratchPath()
+		if err != nil {
+			return make(map[string]bool), nil
+		}
+		moduleDir = filepath.Join(windsorScratchPath, "terraform", component.Name)
+	} else if component.Source != "" {
 		windsorScratchPath, err := e.configHandler.GetWindsorScratchPath()
 		if err != nil {
 			return make(map[string]bool), nil
@@ -540,7 +564,12 @@ func (e *TerraformEnvPrinter) getExistingVariables(projectPath string) map[strin
 
 	var moduleDir string
 	if component != nil {
-		if component.Source != "" {
+		if component.Name != "" {
+			windsorScratchPath, err := e.configHandler.GetWindsorScratchPath()
+			if err == nil {
+				moduleDir = filepath.Join(windsorScratchPath, "terraform", component.Name)
+			}
+		} else if component.Source != "" {
 			windsorScratchPath, err := e.configHandler.GetWindsorScratchPath()
 			if err == nil {
 				moduleDir = filepath.Join(windsorScratchPath, "terraform", component.Path)
@@ -553,10 +582,16 @@ func (e *TerraformEnvPrinter) getExistingVariables(projectPath string) map[strin
 		}
 	}
 
+	componentID := projectPath
+	if component != nil {
+		componentID = component.GetID()
+	}
+
 	tfvarsFiles := []string{
 		filepath.Join(windsorScratchPath, "terraform", projectPath, "terraform.tfvars"),
 		filepath.Join(configRoot, "terraform", projectPath+".tfvars"),
 		filepath.Join(configRoot, "terraform", projectPath+".tfvars.json"),
+		filepath.Join(windsorScratchPath, "terraform", componentID, "terraform.tfvars"),
 	}
 
 	if moduleDir != "" {
@@ -863,18 +898,33 @@ func (e *TerraformEnvPrinter) findRelativeTerraformProjectPath(directory ...stri
 	}
 
 	pathParts := strings.Split(currentPath, string(os.PathSeparator))
+	terraformIdx := -1
+	contextsIdx := -1
 	for i := len(pathParts) - 1; i >= 0; i-- {
-		if strings.EqualFold(pathParts[i], "terraform") || strings.EqualFold(pathParts[i], "contexts") {
-			relativePath := filepath.Join(pathParts[i+1:]...)
-			return filepath.ToSlash(relativePath), nil
+		if strings.EqualFold(pathParts[i], "terraform") {
+			terraformIdx = i
 		}
+		if strings.EqualFold(pathParts[i], "contexts") {
+			contextsIdx = i
+		}
+	}
+
+	if terraformIdx >= 0 {
+		relativePath := filepath.Join(pathParts[terraformIdx+1:]...)
+		return filepath.ToSlash(relativePath), nil
+	}
+
+	if contextsIdx >= 0 {
+		relativePath := filepath.Join(pathParts[contextsIdx+1:]...)
+		return filepath.ToSlash(relativePath), nil
 	}
 
 	return "", nil
 }
 
 // getTerraformComponent finds a Terraform component by path.
-// Returns nil if not found.
+// The projectPath can be either the component's Path (for components without name)
+// or the component's Name (for components with name). Returns nil if not found.
 func (e *TerraformEnvPrinter) getTerraformComponent(projectPath string) *blueprintv1alpha1.TerraformComponent {
 	componentsInterface := e.getTerraformComponents()
 	components, ok := componentsInterface.([]blueprintv1alpha1.TerraformComponent)
@@ -883,6 +933,9 @@ func (e *TerraformEnvPrinter) getTerraformComponent(projectPath string) *bluepri
 	}
 	for _, component := range components {
 		if component.Path == projectPath {
+			return &component
+		}
+		if component.Name != "" && component.Name == projectPath {
 			return &component
 		}
 	}

@@ -213,17 +213,18 @@ func (h *BaseModuleResolver) parseVariablesFromModule(modulePath string, protect
 }
 
 // generateComponentTfvars generates tfvars files for a single Terraform component.
-// All components write tfvars files to .windsor/contexts/<context>/terraform/<component.Path>/terraform.tfvars,
+// All components write tfvars files to .windsor/contexts/<context>/terraform/<componentID>/terraform.tfvars,
 // regardless of whether they have a Source (remote) or not (local). This unifies the behavior
 // between local templates and OCI artifacts, preventing writes to the contexts folder.
 // Returns an error if tfvars file generation fails.
 func (h *BaseModuleResolver) generateComponentTfvars(projectRoot string, component blueprintv1alpha1.TerraformComponent, componentValues map[string]any) error {
 	modulePath, err := h.findModulePathForComponent(projectRoot, component)
 	if err != nil {
-		return fmt.Errorf("failed to find module path for component %s: %w", component.Path, err)
+		return fmt.Errorf("failed to find module path for component %s: %w", component.GetID(), err)
 	}
 
-	moduleTfvarsPath := filepath.Join(projectRoot, ".windsor", "contexts", h.runtime.ContextName, "terraform", component.Path, "terraform.tfvars")
+	componentID := component.GetID()
+	moduleTfvarsPath := filepath.Join(projectRoot, ".windsor", "contexts", h.runtime.ContextName, "terraform", componentID, "terraform.tfvars")
 	if err := h.removeTfvarsFiles(filepath.Dir(moduleTfvarsPath)); err != nil {
 		return fmt.Errorf("failed cleaning existing .tfvars in module dir %s: %w", filepath.Dir(moduleTfvarsPath), err)
 	}
@@ -235,20 +236,27 @@ func (h *BaseModuleResolver) generateComponentTfvars(projectRoot string, compone
 }
 
 // findModulePathForComponent returns the path to the module directory for the specified Terraform component.
-// If the component has a non-empty Source, the path is .windsor/contexts/<context>/terraform/<component.Path> under the project root.
-// If the component has an empty Source, the path is terraform/<component.Path> under the project root.
+// For components with a name, the path is .windsor/contexts/<context>/terraform/<name> (where the shim is located).
+// For components without a name but with a Source, the path is .windsor/contexts/<context>/terraform/<component.Path>.
+// For local components without a name, the path is terraform/<component.Path> (the actual module location).
 // Returns the module directory path if it exists, or an error if not found.
 func (h *BaseModuleResolver) findModulePathForComponent(projectRoot string, component blueprintv1alpha1.TerraformComponent) (string, error) {
-	var modulePath string
+	var dirName string
+	if component.Name != "" {
+		dirName = component.Name
+	} else {
+		dirName = component.Path
+	}
 
-	if component.Source != "" {
-		modulePath = filepath.Join(projectRoot, ".windsor", "contexts", h.runtime.ContextName, "terraform", component.Path)
+	var modulePath string
+	if component.Name != "" || component.Source != "" {
+		modulePath = filepath.Join(projectRoot, ".windsor", "contexts", h.runtime.ContextName, "terraform", dirName)
 	} else {
 		modulePath = filepath.Join(projectRoot, "terraform", component.Path)
 	}
 
 	if _, err := h.shims.Stat(modulePath); err != nil {
-		return "", fmt.Errorf("module directory not found for component %s at %s", component.Path, modulePath)
+		return "", fmt.Errorf("module directory not found for component %s at %s", component.GetID(), modulePath)
 	}
 
 	return modulePath, nil
@@ -354,9 +362,15 @@ func addTfvarsHeader(body *hclwrite.Body, source string) {
 
 // writeComponentValues writes all component-provided or default variable values to the tfvars file body.
 // It comments out default values and descriptions for unset variables, and writes explicit values for set variables.
-// Handles sensitive variables and preserves variable order from variables.tf.
+// Handles sensitive variables and writes variables in alphabetical order by name.
 func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedValues map[string]bool, variables []VariableInfo) {
-	for _, info := range variables {
+	sortedVariables := make([]VariableInfo, len(variables))
+	copy(sortedVariables, variables)
+	sort.Slice(sortedVariables, func(i, j int) bool {
+		return sortedVariables[i].Name < sortedVariables[j].Name
+	})
+
+	for _, info := range sortedVariables {
 		if protectedValues[info.Name] {
 			continue
 		}
@@ -629,7 +643,8 @@ func (h *BaseModuleResolver) writeShimMainTf(moduleDir, source string) error {
 // in the original module and generating corresponding variable blocks and module arguments.
 // It parses variable definitions from any .tf file in the source module, creates shim variable blocks
 // that preserve all attributes (description, type, default, sensitive), and configures the main
-// module block to pass through all variables using var.variable_name references.
+// module block to pass through all variables using var.variable_name references. Variables are
+// generated in alphabetical order in both the variables.tf file and the module arguments.
 func (h *BaseModuleResolver) writeShimVariablesTf(moduleDir, modulePath, source string) error {
 	shimMainContent := hclwrite.NewEmptyFile()
 	shimBlock := shimMainContent.Body().AppendNewBlock("module", []string{"main"})
@@ -685,7 +700,14 @@ func (h *BaseModuleResolver) writeShimVariablesTf(moduleDir, modulePath, source 
 	shimVariablesContent := hclwrite.NewEmptyFile()
 	shimVariablesBody := shimVariablesContent.Body()
 
-	for variableName, block := range variableMap {
+	variableNames := make([]string, 0, len(variableMap))
+	for variableName := range variableMap {
+		variableNames = append(variableNames, variableName)
+	}
+	sort.Strings(variableNames)
+
+	for _, variableName := range variableNames {
+		block := variableMap[variableName]
 		shimBody.SetAttributeTraversal(variableName, hcl.Traversal{
 			hcl.TraverseRoot{Name: "var"},
 			hcl.TraverseAttr{Name: variableName},

@@ -85,6 +85,111 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		}
 	})
 
+	t.Run("MergesNamedTerraformComponentsByComponentID", func(t *testing.T) {
+		// Given a base blueprint with a named terraform component
+		base := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{
+					Name:      "cluster",
+					Path:      "terraform/cluster",
+					Source:    "core",
+					Inputs:    map[string]any{"version": "1.28"},
+					DependsOn: []string{"network"},
+				},
+			},
+		}
+
+		// And an overlay with same component name (should merge) and new named component (should append)
+		overlay := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{
+					Name:      "cluster",                  // Same name - should merge by componentID
+					Path:      "terraform/different-path", // Different path, but name takes precedence
+					Source:    "core",
+					Inputs:    map[string]any{"node_count": 3},
+					DependsOn: []string{"storage"},
+				},
+				{
+					Name:   "network",
+					Path:   "terraform/network",
+					Source: "core",
+					Inputs: map[string]any{"cidr": "10.0.0.0/16"},
+				},
+			},
+		}
+
+		// When strategic merging
+		base.StrategicMerge(overlay)
+
+		// Then should have 2 components
+		if len(base.TerraformComponents) != 2 {
+			t.Errorf("Expected 2 terraform components, got %d", len(base.TerraformComponents))
+		}
+
+		// And first component should have merged values
+		cluster := base.TerraformComponents[0]
+		if cluster.Name != "cluster" {
+			t.Errorf("Expected name 'cluster', got '%s'", cluster.Name)
+		}
+		if cluster.Path != "terraform/cluster" {
+			t.Errorf("Expected original path 'terraform/cluster' to be preserved, got '%s'", cluster.Path)
+		}
+		if len(cluster.Inputs) != 2 {
+			t.Errorf("Expected 2 inputs, got %d", len(cluster.Inputs))
+		}
+		if cluster.Inputs["version"] != "1.28" {
+			t.Errorf("Expected original version value preserved")
+		}
+		if cluster.Inputs["node_count"] != 3 {
+			t.Errorf("Expected new node_count value added")
+		}
+		if len(cluster.DependsOn) != 2 {
+			t.Errorf("Expected 2 dependencies, got %d", len(cluster.DependsOn))
+		}
+		if !contains(cluster.DependsOn, "network") || !contains(cluster.DependsOn, "storage") {
+			t.Errorf("Expected both network and storage dependencies, got %v", cluster.DependsOn)
+		}
+
+		// And second component should be the new one
+		network := base.TerraformComponents[1]
+		if network.Name != "network" {
+			t.Errorf("Expected name 'network', got '%s'", network.Name)
+		}
+	})
+
+	t.Run("MergesNamedComponentWithUnnamedComponentByPath", func(t *testing.T) {
+		// Given a base blueprint with an unnamed component
+		base := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{
+					Path:   "terraform/path",
+					Source: "core",
+					Inputs: map[string]any{"value": "original"},
+				},
+			},
+		}
+
+		// And an overlay with a named component that has same path
+		overlay := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{
+					Name:   "new-name",
+					Path:   "terraform/path",
+					Source: "core",
+					Inputs: map[string]any{"value": "updated"},
+				},
+			},
+		}
+
+		// When strategic merging
+		base.StrategicMerge(overlay)
+
+		// Then should have 2 components (different IDs: path vs name)
+		if len(base.TerraformComponents) != 2 {
+			t.Errorf("Expected 2 terraform components, got %d", len(base.TerraformComponents))
+		}
+	})
+
 	t.Run("MergesKustomizationsStrategically", func(t *testing.T) {
 		// Given a base blueprint with kustomizations
 		base := &Blueprint{
@@ -822,11 +927,11 @@ func TestBlueprint_ReplaceTerraformComponent(t *testing.T) {
 
 		// When replacing with a new component
 		replacement := TerraformComponent{
-			Path:      "network/vpc",
-			Source:    "core",
-			Inputs:    map[string]any{"cidr": "172.16.0.0/16"},
-			DependsOn: []string{"new-dependency"},
-			Destroy:   ptrBool(false),
+			Path:        "network/vpc",
+			Source:      "core",
+			Inputs:      map[string]any{"cidr": "172.16.0.0/16"},
+			DependsOn:   []string{"new-dependency"},
+			Destroy:     ptrBool(false),
 			Parallelism: intPtr(5),
 		}
 
@@ -2082,6 +2187,60 @@ func TestTerraformComponent_DeepCopy(t *testing.T) {
 			t.Errorf("Expected nil parallelism, got %v", copy.Parallelism)
 		}
 	})
+
+	t.Run("IncludesNameInDeepCopy", func(t *testing.T) {
+		component := &TerraformComponent{
+			Name:   "test-component",
+			Source: "test-source",
+			Path:   "test/path",
+		}
+
+		copy := component.DeepCopy()
+
+		if copy.Name != "test-component" {
+			t.Errorf("Expected name 'test-component', got '%s'", copy.Name)
+		}
+	})
+}
+
+func TestTerraformComponent_GetID(t *testing.T) {
+	t.Run("ReturnsNameWhenPresent", func(t *testing.T) {
+		component := &TerraformComponent{
+			Name: "my-component",
+			Path: "terraform/path",
+		}
+
+		id := component.GetID()
+
+		if id != "my-component" {
+			t.Errorf("Expected ID 'my-component', got '%s'", id)
+		}
+	})
+
+	t.Run("ReturnsPathWhenNameNotPresent", func(t *testing.T) {
+		component := &TerraformComponent{
+			Path: "terraform/path",
+		}
+
+		id := component.GetID()
+
+		if id != "terraform/path" {
+			t.Errorf("Expected ID 'terraform/path', got '%s'", id)
+		}
+	})
+
+	t.Run("ReturnsPathWhenNameIsEmpty", func(t *testing.T) {
+		component := &TerraformComponent{
+			Name: "",
+			Path: "terraform/path",
+		}
+
+		id := component.GetID()
+
+		if id != "terraform/path" {
+			t.Errorf("Expected ID 'terraform/path', got '%s'", id)
+		}
+	})
 }
 
 func TestKustomization_DeepCopy(t *testing.T) {
@@ -2238,6 +2397,122 @@ func TestKustomization_DeepCopy(t *testing.T) {
 		}
 		if len(copy.Substitutions) != 0 {
 			t.Errorf("Expected empty substitutions, got %v", copy.Substitutions)
+		}
+	})
+}
+
+func TestBlueprint_validateTerraformComponents(t *testing.T) {
+	t.Run("ValidatesUniqueComponentIDs", func(t *testing.T) {
+		blueprint := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{
+					Name: "component-a",
+					Path: "path/a",
+				},
+				{
+					Name: "component-b",
+					Path: "path/b",
+				},
+			},
+		}
+
+		err := blueprint.validateTerraformComponents()
+
+		if err != nil {
+			t.Errorf("Expected no error for unique component IDs, got %v", err)
+		}
+	})
+
+	t.Run("RejectsDuplicateNames", func(t *testing.T) {
+		blueprint := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{
+					Name: "duplicate",
+					Path: "path/a",
+				},
+				{
+					Name: "duplicate",
+					Path: "path/b",
+				},
+			},
+		}
+
+		err := blueprint.validateTerraformComponents()
+
+		if err == nil {
+			t.Error("Expected error for duplicate component names, got nil")
+		}
+		if !strings.Contains(err.Error(), "duplicate") {
+			t.Errorf("Expected error message to contain 'duplicate', got '%s'", err.Error())
+		}
+	})
+
+	t.Run("RejectsDuplicatePaths", func(t *testing.T) {
+		blueprint := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{
+					Path: "duplicate/path",
+				},
+				{
+					Path: "duplicate/path",
+				},
+			},
+		}
+
+		err := blueprint.validateTerraformComponents()
+
+		if err == nil {
+			t.Error("Expected error for duplicate component paths, got nil")
+		}
+		if !strings.Contains(err.Error(), "duplicate") {
+			t.Errorf("Expected error message to contain 'duplicate', got '%s'", err.Error())
+		}
+	})
+
+	t.Run("RejectsNameMatchingPath", func(t *testing.T) {
+		blueprint := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{
+					Name: "same-id",
+					Path: "path/a",
+				},
+				{
+					Path: "same-id",
+				},
+			},
+		}
+
+		err := blueprint.validateTerraformComponents()
+
+		if err == nil {
+			t.Error("Expected error when component name matches another component's path, got nil")
+		}
+		if !strings.Contains(err.Error(), "duplicate") {
+			t.Errorf("Expected error message to contain 'duplicate', got '%s'", err.Error())
+		}
+	})
+
+	t.Run("RejectsSamePathWithDifferentSources", func(t *testing.T) {
+		blueprint := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{
+					Source: "source-a",
+					Path:   "same/path",
+				},
+				{
+					Source: "source-b",
+					Path:   "same/path",
+				},
+			},
+		}
+
+		err := blueprint.validateTerraformComponents()
+
+		if err == nil {
+			t.Error("Expected error for same path with different sources (path is the component ID), got nil")
+		}
+		if !strings.Contains(err.Error(), "duplicate") {
+			t.Errorf("Expected error message to contain 'duplicate', got '%s'", err.Error())
 		}
 	})
 }

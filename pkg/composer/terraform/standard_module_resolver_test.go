@@ -408,27 +408,6 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 		}
 	})
 
-	t.Run("HandlesNonStandardSources", func(t *testing.T) {
-		// Given a resolver with a component having non-standard source
-		resolver, mocks := setup(t)
-		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{{
-				Path:     "test-module",
-				Source:   "oci://registry.example.com/module:latest",
-				FullPath: "/mock/project/terraform/test-module",
-			}}
-		}
-
-		// When ProcessModules is called
-		err := resolver.ProcessModules()
-
-		// Then no error is returned (component is skipped)
-		if err != nil {
-			t.Errorf("Expected nil error, got %v", err)
-		}
-	})
-
-	// Terraform init output parsing edge cases
 	t.Run("HandlesTerraformInitOutputParsing", func(t *testing.T) {
 		// Given a resolver with custom JsonUnmarshal and Stat shims for output parsing edge cases
 		resolver, mocks := setup(t)
@@ -436,14 +415,12 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 		resolver.BaseModuleResolver.shims.JsonUnmarshal = func(data []byte, v any) error {
 			if initOutput, ok := v.(*TerraformInitOutput); ok {
 				jsonStr := string(data)
-				if strings.Contains(jsonStr, `"empty_line"`) {
-					return nil
-				}
 				if strings.Contains(jsonStr, `"invalid_json"`) {
 					return errors.New("invalid JSON")
 				}
 				if strings.Contains(jsonStr, `"non_log_type"`) {
 					initOutput.Type = "info"
+					initOutput.Message = "some info message"
 					return nil
 				}
 				if strings.Contains(jsonStr, `"no_main_in"`) {
@@ -472,7 +449,7 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 					return nil
 				}
 			}
-			return nil
+			return json.Unmarshal(data, v)
 		}
 
 		// And Stat shim only succeeds for /valid/path
@@ -486,15 +463,13 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 		// And Shell.ExecProgressFunc returns all edge case lines
 		mocks.Shell.ExecProgressFunc = func(msg, cmd string, args ...string) (string, error) {
 			if cmd == "terraform" && len(args) > 0 && args[0] == "init" {
-				return `
-{"empty_line":""}
-invalid json line
-{"non_log_type":"info"}
-{"no_main_in":"log"}
-{"main_in_at_end":"log"}
-{"empty_path":"log"}
-{"nonexistent_path":"log"}
-{"valid_path":"log"}`, nil
+				return `invalid json line
+{"@type":"info","@message":"some info message","non_log_type":true}
+{"@type":"log","@message":"some other message","no_main_in":true}
+{"@type":"log","@message":"- main in","main_in_at_end":true}
+{"@type":"log","@message":"- main in   ","empty_path":true}
+{"@type":"log","@message":"- main in /nonexistent/path","nonexistent_path":true}
+{"@type":"log","@message":"- main in /valid/path","valid_path":true}`, nil
 			}
 			return "", nil
 		}
@@ -505,6 +480,349 @@ invalid json line
 		// Then no error is returned (all output parsing edge cases handled)
 		if err != nil {
 			t.Errorf("Expected nil error, got %v", err)
+		}
+	})
+
+	t.Run("HandlesMultipleLogLinesWithValidPaths", func(t *testing.T) {
+		// Given a resolver that receives multiple log lines with valid paths
+		resolver, mocks := setup(t)
+		resolver.BaseModuleResolver.runtime.ConfigRoot = "/test/config"
+
+		firstPath := "/first/path"
+		secondPath := "/second/path"
+
+		detectedPathStatCalls := 0
+		resolver.BaseModuleResolver.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == firstPath {
+				detectedPathStatCalls++
+				return nil, nil
+			}
+			if path == secondPath {
+				detectedPathStatCalls++
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		resolver.BaseModuleResolver.shims.JsonUnmarshal = func(data []byte, v any) error {
+			return json.Unmarshal(data, v)
+		}
+
+		mocks.Shell.ExecProgressFunc = func(msg, cmd string, args ...string) (string, error) {
+			if cmd == "terraform" && len(args) > 0 && args[0] == "init" {
+				return `{"@type":"log","@message":"- main in /first/path"}
+{"@type":"log","@message":"- main in /second/path"}`, nil
+			}
+			return "", nil
+		}
+
+		// When ProcessModules is called
+		err := resolver.ProcessModules()
+
+		// Then no error is returned
+		if err != nil {
+			t.Errorf("Expected nil error, got %v", err)
+		}
+
+		// And Stat should only be called once for detected paths (breaks after first valid path)
+		if detectedPathStatCalls != 1 {
+			t.Errorf("Expected Stat to be called once for detected paths (breaks after first valid path), got %d calls", detectedPathStatCalls)
+		}
+	})
+
+	t.Run("HandlesJsonUnmarshalErrors", func(t *testing.T) {
+		// Given a resolver with JsonUnmarshal returning errors for some lines
+		resolver, mocks := setup(t)
+		resolver.BaseModuleResolver.runtime.ConfigRoot = "/test/config"
+
+		resolver.BaseModuleResolver.shims.JsonUnmarshal = func(data []byte, v any) error {
+			jsonStr := string(data)
+			if strings.Contains(jsonStr, "invalid") {
+				return errors.New("invalid JSON")
+			}
+			return json.Unmarshal(data, v)
+		}
+
+		resolver.BaseModuleResolver.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == "/valid/path" {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shell.ExecProgressFunc = func(msg, cmd string, args ...string) (string, error) {
+			if cmd == "terraform" && len(args) > 0 && args[0] == "init" {
+				return `invalid json line
+{"@type":"log","@message":"- main in /valid/path"}`, nil
+			}
+			return "", nil
+		}
+
+		// When ProcessModules is called
+		err := resolver.ProcessModules()
+
+		// Then no error is returned (invalid JSON lines are skipped)
+		if err != nil {
+			t.Errorf("Expected nil error, got %v", err)
+		}
+	})
+
+	t.Run("HandlesEmptyLinesInOutput", func(t *testing.T) {
+		// Given a resolver with empty lines in terraform init output
+		resolver, mocks := setup(t)
+		resolver.BaseModuleResolver.runtime.ConfigRoot = "/test/config"
+
+		resolver.BaseModuleResolver.shims.JsonUnmarshal = func(data []byte, v any) error {
+			return json.Unmarshal(data, v)
+		}
+
+		resolver.BaseModuleResolver.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == "/valid/path" {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shell.ExecProgressFunc = func(msg, cmd string, args ...string) (string, error) {
+			if cmd == "terraform" && len(args) > 0 && args[0] == "init" {
+				return `
+
+
+{"@type":"log","@message":"- main in /valid/path"}
+
+
+`, nil
+			}
+			return "", nil
+		}
+
+		// When ProcessModules is called
+		err := resolver.ProcessModules()
+
+		// Then no error is returned (empty lines are skipped)
+		if err != nil {
+			t.Errorf("Expected nil error, got %v", err)
+		}
+	})
+}
+
+func TestStandardModuleResolver_processLocalComponent(t *testing.T) {
+	setup := func(t *testing.T) (*StandardModuleResolver, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupTerraformMocks(t)
+		resolver := NewStandardModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
+		resolver.BaseModuleResolver.shims = mocks.Shims
+		return resolver, mocks
+	}
+
+	t.Run("ProcessesNamedLocalComponent", func(t *testing.T) {
+		// Given a resolver with a named local component (no source, but has name)
+		resolver, mocks := setup(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+		actualModulePath := filepath.Join(tmpDir, "terraform", "cluster")
+		shimPath := filepath.Join(tmpDir, ".windsor", "contexts", "local", "terraform", "cluster")
+
+		if err := os.MkdirAll(actualModulePath, 0755); err != nil {
+			t.Fatalf("Failed to create actual module directory: %v", err)
+		}
+
+		variablesTfPath := filepath.Join(actualModulePath, "variables.tf")
+		if err := os.WriteFile(variablesTfPath, []byte(`variable "node_count" { type = number }`), 0644); err != nil {
+			t.Fatalf("Failed to write variables.tf: %v", err)
+		}
+
+		outputsTfPath := filepath.Join(actualModulePath, "outputs.tf")
+		if err := os.WriteFile(outputsTfPath, []byte(`output "cluster_id" { value = "test" }`), 0644); err != nil {
+			t.Fatalf("Failed to write outputs.tf: %v", err)
+		}
+
+		component := blueprintv1alpha1.TerraformComponent{
+			Name:     "cluster",
+			Path:     "cluster",
+			Source:   "",
+			FullPath: shimPath,
+		}
+
+		var writtenFiles []string
+		resolver.BaseModuleResolver.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			writtenFiles = append(writtenFiles, path)
+			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+				return err
+			}
+			return os.WriteFile(path, data, perm)
+		}
+
+		resolver.BaseModuleResolver.shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return os.MkdirAll(path, perm)
+		}
+
+		resolver.BaseModuleResolver.shims.FilepathRel = func(basepath, targpath string) (string, error) {
+			return filepath.Rel(basepath, targpath)
+		}
+
+		// When processLocalComponent is called
+		err := resolver.processLocalComponent(component)
+
+		// Then no error is returned
+		if err != nil {
+			t.Errorf("Expected nil error, got %v", err)
+		}
+
+		// And shim files should be created
+		expectedMainTf := filepath.Join(shimPath, "main.tf")
+		expectedVariablesTf := filepath.Join(shimPath, "variables.tf")
+		expectedOutputsTf := filepath.Join(shimPath, "outputs.tf")
+
+		foundMainTf := false
+		foundVariablesTf := false
+		foundOutputsTf := false
+		for _, file := range writtenFiles {
+			if file == expectedMainTf {
+				foundMainTf = true
+			}
+			if file == expectedVariablesTf {
+				foundVariablesTf = true
+			}
+			if file == expectedOutputsTf {
+				foundOutputsTf = true
+			}
+		}
+
+		if !foundMainTf {
+			t.Errorf("Expected main.tf to be written at %s", expectedMainTf)
+		}
+		if !foundVariablesTf {
+			t.Errorf("Expected variables.tf to be written at %s", expectedVariablesTf)
+		}
+		if !foundOutputsTf {
+			t.Errorf("Expected outputs.tf to be written at %s", expectedOutputsTf)
+		}
+
+		// And main.tf should reference the relative path to the actual module
+		if foundMainTf {
+			mainTfContent, err := os.ReadFile(expectedMainTf)
+			if err != nil {
+				t.Fatalf("Failed to read main.tf: %v", err)
+			}
+			if !strings.Contains(string(mainTfContent), "source") {
+				t.Error("Expected main.tf to contain source reference")
+			}
+		}
+	})
+
+	t.Run("SkipsLocalComponentWithoutName", func(t *testing.T) {
+		// Given a resolver with a local component without name
+		resolver, _ := setup(t)
+		component := blueprintv1alpha1.TerraformComponent{
+			Path:     "test-module",
+			Source:   "",
+			FullPath: "/mock/project/terraform/test-module",
+		}
+
+		// When processLocalComponent is called
+		err := resolver.processLocalComponent(component)
+
+		// Then no error is returned (component is skipped, no shims created)
+		if err != nil {
+			t.Errorf("Expected nil error, got %v", err)
+		}
+	})
+
+	t.Run("HandlesMkdirError", func(t *testing.T) {
+		// Given a resolver with a named local component that fails to create directory
+		resolver, mocks := setup(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+		shimPath := filepath.Join(tmpDir, ".windsor", "contexts", "local", "terraform", "cluster")
+
+		component := blueprintv1alpha1.TerraformComponent{
+			Name:     "cluster",
+			Path:     "cluster",
+			Source:   "",
+			FullPath: shimPath,
+		}
+
+		resolver.BaseModuleResolver.shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return errors.New("mkdir error")
+		}
+
+		// When processLocalComponent is called
+		err := resolver.processLocalComponent(component)
+
+		// Then an error is returned
+		if err == nil {
+			t.Error("Expected error when mkdir fails, got nil")
+		}
+		if err != nil && !strings.Contains(err.Error(), "failed to create module directory") {
+			t.Errorf("Expected error about creating module directory, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesFilepathRelError", func(t *testing.T) {
+		// Given a resolver with a named local component that fails to calculate relative path
+		resolver, mocks := setup(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+		shimPath := filepath.Join(tmpDir, ".windsor", "contexts", "local", "terraform", "cluster")
+
+		component := blueprintv1alpha1.TerraformComponent{
+			Name:     "cluster",
+			Path:     "cluster",
+			Source:   "",
+			FullPath: shimPath,
+		}
+
+		resolver.BaseModuleResolver.shims.FilepathRel = func(basepath, targpath string) (string, error) {
+			return "", errors.New("filepath rel error")
+		}
+
+		// When processLocalComponent is called
+		err := resolver.processLocalComponent(component)
+
+		// Then an error is returned
+		if err == nil {
+			t.Error("Expected error when filepath rel fails, got nil")
+		}
+		if err != nil && !strings.Contains(err.Error(), "failed to calculate relative path") {
+			t.Errorf("Expected error about calculating relative path, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesWriteMainTfError", func(t *testing.T) {
+		// Given a resolver with a named local component that fails to write main.tf
+		resolver, mocks := setup(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+		shimPath := filepath.Join(tmpDir, ".windsor", "contexts", "local", "terraform", "cluster")
+
+		component := blueprintv1alpha1.TerraformComponent{
+			Name:     "cluster",
+			Path:     "cluster",
+			Source:   "",
+			FullPath: shimPath,
+		}
+
+		resolver.BaseModuleResolver.shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return os.MkdirAll(path, perm)
+		}
+
+		resolver.BaseModuleResolver.shims.FilepathRel = func(basepath, targpath string) (string, error) {
+			return filepath.Rel(basepath, targpath)
+		}
+
+		resolver.BaseModuleResolver.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			if strings.HasSuffix(path, "main.tf") {
+				return errors.New("write main.tf error")
+			}
+			return nil
+		}
+
+		// When processLocalComponent is called
+		err := resolver.processLocalComponent(component)
+
+		// Then an error is returned
+		if err == nil {
+			t.Error("Expected error when writing main.tf fails, got nil")
+		}
+		if err != nil && !strings.Contains(err.Error(), "failed to write main.tf") {
+			t.Errorf("Expected error about writing main.tf, got: %v", err)
 		}
 	})
 }

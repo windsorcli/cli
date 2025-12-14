@@ -629,6 +629,142 @@ func TestBaseBlueprintHandler_resolveComponentPaths(t *testing.T) {
 			t.Errorf("Expected FullPath for empty source, got: %s", blueprint.TerraformComponents[0].FullPath)
 		}
 	})
+
+	t.Run("HandlesNamedComponentWithoutSource", func(t *testing.T) {
+		// Given a handler with a named component without source
+		handler := setup(t)
+		handler.runtime.ProjectRoot = "/test/project"
+		handler.runtime.ContextName = "local"
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{
+					Name:   "cluster",
+					Path:   "terraform/cluster",
+					Source: "",
+				},
+			},
+		}
+
+		// When resolving component paths
+		handler.resolveComponentPaths(blueprint)
+
+		// Then named components should use .windsor/contexts/<context>/terraform/<name> path
+		expectedPath := filepath.Join("/test/project", ".windsor", "contexts", "local", "terraform", "cluster")
+		if blueprint.TerraformComponents[0].FullPath != expectedPath {
+			t.Errorf("Expected FullPath for named component to be %s, got: %s", expectedPath, blueprint.TerraformComponents[0].FullPath)
+		}
+	})
+
+	t.Run("HandlesNamedComponentWithRemoteSource", func(t *testing.T) {
+		// Given a handler with a named component with remote source
+		handler := setup(t)
+		handler.runtime.ProjectRoot = "/test/project"
+		handler.runtime.ContextName = "local"
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{
+					Name:   "network",
+					Path:   "terraform/network",
+					Source: "git::https://github.com/example/repo.git",
+				},
+			},
+		}
+
+		// When resolving component paths
+		handler.resolveComponentPaths(blueprint)
+
+		// Then named components should use .windsor/contexts/<context>/terraform/<name> path
+		expectedPath := filepath.Join("/test/project", ".windsor", "contexts", "local", "terraform", "network")
+		if blueprint.TerraformComponents[0].FullPath != expectedPath {
+			t.Errorf("Expected FullPath for named component with source to be %s, got: %s", expectedPath, blueprint.TerraformComponents[0].FullPath)
+		}
+	})
+
+	t.Run("HandlesNamedComponentWithOCISource", func(t *testing.T) {
+		// Given a handler with a named component with OCI source
+		handler := setup(t)
+		handler.runtime.ProjectRoot = "/test/project"
+		handler.runtime.ContextName = "local"
+		handler.blueprint = blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name: "oci-source",
+					Url:  "oci://registry.example.com/repo:tag",
+				},
+			},
+		}
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{
+					Name:   "storage",
+					Path:   "terraform/storage",
+					Source: "oci-source",
+				},
+			},
+		}
+
+		// When resolving component paths
+		handler.resolveComponentPaths(blueprint)
+
+		// Then named components should use .windsor/contexts/<context>/terraform/<name> path
+		expectedPath := filepath.Join("/test/project", ".windsor", "contexts", "local", "terraform", "storage")
+		if blueprint.TerraformComponents[0].FullPath != expectedPath {
+			t.Errorf("Expected FullPath for named component with OCI source to be %s, got: %s", expectedPath, blueprint.TerraformComponents[0].FullPath)
+		}
+	})
+
+	t.Run("HandlesNamedComponentWithFileSource", func(t *testing.T) {
+		// Given a handler with a named component with file:// source
+		handler := setup(t)
+		handler.runtime.ProjectRoot = "/test/project"
+		handler.runtime.ContextName = "local"
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{
+					Name:   "database",
+					Path:   "terraform/database",
+					Source: "file:///some/local/path",
+				},
+			},
+		}
+
+		// When resolving component paths
+		handler.resolveComponentPaths(blueprint)
+
+		// Then named components should use .windsor/contexts/<context>/terraform/<name> path
+		expectedPath := filepath.Join("/test/project", ".windsor", "contexts", "local", "terraform", "database")
+		if blueprint.TerraformComponents[0].FullPath != expectedPath {
+			t.Errorf("Expected FullPath for named component with file source to be %s, got: %s", expectedPath, blueprint.TerraformComponents[0].FullPath)
+		}
+	})
+
+	t.Run("UsesNameAsDirectoryForNamedComponents", func(t *testing.T) {
+		// Given a handler with a named component where name differs from path
+		handler := setup(t)
+		handler.runtime.ProjectRoot = "/test/project"
+		handler.runtime.ContextName = "local"
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{
+					Name:   "my-cluster",
+					Path:   "terraform/complex/path/to/cluster",
+					Source: "",
+				},
+			},
+		}
+
+		// When resolving component paths
+		handler.resolveComponentPaths(blueprint)
+
+		// Then the directory should use the name, not the path
+		expectedPath := filepath.Join("/test/project", ".windsor", "contexts", "local", "terraform", "my-cluster")
+		if blueprint.TerraformComponents[0].FullPath != expectedPath {
+			t.Errorf("Expected FullPath to use name 'my-cluster' as directory, got: %s", blueprint.TerraformComponents[0].FullPath)
+		}
+		if strings.Contains(blueprint.TerraformComponents[0].FullPath, "complex/path/to/cluster") {
+			t.Errorf("Expected FullPath to not contain path segments, but got: %s", blueprint.TerraformComponents[0].FullPath)
+		}
+	})
 }
 
 func TestBaseBlueprintHandler_resolveComponentSources(t *testing.T) {

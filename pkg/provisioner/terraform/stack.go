@@ -104,9 +104,10 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 		if terraformEnv == nil {
 			return fmt.Errorf("terraform environment printer not available")
 		}
-		terraformArgs, err := terraformEnv.GenerateTerraformArgs(component.Path, component.FullPath)
+		componentID := component.GetID()
+		terraformArgs, err := terraformEnv.GenerateTerraformArgs(componentID, component.FullPath)
 		if err != nil {
-			return fmt.Errorf("error generating terraform args for %s: %w", component.Path, err)
+			return fmt.Errorf("error generating terraform args for %s: %w", componentID, err)
 		}
 
 		tfCliArgsVars := []string{"TF_CLI_ARGS_init", "TF_CLI_ARGS_plan", "TF_CLI_ARGS_apply", "TF_CLI_ARGS_destroy", "TF_CLI_ARGS_import"}
@@ -204,9 +205,10 @@ func (s *TerraformStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 		if terraformEnv == nil {
 			return fmt.Errorf("terraform environment printer not available")
 		}
-		terraformArgs, err := terraformEnv.GenerateTerraformArgs(component.Path, component.FullPath)
+		componentID := component.GetID()
+		terraformArgs, err := terraformEnv.GenerateTerraformArgs(componentID, component.FullPath)
 		if err != nil {
-			return fmt.Errorf("error generating terraform args for %s: %w", component.Path, err)
+			return fmt.Errorf("error generating terraform args for %s: %w", componentID, err)
 		}
 
 		tfCliArgsVars := []string{"TF_CLI_ARGS_init", "TF_CLI_ARGS_plan", "TF_CLI_ARGS_apply", "TF_CLI_ARGS_destroy", "TF_CLI_ARGS_import"}
@@ -313,10 +315,20 @@ func (s *TerraformStack) resolveComponentPaths(blueprint *blueprintv1alpha1.Blue
 	for i, component := range resolvedComponents {
 		componentCopy := component
 
-		if s.isValidTerraformRemoteSource(componentCopy.Source) || s.isOCISource(componentCopy.Source, blueprint) || strings.HasPrefix(componentCopy.Source, "file://") {
-			componentCopy.FullPath = filepath.Join(projectRoot, ".windsor", "contexts", s.runtime.ContextName, "terraform", componentCopy.Path)
+		var dirName string
+		if componentCopy.Name != "" {
+			dirName = componentCopy.Name
 		} else {
-			componentCopy.FullPath = filepath.Join(projectRoot, "terraform", componentCopy.Path)
+			dirName = componentCopy.Path
+		}
+
+		if componentCopy.Name != "" ||
+			s.isValidTerraformRemoteSource(componentCopy.Source) ||
+			s.isOCISource(componentCopy.Source, blueprint) ||
+			strings.HasPrefix(componentCopy.Source, "file://") {
+			componentCopy.FullPath = filepath.Join(projectRoot, ".windsor", "contexts", s.runtime.ContextName, "terraform", dirName)
+		} else {
+			componentCopy.FullPath = filepath.Join(projectRoot, "terraform", dirName)
 		}
 
 		componentCopy.FullPath = filepath.FromSlash(componentCopy.FullPath)
