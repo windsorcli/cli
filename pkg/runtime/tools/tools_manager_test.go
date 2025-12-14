@@ -1252,6 +1252,90 @@ func TestToolsManager_GetTerraformCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("ReturnsTofuWhenDriverIsTofu", func(t *testing.T) {
+		// Given a tools manager with tofu driver configured (alias)
+		mocks, toolsManager := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
+		if err := os.WriteFile(windsorYaml, []byte(`terraform:
+  driver: tofu
+`), 0644); err != nil {
+			t.Fatalf("Failed to write windsor.yaml: %v", err)
+		}
+		// When GetTerraformCommand is called
+		command := toolsManager.GetTerraformCommand()
+		// Then it should return "tofu"
+		if command != "tofu" {
+			t.Errorf("Expected 'tofu', got %s", command)
+		}
+	})
+
+	t.Run("ReturnsTofuWhenDriverIsOpenTofu", func(t *testing.T) {
+		// Given a tools manager with OpenTofu driver configured (case variation)
+		mocks, toolsManager := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
+		if err := os.WriteFile(windsorYaml, []byte(`terraform:
+  driver: OpenTofu
+`), 0644); err != nil {
+			t.Fatalf("Failed to write windsor.yaml: %v", err)
+		}
+		// When GetTerraformCommand is called
+		command := toolsManager.GetTerraformCommand()
+		// Then it should return "tofu"
+		if command != "tofu" {
+			t.Errorf("Expected 'tofu', got %s", command)
+		}
+	})
+
+	t.Run("ReturnsTofuWhenDriverIsOPENTOFU", func(t *testing.T) {
+		// Given a tools manager with OPENTOFU driver configured (uppercase)
+		mocks, toolsManager := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
+		if err := os.WriteFile(windsorYaml, []byte(`terraform:
+  driver: OPENTOFU
+`), 0644); err != nil {
+			t.Fatalf("Failed to write windsor.yaml: %v", err)
+		}
+		// When GetTerraformCommand is called
+		command := toolsManager.GetTerraformCommand()
+		// Then it should return "tofu"
+		if command != "tofu" {
+			t.Errorf("Expected 'tofu', got %s", command)
+		}
+	})
+
+	t.Run("ReturnsTofuWhenDriverIsTOFU", func(t *testing.T) {
+		// Given a tools manager with TOFU driver configured (uppercase alias)
+		mocks, toolsManager := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
+		if err := os.WriteFile(windsorYaml, []byte(`terraform:
+  driver: TOFU
+`), 0644); err != nil {
+			t.Fatalf("Failed to write windsor.yaml: %v", err)
+		}
+		// When GetTerraformCommand is called
+		command := toolsManager.GetTerraformCommand()
+		// Then it should return "tofu"
+		if command != "tofu" {
+			t.Errorf("Expected 'tofu', got %s", command)
+		}
+	})
+
 	t.Run("ReturnsTerraformWhenDriverIsTerraform", func(t *testing.T) {
 		// Given a tools manager with terraform driver configured
 		mocks, toolsManager := setup(t)
@@ -1466,6 +1550,58 @@ func TestToolsManager_getTerraformDriver(t *testing.T) {
 		// Then it should return "opentofu"
 		if driver != "opentofu" {
 			t.Errorf("Expected 'opentofu', got %s", driver)
+		}
+	})
+
+	t.Run("ReturnsOpenTofuWhenDriverIsOpenTofu", func(t *testing.T) {
+		// Given a tools manager with OpenTofu driver configured (case variation)
+		mocks, toolsManager := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
+		if err := os.WriteFile(windsorYaml, []byte(`terraform:
+  driver: OpenTofu
+`), 0644); err != nil {
+			t.Fatalf("Failed to write windsor.yaml: %v", err)
+		}
+		// When getTerraformDriver is called
+		driver := toolsManager.getTerraformDriver()
+		// Then it should return "OpenTofu" (preserves case from config)
+		if driver != "OpenTofu" {
+			t.Errorf("Expected 'OpenTofu', got %s", driver)
+		}
+		// And GetTerraformCommand should still return "tofu" (case-insensitive)
+		command := toolsManager.GetTerraformCommand()
+		if command != "tofu" {
+			t.Errorf("Expected GetTerraformCommand to return 'tofu', got %s", command)
+		}
+	})
+
+	t.Run("ReturnsTofuWhenDriverIsTofu", func(t *testing.T) {
+		// Given a tools manager with tofu driver configured (alias)
+		mocks, toolsManager := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
+		if err := os.WriteFile(windsorYaml, []byte(`terraform:
+  driver: tofu
+`), 0644); err != nil {
+			t.Fatalf("Failed to write windsor.yaml: %v", err)
+		}
+		// When getTerraformDriver is called
+		driver := toolsManager.getTerraformDriver()
+		// Then it should return "tofu"
+		if driver != "tofu" {
+			t.Errorf("Expected 'tofu', got %s", driver)
+		}
+		// And GetTerraformCommand should return "tofu"
+		command := toolsManager.GetTerraformCommand()
+		if command != "tofu" {
+			t.Errorf("Expected GetTerraformCommand to return 'tofu', got %s", command)
 		}
 	})
 

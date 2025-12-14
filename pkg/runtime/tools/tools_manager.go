@@ -195,12 +195,14 @@ func (t *BaseToolsManager) checkColima() error {
 
 // GetTerraformCommand returns the terraform command to use (terraform or tofu) based on configuration.
 // Defaults to "terraform" if not specified in the root-level terraform config.
+// Accepts case-insensitive driver values and "tofu" as an alias for "opentofu".
 func (t *BaseToolsManager) GetTerraformCommand() string {
 	if t.configHandler == nil {
 		return "terraform"
 	}
 	driver := t.getTerraformDriver()
-	if driver == "opentofu" {
+	driverLower := strings.ToLower(driver)
+	if driverLower == "opentofu" || driverLower == "tofu" {
 		return "tofu"
 	}
 	return "terraform"
