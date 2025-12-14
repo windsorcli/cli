@@ -105,7 +105,7 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 			return fmt.Errorf("terraform environment printer not available")
 		}
 		componentID := component.GetID()
-		terraformArgs, err := terraformEnv.GenerateTerraformArgs(componentID, component.FullPath)
+		terraformArgs, err := terraformEnv.GenerateTerraformArgs(componentID, component.FullPath, false)
 		if err != nil {
 			return fmt.Errorf("error generating terraform args for %s: %w", componentID, err)
 		}
@@ -206,7 +206,7 @@ func (s *TerraformStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 			return fmt.Errorf("terraform environment printer not available")
 		}
 		componentID := component.GetID()
-		terraformArgs, err := terraformEnv.GenerateTerraformArgs(componentID, component.FullPath)
+		terraformArgs, err := terraformEnv.GenerateTerraformArgs(componentID, component.FullPath, false)
 		if err != nil {
 			return fmt.Errorf("error generating terraform args for %s: %w", componentID, err)
 		}
