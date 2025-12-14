@@ -269,12 +269,13 @@ func (e *TerraformEnvPrinter) addDependencyVariables(projectPath string, terrafo
 	}
 
 	componentOutputs := make(map[string]map[string]any)
+	currentComponentID := currentComponent.GetID()
 
 	for _, component := range sortedComponents {
-		if component.Path == projectPath {
+		if component.GetID() == currentComponentID {
 			break
 		}
-		outputs, err := e.captureTerraformOutputs(component.Path)
+		outputs, err := e.captureTerraformOutputs(component.GetID())
 		if err != nil {
 			continue
 		}
