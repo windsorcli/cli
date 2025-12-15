@@ -1151,7 +1151,7 @@ func (a *ArtifactBuilder) getTemplateDataFromCache(registry, repository, tag str
 			return err
 		}
 
-		content, err := root.ReadFile(templateRelPath)
+		content, err := root.ReadFile(filepath.ToSlash(templateRelPath))
 		if err != nil {
 			return err
 		}
