@@ -1827,6 +1827,7 @@ func TestArtifactBuilder_getTemplateDataFromCache(t *testing.T) {
 
 	t.Run("ReadsCachedTemplateFiles", func(t *testing.T) {
 		builder, tmpDir := setup(t)
+		builder.shims.YamlUnmarshal = yaml.Unmarshal
 
 		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.io-org/repo-v1.0.0")
 		templateDir := filepath.Join(cacheDir, "_template")
@@ -1849,6 +1850,12 @@ func TestArtifactBuilder_getTemplateDataFromCache(t *testing.T) {
 			if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
 				t.Fatalf("Failed to write file: %v", err)
 			}
+		}
+
+		metadataPath := filepath.Join(cacheDir, "metadata.yaml")
+		metadataContent := "name: test-blueprint\nversion: v1.0.0\n"
+		if err := os.WriteFile(metadataPath, []byte(metadataContent), 0644); err != nil {
+			t.Fatalf("Failed to write metadata: %v", err)
 		}
 
 		templateData, err := builder.getTemplateDataFromCache("registry.io", "org/repo", "v1.0.0")
@@ -1952,6 +1959,67 @@ author: Test Author
 		}
 		if _, exists := templateData["_template/blueprint.yaml"]; !exists {
 			t.Error("Expected blueprint.yaml in template data")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenMetadataMissing", func(t *testing.T) {
+		builder, tmpDir := setup(t)
+
+		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.io-org/repo-v1.0.0")
+		templateDir := filepath.Join(cacheDir, "_template")
+		if err := os.MkdirAll(templateDir, 0755); err != nil {
+			t.Fatalf("Failed to create template dir: %v", err)
+		}
+
+		blueprintPath := filepath.Join(templateDir, "blueprint.yaml")
+		if err := os.WriteFile(blueprintPath, []byte("kind: Blueprint\n"), 0644); err != nil {
+			t.Fatalf("Failed to write blueprint: %v", err)
+		}
+
+		templateData, err := builder.getTemplateDataFromCache("registry.io", "org/repo", "v1.0.0")
+
+		if err == nil {
+			t.Error("Expected error when metadata.yaml is missing")
+		}
+		if !strings.Contains(err.Error(), "missing required metadata.yaml") {
+			t.Errorf("Expected error about missing metadata.yaml, got: %v", err)
+		}
+		if templateData != nil {
+			t.Error("Expected nil template data when metadata is missing")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenMetadataInvalid", func(t *testing.T) {
+		builder, tmpDir := setup(t)
+		builder.shims.YamlUnmarshal = yaml.Unmarshal
+
+		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.io-org/repo-v1.0.0")
+		templateDir := filepath.Join(cacheDir, "_template")
+		if err := os.MkdirAll(templateDir, 0755); err != nil {
+			t.Fatalf("Failed to create template dir: %v", err)
+		}
+
+		blueprintPath := filepath.Join(templateDir, "blueprint.yaml")
+		if err := os.WriteFile(blueprintPath, []byte("kind: Blueprint\n"), 0644); err != nil {
+			t.Fatalf("Failed to write blueprint: %v", err)
+		}
+
+		metadataPath := filepath.Join(cacheDir, "metadata.yaml")
+		invalidMetadata := "name: test\nversion: v1.0.0\ninvalid: yaml: ["
+		if err := os.WriteFile(metadataPath, []byte(invalidMetadata), 0644); err != nil {
+			t.Fatalf("Failed to write metadata: %v", err)
+		}
+
+		templateData, err := builder.getTemplateDataFromCache("registry.io", "org/repo", "v1.0.0")
+
+		if err == nil {
+			t.Error("Expected error when metadata.yaml is invalid")
+		}
+		if !strings.Contains(err.Error(), "failed to parse metadata.yaml") {
+			t.Errorf("Expected error about parsing metadata.yaml, got: %v", err)
+		}
+		if templateData != nil {
+			t.Error("Expected nil template data when metadata is invalid")
 		}
 	})
 }
