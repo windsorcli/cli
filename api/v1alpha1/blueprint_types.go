@@ -937,12 +937,12 @@ func (b *Blueprint) sortTerraform() error {
 		return nil
 	}
 
-	pathToIndex := make(map[string]int)
+	idToIndex := make(map[string]int)
 	for i, component := range b.TerraformComponents {
-		pathToIndex[component.Path] = i
+		idToIndex[component.GetID()] = i
 	}
 
-	sorted := b.terraformTopologicalSort(pathToIndex)
+	sorted := b.terraformTopologicalSort(idToIndex)
 	if sorted == nil {
 		return fmt.Errorf("dependency cycle detected in terraform components")
 	}
@@ -955,10 +955,12 @@ func (b *Blueprint) sortTerraform() error {
 	return nil
 }
 
-// terraformTopologicalSort computes a topological ordering of terraform components based on dependencies.
-// Returns a slice of indices into the TerraformComponents slice, ordered so dependencies precede dependents.
-// Returns nil if a cycle is detected in the dependency graph.
-func (b *Blueprint) terraformTopologicalSort(pathToIndex map[string]int) []int {
+// terraformTopologicalSort returns a topological ordering of Terraform components based on their dependencies.
+// It receives a mapping from component IDs to their respective indices within the TerraformComponents slice,
+// and produces a slice of indices such that all dependencies come before any component that depends on them.
+// If a cycle is detected in the dependency graph, the function returns nil. The returned slice is ordered
+// with respect to the topological sort, ensuring that all dependencies precede their dependents.
+func (b *Blueprint) terraformTopologicalSort(idToIndex map[string]int) []int {
 	var sorted []int
 	visited := make(map[int]bool)
 	visiting := make(map[int]bool)
@@ -966,16 +968,15 @@ func (b *Blueprint) terraformTopologicalSort(pathToIndex map[string]int) []int {
 	var visit func(int) error
 	visit = func(componentIndex int) error {
 		if visiting[componentIndex] {
-			return fmt.Errorf("cycle detected in dependency graph involving terraform component '%s'", b.TerraformComponents[componentIndex].Path)
+			return fmt.Errorf("cycle detected in dependency graph involving terraform component '%s'", b.TerraformComponents[componentIndex].GetID())
 		}
 		if visited[componentIndex] {
 			return nil
 		}
 
 		visiting[componentIndex] = true
-		// Visit dependencies first
-		for _, depPath := range b.TerraformComponents[componentIndex].DependsOn {
-			if depIndex, exists := pathToIndex[depPath]; exists {
+		for _, depID := range b.TerraformComponents[componentIndex].DependsOn {
+			if depIndex, exists := idToIndex[depID]; exists {
 				if err := visit(depIndex); err != nil {
 					visiting[componentIndex] = false
 					return err
@@ -984,7 +985,6 @@ func (b *Blueprint) terraformTopologicalSort(pathToIndex map[string]int) []int {
 		}
 		visiting[componentIndex] = false
 		visited[componentIndex] = true
-		// Add this component after its dependencies
 		sorted = append(sorted, componentIndex)
 		return nil
 	}
