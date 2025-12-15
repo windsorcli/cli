@@ -1127,7 +1127,13 @@ func (a *ArtifactBuilder) getTemplateDataFromCache(registry, repository, tag str
 		return nil, nil
 	}
 
-	err := filepath.Walk(templateDir, func(path string, info os.FileInfo, err error) error {
+	root, err := os.OpenRoot(templateDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open template root: %w", err)
+	}
+	defer root.Close()
+
+	err = filepath.Walk(templateDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -1140,7 +1146,12 @@ func (a *ArtifactBuilder) getTemplateDataFromCache(registry, repository, tag str
 			return err
 		}
 
-		content, err := os.ReadFile(path)
+		templateRelPath, err := filepath.Rel(templateDir, path)
+		if err != nil {
+			return err
+		}
+
+		content, err := root.ReadFile(templateRelPath)
 		if err != nil {
 			return err
 		}
@@ -1153,8 +1164,13 @@ func (a *ArtifactBuilder) getTemplateDataFromCache(registry, repository, tag str
 		return nil, err
 	}
 
-	metadataPath := filepath.Join(cacheDir, "metadata.yaml")
-	if metadataContent, err := os.ReadFile(metadataPath); err == nil {
+	cacheRoot, err := os.OpenRoot(cacheDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open cache root: %w", err)
+	}
+	defer cacheRoot.Close()
+
+	if metadataContent, err := cacheRoot.ReadFile("metadata.yaml"); err == nil {
 		var metadata BlueprintMetadata
 		if err := a.shims.YamlUnmarshal(metadataContent, &metadata); err == nil {
 			a.addMetadataToTemplateData(templateData, metadata)
