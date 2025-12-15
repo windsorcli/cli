@@ -1170,12 +1170,21 @@ func (a *ArtifactBuilder) getTemplateDataFromCache(registry, repository, tag str
 	}
 	defer cacheRoot.Close()
 
-	if metadataContent, err := cacheRoot.ReadFile("metadata.yaml"); err == nil {
-		var metadata BlueprintMetadata
-		if err := a.shims.YamlUnmarshal(metadataContent, &metadata); err == nil {
-			a.addMetadataToTemplateData(templateData, metadata)
-		}
+	metadataContent, err := cacheRoot.ReadFile("metadata.yaml")
+	if err != nil {
+		return nil, fmt.Errorf("OCI artifact missing required metadata.yaml file: %w", err)
 	}
+
+	var metadata BlueprintMetadata
+	if err := a.shims.YamlUnmarshal(metadataContent, &metadata); err != nil {
+		return nil, fmt.Errorf("failed to parse metadata.yaml: %w", err)
+	}
+
+	if err := ValidateCliVersion(constants.Version, metadata.CliVersion); err != nil {
+		return nil, err
+	}
+
+	a.addMetadataToTemplateData(templateData, metadata)
 
 	if len(templateData) == 0 {
 		return nil, nil
