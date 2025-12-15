@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/goccy/go-yaml"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
@@ -2175,12 +2176,11 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		}
 	})
 
-	t.Run("UsesCachedArtifact", func(t *testing.T) {
-		// Given an artifact builder with cached data
+	t.Run("UsesCachedArtifactInMemory", func(t *testing.T) {
+		// Given an artifact builder with cached data in memory
 		mocks := setupArtifactMocks(t)
 		builder := NewArtifactBuilder(mocks.Runtime)
 
-		// Create test tar.gz data
 		testData := createTestTarGz(t, map[string][]byte{
 			"metadata.yaml":               []byte("name: test\nversion: v1.0.0\n"),
 			"_template/blueprint.jsonnet": []byte("{ blueprint: 'content' }"),
@@ -2190,7 +2190,6 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 			"ignored.yaml":                []byte("ignored: content"),
 		})
 
-		// Pre-populate cache
 		builder.ociCache["registry.example.com/test:v1.0.0"] = testData
 
 		downloadCalled := false
@@ -2224,11 +2223,70 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		if templateData == nil {
 			t.Fatal("Expected template data, got nil")
 		}
-		// All files from _template are now collected
 		if _, exists := templateData["_template/schema.yaml"]; !exists {
 			t.Error("Expected _template/schema.yaml to be included")
 		}
-		// All files from _template are now collected, including ignored.yaml and other files
+	})
+
+	t.Run("UsesCachedArtifactOnDisk", func(t *testing.T) {
+		// Given an artifact builder with cached artifact extracted to disk
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims.YamlUnmarshal = yaml.Unmarshal
+
+		tmpDir := t.TempDir()
+		t.Setenv("WINDSOR_PROJECT_ROOT", tmpDir)
+
+		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.example.com-test-v1.0.0")
+		templateDir := filepath.Join(cacheDir, "_template")
+		if err := os.MkdirAll(templateDir, 0755); err != nil {
+			t.Fatalf("Failed to create template dir: %v", err)
+		}
+
+		files := map[string]string{
+			filepath.Join(templateDir, "blueprint.yaml"):        "kind: Blueprint\n",
+			filepath.Join(templateDir, "schema.yaml"):           "type: object\n",
+			filepath.Join(templateDir, "features", "base.yaml"): "enabled: true\n",
+			filepath.Join(cacheDir, "metadata.yaml"):            "name: test-cached\nversion: v1.0.0\n",
+		}
+
+		for path, content := range files {
+			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+				t.Fatalf("Failed to create dir: %v", err)
+			}
+			if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+				t.Fatalf("Failed to write file: %v", err)
+			}
+		}
+
+		downloadCalled := false
+		builder.shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			downloadCalled = true
+			return nil, fmt.Errorf("should not download from registry")
+		}
+
+		// When calling GetTemplateData
+		templateData, err := builder.GetTemplateData("oci://registry.example.com/test:v1.0.0")
+
+		// Then should use disk cache without downloading
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if downloadCalled {
+			t.Error("Expected download not to be called when using disk cache")
+		}
+		if templateData == nil {
+			t.Fatal("Expected template data, got nil")
+		}
+		if _, exists := templateData["_template/blueprint.yaml"]; !exists {
+			t.Error("Expected _template/blueprint.yaml from cache")
+		}
+		if _, exists := templateData["_template/features/base.yaml"]; !exists {
+			t.Error("Expected _template/features/base.yaml from cache")
+		}
+		if string(templateData["_metadata_name"]) != "test-cached" {
+			t.Errorf("Expected metadata name from cache 'test-cached', got %s", string(templateData["_metadata_name"]))
+		}
 	})
 
 	t.Run("FiltersOnlyJsonnetFiles", func(t *testing.T) {
@@ -2561,6 +2619,108 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		}
 		if templateData != nil {
 			t.Error("Expected nil template data on error")
+		}
+	})
+
+	t.Run("LoadsFromLocalTarball", func(t *testing.T) {
+		// Given an artifact builder
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims.YamlUnmarshal = yaml.Unmarshal
+
+		tmpDir := t.TempDir()
+		tarballPath := filepath.Join(tmpDir, "test.tar.gz")
+
+		var buf bytes.Buffer
+		gzipWriter := gzip.NewWriter(&buf)
+		tarWriter := tar.NewWriter(gzipWriter)
+
+		files := map[string][]byte{
+			"metadata.yaml":            []byte("name: local-test\nversion: v1.0.0\n"),
+			"_template/blueprint.yaml": []byte("kind: Blueprint\n"),
+			"_template/schema.yaml":    []byte("type: object\n"),
+		}
+
+		for name, content := range files {
+			header := &tar.Header{
+				Name: name,
+				Mode: 0644,
+				Size: int64(len(content)),
+			}
+			if err := tarWriter.WriteHeader(header); err != nil {
+				t.Fatalf("Failed to write tar header: %v", err)
+			}
+			if _, err := tarWriter.Write(content); err != nil {
+				t.Fatalf("Failed to write tar content: %v", err)
+			}
+		}
+
+		tarWriter.Close()
+		gzipWriter.Close()
+
+		if err := os.WriteFile(tarballPath, buf.Bytes(), 0644); err != nil {
+			t.Fatalf("Failed to write tarball: %v", err)
+		}
+
+		// When calling GetTemplateData with local tarball
+		templateData, err := builder.GetTemplateData(tarballPath)
+
+		// Then should load from local file
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if templateData == nil {
+			t.Fatal("Expected template data, got nil")
+		}
+		if _, exists := templateData["_template/blueprint.yaml"]; !exists {
+			t.Error("Expected _template/blueprint.yaml")
+		}
+		if string(templateData["_metadata_name"]) != "local-test" {
+			t.Errorf("Expected metadata name 'local-test', got %s", string(templateData["_metadata_name"]))
+		}
+	})
+
+	t.Run("ErrorReadingLocalTarball", func(t *testing.T) {
+		// Given an artifact builder
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
+
+		builder.shims.ReadFile = func(name string) ([]byte, error) {
+			return nil, fmt.Errorf("read file error")
+		}
+
+		// When calling GetTemplateData with non-existent tarball
+		_, err := builder.GetTemplateData("/nonexistent/file.tar.gz")
+
+		// Then should return error
+		if err == nil {
+			t.Fatal("Expected error reading non-existent file")
+		}
+		if !strings.Contains(err.Error(), "failed to read local artifact file") {
+			t.Errorf("Expected read error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorDecompressingLocalTarball", func(t *testing.T) {
+		// Given an artifact builder with invalid gzip data
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
+
+		tmpDir := t.TempDir()
+		tarballPath := filepath.Join(tmpDir, "invalid.tar.gz")
+		if err := os.WriteFile(tarballPath, []byte("not gzip data"), 0644); err != nil {
+			t.Fatalf("Failed to write file: %v", err)
+		}
+
+		// When calling GetTemplateData
+		_, err := builder.GetTemplateData(tarballPath)
+
+		// Then should return decompression error
+		if err == nil {
+			t.Fatal("Expected gzip error")
+		}
+		if !strings.Contains(err.Error(), "failed to create gzip reader") {
+			t.Errorf("Expected gzip error, got %v", err)
 		}
 	})
 

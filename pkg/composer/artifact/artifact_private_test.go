@@ -1783,6 +1783,319 @@ func TestArtifactBuilder_walkAndProcessFiles(t *testing.T) {
 	})
 }
 
+func TestArtifactBuilder_getTemplateDataFromCache(t *testing.T) {
+	setup := func(t *testing.T) (*ArtifactBuilder, string) {
+		t.Helper()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims = mocks.Shims
+		tmpDir := t.TempDir()
+		t.Setenv("WINDSOR_PROJECT_ROOT", tmpDir)
+		return builder, tmpDir
+	}
+
+	t.Run("ReturnsNilWhenCacheDoesNotExist", func(t *testing.T) {
+		builder, _ := setup(t)
+
+		templateData, err := builder.getTemplateDataFromCache("registry.io", "org/repo", "v1.0.0")
+
+		if err != nil {
+			t.Errorf("Expected no error when cache doesn't exist, got %v", err)
+		}
+		if templateData != nil {
+			t.Error("Expected nil template data when cache doesn't exist")
+		}
+	})
+
+	t.Run("ReturnsNilWhenTemplateDirDoesNotExist", func(t *testing.T) {
+		builder, tmpDir := setup(t)
+
+		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.io-org/repo-v1.0.0")
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache dir: %v", err)
+		}
+
+		templateData, err := builder.getTemplateDataFromCache("registry.io", "org/repo", "v1.0.0")
+
+		if err != nil {
+			t.Errorf("Expected no error when _template doesn't exist, got %v", err)
+		}
+		if templateData != nil {
+			t.Error("Expected nil template data when _template doesn't exist")
+		}
+	})
+
+	t.Run("ReadsCachedTemplateFiles", func(t *testing.T) {
+		builder, tmpDir := setup(t)
+
+		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.io-org/repo-v1.0.0")
+		templateDir := filepath.Join(cacheDir, "_template")
+		if err := os.MkdirAll(templateDir, 0755); err != nil {
+			t.Fatalf("Failed to create template dir: %v", err)
+		}
+
+		files := map[string]string{
+			"blueprint.yaml":     "kind: Blueprint\n",
+			"schema.yaml":        "type: object\n",
+			"features/base.yaml": "enabled: true\n",
+			"features/aws.yaml":  "provider: aws\n",
+		}
+
+		for path, content := range files {
+			fullPath := filepath.Join(templateDir, path)
+			if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+				t.Fatalf("Failed to create dir: %v", err)
+			}
+			if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+				t.Fatalf("Failed to write file: %v", err)
+			}
+		}
+
+		templateData, err := builder.getTemplateDataFromCache("registry.io", "org/repo", "v1.0.0")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if templateData == nil {
+			t.Fatal("Expected template data, got nil")
+		}
+
+		expectedFiles := []string{
+			"_template/blueprint.yaml",
+			"_template/schema.yaml",
+			"_template/features/base.yaml",
+			"_template/features/aws.yaml",
+		}
+
+		for _, expectedFile := range expectedFiles {
+			if _, exists := templateData[expectedFile]; !exists {
+				t.Errorf("Expected %s to be in template data", expectedFile)
+			}
+		}
+	})
+
+	t.Run("ReadsAndParsesMetadata", func(t *testing.T) {
+		builder, tmpDir := setup(t)
+		builder.shims.YamlUnmarshal = yaml.Unmarshal
+
+		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.io-org/repo-v1.0.0")
+		templateDir := filepath.Join(cacheDir, "_template")
+		if err := os.MkdirAll(templateDir, 0755); err != nil {
+			t.Fatalf("Failed to create template dir: %v", err)
+		}
+
+		blueprintPath := filepath.Join(templateDir, "blueprint.yaml")
+		if err := os.WriteFile(blueprintPath, []byte("kind: Blueprint\n"), 0644); err != nil {
+			t.Fatalf("Failed to write blueprint: %v", err)
+		}
+
+		metadataPath := filepath.Join(cacheDir, "metadata.yaml")
+		metadataContent := `name: test-blueprint
+version: v1.0.0
+description: Test blueprint
+author: Test Author
+`
+		if err := os.WriteFile(metadataPath, []byte(metadataContent), 0644); err != nil {
+			t.Fatalf("Failed to write metadata: %v", err)
+		}
+
+		templateData, err := builder.getTemplateDataFromCache("registry.io", "org/repo", "v1.0.0")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if templateData == nil {
+			t.Fatal("Expected template data, got nil")
+		}
+
+		if string(templateData["_metadata_name"]) != "test-blueprint" {
+			t.Errorf("Expected metadata name 'test-blueprint', got %s", string(templateData["_metadata_name"]))
+		}
+		if string(templateData["_metadata_version"]) != "v1.0.0" {
+			t.Errorf("Expected metadata version 'v1.0.0', got %s", string(templateData["_metadata_version"]))
+		}
+		if string(templateData["_metadata_description"]) != "Test blueprint" {
+			t.Errorf("Expected metadata description 'Test blueprint', got %s", string(templateData["_metadata_description"]))
+		}
+		if string(templateData["_metadata_author"]) != "Test Author" {
+			t.Errorf("Expected metadata author 'Test Author', got %s", string(templateData["_metadata_author"]))
+		}
+	})
+
+	t.Run("HandlesComplexRepositoryPath", func(t *testing.T) {
+		builder, tmpDir := setup(t)
+		builder.shims.YamlUnmarshal = yaml.Unmarshal
+
+		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "ghcr.io-windsorcli/core-v0.5.4")
+		templateDir := filepath.Join(cacheDir, "_template")
+		if err := os.MkdirAll(templateDir, 0755); err != nil {
+			t.Fatalf("Failed to create template dir: %v", err)
+		}
+
+		blueprintPath := filepath.Join(templateDir, "blueprint.yaml")
+		if err := os.WriteFile(blueprintPath, []byte("kind: Blueprint\n"), 0644); err != nil {
+			t.Fatalf("Failed to write blueprint: %v", err)
+		}
+
+		metadataPath := filepath.Join(cacheDir, "metadata.yaml")
+		if err := os.WriteFile(metadataPath, []byte("name: test\nversion: v0.5.4\n"), 0644); err != nil {
+			t.Fatalf("Failed to write metadata: %v", err)
+		}
+
+		templateData, err := builder.getTemplateDataFromCache("ghcr.io", "windsorcli/core", "v0.5.4")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if templateData == nil {
+			t.Fatal("Expected template data, got nil")
+		}
+		if _, exists := templateData["_template/blueprint.yaml"]; !exists {
+			t.Error("Expected blueprint.yaml in template data")
+		}
+	})
+}
+
+func TestArtifactBuilder_extractTemplateDataFromTar(t *testing.T) {
+	setup := func(t *testing.T) *ArtifactBuilder {
+		t.Helper()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims = mocks.Shims
+		return builder
+	}
+
+	t.Run("ExtractsTemplateFilesAndMetadata", func(t *testing.T) {
+		builder := setup(t)
+		builder.shims.YamlUnmarshal = yaml.Unmarshal
+
+		tarData := createTestTarGz(t, map[string][]byte{
+			"metadata.yaml":               []byte("name: test\nversion: v1.0.0\ndescription: Test\nauthor: Author\n"),
+			"_template/blueprint.yaml":    []byte("kind: Blueprint\n"),
+			"_template/schema.yaml":       []byte("type: object\n"),
+			"_template/features/aws.yaml": []byte("enabled: true\n"),
+			"terraform/main.tf":           []byte("# ignored\n"),
+		})
+
+		templateData, err := builder.extractTemplateDataFromTar(tarData)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if _, exists := templateData["_template/blueprint.yaml"]; !exists {
+			t.Error("Expected _template/blueprint.yaml")
+		}
+		if _, exists := templateData["_template/schema.yaml"]; !exists {
+			t.Error("Expected _template/schema.yaml")
+		}
+		if _, exists := templateData["_template/features/aws.yaml"]; !exists {
+			t.Error("Expected _template/features/aws.yaml")
+		}
+		if _, exists := templateData["terraform/main.tf"]; exists {
+			t.Error("Should not include files outside _template/")
+		}
+		if string(templateData["_metadata_name"]) != "test" {
+			t.Errorf("Expected metadata name 'test', got %s", string(templateData["_metadata_name"]))
+		}
+	})
+
+	t.Run("ErrorsWhenMissingMetadata", func(t *testing.T) {
+		builder := setup(t)
+		builder.shims.YamlUnmarshal = yaml.Unmarshal
+
+		tarData := createTestTarGz(t, map[string][]byte{
+			"_template/blueprint.yaml": []byte("kind: Blueprint\n"),
+		})
+
+		_, err := builder.extractTemplateDataFromTar(tarData)
+
+		if err == nil {
+			t.Fatal("Expected error when metadata missing")
+		}
+		if !strings.Contains(err.Error(), "missing required metadata.yaml") {
+			t.Errorf("Expected missing metadata error, got %v", err)
+		}
+	})
+
+	t.Run("HandlesMetadataParseError", func(t *testing.T) {
+		builder := setup(t)
+		builder.shims.YamlUnmarshal = func(data []byte, v any) error {
+			if _, ok := v.(*BlueprintMetadata); ok {
+				return fmt.Errorf("yaml parse error")
+			}
+			return nil
+		}
+
+		tarData := createTestTarGz(t, map[string][]byte{
+			"metadata.yaml":            []byte("invalid yaml: [[["),
+			"_template/blueprint.yaml": []byte("kind: Blueprint\n"),
+		})
+
+		_, err := builder.extractTemplateDataFromTar(tarData)
+
+		if err == nil {
+			t.Fatal("Expected metadata parse error")
+		}
+		if !strings.Contains(err.Error(), "failed to parse metadata.yaml") {
+			t.Errorf("Expected metadata parse error, got %v", err)
+		}
+	})
+}
+
+func TestArtifactBuilder_addMetadataToTemplateData(t *testing.T) {
+	t.Run("AddsAllMetadataFields", func(t *testing.T) {
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
+
+		templateData := make(map[string][]byte)
+		metadata := BlueprintMetadata{
+			Name:        "test-name",
+			Version:     "v1.0.0",
+			Description: "test description",
+			Author:      "test author",
+		}
+
+		builder.addMetadataToTemplateData(templateData, metadata)
+
+		if string(templateData["_metadata_name"]) != "test-name" {
+			t.Errorf("Expected name 'test-name', got %s", string(templateData["_metadata_name"]))
+		}
+		if string(templateData["_metadata_version"]) != "v1.0.0" {
+			t.Errorf("Expected version 'v1.0.0', got %s", string(templateData["_metadata_version"]))
+		}
+		if string(templateData["_metadata_description"]) != "test description" {
+			t.Errorf("Expected description 'test description', got %s", string(templateData["_metadata_description"]))
+		}
+		if string(templateData["_metadata_author"]) != "test author" {
+			t.Errorf("Expected author 'test author', got %s", string(templateData["_metadata_author"]))
+		}
+	})
+
+	t.Run("SkipsEmptyFields", func(t *testing.T) {
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
+
+		templateData := make(map[string][]byte)
+		metadata := BlueprintMetadata{
+			Name:    "test-name",
+			Version: "v1.0.0",
+		}
+
+		builder.addMetadataToTemplateData(templateData, metadata)
+
+		if _, exists := templateData["_metadata_description"]; exists {
+			t.Error("Should not add empty description")
+		}
+		if _, exists := templateData["_metadata_author"]; exists {
+			t.Error("Should not add empty author")
+		}
+		if len(templateData) != 2 {
+			t.Errorf("Expected 2 metadata fields, got %d", len(templateData))
+		}
+	})
+}
+
 // =============================================================================
 // Test Helper Functions
 // =============================================================================

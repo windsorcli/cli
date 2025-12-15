@@ -338,19 +338,23 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
 }
 
 // GetTemplateData extracts and returns template data from an OCI artifact reference or local .tar.gz file.
-// For OCI references (oci://...), downloads and caches the artifact. For local .tar.gz files, reads from disk.
-// Decompresses the tar.gz payload and returns a map with all files from the _template directory using their relative paths as keys.
+// For OCI references (oci://...), first checks the local .oci_extracted cache on disk, then downloads if needed.
+// For local .tar.gz files, reads from disk.
+// Returns a map with all files from the _template directory using their relative paths as keys.
 // Files are stored with their relative paths from _template (e.g., "_template/schema.yaml", "_template/blueprint.yaml", "_template/features/base.yaml").
 // All files from _template/ are included - no filtering is performed.
 // The metadata name is extracted and stored in the returned map with the key "_metadata_name".
 // Returns an error on invalid reference, download failure, file read failure, or extraction error.
 func (a *ArtifactBuilder) GetTemplateData(blueprintRef string) (map[string][]byte, error) {
-	var tarData []byte
-
 	if strings.HasPrefix(blueprintRef, "oci://") {
 		registry, repository, tag, err := a.parseOCIRef(blueprintRef)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse OCI reference %s: %w", blueprintRef, err)
+		}
+
+		templateData, err := a.getTemplateDataFromCache(registry, repository, tag)
+		if err == nil && templateData != nil {
+			return templateData, nil
 		}
 
 		artifacts, err := a.Pull([]string{blueprintRef})
@@ -359,12 +363,15 @@ func (a *ArtifactBuilder) GetTemplateData(blueprintRef string) (map[string][]byt
 		}
 
 		cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
-		var exists bool
-		tarData, exists = artifacts[cacheKey]
+		tarData, exists := artifacts[cacheKey]
 		if !exists {
 			return nil, fmt.Errorf("failed to retrieve artifact data for %s", blueprintRef)
 		}
-	} else if strings.HasSuffix(blueprintRef, ".tar.gz") {
+
+		return a.extractTemplateDataFromTar(tarData)
+	}
+
+	if strings.HasSuffix(blueprintRef, ".tar.gz") {
 		compressedData, err := a.shims.ReadFile(blueprintRef)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read local artifact file %s: %w", blueprintRef, err)
@@ -376,14 +383,22 @@ func (a *ArtifactBuilder) GetTemplateData(blueprintRef string) (map[string][]byt
 		}
 		defer gzipReader.Close()
 
-		tarData, err = a.shims.ReadAll(gzipReader)
+		tarData, err := a.shims.ReadAll(gzipReader)
 		if err != nil {
 			return nil, fmt.Errorf("failed to decompress artifact file %s: %w", blueprintRef, err)
 		}
-	} else {
-		return nil, fmt.Errorf("invalid blueprint reference: %s (must be oci://... or path to .tar.gz file)", blueprintRef)
+
+		return a.extractTemplateDataFromTar(tarData)
 	}
 
+	return nil, fmt.Errorf("invalid blueprint reference: %s (must be oci://... or path to .tar.gz file)", blueprintRef)
+}
+
+// extractTemplateDataFromTar extracts template data and metadata from tar archive bytes.
+// Reads the tar archive, extracts _template/ files and metadata.yaml, validates CLI version,
+// and returns a map with all template files and metadata fields.
+// Returns an error if tar reading fails, metadata is missing, or CLI version is incompatible.
+func (a *ArtifactBuilder) extractTemplateDataFromTar(tarData []byte) (map[string][]byte, error) {
 	artifactData := make(map[string][]byte)
 	tarReader := tar.NewReader(bytes.NewReader(tarData))
 
@@ -434,18 +449,7 @@ func (a *ArtifactBuilder) GetTemplateData(blueprintRef string) (map[string][]byt
 		return nil, fmt.Errorf("OCI artifact missing required metadata.yaml file")
 	}
 
-	if metadata.Name != "" {
-		artifactData["_metadata_name"] = []byte(metadata.Name)
-	}
-	if metadata.Version != "" {
-		artifactData["_metadata_version"] = []byte(metadata.Version)
-	}
-	if metadata.Description != "" {
-		artifactData["_metadata_description"] = []byte(metadata.Description)
-	}
-	if metadata.Author != "" {
-		artifactData["_metadata_author"] = []byte(metadata.Author)
-	}
+	a.addMetadataToTemplateData(artifactData, metadata)
 
 	return artifactData, nil
 }
@@ -1094,6 +1098,92 @@ func (a *ArtifactBuilder) getBuilderInfo() (BuilderInfo, error) {
 		User:  user,
 		Email: email,
 	}, nil
+}
+
+// getTemplateDataFromCache attempts to read template data from the local .oci_extracted cache.
+// Returns the template data if found in cache, or nil if not cached (without error).
+// Returns an error only if there's a problem reading the cache (not if cache doesn't exist).
+func (a *ArtifactBuilder) getTemplateDataFromCache(registry, repository, tag string) (map[string][]byte, error) {
+	projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+	if projectRoot == "" {
+		var err error
+		projectRoot, err = os.Getwd()
+		if err != nil {
+			return nil, nil
+		}
+	}
+
+	extractionKey := fmt.Sprintf("%s-%s-%s", registry, repository, tag)
+	cacheDir := filepath.Join(projectRoot, ".windsor", ".oci_extracted", extractionKey)
+
+	if _, err := os.Stat(cacheDir); os.IsNotExist(err) {
+		return nil, nil
+	}
+
+	templateData := make(map[string][]byte)
+	templateDir := filepath.Join(cacheDir, "_template")
+
+	if _, err := os.Stat(templateDir); os.IsNotExist(err) {
+		return nil, nil
+	}
+
+	err := filepath.Walk(templateDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+
+		relPath, err := filepath.Rel(cacheDir, path)
+		if err != nil {
+			return err
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		templateData[filepath.ToSlash(relPath)] = content
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	metadataPath := filepath.Join(cacheDir, "metadata.yaml")
+	if metadataContent, err := os.ReadFile(metadataPath); err == nil {
+		var metadata BlueprintMetadata
+		if err := a.shims.YamlUnmarshal(metadataContent, &metadata); err == nil {
+			a.addMetadataToTemplateData(templateData, metadata)
+		}
+	}
+
+	if len(templateData) == 0 {
+		return nil, nil
+	}
+
+	return templateData, nil
+}
+
+// addMetadataToTemplateData adds metadata fields to the template data map.
+// Extracts common metadata fields (name, version, description, author) from BlueprintMetadata
+// and stores them in the template data map with standardized keys for use by blueprint handlers.
+func (a *ArtifactBuilder) addMetadataToTemplateData(templateData map[string][]byte, metadata BlueprintMetadata) {
+	if metadata.Name != "" {
+		templateData["_metadata_name"] = []byte(metadata.Name)
+	}
+	if metadata.Version != "" {
+		templateData["_metadata_version"] = []byte(metadata.Version)
+	}
+	if metadata.Description != "" {
+		templateData["_metadata_description"] = []byte(metadata.Description)
+	}
+	if metadata.Author != "" {
+		templateData["_metadata_author"] = []byte(metadata.Author)
+	}
 }
 
 // parseOCIRef parses an OCI reference into registry, repository, and tag components.

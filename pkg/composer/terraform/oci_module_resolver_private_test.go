@@ -171,16 +171,55 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 			"registry.example.com/module:latest": []byte("mock artifact data"),
 		}
 
+		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
+		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", "registry.example.com-module-latest")
+		fullModulePath := filepath.Join(extractionDir, "terraform/test-module")
+
 		// Mock tar reader for successful extraction
+		callCount := 0
 		mockTarReader := &MockTarReader{
 			NextFunc: func() (*tar.Header, error) {
-				return nil, io.EOF
+				callCount++
+				switch callCount {
+				case 1:
+					return &tar.Header{
+						Name:     "terraform/test-module/",
+						Typeflag: tar.TypeDir,
+					}, nil
+				case 2:
+					return &tar.Header{
+						Name:     "terraform/test-module/main.tf",
+						Typeflag: tar.TypeReg,
+						Mode:     0644,
+					}, nil
+				default:
+					return nil, io.EOF
+				}
+			},
+			ReadFunc: func(p []byte) (int, error) {
+				return 0, io.EOF
 			},
 		}
 		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
 			return mockTarReader
 		}
-		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
+
+		// Mock Stat calls
+		statCallCount := 0
+		originalStat := resolver.BaseModuleResolver.shims.Stat
+		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
+			statCallCount++
+			if statCallCount == 1 && name == fullModulePath {
+				return nil, os.ErrNotExist
+			}
+			if statCallCount == 2 && name == extractionDir {
+				return nil, os.ErrNotExist
+			}
+			if statCallCount == 3 && name == fullModulePath {
+				return nil, nil
+			}
+			return originalStat(name)
+		}
 
 		// When extracting OCI module
 		path, err := resolver.extractOCIModule(resolvedSource, componentPath, ociArtifacts)
@@ -341,7 +380,7 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 	})
 }
 
-func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
+func TestOCIModuleResolver_extractArtifactToCache(t *testing.T) {
 	setup := func(t *testing.T) *OCIModuleResolver {
 		t.Helper()
 		mocks := setupTerraformMocks(t)
@@ -356,8 +395,9 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 		resolver := setup(t)
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 		artifactData := []byte("mock artifact data")
-		modulePath := "terraform/test-module"
-		extractionKey := "registry-module-latest"
+		registry := "registry"
+		repository := "module"
+		tag := "latest"
 
 		// Mock successful tar extraction with file and directory
 		callCount := 0
@@ -388,8 +428,8 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 			return mockTarReader
 		}
 
-		// When extracting module from artifact
-		err := resolver.extractModuleFromArtifact(artifactData, modulePath, extractionKey)
+		// When extracting artifact to cache
+		err := resolver.extractArtifactToCache(artifactData, registry, repository, tag)
 
 		// Then it should succeed
 		if err != nil {
@@ -401,8 +441,9 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 		// Given a resolver with various error conditions
 		resolver := setup(t)
 		artifactData := []byte("mock artifact data")
-		modulePath := "terraform/test-module"
-		extractionKey := "registry-module-latest"
+		registry := "registry"
+		repository := "module"
+		tag := "latest"
 
 		errorCases := []struct {
 			name          string
@@ -450,7 +491,7 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 			resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 			// When extracting with error conditions
 			tc.setupMocks(resolver)
-			err := resolver.extractModuleFromArtifact(artifactData, modulePath, extractionKey)
+			err := resolver.extractArtifactToCache(artifactData, registry, repository, tag)
 
 			// Then it should return appropriate errors
 			if err == nil {
@@ -466,14 +507,15 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 		// Given a resolver with GetProjectRoot error
 		resolver := setup(t)
 		artifactData := []byte("mock artifact data")
-		modulePath := "terraform/test-module"
-		extractionKey := "registry-module-latest"
+		registry := "registry"
+		repository := "module"
+		tag := "latest"
 
 		// Set ProjectRoot to empty to trigger error
 		resolver.BaseModuleResolver.runtime.ProjectRoot = ""
 
-		// When extracting module from artifact
-		err := resolver.extractModuleFromArtifact(artifactData, modulePath, extractionKey)
+		// When extracting artifact to cache
+		err := resolver.extractArtifactToCache(artifactData, registry, repository, tag)
 
 		// Then it should return an error
 		if err == nil {
@@ -489,8 +531,9 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 		resolver := setup(t)
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 		artifactData := []byte("mock artifact data")
-		modulePath := "terraform/test-module"
-		extractionKey := "registry-module-latest"
+		registry := "registry"
+		repository := "module"
+		tag := "latest"
 
 		// Mock tar reader with file entry
 		mockTarReader := &MockTarReader{
@@ -511,8 +554,8 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 			return nil, errors.New("file creation error")
 		}
 
-		// When extracting module from artifact
-		err := resolver.extractModuleFromArtifact(artifactData, modulePath, extractionKey)
+		// When extracting artifact to cache
+		err := resolver.extractArtifactToCache(artifactData, registry, repository, tag)
 
 		// Then it should return an error
 		if err == nil {
@@ -528,8 +571,9 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 		resolver := setup(t)
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 		artifactData := []byte("mock artifact data")
-		modulePath := "terraform/test-module"
-		extractionKey := "registry-module-latest"
+		registry := "registry"
+		repository := "module"
+		tag := "latest"
 
 		// Mock tar reader with file entry
 		mockTarReader := &MockTarReader{
@@ -550,8 +594,8 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 			return 0, errors.New("copy error")
 		}
 
-		// When extracting module from artifact
-		err := resolver.extractModuleFromArtifact(artifactData, modulePath, extractionKey)
+		// When extracting artifact to cache
+		err := resolver.extractArtifactToCache(artifactData, registry, repository, tag)
 
 		// Then it should return an error
 		if err == nil {
@@ -567,8 +611,9 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 		resolver := setup(t)
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 		artifactData := []byte("mock artifact data")
-		modulePath := "terraform/test-module"
-		extractionKey := "registry-module-latest"
+		registry := "registry"
+		repository := "module"
+		tag := "latest"
 
 		// Mock tar reader with file entry
 		mockTarReader := &MockTarReader{
@@ -589,8 +634,8 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 			return errors.New("chmod error")
 		}
 
-		// When extracting module from artifact
-		err := resolver.extractModuleFromArtifact(artifactData, modulePath, extractionKey)
+		// When extracting artifact to cache
+		err := resolver.extractArtifactToCache(artifactData, registry, repository, tag)
 
 		// Then it should return an error
 		if err == nil {
@@ -606,8 +651,9 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 		resolver := setup(t)
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 		artifactData := []byte("mock artifact data")
-		modulePath := "terraform/test-module"
-		extractionKey := "registry-module-latest"
+		registry := "registry"
+		repository := "module"
+		tag := "latest"
 
 		// Mock tar reader with file entry
 		mockTarReader := &MockTarReader{
@@ -633,8 +679,8 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 			return nil
 		}
 
-		// When extracting module from artifact
-		err := resolver.extractModuleFromArtifact(artifactData, modulePath, extractionKey)
+		// When extracting artifact to cache
+		err := resolver.extractArtifactToCache(artifactData, registry, repository, tag)
 
 		// Then it should return an error
 		if err == nil {
@@ -668,16 +714,55 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 			"registry.example.com/module:latest": []byte("mock artifact data"),
 		}
 
+		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
+		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", "registry.example.com-module-latest")
+		fullModulePath := filepath.Join(extractionDir, "terraform/test-module")
+
 		// Mock tar reader for successful extraction
+		callCount := 0
 		mockTarReader := &MockTarReader{
 			NextFunc: func() (*tar.Header, error) {
-				return nil, io.EOF
+				callCount++
+				switch callCount {
+				case 1:
+					return &tar.Header{
+						Name:     "terraform/test-module/",
+						Typeflag: tar.TypeDir,
+					}, nil
+				case 2:
+					return &tar.Header{
+						Name:     "terraform/test-module/main.tf",
+						Typeflag: tar.TypeReg,
+						Mode:     0644,
+					}, nil
+				default:
+					return nil, io.EOF
+				}
+			},
+			ReadFunc: func(p []byte) (int, error) {
+				return 0, io.EOF
 			},
 		}
 		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
 			return mockTarReader
 		}
-		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
+
+		// Mock Stat calls
+		statCallCount := 0
+		originalStat := resolver.BaseModuleResolver.shims.Stat
+		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
+			statCallCount++
+			if statCallCount == 1 && name == fullModulePath {
+				return nil, os.ErrNotExist
+			}
+			if statCallCount == 2 && name == extractionDir {
+				return nil, os.ErrNotExist
+			}
+			if statCallCount == 3 && name == fullModulePath {
+				return nil, nil
+			}
+			return originalStat(name)
+		}
 
 		// When processing component
 		err := resolver.processComponent(component, ociArtifacts)
@@ -751,16 +836,15 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 			"registry.example.com/module:latest": []byte("mock artifact data"),
 		}
 
-		// Mock tar reader for successful extraction
-		mockTarReader := &MockTarReader{
-			NextFunc: func() (*tar.Header, error) {
-				return nil, io.EOF
-			},
-		}
-		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
-			return mockTarReader
-		}
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
+
+		// Mock Stat to indicate module path already exists (cache hit)
+		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "terraform/test-module") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
 
 		// Mock FilepathRel to return error
 		resolver.BaseModuleResolver.shims.FilepathRel = func(basepath, targpath string) (string, error) {
@@ -791,16 +875,15 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 			"registry.example.com/module:latest": []byte("mock artifact data"),
 		}
 
-		// Mock tar reader for successful extraction
-		mockTarReader := &MockTarReader{
-			NextFunc: func() (*tar.Header, error) {
-				return nil, io.EOF
-			},
-		}
-		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
-			return mockTarReader
-		}
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
+
+		// Mock Stat to indicate module path already exists (cache hit)
+		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "terraform/test-module") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
 
 		// Mock WriteFile to return error for main.tf
 		resolver.BaseModuleResolver.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
@@ -846,10 +929,18 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 
 		// The extraction key is built from registry-repository-tag
-		extractionKey := "registry.example.com-module-latest"
+		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", "registry.example.com-module-latest")
 		modulePath := "terraform/test-module"
-		extractedPath := filepath.Join("/test/project", ".windsor", ".oci_extracted", extractionKey, modulePath)
+		extractedPath := filepath.Join(extractionDir, modulePath)
 		variablesTfPath := filepath.Join(extractedPath, "variables.tf")
+
+		// Mock Stat to indicate module path already exists (cache hit)
+		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "terraform/test-module") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
 
 		// Mock Glob to return a variables.tf file so writeShimVariablesTf will try to process it
 		originalGlob := resolver.BaseModuleResolver.shims.Glob
@@ -860,7 +951,6 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 				normalizedPattern := filepath.ToSlash(pattern)
 				// Check if this pattern is for the extracted module by looking for key identifiers
 				if strings.Contains(normalizedPattern, ".oci_extracted") ||
-					strings.Contains(normalizedPattern, extractionKey) ||
 					strings.Contains(normalizedPattern, "test-module") ||
 					strings.Contains(normalizedPattern, modulePath) {
 					return []string{variablesTfPath}, nil
@@ -914,16 +1004,15 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 			"registry.example.com/module:latest": []byte("mock artifact data"),
 		}
 
-		// Mock tar reader for successful extraction
-		mockTarReader := &MockTarReader{
-			NextFunc: func() (*tar.Header, error) {
-				return nil, io.EOF
-			},
-		}
-		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
-			return mockTarReader
-		}
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
+
+		// Mock Stat to indicate module path already exists (cache hit)
+		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "terraform/test-module") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
 
 		// Mock WriteFile to return error for outputs.tf
 		resolver.BaseModuleResolver.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {

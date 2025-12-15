@@ -141,9 +141,10 @@ func (h *OCIModuleResolver) processComponent(component blueprintv1alpha1.Terrafo
 }
 
 // extractOCIModule extracts a specific terraform module from an OCI artifact.
-// It parses the resolved OCI source, determines the cache key, checks for an existing extraction,
-// and if not present, extracts the module from the cached artifact data. Returns the full path
-// to the extracted module or an error if extraction fails.
+// It parses the resolved OCI source, ensures the entire artifact is cached on disk,
+// and returns the full path to the extracted module. The artifact is extracted by
+// registry/repository:tag and cached for reuse across multiple module extractions and feature processing.
+// Returns the full path to the extracted module or an error if extraction fails.
 func (h *OCIModuleResolver) extractOCIModule(resolvedSource, componentPath string, ociArtifacts map[string][]byte) (string, error) {
 	message := fmt.Sprintf("📥 Loading component %s", componentPath)
 
@@ -181,7 +182,9 @@ func (h *OCIModuleResolver) extractOCIModule(resolvedSource, componentPath strin
 	}
 
 	extractionKey := fmt.Sprintf("%s-%s-%s", registry, repository, tag)
-	fullModulePath := filepath.Join(projectRoot, ".windsor", ".oci_extracted", extractionKey, modulePath)
+	extractionDir := filepath.Join(projectRoot, ".windsor", ".oci_extracted", extractionKey)
+	fullModulePath := filepath.Join(extractionDir, modulePath)
+
 	if _, err := h.shims.Stat(fullModulePath); err == nil {
 		return fullModulePath, nil
 	}
@@ -191,18 +194,26 @@ func (h *OCIModuleResolver) extractOCIModule(resolvedSource, componentPath strin
 		return "", fmt.Errorf("OCI artifact %s not found in cache", cacheKey)
 	}
 
-	if err := h.extractModuleFromArtifact(artifactData, modulePath, extractionKey); err != nil {
-		return "", fmt.Errorf("failed to extract module from artifact: %w", err)
+	if _, err := h.shims.Stat(extractionDir); err != nil {
+		if err := h.extractArtifactToCache(artifactData, registry, repository, tag); err != nil {
+			return "", fmt.Errorf("failed to extract artifact to cache: %w", err)
+		}
+	}
+
+	if _, err := h.shims.Stat(fullModulePath); err != nil {
+		return "", fmt.Errorf("module path %s not found in cached artifact", modulePath)
 	}
 
 	return fullModulePath, nil
 }
 
-// extractModuleFromArtifact extracts the specified terraform module from the provided artifact data.
-// It unpacks files and directories matching the modulePath from the tar archive into the extraction directory
-// under the project root, preserving file permissions and handling executable scripts. Returns an error if
-// extraction fails at any step, including directory creation, file writing, or permission setting.
-func (h *OCIModuleResolver) extractModuleFromArtifact(artifactData []byte, modulePath, extractionKey string) error {
+// extractArtifactToCache extracts the entire OCI artifact to disk cache by registry/repository/tag.
+// It unpacks ALL files from the tar archive into the extraction directory under the project root,
+// preserving file permissions and handling executable scripts. This enables the artifact to be
+// cached and reused across multiple module extractions and feature processing operations.
+// Unlike the old implementation, this extracts EVERYTHING from the artifact, not just specific module paths.
+// Returns an error if extraction fails at any step, including directory creation, file writing, or permission setting.
+func (h *OCIModuleResolver) extractArtifactToCache(artifactData []byte, registry, repository, tag string) error {
 	projectRoot := h.runtime.ProjectRoot
 	if projectRoot == "" {
 		return fmt.Errorf("failed to get project root: project root is empty")
@@ -210,8 +221,8 @@ func (h *OCIModuleResolver) extractModuleFromArtifact(artifactData []byte, modul
 
 	reader := h.shims.NewBytesReader(artifactData)
 	tarReader := h.shims.NewTarReader(reader)
-	targetPrefix := modulePath
 
+	extractionKey := fmt.Sprintf("%s-%s-%s", registry, repository, tag)
 	extractionDir := filepath.Join(projectRoot, ".windsor", ".oci_extracted", extractionKey)
 
 	for {
@@ -223,11 +234,6 @@ func (h *OCIModuleResolver) extractModuleFromArtifact(artifactData []byte, modul
 			return fmt.Errorf("failed to read tar header: %w", err)
 		}
 
-		if !strings.HasPrefix(header.Name, targetPrefix) {
-			continue
-		}
-
-		// Validate and sanitize the path to prevent directory traversal
 		sanitizedPath, err := h.validateAndSanitizePath(header.Name)
 		if err != nil {
 			return fmt.Errorf("invalid path in tar archive: %w", err)
@@ -235,7 +241,6 @@ func (h *OCIModuleResolver) extractModuleFromArtifact(artifactData []byte, modul
 
 		destPath := filepath.Join(extractionDir, sanitizedPath)
 
-		// Ensure the destination path is still within the extraction directory
 		if !strings.HasPrefix(destPath, extractionDir) {
 			return fmt.Errorf("path traversal attempt detected: %s", header.Name)
 		}

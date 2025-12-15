@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -129,16 +130,57 @@ func TestOCIModuleResolver_ProcessModules(t *testing.T) {
 		}
 		resolver.artifactBuilder = mockArtifactBuilder
 
+		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
+		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", "registry.example.com-module-latest")
+
 		// Mock tar reader for successful extraction
+		callCount := 0
 		mockTarReader := &MockTarReader{
 			NextFunc: func() (*tar.Header, error) {
-				return nil, io.EOF
+				callCount++
+				switch callCount {
+				case 1:
+					return &tar.Header{
+						Name:     "terraform/test-module/",
+						Typeflag: tar.TypeDir,
+					}, nil
+				case 2:
+					return &tar.Header{
+						Name:     "terraform/test-module/main.tf",
+						Typeflag: tar.TypeReg,
+						Mode:     0644,
+					}, nil
+				default:
+					return nil, io.EOF
+				}
+			},
+			ReadFunc: func(p []byte) (int, error) {
+				return 0, io.EOF
 			},
 		}
 		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
 			return mockTarReader
 		}
-		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
+
+		// Mock Stat to check extraction directory and module path
+		statCallCount := 0
+		originalStat := resolver.BaseModuleResolver.shims.Stat
+		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
+			statCallCount++
+			// First call: check if module path exists (it doesn't)
+			if strings.Contains(name, "terraform/test-module") && statCallCount == 1 {
+				return nil, os.ErrNotExist
+			}
+			// Second call: check if extraction directory exists (it doesn't)
+			if name == extractionDir && statCallCount == 2 {
+				return nil, os.ErrNotExist
+			}
+			// Third call: check if module path exists after extraction (it does)
+			if strings.Contains(name, "terraform/test-module") && statCallCount == 3 {
+				return nil, nil
+			}
+			return originalStat(name)
+		}
 
 		// When processing modules
 		err := resolver.ProcessModules()
