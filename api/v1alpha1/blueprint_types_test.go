@@ -126,11 +126,26 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 			t.Errorf("Expected 2 terraform components, got %d", len(base.TerraformComponents))
 		}
 
-		// And first component should have merged values
-		cluster := base.TerraformComponents[0]
-		if cluster.Name != "cluster" {
-			t.Errorf("Expected name 'cluster', got '%s'", cluster.Name)
+		// Find components by name (order may change due to dependency sorting)
+		var cluster *TerraformComponent
+		var network *TerraformComponent
+		for i := range base.TerraformComponents {
+			if base.TerraformComponents[i].Name == "cluster" {
+				cluster = &base.TerraformComponents[i]
+			}
+			if base.TerraformComponents[i].Name == "network" {
+				network = &base.TerraformComponents[i]
+			}
 		}
+
+		if cluster == nil {
+			t.Fatalf("Expected to find cluster component")
+		}
+		if network == nil {
+			t.Fatalf("Expected to find network component")
+		}
+
+		// Cluster should have merged values
 		if cluster.Path != "terraform/cluster" {
 			t.Errorf("Expected original path 'terraform/cluster' to be preserved, got '%s'", cluster.Path)
 		}
@@ -150,10 +165,24 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 			t.Errorf("Expected both network and storage dependencies, got %v", cluster.DependsOn)
 		}
 
-		// And second component should be the new one
-		network := base.TerraformComponents[1]
-		if network.Name != "network" {
-			t.Errorf("Expected name 'network', got '%s'", network.Name)
+		// Network should be the new component
+		if network.Path != "terraform/network" {
+			t.Errorf("Expected network path 'terraform/network', got '%s'", network.Path)
+		}
+
+		// Verify dependency order: network should come before cluster
+		clusterIndex := -1
+		networkIndex := -1
+		for i, comp := range base.TerraformComponents {
+			if comp.Name == "cluster" {
+				clusterIndex = i
+			}
+			if comp.Name == "network" {
+				networkIndex = i
+			}
+		}
+		if networkIndex >= clusterIndex {
+			t.Errorf("Expected network (index %d) to come before cluster (index %d) due to dependency", networkIndex, clusterIndex)
 		}
 	})
 
