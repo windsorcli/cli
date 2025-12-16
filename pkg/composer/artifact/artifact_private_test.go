@@ -1792,6 +1792,8 @@ func TestArtifactBuilder_getTemplateDataFromCache(t *testing.T) {
 		})
 		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
+		builder.shims.Stat = os.Stat
+		builder.shims.RemoveAll = os.RemoveAll
 		return builder, tmpDir
 	}
 
@@ -1859,6 +1861,11 @@ func TestArtifactBuilder_getTemplateDataFromCache(t *testing.T) {
 			t.Fatalf("Failed to write metadata: %v", err)
 		}
 
+		markerPath := filepath.Join(cacheDir, ociExtractionCompleteMarker)
+		if err := os.WriteFile(markerPath, []byte("ok\n"), 0644); err != nil {
+			t.Fatalf("Failed to write extraction marker: %v", err)
+		}
+
 		templateData, err := builder.getTemplateDataFromCache("registry.io", "org/repo", "v1.0.0")
 
 		if err != nil {
@@ -1907,6 +1914,11 @@ author: Test Author
 			t.Fatalf("Failed to write metadata: %v", err)
 		}
 
+		markerPath := filepath.Join(cacheDir, ociExtractionCompleteMarker)
+		if err := os.WriteFile(markerPath, []byte("ok\n"), 0644); err != nil {
+			t.Fatalf("Failed to write extraction marker: %v", err)
+		}
+
 		templateData, err := builder.getTemplateDataFromCache("registry.io", "org/repo", "v1.0.0")
 
 		if err != nil {
@@ -1950,6 +1962,11 @@ author: Test Author
 			t.Fatalf("Failed to write metadata: %v", err)
 		}
 
+		markerPath := filepath.Join(cacheDir, ociExtractionCompleteMarker)
+		if err := os.WriteFile(markerPath, []byte("ok\n"), 0644); err != nil {
+			t.Fatalf("Failed to write extraction marker: %v", err)
+		}
+
 		templateData, err := builder.getTemplateDataFromCache("ghcr.io", "windsorcli/core", "v0.5.4")
 
 		if err != nil {
@@ -1975,6 +1992,11 @@ author: Test Author
 		blueprintPath := filepath.Join(templateDir, "blueprint.yaml")
 		if err := os.WriteFile(blueprintPath, []byte("kind: Blueprint\n"), 0644); err != nil {
 			t.Fatalf("Failed to write blueprint: %v", err)
+		}
+
+		markerPath := filepath.Join(cacheDir, ociExtractionCompleteMarker)
+		if err := os.WriteFile(markerPath, []byte("ok\n"), 0644); err != nil {
+			t.Fatalf("Failed to write extraction marker: %v", err)
 		}
 
 		templateData, err := builder.getTemplateDataFromCache("registry.io", "org/repo", "v1.0.0")
@@ -2010,6 +2032,11 @@ author: Test Author
 		invalidMetadata := "name: test\nversion: v1.0.0\ninvalid: yaml: ["
 		if err := os.WriteFile(metadataPath, []byte(invalidMetadata), 0644); err != nil {
 			t.Fatalf("Failed to write metadata: %v", err)
+		}
+
+		markerPath := filepath.Join(cacheDir, ociExtractionCompleteMarker)
+		if err := os.WriteFile(markerPath, []byte("ok\n"), 0644); err != nil {
+			t.Fatalf("Failed to write extraction marker: %v", err)
 		}
 
 		templateData, err := builder.getTemplateDataFromCache("registry.io", "org/repo", "v1.0.0")

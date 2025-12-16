@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -118,6 +119,8 @@ type ArtifactBuilder struct {
 	metadata    BlueprintMetadataInput
 	ociCache    map[string][]byte
 }
+
+const ociExtractionCompleteMarker = ".windsor_extraction_complete"
 
 // =============================================================================
 // Constructor
@@ -298,9 +301,13 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
 
 		cacheDir, err := a.GetCacheDir(registry, repository, tag)
 		if err == nil {
-			if _, err := os.Stat(filepath.Join(cacheDir, "metadata.yaml")); err == nil {
+			if err := a.validateOCIDiskCache(cacheDir); err == nil {
 				ociArtifacts[cacheKey] = nil
 				continue
+			} else if !errors.Is(err, os.ErrNotExist) {
+				if removeErr := a.shims.RemoveAll(cacheDir); removeErr != nil {
+					return nil, fmt.Errorf("failed to remove corrupted OCI cache directory %s: %w", cacheDir, removeErr)
+				}
 			}
 		}
 
@@ -343,6 +350,22 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
 	return ociArtifacts, nil
 }
 
+// validateOCIDiskCache validates that an extracted OCI artifact cache directory is complete and safe to use.
+// It requires the extraction-complete marker file to exist (written atomically during extraction) and does not
+// treat metadata.yaml alone as sufficient, which prevents partial extraction states from being mistaken as valid cache hits.
+func (a *ArtifactBuilder) validateOCIDiskCache(cacheDir string) error {
+	if _, err := a.shims.Stat(cacheDir); err != nil {
+		return err
+	}
+
+	markerPath := filepath.Join(cacheDir, ociExtractionCompleteMarker)
+	if _, err := a.shims.Stat(markerPath); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // GetTemplateData extracts and returns template data from an OCI artifact reference or local .tar.gz file.
 // For OCI references (oci://...), first checks the local .oci_extracted cache on disk, then downloads if needed.
 // For local .tar.gz files, reads from disk.
@@ -375,6 +398,17 @@ func (a *ArtifactBuilder) GetTemplateData(blueprintRef string) (map[string][]byt
 		tarData, exists := artifacts[cacheKey]
 		if !exists {
 			return nil, fmt.Errorf("failed to retrieve artifact data for %s", blueprintRef)
+		}
+
+		if tarData == nil {
+			templateData, cacheErr := a.getTemplateDataFromCache(registry, repository, tag)
+			if cacheErr != nil {
+				return nil, fmt.Errorf("cache validation failed: %w", cacheErr)
+			}
+			if templateData != nil {
+				return templateData, nil
+			}
+			return nil, fmt.Errorf("OCI artifact marked as cached but no valid template cache found for %s", blueprintRef)
 		}
 
 		if err := a.extractArtifactToCache(tarData, registry, repository, tag); err != nil {
@@ -448,6 +482,19 @@ func (a *ArtifactBuilder) extractArtifactToCache(artifactData []byte, registry, 
 
 	if err := a.extractTarEntries(tarReader, tmpExtractionDir); err != nil {
 		return err
+	}
+
+	markerPath := filepath.Join(tmpExtractionDir, ociExtractionCompleteMarker)
+	markerFile, markerErr := a.shims.Create(markerPath)
+	if markerErr != nil {
+		return fmt.Errorf("failed to create extraction marker file: %w", markerErr)
+	}
+	if _, writeErr := markerFile.Write([]byte("ok\n")); writeErr != nil {
+		_ = markerFile.Close()
+		return fmt.Errorf("failed to write extraction marker file: %w", writeErr)
+	}
+	if closeErr := markerFile.Close(); closeErr != nil {
+		return fmt.Errorf("failed to close extraction marker file: %w", closeErr)
 	}
 
 	parentDir := filepath.Dir(extractionDir)
@@ -1187,10 +1234,20 @@ func (a *ArtifactBuilder) getTemplateDataFromCache(registry, repository, tag str
 		return nil, nil
 	}
 
+	if err := a.validateOCIDiskCache(cacheDir); err != nil {
+		if removeErr := a.shims.RemoveAll(cacheDir); removeErr != nil {
+			return nil, fmt.Errorf("failed to remove corrupted OCI cache directory %s: %w", cacheDir, removeErr)
+		}
+		return nil, nil
+	}
+
 	templateData := make(map[string][]byte)
 	templateDir := filepath.Join(cacheDir, "_template")
 
 	if _, err := os.Stat(templateDir); os.IsNotExist(err) {
+		if removeErr := a.shims.RemoveAll(cacheDir); removeErr != nil {
+			return nil, fmt.Errorf("failed to remove corrupted OCI cache directory %s: %w", cacheDir, removeErr)
+		}
 		return nil, nil
 	}
 

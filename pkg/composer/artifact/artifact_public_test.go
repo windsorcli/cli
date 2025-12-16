@@ -2372,6 +2372,8 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		builder, mocks := setup(t)
 		tmpDir := mocks.Runtime.ProjectRoot
 		builder.shims.YamlUnmarshal = yaml.Unmarshal
+		builder.shims.Stat = os.Stat
+		builder.shims.RemoveAll = os.RemoveAll
 
 		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.example.com_test_v1.0.0")
 		templateDir := filepath.Join(cacheDir, "_template")
@@ -2384,6 +2386,7 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 			filepath.Join(templateDir, "schema.yaml"):           "type: object\n",
 			filepath.Join(templateDir, "features", "base.yaml"): "enabled: true\n",
 			filepath.Join(cacheDir, "metadata.yaml"):            "name: test-cached\nversion: v1.0.0\n",
+			filepath.Join(cacheDir, ociExtractionCompleteMarker): "ok\n",
 		}
 
 		for path, content := range files {
@@ -2692,6 +2695,8 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		})
 		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims.YamlUnmarshal = yaml.Unmarshal
+		builder.shims.Stat = os.Stat
+		builder.shims.RemoveAll = os.RemoveAll
 
 		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.example.com_test_v1.0.0")
 		templateDir := filepath.Join(cacheDir, "_template")
@@ -2702,6 +2707,7 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		files := map[string]string{
 			filepath.Join(templateDir, "blueprint.yaml"): "kind: Blueprint\n",
 			filepath.Join(cacheDir, "metadata.yaml"):     "name: test-cached\nversion: v1.0.0\ninvalid: yaml: [\n",
+			filepath.Join(cacheDir, ociExtractionCompleteMarker): "ok\n",
 		}
 
 		for path, content := range files {
