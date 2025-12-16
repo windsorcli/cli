@@ -1065,10 +1065,13 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 		}
 
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
+		extractionKey := "registry.example.com_module_latest"
+		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", extractionKey)
+		fullModulePath := filepath.Join(extractionDir, "terraform/test-module")
 
 		// Mock Stat to indicate module path already exists (cache hit)
 		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
-			if strings.Contains(name, "terraform/test-module") {
+			if name == fullModulePath {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -1104,10 +1107,13 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 		}
 
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
+		extractionKey := "registry.example.com_module_latest"
+		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", extractionKey)
+		fullModulePath := filepath.Join(extractionDir, "terraform/test-module")
 
 		// Mock Stat to indicate module path already exists (cache hit)
 		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
-			if strings.Contains(name, "terraform/test-module") {
+			if name == fullModulePath {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -1145,26 +1151,73 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 			"registry.example.com/module:latest": []byte("mock artifact data"),
 		}
 
+		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
+		extractionKey := "registry.example.com_module_latest"
+		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", extractionKey)
+		fullModulePath := filepath.Join(extractionDir, "terraform/test-module")
+		variablesTfPath := filepath.Join(fullModulePath, "variables.tf")
+
 		// Mock tar reader for successful extraction
+		callCount := 0
 		mockTarReader := &MockTarReader{
 			NextFunc: func() (*tar.Header, error) {
-				return nil, io.EOF
+				callCount++
+				switch callCount {
+				case 1:
+					return &tar.Header{
+						Name:     "terraform/test-module/",
+						Typeflag: tar.TypeDir,
+					}, nil
+				case 2:
+					return &tar.Header{
+						Name:     "terraform/test-module/variables.tf",
+						Typeflag: tar.TypeReg,
+						Mode:     0644,
+					}, nil
+				default:
+					return nil, io.EOF
+				}
+			},
+			ReadFunc: func(p []byte) (int, error) {
+				return 0, io.EOF
 			},
 		}
 		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
 			return mockTarReader
 		}
-		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 
-		// The extraction key is built from registry-repository-tag
-		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", "registry.example.com_module_latest")
-		modulePath := "terraform/test-module"
-		extractedPath := filepath.Join(extractionDir, modulePath)
-		variablesTfPath := filepath.Join(extractedPath, "variables.tf")
+		// Mock Stat and Rename with shared state
+		extractionComplete := false
+		tmpExtractionDir := extractionDir + ".tmp"
 
-		// Mock Stat to indicate module path already exists (cache hit)
+		// Mock Rename to succeed and mark extraction as complete
+		resolver.BaseModuleResolver.shims.Rename = func(oldpath, newpath string) error {
+			if oldpath == tmpExtractionDir && newpath == extractionDir {
+				extractionComplete = true
+			}
+			return nil
+		}
+
+		// Mock Stat to check extraction directory and module path
 		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
-			if strings.Contains(name, "terraform/test-module") {
+			// Before extraction: module path doesn't exist
+			if name == fullModulePath && !extractionComplete {
+				return nil, os.ErrNotExist
+			}
+			// After extraction: module path exists
+			if name == fullModulePath && extractionComplete {
+				return nil, nil
+			}
+			// Tmp extraction dir never exists (we create it fresh)
+			if name == tmpExtractionDir {
+				return nil, os.ErrNotExist
+			}
+			// Extraction dir doesn't exist before rename
+			if name == extractionDir && !extractionComplete {
+				return nil, os.ErrNotExist
+			}
+			// After rename, extraction dir exists
+			if name == extractionDir && extractionComplete {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -1180,7 +1233,7 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 				// Check if this pattern is for the extracted module by looking for key identifiers
 				if strings.Contains(normalizedPattern, ".oci_extracted") ||
 					strings.Contains(normalizedPattern, "test-module") ||
-					strings.Contains(normalizedPattern, modulePath) {
+					strings.Contains(normalizedPattern, "terraform/test-module") {
 					return []string{variablesTfPath}, nil
 				}
 			}
