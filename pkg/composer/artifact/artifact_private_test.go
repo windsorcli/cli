@@ -1810,7 +1810,7 @@ func TestArtifactBuilder_getTemplateDataFromCache(t *testing.T) {
 	t.Run("ReturnsNilWhenTemplateDirDoesNotExist", func(t *testing.T) {
 		builder, tmpDir := setup(t)
 
-		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.io-org/repo-v1.0.0")
+		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.io_org_repo_v1.0.0")
 		if err := os.MkdirAll(cacheDir, 0755); err != nil {
 			t.Fatalf("Failed to create cache dir: %v", err)
 		}
@@ -1829,7 +1829,7 @@ func TestArtifactBuilder_getTemplateDataFromCache(t *testing.T) {
 		builder, tmpDir := setup(t)
 		builder.shims.YamlUnmarshal = yaml.Unmarshal
 
-		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.io-org/repo-v1.0.0")
+		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.io_org_repo_v1.0.0")
 		templateDir := filepath.Join(cacheDir, "_template")
 		if err := os.MkdirAll(templateDir, 0755); err != nil {
 			t.Fatalf("Failed to create template dir: %v", err)
@@ -1885,7 +1885,7 @@ func TestArtifactBuilder_getTemplateDataFromCache(t *testing.T) {
 		builder, tmpDir := setup(t)
 		builder.shims.YamlUnmarshal = yaml.Unmarshal
 
-		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.io-org/repo-v1.0.0")
+		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.io_org_repo_v1.0.0")
 		templateDir := filepath.Join(cacheDir, "_template")
 		if err := os.MkdirAll(templateDir, 0755); err != nil {
 			t.Fatalf("Failed to create template dir: %v", err)
@@ -1933,7 +1933,7 @@ author: Test Author
 		builder, tmpDir := setup(t)
 		builder.shims.YamlUnmarshal = yaml.Unmarshal
 
-		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "ghcr.io-windsorcli/core-v0.5.4")
+		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "ghcr.io_windsorcli_core_v0.5.4")
 		templateDir := filepath.Join(cacheDir, "_template")
 		if err := os.MkdirAll(templateDir, 0755); err != nil {
 			t.Fatalf("Failed to create template dir: %v", err)
@@ -1965,7 +1965,7 @@ author: Test Author
 	t.Run("ReturnsErrorWhenMetadataMissing", func(t *testing.T) {
 		builder, tmpDir := setup(t)
 
-		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.io-org/repo-v1.0.0")
+		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.io_org_repo_v1.0.0")
 		templateDir := filepath.Join(cacheDir, "_template")
 		if err := os.MkdirAll(templateDir, 0755); err != nil {
 			t.Fatalf("Failed to create template dir: %v", err)
@@ -1980,6 +1980,7 @@ author: Test Author
 
 		if err == nil {
 			t.Error("Expected error when metadata.yaml is missing")
+			return
 		}
 		if !strings.Contains(err.Error(), "missing required metadata.yaml") {
 			t.Errorf("Expected error about missing metadata.yaml, got: %v", err)
@@ -1993,7 +1994,7 @@ author: Test Author
 		builder, tmpDir := setup(t)
 		builder.shims.YamlUnmarshal = yaml.Unmarshal
 
-		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.io-org/repo-v1.0.0")
+		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.io_org_repo_v1.0.0")
 		templateDir := filepath.Join(cacheDir, "_template")
 		if err := os.MkdirAll(templateDir, 0755); err != nil {
 			t.Fatalf("Failed to create template dir: %v", err)
@@ -2014,6 +2015,7 @@ author: Test Author
 
 		if err == nil {
 			t.Error("Expected error when metadata.yaml is invalid")
+			return
 		}
 		if !strings.Contains(err.Error(), "failed to parse metadata.yaml") {
 			t.Errorf("Expected error about parsing metadata.yaml, got: %v", err)

@@ -2237,7 +2237,7 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		tmpDir := t.TempDir()
 		t.Setenv("WINDSOR_PROJECT_ROOT", tmpDir)
 
-		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.example.com-test-v1.0.0")
+		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.example.com_test_v1.0.0")
 		templateDir := filepath.Join(cacheDir, "_template")
 		if err := os.MkdirAll(templateDir, 0755); err != nil {
 			t.Fatalf("Failed to create template dir: %v", err)
