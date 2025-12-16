@@ -1,7 +1,9 @@
 package terraform
 
 import (
+	"archive/tar"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -794,4 +796,156 @@ func (h *BaseModuleResolver) writeShimOutputsTf(moduleDir, modulePath string) er
 		}
 	}
 	return nil
+}
+
+// extractTarEntries extracts all entries from a tar archive to the specified destination directory.
+// It handles directories, files, path validation, permission setting, and executable bit handling for shell scripts.
+// The destination directory must already exist. Returns an error if any entry extraction fails.
+func (h *BaseModuleResolver) extractTarEntries(tarReader TarReader, destDir string) error {
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("failed to read tar header: %w", err)
+		}
+
+		sanitizedPath, err := h.validateAndSanitizePath(header.Name)
+		if err != nil {
+			return fmt.Errorf("invalid path in tar archive: %w", err)
+		}
+
+		destPath := filepath.Join(destDir, sanitizedPath)
+
+		if !strings.HasPrefix(destPath, destDir) {
+			return fmt.Errorf("path traversal attempt detected: %s", header.Name)
+		}
+
+		if header.Typeflag == tar.TypeDir {
+			if err := h.shims.MkdirAll(destPath, 0755); err != nil {
+				return fmt.Errorf("failed to create directory %s: %w", destPath, err)
+			}
+			continue
+		}
+
+		if err := h.shims.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			return fmt.Errorf("failed to create parent directory for %s: %w", destPath, err)
+		}
+
+		file, err := h.shims.Create(destPath)
+		if err != nil {
+			return fmt.Errorf("failed to create file %s: %w", destPath, err)
+		}
+
+		_, err = h.shims.Copy(file, tarReader)
+		if closeErr := file.Close(); closeErr != nil {
+			return fmt.Errorf("failed to close file %s: %w", destPath, closeErr)
+		}
+		if err != nil {
+			return fmt.Errorf("failed to write file %s: %w", destPath, err)
+		}
+
+		modeValue := header.Mode & 0777
+		if modeValue < 0 || modeValue > 0777 {
+			return fmt.Errorf("invalid file mode %o for %s", header.Mode, destPath)
+		}
+		fileMode := os.FileMode(uint32(modeValue))
+
+		if strings.HasSuffix(destPath, ".sh") {
+			fileMode |= 0111
+		}
+
+		if err := h.shims.Chmod(destPath, fileMode); err != nil {
+			return fmt.Errorf("failed to set file permissions for %s: %w", destPath, err)
+		}
+	}
+
+	return nil
+}
+
+// extractTarEntriesWithFilter extracts entries from a tar archive to the specified destination directory,
+// filtering entries to only those that match the target prefix. It handles directories, files, path validation,
+// permission setting, and executable bit handling for shell scripts. The destination directory must already exist.
+// Returns an error if any entry extraction fails.
+func (h *BaseModuleResolver) extractTarEntriesWithFilter(tarReader TarReader, destDir, targetPrefix string) error {
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("failed to read tar header: %w", err)
+		}
+
+		if !strings.HasPrefix(header.Name, targetPrefix) {
+			continue
+		}
+
+		sanitizedPath, err := h.validateAndSanitizePath(header.Name)
+		if err != nil {
+			return fmt.Errorf("invalid path in tar archive: %w", err)
+		}
+
+		destPath := filepath.Join(destDir, sanitizedPath)
+
+		if !strings.HasPrefix(destPath, destDir) {
+			return fmt.Errorf("path traversal attempt detected: %s", header.Name)
+		}
+
+		if header.Typeflag == tar.TypeDir {
+			if err := h.shims.MkdirAll(destPath, 0755); err != nil {
+				return fmt.Errorf("failed to create directory %s: %w", destPath, err)
+			}
+			continue
+		}
+
+		if err := h.shims.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			return fmt.Errorf("failed to create parent directory for %s: %w", destPath, err)
+		}
+
+		file, err := h.shims.Create(destPath)
+		if err != nil {
+			return fmt.Errorf("failed to create file %s: %w", destPath, err)
+		}
+
+		_, err = h.shims.Copy(file, tarReader)
+		if closeErr := file.Close(); closeErr != nil {
+			return fmt.Errorf("failed to close file %s: %w", destPath, closeErr)
+		}
+		if err != nil {
+			return fmt.Errorf("failed to write file %s: %w", destPath, err)
+		}
+
+		modeValue := header.Mode & 0777
+		if modeValue < 0 || modeValue > 0777 {
+			return fmt.Errorf("invalid file mode %o for %s", header.Mode, destPath)
+		}
+		fileMode := os.FileMode(uint32(modeValue))
+
+		if strings.HasSuffix(destPath, ".sh") {
+			fileMode |= 0111
+		}
+
+		if err := h.shims.Chmod(destPath, fileMode); err != nil {
+			return fmt.Errorf("failed to set file permissions for %s: %w", destPath, err)
+		}
+	}
+
+	return nil
+}
+
+// validateAndSanitizePath sanitizes a file path for safe extraction by removing path traversal sequences
+// and rejecting absolute paths. Returns the cleaned path if valid, or an error if the path is unsafe.
+// This function checks for absolute paths in a platform-agnostic way since tar archives use Unix-style paths
+// regardless of the host OS.
+func (h *BaseModuleResolver) validateAndSanitizePath(path string) (string, error) {
+	cleanPath := filepath.Clean(path)
+	if strings.Contains(cleanPath, "..") {
+		return "", fmt.Errorf("path contains directory traversal sequence: %s", path)
+	}
+	if strings.HasPrefix(cleanPath, string(filepath.Separator)) || (len(cleanPath) >= 2 && cleanPath[1] == ':' && (cleanPath[0] >= 'A' && cleanPath[0] <= 'Z' || cleanPath[0] >= 'a' && cleanPath[0] <= 'z')) {
+		return "", fmt.Errorf("absolute paths are not allowed: %s", path)
+	}
+	return cleanPath, nil
 }

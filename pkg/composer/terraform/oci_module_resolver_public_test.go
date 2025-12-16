@@ -162,21 +162,39 @@ func TestOCIModuleResolver_ProcessModules(t *testing.T) {
 			return mockTarReader
 		}
 
+		// Mock Stat and Rename with shared state
+		extractionComplete := false
+		tmpExtractionDir := extractionDir + ".tmp"
+
+		// Mock Rename to succeed and mark extraction as complete
+		resolver.BaseModuleResolver.shims.Rename = func(oldpath, newpath string) error {
+			if oldpath == tmpExtractionDir && newpath == extractionDir {
+				extractionComplete = true
+			}
+			return nil
+		}
+
 		// Mock Stat to check extraction directory and module path
-		statCallCount := 0
 		originalStat := resolver.BaseModuleResolver.shims.Stat
 		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
-			statCallCount++
-			// First call: check if module path exists (it doesn't)
-			if strings.Contains(name, "terraform/test-module") && statCallCount == 1 {
+			// Before extraction: module path doesn't exist
+			if strings.Contains(name, "terraform/test-module") && !extractionComplete {
 				return nil, os.ErrNotExist
 			}
-			// Second call: check if extraction directory exists (it doesn't)
-			if name == extractionDir && statCallCount == 2 {
+			// After extraction: module path exists
+			if strings.Contains(name, "terraform/test-module") && extractionComplete {
+				return nil, nil
+			}
+			// Tmp extraction dir never exists (we create it fresh)
+			if name == tmpExtractionDir {
 				return nil, os.ErrNotExist
 			}
-			// Third call: check if module path exists after extraction (it does)
-			if strings.Contains(name, "terraform/test-module") && statCallCount == 3 {
+			// Extraction dir doesn't exist before rename
+			if name == extractionDir && !extractionComplete {
+				return nil, os.ErrNotExist
+			}
+			// After rename, extraction dir exists
+			if name == extractionDir && extractionComplete {
 				return nil, nil
 			}
 			return originalStat(name)

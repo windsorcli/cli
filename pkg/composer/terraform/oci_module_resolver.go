@@ -45,17 +45,6 @@ func NewOCIModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.Bluepr
 // Public Methods
 // =============================================================================
 
-// shouldHandle determines if this resolver should handle the given source by checking
-// if the source is an OCI artifact URL. Returns true only for sources that begin with
-// the "oci://" protocol prefix, indicating they are OCI registry artifacts.
-func (h *OCIModuleResolver) shouldHandle(source string) bool {
-	if !strings.HasPrefix(source, "oci://") {
-		return false
-	}
-
-	return true
-}
-
 // ProcessModules processes all terraform components that use OCI sources by extracting
 // modules from OCI artifacts and generating appropriate module shims. It identifies
 // components with resolved OCI source URLs, extracts the required modules, and creates
@@ -104,6 +93,13 @@ func (h *OCIModuleResolver) ProcessModules() error {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// shouldHandle determines if this resolver should handle the given source by checking
+// if the source is an OCI artifact URL. Returns true only for sources that begin with
+// the "oci://" protocol prefix, indicating they are OCI registry artifacts.
+func (h *OCIModuleResolver) shouldHandle(source string) bool {
+	return strings.HasPrefix(source, "oci://")
+}
 
 // processComponent processes a single terraform component with an OCI source.
 // It creates the module directory, extracts the OCI module, computes the relative path,
@@ -194,10 +190,8 @@ func (h *OCIModuleResolver) extractOCIModule(resolvedSource, componentPath strin
 		return "", fmt.Errorf("OCI artifact %s not found in cache", cacheKey)
 	}
 
-	if _, err := h.shims.Stat(extractionDir); err != nil {
-		if err := h.extractArtifactToCache(artifactData, registry, repository, tag); err != nil {
-			return "", fmt.Errorf("failed to extract artifact to cache: %w", err)
-		}
+	if err := h.extractArtifactToCache(artifactData, registry, repository, tag); err != nil {
+		return "", fmt.Errorf("failed to extract artifact to cache: %w", err)
 	}
 
 	if _, err := h.shims.Stat(fullModulePath); err != nil {
@@ -207,13 +201,12 @@ func (h *OCIModuleResolver) extractOCIModule(resolvedSource, componentPath strin
 	return fullModulePath, nil
 }
 
-// extractArtifactToCache extracts the entire OCI artifact to disk cache by registry/repository/tag.
-// It unpacks ALL files from the tar archive into the extraction directory under the project root,
-// preserving file permissions and handling executable scripts. This enables the artifact to be
-// cached and reused across multiple module extractions and feature processing operations.
-// Unlike the old implementation, this extracts EVERYTHING from the artifact, not just specific module paths.
-// Returns an error if extraction fails at any step, including directory creation, file writing, or permission setting.
-func (h *OCIModuleResolver) extractArtifactToCache(artifactData []byte, registry, repository, tag string) error {
+// extractArtifactToCache extracts the full OCI artifact tar archive to the disk cache using the registry, repository, and tag as a unique cache key.
+// The entire contents of the tar archive are unpacked into a dedicated extraction directory under the project root, preserving permissions and handling executable scripts.
+// Extraction occurs atomically by unpacking to a temporary directory first, then renaming into place only on success to avoid partial state in the cache.
+// This function enables all files in the artifact to be available for future module and feature resolutions, supporting cache reuse.
+// Returns an error if any phase of extraction fails or if path validation checks do not pass.
+func (h *OCIModuleResolver) extractArtifactToCache(artifactData []byte, registry, repository, tag string) (err error) {
 	projectRoot := h.runtime.ProjectRoot
 	if projectRoot == "" {
 		return fmt.Errorf("failed to get project root: project root is empty")
@@ -224,82 +217,46 @@ func (h *OCIModuleResolver) extractArtifactToCache(artifactData []byte, registry
 
 	extractionKey := fmt.Sprintf("%s-%s-%s", registry, repository, tag)
 	extractionDir := filepath.Join(projectRoot, ".windsor", ".oci_extracted", extractionKey)
+	tmpExtractionDir := extractionDir + ".tmp"
 
-	for {
-		header, err := tarReader.Next()
-		if err == h.shims.EOFError() {
-			break
-		}
+	defer func() {
 		if err != nil {
-			return fmt.Errorf("failed to read tar header: %w", err)
-		}
-
-		sanitizedPath, err := h.validateAndSanitizePath(header.Name)
-		if err != nil {
-			return fmt.Errorf("invalid path in tar archive: %w", err)
-		}
-
-		destPath := filepath.Join(extractionDir, sanitizedPath)
-
-		if !strings.HasPrefix(destPath, extractionDir) {
-			return fmt.Errorf("path traversal attempt detected: %s", header.Name)
-		}
-
-		if header.Typeflag == h.shims.TypeDir() {
-			if err := h.shims.MkdirAll(destPath, 0755); err != nil {
-				return fmt.Errorf("failed to create directory %s: %w", destPath, err)
+			if _, statErr := h.shims.Stat(tmpExtractionDir); statErr == nil {
+				h.shims.RemoveAll(tmpExtractionDir)
 			}
-			continue
 		}
+	}()
 
-		if err := h.shims.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-			return fmt.Errorf("failed to create parent directory for %s: %w", destPath, err)
+	if _, statErr := h.shims.Stat(tmpExtractionDir); statErr == nil {
+		if removeErr := h.shims.RemoveAll(tmpExtractionDir); removeErr != nil {
+			return fmt.Errorf("failed to clean up existing temporary extraction directory: %w", removeErr)
 		}
+	}
 
-		file, err := h.shims.Create(destPath)
-		if err != nil {
-			return fmt.Errorf("failed to create file %s: %w", destPath, err)
-		}
+	if mkdirErr := h.shims.MkdirAll(tmpExtractionDir, 0755); mkdirErr != nil {
+		return fmt.Errorf("failed to create temporary extraction directory: %w", mkdirErr)
+	}
 
-		_, err = h.shims.Copy(file, tarReader)
-		if closeErr := file.Close(); closeErr != nil {
-			return fmt.Errorf("failed to close file %s: %w", destPath, closeErr)
-		}
-		if err != nil {
-			return fmt.Errorf("failed to write file %s: %w", destPath, err)
-		}
+	if err := h.extractTarEntries(tarReader, tmpExtractionDir); err != nil {
+		return err
+	}
 
-		modeValue := header.Mode & 0777
-		if modeValue < 0 || modeValue > 0777 {
-			return fmt.Errorf("invalid file mode %o for %s", header.Mode, destPath)
-		}
-		fileMode := os.FileMode(uint32(modeValue))
+	parentDir := filepath.Dir(extractionDir)
+	if mkdirErr := h.shims.MkdirAll(parentDir, 0755); mkdirErr != nil {
+		return fmt.Errorf("failed to create parent directory: %w", mkdirErr)
+	}
 
-		if strings.HasSuffix(destPath, ".sh") {
-			fileMode |= 0111
+	if _, statErr := h.shims.Stat(extractionDir); statErr == nil {
+		if removeErr := h.shims.RemoveAll(extractionDir); removeErr != nil {
+			return fmt.Errorf("failed to remove existing extraction directory: %w", removeErr)
 		}
+	}
 
-		if err := h.shims.Chmod(destPath, fileMode); err != nil {
-			return fmt.Errorf("failed to set file permissions for %s: %w", destPath, err)
-		}
+	if renameErr := h.shims.Rename(tmpExtractionDir, extractionDir); renameErr != nil {
+		return fmt.Errorf("failed to rename temporary extraction directory to final location: %w", renameErr)
 	}
 
 	return nil
-}
-
-// validateAndSanitizePath sanitizes a file path for safe extraction by removing path traversal sequences
-// and rejecting absolute paths. Returns the cleaned path if valid, or an error if the path is unsafe.
-// This function checks for absolute paths in a platform-agnostic way since tar archives use Unix-style paths
-// regardless of the host OS.
-func (h *OCIModuleResolver) validateAndSanitizePath(path string) (string, error) {
-	cleanPath := filepath.Clean(path)
-	if strings.Contains(cleanPath, "..") {
-		return "", fmt.Errorf("path contains directory traversal sequence: %s", path)
-	}
-	if strings.HasPrefix(cleanPath, string(filepath.Separator)) || (len(cleanPath) >= 2 && cleanPath[1] == ':' && (cleanPath[0] >= 'A' && cleanPath[0] <= 'Z' || cleanPath[0] >= 'a' && cleanPath[0] <= 'z')) {
-		return "", fmt.Errorf("absolute paths are not allowed: %s", path)
-	}
-	return cleanPath, nil
 }
 
 // parseOCIRef extracts the registry, repository, and tag components from an OCI reference string.

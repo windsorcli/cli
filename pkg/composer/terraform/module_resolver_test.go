@@ -196,7 +196,7 @@ func setupDefaultShims() *Shims {
 	}
 
 	shims.NewTarReader = func(r io.Reader) TarReader {
-		return &RealTarReader{reader: tar.NewReader(r)}
+		return tar.NewReader(r)
 	}
 
 	shims.EOFError = func() error {

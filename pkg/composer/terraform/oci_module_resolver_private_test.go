@@ -3,6 +3,7 @@ package terraform
 import (
 	"archive/tar"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -204,18 +205,41 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 			return mockTarReader
 		}
 
+		// Mock Stat and Rename with shared state
+		extractionComplete := false
+		tmpExtractionDir := extractionDir + ".tmp"
+
+		// Mock Rename to succeed and mark extraction as complete
+		resolver.BaseModuleResolver.shims.Rename = func(oldpath, newpath string) error {
+			if oldpath == tmpExtractionDir && newpath == extractionDir {
+				extractionComplete = true
+			}
+			return nil
+		}
+
 		// Mock Stat calls
 		statCallCount := 0
 		originalStat := resolver.BaseModuleResolver.shims.Stat
 		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
 			statCallCount++
-			if statCallCount == 1 && name == fullModulePath {
+			// Before extraction: module path doesn't exist
+			if name == fullModulePath && !extractionComplete {
 				return nil, os.ErrNotExist
 			}
-			if statCallCount == 2 && name == extractionDir {
+			// After extraction: module path exists
+			if name == fullModulePath && extractionComplete {
+				return nil, nil
+			}
+			// Tmp extraction dir never exists (we create it fresh)
+			if name == tmpExtractionDir {
 				return nil, os.ErrNotExist
 			}
-			if statCallCount == 3 && name == fullModulePath {
+			// Extraction dir doesn't exist before rename
+			if name == extractionDir && !extractionComplete {
+				return nil, os.ErrNotExist
+			}
+			// After rename, extraction dir exists
+			if name == extractionDir && extractionComplete {
 				return nil, nil
 			}
 			return originalStat(name)
@@ -257,6 +281,118 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 		}
 		if path == "" {
 			t.Error("Expected non-empty path")
+		}
+	})
+
+	t.Run("HandlesExistingExtractionDirectory", func(t *testing.T) {
+		// Given a resolver with existing extraction directory (from previous failed extraction)
+		resolver := setup(t)
+		resolvedSource := "oci://registry.example.com/module:latest//terraform/test-module"
+		componentPath := "test-module"
+		ociArtifacts := map[string][]byte{
+			"registry.example.com/module:latest": []byte("mock artifact data"),
+		}
+
+		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
+		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", "registry.example.com-module-latest")
+		fullModulePath := filepath.Join(extractionDir, "terraform/test-module")
+
+		// Mock tar reader for successful extraction
+		callCount := 0
+		mockTarReader := &MockTarReader{
+			NextFunc: func() (*tar.Header, error) {
+				callCount++
+				switch callCount {
+				case 1:
+					return &tar.Header{
+						Name:     "metadata.yaml",
+						Typeflag: tar.TypeReg,
+						Mode:     0644,
+					}, nil
+				case 2:
+					return &tar.Header{
+						Name:     "terraform/test-module/",
+						Typeflag: tar.TypeDir,
+					}, nil
+				case 3:
+					return &tar.Header{
+						Name:     "terraform/test-module/main.tf",
+						Typeflag: tar.TypeReg,
+						Mode:     0644,
+					}, nil
+				default:
+					return nil, io.EOF
+				}
+			},
+			ReadFunc: func(p []byte) (int, error) {
+				return 0, io.EOF
+			},
+		}
+		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
+			return mockTarReader
+		}
+
+		// Mock Stat and Rename with shared state
+		extractionComplete := false
+		tmpExtractionDir := extractionDir + ".tmp"
+
+		// Mock Rename to succeed and mark extraction as complete
+		resolver.BaseModuleResolver.shims.Rename = func(oldpath, newpath string) error {
+			if oldpath == tmpExtractionDir && newpath == extractionDir {
+				extractionComplete = true
+			}
+			return nil
+		}
+
+		// Mock Stat calls: first check for module path (not found), then check extraction dir (exists),
+		// then after cleanup and re-extraction, module path exists
+		originalStat := resolver.BaseModuleResolver.shims.Stat
+		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
+			// Before extraction: module path doesn't exist
+			if name == fullModulePath && !extractionComplete {
+				return nil, os.ErrNotExist
+			}
+			// After extraction: module path exists
+			if name == fullModulePath && extractionComplete {
+				return nil, nil
+			}
+			// Tmp extraction dir never exists (we create it fresh)
+			if name == tmpExtractionDir {
+				return nil, os.ErrNotExist
+			}
+			// Extraction dir exists initially (from previous failed extraction)
+			if name == extractionDir && !extractionComplete {
+				return nil, nil
+			}
+			// After rename, extraction dir exists
+			if name == extractionDir && extractionComplete {
+				return nil, nil
+			}
+			return originalStat(name)
+		}
+
+		// Mock RemoveAll to clean up existing extraction directory
+		removeAllCalled := false
+		originalRemoveAll := resolver.BaseModuleResolver.shims.RemoveAll
+		resolver.BaseModuleResolver.shims.RemoveAll = func(path string) error {
+			if path == extractionDir {
+				removeAllCalled = true
+			}
+			return originalRemoveAll(path)
+		}
+
+		// When extracting OCI module
+		path, err := resolver.extractOCIModule(resolvedSource, componentPath, ociArtifacts)
+
+		// Then it should clean up existing directory and extract fresh
+		if err != nil {
+			t.Errorf("Expected nil error, got %v", err)
+		}
+		if path == "" {
+			t.Error("Expected non-empty path")
+		}
+		if !removeAllCalled {
+			t.Error("Expected RemoveAll to be called to clean up existing extraction directory")
 		}
 	})
 
@@ -428,6 +564,11 @@ func TestOCIModuleResolver_extractArtifactToCache(t *testing.T) {
 			return mockTarReader
 		}
 
+		// Mock Rename to succeed
+		resolver.BaseModuleResolver.shims.Rename = func(oldpath, newpath string) error {
+			return nil
+		}
+
 		// When extracting artifact to cache
 		err := resolver.extractArtifactToCache(artifactData, registry, repository, tag)
 
@@ -482,7 +623,7 @@ func TestOCIModuleResolver_extractArtifactToCache(t *testing.T) {
 						return errors.New("mkdir error")
 					}
 				},
-				expectedError: "failed to create directory",
+				expectedError: "failed to create temporary extraction directory",
 			},
 		}
 
@@ -646,6 +787,71 @@ func TestOCIModuleResolver_extractArtifactToCache(t *testing.T) {
 		}
 	})
 
+	t.Run("CleansUpOnExtractionFailure", func(t *testing.T) {
+		// Given a resolver that will fail during extraction
+		resolver := setup(t)
+		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
+		artifactData := []byte("mock artifact data")
+		registry := "registry"
+		repository := "module"
+		tag := "latest"
+
+		extractionKey := fmt.Sprintf("%s-%s-%s", registry, repository, tag)
+		tmpExtractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", extractionKey+".tmp")
+
+		// Mock tar reader that will fail
+		callCount := 0
+		mockTarReader := &MockTarReader{
+			NextFunc: func() (*tar.Header, error) {
+				callCount++
+				if callCount == 1 {
+					return &tar.Header{
+						Name:     "terraform/test-module/",
+						Typeflag: tar.TypeDir,
+					}, nil
+				}
+				return nil, errors.New("extraction error")
+			},
+			ReadFunc: func(p []byte) (int, error) {
+				return 0, io.EOF
+			},
+		}
+		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
+			return mockTarReader
+		}
+
+		// Mock Stat to indicate tmp directory was created
+		statCallCount := 0
+		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
+			statCallCount++
+			if name == tmpExtractionDir {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock RemoveAll to track cleanup
+		removeAllCalled := false
+		originalRemoveAll := resolver.BaseModuleResolver.shims.RemoveAll
+		resolver.BaseModuleResolver.shims.RemoveAll = func(path string) error {
+			if path == tmpExtractionDir {
+				removeAllCalled = true
+			}
+			return originalRemoveAll(path)
+		}
+
+		// When extraction fails
+		err := resolver.extractArtifactToCache(artifactData, registry, repository, tag)
+
+		// Then it should return an error and clean up the directory
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !removeAllCalled {
+			t.Error("Expected RemoveAll to be called to clean up on extraction failure")
+		}
+	})
+
 	t.Run("HandlesParentDirectoryCreationError", func(t *testing.T) {
 		// Given a resolver with parent directory creation error
 		resolver := setup(t)
@@ -747,18 +953,39 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 			return mockTarReader
 		}
 
+		// Mock Stat and Rename with shared state
+		extractionComplete := false
+		tmpExtractionDir := extractionDir + ".tmp"
+
+		// Mock Rename to succeed and mark extraction as complete
+		resolver.BaseModuleResolver.shims.Rename = func(oldpath, newpath string) error {
+			if oldpath == tmpExtractionDir && newpath == extractionDir {
+				extractionComplete = true
+			}
+			return nil
+		}
+
 		// Mock Stat calls
-		statCallCount := 0
 		originalStat := resolver.BaseModuleResolver.shims.Stat
 		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
-			statCallCount++
-			if statCallCount == 1 && name == fullModulePath {
+			// Before extraction: module path doesn't exist
+			if name == fullModulePath && !extractionComplete {
 				return nil, os.ErrNotExist
 			}
-			if statCallCount == 2 && name == extractionDir {
+			// After extraction: module path exists
+			if name == fullModulePath && extractionComplete {
+				return nil, nil
+			}
+			// Tmp extraction dir never exists (we create it fresh)
+			if name == tmpExtractionDir {
 				return nil, os.ErrNotExist
 			}
-			if statCallCount == 3 && name == fullModulePath {
+			// Extraction dir doesn't exist before rename
+			if name == extractionDir && !extractionComplete {
+				return nil, os.ErrNotExist
+			}
+			// After rename, extraction dir exists
+			if name == extractionDir && extractionComplete {
 				return nil, nil
 			}
 			return originalStat(name)
@@ -1058,7 +1285,7 @@ func TestOCIModuleResolver_validateAndSanitizePath(t *testing.T) {
 
 		for _, path := range testCases {
 			// Then it should succeed
-			result, err := resolver.validateAndSanitizePath(path)
+			result, err := resolver.BaseModuleResolver.validateAndSanitizePath(path)
 			if err != nil {
 				t.Errorf("Expected no error for %s, got %v", path, err)
 			}
