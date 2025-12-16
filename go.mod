@@ -8,7 +8,7 @@ require (
 	github.com/abiosoft/colima v0.9.1
 	github.com/briandowns/spinner v1.23.2
 	github.com/compose-spec/compose-go/v2 v2.10.0
-	github.com/expr-lang/expr v1.17.6
+	github.com/expr-lang/expr v1.17.7
 	github.com/fluxcd/helm-controller/api v1.4.5
 	github.com/fluxcd/kustomize-controller/api v1.7.3
 	github.com/fluxcd/pkg/apis/kustomize v1.14.0
