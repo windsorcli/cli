@@ -201,11 +201,11 @@ func (h *OCIModuleResolver) extractOCIModule(resolvedSource, componentPath strin
 	return fullModulePath, nil
 }
 
-// extractArtifactToCache extracts the full OCI artifact tar archive to the disk cache using the registry, repository, and tag as a unique cache key.
-// The entire contents of the tar archive are unpacked into a dedicated extraction directory under the project root, preserving permissions and handling executable scripts.
-// Extraction occurs atomically by unpacking to a temporary directory first, then renaming into place only on success to avoid partial state in the cache.
-// This function enables all files in the artifact to be available for future module and feature resolutions, supporting cache reuse.
-// Returns an error if any phase of extraction fails or if path validation checks do not pass.
+// extractArtifactToCache extracts the full OCI artifact tar archive to the disk cache keyed by registry, repository, and tag.
+// It unpacks the contents into a dedicated extraction directory under the project root, preserving permissions and handling executables.
+// Extraction is atomic: all files are first unpacked to a temporary directory, then renamed into place on success, which avoids leaving partial state.
+// This approach ensures all artifact files are available for subsequent module and feature resolutions and enables cache reuse.
+// Returns an error if any extraction phase fails or if path validation checks do not pass.
 func (h *OCIModuleResolver) extractArtifactToCache(artifactData []byte, registry, repository, tag string) (err error) {
 	projectRoot := h.runtime.ProjectRoot
 	if projectRoot == "" {
@@ -223,7 +223,9 @@ func (h *OCIModuleResolver) extractArtifactToCache(artifactData []byte, registry
 	defer func() {
 		if err != nil {
 			if _, statErr := h.shims.Stat(tmpExtractionDir); statErr == nil {
-				h.shims.RemoveAll(tmpExtractionDir)
+				if removeErr := h.shims.RemoveAll(tmpExtractionDir); removeErr != nil {
+					fmt.Fprintf(os.Stderr, "warning: failed to clean up temporary extraction directory: %v\n", removeErr)
+				}
 			}
 		}
 	}()
