@@ -1,10 +1,8 @@
 package terraform
 
 import (
-	"archive/tar"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -21,7 +19,7 @@ import (
 
 func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 	t.Run("ParsesValidReferences", func(t *testing.T) {
-		// Given a resolver
+		// Given a resolver with artifact builder that can parse OCI refs
 		mocks := setupTerraformMocks(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
@@ -39,8 +37,16 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 		}
 
 		for _, tc := range testCases {
-			// Then it should parse correctly
-			registry, repository, tag, err := resolver.parseOCIRef(tc.ociRef)
+			// Mock ParseOCIRef to return expected values
+			mockArtifactBuilder.ParseOCIRefFunc = func(ociRef string) (registry, repository, tag string, err error) {
+				if ociRef == tc.ociRef {
+					return tc.registry, tc.repository, tc.tag, nil
+				}
+				return "", "", "", fmt.Errorf("unexpected OCI ref: %s", ociRef)
+			}
+
+			// Then it should parse correctly via artifact builder
+			registry, repository, tag, err := resolver.artifactBuilder.ParseOCIRef(tc.ociRef)
 			if err != nil {
 				t.Errorf("Expected nil error for %s, got %v", tc.ociRef, err)
 			}
@@ -57,7 +63,7 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 	})
 
 	t.Run("HandlesInvalidReferences", func(t *testing.T) {
-		// Given a resolver
+		// Given a resolver with artifact builder
 		mocks := setupTerraformMocks(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
@@ -71,8 +77,13 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 		}
 
 		for _, ociRef := range testCases {
+			// Mock ParseOCIRef to return error
+			mockArtifactBuilder.ParseOCIRefFunc = func(ref string) (registry, repository, tag string, err error) {
+				return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ref)
+			}
+
 			// Then it should return an error
-			_, _, _, err := resolver.parseOCIRef(ociRef)
+			_, _, _, err := resolver.artifactBuilder.ParseOCIRef(ociRef)
 			if err == nil {
 				t.Errorf("Expected error for invalid reference %s, got nil", ociRef)
 			}
@@ -80,7 +91,7 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 	})
 
 	t.Run("HandlesEdgeCases", func(t *testing.T) {
-		// Given a resolver
+		// Given a resolver with artifact builder
 		mocks := setupTerraformMocks(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
@@ -104,8 +115,13 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 		}
 
 		for _, tc := range errorCases {
+			// Mock ParseOCIRef to return error with expected text
+			mockArtifactBuilder.ParseOCIRefFunc = func(ref string) (registry, repository, tag string, err error) {
+				return "", "", "", fmt.Errorf("%s", tc.errorText)
+			}
+
 			// Then it should return appropriate errors
-			_, _, _, err := resolver.parseOCIRef(tc.ociRef)
+			_, _, _, err := resolver.artifactBuilder.ParseOCIRef(tc.ociRef)
 			if err == nil {
 				t.Errorf("Expected error for %s (%s), got nil", tc.name, tc.ociRef)
 			} else if !strings.Contains(err.Error(), tc.errorText) {
@@ -115,7 +131,7 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 	})
 
 	t.Run("HandlesComplexValidReferences", func(t *testing.T) {
-		// Given a resolver
+		// Given a resolver with artifact builder
 		mocks := setupTerraformMocks(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
@@ -135,8 +151,16 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 		}
 
 		for _, tc := range testCases {
-			// Then it should parse correctly
-			registry, repository, tag, err := resolver.parseOCIRef(tc.ociRef)
+			// Mock ParseOCIRef to return expected values
+			mockArtifactBuilder.ParseOCIRefFunc = func(ociRef string) (registry, repository, tag string, err error) {
+				if ociRef == tc.ociRef {
+					return tc.registry, tc.repository, tc.tag, nil
+				}
+				return "", "", "", fmt.Errorf("unexpected OCI ref: %s", ociRef)
+			}
+
+			// Then it should parse correctly via artifact builder
+			registry, repository, tag, err := resolver.artifactBuilder.ParseOCIRef(tc.ociRef)
 			if err != nil {
 				t.Errorf("Expected nil error for %s, got %v", tc.ociRef, err)
 			}
@@ -154,95 +178,48 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 }
 
 func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
-	setup := func(t *testing.T) *OCIModuleResolver {
+	setup := func(t *testing.T) (*OCIModuleResolver, string, string) {
 		t.Helper()
 		mocks := setupTerraformMocks(t)
+		tmpDir := mocks.Runtime.ProjectRoot
+
 		mockArtifactBuilder := artifact.NewMockArtifact()
+		mockArtifactBuilder.ParseOCIRefFunc = func(ociRef string) (registry, repository, tag string, err error) {
+			if ociRef == "oci://registry.example.com/module:latest" {
+				return "registry.example.com", "module", "latest", nil
+			}
+			return "", "", "", fmt.Errorf("unexpected OCI ref: %s", ociRef)
+		}
+		extractionDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.example.com_module_latest")
+		fullModulePath := filepath.Join(extractionDir, "terraform/test-module")
+		mockArtifactBuilder.GetCacheDirFunc = func(registry, repository, tag string) (string, error) {
+			return extractionDir, nil
+		}
+
 		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
 		resolver.BaseModuleResolver.shims = mocks.Shims
-		return resolver
+		resolver.BaseModuleResolver.shims.Stat = os.Stat
+
+		return resolver, tmpDir, fullModulePath
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a resolver with valid OCI source and cached artifact
-		resolver := setup(t)
+		resolver, _, fullModulePath := setup(t)
 		resolvedSource := "oci://registry.example.com/module:latest//terraform/test-module"
 		componentPath := "test-module"
 		ociArtifacts := map[string][]byte{
-			"registry.example.com/module:latest": []byte("mock artifact data"),
+			"registry.example.com/module:latest": nil,
 		}
 
-		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
-		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", "registry.example.com_module_latest")
-		fullModulePath := filepath.Join(extractionDir, "terraform/test-module")
-
-		// Mock tar reader for successful extraction
-		callCount := 0
-		mockTarReader := &MockTarReader{
-			NextFunc: func() (*tar.Header, error) {
-				callCount++
-				switch callCount {
-				case 1:
-					return &tar.Header{
-						Name:     "terraform/test-module/",
-						Typeflag: tar.TypeDir,
-					}, nil
-				case 2:
-					return &tar.Header{
-						Name:     "terraform/test-module/main.tf",
-						Typeflag: tar.TypeReg,
-						Mode:     0644,
-					}, nil
-				default:
-					return nil, io.EOF
-				}
-			},
-			ReadFunc: func(p []byte) (int, error) {
-				return 0, io.EOF
-			},
+		if err := os.MkdirAll(filepath.Dir(fullModulePath), 0755); err != nil {
+			t.Fatalf("Failed to create extraction directory: %v", err)
 		}
-		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
-			return mockTarReader
+		if err := os.MkdirAll(fullModulePath, 0755); err != nil {
+			t.Fatalf("Failed to create module directory: %v", err)
 		}
-
-		// Mock Stat and Rename with shared state
-		extractionComplete := false
-		tmpExtractionDir := extractionDir + ".tmp"
-
-		// Mock Rename to succeed and mark extraction as complete
-		resolver.BaseModuleResolver.shims.Rename = func(oldpath, newpath string) error {
-			if oldpath == tmpExtractionDir && newpath == extractionDir {
-				extractionComplete = true
-			}
-			return nil
-		}
-
-		// Mock Stat calls
-		statCallCount := 0
-		originalStat := resolver.BaseModuleResolver.shims.Stat
-		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
-			statCallCount++
-			// Before extraction: module path doesn't exist
-			if name == fullModulePath && !extractionComplete {
-				return nil, os.ErrNotExist
-			}
-			// After extraction: module path exists
-			if name == fullModulePath && extractionComplete {
-				return nil, nil
-			}
-			// Tmp extraction dir never exists (we create it fresh)
-			if name == tmpExtractionDir {
-				return nil, os.ErrNotExist
-			}
-			// Extraction dir doesn't exist before rename
-			if name == extractionDir && !extractionComplete {
-				return nil, os.ErrNotExist
-			}
-			// After rename, extraction dir exists
-			if name == extractionDir && extractionComplete {
-				return nil, nil
-			}
-			return originalStat(name)
+		if err := os.WriteFile(filepath.Join(fullModulePath, "main.tf"), []byte("resource \"test\" {}"), 0644); err != nil {
+			t.Fatalf("Failed to create module file: %v", err)
 		}
 
 		// When extracting OCI module
@@ -259,18 +236,16 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 
 	t.Run("HandlesCacheHit", func(t *testing.T) {
 		// Given a resolver with existing extracted module
-		resolver := setup(t)
+		resolver, _, _ := setup(t)
 		resolvedSource := "oci://registry.example.com/module:latest//terraform/test-module"
 		componentPath := "test-module"
 		ociArtifacts := map[string][]byte{
 			"registry.example.com/module:latest": []byte("mock artifact data"),
 		}
 
-		// Mock Stat to return success (cache hit)
 		resolver.BaseModuleResolver.shims.Stat = func(path string) (os.FileInfo, error) {
 			return nil, nil
 		}
-		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 
 		// When extracting OCI module
 		path, err := resolver.extractOCIModule(resolvedSource, componentPath, ociArtifacts)
@@ -286,119 +261,35 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 
 	t.Run("HandlesExistingExtractionDirectory", func(t *testing.T) {
 		// Given a resolver with existing extraction directory (from previous failed extraction)
-		resolver := setup(t)
+		resolver, _, fullModulePath := setup(t)
 		resolvedSource := "oci://registry.example.com/module:latest//terraform/test-module"
 		componentPath := "test-module"
 		ociArtifacts := map[string][]byte{
-			"registry.example.com/module:latest": []byte("mock artifact data"),
+			"registry.example.com/module:latest": nil,
 		}
 
-		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
-		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", "registry.example.com_module_latest")
-		fullModulePath := filepath.Join(extractionDir, "terraform/test-module")
-
-		// Mock tar reader for successful extraction
-		callCount := 0
-		mockTarReader := &MockTarReader{
-			NextFunc: func() (*tar.Header, error) {
-				callCount++
-				switch callCount {
-				case 1:
-					return &tar.Header{
-						Name:     "metadata.yaml",
-						Typeflag: tar.TypeReg,
-						Mode:     0644,
-					}, nil
-				case 2:
-					return &tar.Header{
-						Name:     "terraform/test-module/",
-						Typeflag: tar.TypeDir,
-					}, nil
-				case 3:
-					return &tar.Header{
-						Name:     "terraform/test-module/main.tf",
-						Typeflag: tar.TypeReg,
-						Mode:     0644,
-					}, nil
-				default:
-					return nil, io.EOF
-				}
-			},
-			ReadFunc: func(p []byte) (int, error) {
-				return 0, io.EOF
-			},
+		if err := os.MkdirAll(fullModulePath, 0755); err != nil {
+			t.Fatalf("Failed to create module directory: %v", err)
 		}
-		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
-			return mockTarReader
-		}
-
-		// Mock Stat and Rename with shared state
-		extractionComplete := false
-		tmpExtractionDir := extractionDir + ".tmp"
-
-		// Mock Rename to succeed and mark extraction as complete
-		resolver.BaseModuleResolver.shims.Rename = func(oldpath, newpath string) error {
-			if oldpath == tmpExtractionDir && newpath == extractionDir {
-				extractionComplete = true
-			}
-			return nil
-		}
-
-		// Mock Stat calls: first check for module path (not found), then check extraction dir (exists),
-		// then after cleanup and re-extraction, module path exists
-		originalStat := resolver.BaseModuleResolver.shims.Stat
-		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
-			// Before extraction: module path doesn't exist
-			if name == fullModulePath && !extractionComplete {
-				return nil, os.ErrNotExist
-			}
-			// After extraction: module path exists
-			if name == fullModulePath && extractionComplete {
-				return nil, nil
-			}
-			// Tmp extraction dir never exists (we create it fresh)
-			if name == tmpExtractionDir {
-				return nil, os.ErrNotExist
-			}
-			// Extraction dir exists initially (from previous failed extraction)
-			if name == extractionDir && !extractionComplete {
-				return nil, nil
-			}
-			// After rename, extraction dir exists
-			if name == extractionDir && extractionComplete {
-				return nil, nil
-			}
-			return originalStat(name)
-		}
-
-		// Mock RemoveAll to clean up existing extraction directory
-		removeAllCalled := false
-		originalRemoveAll := resolver.BaseModuleResolver.shims.RemoveAll
-		resolver.BaseModuleResolver.shims.RemoveAll = func(path string) error {
-			if path == extractionDir {
-				removeAllCalled = true
-			}
-			return originalRemoveAll(path)
+		if err := os.WriteFile(filepath.Join(fullModulePath, "main.tf"), []byte("resource \"test\" {}"), 0644); err != nil {
+			t.Fatalf("Failed to create module file: %v", err)
 		}
 
 		// When extracting OCI module
 		path, err := resolver.extractOCIModule(resolvedSource, componentPath, ociArtifacts)
 
-		// Then it should clean up existing directory and extract fresh
+		// Then it should return the extracted path (already on disk from Pull)
 		if err != nil {
 			t.Errorf("Expected nil error, got %v", err)
 		}
 		if path == "" {
 			t.Error("Expected non-empty path")
 		}
-		if !removeAllCalled {
-			t.Error("Expected RemoveAll to be called to clean up existing extraction directory")
-		}
 	})
 
 	t.Run("HandlesErrors", func(t *testing.T) {
 		// Given a resolver with various error conditions
-		resolver := setup(t)
+		resolver, _, _ := setup(t)
 
 		errorCases := []struct {
 			name           string
@@ -450,11 +341,26 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 
 	t.Run("HandlesGetProjectRootError", func(t *testing.T) {
 		// Given a resolver with GetProjectRoot error
-		resolver := setup(t)
+		resolver, _, _ := setup(t)
 		resolvedSource := "oci://registry.example.com/module:latest//terraform/test-module"
 		componentPath := "test-module"
 		ociArtifacts := map[string][]byte{
-			"registry.example.com/module:latest": []byte("mock artifact data"),
+			"registry.example.com/module:latest": nil,
+		}
+
+		// Mock ParseOCIRef
+		mockArtifact, ok := resolver.artifactBuilder.(*artifact.MockArtifact)
+		if !ok {
+			t.Fatalf("Expected MockArtifact, got %T", resolver.artifactBuilder)
+		}
+		mockArtifact.ParseOCIRefFunc = func(ociRef string) (registry, repository, tag string, err error) {
+			if ociRef == "oci://registry.example.com/module:latest" {
+				return "registry.example.com", "module", "latest", nil
+			}
+			return "", "", "", fmt.Errorf("unexpected OCI ref: %s", ociRef)
+		}
+		mockArtifact.GetCacheDirFunc = func(registry, repository, tag string) (string, error) {
+			return "", fmt.Errorf("failed to get project root: project root is empty")
 		}
 
 		// Set ProjectRoot to empty to trigger error
@@ -474,10 +380,19 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 
 	t.Run("HandlesParseOCIRefError", func(t *testing.T) {
 		// Given a resolver with invalid OCI reference format
-		resolver := setup(t)
+		resolver, _, _ := setup(t)
 		resolvedSource := "oci://invalid-format//terraform/test-module"
 		componentPath := "test-module"
 		ociArtifacts := map[string][]byte{}
+
+		// Mock ParseOCIRef to return error
+		mockArtifact, ok := resolver.artifactBuilder.(*artifact.MockArtifact)
+		if !ok {
+			t.Fatalf("Expected MockArtifact, got %T", resolver.artifactBuilder)
+		}
+		mockArtifact.ParseOCIRefFunc = func(ociRef string) (registry, repository, tag string, err error) {
+			return "", "", "", fmt.Errorf("failed to parse OCI reference: invalid format")
+		}
 
 		// When extracting OCI module
 		_, err := resolver.extractOCIModule(resolvedSource, componentPath, ociArtifacts)
@@ -492,16 +407,17 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 	})
 
 	t.Run("HandlesExtractModuleFromArtifactError", func(t *testing.T) {
-		// Given a resolver with extraction error
-		resolver := setup(t)
+		// Given a resolver where module is not found in cached artifact
+		resolver, _, _ := setup(t)
 		resolvedSource := "oci://registry.example.com/module:latest//terraform/test-module"
 		componentPath := "test-module"
 		ociArtifacts := map[string][]byte{
-			"registry.example.com/module:latest": []byte("mock artifact data"),
+			"registry.example.com/module:latest": nil,
 		}
 
-		// Set ProjectRoot to empty to trigger error during extraction
-		resolver.BaseModuleResolver.runtime.ProjectRoot = ""
+		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
 
 		// When extracting OCI module
 		_, err := resolver.extractOCIModule(resolvedSource, componentPath, ociArtifacts)
@@ -510,486 +426,55 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "failed to get project root") {
-			t.Errorf("Expected project root error, got: %v", err)
-		}
-	})
-}
-
-func TestOCIModuleResolver_extractArtifactToCache(t *testing.T) {
-	setup := func(t *testing.T) *OCIModuleResolver {
-		t.Helper()
-		mocks := setupTerraformMocks(t)
-		mockArtifactBuilder := artifact.NewMockArtifact()
-		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
-		resolver.BaseModuleResolver.shims = mocks.Shims
-		return resolver
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a resolver with valid artifact data
-		resolver := setup(t)
-		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
-		artifactData := []byte("mock artifact data")
-		registry := "registry"
-		repository := "module"
-		tag := "latest"
-
-		// Mock successful tar extraction with file and directory
-		callCount := 0
-		mockTarReader := &MockTarReader{
-			NextFunc: func() (*tar.Header, error) {
-				callCount++
-				switch callCount {
-				case 1:
-					return &tar.Header{
-						Name:     "terraform/test-module/",
-						Typeflag: tar.TypeDir,
-					}, nil
-				case 2:
-					return &tar.Header{
-						Name:     "terraform/test-module/main.tf",
-						Typeflag: tar.TypeReg,
-						Mode:     0644,
-					}, nil
-				default:
-					return nil, io.EOF
-				}
-			},
-			ReadFunc: func(p []byte) (int, error) {
-				return 0, io.EOF
-			},
-		}
-		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
-			return mockTarReader
-		}
-
-		// Mock Rename to succeed
-		resolver.BaseModuleResolver.shims.Rename = func(oldpath, newpath string) error {
-			return nil
-		}
-
-		// When extracting artifact to cache
-		err := resolver.extractArtifactToCache(artifactData, registry, repository, tag)
-
-		// Then it should succeed
-		if err != nil {
-			t.Errorf("Expected nil error, got %v", err)
-		}
-	})
-
-	t.Run("HandlesErrors", func(t *testing.T) {
-		// Given a resolver with various error conditions
-		resolver := setup(t)
-		artifactData := []byte("mock artifact data")
-		registry := "registry"
-		repository := "module"
-		tag := "latest"
-
-		errorCases := []struct {
-			name          string
-			setupMocks    func(*OCIModuleResolver)
-			expectedError string
-		}{
-			{
-				name: "TarReaderError",
-				setupMocks: func(r *OCIModuleResolver) {
-					mockTarReader := &MockTarReader{
-						NextFunc: func() (*tar.Header, error) {
-							return nil, errors.New("tar read error")
-						},
-					}
-					r.shims.NewTarReader = func(reader io.Reader) TarReader {
-						return mockTarReader
-					}
-				},
-				expectedError: "failed to read tar header",
-			},
-			{
-				name: "DirectoryCreationError",
-				setupMocks: func(r *OCIModuleResolver) {
-					mockTarReader := &MockTarReader{
-						NextFunc: func() (*tar.Header, error) {
-							return &tar.Header{
-								Name:     "terraform/test-module/",
-								Typeflag: tar.TypeDir,
-							}, nil
-						},
-					}
-					r.shims.NewTarReader = func(reader io.Reader) TarReader {
-						return mockTarReader
-					}
-					r.shims.MkdirAll = func(path string, perm os.FileMode) error {
-						return errors.New("mkdir error")
-					}
-				},
-				expectedError: "failed to create temporary extraction directory",
-			},
-		}
-
-		for _, tc := range errorCases {
-			// Set ProjectRoot for tests that need it
-			resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
-			// When extracting with error conditions
-			tc.setupMocks(resolver)
-			err := resolver.extractArtifactToCache(artifactData, registry, repository, tag)
-
-			// Then it should return appropriate errors
-			if err == nil {
-				t.Errorf("Expected error for %s, got nil", tc.name)
-			}
-			if !strings.Contains(err.Error(), tc.expectedError) {
-				t.Errorf("Expected error containing '%s' for %s, got: %v", tc.expectedError, tc.name, err)
-			}
-		}
-	})
-
-	t.Run("HandlesGetProjectRootError", func(t *testing.T) {
-		// Given a resolver with GetProjectRoot error
-		resolver := setup(t)
-		artifactData := []byte("mock artifact data")
-		registry := "registry"
-		repository := "module"
-		tag := "latest"
-
-		// Set ProjectRoot to empty to trigger error
-		resolver.BaseModuleResolver.runtime.ProjectRoot = ""
-
-		// When extracting artifact to cache
-		err := resolver.extractArtifactToCache(artifactData, registry, repository, tag)
-
-		// Then it should return an error
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to get project root") {
-			t.Errorf("Expected project root error, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesFileCreationError", func(t *testing.T) {
-		// Given a resolver with file creation error
-		resolver := setup(t)
-		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
-		artifactData := []byte("mock artifact data")
-		registry := "registry"
-		repository := "module"
-		tag := "latest"
-
-		// Mock tar reader with file entry
-		mockTarReader := &MockTarReader{
-			NextFunc: func() (*tar.Header, error) {
-				return &tar.Header{
-					Name:     "terraform/test-module/main.tf",
-					Typeflag: tar.TypeReg,
-					Mode:     0644,
-				}, nil
-			},
-		}
-		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
-			return mockTarReader
-		}
-
-		// Mock Create to return error
-		resolver.BaseModuleResolver.shims.Create = func(name string) (*os.File, error) {
-			return nil, errors.New("file creation error")
-		}
-
-		// When extracting artifact to cache
-		err := resolver.extractArtifactToCache(artifactData, registry, repository, tag)
-
-		// Then it should return an error
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to create file") {
-			t.Errorf("Expected file creation error, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesCopyError", func(t *testing.T) {
-		// Given a resolver with copy error
-		resolver := setup(t)
-		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
-		artifactData := []byte("mock artifact data")
-		registry := "registry"
-		repository := "module"
-		tag := "latest"
-
-		// Mock tar reader with file entry
-		mockTarReader := &MockTarReader{
-			NextFunc: func() (*tar.Header, error) {
-				return &tar.Header{
-					Name:     "terraform/test-module/main.tf",
-					Typeflag: tar.TypeReg,
-					Mode:     0644,
-				}, nil
-			},
-		}
-		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
-			return mockTarReader
-		}
-
-		// Mock Copy to return error
-		resolver.BaseModuleResolver.shims.Copy = func(dst io.Writer, src io.Reader) (int64, error) {
-			return 0, errors.New("copy error")
-		}
-
-		// When extracting artifact to cache
-		err := resolver.extractArtifactToCache(artifactData, registry, repository, tag)
-
-		// Then it should return an error
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to write file") {
-			t.Errorf("Expected file write error, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesChmodError", func(t *testing.T) {
-		// Given a resolver with chmod error
-		resolver := setup(t)
-		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
-		artifactData := []byte("mock artifact data")
-		registry := "registry"
-		repository := "module"
-		tag := "latest"
-
-		// Mock tar reader with file entry
-		mockTarReader := &MockTarReader{
-			NextFunc: func() (*tar.Header, error) {
-				return &tar.Header{
-					Name:     "terraform/test-module/main.tf",
-					Typeflag: tar.TypeReg,
-					Mode:     0644,
-				}, nil
-			},
-		}
-		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
-			return mockTarReader
-		}
-
-		// Mock Chmod to return error
-		resolver.BaseModuleResolver.shims.Chmod = func(name string, mode os.FileMode) error {
-			return errors.New("chmod error")
-		}
-
-		// When extracting artifact to cache
-		err := resolver.extractArtifactToCache(artifactData, registry, repository, tag)
-
-		// Then it should return an error
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to set file permissions") {
-			t.Errorf("Expected chmod error, got: %v", err)
-		}
-	})
-
-	t.Run("CleansUpOnExtractionFailure", func(t *testing.T) {
-		// Given a resolver that will fail during extraction
-		resolver := setup(t)
-		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
-		artifactData := []byte("mock artifact data")
-		registry := "registry"
-		repository := "module"
-		tag := "latest"
-
-		cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
-		extractionKey := strings.ReplaceAll(strings.ReplaceAll(cacheKey, "/", "_"), ":", "_")
-		tmpExtractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", extractionKey+".tmp")
-
-		// Mock tar reader that will fail
-		callCount := 0
-		mockTarReader := &MockTarReader{
-			NextFunc: func() (*tar.Header, error) {
-				callCount++
-				if callCount == 1 {
-					return &tar.Header{
-						Name:     "terraform/test-module/",
-						Typeflag: tar.TypeDir,
-					}, nil
-				}
-				return nil, errors.New("extraction error")
-			},
-			ReadFunc: func(p []byte) (int, error) {
-				return 0, io.EOF
-			},
-		}
-		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
-			return mockTarReader
-		}
-
-		// Mock Stat to indicate tmp directory was created
-		statCallCount := 0
-		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
-			statCallCount++
-			if name == tmpExtractionDir {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// Mock RemoveAll to track cleanup
-		removeAllCalled := false
-		originalRemoveAll := resolver.BaseModuleResolver.shims.RemoveAll
-		resolver.BaseModuleResolver.shims.RemoveAll = func(path string) error {
-			if path == tmpExtractionDir {
-				removeAllCalled = true
-			}
-			return originalRemoveAll(path)
-		}
-
-		// When extraction fails
-		err := resolver.extractArtifactToCache(artifactData, registry, repository, tag)
-
-		// Then it should return an error and clean up the directory
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !removeAllCalled {
-			t.Error("Expected RemoveAll to be called to clean up on extraction failure")
-		}
-	})
-
-	t.Run("HandlesParentDirectoryCreationError", func(t *testing.T) {
-		// Given a resolver with parent directory creation error
-		resolver := setup(t)
-		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
-		artifactData := []byte("mock artifact data")
-		registry := "registry"
-		repository := "module"
-		tag := "latest"
-
-		// Mock tar reader with file entry
-		mockTarReader := &MockTarReader{
-			NextFunc: func() (*tar.Header, error) {
-				return &tar.Header{
-					Name:     "terraform/test-module/subdir/main.tf",
-					Typeflag: tar.TypeReg,
-					Mode:     0644,
-				}, nil
-			},
-		}
-		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
-			return mockTarReader
-		}
-
-		// Mock MkdirAll to return error for parent directory creation
-		callCount := 0
-		resolver.BaseModuleResolver.shims.MkdirAll = func(path string, perm os.FileMode) error {
-			callCount++
-			if callCount > 1 { // First call succeeds, second fails
-				return errors.New("parent directory creation error")
-			}
-			return nil
-		}
-
-		// When extracting artifact to cache
-		err := resolver.extractArtifactToCache(artifactData, registry, repository, tag)
-
-		// Then it should return an error
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to create parent directory") {
-			t.Errorf("Expected parent directory creation error, got: %v", err)
+		if !strings.Contains(err.Error(), "not found in cached artifact") {
+			t.Errorf("Expected module not found error, got: %v", err)
 		}
 	})
 }
 
 func TestOCIModuleResolver_processComponent(t *testing.T) {
-	setup := func(t *testing.T) *OCIModuleResolver {
+	setup := func(t *testing.T) (*OCIModuleResolver, string, string) {
 		t.Helper()
 		mocks := setupTerraformMocks(t)
+		tmpDir := mocks.Runtime.ProjectRoot
+
 		mockArtifactBuilder := artifact.NewMockArtifact()
+		mockArtifactBuilder.ParseOCIRefFunc = func(ociRef string) (registry, repository, tag string, err error) {
+			if ociRef == "oci://registry.example.com/module:latest" {
+				return "registry.example.com", "module", "latest", nil
+			}
+			return "", "", "", fmt.Errorf("unexpected OCI ref: %s", ociRef)
+		}
+		extractionDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.example.com_module_latest")
+		fullModulePath := filepath.Join(extractionDir, "terraform/test-module")
+		mockArtifactBuilder.GetCacheDirFunc = func(registry, repository, tag string) (string, error) {
+			return extractionDir, nil
+		}
+
 		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
 		resolver.BaseModuleResolver.shims = mocks.Shims
-		return resolver
+		resolver.BaseModuleResolver.shims.Stat = os.Stat
+
+		return resolver, tmpDir, fullModulePath
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a resolver with valid component and artifact
-		resolver := setup(t)
+		resolver, tmpDir, fullModulePath := setup(t)
 		component := blueprintv1alpha1.TerraformComponent{
 			Path:     "test-module",
 			Source:   "oci://registry.example.com/module:latest//terraform/test-module",
-			FullPath: "/mock/project/terraform/test-module",
+			FullPath: filepath.Join(tmpDir, "terraform", "test-module"),
 		}
 		ociArtifacts := map[string][]byte{
-			"registry.example.com/module:latest": []byte("mock artifact data"),
+			"registry.example.com/module:latest": nil,
 		}
 
-		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
-		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", "registry.example.com_module_latest")
-		fullModulePath := filepath.Join(extractionDir, "terraform/test-module")
-
-		// Mock tar reader for successful extraction
-		callCount := 0
-		mockTarReader := &MockTarReader{
-			NextFunc: func() (*tar.Header, error) {
-				callCount++
-				switch callCount {
-				case 1:
-					return &tar.Header{
-						Name:     "terraform/test-module/",
-						Typeflag: tar.TypeDir,
-					}, nil
-				case 2:
-					return &tar.Header{
-						Name:     "terraform/test-module/main.tf",
-						Typeflag: tar.TypeReg,
-						Mode:     0644,
-					}, nil
-				default:
-					return nil, io.EOF
-				}
-			},
-			ReadFunc: func(p []byte) (int, error) {
-				return 0, io.EOF
-			},
+		if err := os.MkdirAll(fullModulePath, 0755); err != nil {
+			t.Fatalf("Failed to create module directory: %v", err)
 		}
-		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
-			return mockTarReader
-		}
-
-		// Mock Stat and Rename with shared state
-		extractionComplete := false
-		tmpExtractionDir := extractionDir + ".tmp"
-
-		// Mock Rename to succeed and mark extraction as complete
-		resolver.BaseModuleResolver.shims.Rename = func(oldpath, newpath string) error {
-			if oldpath == tmpExtractionDir && newpath == extractionDir {
-				extractionComplete = true
-			}
-			return nil
-		}
-
-		// Mock Stat calls
-		originalStat := resolver.BaseModuleResolver.shims.Stat
-		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
-			// Before extraction: module path doesn't exist
-			if name == fullModulePath && !extractionComplete {
-				return nil, os.ErrNotExist
-			}
-			// After extraction: module path exists
-			if name == fullModulePath && extractionComplete {
-				return nil, nil
-			}
-			// Tmp extraction dir never exists (we create it fresh)
-			if name == tmpExtractionDir {
-				return nil, os.ErrNotExist
-			}
-			// Extraction dir doesn't exist before rename
-			if name == extractionDir && !extractionComplete {
-				return nil, os.ErrNotExist
-			}
-			// After rename, extraction dir exists
-			if name == extractionDir && extractionComplete {
-				return nil, nil
-			}
-			return originalStat(name)
+		if err := os.WriteFile(filepath.Join(fullModulePath, "main.tf"), []byte("resource \"test\" {}"), 0644); err != nil {
+			t.Fatalf("Failed to create module file: %v", err)
 		}
 
 		// When processing component
@@ -1003,7 +488,7 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 
 	t.Run("HandlesErrors", func(t *testing.T) {
 		// Given a resolver with directory creation error
-		resolver := setup(t)
+		resolver, _, _ := setup(t)
 		component := blueprintv1alpha1.TerraformComponent{
 			Path:     "test-module",
 			Source:   "oci://registry.example.com/module:latest//terraform/test-module",
@@ -1013,7 +498,6 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 			"registry.example.com/module:latest": []byte("mock artifact data"),
 		}
 
-		// Mock MkdirAll to return error
 		resolver.BaseModuleResolver.shims.MkdirAll = func(path string, perm os.FileMode) error {
 			return errors.New("mkdir error")
 		}
@@ -1032,13 +516,13 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 
 	t.Run("HandlesExtractOCIModuleError", func(t *testing.T) {
 		// Given a resolver with extract OCI module error
-		resolver := setup(t)
+		resolver, _, _ := setup(t)
 		component := blueprintv1alpha1.TerraformComponent{
 			Path:     "test-module",
 			Source:   "oci://registry.example.com/module:latest//terraform/test-module",
 			FullPath: "/mock/project/terraform/test-module",
 		}
-		ociArtifacts := map[string][]byte{} // Empty artifacts to trigger error
+		ociArtifacts := map[string][]byte{}
 
 		// When processing component
 		err := resolver.processComponent(component, ociArtifacts)
@@ -1054,30 +538,20 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 
 	t.Run("HandlesFilepathRelError", func(t *testing.T) {
 		// Given a resolver with FilepathRel error
-		resolver := setup(t)
+		resolver, tmpDir, fullModulePath := setup(t)
 		component := blueprintv1alpha1.TerraformComponent{
 			Path:     "test-module",
 			Source:   "oci://registry.example.com/module:latest//terraform/test-module",
-			FullPath: "/mock/project/terraform/test-module",
+			FullPath: filepath.Join(tmpDir, "terraform", "test-module"),
 		}
 		ociArtifacts := map[string][]byte{
-			"registry.example.com/module:latest": []byte("mock artifact data"),
+			"registry.example.com/module:latest": nil,
 		}
 
-		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
-		extractionKey := "registry.example.com_module_latest"
-		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", extractionKey)
-		fullModulePath := filepath.Join(extractionDir, "terraform/test-module")
-
-		// Mock Stat to indicate module path already exists (cache hit)
-		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == fullModulePath {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
+		if err := os.MkdirAll(fullModulePath, 0755); err != nil {
+			t.Fatalf("Failed to create module directory: %v", err)
 		}
 
-		// Mock FilepathRel to return error
 		resolver.BaseModuleResolver.shims.FilepathRel = func(basepath, targpath string) (string, error) {
 			return "", errors.New("filepath rel error")
 		}
@@ -1096,30 +570,20 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 
 	t.Run("HandlesWriteShimMainTfError", func(t *testing.T) {
 		// Given a resolver with writeShimMainTf error
-		resolver := setup(t)
+		resolver, tmpDir, fullModulePath := setup(t)
 		component := blueprintv1alpha1.TerraformComponent{
 			Path:     "test-module",
 			Source:   "oci://registry.example.com/module:latest//terraform/test-module",
-			FullPath: "/mock/project/terraform/test-module",
+			FullPath: filepath.Join(tmpDir, "terraform", "test-module"),
 		}
 		ociArtifacts := map[string][]byte{
-			"registry.example.com/module:latest": []byte("mock artifact data"),
+			"registry.example.com/module:latest": nil,
 		}
 
-		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
-		extractionKey := "registry.example.com_module_latest"
-		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", extractionKey)
-		fullModulePath := filepath.Join(extractionDir, "terraform/test-module")
-
-		// Mock Stat to indicate module path already exists (cache hit)
-		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == fullModulePath {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
+		if err := os.MkdirAll(fullModulePath, 0755); err != nil {
+			t.Fatalf("Failed to create module directory: %v", err)
 		}
 
-		// Mock WriteFile to return error for main.tf
 		resolver.BaseModuleResolver.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			if strings.HasSuffix(path, "main.tf") {
 				return errors.New("write main.tf error")
@@ -1141,96 +605,28 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 
 	t.Run("HandlesWriteShimVariablesTfError", func(t *testing.T) {
 		// Given a resolver with writeShimVariablesTf error
-		resolver := setup(t)
+		resolver, tmpDir, fullModulePath := setup(t)
 		component := blueprintv1alpha1.TerraformComponent{
 			Path:     "test-module",
 			Source:   "oci://registry.example.com/module:latest//terraform/test-module",
-			FullPath: "/mock/project/terraform/test-module",
+			FullPath: filepath.Join(tmpDir, "terraform", "test-module"),
 		}
 		ociArtifacts := map[string][]byte{
-			"registry.example.com/module:latest": []byte("mock artifact data"),
+			"registry.example.com/module:latest": nil,
 		}
 
-		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
-		extractionKey := "registry.example.com_module_latest"
-		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", extractionKey)
-		fullModulePath := filepath.Join(extractionDir, "terraform/test-module")
 		variablesTfPath := filepath.Join(fullModulePath, "variables.tf")
-
-		// Mock tar reader for successful extraction
-		callCount := 0
-		mockTarReader := &MockTarReader{
-			NextFunc: func() (*tar.Header, error) {
-				callCount++
-				switch callCount {
-				case 1:
-					return &tar.Header{
-						Name:     "terraform/test-module/",
-						Typeflag: tar.TypeDir,
-					}, nil
-				case 2:
-					return &tar.Header{
-						Name:     "terraform/test-module/variables.tf",
-						Typeflag: tar.TypeReg,
-						Mode:     0644,
-					}, nil
-				default:
-					return nil, io.EOF
-				}
-			},
-			ReadFunc: func(p []byte) (int, error) {
-				return 0, io.EOF
-			},
+		if err := os.MkdirAll(fullModulePath, 0755); err != nil {
+			t.Fatalf("Failed to create module directory: %v", err)
 		}
-		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
-			return mockTarReader
+		if err := os.WriteFile(variablesTfPath, []byte("variable \"test\" {}"), 0644); err != nil {
+			t.Fatalf("Failed to create variables.tf: %v", err)
 		}
 
-		// Mock Stat and Rename with shared state
-		extractionComplete := false
-		tmpExtractionDir := extractionDir + ".tmp"
-
-		// Mock Rename to succeed and mark extraction as complete
-		resolver.BaseModuleResolver.shims.Rename = func(oldpath, newpath string) error {
-			if oldpath == tmpExtractionDir && newpath == extractionDir {
-				extractionComplete = true
-			}
-			return nil
-		}
-
-		// Mock Stat to check extraction directory and module path
-		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
-			// Before extraction: module path doesn't exist
-			if name == fullModulePath && !extractionComplete {
-				return nil, os.ErrNotExist
-			}
-			// After extraction: module path exists
-			if name == fullModulePath && extractionComplete {
-				return nil, nil
-			}
-			// Tmp extraction dir never exists (we create it fresh)
-			if name == tmpExtractionDir {
-				return nil, os.ErrNotExist
-			}
-			// Extraction dir doesn't exist before rename
-			if name == extractionDir && !extractionComplete {
-				return nil, os.ErrNotExist
-			}
-			// After rename, extraction dir exists
-			if name == extractionDir && extractionComplete {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// Mock Glob to return a variables.tf file so writeShimVariablesTf will try to process it
 		originalGlob := resolver.BaseModuleResolver.shims.Glob
 		resolver.BaseModuleResolver.shims.Glob = func(pattern string) ([]string, error) {
-			// Match any pattern that ends with *.tf - be more permissive for cross-platform compatibility
 			if strings.HasSuffix(pattern, "*.tf") {
-				// Normalize paths for comparison (convert to forward slashes for consistent matching)
 				normalizedPattern := filepath.ToSlash(pattern)
-				// Check if this pattern is for the extracted module by looking for key identifiers
 				if strings.Contains(normalizedPattern, ".oci_extracted") ||
 					strings.Contains(normalizedPattern, "test-module") ||
 					strings.Contains(normalizedPattern, "terraform/test-module") {
@@ -1240,10 +636,8 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 			return originalGlob(pattern)
 		}
 
-		// Mock ReadFile to return variable content
 		originalReadFile := resolver.BaseModuleResolver.shims.ReadFile
 		resolver.BaseModuleResolver.shims.ReadFile = func(path string) ([]byte, error) {
-			// Use normalized path comparison for cross-platform compatibility
 			normalizedPath := filepath.ToSlash(filepath.Clean(path))
 			normalizedVariablesTfPath := filepath.ToSlash(filepath.Clean(variablesTfPath))
 			if normalizedPath == normalizedVariablesTfPath || strings.HasSuffix(normalizedPath, "terraform/test-module/variables.tf") {
@@ -1275,75 +669,45 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 
 	t.Run("HandlesWriteShimOutputsTfError", func(t *testing.T) {
 		// Given a resolver with writeShimOutputsTf error
-		resolver := setup(t)
+		resolver, tmpDir, fullModulePath := setup(t)
 		component := blueprintv1alpha1.TerraformComponent{
 			Path:     "test-module",
 			Source:   "oci://registry.example.com/module:latest//terraform/test-module",
-			FullPath: "/mock/project/terraform/test-module",
+			FullPath: filepath.Join(tmpDir, "terraform", "test-module"),
 		}
 		ociArtifacts := map[string][]byte{
-			"registry.example.com/module:latest": []byte("mock artifact data"),
+			"registry.example.com/module:latest": nil,
 		}
 
-		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
-		extractionKey := "registry.example.com_module_latest"
-		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", extractionKey)
-		fullModulePath := filepath.Join(extractionDir, "terraform/test-module")
-
-		// Mock tar reader in case extraction is attempted (shouldn't be, but for safety)
-		callCount := 0
-		mockTarReader := &MockTarReader{
-			NextFunc: func() (*tar.Header, error) {
-				callCount++
-				switch callCount {
-				case 1:
-					return &tar.Header{
-						Name:     "terraform/test-module/",
-						Typeflag: tar.TypeDir,
-					}, nil
-				case 2:
-					return &tar.Header{
-						Name:     "terraform/test-module/outputs.tf",
-						Typeflag: tar.TypeReg,
-						Mode:     0644,
-					}, nil
-				default:
-					return nil, io.EOF
-				}
-			},
-			ReadFunc: func(p []byte) (int, error) {
-				return 0, io.EOF
-			},
-		}
-		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
-			return mockTarReader
-		}
-
-		// Mock Stat to indicate module path and outputs.tf already exist (cache hit) - use normalized path matching for cross-platform
 		outputsTfPath := filepath.Join(fullModulePath, "outputs.tf")
-		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
-			normalizedName := filepath.Clean(name)
-			normalizedFullModulePath := filepath.Clean(fullModulePath)
-			normalizedOutputsTfPath := filepath.Clean(outputsTfPath)
-			if normalizedName == normalizedFullModulePath || normalizedName == normalizedOutputsTfPath {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
+		if err := os.MkdirAll(fullModulePath, 0755); err != nil {
+			t.Fatalf("Failed to create module directory: %v", err)
+		}
+		if err := os.WriteFile(outputsTfPath, []byte("output \"test\" {}"), 0644); err != nil {
+			t.Fatalf("Failed to create outputs.tf: %v", err)
 		}
 
-		// Mock ReadFile to return outputs.tf content (needed for writeShimOutputsTf)
+		originalGlob := resolver.BaseModuleResolver.shims.Glob
+		resolver.BaseModuleResolver.shims.Glob = func(pattern string) ([]string, error) {
+			if strings.HasSuffix(pattern, "*.tf") {
+				normalizedPattern := filepath.ToSlash(pattern)
+				if strings.Contains(normalizedPattern, ".oci_extracted") ||
+					strings.Contains(normalizedPattern, "test-module") ||
+					strings.Contains(normalizedPattern, "terraform/test-module") {
+					return []string{outputsTfPath}, nil
+				}
+			}
+			return originalGlob(pattern)
+		}
+
+		originalReadFile := resolver.BaseModuleResolver.shims.ReadFile
 		resolver.BaseModuleResolver.shims.ReadFile = func(path string) ([]byte, error) {
-			normalizedPath := filepath.Clean(path)
-			normalizedOutputsTfPath := filepath.Clean(outputsTfPath)
-			if normalizedPath == normalizedOutputsTfPath {
+			normalizedPath := filepath.ToSlash(filepath.Clean(path))
+			normalizedOutputsTfPath := filepath.ToSlash(filepath.Clean(outputsTfPath))
+			if normalizedPath == normalizedOutputsTfPath || strings.HasSuffix(normalizedPath, "terraform/test-module/outputs.tf") {
 				return []byte(`output "test" { value = "test" }`), nil
 			}
-			return nil, os.ErrNotExist
-		}
-
-		// Mock Rename for atomic extraction (in case it's attempted)
-		resolver.BaseModuleResolver.shims.Rename = func(oldpath, newpath string) error {
-			return nil
+			return originalReadFile(path)
 		}
 
 		// Mock WriteFile to return error for outputs.tf

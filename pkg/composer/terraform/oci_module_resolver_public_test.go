@@ -2,7 +2,9 @@ package terraform
 
 import (
 	"archive/tar"
+	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -94,117 +96,83 @@ func TestOCIModuleResolver_ProcessModules(t *testing.T) {
 	setup := func(t *testing.T) (*OCIModuleResolver, *TerraformTestMocks) {
 		t.Helper()
 		mocks := setupTerraformMocks(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+
 		mockArtifactBuilder := artifact.NewMockArtifact()
+		mockArtifactBuilder.ParseOCIRefFunc = func(ociRef string) (registry, repository, tag string, err error) {
+			if ociRef == "oci://registry.example.com/module:latest" {
+				return "registry.example.com", "module", "latest", nil
+			}
+			return "", "", "", fmt.Errorf("unexpected OCI ref: %s", ociRef)
+		}
+		mockArtifactBuilder.GetCacheDirFunc = func(registry, repository, tag string) (string, error) {
+			cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+			extractionKey := strings.ReplaceAll(strings.ReplaceAll(cacheKey, "/", "_"), ":", "_")
+			return filepath.Join(tmpDir, ".windsor", ".oci_extracted", extractionKey), nil
+		}
+		mockArtifactBuilder.PullFunc = func(refs []string) (map[string][]byte, error) {
+			artifacts := make(map[string][]byte)
+			for _, ref := range refs {
+				if strings.HasPrefix(ref, "oci://") {
+					pathSeparatorIdx := strings.Index(ref[6:], "//")
+					var baseURL string
+					if pathSeparatorIdx != -1 {
+						baseURL = ref[:6+pathSeparatorIdx]
+					} else {
+						baseURL = ref
+					}
+					registry, repository, tag, err := mockArtifactBuilder.ParseOCIRef(baseURL)
+					if err == nil {
+						cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+						var buf bytes.Buffer
+						tarWriter := tar.NewWriter(&buf)
+						content := []byte("resource \"test\" {}")
+						header := &tar.Header{
+							Name: "terraform/test-module/main.tf",
+							Mode: 0644,
+							Size: int64(len(content)),
+						}
+						tarWriter.WriteHeader(header)
+						tarWriter.Write(content)
+						tarWriter.Close()
+						artifacts[cacheKey] = buf.Bytes()
+
+						cacheDir, _ := mockArtifactBuilder.GetCacheDir(registry, repository, tag)
+						modulePath := filepath.Join(cacheDir, "terraform/test-module")
+						os.MkdirAll(modulePath, 0755)
+						os.WriteFile(filepath.Join(modulePath, "main.tf"), content, 0644)
+					}
+				}
+			}
+			return artifacts, nil
+		}
+
 		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
 		resolver.BaseModuleResolver.shims = mocks.Shims
+		resolver.BaseModuleResolver.runtime.ProjectRoot = tmpDir
+		resolver.BaseModuleResolver.shims.Copy = io.Copy
+		resolver.BaseModuleResolver.shims.Create = os.Create
+		resolver.BaseModuleResolver.shims.MkdirAll = os.MkdirAll
+		resolver.BaseModuleResolver.shims.Stat = os.Stat
+		resolver.BaseModuleResolver.shims.Rename = os.Rename
+
 		return resolver, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a resolver with OCI components
 		resolver, mocks := setup(t)
+		tmpDir := mocks.Runtime.ProjectRoot
+
 		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
 			return []blueprintv1alpha1.TerraformComponent{
 				{
 					Path:     "test-module",
 					Source:   "oci://registry.example.com/module:latest//terraform/test-module",
-					FullPath: "/mock/project/terraform/test-module",
+					FullPath: filepath.Join(tmpDir, "terraform", "test-module"),
 				},
 			}
-		}
-
-		// Set up artifact builder to return mock data with correct cache key
-		mockArtifactBuilder := artifact.NewMockArtifact()
-		mockArtifactBuilder.PullFunc = func(refs []string) (map[string][]byte, error) {
-			artifacts := make(map[string][]byte)
-			for _, ref := range refs {
-				// Cache key format is registry/repository:tag (without oci:// prefix)
-				if strings.HasPrefix(ref, "oci://") {
-					cacheKey := strings.TrimPrefix(ref, "oci://")
-					artifacts[cacheKey] = []byte("mock artifact data")
-				} else {
-					artifacts[ref] = []byte("mock artifact data")
-				}
-			}
-			return artifacts, nil
-		}
-		resolver.artifactBuilder = mockArtifactBuilder
-
-		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
-		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", "registry.example.com_module_latest")
-
-		// Mock tar reader for successful extraction
-		callCount := 0
-		mockTarReader := &MockTarReader{
-			NextFunc: func() (*tar.Header, error) {
-				callCount++
-				switch callCount {
-				case 1:
-					return &tar.Header{
-						Name:     "terraform/test-module/",
-						Typeflag: tar.TypeDir,
-					}, nil
-				case 2:
-					return &tar.Header{
-						Name:     "terraform/test-module/main.tf",
-						Typeflag: tar.TypeReg,
-						Mode:     0644,
-					}, nil
-				default:
-					return nil, io.EOF
-				}
-			},
-			ReadFunc: func(p []byte) (int, error) {
-				return 0, io.EOF
-			},
-		}
-		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
-			return mockTarReader
-		}
-
-		// Mock Stat and Rename with shared state
-		extractionComplete := false
-		tmpExtractionDir := extractionDir + ".tmp"
-
-		// Mock Rename to succeed and mark extraction as complete
-		resolver.BaseModuleResolver.shims.Rename = func(oldpath, newpath string) error {
-			if oldpath == tmpExtractionDir && newpath == extractionDir {
-				extractionComplete = true
-			}
-			return nil
-		}
-
-		// Mock Stat to check extraction directory and module path
-		originalStat := resolver.BaseModuleResolver.shims.Stat
-		fullModulePath := filepath.Join(extractionDir, "terraform/test-module")
-		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
-			// Use exact path matching for cross-platform compatibility
-			normalizedName := filepath.Clean(name)
-			normalizedFullModulePath := filepath.Clean(fullModulePath)
-			normalizedTmpExtractionDir := filepath.Clean(tmpExtractionDir)
-			normalizedExtractionDir := filepath.Clean(extractionDir)
-
-			// Before extraction: module path doesn't exist
-			if normalizedName == normalizedFullModulePath && !extractionComplete {
-				return nil, os.ErrNotExist
-			}
-			// After extraction: module path exists
-			if normalizedName == normalizedFullModulePath && extractionComplete {
-				return nil, nil
-			}
-			// Tmp extraction dir never exists (we create it fresh)
-			if normalizedName == normalizedTmpExtractionDir {
-				return nil, os.ErrNotExist
-			}
-			// Extraction dir doesn't exist before rename
-			if normalizedName == normalizedExtractionDir && !extractionComplete {
-				return nil, os.ErrNotExist
-			}
-			// After rename, extraction dir exists
-			if normalizedName == normalizedExtractionDir && extractionComplete {
-				return nil, nil
-			}
-			return originalStat(name)
 		}
 
 		// When processing modules

@@ -41,6 +41,8 @@ type Artifact interface {
 	Push(registryBase string, repoName string, tag string) error
 	Pull(ociRefs []string) (map[string][]byte, error)
 	GetTemplateData(ociRef string) (map[string][]byte, error)
+	ParseOCIRef(ociRef string) (registry, repository, tag string, err error)
+	GetCacheDir(registry, repository, tag string) (string, error)
 }
 
 // =============================================================================
@@ -170,18 +172,6 @@ func (a *ArtifactBuilder) Write(outputPath string, tag string) (string, error) {
 	return finalOutputPath, nil
 }
 
-// addFile stores a file with the specified path and content in the artifact for later packaging.
-// Files are held in memory until create() or Push() is called. The path becomes the relative
-// path within the generated tar.gz archive. Multiple calls with the same path will overwrite
-// the previous content. Special handling exists for "_template/metadata.yaml" during packaging.
-func (a *ArtifactBuilder) addFile(path string, content []byte, mode os.FileMode) error {
-	a.files[path] = FileInfo{
-		Content: content,
-		Mode:    mode,
-	}
-	return nil
-}
-
 // Push uploads the artifact to an OCI registry with explicit blob handling to prevent MANIFEST_BLOB_UNKNOWN errors.
 // Implements robust blob upload strategy recommended by Red Hat for resolving registry upload issues.
 // Bundles files from the project, creates tarball in memory, constructs OCI image, uploads blobs explicitly, then uploads manifest.
@@ -277,6 +267,7 @@ func (a *ArtifactBuilder) Push(registryBase string, repoName string, tag string)
 // It takes a slice of OCI references and downloads unique artifacts, returning a map
 // of cached artifacts keyed by their registry/repository:tag identifier.
 // The method provides efficient caching to avoid duplicate downloads of the same artifact.
+// It first checks the in-memory cache, then the disk cache, and only downloads if neither contains the artifact.
 func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
 	ociArtifacts := make(map[string][]byte)
 
@@ -293,7 +284,7 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
 
 	var artifactsToDownload []string
 	for ref := range uniqueOCIRefs {
-		registry, repository, tag, err := a.parseOCIRef(ref)
+		registry, repository, tag, err := a.ParseOCIRef(ref)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse OCI reference %s: %w", ref, err)
 		}
@@ -302,9 +293,18 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
 
 		if cachedData, exists := a.ociCache[cacheKey]; exists {
 			ociArtifacts[cacheKey] = cachedData
-		} else {
-			artifactsToDownload = append(artifactsToDownload, ref)
+			continue
 		}
+
+		cacheDir, err := a.GetCacheDir(registry, repository, tag)
+		if err == nil {
+			if _, err := os.Stat(filepath.Join(cacheDir, "metadata.yaml")); err == nil {
+				ociArtifacts[cacheKey] = nil
+				continue
+			}
+		}
+
+		artifactsToDownload = append(artifactsToDownload, ref)
 	}
 
 	if len(artifactsToDownload) > 0 {
@@ -319,7 +319,7 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
 		}()
 
 		for _, ref := range artifactsToDownload {
-			registry, repository, tag, err := a.parseOCIRef(ref)
+			registry, repository, tag, err := a.ParseOCIRef(ref)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse OCI reference %s: %w", ref, err)
 			}
@@ -329,6 +329,10 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
 			artifactData, err := a.downloadOCIArtifact(registry, repository, tag)
 			if err != nil {
 				return nil, fmt.Errorf("failed to download OCI artifact %s: %w", ref, err)
+			}
+
+			if err := a.extractArtifactToCache(artifactData, registry, repository, tag); err != nil {
+				return nil, fmt.Errorf("failed to extract artifact to cache: %w", err)
 			}
 
 			a.ociCache[cacheKey] = artifactData
@@ -349,7 +353,7 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
 // Returns an error on invalid reference, download failure, file read failure, or extraction error.
 func (a *ArtifactBuilder) GetTemplateData(blueprintRef string) (map[string][]byte, error) {
 	if strings.HasPrefix(blueprintRef, "oci://") {
-		registry, repository, tag, err := a.parseOCIRef(blueprintRef)
+		registry, repository, tag, err := a.ParseOCIRef(blueprintRef)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse OCI reference %s: %w", blueprintRef, err)
 		}
@@ -371,6 +375,10 @@ func (a *ArtifactBuilder) GetTemplateData(blueprintRef string) (map[string][]byt
 		tarData, exists := artifacts[cacheKey]
 		if !exists {
 			return nil, fmt.Errorf("failed to retrieve artifact data for %s", blueprintRef)
+		}
+
+		if err := a.extractArtifactToCache(tarData, registry, repository, tag); err != nil {
+			return nil, fmt.Errorf("failed to extract artifact to cache: %w", err)
 		}
 
 		return a.extractTemplateDataFromTar(tarData)
@@ -399,64 +407,112 @@ func (a *ArtifactBuilder) GetTemplateData(blueprintRef string) (map[string][]byt
 	return nil, fmt.Errorf("invalid blueprint reference: %s (must be oci://... or path to .tar.gz file)", blueprintRef)
 }
 
-// extractTemplateDataFromTar extracts template data and metadata from tar archive bytes.
-// Reads the tar archive, extracts _template/ files and metadata.yaml, validates CLI version,
-// and returns a map with all template files and metadata fields.
-// Returns an error if tar reading fails, metadata is missing, or CLI version is incompatible.
-func (a *ArtifactBuilder) extractTemplateDataFromTar(tarData []byte) (map[string][]byte, error) {
-	artifactData := make(map[string][]byte)
-	tarReader := tar.NewReader(bytes.NewReader(tarData))
-
-	var hasMetadata bool
-	var metadata BlueprintMetadata
-
-	for {
-		header, err := tarReader.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("failed to read tar header: %w", err)
-		}
-		if header.Typeflag != tar.TypeReg {
-			continue
-		}
-		name := filepath.ToSlash(header.Name)
-
-		if name == "metadata.yaml" {
-			hasMetadata = true
-			content, err := io.ReadAll(tarReader)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read metadata.yaml: %w", err)
-			}
-			if err := a.shims.YamlUnmarshal(content, &metadata); err != nil {
-				return nil, fmt.Errorf("failed to parse metadata.yaml: %w", err)
-			}
-			if err := ValidateCliVersion(constants.Version, metadata.CliVersion); err != nil {
-				return nil, err
-			}
-			continue
-		}
-
-		if !strings.HasPrefix(name, "_template/") {
-			continue
-		}
-
-		content, err := io.ReadAll(tarReader)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read file %s: %w", name, err)
-		}
-
-		artifactData[name] = content
+// extractArtifactToCache extracts the full OCI artifact tar archive to the disk cache keyed by registry, repository, and tag.
+// It unpacks the contents into a dedicated extraction directory under the project root, preserving permissions and handling executables.
+// Extraction is atomic: all files are first unpacked to a temporary directory, then renamed into place on success, which avoids leaving partial state.
+// This approach ensures all artifact files are available for subsequent module and feature resolutions and enables cache reuse.
+// Returns an error if any extraction phase fails or if path validation checks do not pass.
+func (a *ArtifactBuilder) extractArtifactToCache(artifactData []byte, registry, repository, tag string) (err error) {
+	projectRoot := a.runtime.ProjectRoot
+	if projectRoot == "" {
+		return fmt.Errorf("failed to get project root: project root is empty")
 	}
 
-	if !hasMetadata {
-		return nil, fmt.Errorf("OCI artifact missing required metadata.yaml file")
+	reader := a.shims.NewBytesReader(artifactData)
+	tarReader := a.shims.NewTarReader(reader)
+
+	cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+	extractionKey := strings.ReplaceAll(strings.ReplaceAll(cacheKey, "/", "_"), ":", "_")
+	extractionDir := filepath.Join(projectRoot, ".windsor", ".oci_extracted", extractionKey)
+	tmpExtractionDir := extractionDir + ".tmp"
+
+	defer func() {
+		if err != nil {
+			if _, statErr := a.shims.Stat(tmpExtractionDir); statErr == nil {
+				if removeErr := a.shims.RemoveAll(tmpExtractionDir); removeErr != nil {
+					fmt.Fprintf(os.Stderr, "warning: failed to clean up temporary extraction directory: %v\n", removeErr)
+				}
+			}
+		}
+	}()
+
+	if _, statErr := a.shims.Stat(tmpExtractionDir); statErr == nil {
+		if removeErr := a.shims.RemoveAll(tmpExtractionDir); removeErr != nil {
+			return fmt.Errorf("failed to clean up existing temporary extraction directory: %w", removeErr)
+		}
 	}
 
-	a.addMetadataToTemplateData(artifactData, metadata)
+	if mkdirErr := a.shims.MkdirAll(tmpExtractionDir, 0755); mkdirErr != nil {
+		return fmt.Errorf("failed to create temporary extraction directory: %w", mkdirErr)
+	}
 
-	return artifactData, nil
+	if err := a.extractTarEntries(tarReader, tmpExtractionDir); err != nil {
+		return err
+	}
+
+	parentDir := filepath.Dir(extractionDir)
+	if mkdirErr := a.shims.MkdirAll(parentDir, 0755); mkdirErr != nil {
+		return fmt.Errorf("failed to create parent directory: %w", mkdirErr)
+	}
+
+	if _, statErr := a.shims.Stat(extractionDir); statErr == nil {
+		if removeErr := a.shims.RemoveAll(extractionDir); removeErr != nil {
+			return fmt.Errorf("failed to remove existing extraction directory: %w", removeErr)
+		}
+	}
+
+	if renameErr := a.shims.Rename(tmpExtractionDir, extractionDir); renameErr != nil {
+		return fmt.Errorf("failed to rename temporary extraction directory to final location: %w", renameErr)
+	}
+
+	return nil
+}
+
+// GetCacheDir returns the cache directory path for an OCI artifact identified by registry, repository, and tag.
+// The cache directory is located at <projectRoot>/.windsor/.oci_extracted/<extractionKey> where extractionKey
+// is the cacheKey with / and : replaced with _ for filesystem safety.
+// Returns an error if project root is empty.
+func (a *ArtifactBuilder) GetCacheDir(registry, repository, tag string) (string, error) {
+	projectRoot := a.runtime.ProjectRoot
+	if projectRoot == "" {
+		return "", fmt.Errorf("failed to get project root: project root is empty")
+	}
+
+	cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+	extractionKey := strings.ReplaceAll(strings.ReplaceAll(cacheKey, "/", "_"), ":", "_")
+	cacheDir := filepath.Join(projectRoot, ".windsor", ".oci_extracted", extractionKey)
+
+	return cacheDir, nil
+}
+
+// ParseOCIRef parses an OCI reference into registry, repository, and tag components.
+// Validates OCI reference format and extracts registry, repository, and tag parts.
+// Requires OCI reference to follow the format "oci://registry/repository:tag".
+// Returns individual components for separate handling in OCI operations.
+func (a *ArtifactBuilder) ParseOCIRef(ociRef string) (registry, repository, tag string, err error) {
+	if !strings.HasPrefix(ociRef, "oci://") {
+		return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
+	}
+
+	ref := strings.TrimPrefix(ociRef, "oci://")
+
+	parts := strings.Split(ref, ":")
+	if len(parts) != 2 {
+		return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef)
+	}
+
+	repoWithRegistry := parts[0]
+	tag = parts[1]
+
+	repoParts := strings.SplitN(repoWithRegistry, "/", 2)
+	if len(repoParts) != 2 {
+		return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef)
+	}
+
+	registry = repoParts[0]
+	repository = repoParts[1]
+
+	return registry, repository, tag, nil
 }
 
 // Bundle traverses the project directories and collects all relevant files to be
@@ -653,6 +709,18 @@ func ValidateCliVersion(cliVersion, constraint string) error {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// addFile stores a file with the specified path and content in the artifact for later packaging.
+// Files are held in memory until create() or Push() is called. The path becomes the relative
+// path within the generated tar.gz archive. Multiple calls with the same path will overwrite
+// the previous content. Special handling exists for "_template/metadata.yaml" during packaging.
+func (a *ArtifactBuilder) addFile(path string, content []byte, mode os.FileMode) error {
+	a.files[path] = FileInfo{
+		Content: content,
+		Mode:    mode,
+	}
+	return nil
+}
 
 // walkAndProcessFiles traverses the "contexts", "kustomize", and "terraform" directories and processes
 // all files found using the provided list of PathProcessors. For each file, the method identifies the
@@ -1210,34 +1278,85 @@ func (a *ArtifactBuilder) addMetadataToTemplateData(templateData map[string][]by
 	}
 }
 
-// parseOCIRef parses an OCI reference into registry, repository, and tag components.
-// Validates OCI reference format and extracts registry, repository, and tag parts.
-// Requires OCI reference to follow the format "oci://registry/repository:tag".
-// Returns individual components for separate handling in OCI operations.
-func (a *ArtifactBuilder) parseOCIRef(ociRef string) (registry, repository, tag string, err error) {
-	if !strings.HasPrefix(ociRef, "oci://") {
-		return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
+// extractTarEntries extracts all entries from a tar archive to the specified destination directory.
+// It handles directories, files, path validation, permission setting, and executable bit handling for shell scripts.
+// The destination directory must already exist. Returns an error if any entry extraction fails.
+func (a *ArtifactBuilder) extractTarEntries(tarReader TarReader, destDir string) error {
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("failed to read tar header: %w", err)
+		}
+
+		sanitizedPath, err := a.validateAndSanitizePath(header.Name)
+		if err != nil {
+			return fmt.Errorf("invalid path in tar archive: %w", err)
+		}
+
+		destPath := filepath.Join(destDir, sanitizedPath)
+
+		if !strings.HasPrefix(destPath, destDir) {
+			return fmt.Errorf("path traversal attempt detected: %s", header.Name)
+		}
+
+		if header.Typeflag == tar.TypeDir {
+			if err := a.shims.MkdirAll(destPath, 0755); err != nil {
+				return fmt.Errorf("failed to create directory %s: %w", destPath, err)
+			}
+			continue
+		}
+
+		if err := a.shims.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			return fmt.Errorf("failed to create parent directory for %s: %w", destPath, err)
+		}
+
+		file, err := a.shims.Create(destPath)
+		if err != nil {
+			return fmt.Errorf("failed to create file %s: %w", destPath, err)
+		}
+
+		_, err = a.shims.Copy(file, tarReader)
+		if closeErr := file.Close(); closeErr != nil {
+			return fmt.Errorf("failed to close file %s: %w", destPath, closeErr)
+		}
+		if err != nil {
+			return fmt.Errorf("failed to write file %s: %w", destPath, err)
+		}
+
+		modeValue := header.Mode & 0777
+		if modeValue < 0 || modeValue > 0777 {
+			return fmt.Errorf("invalid file mode %o for %s", header.Mode, destPath)
+		}
+		fileMode := os.FileMode(uint32(modeValue))
+
+		if strings.HasSuffix(destPath, ".sh") {
+			fileMode |= 0111
+		}
+
+		if err := a.shims.Chmod(destPath, fileMode); err != nil {
+			return fmt.Errorf("failed to set file permissions for %s: %w", destPath, err)
+		}
 	}
 
-	ref := strings.TrimPrefix(ociRef, "oci://")
+	return nil
+}
 
-	parts := strings.Split(ref, ":")
-	if len(parts) != 2 {
-		return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef)
+// validateAndSanitizePath sanitizes a file path for safe extraction by removing path traversal sequences
+// and rejecting absolute paths. Returns the cleaned path if valid, or an error if the path is unsafe.
+// This function checks for absolute paths in a platform-agnostic way since tar archives use Unix-style paths
+// regardless of the host OS.
+func (a *ArtifactBuilder) validateAndSanitizePath(path string) (string, error) {
+	cleanPath := filepath.Clean(path)
+	if strings.Contains(cleanPath, "..") {
+		return "", fmt.Errorf("path contains directory traversal sequence: %s", path)
 	}
-
-	repoWithRegistry := parts[0]
-	tag = parts[1]
-
-	repoParts := strings.SplitN(repoWithRegistry, "/", 2)
-	if len(repoParts) != 2 {
-		return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef)
+	if strings.HasPrefix(cleanPath, string(filepath.Separator)) || (len(cleanPath) >= 2 && cleanPath[1] == ':' && (cleanPath[0] >= 'A' && cleanPath[0] <= 'Z' || cleanPath[0] >= 'a' && cleanPath[0] <= 'z')) {
+		return "", fmt.Errorf("absolute paths are not allowed: %s", path)
 	}
-
-	registry = repoParts[0]
-	repository = repoParts[1]
-
-	return registry, repository, tag, nil
+	return cleanPath, nil
 }
 
 // downloadOCIArtifact downloads an OCI artifact and returns the tar.gz data.
@@ -1279,6 +1398,66 @@ func (a *ArtifactBuilder) downloadOCIArtifact(registry, repository, tag string) 
 	}
 
 	return data, nil
+}
+
+// extractTemplateDataFromTar extracts template data and metadata from tar archive bytes.
+// Reads the tar archive, extracts _template/ files and metadata.yaml, validates CLI version,
+// and returns a map with all template files and metadata fields.
+// Returns an error if tar reading fails, metadata is missing, or CLI version is incompatible.
+func (a *ArtifactBuilder) extractTemplateDataFromTar(tarData []byte) (map[string][]byte, error) {
+	artifactData := make(map[string][]byte)
+	tarReader := tar.NewReader(bytes.NewReader(tarData))
+
+	var hasMetadata bool
+	var metadata BlueprintMetadata
+
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tar header: %w", err)
+		}
+		if header.Typeflag != tar.TypeReg {
+			continue
+		}
+		name := filepath.ToSlash(header.Name)
+
+		if name == "metadata.yaml" {
+			hasMetadata = true
+			content, err := io.ReadAll(tarReader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read metadata.yaml: %w", err)
+			}
+			if err := a.shims.YamlUnmarshal(content, &metadata); err != nil {
+				return nil, fmt.Errorf("failed to parse metadata.yaml: %w", err)
+			}
+			if err := ValidateCliVersion(constants.Version, metadata.CliVersion); err != nil {
+				return nil, err
+			}
+			continue
+		}
+
+		if !strings.HasPrefix(name, "_template/") {
+			continue
+		}
+
+		content, err := io.ReadAll(tarReader)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read file %s: %w", name, err)
+		}
+
+		artifactData[name] = content
+	}
+
+	if !hasMetadata {
+		return nil, fmt.Errorf("OCI artifact missing required metadata.yaml file")
+	}
+
+	a.addMetadataToTemplateData(artifactData, metadata)
+
+	return artifactData, nil
 }
 
 // Ensure ArtifactBuilder implements Artifact interface

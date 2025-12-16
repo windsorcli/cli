@@ -165,33 +165,27 @@ func (h *OCIModuleResolver) extractOCIModule(resolvedSource, componentPath strin
 	baseURL := resolvedSource[:6+pathSeparatorIdx]      // oci://registry/repo:tag
 	modulePath := resolvedSource[6+pathSeparatorIdx+2:] // terraform/path/to/module
 
-	registry, repository, tag, err := h.parseOCIRef(baseURL)
+	registry, repository, tag, err := h.artifactBuilder.ParseOCIRef(baseURL)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse OCI reference: %w", err)
 	}
 
 	cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
 
-	projectRoot := h.runtime.ProjectRoot
-	if projectRoot == "" {
-		return "", fmt.Errorf("failed to get project root: project root is empty")
+	extractionDir, err := h.artifactBuilder.GetCacheDir(registry, repository, tag)
+	if err != nil {
+		return "", fmt.Errorf("failed to get cache directory: %w", err)
 	}
 
-	extractionKey := strings.ReplaceAll(strings.ReplaceAll(cacheKey, "/", "_"), ":", "_")
-	extractionDir := filepath.Join(projectRoot, ".windsor", ".oci_extracted", extractionKey)
 	fullModulePath := filepath.Join(extractionDir, modulePath)
 
 	if _, err := h.shims.Stat(fullModulePath); err == nil {
 		return fullModulePath, nil
 	}
 
-	artifactData, exists := ociArtifacts[cacheKey]
+	_, exists := ociArtifacts[cacheKey]
 	if !exists {
 		return "", fmt.Errorf("OCI artifact %s not found in cache", cacheKey)
-	}
-
-	if err := h.extractArtifactToCache(artifactData, registry, repository, tag); err != nil {
-		return "", fmt.Errorf("failed to extract artifact to cache: %w", err)
 	}
 
 	if _, err := h.shims.Stat(fullModulePath); err != nil {
@@ -199,96 +193,6 @@ func (h *OCIModuleResolver) extractOCIModule(resolvedSource, componentPath strin
 	}
 
 	return fullModulePath, nil
-}
-
-// extractArtifactToCache extracts the full OCI artifact tar archive to the disk cache keyed by registry, repository, and tag.
-// It unpacks the contents into a dedicated extraction directory under the project root, preserving permissions and handling executables.
-// Extraction is atomic: all files are first unpacked to a temporary directory, then renamed into place on success, which avoids leaving partial state.
-// This approach ensures all artifact files are available for subsequent module and feature resolutions and enables cache reuse.
-// Returns an error if any extraction phase fails or if path validation checks do not pass.
-func (h *OCIModuleResolver) extractArtifactToCache(artifactData []byte, registry, repository, tag string) (err error) {
-	projectRoot := h.runtime.ProjectRoot
-	if projectRoot == "" {
-		return fmt.Errorf("failed to get project root: project root is empty")
-	}
-
-	reader := h.shims.NewBytesReader(artifactData)
-	tarReader := h.shims.NewTarReader(reader)
-
-	cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
-	extractionKey := strings.ReplaceAll(strings.ReplaceAll(cacheKey, "/", "_"), ":", "_")
-	extractionDir := filepath.Join(projectRoot, ".windsor", ".oci_extracted", extractionKey)
-	tmpExtractionDir := extractionDir + ".tmp"
-
-	defer func() {
-		if err != nil {
-			if _, statErr := h.shims.Stat(tmpExtractionDir); statErr == nil {
-				if removeErr := h.shims.RemoveAll(tmpExtractionDir); removeErr != nil {
-					fmt.Fprintf(os.Stderr, "warning: failed to clean up temporary extraction directory: %v\n", removeErr)
-				}
-			}
-		}
-	}()
-
-	if _, statErr := h.shims.Stat(tmpExtractionDir); statErr == nil {
-		if removeErr := h.shims.RemoveAll(tmpExtractionDir); removeErr != nil {
-			return fmt.Errorf("failed to clean up existing temporary extraction directory: %w", removeErr)
-		}
-	}
-
-	if mkdirErr := h.shims.MkdirAll(tmpExtractionDir, 0755); mkdirErr != nil {
-		return fmt.Errorf("failed to create temporary extraction directory: %w", mkdirErr)
-	}
-
-	if err := h.extractTarEntries(tarReader, tmpExtractionDir); err != nil {
-		return err
-	}
-
-	parentDir := filepath.Dir(extractionDir)
-	if mkdirErr := h.shims.MkdirAll(parentDir, 0755); mkdirErr != nil {
-		return fmt.Errorf("failed to create parent directory: %w", mkdirErr)
-	}
-
-	if _, statErr := h.shims.Stat(extractionDir); statErr == nil {
-		if removeErr := h.shims.RemoveAll(extractionDir); removeErr != nil {
-			return fmt.Errorf("failed to remove existing extraction directory: %w", removeErr)
-		}
-	}
-
-	if renameErr := h.shims.Rename(tmpExtractionDir, extractionDir); renameErr != nil {
-		return fmt.Errorf("failed to rename temporary extraction directory to final location: %w", renameErr)
-	}
-
-	return nil
-}
-
-// parseOCIRef extracts the registry, repository, and tag components from an OCI reference string.
-// The OCI reference must be in the format "oci://registry/repository:tag".
-// Returns the registry, repository, and tag if parsing is successful, or an error if the format is invalid.
-func (h *OCIModuleResolver) parseOCIRef(ociRef string) (registry, repository, tag string, err error) {
-	if !strings.HasPrefix(ociRef, "oci://") {
-		return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
-	}
-
-	ref := strings.TrimPrefix(ociRef, "oci://")
-
-	parts := strings.Split(ref, ":")
-	if len(parts) != 2 {
-		return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef)
-	}
-
-	repoWithRegistry := parts[0]
-	tag = parts[1]
-
-	repoParts := strings.SplitN(repoWithRegistry, "/", 2)
-	if len(repoParts) != 2 {
-		return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef)
-	}
-
-	registry = repoParts[0]
-	repository = repoParts[1]
-
-	return registry, repository, tag, nil
 }
 
 // =============================================================================

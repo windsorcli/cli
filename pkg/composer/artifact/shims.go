@@ -2,6 +2,7 @@ package artifact
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"io"
 	"os"
@@ -32,6 +33,12 @@ type TarWriter interface {
 	Close() error
 }
 
+// TarReader provides an interface for tar archive reading operations
+type TarReader interface {
+	Next() (*tar.Header, error)
+	Read([]byte) (int, error)
+}
+
 // Shims provides mockable wrappers around system and file operations
 type Shims struct {
 	Stat              func(name string) (os.FileInfo, error)
@@ -57,6 +64,13 @@ type Shims struct {
 	RemoteGet         func(ref name.Reference, options ...remote.Option) (*remote.Descriptor, error)
 	RemoteWriteLayer  func(repo name.Repository, layer v1.Layer, options ...remote.Option) error
 	RemoteWrite       func(ref name.Reference, img v1.Image, options ...remote.Option) error
+	MkdirAll          func(path string, perm os.FileMode) error
+	NewBytesReader    func(b []byte) *bytes.Reader
+	NewTarReader      func(r io.Reader) TarReader
+	Copy              func(dst io.Writer, src io.Reader) (int64, error)
+	Chmod             func(name string, mode os.FileMode) error
+	Rename            func(oldpath, newpath string) error
+	RemoveAll         func(path string) error
 }
 
 // =============================================================================
@@ -92,5 +106,12 @@ func NewShims() *Shims {
 		RemoteGet:        remote.Get,
 		RemoteWriteLayer: remote.WriteLayer,
 		RemoteWrite:      remote.Write,
+		MkdirAll:         os.MkdirAll,
+		NewBytesReader:   bytes.NewReader,
+		NewTarReader:     func(r io.Reader) TarReader { return tar.NewReader(r) },
+		Copy:             io.Copy,
+		Chmod:            os.Chmod,
+		Rename:           os.Rename,
+		RemoveAll:        os.RemoveAll,
 	}
 }
