@@ -176,25 +176,32 @@ func TestOCIModuleResolver_ProcessModules(t *testing.T) {
 
 		// Mock Stat to check extraction directory and module path
 		originalStat := resolver.BaseModuleResolver.shims.Stat
+		fullModulePath := filepath.Join(extractionDir, "terraform/test-module")
 		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
+			// Use exact path matching for cross-platform compatibility
+			normalizedName := filepath.Clean(name)
+			normalizedFullModulePath := filepath.Clean(fullModulePath)
+			normalizedTmpExtractionDir := filepath.Clean(tmpExtractionDir)
+			normalizedExtractionDir := filepath.Clean(extractionDir)
+			
 			// Before extraction: module path doesn't exist
-			if strings.Contains(name, "terraform/test-module") && !extractionComplete {
+			if normalizedName == normalizedFullModulePath && !extractionComplete {
 				return nil, os.ErrNotExist
 			}
 			// After extraction: module path exists
-			if strings.Contains(name, "terraform/test-module") && extractionComplete {
+			if normalizedName == normalizedFullModulePath && extractionComplete {
 				return nil, nil
 			}
 			// Tmp extraction dir never exists (we create it fresh)
-			if name == tmpExtractionDir {
+			if normalizedName == normalizedTmpExtractionDir {
 				return nil, os.ErrNotExist
 			}
 			// Extraction dir doesn't exist before rename
-			if name == extractionDir && !extractionComplete {
+			if normalizedName == normalizedExtractionDir && !extractionComplete {
 				return nil, os.ErrNotExist
 			}
 			// After rename, extraction dir exists
-			if name == extractionDir && extractionComplete {
+			if normalizedName == normalizedExtractionDir && extractionComplete {
 				return nil, nil
 			}
 			return originalStat(name)

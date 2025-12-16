@@ -1286,13 +1286,64 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 		}
 
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
+		extractionKey := "registry.example.com_module_latest"
+		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", extractionKey)
+		fullModulePath := filepath.Join(extractionDir, "terraform/test-module")
 
-		// Mock Stat to indicate module path already exists (cache hit)
+		// Mock tar reader in case extraction is attempted (shouldn't be, but for safety)
+		callCount := 0
+		mockTarReader := &MockTarReader{
+			NextFunc: func() (*tar.Header, error) {
+				callCount++
+				switch callCount {
+				case 1:
+					return &tar.Header{
+						Name:     "terraform/test-module/",
+						Typeflag: tar.TypeDir,
+					}, nil
+				case 2:
+					return &tar.Header{
+						Name:     "terraform/test-module/outputs.tf",
+						Typeflag: tar.TypeReg,
+						Mode:     0644,
+					}, nil
+				default:
+					return nil, io.EOF
+				}
+			},
+			ReadFunc: func(p []byte) (int, error) {
+				return 0, io.EOF
+			},
+		}
+		resolver.BaseModuleResolver.shims.NewTarReader = func(r io.Reader) TarReader {
+			return mockTarReader
+		}
+
+		// Mock Stat to indicate module path and outputs.tf already exist (cache hit) - use normalized path matching for cross-platform
+		outputsTfPath := filepath.Join(fullModulePath, "outputs.tf")
 		resolver.BaseModuleResolver.shims.Stat = func(name string) (os.FileInfo, error) {
-			if strings.Contains(name, "terraform/test-module") {
+			normalizedName := filepath.Clean(name)
+			normalizedFullModulePath := filepath.Clean(fullModulePath)
+			normalizedOutputsTfPath := filepath.Clean(outputsTfPath)
+			if normalizedName == normalizedFullModulePath || normalizedName == normalizedOutputsTfPath {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
+		}
+
+		// Mock ReadFile to return outputs.tf content (needed for writeShimOutputsTf)
+		resolver.BaseModuleResolver.shims.ReadFile = func(path string) ([]byte, error) {
+			normalizedPath := filepath.Clean(path)
+			normalizedOutputsTfPath := filepath.Clean(outputsTfPath)
+			if normalizedPath == normalizedOutputsTfPath {
+				return []byte(`output "test" { value = "test" }`), nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock Rename for atomic extraction (in case it's attempted)
+		resolver.BaseModuleResolver.shims.Rename = func(oldpath, newpath string) error {
+			return nil
 		}
 
 		// Mock WriteFile to return error for outputs.tf
