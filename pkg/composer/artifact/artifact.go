@@ -1224,11 +1224,10 @@ func (a *ArtifactBuilder) getBuilderInfo() (BuilderInfo, error) {
 // Returns the template data if found in cache, or nil if not cached (without error).
 // Returns an error only if there's a problem reading the cache (not if cache doesn't exist).
 func (a *ArtifactBuilder) getTemplateDataFromCache(registry, repository, tag string) (map[string][]byte, error) {
-	projectRoot := a.runtime.ProjectRoot
-
-	cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
-	extractionKey := strings.ReplaceAll(strings.ReplaceAll(cacheKey, "/", "_"), ":", "_")
-	cacheDir := filepath.Join(projectRoot, ".windsor", ".oci_extracted", extractionKey)
+	cacheDir, err := a.GetCacheDir(registry, repository, tag)
+	if err != nil {
+		return nil, err
+	}
 
 	if _, err := os.Stat(cacheDir); os.IsNotExist(err) {
 		return nil, nil
