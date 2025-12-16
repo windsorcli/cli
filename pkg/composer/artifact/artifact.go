@@ -1113,7 +1113,8 @@ func (a *ArtifactBuilder) getTemplateDataFromCache(registry, repository, tag str
 		}
 	}
 
-	extractionKey := fmt.Sprintf("%s-%s-%s", registry, repository, tag)
+	cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+	extractionKey := strings.ReplaceAll(strings.ReplaceAll(cacheKey, "/", "_"), ":", "_")
 	cacheDir := filepath.Join(projectRoot, ".windsor", ".oci_extracted", extractionKey)
 
 	if _, err := os.Stat(cacheDir); os.IsNotExist(err) {

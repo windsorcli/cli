@@ -131,7 +131,7 @@ func TestOCIModuleResolver_ProcessModules(t *testing.T) {
 		resolver.artifactBuilder = mockArtifactBuilder
 
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
-		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", "registry.example.com-module-latest")
+		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", "registry.example.com_module_latest")
 
 		// Mock tar reader for successful extraction
 		callCount := 0

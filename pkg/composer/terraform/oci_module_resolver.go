@@ -177,7 +177,7 @@ func (h *OCIModuleResolver) extractOCIModule(resolvedSource, componentPath strin
 		return "", fmt.Errorf("failed to get project root: project root is empty")
 	}
 
-	extractionKey := fmt.Sprintf("%s-%s-%s", registry, repository, tag)
+	extractionKey := strings.ReplaceAll(strings.ReplaceAll(cacheKey, "/", "_"), ":", "_")
 	extractionDir := filepath.Join(projectRoot, ".windsor", ".oci_extracted", extractionKey)
 	fullModulePath := filepath.Join(extractionDir, modulePath)
 
@@ -215,7 +215,8 @@ func (h *OCIModuleResolver) extractArtifactToCache(artifactData []byte, registry
 	reader := h.shims.NewBytesReader(artifactData)
 	tarReader := h.shims.NewTarReader(reader)
 
-	extractionKey := fmt.Sprintf("%s-%s-%s", registry, repository, tag)
+	cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+	extractionKey := strings.ReplaceAll(strings.ReplaceAll(cacheKey, "/", "_"), ":", "_")
 	extractionDir := filepath.Join(projectRoot, ".windsor", ".oci_extracted", extractionKey)
 	tmpExtractionDir := extractionDir + ".tmp"
 

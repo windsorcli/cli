@@ -173,7 +173,7 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 		}
 
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
-		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", "registry.example.com-module-latest")
+		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", "registry.example.com_module_latest")
 		fullModulePath := filepath.Join(extractionDir, "terraform/test-module")
 
 		// Mock tar reader for successful extraction
@@ -294,7 +294,7 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 		}
 
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
-		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", "registry.example.com-module-latest")
+		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", "registry.example.com_module_latest")
 		fullModulePath := filepath.Join(extractionDir, "terraform/test-module")
 
 		// Mock tar reader for successful extraction
@@ -796,7 +796,8 @@ func TestOCIModuleResolver_extractArtifactToCache(t *testing.T) {
 		repository := "module"
 		tag := "latest"
 
-		extractionKey := fmt.Sprintf("%s-%s-%s", registry, repository, tag)
+		cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+		extractionKey := strings.ReplaceAll(strings.ReplaceAll(cacheKey, "/", "_"), ":", "_")
 		tmpExtractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", extractionKey+".tmp")
 
 		// Mock tar reader that will fail
@@ -921,7 +922,7 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 		}
 
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
-		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", "registry.example.com-module-latest")
+		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", "registry.example.com_module_latest")
 		fullModulePath := filepath.Join(extractionDir, "terraform/test-module")
 
 		// Mock tar reader for successful extraction
@@ -1156,7 +1157,7 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 
 		// The extraction key is built from registry-repository-tag
-		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", "registry.example.com-module-latest")
+		extractionDir := filepath.Join("/test/project", ".windsor", ".oci_extracted", "registry.example.com_module_latest")
 		modulePath := "terraform/test-module"
 		extractedPath := filepath.Join(extractionDir, modulePath)
 		variablesTfPath := filepath.Join(extractedPath, "variables.tf")
