@@ -111,6 +111,7 @@ type ArtifactBuilder struct {
 	files       map[string]FileInfo
 	shims       *Shims
 	shell       shell.Shell
+	runtime     *runtime.Runtime
 	tarballPath string
 	metadata    BlueprintMetadataInput
 	ociCache    map[string][]byte
@@ -129,6 +130,7 @@ func NewArtifactBuilder(rt *runtime.Runtime) *ArtifactBuilder {
 		files:    make(map[string]FileInfo),
 		ociCache: make(map[string][]byte),
 		shell:    rt.Shell,
+		runtime:  rt,
 	}
 
 	return builder
@@ -1104,14 +1106,7 @@ func (a *ArtifactBuilder) getBuilderInfo() (BuilderInfo, error) {
 // Returns the template data if found in cache, or nil if not cached (without error).
 // Returns an error only if there's a problem reading the cache (not if cache doesn't exist).
 func (a *ArtifactBuilder) getTemplateDataFromCache(registry, repository, tag string) (map[string][]byte, error) {
-	projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
-	if projectRoot == "" {
-		var err error
-		projectRoot, err = os.Getwd()
-		if err != nil {
-			return nil, nil
-		}
-	}
+	projectRoot := a.runtime.ProjectRoot
 
 	cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
 	extractionKey := strings.ReplaceAll(strings.ReplaceAll(cacheKey, "/", "_"), ":", "_")

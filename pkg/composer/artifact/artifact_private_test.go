@@ -1786,11 +1786,12 @@ func TestArtifactBuilder_walkAndProcessFiles(t *testing.T) {
 func TestArtifactBuilder_getTemplateDataFromCache(t *testing.T) {
 	setup := func(t *testing.T) (*ArtifactBuilder, string) {
 		t.Helper()
-		mocks := setupArtifactMocks(t)
+		tmpDir := t.TempDir()
+		mocks := setupArtifactMocks(t, func(m *ArtifactMocks) {
+			m.Runtime.ProjectRoot = tmpDir
+		})
 		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
-		tmpDir := t.TempDir()
-		t.Setenv("WINDSOR_PROJECT_ROOT", tmpDir)
 		return builder, tmpDir
 	}
 

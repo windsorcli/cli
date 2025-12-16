@@ -2230,12 +2230,12 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 
 	t.Run("UsesCachedArtifactOnDisk", func(t *testing.T) {
 		// Given an artifact builder with cached artifact extracted to disk
-		mocks := setupArtifactMocks(t)
+		tmpDir := t.TempDir()
+		mocks := setupArtifactMocks(t, func(m *ArtifactMocks) {
+			m.Runtime.ProjectRoot = tmpDir
+		})
 		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims.YamlUnmarshal = yaml.Unmarshal
-
-		tmpDir := t.TempDir()
-		t.Setenv("WINDSOR_PROJECT_ROOT", tmpDir)
 
 		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.example.com_test_v1.0.0")
 		templateDir := filepath.Join(cacheDir, "_template")
