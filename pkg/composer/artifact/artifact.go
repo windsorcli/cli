@@ -355,7 +355,10 @@ func (a *ArtifactBuilder) GetTemplateData(blueprintRef string) (map[string][]byt
 		}
 
 		templateData, err := a.getTemplateDataFromCache(registry, repository, tag)
-		if err == nil && templateData != nil {
+		if err != nil {
+			return nil, fmt.Errorf("cache validation failed: %w", err)
+		}
+		if templateData != nil {
 			return templateData, nil
 		}
 

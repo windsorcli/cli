@@ -2561,6 +2561,59 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		}
 	})
 
+	t.Run("ReturnsCacheValidationErrorWithoutNetworkFallback", func(t *testing.T) {
+		// Given an artifact builder with cached data that has invalid metadata
+		tmpDir := t.TempDir()
+		mocks := setupArtifactMocks(t, func(m *ArtifactMocks) {
+			m.Runtime.ProjectRoot = tmpDir
+		})
+		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims.YamlUnmarshal = yaml.Unmarshal
+
+		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.example.com_test_v1.0.0")
+		templateDir := filepath.Join(cacheDir, "_template")
+		if err := os.MkdirAll(templateDir, 0755); err != nil {
+			t.Fatalf("Failed to create template dir: %v", err)
+		}
+
+		files := map[string]string{
+			filepath.Join(templateDir, "blueprint.yaml"): "kind: Blueprint\n",
+			filepath.Join(cacheDir, "metadata.yaml"):     "name: test-cached\nversion: v1.0.0\ninvalid: yaml: [\n",
+		}
+
+		for path, content := range files {
+			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+				t.Fatalf("Failed to create dir: %v", err)
+			}
+			if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+				t.Fatalf("Failed to write file: %v", err)
+			}
+		}
+
+		downloadCalled := false
+		builder.shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			downloadCalled = true
+			return nil, fmt.Errorf("should not download from registry")
+		}
+
+		// When calling GetTemplateData
+		templateData, err := builder.GetTemplateData("oci://registry.example.com/test:v1.0.0")
+
+		// Then should return cache validation error immediately without network fallback
+		if err == nil {
+			t.Fatal("Expected error for invalid metadata")
+		}
+		if !strings.Contains(err.Error(), "cache validation failed") {
+			t.Errorf("Expected error to contain 'cache validation failed', got %v", err)
+		}
+		if downloadCalled {
+			t.Error("Expected download not to be called when cache validation fails")
+		}
+		if templateData != nil {
+			t.Error("Expected nil template data on validation error")
+		}
+	})
+
 	t.Run("ErrorWhenPullFails", func(t *testing.T) {
 		// Given an artifact builder without cached data
 		mocks := setupArtifactMocks(t)

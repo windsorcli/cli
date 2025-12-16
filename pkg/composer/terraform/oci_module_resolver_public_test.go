@@ -183,7 +183,7 @@ func TestOCIModuleResolver_ProcessModules(t *testing.T) {
 			normalizedFullModulePath := filepath.Clean(fullModulePath)
 			normalizedTmpExtractionDir := filepath.Clean(tmpExtractionDir)
 			normalizedExtractionDir := filepath.Clean(extractionDir)
-			
+
 			// Before extraction: module path doesn't exist
 			if normalizedName == normalizedFullModulePath && !extractionComplete {
 				return nil, os.ErrNotExist
