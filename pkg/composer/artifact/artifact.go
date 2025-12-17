@@ -411,10 +411,6 @@ func (a *ArtifactBuilder) GetTemplateData(blueprintRef string) (map[string][]byt
 			return nil, fmt.Errorf("OCI artifact marked as cached but no valid template cache found for %s", blueprintRef)
 		}
 
-		if err := a.extractArtifactToCache(tarData, registry, repository, tag); err != nil {
-			return nil, fmt.Errorf("failed to extract artifact to cache: %w", err)
-		}
-
 		return a.extractTemplateDataFromTar(tarData)
 	}
 
