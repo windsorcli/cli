@@ -274,6 +274,9 @@ func (a *ArtifactBuilder) Push(registryBase string, repoName string, tag string)
 func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
 	ociArtifacts := make(map[string][]byte)
 
+	noCacheValue, _ := os.LookupEnv("NO_CACHE")
+	noCache := strings.EqualFold(noCacheValue, "true") || noCacheValue == "1"
+
 	uniqueOCIRefs := make(map[string]bool)
 	for _, ref := range ociRefs {
 		if strings.HasPrefix(ref, "oci://") {
@@ -293,6 +296,11 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
 		}
 
 		cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+
+		if noCache {
+			artifactsToDownload = append(artifactsToDownload, ref)
+			continue
+		}
 
 		if cachedData, exists := a.ociCache[cacheKey]; exists {
 			ociArtifacts[cacheKey] = cachedData

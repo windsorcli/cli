@@ -161,6 +161,11 @@ var initCmd = &cobra.Command{
 		if initBlueprint != "" {
 			blueprintURL = []string{initBlueprint}
 		}
+		if initReset {
+			if err := os.Setenv("NO_CACHE", "true"); err != nil {
+				return fmt.Errorf("failed to set NO_CACHE: %w", err)
+			}
+		}
 		if err := proj.Initialize(initReset, blueprintURL...); err != nil {
 			return err
 		}

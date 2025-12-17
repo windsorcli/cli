@@ -1774,6 +1774,53 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		}
 	})
 
+	t.Run("NoCacheBypassesInMemoryCache", func(t *testing.T) {
+		// Given an ArtifactBuilder with mocks
+		builder, mocks := setup(t)
+		t.Setenv("NO_CACHE", "true")
+
+		// And an in-memory cache entry exists
+		cacheKey := "registry.example.com/my-repo:v1.0.0"
+		inMemorySentinel := []byte("in-memory-sentinel")
+		builder.ociCache[cacheKey] = inMemorySentinel
+
+		// And we can detect that a download occurred
+		readAllCalls := 0
+		previousReadAll := mocks.Shims.ReadAll
+		mocks.Shims.ReadAll = func(r io.Reader) ([]byte, error) {
+			readAllCalls++
+			return previousReadAll(r)
+		}
+
+		// When Pull is called
+		artifacts, err := builder.Pull([]string{"oci://registry.example.com/my-repo:v1.0.0"})
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// And a download should have occurred (cache bypass)
+		if readAllCalls == 0 {
+			t.Error("expected OCI artifact to be downloaded when NO_CACHE=true")
+		}
+
+		// And returned data should not be the in-memory sentinel
+		if bytes.Equal(artifacts[cacheKey], inMemorySentinel) {
+			t.Error("expected NO_CACHE=true to bypass in-memory cache")
+		}
+
+		// And returned tar data should be a valid tar archive containing test.txt
+		tarReader := tar.NewReader(bytes.NewReader(artifacts[cacheKey]))
+		header, err := tarReader.Next()
+		if err != nil {
+			t.Fatalf("failed to read tar header: %v", err)
+		}
+		if header.Name != "test.txt" {
+			t.Errorf("expected tar entry name test.txt, got %s", header.Name)
+		}
+	})
+
 	t.Run("MultipleOCIReferencesDifferentArtifacts", func(t *testing.T) {
 		// Given an ArtifactBuilder with mocks
 		builder, mocks := setup(t)
