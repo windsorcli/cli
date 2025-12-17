@@ -2,6 +2,7 @@ package artifact
 
 import (
 	"archive/tar"
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -1150,6 +1151,81 @@ func TestArtifactBuilder_downloadOCIArtifact(t *testing.T) {
 			t.Errorf("expected image layers error, got %v", err)
 		}
 	})
+
+	t.Run("NoLayersFound", func(t *testing.T) {
+		builder, mocks := setup(t)
+
+		mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return nil, nil
+		}
+		mocks.Shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return nil, nil
+		}
+		mocks.Shims.ImageLayers = func(img v1.Image) ([]v1.Layer, error) {
+			return []v1.Layer{}, nil
+		}
+
+		_, err := builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "no layers found in image") {
+			t.Fatalf("Expected no layers error, got %v", err)
+		}
+	})
+
+	t.Run("LayerUncompressedError", func(t *testing.T) {
+		builder, mocks := setup(t)
+
+		mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return nil, nil
+		}
+		mocks.Shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return nil, nil
+		}
+		mocks.Shims.ImageLayers = func(img v1.Image) ([]v1.Layer, error) {
+			return []v1.Layer{nil}, nil
+		}
+		mocks.Shims.LayerUncompressed = func(layer v1.Layer) (io.ReadCloser, error) {
+			return nil, fmt.Errorf("uncompressed error")
+		}
+
+		_, err := builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to get layer reader") {
+			t.Fatalf("Expected layer reader error, got %v", err)
+		}
+	})
+
+	t.Run("ReadAllError", func(t *testing.T) {
+		builder, mocks := setup(t)
+
+		mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return nil, nil
+		}
+		mocks.Shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return nil, nil
+		}
+		mocks.Shims.ImageLayers = func(img v1.Image) ([]v1.Layer, error) {
+			return []v1.Layer{nil}, nil
+		}
+		mocks.Shims.LayerUncompressed = func(layer v1.Layer) (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader("x")), nil
+		}
+		mocks.Shims.ReadAll = func(reader io.Reader) ([]byte, error) {
+			return nil, fmt.Errorf("readall error")
+		}
+
+		_, err := builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to read layer data") {
+			t.Fatalf("Expected read layer error, got %v", err)
+		}
+	})
 }
 
 func TestArtifactBuilder_findMatchingProcessor(t *testing.T) {
@@ -2015,7 +2091,6 @@ author: Test Author
 
 	t.Run("ReturnsErrorWhenMetadataInvalid", func(t *testing.T) {
 		builder, tmpDir := setup(t)
-		builder.shims.YamlUnmarshal = yaml.Unmarshal
 
 		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.io_org_repo_v1.0.0")
 		templateDir := filepath.Join(cacheDir, "_template")
@@ -2029,7 +2104,7 @@ author: Test Author
 		}
 
 		metadataPath := filepath.Join(cacheDir, "metadata.yaml")
-		invalidMetadata := "name: test\nversion: v1.0.0\ninvalid: yaml: ["
+		invalidMetadata := "name: ["
 		if err := os.WriteFile(metadataPath, []byte(invalidMetadata), 0644); err != nil {
 			t.Fatalf("Failed to write metadata: %v", err)
 		}
@@ -2050,6 +2125,70 @@ author: Test Author
 		}
 		if templateData != nil {
 			t.Error("Expected nil template data when metadata is invalid")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenProjectRootEmpty", func(t *testing.T) {
+		builder, _ := setup(t)
+
+		builder.runtime.ProjectRoot = ""
+		templateData, err := builder.getTemplateDataFromCache("registry.io", "org/repo", "v1.0.0")
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if templateData != nil {
+			t.Fatal("Expected nil template data on error")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenRemoveAllFailsOnInvalidCache", func(t *testing.T) {
+		builder, tmpDir := setup(t)
+
+		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.io_org_repo_v1.0.0")
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache dir: %v", err)
+		}
+
+		builder.shims.RemoveAll = func(path string) error {
+			return fmt.Errorf("remove failed")
+		}
+
+		templateData, err := builder.getTemplateDataFromCache("registry.io", "org/repo", "v1.0.0")
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to remove corrupted OCI cache directory") {
+			t.Fatalf("Expected remove corrupted cache error, got %v", err)
+		}
+		if templateData != nil {
+			t.Fatal("Expected nil template data on error")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenRemoveAllFailsOnMissingTemplateDir", func(t *testing.T) {
+		builder, tmpDir := setup(t)
+
+		cacheDir := filepath.Join(tmpDir, ".windsor", ".oci_extracted", "registry.io_org_repo_v1.0.0")
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(cacheDir, ociExtractionCompleteMarker), []byte("ok\n"), 0644); err != nil {
+			t.Fatalf("Failed to write marker: %v", err)
+		}
+
+		builder.shims.RemoveAll = func(path string) error {
+			return fmt.Errorf("remove failed")
+		}
+
+		templateData, err := builder.getTemplateDataFromCache("registry.io", "org/repo", "v1.0.0")
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to remove corrupted OCI cache directory") {
+			t.Fatalf("Expected remove corrupted cache error, got %v", err)
+		}
+		if templateData != nil {
+			t.Fatal("Expected nil template data on error")
 		}
 	})
 }
@@ -2141,6 +2280,352 @@ func TestArtifactBuilder_extractTemplateDataFromTar(t *testing.T) {
 	})
 }
 
+func TestArtifactBuilder_validateOCIDiskCache(t *testing.T) {
+	setup := func(t *testing.T) (*ArtifactBuilder, string) {
+		t.Helper()
+		tmpDir := t.TempDir()
+		mocks := setupArtifactMocks(t, func(m *ArtifactMocks) {
+			m.Runtime.ProjectRoot = tmpDir
+		})
+		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims = mocks.Shims
+		builder.shims.Stat = os.Stat
+		return builder, tmpDir
+	}
+
+	t.Run("ReturnsErrorWhenCacheDirMissing", func(t *testing.T) {
+		builder, tmpDir := setup(t)
+
+		cacheDir := filepath.Join(tmpDir, "missing-cache-dir")
+		err := builder.validateOCIDiskCache(cacheDir)
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !os.IsNotExist(err) {
+			t.Fatalf("Expected os.IsNotExist error, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenMarkerMissing", func(t *testing.T) {
+		builder, tmpDir := setup(t)
+
+		cacheDir := filepath.Join(tmpDir, "cache-dir")
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache dir: %v", err)
+		}
+
+		err := builder.validateOCIDiskCache(cacheDir)
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !os.IsNotExist(err) {
+			t.Fatalf("Expected os.IsNotExist error, got %v", err)
+		}
+	})
+
+	t.Run("SucceedsWhenMarkerExists", func(t *testing.T) {
+		builder, tmpDir := setup(t)
+
+		cacheDir := filepath.Join(tmpDir, "cache-dir")
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(cacheDir, ociExtractionCompleteMarker), []byte("ok\n"), 0644); err != nil {
+			t.Fatalf("Failed to write marker: %v", err)
+		}
+
+		if err := builder.validateOCIDiskCache(cacheDir); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
+}
+
+// =============================================================================
+// Test Private Methods
+// =============================================================================
+
+func TestArtifactBuilder_validateAndSanitizePath(t *testing.T) {
+	setup := func(t *testing.T) *ArtifactBuilder {
+		t.Helper()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims = mocks.Shims
+		return builder
+	}
+
+	t.Run("AllowsRelativePaths", func(t *testing.T) {
+		builder := setup(t)
+
+		got, err := builder.validateAndSanitizePath("terraform/main.tf")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if got != "terraform/main.tf" {
+			t.Fatalf("Expected sanitized path terraform/main.tf, got %s", got)
+		}
+	})
+
+	t.Run("RejectsTraversalWithDotDot", func(t *testing.T) {
+		builder := setup(t)
+
+		got, err := builder.validateAndSanitizePath("../secrets.txt")
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "path contains directory traversal sequence") {
+			t.Fatalf("Expected traversal error, got %v", err)
+		}
+		if got != "" {
+			t.Fatalf("Expected empty sanitized path, got %s", got)
+		}
+	})
+
+	t.Run("RejectsCleanedTraversalPath", func(t *testing.T) {
+		builder := setup(t)
+
+		got, err := builder.validateAndSanitizePath("a/../../b")
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "path contains directory traversal sequence") {
+			t.Fatalf("Expected traversal error, got %v", err)
+		}
+		if got != "" {
+			t.Fatalf("Expected empty sanitized path, got %s", got)
+		}
+	})
+
+	t.Run("RejectsAbsoluteUnixPath", func(t *testing.T) {
+		builder := setup(t)
+
+		got, err := builder.validateAndSanitizePath("/etc/passwd")
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "absolute paths are not allowed") {
+			t.Fatalf("Expected absolute path error, got %v", err)
+		}
+		if got != "" {
+			t.Fatalf("Expected empty sanitized path, got %s", got)
+		}
+	})
+
+	t.Run("RejectsAbsoluteWindowsDrivePath", func(t *testing.T) {
+		builder := setup(t)
+
+		got, err := builder.validateAndSanitizePath("C:\\Windows\\System32\\drivers\\etc\\hosts")
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "absolute paths are not allowed") {
+			t.Fatalf("Expected absolute path error, got %v", err)
+		}
+		if got != "" {
+			t.Fatalf("Expected empty sanitized path, got %s", got)
+		}
+	})
+}
+
+func TestArtifactBuilder_extractTarEntries(t *testing.T) {
+	setup := func(t *testing.T) (*ArtifactBuilder, string) {
+		t.Helper()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims = mocks.Shims
+		return builder, t.TempDir()
+	}
+
+	t.Run("ExtractsDirectoriesAndFiles", func(t *testing.T) {
+		builder, destDir := setup(t)
+		content := []byte("hello")
+		tr := createTarReader(t,
+			[]*tar.Header{
+				{Name: "dir/", Typeflag: tar.TypeDir, Mode: 0755},
+				{Name: "dir/file.txt", Typeflag: tar.TypeReg, Mode: 0644, Size: int64(len(content))},
+			},
+			[][]byte{
+				nil,
+				content,
+			},
+		)
+
+		if err := builder.extractTarEntries(tr, destDir); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		got, err := os.ReadFile(filepath.Join(destDir, "dir", "file.txt"))
+		if err != nil {
+			t.Fatalf("Failed to read extracted file: %v", err)
+		}
+		if string(got) != "hello" {
+			t.Fatalf("Expected extracted content hello, got %s", string(got))
+		}
+	})
+
+	t.Run("ReturnsErrorWhenHeaderReadFails", func(t *testing.T) {
+		builder, destDir := setup(t)
+		tr := tar.NewReader(bytes.NewReader([]byte("not-a-tar")))
+		err := builder.extractTarEntries(tr, destDir)
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to read tar header") {
+			t.Fatalf("Expected header read error, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenPathIsInvalid", func(t *testing.T) {
+		builder, destDir := setup(t)
+		content := []byte("x")
+		tr := createTarReader(t, []*tar.Header{
+			{Name: "../bad.txt", Typeflag: tar.TypeReg, Mode: 0644, Size: int64(len(content))},
+		}, [][]byte{content})
+		err := builder.extractTarEntries(tr, destDir)
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "invalid path in tar archive") {
+			t.Fatalf("Expected invalid path error, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenCreatingDirectoryFails", func(t *testing.T) {
+		builder, destDir := setup(t)
+		tr := createTarReader(t, []*tar.Header{
+			{Name: "dir/", Typeflag: tar.TypeDir, Mode: 0755},
+		}, [][]byte{nil})
+		builder.shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return fmt.Errorf("mkdir failed")
+		}
+
+		err := builder.extractTarEntries(tr, destDir)
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to create directory") {
+			t.Fatalf("Expected directory creation error, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenCreatingParentDirectoryFails", func(t *testing.T) {
+		builder, destDir := setup(t)
+		content := []byte("x")
+		tr := createTarReader(t, []*tar.Header{
+			{Name: "dir/file.txt", Typeflag: tar.TypeReg, Mode: 0644, Size: int64(len(content))},
+		}, [][]byte{content})
+		builder.shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return fmt.Errorf("mkdir failed")
+		}
+
+		err := builder.extractTarEntries(tr, destDir)
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to create parent directory") {
+			t.Fatalf("Expected parent directory creation error, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenCreatingFileFails", func(t *testing.T) {
+		builder, destDir := setup(t)
+		content := []byte("x")
+		tr := createTarReader(t, []*tar.Header{
+			{Name: "dir/file.txt", Typeflag: tar.TypeReg, Mode: 0644, Size: int64(len(content))},
+		}, [][]byte{content})
+		builder.shims.Create = func(name string) (io.WriteCloser, error) {
+			return nil, fmt.Errorf("create failed")
+		}
+
+		err := builder.extractTarEntries(tr, destDir)
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to create file") {
+			t.Fatalf("Expected file creation error, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenCopyFails", func(t *testing.T) {
+		builder, destDir := setup(t)
+		content := []byte("x")
+		tr := createTarReader(t, []*tar.Header{
+			{Name: "dir/file.txt", Typeflag: tar.TypeReg, Mode: 0644, Size: int64(len(content))},
+		}, [][]byte{content})
+		builder.shims.Copy = func(dst io.Writer, src io.Reader) (int64, error) {
+			return 0, fmt.Errorf("copy failed")
+		}
+
+		err := builder.extractTarEntries(tr, destDir)
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to write file") {
+			t.Fatalf("Expected file write error, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenModeIsInvalid", func(t *testing.T) {
+		builder, destDir := setup(t)
+		content := []byte("x")
+		tr := createTarReader(t, []*tar.Header{
+			{Name: "file.txt", Typeflag: tar.TypeReg, Mode: 010000, Size: int64(len(content))},
+		}, [][]byte{content})
+		var chmodMode os.FileMode
+		builder.shims.Chmod = func(name string, mode os.FileMode) error {
+			chmodMode = mode
+			return nil
+		}
+
+		err := builder.extractTarEntries(tr, destDir)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if chmodMode != 0 {
+			t.Fatalf("Expected chmod mode 0, got %o", chmodMode)
+		}
+	})
+
+	t.Run("SetsExecutableBitForShellScripts", func(t *testing.T) {
+		builder, destDir := setup(t)
+		content := []byte("x")
+		tr := createTarReader(t, []*tar.Header{
+			{Name: "script.sh", Typeflag: tar.TypeReg, Mode: 0644, Size: int64(len(content))},
+		}, [][]byte{content})
+		var chmodMode os.FileMode
+		builder.shims.Chmod = func(name string, mode os.FileMode) error {
+			chmodMode = mode
+			return nil
+		}
+
+		err := builder.extractTarEntries(tr, destDir)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if chmodMode&0111 == 0 {
+			t.Fatalf("Expected executable bit to be set, got %o", chmodMode)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenChmodFails", func(t *testing.T) {
+		builder, destDir := setup(t)
+		content := []byte("x")
+		tr := createTarReader(t, []*tar.Header{
+			{Name: "file.txt", Typeflag: tar.TypeReg, Mode: 0644, Size: int64(len(content))},
+		}, [][]byte{content})
+		builder.shims.Chmod = func(name string, mode os.FileMode) error {
+			return fmt.Errorf("chmod failed")
+		}
+
+		err := builder.extractTarEntries(tr, destDir)
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to set file permissions") {
+			t.Fatalf("Expected chmod error, got %v", err)
+		}
+	})
+}
+
 func TestArtifactBuilder_addMetadataToTemplateData(t *testing.T) {
 	t.Run("AddsAllMetadataFields", func(t *testing.T) {
 		mocks := setupArtifactMocks(t)
@@ -2194,6 +2679,155 @@ func TestArtifactBuilder_addMetadataToTemplateData(t *testing.T) {
 	})
 }
 
+func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {
+	setup := func(t *testing.T) *ArtifactBuilder {
+		t.Helper()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims = mocks.Shims
+		return builder
+	}
+
+	t.Run("ReturnsErrorWhenProjectRootEmpty", func(t *testing.T) {
+		builder := setup(t)
+		builder.runtime.ProjectRoot = ""
+
+		err := builder.extractArtifactToCache([]byte{}, "registry.example.com", "repo", "v1.0.0")
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to get project root") {
+			t.Fatalf("Expected project root error, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenMkdirAllTempDirFails", func(t *testing.T) {
+		builder := setup(t)
+		builder.runtime.ProjectRoot = t.TempDir()
+
+		builder.shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return fmt.Errorf("mkdir failed")
+		}
+
+		err := builder.extractArtifactToCache([]byte{}, "registry.example.com", "repo", "v1.0.0")
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to create temporary extraction directory") {
+			t.Fatalf("Expected mkdir error, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenTarHeaderReadFails", func(t *testing.T) {
+		builder := setup(t)
+		builder.runtime.ProjectRoot = t.TempDir()
+
+		err := builder.extractArtifactToCache([]byte{0x00}, "registry.example.com", "repo", "v1.0.0")
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to read tar header") {
+			t.Fatalf("Expected tar header error, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenCreateMarkerFails", func(t *testing.T) {
+		builder := setup(t)
+		builder.runtime.ProjectRoot = t.TempDir()
+
+		builder.shims.Create = func(name string) (io.WriteCloser, error) {
+			if strings.HasSuffix(name, ociExtractionCompleteMarker) {
+				return nil, fmt.Errorf("create failed")
+			}
+			return os.Create(name)
+		}
+
+		err := builder.extractArtifactToCache([]byte{}, "registry.example.com", "repo", "v1.0.0")
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to create extraction marker file") {
+			t.Fatalf("Expected marker create error, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenRenameFails", func(t *testing.T) {
+		builder := setup(t)
+		builder.runtime.ProjectRoot = t.TempDir()
+
+		builder.shims.Rename = func(oldpath, newpath string) error {
+			return fmt.Errorf("rename failed")
+		}
+
+		err := builder.extractArtifactToCache([]byte{}, "registry.example.com", "repo", "v1.0.0")
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to rename temporary extraction directory") {
+			t.Fatalf("Expected rename error, got %v", err)
+		}
+	})
+}
+
+func TestNewShims_Defaults(t *testing.T) {
+	t.Run("ProvidesNonNilDefaults", func(t *testing.T) {
+		shims := NewShims()
+		if shims == nil {
+			t.Fatal("Expected shims, got nil")
+		}
+		if shims.Stat == nil || shims.Create == nil || shims.ReadFile == nil || shims.Walk == nil {
+			t.Fatal("Expected core shim functions to be non-nil")
+		}
+		if shims.NewTarReader == nil || shims.NewTarWriter == nil || shims.NewGzipWriter == nil {
+			t.Fatal("Expected tar/gzip shim functions to be non-nil")
+		}
+	})
+}
+
+func TestMockArtifact_Defaults(t *testing.T) {
+	t.Run("ImplementsOptionalMethodsWithoutPanicking", func(t *testing.T) {
+		m := NewMockArtifact()
+		if m == nil {
+			t.Fatal("Expected mock artifact, got nil")
+		}
+
+		_, _, _, err := m.ParseOCIRef("oci://registry.example.com/repo:v1.0.0")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		_, err = m.GetCacheDir("registry.example.com", "repo", "v1.0.0")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
+}
+
 // =============================================================================
 // Test Helper Functions
 // =============================================================================
+
+func createTarReader(t *testing.T, headers []*tar.Header, contents [][]byte) TarReader {
+	t.Helper()
+	if len(headers) != len(contents) {
+		t.Fatalf("headers and contents length mismatch: %d != %d", len(headers), len(contents))
+	}
+
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for i, hdr := range headers {
+		if err := tw.WriteHeader(hdr); err != nil {
+			t.Fatalf("Failed to write tar header: %v", err)
+		}
+		if hdr.Typeflag == tar.TypeReg {
+			if _, err := tw.Write(contents[i]); err != nil {
+				t.Fatalf("Failed to write tar content: %v", err)
+			}
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("Failed to close tar writer: %v", err)
+	}
+
+	return tar.NewReader(bytes.NewReader(buf.Bytes()))
+}

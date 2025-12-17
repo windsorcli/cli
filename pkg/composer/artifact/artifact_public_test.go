@@ -158,12 +158,19 @@ func (m *mockReference) Scope(action string) string { return "" }
 func setupDefaultShims() *Shims {
 	shims := NewShims()
 
-	// Standard YAML processing mocks
 	shims.YamlUnmarshal = func(data []byte, v any) error {
-		input := v.(*BlueprintMetadataInput)
-		input.Name = "test"
-		input.Version = "1.0.0"
-		return nil
+		if input, ok := v.(*BlueprintMetadataInput); ok {
+			if err := yaml.Unmarshal(data, v); err == nil {
+				return nil
+			}
+			input.Name = "test"
+			input.Version = "1.0.0"
+			return nil
+		}
+		if metadata, ok := v.(*BlueprintMetadata); ok {
+			return yaml.Unmarshal(data, metadata)
+		}
+		return yaml.Unmarshal(data, v)
 	}
 	shims.YamlMarshal = func(data any) ([]byte, error) {
 		return []byte("test: yaml"), nil
