@@ -17,6 +17,7 @@ type MockArtifact struct {
 	PullFunc            func(ociRefs []string) (map[string][]byte, error)
 	GetTemplateDataFunc func(ociRef string) (map[string][]byte, error)
 	ParseOCIRefFunc     func(ociRef string) (registry, repository, tag string, err error)
+	GetCacheDirFunc     func(registry, repository, tag string) (string, error)
 }
 
 // =============================================================================
@@ -81,6 +82,14 @@ func (m *MockArtifact) ParseOCIRef(ociRef string) (registry, repository, tag str
 		return m.ParseOCIRefFunc(ociRef)
 	}
 	return "", "", "", nil
+}
+
+// GetCacheDir calls the mock GetCacheDirFunc if set, otherwise returns empty string and nil error
+func (m *MockArtifact) GetCacheDir(registry, repository, tag string) (string, error) {
+	if m.GetCacheDirFunc != nil {
+		return m.GetCacheDirFunc(registry, repository, tag)
+	}
+	return "", nil
 }
 
 // Ensure MockArtifact implements Artifact interface

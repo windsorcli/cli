@@ -2,6 +2,8 @@ package artifact
 
 import (
 	"archive/tar"
+	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -1781,6 +1783,596 @@ func TestArtifactBuilder_walkAndProcessFiles(t *testing.T) {
 			t.Errorf("Expected walk error, got %v", err)
 		}
 	})
+}
+
+func TestArtifactBuilder_validateOCIDiskCache(t *testing.T) {
+	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
+		t.Helper()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims = mocks.Shims
+		return builder, mocks
+	}
+
+	t.Run("SuccessWhenCacheDirAndArtifactTarExist", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		cacheDir := filepath.Join(tmpDir, "cache")
+		artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == cacheDir || name == artifactTarPath {
+				return &mockFileInfo{name: filepath.Base(name), isDir: name == cacheDir}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		err := builder.validateOCIDiskCache(cacheDir)
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenCacheDirDoesNotExist", func(t *testing.T) {
+		builder, mocks := setup(t)
+		cacheDir := "/nonexistent/cache"
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		err := builder.validateOCIDiskCache(cacheDir)
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("Expected os.ErrNotExist, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenArtifactTarDoesNotExist", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		cacheDir := filepath.Join(tmpDir, "cache")
+		artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == cacheDir {
+				return &mockFileInfo{name: filepath.Base(name), isDir: true}, nil
+			}
+			if name == artifactTarPath {
+				return nil, os.ErrNotExist
+			}
+			return nil, os.ErrNotExist
+		}
+
+		err := builder.validateOCIDiskCache(cacheDir)
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("Expected os.ErrNotExist, got %v", err)
+		}
+	})
+}
+
+func TestArtifactBuilder_validateAndSanitizePath(t *testing.T) {
+	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
+		t.Helper()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims = mocks.Shims
+		return builder, mocks
+	}
+
+	t.Run("SuccessWithValidRelativePath", func(t *testing.T) {
+		builder, _ := setup(t)
+
+		result, err := builder.validateAndSanitizePath("terraform/module/main.tf")
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if result != "terraform/module/main.tf" {
+			t.Errorf("Expected 'terraform/module/main.tf', got %s", result)
+		}
+	})
+
+	t.Run("ErrorWithPathTraversal", func(t *testing.T) {
+		builder, _ := setup(t)
+
+		_, err := builder.validateAndSanitizePath("../../etc/passwd")
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "directory traversal") {
+			t.Errorf("Expected directory traversal error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWithAbsoluteUnixPath", func(t *testing.T) {
+		builder, _ := setup(t)
+
+		_, err := builder.validateAndSanitizePath("/etc/passwd")
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "absolute paths are not allowed") {
+			t.Errorf("Expected absolute path error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWithAbsoluteWindowsPath", func(t *testing.T) {
+		builder, _ := setup(t)
+
+		_, err := builder.validateAndSanitizePath("C:\\Windows\\System32")
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "absolute paths are not allowed") {
+			t.Errorf("Expected absolute path error, got %v", err)
+		}
+	})
+}
+
+func TestArtifactBuilder_extractTarEntries(t *testing.T) {
+	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
+		t.Helper()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims = mocks.Shims
+		return builder, mocks
+	}
+
+	t.Run("ErrorWhenTarReaderFails", func(t *testing.T) {
+		builder, _ := setup(t)
+		tmpDir := t.TempDir()
+
+		mockReader := &mockTarReader{
+			nextFunc: func() (*tar.Header, error) {
+				return nil, fmt.Errorf("read error")
+			},
+		}
+
+		err := builder.extractTarEntries(mockReader, tmpDir)
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to read tar header") {
+			t.Errorf("Expected tar header error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenPathInvalid", func(t *testing.T) {
+		builder, _ := setup(t)
+		tmpDir := t.TempDir()
+
+		mockReader := &mockTarReader{
+			nextFunc: func() (*tar.Header, error) {
+				return &tar.Header{Name: "../../etc/passwd", Typeflag: tar.TypeReg}, nil
+			},
+		}
+
+		err := builder.extractTarEntries(mockReader, tmpDir)
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "invalid path in tar archive") {
+			t.Errorf("Expected invalid path error, got %v", err)
+		}
+	})
+
+	t.Run("SkipsKustomizeDirectory", func(t *testing.T) {
+		builder, _ := setup(t)
+		tmpDir := t.TempDir()
+		callCount := 0
+
+		mockReader := &mockTarReader{
+			nextFunc: func() (*tar.Header, error) {
+				callCount++
+				if callCount == 1 {
+					return &tar.Header{Name: "kustomize/file.yaml", Typeflag: tar.TypeReg}, nil
+				}
+				return nil, io.EOF
+			},
+		}
+
+		err := builder.extractTarEntries(mockReader, tmpDir)
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(tmpDir, "kustomize")); err == nil {
+			t.Error("Expected kustomize directory to be skipped")
+		}
+	})
+
+}
+
+func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {
+	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
+		t.Helper()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims = mocks.Shims
+		return builder, mocks
+	}
+
+	t.Run("ErrorWhenProjectRootNotSet", func(t *testing.T) {
+		builder, _ := setup(t)
+		builder.runtime = nil
+
+		testTar := createTestTarGzForPrivate(t, map[string][]byte{
+			"terraform/module/main.tf": []byte("resource \"test\" {}"),
+		})
+
+		err := builder.extractArtifactToCache(testTar, "registry", "repo", "tag")
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "project root is not set") {
+			t.Errorf("Expected project root error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenExtractTarEntriesFails", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		mocks.Shims.NewTarReader = func(r io.Reader) TarReader {
+			return &mockTarReader{
+				nextFunc: func() (*tar.Header, error) {
+					return nil, fmt.Errorf("tar read error")
+				},
+			}
+		}
+
+		testTar := createTestTarGzForPrivate(t, map[string][]byte{
+			"terraform/module/main.tf": []byte("resource \"test\" {}"),
+		})
+
+		err := builder.extractArtifactToCache(testTar, "registry", "repo", "tag")
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to read tar header") {
+			t.Errorf("Expected tar read error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenCreateArtifactTarFails", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		mocks.Shims.Create = func(name string) (io.WriteCloser, error) {
+			if strings.Contains(name, artifactTarFilename) {
+				return nil, fmt.Errorf("create error")
+			}
+			dir := filepath.Dir(name)
+			os.MkdirAll(dir, 0755)
+			return os.Create(name)
+		}
+
+		testTar := createTestTarGzForPrivate(t, map[string][]byte{
+			"terraform/module/main.tf": []byte("resource \"test\" {}"),
+		})
+
+		err := builder.extractArtifactToCache(testTar, "registry", "repo", "tag")
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to create artifact.tar file") {
+			t.Errorf("Expected create error, got %v", err)
+		}
+	})
+
+	t.Run("Success", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		testTar := createTestTarGzForPrivate(t, map[string][]byte{
+			"terraform/module/main.tf": []byte("resource \"test\" {}"),
+			"metadata.yaml":            []byte("name: test\nversion: v1.0.0\n"),
+		})
+
+		err := builder.extractArtifactToCache(testTar, "registry", "repo", "tag")
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		cacheDir, err := builder.GetCacheDir("registry", "repo", "tag")
+		if err != nil {
+			t.Fatalf("Failed to get cache dir: %v", err)
+		}
+
+		artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
+		if _, err := os.Stat(artifactTarPath); err != nil {
+			t.Errorf("Expected artifact.tar to exist, got error: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenWriteArtifactTarFails", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		mocks.Shims.Create = func(name string) (io.WriteCloser, error) {
+			if strings.Contains(name, artifactTarFilename) {
+				return &errorWriteCloser{}, nil
+			}
+			dir := filepath.Dir(name)
+			os.MkdirAll(dir, 0755)
+			return os.Create(name)
+		}
+
+		testTar := createTestTarGzForPrivate(t, map[string][]byte{
+			"terraform/module/main.tf": []byte("resource \"test\" {}"),
+		})
+
+		err := builder.extractArtifactToCache(testTar, "registry", "repo", "tag")
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to write artifact.tar file") {
+			t.Errorf("Expected write error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenCloseArtifactTarFails", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		mocks.Shims.Create = func(name string) (io.WriteCloser, error) {
+			if strings.Contains(name, artifactTarFilename) {
+				return &errorCloseWriteCloser{}, nil
+			}
+			dir := filepath.Dir(name)
+			os.MkdirAll(dir, 0755)
+			return os.Create(name)
+		}
+
+		testTar := createTestTarGzForPrivate(t, map[string][]byte{
+			"terraform/module/main.tf": []byte("resource \"test\" {}"),
+		})
+
+		err := builder.extractArtifactToCache(testTar, "registry", "repo", "tag")
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to close artifact.tar file") {
+			t.Errorf("Expected close error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenCreateParentDirFails", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		callCount := 0
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			callCount++
+			if callCount > 1 && strings.Contains(path, ".windsor/cache") && !strings.Contains(path, ".tmp") {
+				return fmt.Errorf("mkdir error")
+			}
+			return os.MkdirAll(path, perm)
+		}
+
+		testTar := createTestTarGzForPrivate(t, map[string][]byte{
+			"terraform/module/main.tf": []byte("resource \"test\" {}"),
+		})
+
+		err := builder.extractArtifactToCache(testTar, "registry", "repo", "tag")
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to create parent directory") {
+			t.Errorf("Expected parent dir error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenRemoveExistingExtractionDirFails", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		cacheDir, err := builder.GetCacheDir("registry", "repo", "tag")
+		if err != nil {
+			t.Fatalf("Failed to get cache dir: %v", err)
+		}
+
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache dir: %v", err)
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == cacheDir {
+				return &mockFileInfo{name: filepath.Base(name), isDir: true}, nil
+			}
+			return os.Stat(name)
+		}
+
+		mocks.Shims.RemoveAll = func(path string) error {
+			if path == cacheDir {
+				return fmt.Errorf("remove error")
+			}
+			return os.RemoveAll(path)
+		}
+
+		testTar := createTestTarGzForPrivate(t, map[string][]byte{
+			"terraform/module/main.tf": []byte("resource \"test\" {}"),
+		})
+
+		err = builder.extractArtifactToCache(testTar, "registry", "repo", "tag")
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to remove existing extraction directory") {
+			t.Errorf("Expected remove error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenRenameFails", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		mocks.Shims.Rename = func(oldpath, newpath string) error {
+			return fmt.Errorf("rename error")
+		}
+
+		testTar := createTestTarGzForPrivate(t, map[string][]byte{
+			"terraform/module/main.tf": []byte("resource \"test\" {}"),
+		})
+
+		err := builder.extractArtifactToCache(testTar, "registry", "repo", "tag")
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to rename temporary extraction directory") {
+			t.Errorf("Expected rename error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenCleanupExistingTempDirFails", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		cacheDir, err := builder.GetCacheDir("registry", "repo", "tag")
+		if err != nil {
+			t.Fatalf("Failed to get cache dir: %v", err)
+		}
+
+		tmpExtractionDir := cacheDir + ".tmp"
+		if err := os.MkdirAll(tmpExtractionDir, 0755); err != nil {
+			t.Fatalf("Failed to create temp dir: %v", err)
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == tmpExtractionDir {
+				return &mockFileInfo{name: filepath.Base(name), isDir: true}, nil
+			}
+			return os.Stat(name)
+		}
+
+		mocks.Shims.RemoveAll = func(path string) error {
+			if path == tmpExtractionDir {
+				return fmt.Errorf("remove error")
+			}
+			return os.RemoveAll(path)
+		}
+
+		testTar := createTestTarGzForPrivate(t, map[string][]byte{
+			"terraform/module/main.tf": []byte("resource \"test\" {}"),
+		})
+
+		err = builder.extractArtifactToCache(testTar, "registry", "repo", "tag")
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to clean up existing temporary extraction directory") {
+			t.Errorf("Expected cleanup error, got %v", err)
+		}
+	})
+}
+
+type errorCloseWriteCloser struct{}
+
+func (e *errorCloseWriteCloser) Write(p []byte) (int, error) {
+	return len(p), nil
+}
+
+func (e *errorCloseWriteCloser) Close() error {
+	return fmt.Errorf("close error")
+}
+
+func createTestTarGzForPrivate(t *testing.T, files map[string][]byte) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	tarWriter := tar.NewWriter(&buf)
+
+	for path, content := range files {
+		header := &tar.Header{
+			Name: path,
+			Mode: 0644,
+			Size: int64(len(content)),
+		}
+
+		if err := tarWriter.WriteHeader(header); err != nil {
+			t.Fatalf("Failed to write tar header: %v", err)
+		}
+
+		if _, err := tarWriter.Write(content); err != nil {
+			t.Fatalf("Failed to write tar content: %v", err)
+		}
+	}
+
+	tarWriter.Close()
+
+	return buf.Bytes()
+}
+
+type errorWriteCloser struct{}
+
+func (e *errorWriteCloser) Write(p []byte) (int, error) {
+	return 0, fmt.Errorf("write error")
+}
+
+func (e *errorWriteCloser) Close() error {
+	return nil
+}
+
+type mockTarReader struct {
+	nextFunc func() (*tar.Header, error)
+	readFunc func([]byte) (int, error)
+}
+
+func (m *mockTarReader) Next() (*tar.Header, error) {
+	if m.nextFunc != nil {
+		return m.nextFunc()
+	}
+	return nil, io.EOF
+}
+
+func (m *mockTarReader) Read(p []byte) (int, error) {
+	if m.readFunc != nil {
+		return m.readFunc(p)
+	}
+	return 0, io.EOF
+}
+
+type mockWriteCloser struct{}
+
+func (m *mockWriteCloser) Write(p []byte) (int, error) {
+	return len(p), nil
+}
+
+func (m *mockWriteCloser) Close() error {
+	return nil
 }
 
 // =============================================================================

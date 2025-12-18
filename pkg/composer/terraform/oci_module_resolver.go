@@ -169,8 +169,12 @@ func (h *OCIModuleResolver) extractOCIModule(resolvedSource, componentPath strin
 		return "", fmt.Errorf("failed to get project root: project root is empty")
 	}
 
-	extractionKey := fmt.Sprintf("%s-%s-%s", registry, repository, tag)
-	fullModulePath := filepath.Join(projectRoot, ".windsor", ".oci_extracted", extractionKey, modulePath)
+	cacheDir, err := h.artifactBuilder.GetCacheDir(registry, repository, tag)
+	if err != nil {
+		return "", fmt.Errorf("failed to get cache directory: %w", err)
+	}
+
+	fullModulePath := filepath.Join(cacheDir, modulePath)
 	if _, err := h.shims.Stat(fullModulePath); err == nil {
 		return fullModulePath, nil
 	}
@@ -180,7 +184,7 @@ func (h *OCIModuleResolver) extractOCIModule(resolvedSource, componentPath strin
 		return "", fmt.Errorf("OCI artifact %s not found in cache", cacheKey)
 	}
 
-	if err := h.extractModuleFromArtifact(artifactData, modulePath, extractionKey); err != nil {
+	if err := h.extractModuleFromArtifact(artifactData, modulePath, cacheDir); err != nil {
 		return "", fmt.Errorf("failed to extract module from artifact: %w", err)
 	}
 
@@ -188,22 +192,15 @@ func (h *OCIModuleResolver) extractOCIModule(resolvedSource, componentPath strin
 }
 
 // extractModuleFromArtifact extracts the specified terraform module from the provided artifact data.
-// It unpacks files and directories matching the modulePath from the tar archive into the extraction directory
-// under the project root, preserving file permissions and handling executable scripts. Returns an error if
-// extraction fails at any step, including directory creation, file writing, or permission setting.
-func (h *OCIModuleResolver) extractModuleFromArtifact(artifactData []byte, modulePath, extractionKey string) error {
-	projectRoot := h.runtime.ProjectRoot
-	if projectRoot == "" {
-		return fmt.Errorf("failed to get project root: project root is empty")
-	}
-
+// It unpacks files and directories matching the modulePath from the tar archive into the cache directory,
+// preserving file permissions and handling executable scripts. Returns an error if extraction fails at any step,
+// including directory creation, file writing, or permission setting.
+func (h *OCIModuleResolver) extractModuleFromArtifact(artifactData []byte, modulePath, cacheDir string) error {
 	reader := h.shims.NewBytesReader(artifactData)
 	tarReader := h.shims.NewTarReader(reader)
 	targetPrefix := modulePath
 
-	extractionDir := filepath.Join(projectRoot, ".windsor", ".oci_extracted", extractionKey)
-
-	return h.extractTarEntriesWithFilter(tarReader, extractionDir, targetPrefix)
+	return h.extractTarEntriesWithFilter(tarReader, cacheDir, targetPrefix)
 }
 
 // =============================================================================

@@ -87,6 +87,12 @@ func TestCompositeModuleResolver_ProcessModules(t *testing.T) {
 			}
 			return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
 		}
+		mockArtifactBuilder.GetCacheDirFunc = func(registry, repository, tag string) (string, error) {
+			cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+			extractionKey := strings.ReplaceAll(strings.ReplaceAll(cacheKey, "/", "_"), ":", "_")
+			cacheDir := filepath.Join(tmpDir, ".windsor", "cache", "oci", extractionKey)
+			return cacheDir, nil
+		}
 		mockArtifactBuilder.PullFunc = func(refs []string) (map[string][]byte, error) {
 			artifacts := make(map[string][]byte)
 			for _, ref := range refs {

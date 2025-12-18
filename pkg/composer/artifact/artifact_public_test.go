@@ -1628,6 +1628,8 @@ func TestArtifactBuilder_Push(t *testing.T) {
 func TestArtifactBuilder_Pull(t *testing.T) {
 	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
 		mocks := setupArtifactMocks(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
 		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
 
@@ -1644,13 +1646,25 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 			return []v1.Layer{&mockLayer{}}, nil
 		}
 
+		testTarData := createTestTarGz(t, map[string][]byte{
+			"metadata.yaml":       []byte("name: test\nversion: v1.0.0\n"),
+			"_template/test.yaml": []byte("test content"),
+		})
+
 		mocks.Shims.LayerUncompressed = func(layer v1.Layer) (io.ReadCloser, error) {
-			data := []byte("test artifact data")
-			return io.NopCloser(strings.NewReader(string(data))), nil
+			return io.NopCloser(bytes.NewReader(testTarData)), nil
 		}
 
-		mocks.Shims.ReadAll = func(r io.Reader) ([]byte, error) {
-			return []byte("test artifact data"), nil
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shims.Create = func(name string) (io.WriteCloser, error) {
+			dir := filepath.Dir(name)
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return nil, err
+			}
+			return os.Create(name)
 		}
 
 		return builder, mocks
@@ -1712,9 +1726,11 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		if len(artifacts) != 1 {
 			t.Errorf("expected 1 artifact, got %d", len(artifacts))
 		}
-		expectedData := []byte("test artifact data")
-		if string(artifacts[expectedKey]) != string(expectedData) {
-			t.Errorf("expected artifact data to match test data")
+		if artifacts[expectedKey] == nil {
+			t.Errorf("expected artifact data to be present")
+		}
+		if len(artifacts[expectedKey]) == 0 {
+			t.Errorf("expected artifact data to be non-empty")
 		}
 	})
 
@@ -1726,13 +1742,15 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		downloadCallCount := 0
 		mocks.Shims.LayerUncompressed = func(layer v1.Layer) (io.ReadCloser, error) {
 			downloadCallCount++
-			data := fmt.Sprintf("test artifact data %d", downloadCallCount)
-			return io.NopCloser(strings.NewReader(data)), nil
+			testTarData := createTestTarGz(t, map[string][]byte{
+				"metadata.yaml":       []byte(fmt.Sprintf("name: test%d\nversion: v1.0.0\n", downloadCallCount)),
+				"_template/test.yaml": []byte(fmt.Sprintf("test content %d", downloadCallCount)),
+			})
+			return io.NopCloser(bytes.NewReader(testTarData)), nil
 		}
 
 		mocks.Shims.ReadAll = func(r io.Reader) ([]byte, error) {
-			data, err := io.ReadAll(r)
-			return data, err
+			return io.ReadAll(r)
 		}
 
 		// When Pull is called with multiple different OCI references
@@ -1772,16 +1790,18 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		builder, mocks := setup(t)
 
 		// And mocks that track download calls
-		testData := "test artifact data"
+		testTarData := createTestTarGz(t, map[string][]byte{
+			"metadata.yaml":       []byte("name: test\nversion: v1.0.0\n"),
+			"_template/test.yaml": []byte("test content"),
+		})
 		downloadCallCount := 0
 		mocks.Shims.LayerUncompressed = func(layer v1.Layer) (io.ReadCloser, error) {
 			downloadCallCount++
-			return io.NopCloser(strings.NewReader(testData)), nil
+			return io.NopCloser(bytes.NewReader(testTarData)), nil
 		}
 
 		mocks.Shims.ReadAll = func(r io.Reader) ([]byte, error) {
-			data, err := io.ReadAll(r)
-			return data, err
+			return io.ReadAll(r)
 		}
 
 		// When Pull is called with duplicate OCI references
@@ -1806,8 +1826,8 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		}
 
 		expectedKey := "registry.example.com/my-repo:v1.0.0"
-		if string(artifacts[expectedKey]) != testData {
-			t.Errorf("expected artifact data to match test data")
+		if artifacts[expectedKey] == nil {
+			t.Errorf("expected artifact data to be present")
 		}
 	})
 
@@ -1854,8 +1874,16 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 	t.Run("CachingPreventsRedundantDownloads", func(t *testing.T) {
 		// Given an ArtifactBuilder with mocked dependencies
 		mocks := setupArtifactMocks(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
 		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims = mocks.Shims
 		_ = shell.NewMockShell()
+
+		testTarData := createTestTarGz(t, map[string][]byte{
+			"metadata.yaml":       []byte("name: test\nversion: v1.0.0\n"),
+			"_template/test.yaml": []byte("test content"),
+		})
 
 		// And download counter to track calls
 		downloadCount := 0
@@ -1870,11 +1898,17 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		}
 		builder.shims.LayerUncompressed = func(layer v1.Layer) (io.ReadCloser, error) {
 			downloadCount++
-			data := []byte("test artifact data")
-			return io.NopCloser(bytes.NewReader(data)), nil
+			return io.NopCloser(bytes.NewReader(testTarData)), nil
 		}
-		builder.shims.ReadAll = func(r io.Reader) ([]byte, error) {
-			return io.ReadAll(r)
+		builder.shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		builder.shims.Create = func(name string) (io.WriteCloser, error) {
+			dir := filepath.Dir(name)
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return nil, err
+			}
+			return os.Create(name)
 		}
 
 		ociRefs := []string{
@@ -1925,11 +1959,178 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		}
 	})
 
+	t.Run("RespectsNO_CACHEEnvironmentVariable", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		testTarData := createTestTarGz(t, map[string][]byte{
+			"metadata.yaml":       []byte("name: test\nversion: v1.0.0\n"),
+			"_template/test.yaml": []byte("test content"),
+		})
+
+		downloadCount := 0
+		mocks.Shims.LayerUncompressed = func(layer v1.Layer) (io.ReadCloser, error) {
+			downloadCount++
+			return io.NopCloser(bytes.NewReader(testTarData)), nil
+		}
+
+		os.Setenv("NO_CACHE", "true")
+		defer os.Unsetenv("NO_CACHE")
+
+		artifacts, err := builder.Pull([]string{"oci://registry.example.com/my-repo:v1.0.0"})
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(artifacts) != 1 {
+			t.Errorf("Expected 1 artifact, got %d", len(artifacts))
+		}
+		if downloadCount != 1 {
+			t.Errorf("Expected 1 download (NO_CACHE bypasses cache), got %d", downloadCount)
+		}
+	})
+
+	t.Run("UsesDiskCacheWhenAvailable", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		cacheDir, err := builder.GetCacheDir("registry.example.com", "my-repo", "v1.0.0")
+		if err != nil {
+			t.Fatalf("Failed to get cache dir: %v", err)
+		}
+
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache dir: %v", err)
+		}
+
+		testTarData := createTestTarGz(t, map[string][]byte{
+			"metadata.yaml":       []byte("name: test\nversion: v1.0.0\n"),
+			"_template/test.yaml": []byte("test content"),
+		})
+
+		artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
+		if err := os.WriteFile(artifactTarPath, testTarData, 0644); err != nil {
+			t.Fatalf("Failed to write artifact.tar: %v", err)
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == cacheDir || name == artifactTarPath {
+				return &mockFileInfo{name: filepath.Base(name), isDir: name == cacheDir}, nil
+			}
+			return os.Stat(name)
+		}
+
+		artifacts, err := builder.Pull([]string{"oci://registry.example.com/my-repo:v1.0.0"})
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(artifacts) != 1 {
+			t.Errorf("Expected 1 artifact, got %d", len(artifacts))
+		}
+		if artifacts["registry.example.com/my-repo:v1.0.0"] == nil {
+			t.Error("Expected artifact data, got nil")
+		}
+		if !bytes.Equal(artifacts["registry.example.com/my-repo:v1.0.0"], testTarData) {
+			t.Error("Expected artifact data to match cached data")
+		}
+	})
+
+	t.Run("ErrorWhenReadFileFailsOnCachedArtifact", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		cacheDir, err := builder.GetCacheDir("registry.example.com", "my-repo", "v1.0.0")
+		if err != nil {
+			t.Fatalf("Failed to get cache dir: %v", err)
+		}
+
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache dir: %v", err)
+		}
+
+		artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == cacheDir || name == artifactTarPath {
+				return &mockFileInfo{name: filepath.Base(name), isDir: name == cacheDir}, nil
+			}
+			return os.Stat(name)
+		}
+
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			if name == artifactTarPath {
+				return nil, fmt.Errorf("read error")
+			}
+			return os.ReadFile(name)
+		}
+
+		_, err = builder.Pull([]string{"oci://registry.example.com/my-repo:v1.0.0"})
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to read cached artifact.tar") {
+			t.Errorf("Expected read error, got %v", err)
+		}
+	})
+
+	t.Run("RemovesCorruptedCacheDirectory", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		cacheDir, err := builder.GetCacheDir("registry.example.com", "my-repo", "v1.0.0")
+		if err != nil {
+			t.Fatalf("Failed to get cache dir: %v", err)
+		}
+
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache dir: %v", err)
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == cacheDir {
+				return &mockFileInfo{name: filepath.Base(name), isDir: true}, nil
+			}
+			return nil, fmt.Errorf("stat error")
+		}
+
+		testTarData := createTestTarGz(t, map[string][]byte{
+			"metadata.yaml":       []byte("name: test\nversion: v1.0.0\n"),
+			"_template/test.yaml": []byte("test content"),
+		})
+
+		mocks.Shims.LayerUncompressed = func(layer v1.Layer) (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(testTarData)), nil
+		}
+
+		artifacts, err := builder.Pull([]string{"oci://registry.example.com/my-repo:v1.0.0"})
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(artifacts) != 1 {
+			t.Errorf("Expected 1 artifact, got %d", len(artifacts))
+		}
+	})
+
 	t.Run("CachingWorksWithMixedNewAndCachedArtifacts", func(t *testing.T) {
 		// Given an ArtifactBuilder with mocked dependencies
 		mocks := setupArtifactMocks(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
 		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims = mocks.Shims
 		_ = shell.NewMockShell()
+
+		testTarData := createTestTarGz(t, map[string][]byte{
+			"metadata.yaml":       []byte("name: test\nversion: v1.0.0\n"),
+			"_template/test.yaml": []byte("test content"),
+		})
 
 		// And download counter to track calls
 		downloadCount := 0
@@ -1944,11 +2145,23 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		}
 		builder.shims.LayerUncompressed = func(layer v1.Layer) (io.ReadCloser, error) {
 			downloadCount++
-			data := []byte(fmt.Sprintf("test artifact data %d", downloadCount))
-			return io.NopCloser(bytes.NewReader(data)), nil
+			return io.NopCloser(bytes.NewReader(testTarData)), nil
 		}
 		builder.shims.ReadAll = func(r io.Reader) ([]byte, error) {
 			return io.ReadAll(r)
+		}
+		builder.shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		builder.shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return os.MkdirAll(path, perm)
+		}
+		builder.shims.Create = func(name string) (io.WriteCloser, error) {
+			dir := filepath.Dir(name)
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return nil, err
+			}
+			return os.Create(name)
 		}
 
 		// When Pull is called with one artifact
@@ -2130,10 +2343,16 @@ func TestArtifactBuilder_Bundle(t *testing.T) {
 }
 
 func TestArtifactBuilder_GetTemplateData(t *testing.T) {
-	t.Run("InvalidOCIReference", func(t *testing.T) {
-		// Given an artifact builder
+	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
+		t.Helper()
 		mocks := setupArtifactMocks(t)
 		builder := NewArtifactBuilder(mocks.Runtime)
+		return builder, mocks
+	}
+
+	t.Run("InvalidOCIReference", func(t *testing.T) {
+		// Given an artifact builder
+		builder, _ := setup(t)
 
 		// When calling GetTemplateData with invalid reference
 		templateData, err := builder.GetTemplateData("invalid-ref")
@@ -2152,8 +2371,7 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 
 	t.Run("ErrorParsingOCIReference", func(t *testing.T) {
 		// Given an artifact builder with mock shims
-		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder(mocks.Runtime)
+		builder, _ := setup(t)
 		builder.shims = &Shims{
 			ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
 				return nil, fmt.Errorf("parse error")
@@ -2177,8 +2395,7 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 
 	t.Run("UsesCachedArtifact", func(t *testing.T) {
 		// Given an artifact builder with cached data
-		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder(mocks.Runtime)
+		builder, _ := setup(t)
 
 		// Create test tar.gz data
 		testData := createTestTarGz(t, map[string][]byte{
@@ -2233,8 +2450,7 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 
 	t.Run("FiltersOnlyJsonnetFiles", func(t *testing.T) {
 		// Given an artifact builder with cached data containing multiple file types
-		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder(mocks.Runtime)
+		builder, _ := setup(t)
 
 		// Create test tar.gz data with mixed file types
 		testData := createTestTarGz(t, map[string][]byte{
@@ -2288,8 +2504,7 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 
 	t.Run("ErrorWhenMissingMetadata", func(t *testing.T) {
 		// Given an artifact builder with cached data missing metadata.yaml
-		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder(mocks.Runtime)
+		builder, _ := setup(t)
 
 		// Create test tar.gz data without metadata.yaml
 		testData := createTestTarGz(t, map[string][]byte{
@@ -2323,8 +2538,7 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 
 	t.Run("SuccessWithoutBlueprintJsonnet", func(t *testing.T) {
 		// Given an artifact builder with cached data without _template/blueprint.jsonnet
-		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder(mocks.Runtime)
+		builder, _ := setup(t)
 
 		// Create test tar.gz data without _template/blueprint.jsonnet
 		testData := createTestTarGz(t, map[string][]byte{
@@ -2364,8 +2578,7 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 
 	t.Run("SuccessWithOptionalSchema", func(t *testing.T) {
 		// Given an artifact builder with cached data missing optional schema.yaml
-		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder(mocks.Runtime)
+		builder, _ := setup(t)
 
 		// Create test tar.gz data without schema.yaml
 		testData := createTestTarGz(t, map[string][]byte{
@@ -2421,8 +2634,7 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 
 	t.Run("SuccessWithRequiredFiles", func(t *testing.T) {
 		// Given an artifact builder with cached data containing required files
-		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder(mocks.Runtime)
+		builder, _ := setup(t)
 
 		// Create test tar.gz data with required files
 		testData := createTestTarGz(t, map[string][]byte{
@@ -2468,8 +2680,7 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 
 	t.Run("ValidatesCliVersionFromMetadata", func(t *testing.T) {
 		// Given an artifact builder with cached data containing cliVersion
-		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder(mocks.Runtime)
+		builder, _ := setup(t)
 
 		// Create test tar.gz data with cliVersion in metadata
 		testData := createTestTarGz(t, map[string][]byte{
@@ -2505,8 +2716,7 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 
 	t.Run("ErrorWhenPullFails", func(t *testing.T) {
 		// Given an artifact builder without cached data
-		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder(mocks.Runtime)
+		builder, _ := setup(t)
 
 		builder.shims = &Shims{
 			ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
@@ -2534,8 +2744,7 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 
 	t.Run("ErrorWhenTarReaderNextFails", func(t *testing.T) {
 		// Given an artifact builder with corrupted tar data
-		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder(mocks.Runtime)
+		builder, _ := setup(t)
 
 		// Create corrupted tar data
 		corruptedData := []byte("not a valid tar archive")
@@ -2566,8 +2775,7 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 
 	t.Run("ErrorWhenMetadataYamlUnmarshalFails", func(t *testing.T) {
 		// Given an artifact builder with invalid metadata.yaml
-		mocks := setupArtifactMocks(t)
-		builder := NewArtifactBuilder(mocks.Runtime)
+		builder, _ := setup(t)
 
 		// Create test tar.gz data with invalid metadata
 		testData := createTestTarGz(t, map[string][]byte{
@@ -2602,6 +2810,185 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		}
 	})
 
+	t.Run("InvalidBlueprintReference", func(t *testing.T) {
+		builder, _ := setup(t)
+
+		_, err := builder.GetTemplateData("invalid://reference")
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "invalid blueprint reference") {
+			t.Errorf("Expected invalid blueprint reference error, got %v", err)
+		}
+	})
+
+	t.Run("SuccessWithTarGzFile", func(t *testing.T) {
+		builder, _ := setup(t)
+		tmpDir := t.TempDir()
+		tarGzPath := filepath.Join(tmpDir, "test.tar.gz")
+
+		tarData := createTestTarGz(t, map[string][]byte{
+			"metadata.yaml":               []byte("name: test\nversion: v1.0.0\n"),
+			"_template/blueprint.jsonnet": []byte("{ blueprint: 'content' }"),
+		})
+
+		var gzBuf bytes.Buffer
+		gzw := gzip.NewWriter(&gzBuf)
+		if _, err := gzw.Write(tarData); err != nil {
+			t.Fatalf("Failed to write gzip data: %v", err)
+		}
+		if err := gzw.Close(); err != nil {
+			t.Fatalf("Failed to close gzip writer: %v", err)
+		}
+
+		if err := os.WriteFile(tarGzPath, gzBuf.Bytes(), 0644); err != nil {
+			t.Fatalf("Failed to write test tar.gz file: %v", err)
+		}
+
+		templateData, err := builder.GetTemplateData(tarGzPath)
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if templateData == nil {
+			t.Error("Expected template data, got nil")
+		}
+		if _, exists := templateData["_template/blueprint.jsonnet"]; !exists {
+			t.Error("Expected _template/blueprint.jsonnet to be included")
+		}
+	})
+
+	t.Run("ErrorWhenTarGzFileDoesNotExist", func(t *testing.T) {
+		builder, _ := setup(t)
+
+		_, err := builder.GetTemplateData("/nonexistent/file.tar.gz")
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to read local artifact file") {
+			t.Errorf("Expected file read error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenTarGzFileIsInvalid", func(t *testing.T) {
+		builder, _ := setup(t)
+		tmpDir := t.TempDir()
+		tarGzPath := filepath.Join(tmpDir, "invalid.tar.gz")
+
+		if err := os.WriteFile(tarGzPath, []byte("not a valid gzip file"), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+
+		_, err := builder.GetTemplateData(tarGzPath)
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to create gzip reader") {
+			t.Errorf("Expected gzip reader error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenGzipReadFails", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		tarGzPath := filepath.Join(tmpDir, "test.tar.gz")
+
+		var gzBuf bytes.Buffer
+		gzw := gzip.NewWriter(&gzBuf)
+		gzw.Write([]byte("test data"))
+		gzw.Close()
+
+		if err := os.WriteFile(tarGzPath, gzBuf.Bytes(), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+
+		readCallCount := 0
+		mocks.Shims.ReadAll = func(r io.Reader) ([]byte, error) {
+			readCallCount++
+			if readCallCount == 1 {
+				return nil, fmt.Errorf("read error")
+			}
+			return io.ReadAll(r)
+		}
+
+		_, err := builder.GetTemplateData(tarGzPath)
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to decompress artifact file") && !strings.Contains(err.Error(), "failed to read tar header") {
+			t.Errorf("Expected decompress or tar read error, got %v", err)
+		}
+	})
+
+}
+
+func TestArtifactBuilder_GetCacheDir(t *testing.T) {
+	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
+		t.Helper()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims = mocks.Shims
+		return builder, mocks
+	}
+
+	t.Run("ReturnsOCICacheDir", func(t *testing.T) {
+		// Given a builder with project root
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		// When getting cache dir for OCI artifact
+		cacheDir, err := builder.GetCacheDir("ghcr.io", "example/repo", "v1.0.0")
+
+		// Then should return correct path
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		expectedPath := filepath.Join(tmpDir, ".windsor", "cache", "oci", "ghcr.io_example_repo_v1.0.0")
+		if cacheDir != expectedPath {
+			t.Errorf("Expected cache dir %s, got %s", expectedPath, cacheDir)
+		}
+	})
+
+	t.Run("HandlesComplexRegistryPaths", func(t *testing.T) {
+		// Given a builder with project root
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		// When getting cache dir with complex registry path
+		cacheDir, err := builder.GetCacheDir("registry.example.com", "namespace/subnamespace/repo", "latest")
+
+		// Then should return correct path with sanitized extraction key
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		expectedPath := filepath.Join(tmpDir, ".windsor", "cache", "oci", "registry.example.com_namespace_subnamespace_repo_latest")
+		if cacheDir != expectedPath {
+			t.Errorf("Expected cache dir %s, got %s", expectedPath, cacheDir)
+		}
+	})
+
+	t.Run("ErrorWhenProjectRootNotSet", func(t *testing.T) {
+		// Given a builder without project root
+		builder, mocks := setup(t)
+		mocks.Runtime.ProjectRoot = ""
+
+		// When getting cache dir
+		_, err := builder.GetCacheDir("ghcr.io", "example/repo", "v1.0.0")
+
+		// Then should return error
+		if err == nil {
+			t.Fatal("Expected error when project root is not set")
+		}
+		if !strings.Contains(err.Error(), "project root is not set") {
+			t.Errorf("Expected error about project root, got %v", err)
+		}
+	})
 }
 
 // createTestTarGz creates a test tar archive with the given files
