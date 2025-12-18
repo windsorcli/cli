@@ -14,7 +14,7 @@ packages:
 - name: hashicorp/terraform@v1.14.3
 - name: siderolabs/talos@v1.11.6
 - name: siderolabs/omni/omnictl@v1.3.4
-- name: siderolabs/omni/omni@v1.3.4
+- name: siderolabs/omni/omni@v1.4.0
 - name: kubernetes/kubectl@v1.34.3
 - name: go-task/task@v3.45.5
 - name: golang/go@go1.25.5
