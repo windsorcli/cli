@@ -115,6 +115,22 @@ func TestMockArtifact_Write(t *testing.T) {
 			t.Errorf("Expected error %v, got %v", expectedError, err)
 		}
 	})
+
+	t.Run("ReturnsDefaultWhenWriteFuncNotSet", func(t *testing.T) {
+		// Given
+		mockArtifact := setupMockArtifactMocks(t)
+
+		// When writing without func set
+		path, err := mockArtifact.Write("/test", "v1.0.0")
+
+		// Then should return default values
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if path != "" {
+			t.Errorf("Expected empty path, got %s", path)
+		}
+	})
 }
 
 // TestMockArtifact_Push tests the Push method of MockArtifact
@@ -149,6 +165,36 @@ func TestMockArtifact_Push(t *testing.T) {
 		// Then should return the error
 		if err != expectedError {
 			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenBundleFails", func(t *testing.T) {
+		// Given
+		mockArtifact := setupMockArtifactMocks(t)
+		expectedError := errors.New("bundle error")
+		mockArtifact.BundleFunc = func() error {
+			return expectedError
+		}
+
+		// When pushing
+		err := mockArtifact.Push("registry.example.com", "test-repo", "v1.0.0")
+
+		// Then should return bundle error
+		if err != expectedError {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("ReturnsDefaultWhenPushFuncNotSet", func(t *testing.T) {
+		// Given
+		mockArtifact := setupMockArtifactMocks(t)
+
+		// When pushing without func set
+		err := mockArtifact.Push("registry.example.com", "test-repo", "v1.0.0")
+
+		// Then should return no error
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 }
@@ -191,6 +237,25 @@ func TestMockArtifact_Pull(t *testing.T) {
 			t.Errorf("Expected error %v, got %v", expectedError, err)
 		}
 	})
+
+	t.Run("ReturnsDefaultWhenPullFuncNotSet", func(t *testing.T) {
+		// Given
+		mockArtifact := setupMockArtifactMocks(t)
+
+		// When pulling without func set
+		data, err := mockArtifact.Pull([]string{"registry.example.com/test-repo:v1.0.0"})
+
+		// Then should return default values
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if data == nil {
+			t.Error("Expected empty map, got nil")
+		}
+		if len(data) != 0 {
+			t.Errorf("Expected empty map, got map with %d entries", len(data))
+		}
+	})
 }
 
 // TestMockArtifact_GetTemplateData tests the GetTemplateData method of MockArtifact
@@ -229,6 +294,151 @@ func TestMockArtifact_GetTemplateData(t *testing.T) {
 		// Then should return the error
 		if err != expectedError {
 			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("ReturnsDefaultWhenGetTemplateDataFuncNotSet", func(t *testing.T) {
+		// Given
+		mockArtifact := setupMockArtifactMocks(t)
+
+		// When getting template data without func set
+		data, err := mockArtifact.GetTemplateData("registry.example.com/test-repo:v1.0.0")
+
+		// Then should return default values
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if data == nil {
+			t.Error("Expected empty map, got nil")
+		}
+		if len(data) != 0 {
+			t.Errorf("Expected empty map, got map with %d entries", len(data))
+		}
+	})
+}
+
+// TestMockArtifact_ParseOCIRef tests the ParseOCIRef method of MockArtifact
+func TestMockArtifact_ParseOCIRef(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given
+		mockArtifact := setupMockArtifactMocks(t)
+		expectedRegistry := "registry.example.com"
+		expectedRepository := "test-repo"
+		expectedTag := "v1.0.0"
+		mockArtifact.ParseOCIRefFunc = func(ociRef string) (registry, repository, tag string, err error) {
+			return expectedRegistry, expectedRepository, expectedTag, nil
+		}
+
+		// When parsing OCI reference
+		registry, repository, tag, err := mockArtifact.ParseOCIRef("oci://registry.example.com/test-repo:v1.0.0")
+
+		// Then should succeed
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if registry != expectedRegistry {
+			t.Errorf("Expected registry %s, got %s", expectedRegistry, registry)
+		}
+		if repository != expectedRepository {
+			t.Errorf("Expected repository %s, got %s", expectedRepository, repository)
+		}
+		if tag != expectedTag {
+			t.Errorf("Expected tag %s, got %s", expectedTag, tag)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenParseOCIRefFuncSet", func(t *testing.T) {
+		// Given
+		mockArtifact := setupMockArtifactMocks(t)
+		expectedError := errors.New("parse error")
+		mockArtifact.ParseOCIRefFunc = func(ociRef string) (registry, repository, tag string, err error) {
+			return "", "", "", expectedError
+		}
+
+		// When parsing OCI reference
+		_, _, _, err := mockArtifact.ParseOCIRef("oci://registry.example.com/test-repo:v1.0.0")
+
+		// Then should return the error
+		if err != expectedError {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("ReturnsDefaultWhenParseOCIRefFuncNotSet", func(t *testing.T) {
+		// Given
+		mockArtifact := setupMockArtifactMocks(t)
+
+		// When parsing OCI reference without func set
+		registry, repository, tag, err := mockArtifact.ParseOCIRef("oci://registry.example.com/test-repo:v1.0.0")
+
+		// Then should return default values
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if registry != "" {
+			t.Errorf("Expected empty registry, got %s", registry)
+		}
+		if repository != "" {
+			t.Errorf("Expected empty repository, got %s", repository)
+		}
+		if tag != "" {
+			t.Errorf("Expected empty tag, got %s", tag)
+		}
+	})
+}
+
+// TestMockArtifact_GetCacheDir tests the GetCacheDir method of MockArtifact
+func TestMockArtifact_GetCacheDir(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given
+		mockArtifact := setupMockArtifactMocks(t)
+		expectedCacheDir := "/test/cache/dir"
+		mockArtifact.GetCacheDirFunc = func(registry, repository, tag string) (string, error) {
+			return expectedCacheDir, nil
+		}
+
+		// When getting cache directory
+		cacheDir, err := mockArtifact.GetCacheDir("registry.example.com", "test-repo", "v1.0.0")
+
+		// Then should succeed
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if cacheDir != expectedCacheDir {
+			t.Errorf("Expected cache dir %s, got %s", expectedCacheDir, cacheDir)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenGetCacheDirFuncSet", func(t *testing.T) {
+		// Given
+		mockArtifact := setupMockArtifactMocks(t)
+		expectedError := errors.New("cache dir error")
+		mockArtifact.GetCacheDirFunc = func(registry, repository, tag string) (string, error) {
+			return "", expectedError
+		}
+
+		// When getting cache directory
+		_, err := mockArtifact.GetCacheDir("registry.example.com", "test-repo", "v1.0.0")
+
+		// Then should return the error
+		if err != expectedError {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("ReturnsDefaultWhenGetCacheDirFuncNotSet", func(t *testing.T) {
+		// Given
+		mockArtifact := setupMockArtifactMocks(t)
+
+		// When getting cache directory without func set
+		cacheDir, err := mockArtifact.GetCacheDir("registry.example.com", "test-repo", "v1.0.0")
+
+		// Then should return default values
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if cacheDir != "" {
+			t.Errorf("Expected empty cache dir, got %s", cacheDir)
 		}
 	})
 }
