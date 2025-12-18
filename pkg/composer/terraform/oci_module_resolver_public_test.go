@@ -3,6 +3,7 @@ package terraform
 import (
 	"archive/tar"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -114,6 +115,12 @@ func TestOCIModuleResolver_ProcessModules(t *testing.T) {
 
 		// Set up artifact builder to return mock data with correct cache key
 		mockArtifactBuilder := artifact.NewMockArtifact()
+		mockArtifactBuilder.ParseOCIRefFunc = func(ociRef string) (registry, repository, tag string, err error) {
+			if ociRef == "oci://registry.example.com/module:latest" {
+				return "registry.example.com", "module", "latest", nil
+			}
+			return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
+		}
 		mockArtifactBuilder.PullFunc = func(refs []string) (map[string][]byte, error) {
 			artifacts := make(map[string][]byte)
 			for _, ref := range refs {

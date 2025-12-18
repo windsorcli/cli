@@ -933,7 +933,7 @@ func TestArtifactBuilder_createOCIArtifactImage(t *testing.T) {
 	})
 }
 
-func TestArtifactBuilder_parseOCIRef(t *testing.T) {
+func TestArtifactBuilder_ParseOCIRef(t *testing.T) {
 	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
 		mocks := setupArtifactMocks(t)
 		builder := NewArtifactBuilder(mocks.Runtime)
@@ -945,8 +945,8 @@ func TestArtifactBuilder_parseOCIRef(t *testing.T) {
 		// Given an ArtifactBuilder
 		builder, _ := setup(t)
 
-		// When parseOCIRef is called with valid OCI reference
-		registry, repository, tag, err := builder.parseOCIRef("oci://registry.example.com/my-repo:v1.0.0")
+		// When ParseOCIRef is called with valid OCI reference
+		registry, repository, tag, err := builder.ParseOCIRef("oci://registry.example.com/my-repo:v1.0.0")
 
 		// Then no error should occur
 		if err != nil {
@@ -969,8 +969,8 @@ func TestArtifactBuilder_parseOCIRef(t *testing.T) {
 		// Given an ArtifactBuilder
 		builder, _ := setup(t)
 
-		// When parseOCIRef is called with invalid prefix
-		_, _, _, err := builder.parseOCIRef("https://registry.example.com/my-repo:v1.0.0")
+		// When ParseOCIRef is called with invalid prefix
+		_, _, _, err := builder.ParseOCIRef("https://registry.example.com/my-repo:v1.0.0")
 
 		// Then an error should be returned
 		if err == nil {
@@ -988,8 +988,8 @@ func TestArtifactBuilder_parseOCIRef(t *testing.T) {
 		// Given an ArtifactBuilder
 		builder, _ := setup(t)
 
-		// When parseOCIRef is called with missing tag
-		_, _, _, err := builder.parseOCIRef("oci://registry.example.com/my-repo")
+		// When ParseOCIRef is called with missing tag
+		_, _, _, err := builder.ParseOCIRef("oci://registry.example.com/my-repo")
 
 		// Then an error should be returned
 		if err == nil {
@@ -1007,8 +1007,8 @@ func TestArtifactBuilder_parseOCIRef(t *testing.T) {
 		// Given an ArtifactBuilder
 		builder, _ := setup(t)
 
-		// When parseOCIRef is called with missing repository
-		_, _, _, err := builder.parseOCIRef("oci://registry.example.com:v1.0.0")
+		// When ParseOCIRef is called with missing repository
+		_, _, _, err := builder.ParseOCIRef("oci://registry.example.com:v1.0.0")
 
 		// Then an error should be returned
 		if err == nil {
@@ -1026,8 +1026,8 @@ func TestArtifactBuilder_parseOCIRef(t *testing.T) {
 		// Given an ArtifactBuilder
 		builder, _ := setup(t)
 
-		// When parseOCIRef is called with nested repository path
-		registry, repository, tag, err := builder.parseOCIRef("oci://registry.example.com/organization/my-repo:v1.0.0")
+		// When ParseOCIRef is called with nested repository path
+		registry, repository, tag, err := builder.ParseOCIRef("oci://registry.example.com/organization/my-repo:v1.0.0")
 
 		// Then no error should occur
 		if err != nil {

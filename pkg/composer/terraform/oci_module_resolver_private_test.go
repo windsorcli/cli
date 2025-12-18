@@ -3,6 +3,7 @@ package terraform
 import (
 	"archive/tar"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -22,8 +23,8 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 	t.Run("ParsesValidReferences", func(t *testing.T) {
 		// Given a resolver
 		mocks := setupTerraformMocks(t)
-		mockArtifactBuilder := artifact.NewMockArtifact()
-		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
+		artifactBuilder := artifact.NewArtifactBuilder(mocks.Runtime)
+		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, artifactBuilder)
 		resolver.BaseModuleResolver.shims = mocks.Shims
 
 		// When parsing various valid OCI references
@@ -39,7 +40,7 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 
 		for _, tc := range testCases {
 			// Then it should parse correctly
-			registry, repository, tag, err := resolver.parseOCIRef(tc.ociRef)
+			registry, repository, tag, err := resolver.artifactBuilder.ParseOCIRef(tc.ociRef)
 			if err != nil {
 				t.Errorf("Expected nil error for %s, got %v", tc.ociRef, err)
 			}
@@ -58,8 +59,8 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 	t.Run("HandlesInvalidReferences", func(t *testing.T) {
 		// Given a resolver
 		mocks := setupTerraformMocks(t)
-		mockArtifactBuilder := artifact.NewMockArtifact()
-		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
+		artifactBuilder := artifact.NewArtifactBuilder(mocks.Runtime)
+		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, artifactBuilder)
 		resolver.BaseModuleResolver.shims = mocks.Shims
 
 		// When parsing invalid OCI references
@@ -71,7 +72,7 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 
 		for _, ociRef := range testCases {
 			// Then it should return an error
-			_, _, _, err := resolver.parseOCIRef(ociRef)
+			_, _, _, err := resolver.artifactBuilder.ParseOCIRef(ociRef)
 			if err == nil {
 				t.Errorf("Expected error for invalid reference %s, got nil", ociRef)
 			}
@@ -81,8 +82,8 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 	t.Run("HandlesEdgeCases", func(t *testing.T) {
 		// Given a resolver
 		mocks := setupTerraformMocks(t)
-		mockArtifactBuilder := artifact.NewMockArtifact()
-		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
+		artifactBuilder := artifact.NewArtifactBuilder(mocks.Runtime)
+		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, artifactBuilder)
 		resolver.BaseModuleResolver.shims = mocks.Shims
 
 		// When parsing edge case OCI references
@@ -104,7 +105,7 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 
 		for _, tc := range errorCases {
 			// Then it should return appropriate errors
-			_, _, _, err := resolver.parseOCIRef(tc.ociRef)
+			_, _, _, err := resolver.artifactBuilder.ParseOCIRef(tc.ociRef)
 			if err == nil {
 				t.Errorf("Expected error for %s (%s), got nil", tc.name, tc.ociRef)
 			} else if !strings.Contains(err.Error(), tc.errorText) {
@@ -116,8 +117,8 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 	t.Run("HandlesComplexValidReferences", func(t *testing.T) {
 		// Given a resolver
 		mocks := setupTerraformMocks(t)
-		mockArtifactBuilder := artifact.NewMockArtifact()
-		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
+		artifactBuilder := artifact.NewArtifactBuilder(mocks.Runtime)
+		resolver := NewOCIModuleResolver(mocks.Runtime, mocks.BlueprintHandler, artifactBuilder)
 		resolver.BaseModuleResolver.shims = mocks.Shims
 
 		// When parsing complex but valid OCI references
@@ -135,7 +136,7 @@ func TestOCIModuleResolver_parseOCIRef(t *testing.T) {
 
 		for _, tc := range testCases {
 			// Then it should parse correctly
-			registry, repository, tag, err := resolver.parseOCIRef(tc.ociRef)
+			registry, repository, tag, err := resolver.artifactBuilder.ParseOCIRef(tc.ociRef)
 			if err != nil {
 				t.Errorf("Expected nil error for %s, got %v", tc.ociRef, err)
 			}
@@ -171,6 +172,14 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 			"registry.example.com/module:latest": []byte("mock artifact data"),
 		}
 
+		// Set up ParseOCIRef mock
+		resolver.artifactBuilder.(*artifact.MockArtifact).ParseOCIRefFunc = func(ociRef string) (registry, repository, tag string, err error) {
+			if ociRef == "oci://registry.example.com/module:latest" {
+				return "registry.example.com", "module", "latest", nil
+			}
+			return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
+		}
+
 		// Mock tar reader for successful extraction
 		mockTarReader := &MockTarReader{
 			NextFunc: func() (*tar.Header, error) {
@@ -201,6 +210,14 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 		componentPath := "test-module"
 		ociArtifacts := map[string][]byte{
 			"registry.example.com/module:latest": []byte("mock artifact data"),
+		}
+
+		// Set up ParseOCIRef mock
+		resolver.artifactBuilder.(*artifact.MockArtifact).ParseOCIRefFunc = func(ociRef string) (registry, repository, tag string, err error) {
+			if ociRef == "oci://registry.example.com/module:latest" {
+				return "registry.example.com", "module", "latest", nil
+			}
+			return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
 		}
 
 		// Mock Stat to return success (cache hit)
@@ -260,6 +277,15 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 			if tc.name != "InvalidOCISourceFormat" && tc.name != "MissingPathSeparator" {
 				resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 			}
+			// Set up ParseOCIRef mock for valid OCI references
+			if strings.HasPrefix(tc.resolvedSource, "oci://") && tc.name == "ArtifactNotFoundInCache" {
+				resolver.artifactBuilder.(*artifact.MockArtifact).ParseOCIRefFunc = func(ociRef string) (registry, repository, tag string, err error) {
+					if ociRef == "oci://registry.example.com/module:latest" {
+						return "registry.example.com", "module", "latest", nil
+					}
+					return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
+				}
+			}
 			// When extracting OCI module with error conditions
 			_, err := resolver.extractOCIModule(tc.resolvedSource, tc.componentPath, tc.ociArtifacts)
 
@@ -280,6 +306,14 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 		componentPath := "test-module"
 		ociArtifacts := map[string][]byte{
 			"registry.example.com/module:latest": []byte("mock artifact data"),
+		}
+
+		// Set up ParseOCIRef mock
+		resolver.artifactBuilder.(*artifact.MockArtifact).ParseOCIRefFunc = func(ociRef string) (registry, repository, tag string, err error) {
+			if ociRef == "oci://registry.example.com/module:latest" {
+				return "registry.example.com", "module", "latest", nil
+			}
+			return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
 		}
 
 		// Set ProjectRoot to empty to trigger error
@@ -304,6 +338,11 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 		componentPath := "test-module"
 		ociArtifacts := map[string][]byte{}
 
+		// Set up ParseOCIRef mock to return error
+		resolver.artifactBuilder.(*artifact.MockArtifact).ParseOCIRefFunc = func(ociRef string) (registry, repository, tag string, err error) {
+			return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef)
+		}
+
 		// When extracting OCI module
 		_, err := resolver.extractOCIModule(resolvedSource, componentPath, ociArtifacts)
 
@@ -323,6 +362,14 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 		componentPath := "test-module"
 		ociArtifacts := map[string][]byte{
 			"registry.example.com/module:latest": []byte("mock artifact data"),
+		}
+
+		// Set up ParseOCIRef mock
+		resolver.artifactBuilder.(*artifact.MockArtifact).ParseOCIRefFunc = func(ociRef string) (registry, repository, tag string, err error) {
+			if ociRef == "oci://registry.example.com/module:latest" {
+				return "registry.example.com", "module", "latest", nil
+			}
+			return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
 		}
 
 		// Set ProjectRoot to empty to trigger error during extraction
@@ -668,6 +715,14 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 			"registry.example.com/module:latest": []byte("mock artifact data"),
 		}
 
+		// Set up ParseOCIRef mock
+		resolver.artifactBuilder.(*artifact.MockArtifact).ParseOCIRefFunc = func(ociRef string) (registry, repository, tag string, err error) {
+			if ociRef == "oci://registry.example.com/module:latest" {
+				return "registry.example.com", "module", "latest", nil
+			}
+			return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
+		}
+
 		// Mock tar reader for successful extraction
 		mockTarReader := &MockTarReader{
 			NextFunc: func() (*tar.Header, error) {
@@ -751,6 +806,14 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 			"registry.example.com/module:latest": []byte("mock artifact data"),
 		}
 
+		// Set up ParseOCIRef mock
+		resolver.artifactBuilder.(*artifact.MockArtifact).ParseOCIRefFunc = func(ociRef string) (registry, repository, tag string, err error) {
+			if ociRef == "oci://registry.example.com/module:latest" {
+				return "registry.example.com", "module", "latest", nil
+			}
+			return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
+		}
+
 		// Mock tar reader for successful extraction
 		mockTarReader := &MockTarReader{
 			NextFunc: func() (*tar.Header, error) {
@@ -789,6 +852,14 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 		}
 		ociArtifacts := map[string][]byte{
 			"registry.example.com/module:latest": []byte("mock artifact data"),
+		}
+
+		// Set up ParseOCIRef mock
+		resolver.artifactBuilder.(*artifact.MockArtifact).ParseOCIRefFunc = func(ociRef string) (registry, repository, tag string, err error) {
+			if ociRef == "oci://registry.example.com/module:latest" {
+				return "registry.example.com", "module", "latest", nil
+			}
+			return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
 		}
 
 		// Mock tar reader for successful extraction
@@ -832,6 +903,14 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 		}
 		ociArtifacts := map[string][]byte{
 			"registry.example.com/module:latest": []byte("mock artifact data"),
+		}
+
+		// Set up ParseOCIRef mock
+		resolver.artifactBuilder.(*artifact.MockArtifact).ParseOCIRefFunc = func(ociRef string) (registry, repository, tag string, err error) {
+			if ociRef == "oci://registry.example.com/module:latest" {
+				return "registry.example.com", "module", "latest", nil
+			}
+			return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
 		}
 
 		// Mock tar reader for successful extraction
@@ -912,6 +991,14 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 		}
 		ociArtifacts := map[string][]byte{
 			"registry.example.com/module:latest": []byte("mock artifact data"),
+		}
+
+		// Set up ParseOCIRef mock
+		resolver.artifactBuilder.(*artifact.MockArtifact).ParseOCIRefFunc = func(ociRef string) (registry, repository, tag string, err error) {
+			if ociRef == "oci://registry.example.com/module:latest" {
+				return "registry.example.com", "module", "latest", nil
+			}
+			return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
 		}
 
 		// Mock tar reader for successful extraction
