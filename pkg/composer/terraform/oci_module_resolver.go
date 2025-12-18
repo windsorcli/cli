@@ -45,17 +45,6 @@ func NewOCIModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.Bluepr
 // Public Methods
 // =============================================================================
 
-// shouldHandle determines if this resolver should handle the given source by checking
-// if the source is an OCI artifact URL. Returns true only for sources that begin with
-// the "oci://" protocol prefix, indicating they are OCI registry artifacts.
-func (h *OCIModuleResolver) shouldHandle(source string) bool {
-	if !strings.HasPrefix(source, "oci://") {
-		return false
-	}
-
-	return true
-}
-
 // ProcessModules processes all terraform components that use OCI sources by extracting
 // modules from OCI artifacts and generating appropriate module shims. It identifies
 // components with resolved OCI source URLs, extracts the required modules, and creates
@@ -168,7 +157,7 @@ func (h *OCIModuleResolver) extractOCIModule(resolvedSource, componentPath strin
 	baseURL := resolvedSource[:6+pathSeparatorIdx]      // oci://registry/repo:tag
 	modulePath := resolvedSource[6+pathSeparatorIdx+2:] // terraform/path/to/module
 
-	registry, repository, tag, err := h.parseOCIRef(baseURL)
+	registry, repository, tag, err := h.artifactBuilder.ParseOCIRef(baseURL)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse OCI reference: %w", err)
 	}
@@ -214,116 +203,22 @@ func (h *OCIModuleResolver) extractModuleFromArtifact(artifactData []byte, modul
 
 	extractionDir := filepath.Join(projectRoot, ".windsor", ".oci_extracted", extractionKey)
 
-	for {
-		header, err := tarReader.Next()
-		if err == h.shims.EOFError() {
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("failed to read tar header: %w", err)
-		}
-
-		if !strings.HasPrefix(header.Name, targetPrefix) {
-			continue
-		}
-
-		// Validate and sanitize the path to prevent directory traversal
-		sanitizedPath, err := h.validateAndSanitizePath(header.Name)
-		if err != nil {
-			return fmt.Errorf("invalid path in tar archive: %w", err)
-		}
-
-		destPath := filepath.Join(extractionDir, sanitizedPath)
-
-		// Ensure the destination path is still within the extraction directory
-		if !strings.HasPrefix(destPath, extractionDir) {
-			return fmt.Errorf("path traversal attempt detected: %s", header.Name)
-		}
-
-		if header.Typeflag == h.shims.TypeDir() {
-			if err := h.shims.MkdirAll(destPath, 0755); err != nil {
-				return fmt.Errorf("failed to create directory %s: %w", destPath, err)
-			}
-			continue
-		}
-
-		if err := h.shims.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-			return fmt.Errorf("failed to create parent directory for %s: %w", destPath, err)
-		}
-
-		file, err := h.shims.Create(destPath)
-		if err != nil {
-			return fmt.Errorf("failed to create file %s: %w", destPath, err)
-		}
-
-		_, err = h.shims.Copy(file, tarReader)
-		if closeErr := file.Close(); closeErr != nil {
-			return fmt.Errorf("failed to close file %s: %w", destPath, closeErr)
-		}
-		if err != nil {
-			return fmt.Errorf("failed to write file %s: %w", destPath, err)
-		}
-
-		modeValue := header.Mode & 0777
-		if modeValue < 0 || modeValue > 0777 {
-			return fmt.Errorf("invalid file mode %o for %s", header.Mode, destPath)
-		}
-		fileMode := os.FileMode(uint32(modeValue))
-
-		if strings.HasSuffix(destPath, ".sh") {
-			fileMode |= 0111
-		}
-
-		if err := h.shims.Chmod(destPath, fileMode); err != nil {
-			return fmt.Errorf("failed to set file permissions for %s: %w", destPath, err)
-		}
-	}
-
-	return nil
+	return h.extractTarEntriesWithFilter(tarReader, extractionDir, targetPrefix)
 }
 
-// validateAndSanitizePath sanitizes a file path for safe extraction by removing path traversal sequences
-// and rejecting absolute paths. Returns the cleaned path if valid, or an error if the path is unsafe.
-// This function checks for absolute paths in a platform-agnostic way since tar archives use Unix-style paths
-// regardless of the host OS.
-func (h *OCIModuleResolver) validateAndSanitizePath(path string) (string, error) {
-	cleanPath := filepath.Clean(path)
-	if strings.Contains(cleanPath, "..") {
-		return "", fmt.Errorf("path contains directory traversal sequence: %s", path)
-	}
-	if strings.HasPrefix(cleanPath, string(filepath.Separator)) || (len(cleanPath) >= 2 && cleanPath[1] == ':' && (cleanPath[0] >= 'A' && cleanPath[0] <= 'Z' || cleanPath[0] >= 'a' && cleanPath[0] <= 'z')) {
-		return "", fmt.Errorf("absolute paths are not allowed: %s", path)
-	}
-	return cleanPath, nil
-}
+// =============================================================================
+// Private Methods
+// =============================================================================
 
-// parseOCIRef extracts the registry, repository, and tag components from an OCI reference string.
-// The OCI reference must be in the format "oci://registry/repository:tag".
-// Returns the registry, repository, and tag if parsing is successful, or an error if the format is invalid.
-func (h *OCIModuleResolver) parseOCIRef(ociRef string) (registry, repository, tag string, err error) {
-	if !strings.HasPrefix(ociRef, "oci://") {
-		return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
+// shouldHandle determines if this resolver should handle the given source by checking
+// if the source is an OCI artifact URL. Returns true only for sources that begin with
+// the "oci://" protocol prefix, indicating they are OCI registry artifacts.
+func (h *OCIModuleResolver) shouldHandle(source string) bool {
+	if !strings.HasPrefix(source, "oci://") {
+		return false
 	}
 
-	ref := strings.TrimPrefix(ociRef, "oci://")
-
-	parts := strings.Split(ref, ":")
-	if len(parts) != 2 {
-		return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef)
-	}
-
-	repoWithRegistry := parts[0]
-	tag = parts[1]
-
-	repoParts := strings.SplitN(repoWithRegistry, "/", 2)
-	if len(repoParts) != 2 {
-		return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef)
-	}
-
-	registry = repoParts[0]
-	repository = repoParts[1]
-
-	return registry, repository, tag, nil
+	return true
 }
 
 // =============================================================================

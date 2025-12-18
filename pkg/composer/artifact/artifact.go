@@ -41,6 +41,7 @@ type Artifact interface {
 	Push(registryBase string, repoName string, tag string) error
 	Pull(ociRefs []string) (map[string][]byte, error)
 	GetTemplateData(ociRef string) (map[string][]byte, error)
+	ParseOCIRef(ociRef string) (registry, repository, tag string, err error)
 }
 
 // =============================================================================
@@ -291,7 +292,7 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
 
 	var artifactsToDownload []string
 	for ref := range uniqueOCIRefs {
-		registry, repository, tag, err := a.parseOCIRef(ref)
+		registry, repository, tag, err := a.ParseOCIRef(ref)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse OCI reference %s: %w", ref, err)
 		}
@@ -317,7 +318,7 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
 		}()
 
 		for _, ref := range artifactsToDownload {
-			registry, repository, tag, err := a.parseOCIRef(ref)
+			registry, repository, tag, err := a.ParseOCIRef(ref)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse OCI reference %s: %w", ref, err)
 			}
@@ -348,7 +349,7 @@ func (a *ArtifactBuilder) GetTemplateData(blueprintRef string) (map[string][]byt
 	var tarData []byte
 
 	if strings.HasPrefix(blueprintRef, "oci://") {
-		registry, repository, tag, err := a.parseOCIRef(blueprintRef)
+		registry, repository, tag, err := a.ParseOCIRef(blueprintRef)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse OCI reference %s: %w", blueprintRef, err)
 		}
@@ -1096,11 +1097,11 @@ func (a *ArtifactBuilder) getBuilderInfo() (BuilderInfo, error) {
 	}, nil
 }
 
-// parseOCIRef parses an OCI reference into registry, repository, and tag components.
+// ParseOCIRef parses an OCI reference into registry, repository, and tag components.
 // Validates OCI reference format and extracts registry, repository, and tag parts.
 // Requires OCI reference to follow the format "oci://registry/repository:tag".
 // Returns individual components for separate handling in OCI operations.
-func (a *ArtifactBuilder) parseOCIRef(ociRef string) (registry, repository, tag string, err error) {
+func (a *ArtifactBuilder) ParseOCIRef(ociRef string) (registry, repository, tag string, err error) {
 	if !strings.HasPrefix(ociRef, "oci://") {
 		return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
 	}
