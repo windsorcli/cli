@@ -2023,6 +2023,38 @@ func TestArtifactBuilder_extractTarEntries(t *testing.T) {
 		}
 	})
 
+	t.Run("RejectsPathTraversalUsingRelCheck", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		destDir := filepath.Join(tmpDir, "cache")
+
+		mocks.Shims.FilepathRel = func(basepath, targpath string) (string, error) {
+			rel, err := filepath.Rel(basepath, targpath)
+			if err != nil {
+				return "", err
+			}
+			if strings.HasPrefix(rel, "..") {
+				return "", fmt.Errorf("path escapes base directory")
+			}
+			return rel, nil
+		}
+
+		mockReader := &mockTarReader{
+			nextFunc: func() (*tar.Header, error) {
+				return &tar.Header{Name: "../evil/file", Typeflag: tar.TypeReg}, nil
+			},
+		}
+
+		err := builder.extractTarEntries(mockReader, destDir)
+
+		if err == nil {
+			t.Error("Expected error for path traversal, got nil")
+		}
+		if !strings.Contains(err.Error(), "path traversal attempt detected") && !strings.Contains(err.Error(), "invalid path") {
+			t.Errorf("Expected path traversal error, got %v", err)
+		}
+	})
+
 }
 
 func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {

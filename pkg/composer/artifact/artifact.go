@@ -1247,7 +1247,11 @@ func (a *ArtifactBuilder) extractTarEntries(tarReader TarReader, destDir string)
 
 		destPath := filepath.Join(destDir, sanitizedPath)
 
-		if !strings.HasPrefix(destPath, destDir) {
+		relPath, err := filepath.Rel(destDir, destPath)
+		if err != nil {
+			return fmt.Errorf("path traversal attempt detected: %s", header.Name)
+		}
+		if strings.HasPrefix(relPath, "..") {
 			return fmt.Errorf("path traversal attempt detected: %s", header.Name)
 		}
 
