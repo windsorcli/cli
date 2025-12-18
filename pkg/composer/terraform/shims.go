@@ -24,21 +24,6 @@ type TarReader interface {
 	Read([]byte) (int, error)
 }
 
-// RealTarReader is the real implementation of TarReader
-type RealTarReader struct {
-	reader *tar.Reader
-}
-
-// Next returns the next header in the tar archive
-func (r *RealTarReader) Next() (*tar.Header, error) {
-	return r.reader.Next()
-}
-
-// Read reads data from the current tar entry
-func (r *RealTarReader) Read(p []byte) (int, error) {
-	return r.reader.Read(p)
-}
-
 // Shims provides mockable wrappers around system and runtime functions
 type Shims struct {
 	MkdirAll       func(path string, perm os.FileMode) error
@@ -55,6 +40,7 @@ type Shims struct {
 	Create         func(name string) (*os.File, error)
 	Copy           func(dst io.Writer, src io.Reader) (int64, error)
 	Chmod          func(name string, mode os.FileMode) error
+	Rename         func(oldpath, newpath string) error
 	Setenv         func(key, value string) error
 	ReadDir        func(name string) ([]os.DirEntry, error)
 	RemoveAll      func(path string) error
@@ -81,7 +67,7 @@ func NewShims() *Shims {
 			return bytes.NewReader(b)
 		},
 		NewTarReader: func(r io.Reader) TarReader {
-			return &RealTarReader{reader: tar.NewReader(r)}
+			return tar.NewReader(r)
 		},
 		EOFError: func() error {
 			return io.EOF
@@ -92,6 +78,7 @@ func NewShims() *Shims {
 		Create:       os.Create,
 		Copy:         io.Copy,
 		Chmod:        os.Chmod,
+		Rename:       os.Rename,
 		Setenv:       os.Setenv,
 		ReadDir:      os.ReadDir,
 		RemoveAll:    os.RemoveAll,
