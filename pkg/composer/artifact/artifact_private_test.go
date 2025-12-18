@@ -1876,8 +1876,10 @@ func TestArtifactBuilder_validateAndSanitizePath(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		if result != "terraform/module/main.tf" {
-			t.Errorf("Expected 'terraform/module/main.tf', got %s", result)
+		expected := filepath.ToSlash("terraform/module/main.tf")
+		actual := filepath.ToSlash(result)
+		if actual != expected {
+			t.Errorf("Expected '%s', got %s", expected, actual)
 		}
 	})
 
@@ -1990,8 +1992,13 @@ func TestArtifactBuilder_extractTarEntries(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		if _, err := os.Stat(filepath.Join(tmpDir, "kustomize")); err == nil {
-			t.Error("Expected kustomize directory to be skipped")
+		kustomizePath := filepath.Join(tmpDir, "kustomize")
+		_, statErr := os.Stat(kustomizePath)
+		if statErr == nil {
+			t.Error("Expected kustomize directory to be skipped, but it exists")
+		}
+		if statErr != nil && !os.IsNotExist(statErr) {
+			t.Errorf("Expected kustomize directory to not exist, got stat error: %v", statErr)
 		}
 	})
 
@@ -2167,10 +2174,18 @@ func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {
 		tmpDir := t.TempDir()
 		mocks.Runtime.ProjectRoot = tmpDir
 
+		cacheDir, err := builder.GetCacheDir("registry", "repo", "tag")
+		if err != nil {
+			t.Fatalf("Failed to get cache dir: %v", err)
+		}
+		parentDir := filepath.Dir(cacheDir)
+
 		callCount := 0
 		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
 			callCount++
-			if callCount > 1 && strings.Contains(path, ".windsor/cache") && !strings.Contains(path, ".tmp") {
+			normalizedPath := filepath.ToSlash(path)
+			normalizedParentDir := filepath.ToSlash(parentDir)
+			if callCount > 1 && normalizedPath == normalizedParentDir {
 				return fmt.Errorf("mkdir error")
 			}
 			return os.MkdirAll(path, perm)
@@ -2180,12 +2195,12 @@ func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {
 			"terraform/module/main.tf": []byte("resource \"test\" {}"),
 		})
 
-		err := builder.extractArtifactToCache(testTar, "registry", "repo", "tag")
+		err = builder.extractArtifactToCache(testTar, "registry", "repo", "tag")
 
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "failed to create parent directory") {
+		if err != nil && !strings.Contains(err.Error(), "failed to create parent directory") {
 			t.Errorf("Expected parent dir error, got %v", err)
 		}
 	})
