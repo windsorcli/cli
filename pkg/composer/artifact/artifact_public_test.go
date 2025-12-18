@@ -1970,6 +1970,15 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 			return io.NopCloser(bytes.NewReader(testTarData)), nil
 		}
 
+		cacheWriteCount := 0
+		originalMkdirAll := mocks.Shims.MkdirAll
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			if strings.Contains(path, ".windsor/cache") {
+				cacheWriteCount++
+			}
+			return originalMkdirAll(path, perm)
+		}
+
 		os.Setenv("NO_CACHE", "true")
 		defer os.Unsetenv("NO_CACHE")
 
@@ -1983,6 +1992,9 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		}
 		if downloadCount != 1 {
 			t.Errorf("Expected 1 download (NO_CACHE bypasses cache), got %d", downloadCount)
+		}
+		if cacheWriteCount != 0 {
+			t.Errorf("Expected 0 cache writes (NO_CACHE should skip cache writes), got %d", cacheWriteCount)
 		}
 	})
 

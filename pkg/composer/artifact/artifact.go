@@ -402,8 +402,10 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
 				return nil, fmt.Errorf("failed to download OCI artifact %s: %w", ref, err)
 			}
 
-			if err := a.extractArtifactToCache(artifactData, registry, repository, tag); err != nil {
-				return nil, fmt.Errorf("failed to extract artifact to cache: %w", err)
+			if !noCache {
+				if err := a.extractArtifactToCache(artifactData, registry, repository, tag); err != nil {
+					return nil, fmt.Errorf("failed to extract artifact to cache: %w", err)
+				}
 			}
 
 			a.ociCache[cacheKey] = artifactData
