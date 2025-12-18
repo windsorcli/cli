@@ -2212,6 +2212,15 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 			t.Fatalf("Failed to create cache dir: %v", err)
 		}
 
+		cacheRemoved := false
+		originalRemoveAll := mocks.Shims.RemoveAll
+		mocks.Shims.RemoveAll = func(path string) error {
+			if path == cacheDir {
+				cacheRemoved = true
+			}
+			return originalRemoveAll(path)
+		}
+
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
 			if name == cacheDir {
 				return &mockFileInfo{name: filepath.Base(name), isDir: true}, nil
@@ -2235,6 +2244,9 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		}
 		if len(artifacts) != 1 {
 			t.Errorf("Expected 1 artifact, got %d", len(artifacts))
+		}
+		if !cacheRemoved {
+			t.Error("Expected corrupted cache directory to be removed, but it was not")
 		}
 	})
 

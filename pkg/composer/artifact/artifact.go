@@ -359,7 +359,7 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
 
 		cacheDir, err := a.GetCacheDir(registry, repository, tag)
 		if err == nil {
-			if err := a.validateOCIDiskCache(cacheDir); err == nil {
+			if validateErr := a.validateOCIDiskCache(cacheDir); validateErr == nil {
 				artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
 				cachedData, readErr := a.shims.ReadFile(artifactTarPath)
 				if readErr != nil {
@@ -371,7 +371,7 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
 					ociArtifacts[cacheKey] = cachedData
 					continue
 				}
-			} else if !errors.Is(err, os.ErrNotExist) {
+			} else if !errors.Is(validateErr, os.ErrNotExist) {
 				if removeErr := a.shims.RemoveAll(cacheDir); removeErr != nil {
 					return nil, fmt.Errorf("failed to remove corrupted OCI cache directory %s: %w", cacheDir, removeErr)
 				}
