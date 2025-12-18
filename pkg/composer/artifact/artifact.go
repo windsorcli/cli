@@ -1297,7 +1297,8 @@ func (a *ArtifactBuilder) extractArtifactToCache(artifactData []byte, registry, 
 	reader := a.shims.NewBytesReader(artifactData)
 	tarReader := a.shims.NewTarReader(reader)
 
-	extractionDir, err := a.GetCacheDir(registry, repository, tag)
+	var extractionDir string
+	extractionDir, err = a.GetCacheDir(registry, repository, tag)
 	if err != nil {
 		return fmt.Errorf("failed to get cache directory: %w", err)
 	}
@@ -1315,44 +1316,52 @@ func (a *ArtifactBuilder) extractArtifactToCache(artifactData []byte, registry, 
 
 	if _, statErr := a.shims.Stat(tmpExtractionDir); statErr == nil {
 		if removeErr := a.shims.RemoveAll(tmpExtractionDir); removeErr != nil {
-			return fmt.Errorf("failed to clean up existing temporary extraction directory: %w", removeErr)
+			err = fmt.Errorf("failed to clean up existing temporary extraction directory: %w", removeErr)
+			return
 		}
 	}
 
 	if mkdirErr := a.shims.MkdirAll(tmpExtractionDir, 0755); mkdirErr != nil {
-		return fmt.Errorf("failed to create temporary extraction directory: %w", mkdirErr)
+		err = fmt.Errorf("failed to create temporary extraction directory: %w", mkdirErr)
+		return
 	}
 
-	if err := a.extractTarEntries(tarReader, tmpExtractionDir); err != nil {
-		return err
+	if err = a.extractTarEntries(tarReader, tmpExtractionDir); err != nil {
+		return
 	}
 
 	artifactTarPath := filepath.Join(tmpExtractionDir, artifactTarFilename)
 	artifactTarFile, tarErr := a.shims.Create(artifactTarPath)
 	if tarErr != nil {
-		return fmt.Errorf("failed to create artifact.tar file: %w", tarErr)
+		err = fmt.Errorf("failed to create artifact.tar file: %w", tarErr)
+		return
 	}
 	if _, writeErr := artifactTarFile.Write(artifactData); writeErr != nil {
 		_ = artifactTarFile.Close()
-		return fmt.Errorf("failed to write artifact.tar file: %w", writeErr)
+		err = fmt.Errorf("failed to write artifact.tar file: %w", writeErr)
+		return
 	}
 	if closeErr := artifactTarFile.Close(); closeErr != nil {
-		return fmt.Errorf("failed to close artifact.tar file: %w", closeErr)
+		err = fmt.Errorf("failed to close artifact.tar file: %w", closeErr)
+		return
 	}
 
 	parentDir := filepath.Dir(extractionDir)
 	if mkdirErr := a.shims.MkdirAll(parentDir, 0755); mkdirErr != nil {
-		return fmt.Errorf("failed to create parent directory: %w", mkdirErr)
+		err = fmt.Errorf("failed to create parent directory: %w", mkdirErr)
+		return
 	}
 
 	if _, statErr := a.shims.Stat(extractionDir); statErr == nil {
 		if removeErr := a.shims.RemoveAll(extractionDir); removeErr != nil {
-			return fmt.Errorf("failed to remove existing extraction directory: %w", removeErr)
+			err = fmt.Errorf("failed to remove existing extraction directory: %w", removeErr)
+			return
 		}
 	}
 
 	if renameErr := a.shims.Rename(tmpExtractionDir, extractionDir); renameErr != nil {
-		return fmt.Errorf("failed to rename temporary extraction directory to final location: %w", renameErr)
+		err = fmt.Errorf("failed to rename temporary extraction directory to final location: %w", renameErr)
+		return
 	}
 
 	return nil
