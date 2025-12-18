@@ -365,6 +365,7 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
 				if readErr != nil {
 					return nil, fmt.Errorf("failed to read cached artifact.tar from %s: %w", artifactTarPath, readErr)
 				}
+				a.ociCache[cacheKey] = cachedData
 				ociArtifacts[cacheKey] = cachedData
 				continue
 			} else if !errors.Is(err, os.ErrNotExist) {
@@ -1269,9 +1270,6 @@ func (a *ArtifactBuilder) extractTarEntries(tarReader TarReader, destDir string)
 		}
 
 		modeValue := header.Mode & 0777
-		if modeValue < 0 || modeValue > 0777 {
-			return fmt.Errorf("invalid file mode %o for %s", header.Mode, destPath)
-		}
 		fileMode := os.FileMode(uint32(modeValue))
 
 		if err := a.shims.Chmod(destPath, fileMode); err != nil {

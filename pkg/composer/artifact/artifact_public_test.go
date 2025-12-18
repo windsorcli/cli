@@ -282,7 +282,8 @@ func setupArtifactMocks(t *testing.T, opts ...func(*ArtifactMocks)) *ArtifactMoc
 
 	// Create runtime
 	rt := &runtime.Runtime{
-		Shell: mockShell,
+		Shell:       mockShell,
+		ProjectRoot: tmpDir,
 	}
 
 	// Create default mocks
@@ -1628,8 +1629,6 @@ func TestArtifactBuilder_Push(t *testing.T) {
 func TestArtifactBuilder_Pull(t *testing.T) {
 	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
 		mocks := setupArtifactMocks(t)
-		tmpDir := t.TempDir()
-		mocks.Runtime.ProjectRoot = tmpDir
 		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
 
@@ -1874,8 +1873,6 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 	t.Run("CachingPreventsRedundantDownloads", func(t *testing.T) {
 		// Given an ArtifactBuilder with mocked dependencies
 		mocks := setupArtifactMocks(t)
-		tmpDir := t.TempDir()
-		mocks.Runtime.ProjectRoot = tmpDir
 		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
 		_ = shell.NewMockShell()
@@ -1961,8 +1958,6 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 
 	t.Run("RespectsNO_CACHEEnvironmentVariable", func(t *testing.T) {
 		builder, mocks := setup(t)
-		tmpDir := t.TempDir()
-		mocks.Runtime.ProjectRoot = tmpDir
 
 		testTarData := createTestTarGz(t, map[string][]byte{
 			"metadata.yaml":       []byte("name: test\nversion: v1.0.0\n"),
@@ -1993,8 +1988,6 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 
 	t.Run("UsesDiskCacheWhenAvailable", func(t *testing.T) {
 		builder, mocks := setup(t)
-		tmpDir := t.TempDir()
-		mocks.Runtime.ProjectRoot = tmpDir
 
 		cacheDir, err := builder.GetCacheDir("registry.example.com", "my-repo", "v1.0.0")
 		if err != nil {
@@ -2038,10 +2031,98 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		}
 	})
 
+	t.Run("PopulatesInMemoryCacheWhenReadingFromDisk", func(t *testing.T) {
+		builder, mocks := setup(t)
+
+		cacheDir, err := builder.GetCacheDir("registry.example.com", "my-repo", "v1.0.0")
+		if err != nil {
+			t.Fatalf("Failed to get cache dir: %v", err)
+		}
+
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache dir: %v", err)
+		}
+
+		testTarData := createTestTarGz(t, map[string][]byte{
+			"metadata.yaml":       []byte("name: test\nversion: v1.0.0\n"),
+			"_template/test.yaml": []byte("test content"),
+		})
+
+		artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
+		if err := os.WriteFile(artifactTarPath, testTarData, 0644); err != nil {
+			t.Fatalf("Failed to write artifact.tar: %v", err)
+		}
+
+		readFileCount := 0
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == cacheDir || name == artifactTarPath {
+				return &mockFileInfo{name: filepath.Base(name), isDir: name == cacheDir}, nil
+			}
+			return os.Stat(name)
+		}
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			readFileCount++
+			return os.ReadFile(name)
+		}
+
+		cacheKey := "registry.example.com/my-repo:v1.0.0"
+
+		// When Pull is called the first time (should read from disk)
+		artifacts1, err := builder.Pull([]string{"oci://registry.example.com/my-repo:v1.0.0"})
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And one artifact should be returned
+		if len(artifacts1) != 1 {
+			t.Errorf("Expected 1 artifact, got %d", len(artifacts1))
+		}
+
+		// And artifact data should match
+		if !bytes.Equal(artifacts1[cacheKey], testTarData) {
+			t.Error("Expected artifact data to match cached data")
+		}
+
+		// And ReadFile should have been called once
+		if readFileCount != 1 {
+			t.Errorf("Expected 1 ReadFile call, got %d", readFileCount)
+		}
+
+		// And in-memory cache should be populated
+		if cachedData, exists := builder.ociCache[cacheKey]; !exists {
+			t.Error("Expected in-memory cache to be populated after reading from disk")
+		} else if !bytes.Equal(cachedData, testTarData) {
+			t.Error("Expected in-memory cache data to match disk cache data")
+		}
+
+		// When Pull is called again with the same reference
+		artifacts2, err := builder.Pull([]string{"oci://registry.example.com/my-repo:v1.0.0"})
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error on second call, got %v", err)
+		}
+
+		// And one artifact should be returned
+		if len(artifacts2) != 1 {
+			t.Errorf("Expected 1 artifact on second call, got %d", len(artifacts2))
+		}
+
+		// And artifact data should match
+		if !bytes.Equal(artifacts2[cacheKey], testTarData) {
+			t.Error("Expected artifact data to match on second call")
+		}
+
+		// And ReadFile should NOT have been called again (still 1)
+		if readFileCount != 1 {
+			t.Errorf("Expected 1 ReadFile call total (in-memory cache used), got %d", readFileCount)
+		}
+	})
+
 	t.Run("ErrorWhenReadFileFailsOnCachedArtifact", func(t *testing.T) {
 		builder, mocks := setup(t)
-		tmpDir := t.TempDir()
-		mocks.Runtime.ProjectRoot = tmpDir
 
 		cacheDir, err := builder.GetCacheDir("registry.example.com", "my-repo", "v1.0.0")
 		if err != nil {
@@ -2080,8 +2161,6 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 
 	t.Run("RemovesCorruptedCacheDirectory", func(t *testing.T) {
 		builder, mocks := setup(t)
-		tmpDir := t.TempDir()
-		mocks.Runtime.ProjectRoot = tmpDir
 
 		cacheDir, err := builder.GetCacheDir("registry.example.com", "my-repo", "v1.0.0")
 		if err != nil {
@@ -2121,8 +2200,6 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 	t.Run("CachingWorksWithMixedNewAndCachedArtifacts", func(t *testing.T) {
 		// Given an ArtifactBuilder with mocked dependencies
 		mocks := setupArtifactMocks(t)
-		tmpDir := t.TempDir()
-		mocks.Runtime.ProjectRoot = tmpDir
 		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
 		_ = shell.NewMockShell()
@@ -2716,9 +2793,10 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 
 	t.Run("ErrorWhenPullFails", func(t *testing.T) {
 		// Given an artifact builder without cached data
-		builder, _ := setup(t)
+		builder, mocks := setup(t)
 
 		builder.shims = &Shims{
+			Stat: mocks.Shims.Stat,
 			ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
 				return &mockReference{}, nil
 			},
@@ -2938,8 +3016,6 @@ func TestArtifactBuilder_GetCacheDir(t *testing.T) {
 	t.Run("ReturnsOCICacheDir", func(t *testing.T) {
 		// Given a builder with project root
 		builder, mocks := setup(t)
-		tmpDir := t.TempDir()
-		mocks.Runtime.ProjectRoot = tmpDir
 
 		// When getting cache dir for OCI artifact
 		cacheDir, err := builder.GetCacheDir("ghcr.io", "example/repo", "v1.0.0")
@@ -2948,7 +3024,7 @@ func TestArtifactBuilder_GetCacheDir(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		expectedPath := filepath.Join(tmpDir, ".windsor", "cache", "oci", "ghcr.io_example_repo_v1.0.0")
+		expectedPath := filepath.Join(mocks.Runtime.ProjectRoot, ".windsor", "cache", "oci", "ghcr.io_example_repo_v1.0.0")
 		if cacheDir != expectedPath {
 			t.Errorf("Expected cache dir %s, got %s", expectedPath, cacheDir)
 		}
@@ -2957,8 +3033,6 @@ func TestArtifactBuilder_GetCacheDir(t *testing.T) {
 	t.Run("HandlesComplexRegistryPaths", func(t *testing.T) {
 		// Given a builder with project root
 		builder, mocks := setup(t)
-		tmpDir := t.TempDir()
-		mocks.Runtime.ProjectRoot = tmpDir
 
 		// When getting cache dir with complex registry path
 		cacheDir, err := builder.GetCacheDir("registry.example.com", "namespace/subnamespace/repo", "latest")
@@ -2967,7 +3041,7 @@ func TestArtifactBuilder_GetCacheDir(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		expectedPath := filepath.Join(tmpDir, ".windsor", "cache", "oci", "registry.example.com_namespace_subnamespace_repo_latest")
+		expectedPath := filepath.Join(mocks.Runtime.ProjectRoot, ".windsor", "cache", "oci", "registry.example.com_namespace_subnamespace_repo_latest")
 		if cacheDir != expectedPath {
 			t.Errorf("Expected cache dir %s, got %s", expectedPath, cacheDir)
 		}
