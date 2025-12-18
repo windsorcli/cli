@@ -2133,7 +2133,7 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorWhenReadFileFailsOnCachedArtifact", func(t *testing.T) {
+	t.Run("RemovesCorruptedCacheAndFallsBackToDownloadWhenReadFileFails", func(t *testing.T) {
 		builder, mocks := setup(t)
 
 		cacheDir, err := builder.GetCacheDir("registry.example.com", "my-repo", "v1.0.0")
@@ -2147,8 +2147,31 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 
 		artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
 
+		testTarData := createTestTarGz(t, map[string][]byte{
+			"metadata.yaml":       []byte("name: test\nversion: v1.0.0\n"),
+			"_template/test.yaml": []byte("test content"),
+		})
+
+		downloadCount := 0
+		mocks.Shims.LayerUncompressed = func(layer v1.Layer) (io.ReadCloser, error) {
+			downloadCount++
+			return io.NopCloser(bytes.NewReader(testTarData)), nil
+		}
+
+		cacheRemoved := false
+		originalRemoveAll := mocks.Shims.RemoveAll
+		mocks.Shims.RemoveAll = func(path string) error {
+			if path == cacheDir && !cacheRemoved {
+				cacheRemoved = true
+			}
+			return originalRemoveAll(path)
+		}
+
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
 			if name == cacheDir || name == artifactTarPath {
+				if cacheRemoved && name == cacheDir {
+					return nil, os.ErrNotExist
+				}
 				return &mockFileInfo{name: filepath.Base(name), isDir: name == cacheDir}, nil
 			}
 			return os.Stat(name)
@@ -2161,13 +2184,19 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 			return os.ReadFile(name)
 		}
 
-		_, err = builder.Pull([]string{"oci://registry.example.com/my-repo:v1.0.0"})
+		artifacts, err := builder.Pull([]string{"oci://registry.example.com/my-repo:v1.0.0"})
 
-		if err == nil {
-			t.Error("Expected error, got nil")
+		if err != nil {
+			t.Errorf("Expected no error (graceful fallback), got %v", err)
 		}
-		if !strings.Contains(err.Error(), "failed to read cached artifact.tar") {
-			t.Errorf("Expected read error, got %v", err)
+		if len(artifacts) != 1 {
+			t.Errorf("Expected 1 artifact, got %d", len(artifacts))
+		}
+		if !cacheRemoved {
+			t.Error("Expected corrupted cache to be removed, but it was not")
+		}
+		if downloadCount != 1 {
+			t.Errorf("Expected 1 download (fallback after cache corruption), got %d", downloadCount)
 		}
 	})
 

@@ -363,11 +363,14 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
 				artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
 				cachedData, readErr := a.shims.ReadFile(artifactTarPath)
 				if readErr != nil {
-					return nil, fmt.Errorf("failed to read cached artifact.tar from %s: %w", artifactTarPath, readErr)
+					if removeErr := a.shims.RemoveAll(cacheDir); removeErr != nil {
+						return nil, fmt.Errorf("failed to remove corrupted OCI cache directory %s: %w", cacheDir, removeErr)
+					}
+				} else {
+					a.ociCache[cacheKey] = cachedData
+					ociArtifacts[cacheKey] = cachedData
+					continue
 				}
-				a.ociCache[cacheKey] = cachedData
-				ociArtifacts[cacheKey] = cachedData
-				continue
 			} else if !errors.Is(err, os.ErrNotExist) {
 				if removeErr := a.shims.RemoveAll(cacheDir); removeErr != nil {
 					return nil, fmt.Errorf("failed to remove corrupted OCI cache directory %s: %w", cacheDir, removeErr)
