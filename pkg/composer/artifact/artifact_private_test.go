@@ -1921,6 +1921,27 @@ func TestArtifactBuilder_validateAndSanitizePath(t *testing.T) {
 			t.Errorf("Expected absolute path error, got %v", err)
 		}
 	})
+
+	t.Run("RejectsUnixAbsolutePathsOnAllPlatforms", func(t *testing.T) {
+		builder, _ := setup(t)
+
+		unixAbsolutePaths := []string{
+			"/etc/passwd",
+			"/root/.ssh/id_rsa",
+			"/var/log/syslog",
+			"/usr/bin/bash",
+		}
+
+		for _, path := range unixAbsolutePaths {
+			_, err := builder.validateAndSanitizePath(path)
+			if err == nil {
+				t.Errorf("Expected error for Unix absolute path %s, got nil", path)
+			}
+			if !strings.Contains(err.Error(), "absolute paths are not allowed") {
+				t.Errorf("Expected absolute path error for %s, got %v", path, err)
+			}
+		}
+	})
 }
 
 func TestArtifactBuilder_extractTarEntries(t *testing.T) {

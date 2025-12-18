@@ -1204,14 +1204,18 @@ func (a *ArtifactBuilder) validateOCIDiskCache(cacheDir string) error {
 // validateAndSanitizePath sanitizes a file path for safe extraction by removing path traversal sequences
 // and rejecting absolute paths. Returns the cleaned path if valid, or an error if the path is unsafe.
 // This function checks for absolute paths in a platform-agnostic way since tar archives use Unix-style paths
-// regardless of the host OS.
+// regardless of the host OS. It checks the original path for Unix-style absolute paths (starting with /)
+// before filepath.Clean, which may convert separators on Windows.
 func (a *ArtifactBuilder) validateAndSanitizePath(path string) (string, error) {
+	if strings.HasPrefix(path, "/") {
+		return "", fmt.Errorf("absolute paths are not allowed: %s", path)
+	}
+	if len(path) >= 2 && path[1] == ':' && ((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z')) {
+		return "", fmt.Errorf("absolute paths are not allowed: %s", path)
+	}
 	cleanPath := filepath.Clean(path)
 	if strings.Contains(cleanPath, "..") {
 		return "", fmt.Errorf("path contains directory traversal sequence: %s", path)
-	}
-	if strings.HasPrefix(cleanPath, string(filepath.Separator)) || (len(cleanPath) >= 2 && cleanPath[1] == ':' && (cleanPath[0] >= 'A' && cleanPath[0] <= 'Z' || cleanPath[0] >= 'a' && cleanPath[0] <= 'z')) {
-		return "", fmt.Errorf("absolute paths are not allowed: %s", path)
 	}
 	return cleanPath, nil
 }
