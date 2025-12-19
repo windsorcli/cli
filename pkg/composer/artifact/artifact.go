@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1285,6 +1286,9 @@ func (a *ArtifactBuilder) extractTarEntries(tarReader TarReader, destDir string)
 		}
 
 		modeValue := header.Mode & 0777
+		if modeValue < 0 || modeValue > math.MaxUint32 {
+			return fmt.Errorf("invalid file mode value: %d", modeValue)
+		}
 		fileMode := os.FileMode(uint32(modeValue))
 
 		if err := a.shims.Chmod(destPath, fileMode); err != nil {
