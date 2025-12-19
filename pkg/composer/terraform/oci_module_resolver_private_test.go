@@ -220,6 +220,12 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 			return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
 		}
 
+		// Set up GetCacheDir mock
+		cacheDir := filepath.Join("/test/project", ".windsor", "cache", "oci", "registry.example.com_module_latest")
+		resolver.artifactBuilder.(*artifact.MockArtifact).GetCacheDirFunc = func(registry, repository, tag string) (string, error) {
+			return cacheDir, nil
+		}
+
 		// Mock Stat to return success (cache hit)
 		resolver.BaseModuleResolver.shims.Stat = func(path string) (os.FileInfo, error) {
 			return nil, nil
@@ -316,6 +322,11 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 			return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
 		}
 
+		// Set up GetCacheDir mock to return error when project root is empty
+		resolver.artifactBuilder.(*artifact.MockArtifact).GetCacheDirFunc = func(registry, repository, tag string) (string, error) {
+			return "", fmt.Errorf("project root is not set")
+		}
+
 		// Set ProjectRoot to empty to trigger error
 		resolver.BaseModuleResolver.runtime.ProjectRoot = ""
 
@@ -326,8 +337,8 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "failed to get project root") {
-			t.Errorf("Expected project root error, got: %v", err)
+		if !strings.Contains(err.Error(), "failed to get cache directory") && !strings.Contains(err.Error(), "project root") {
+			t.Errorf("Expected cache directory or project root error, got: %v", err)
 		}
 	})
 
@@ -404,7 +415,7 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 		artifactData := []byte("mock artifact data")
 		modulePath := "terraform/test-module"
-		extractionKey := "registry-module-latest"
+		cacheDir := filepath.Join("/test/project", ".windsor", "cache", "oci", "registry_module_latest")
 
 		// Mock successful tar extraction with file and directory
 		callCount := 0
@@ -436,7 +447,7 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 		}
 
 		// When extracting module from artifact
-		err := resolver.extractModuleFromArtifact(artifactData, modulePath, extractionKey)
+		err := resolver.extractModuleFromArtifact(artifactData, modulePath, cacheDir)
 
 		// Then it should succeed
 		if err != nil {
@@ -449,7 +460,7 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 		resolver := setup(t)
 		artifactData := []byte("mock artifact data")
 		modulePath := "terraform/test-module"
-		extractionKey := "registry-module-latest"
+		cacheDir := filepath.Join("/test/project", ".windsor", "cache", "oci", "registry_module_latest")
 
 		errorCases := []struct {
 			name          string
@@ -497,7 +508,7 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 			resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 			// When extracting with error conditions
 			tc.setupMocks(resolver)
-			err := resolver.extractModuleFromArtifact(artifactData, modulePath, extractionKey)
+			err := resolver.extractModuleFromArtifact(artifactData, modulePath, cacheDir)
 
 			// Then it should return appropriate errors
 			if err == nil {
@@ -514,20 +525,14 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 		resolver := setup(t)
 		artifactData := []byte("mock artifact data")
 		modulePath := "terraform/test-module"
-		extractionKey := "registry-module-latest"
-
-		// Set ProjectRoot to empty to trigger error
-		resolver.BaseModuleResolver.runtime.ProjectRoot = ""
+		cacheDir := "/test/cache/dir"
 
 		// When extracting module from artifact
-		err := resolver.extractModuleFromArtifact(artifactData, modulePath, extractionKey)
+		err := resolver.extractModuleFromArtifact(artifactData, modulePath, cacheDir)
 
-		// Then it should return an error
+		// Then it should return an error (from tar reading since we're not checking project root anymore)
 		if err == nil {
 			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to get project root") {
-			t.Errorf("Expected project root error, got: %v", err)
 		}
 	})
 
@@ -537,7 +542,7 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 		artifactData := []byte("mock artifact data")
 		modulePath := "terraform/test-module"
-		extractionKey := "registry-module-latest"
+		cacheDir := filepath.Join("/test/project", ".windsor", "cache", "oci", "registry_module_latest")
 
 		// Mock tar reader with file entry
 		mockTarReader := &MockTarReader{
@@ -559,7 +564,7 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 		}
 
 		// When extracting module from artifact
-		err := resolver.extractModuleFromArtifact(artifactData, modulePath, extractionKey)
+		err := resolver.extractModuleFromArtifact(artifactData, modulePath, cacheDir)
 
 		// Then it should return an error
 		if err == nil {
@@ -576,7 +581,7 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 		artifactData := []byte("mock artifact data")
 		modulePath := "terraform/test-module"
-		extractionKey := "registry-module-latest"
+		cacheDir := filepath.Join("/test/project", ".windsor", "cache", "oci", "registry_module_latest")
 
 		// Mock tar reader with file entry
 		mockTarReader := &MockTarReader{
@@ -598,7 +603,7 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 		}
 
 		// When extracting module from artifact
-		err := resolver.extractModuleFromArtifact(artifactData, modulePath, extractionKey)
+		err := resolver.extractModuleFromArtifact(artifactData, modulePath, cacheDir)
 
 		// Then it should return an error
 		if err == nil {
@@ -615,7 +620,7 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 		artifactData := []byte("mock artifact data")
 		modulePath := "terraform/test-module"
-		extractionKey := "registry-module-latest"
+		cacheDir := filepath.Join("/test/project", ".windsor", "cache", "oci", "registry_module_latest")
 
 		// Mock tar reader with file entry
 		mockTarReader := &MockTarReader{
@@ -637,7 +642,7 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 		}
 
 		// When extracting module from artifact
-		err := resolver.extractModuleFromArtifact(artifactData, modulePath, extractionKey)
+		err := resolver.extractModuleFromArtifact(artifactData, modulePath, cacheDir)
 
 		// Then it should return an error
 		if err == nil {
@@ -654,7 +659,7 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 		artifactData := []byte("mock artifact data")
 		modulePath := "terraform/test-module"
-		extractionKey := "registry-module-latest"
+		cacheDir := filepath.Join("/test/project", ".windsor", "cache", "oci", "registry_module_latest")
 
 		// Mock tar reader with file entry
 		mockTarReader := &MockTarReader{
@@ -681,7 +686,7 @@ func TestOCIModuleResolver_extractModuleFromArtifact(t *testing.T) {
 		}
 
 		// When extracting module from artifact
-		err := resolver.extractModuleFromArtifact(artifactData, modulePath, extractionKey)
+		err := resolver.extractModuleFromArtifact(artifactData, modulePath, cacheDir)
 
 		// Then it should return an error
 		if err == nil {
@@ -925,9 +930,9 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 
 		// The extraction key is built from registry-repository-tag
-		extractionKey := "registry.example.com-module-latest"
+		cacheDir := filepath.Join("/test/project", ".windsor", "cache", "oci", "registry.example.com_module_latest")
 		modulePath := "terraform/test-module"
-		extractedPath := filepath.Join("/test/project", ".windsor", ".oci_extracted", extractionKey, modulePath)
+		extractedPath := filepath.Join(cacheDir, modulePath)
 		variablesTfPath := filepath.Join(extractedPath, "variables.tf")
 
 		// Mock Glob to return a variables.tf file so writeShimVariablesTf will try to process it
@@ -939,7 +944,7 @@ func TestOCIModuleResolver_processComponent(t *testing.T) {
 				normalizedPattern := filepath.ToSlash(pattern)
 				// Check if this pattern is for the extracted module by looking for key identifiers
 				if strings.Contains(normalizedPattern, ".oci_extracted") ||
-					strings.Contains(normalizedPattern, extractionKey) ||
+					strings.Contains(normalizedPattern, "registry.example.com_module_latest") ||
 					strings.Contains(normalizedPattern, "test-module") ||
 					strings.Contains(normalizedPattern, modulePath) {
 					return []string{variablesTfPath}, nil
