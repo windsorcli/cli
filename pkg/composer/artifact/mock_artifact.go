@@ -11,13 +11,14 @@ package artifact
 
 // MockArtifact is a mock implementation of the Artifact interface
 type MockArtifact struct {
-	BundleFunc          func() error
-	WriteFunc           func(outputPath string, tag string) (string, error)
-	PushFunc            func(registryBase string, repoName string, tag string) error
-	PullFunc            func(ociRefs []string) (map[string][]byte, error)
-	GetTemplateDataFunc func(ociRef string) (map[string][]byte, error)
-	ParseOCIRefFunc     func(ociRef string) (registry, repository, tag string, err error)
-	GetCacheDirFunc     func(registry, repository, tag string) (string, error)
+	BundleFunc            func() error
+	WriteFunc             func(outputPath string, tag string) (string, error)
+	PushFunc              func(registryBase string, repoName string, tag string) error
+	PullFunc              func(ociRefs []string) (map[string]string, error)
+	ExtractModulePathFunc func(registry, repository, tag, modulePath string) (string, error)
+	GetTemplateDataFunc   func(ociRef string) (map[string][]byte, error)
+	ParseOCIRefFunc       func(ociRef string) (registry, repository, tag string, err error)
+	GetCacheDirFunc       func(registry, repository, tag string) (string, error)
 }
 
 // =============================================================================
@@ -61,11 +62,19 @@ func (m *MockArtifact) Push(registryBase string, repoName string, tag string) er
 }
 
 // Pull calls the mock PullFunc if set, otherwise returns empty map and nil error
-func (m *MockArtifact) Pull(ociRefs []string) (map[string][]byte, error) {
+func (m *MockArtifact) Pull(ociRefs []string) (map[string]string, error) {
 	if m.PullFunc != nil {
 		return m.PullFunc(ociRefs)
 	}
-	return make(map[string][]byte), nil
+	return make(map[string]string), nil
+}
+
+// ExtractModulePath calls the mock ExtractModulePathFunc if set, otherwise returns empty string and nil error
+func (m *MockArtifact) ExtractModulePath(registry, repository, tag, modulePath string) (string, error) {
+	if m.ExtractModulePathFunc != nil {
+		return m.ExtractModulePathFunc(registry, repository, tag, modulePath)
+	}
+	return "", nil
 }
 
 // GetTemplateData calls the mock GetTemplateDataFunc if set, otherwise returns empty map and nil error

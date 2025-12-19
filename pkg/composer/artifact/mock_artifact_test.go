@@ -204,8 +204,8 @@ func TestMockArtifact_Pull(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given
 		mockArtifact := setupMockArtifactMocks(t)
-		expectedData := map[string][]byte{"test.yaml": []byte("test content")}
-		mockArtifact.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
+		expectedData := map[string]string{"test.yaml": "/test/cache/path"}
+		mockArtifact.PullFunc = func(ociRefs []string) (map[string]string, error) {
 			return expectedData, nil
 		}
 
@@ -225,7 +225,7 @@ func TestMockArtifact_Pull(t *testing.T) {
 		// Given
 		mockArtifact := setupMockArtifactMocks(t)
 		expectedError := errors.New("pull error")
-		mockArtifact.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
+		mockArtifact.PullFunc = func(ociRefs []string) (map[string]string, error) {
 			return nil, expectedError
 		}
 

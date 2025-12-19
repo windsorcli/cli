@@ -2485,7 +2485,7 @@ kustomizations: []
 		}
 
 		expectedError := fmt.Errorf("pull error")
-		mockArtifactBuilder.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
+		mockArtifactBuilder.PullFunc = func(ociRefs []string) (map[string]string, error) {
 			return nil, expectedError
 		}
 
@@ -2625,7 +2625,7 @@ kustomizations: []
 			return nil, os.ErrNotExist
 		}
 
-		mockArtifactBuilder.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
+		mockArtifactBuilder.PullFunc = func(ociRefs []string) (map[string]string, error) {
 			if len(ociRefs) != 1 || ociRefs[0] != "oci://ghcr.io/test/blueprint:latest" {
 				t.Errorf("Expected single OCI URL, got: %v", ociRefs)
 			}
