@@ -22,6 +22,7 @@ builds:
       - arm64
       - amd64
     ldflags:
+      - "-s -w"
       - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/pkg/constants.Version={{ .Version }}'"
       - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/pkg/constants.CommitSHA={{ .Env.GITHUB_SHA }}'"
       - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/pkg/secrets.version={{ .Version }}'"
