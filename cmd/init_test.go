@@ -212,6 +212,7 @@ func TestInitCmd(t *testing.T) {
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
+		cmd.SetArgs([]string{"--backend", "s3"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -229,6 +230,7 @@ func TestInitCmd(t *testing.T) {
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
+		cmd.SetArgs([]string{"--vm-driver", "colima"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -246,6 +248,7 @@ func TestInitCmd(t *testing.T) {
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
+		cmd.SetArgs([]string{"--vm-cpu", "4"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -263,6 +266,7 @@ func TestInitCmd(t *testing.T) {
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
+		cmd.SetArgs([]string{"--vm-disk", "100"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -280,6 +284,7 @@ func TestInitCmd(t *testing.T) {
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
+		cmd.SetArgs([]string{"--vm-memory", "8192"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -297,6 +302,7 @@ func TestInitCmd(t *testing.T) {
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
+		cmd.SetArgs([]string{"--vm-arch", "x86_64"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -314,6 +320,7 @@ func TestInitCmd(t *testing.T) {
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
+		cmd.SetArgs([]string{"--docker"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -331,6 +338,7 @@ func TestInitCmd(t *testing.T) {
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
+		cmd.SetArgs([]string{"--git-livereload"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -371,6 +379,7 @@ func TestInitCmd(t *testing.T) {
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
+		cmd.SetArgs([]string{"--platform", "aws"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -388,6 +397,7 @@ func TestInitCmd(t *testing.T) {
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
+		cmd.SetArgs([]string{"--set", "cluster.endpoint=https://localhost:6443", "--set", "dns.domain=test.local"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -405,6 +415,7 @@ func TestInitCmd(t *testing.T) {
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
+		cmd.SetArgs([]string{"--set", "invalid-format-without-equals"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
