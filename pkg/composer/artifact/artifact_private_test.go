@@ -2055,6 +2055,35 @@ func TestArtifactBuilder_extractTarEntries(t *testing.T) {
 		}
 	})
 
+	t.Run("ReportsCopyErrorBeforeCloseError", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+
+		copyError := fmt.Errorf("copy failed")
+
+		mocks.Shims.Copy = func(dst io.Writer, src io.Reader) (int64, error) {
+			return 0, copyError
+		}
+
+		mockReader := &mockTarReader{
+			nextFunc: func() (*tar.Header, error) {
+				return &tar.Header{Name: "test.txt", Typeflag: tar.TypeReg}, nil
+			},
+		}
+
+		err := builder.extractTarEntries(mockReader, tmpDir)
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to write file") {
+			t.Errorf("Expected write error, got %v", err)
+		}
+		if !strings.Contains(err.Error(), copyError.Error()) {
+			t.Errorf("Expected Copy error to be reported, got %v", err)
+		}
+	})
+
 }
 
 func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {

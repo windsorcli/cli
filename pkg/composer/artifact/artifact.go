@@ -1275,11 +1275,12 @@ func (a *ArtifactBuilder) extractTarEntries(tarReader TarReader, destDir string)
 		}
 
 		_, err = a.shims.Copy(fileWriter, tarReader)
-		if closeErr := fileWriter.Close(); closeErr != nil {
-			return fmt.Errorf("failed to close file %s: %w", destPath, closeErr)
-		}
+		closeErr := fileWriter.Close()
 		if err != nil {
 			return fmt.Errorf("failed to write file %s: %w", destPath, err)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("failed to close file %s: %w", destPath, closeErr)
 		}
 
 		modeValue := header.Mode & 0777
