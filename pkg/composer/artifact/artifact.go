@@ -1207,10 +1207,11 @@ func (a *ArtifactBuilder) validateOCIDiskCache(cacheDir string) error {
 }
 
 // validateAndSanitizePath sanitizes a file path for safe extraction by removing path traversal sequences
-// and rejecting absolute paths. Returns the cleaned path if valid, or an error if the path is unsafe.
+// and rejecting absolute paths. Returns the cleaned path normalized to forward slashes if valid, or an error if the path is unsafe.
 // This function checks for absolute paths in a platform-agnostic way since tar archives use Unix-style paths
 // regardless of the host OS. It checks the original path for Unix-style absolute paths (starting with /)
-// before filepath.Clean, which may convert separators on Windows.
+// before filepath.Clean, which may convert separators on Windows. The returned path is normalized to forward slashes
+// to ensure consistent behavior across platforms.
 func (a *ArtifactBuilder) validateAndSanitizePath(path string) (string, error) {
 	if strings.HasPrefix(path, "/") {
 		return "", fmt.Errorf("absolute paths are not allowed: %s", path)
@@ -1222,7 +1223,7 @@ func (a *ArtifactBuilder) validateAndSanitizePath(path string) (string, error) {
 	if strings.Contains(cleanPath, "..") {
 		return "", fmt.Errorf("path contains directory traversal sequence: %s", path)
 	}
-	return cleanPath, nil
+	return filepath.ToSlash(cleanPath), nil
 }
 
 // extractTarEntries extracts all entries from a tar archive to the specified destination directory.
