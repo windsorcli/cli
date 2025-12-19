@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/windsorcli/cli/pkg/runtime/shell/ssh"
 )
@@ -79,6 +80,10 @@ func (s *SecureShell) ExecSilent(command string, args ...string) (string, error)
 	return s.Exec(command, args...)
 }
 
+// ExecSilentWithTimeout executes a command with a timeout and returns the output.
+func (s *SecureShell) ExecSilentWithTimeout(command string, args []string, timeout time.Duration) (string, error) {
+	return s.DefaultShell.ExecSilentWithTimeout(command, args, timeout)
+}
+
 // Ensure SecureShell implements the Shell interface
 var _ Shell = (*SecureShell)(nil)
-

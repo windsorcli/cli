@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-
 	"time"
 
 	"github.com/briandowns/spinner"
@@ -50,6 +49,7 @@ type Shell interface {
 	GetProjectRoot() (string, error)
 	Exec(command string, args ...string) (string, error)
 	ExecSilent(command string, args ...string) (string, error)
+	ExecSilentWithTimeout(command string, args []string, timeout time.Duration) (string, error)
 	ExecSudo(message string, command string, args ...string) (string, error)
 	ExecProgress(message string, command string, args ...string) (string, error)
 	InstallHook(shellName string) error
@@ -233,6 +233,28 @@ func (s *DefaultShell) ExecSilent(command string, args ...string) (string, error
 	}
 
 	return s.scrubString(stdoutBuf.String()), nil
+}
+
+// ExecSilentWithTimeout executes a command with a timeout and returns the output.
+// If the command takes longer than the timeout, it kills the process and returns an error.
+// Uses ExecSilent internally but wraps it with a timeout mechanism.
+func (s *DefaultShell) ExecSilentWithTimeout(command string, args []string, timeout time.Duration) (string, error) {
+	type result struct {
+		out string
+		err error
+	}
+	resultChan := make(chan result, 1)
+	go func() {
+		out, err := s.ExecSilent(command, args...)
+		resultChan <- result{out: out, err: err}
+	}()
+
+	select {
+	case res := <-resultChan:
+		return res.out, res.err
+	case <-time.After(timeout):
+		return "", fmt.Errorf("command timed out after %v", timeout)
+	}
 }
 
 // ExecProgress is a method of the DefaultShell struct that executes a command with a progress indicator.

@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/windsorcli/cli/pkg/runtime/shell/ssh"
 )
@@ -282,6 +283,39 @@ func TestSecureShell_ExecSilent(t *testing.T) {
 		}
 		if output != expectedOutput {
 			t.Fatalf("Expected output %q, got %q", expectedOutput, output)
+		}
+	})
+}
+
+// TestSecureShell_ExecSilentWithTimeout tests the ExecSilentWithTimeout method of SecureShell
+func TestSecureShell_ExecSilentWithTimeout(t *testing.T) {
+	setup := func(t *testing.T) (*SecureShell, *SecureMocks) {
+		t.Helper()
+		mocks := setupSecureShellMocks(t)
+		shell := NewSecureShell(mocks.Client)
+		return shell, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		command := "echo"
+		args := []string{"test"}
+
+		shell, mocks := setup(t)
+		mocks.Session.RunFunc = func(cmd string) error {
+			expectedCmd := command + " " + strings.Join(args, " ")
+			if cmd != expectedCmd {
+				return fmt.Errorf("unexpected command: %s, expected: %s", cmd, expectedCmd)
+			}
+			return nil
+		}
+
+		output, err := shell.ExecSilentWithTimeout(command, args, 5*time.Second)
+
+		if err != nil {
+			t.Fatalf("Failed to execute command: %v", err)
+		}
+		if output == "" {
+			t.Error("Expected non-empty output")
 		}
 	})
 }
