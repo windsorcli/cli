@@ -103,6 +103,14 @@ func (t *BaseToolsManager) Check() error {
 		}
 	}
 
+	if t.configHandler.GetBool("secrets.sops.enabled") {
+		if err := t.checkSops(); err != nil {
+			spin.Stop()
+			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
+			return fmt.Errorf("sops check failed: %v", err)
+		}
+	}
+
 	if t.configHandler.GetBool("azure.enabled") {
 		if err := t.checkKubelogin(); err != nil {
 			spin.Stop()
@@ -296,6 +304,31 @@ func (t *BaseToolsManager) checkOnePassword() error {
 
 	if compareVersion(version, constants.MinimumVersion1Password) < 0 {
 		return fmt.Errorf("1Password CLI version %s is below the minimum required version %s", version, constants.MinimumVersion1Password)
+	}
+
+	return nil
+}
+
+// checkSops ensures SOPS CLI is available in the system's PATH using execLookPath.
+// It checks for 'sops' in the system's PATH and verifies its version.
+// Returns nil if found and meets the minimum version requirement, else an error indicating it is not available or outdated.
+func (t *BaseToolsManager) checkSops() error {
+	if _, err := execLookPath("sops"); err != nil {
+		return fmt.Errorf("SOPS CLI is not available in the PATH")
+	}
+
+	out, err := t.shell.ExecSilent("sops", "--version")
+	if err != nil {
+		return fmt.Errorf("SOPS CLI is not available in the PATH")
+	}
+
+	version := extractVersion(out)
+	if version == "" {
+		return fmt.Errorf("failed to extract SOPS CLI version")
+	}
+
+	if compareVersion(version, constants.MinimumVersionSOPS) < 0 {
+		return fmt.Errorf("SOPS CLI version %s is below the minimum required version %s", version, constants.MinimumVersionSOPS)
 	}
 
 	return nil

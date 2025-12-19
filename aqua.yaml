@@ -18,7 +18,7 @@ packages:
 - name: kubernetes/kubectl@v1.34.3
 - name: go-task/task@v3.46.2
 - name: golang/go@go1.25.5
-- name: getsops/sops@v3.9.0
+- name: getsops/sops@v3.11.0
 - name: abiosoft/colima@v0.9.1
 - name: lima-vm/lima@v2.0.2
 - name: docker/cli@v27.4.1

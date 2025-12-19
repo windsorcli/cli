@@ -82,6 +82,8 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 			return fmt.Sprintf("Terraform v%s", constants.MinimumVersionTerraform), nil
 		case name == "op" && args[0] == "--version":
 			return fmt.Sprintf("1Password CLI %s", constants.MinimumVersion1Password), nil
+		case name == "sops" && args[0] == "--version":
+			return fmt.Sprintf("sops %s", constants.MinimumVersionSOPS), nil
 		}
 		return "", fmt.Errorf("command not found")
 	}
@@ -109,7 +111,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 
 	execLookPath = func(name string) (string, error) {
 		switch name {
-		case "docker", "docker-compose", "docker-cli-plugin-docker-compose", "talosctl", "terraform", "op", "colima", "limactl":
+		case "docker", "docker-compose", "docker-cli-plugin-docker-compose", "talosctl", "terraform", "op", "colima", "limactl", "sops":
 			return "/usr/bin/" + name, nil
 		default:
 			return "", exec.ErrNotFound
@@ -393,6 +395,56 @@ contexts:
 			t.Error("Expected error when 1Password is enabled but not available")
 		} else if !strings.Contains(err.Error(), "1password check failed: 1Password CLI is not available in the PATH") {
 			t.Errorf("Expected error to contain '1password check failed: 1Password CLI is not available in the PATH', got: %v", err)
+		}
+	})
+
+	t.Run("SopsEnabledButNotAvailable", func(t *testing.T) {
+		// When SOPS is enabled but not available in PATH
+		configStr := `
+contexts:
+  test:
+    secrets:
+      sops:
+        enabled: true
+`
+		mocks, toolsManager := setup(t, configStr)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "sops" {
+				return "", exec.ErrNotFound
+			}
+			return originalExecLookPath(name)
+		}
+		originalExecSilent := mocks.Shell.ExecSilentFunc
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+			if name == "sops" {
+				return "", fmt.Errorf("SOPS CLI is not available in the PATH")
+			}
+			return originalExecSilent(name, args...)
+		}
+		err := toolsManager.Check()
+		// Then an error indicating SOPS check failed should be returned
+		if err == nil {
+			t.Error("Expected error when SOPS is enabled but not available")
+		} else if !strings.Contains(err.Error(), "sops check failed: SOPS CLI is not available in the PATH") {
+			t.Errorf("Expected error to contain 'sops check failed: SOPS CLI is not available in the PATH', got: %v", err)
+		}
+	})
+
+	t.Run("SopsEnabledWithCorrectVersion", func(t *testing.T) {
+		// When SOPS is enabled and available with correct version
+		configStr := `
+contexts:
+  test:
+    secrets:
+      sops:
+        enabled: true
+`
+		_, toolsManager := setup(t, configStr)
+		err := toolsManager.Check()
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected Check to succeed when SOPS is enabled with correct version, but got error: %v", err)
 		}
 	})
 
@@ -862,6 +914,99 @@ func TestToolsManager_checkOnePassword(t *testing.T) {
 		// Then an error indicating version is too low should be returned
 		if err == nil || !strings.Contains(err.Error(), "1Password CLI version 1.0.0 is below the minimum required version") {
 			t.Errorf("Expected 1Password CLI version too low error, got %v", err)
+		}
+	})
+}
+
+// Tests for SOPS CLI version validation
+func TestToolsManager_checkSops(t *testing.T) {
+	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
+		t.Helper()
+		mocks := setupMocks(t)
+		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		return mocks, toolsManager
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given SOPS CLI is available with correct version
+		_, toolsManager := setup(t)
+		// When checking SOPS CLI version
+		err := toolsManager.checkSops()
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected checkSops to succeed, but got error: %v", err)
+		}
+	})
+
+	t.Run("SopsNotAvailable", func(t *testing.T) {
+		// Given SOPS CLI is not found in PATH
+		_, toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		defer func() {
+			execLookPath = originalExecLookPath
+		}()
+		execLookPath = func(name string) (string, error) {
+			if name == "sops" {
+				return "", exec.ErrNotFound
+			}
+			return originalExecLookPath(name)
+		}
+		// When checking SOPS CLI version
+		err := toolsManager.checkSops()
+		// Then an error indicating CLI is not available should be returned
+		if err == nil || !strings.Contains(err.Error(), "SOPS CLI is not available in the PATH") {
+			t.Errorf("Expected SOPS CLI is not available in the PATH error, got %v", err)
+		}
+	})
+
+	t.Run("SopsCommandError", func(t *testing.T) {
+		// Given SOPS CLI command execution fails
+		mocks, toolsManager := setup(t)
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+			if name == "sops" && args[0] == "--version" {
+				return "", fmt.Errorf("SOPS CLI is not available in the PATH")
+			}
+			return "", fmt.Errorf("command not found")
+		}
+		// When checking SOPS CLI version
+		err := toolsManager.checkSops()
+		// Then an error indicating CLI is not available should be returned
+		if err == nil || !strings.Contains(err.Error(), "SOPS CLI is not available in the PATH") {
+			t.Errorf("Expected SOPS CLI is not available in the PATH error, got %v", err)
+		}
+	})
+
+	t.Run("SopsVersionInvalidResponse", func(t *testing.T) {
+		// Given SOPS CLI version response is invalid
+		mocks, toolsManager := setup(t)
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+			if name == "sops" && args[0] == "--version" {
+				return "Invalid version response", nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+		// When checking SOPS CLI version
+		err := toolsManager.checkSops()
+		// Then an error indicating version extraction failed should be returned
+		if err == nil || !strings.Contains(err.Error(), "failed to extract SOPS CLI version") {
+			t.Errorf("Expected failed to extract SOPS CLI version error, got %v", err)
+		}
+	})
+
+	t.Run("SopsVersionTooLow", func(t *testing.T) {
+		// Given SOPS CLI version is below minimum required
+		mocks, toolsManager := setup(t)
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+			if name == "sops" && args[0] == "--version" {
+				return "sops 1.0.0", nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+		// When checking SOPS CLI version
+		err := toolsManager.checkSops()
+		// Then an error indicating version is too low should be returned
+		if err == nil || !strings.Contains(err.Error(), "SOPS CLI version 1.0.0 is below the minimum required version") {
+			t.Errorf("Expected SOPS CLI version too low error, got %v", err)
 		}
 	})
 }

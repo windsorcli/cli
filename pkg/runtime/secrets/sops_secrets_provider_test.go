@@ -93,8 +93,66 @@ func TestSopsSecretsProvider_LoadSecrets(t *testing.T) {
 		}
 	})
 
+	t.Run("LoadsAndMergesMultipleFiles", func(t *testing.T) {
+		// Given a SopsSecretsProvider with multiple secrets files
+		provider, mocks := setup(t)
+
+		fileCallCount := 0
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == filepath.Join("/valid/config/path", "secrets.yaml") ||
+				name == filepath.Join("/valid/config/path", "secrets.enc.yaml") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shims.DecryptFile = func(filePath string, format string) ([]byte, error) {
+			fileCallCount++
+			if filePath == filepath.Join("/valid/config/path", "secrets.yaml") {
+				return []byte(`
+key1: value1
+key2: value2
+`), nil
+			}
+			if filePath == filepath.Join("/valid/config/path", "secrets.enc.yaml") {
+				return []byte(`
+key2: value2_override
+key3: value3
+`), nil
+			}
+			return nil, fmt.Errorf("unexpected file: %s", filePath)
+		}
+
+		// When LoadSecrets is called
+		err := provider.LoadSecrets()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// And both files should have been decrypted
+		if fileCallCount != 2 {
+			t.Fatalf("expected DecryptFile to be called 2 times, got %d", fileCallCount)
+		}
+
+		// And secrets from both files should be merged
+		if provider.secrets["key1"] != "value1" {
+			t.Fatalf("expected secret 'key1' to be 'value1', got %v", provider.secrets["key1"])
+		}
+
+		// And later file should override earlier file
+		if provider.secrets["key2"] != "value2_override" {
+			t.Fatalf("expected secret 'key2' to be 'value2_override' (overridden), got %v", provider.secrets["key2"])
+		}
+
+		if provider.secrets["key3"] != "value3" {
+			t.Fatalf("expected secret 'key3' to be 'value3', got %v", provider.secrets["key3"])
+		}
+	})
+
 	t.Run("FileDoesNotExist", func(t *testing.T) {
-		// Given a new SopsSecretsProvider with an invalid config path
+		// Given a new SopsSecretsProvider with no secrets file
 		provider, mocks := setup(t)
 
 		// Mock the stat function to return an error indicating the file does not exist
@@ -105,15 +163,45 @@ func TestSopsSecretsProvider_LoadSecrets(t *testing.T) {
 		// When LoadSecrets is called
 		err := provider.LoadSecrets()
 
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected error, got nil")
+		// Then no error should be returned (secrets are optional)
+		if err != nil {
+			t.Fatalf("expected no error when file does not exist, got %v", err)
 		}
 
-		// And the error message should indicate the file does not exist
-		expectedErrorMessage := fmt.Sprintf("file does not exist: %s", filepath.Join(provider.configPath, "secrets.enc.yml"))
-		if err.Error() != expectedErrorMessage {
-			t.Fatalf("expected error message to be %v, got %v", expectedErrorMessage, err.Error())
+		// And the provider should remain locked
+		if provider.unlocked {
+			t.Fatalf("expected provider to remain locked when no file exists")
+		}
+	})
+
+	t.Run("DoesNotReDecryptWhenAlreadyUnlocked", func(t *testing.T) {
+		// Given a SopsSecretsProvider that has already loaded secrets
+		provider, mocks := setup(t)
+		provider.secrets = map[string]string{"test_key": "test_value"}
+		provider.unlocked = true
+
+		decryptCallCount := 0
+		mocks.Shims.DecryptFile = func(_ string, _ string) ([]byte, error) {
+			decryptCallCount++
+			return nil, fmt.Errorf("should not be called")
+		}
+
+		// When LoadSecrets is called again
+		err := provider.LoadSecrets()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// And DecryptFile should not have been called
+		if decryptCallCount != 0 {
+			t.Fatalf("expected DecryptFile to not be called when already unlocked, but it was called %d times", decryptCallCount)
+		}
+
+		// And secrets should remain unchanged
+		if provider.secrets["test_key"] != "test_value" {
+			t.Fatalf("expected secrets to remain unchanged, got %v", provider.secrets)
 		}
 	})
 
@@ -134,8 +222,9 @@ func TestSopsSecretsProvider_LoadSecrets(t *testing.T) {
 			t.Fatalf("expected error, got nil")
 		}
 
-		// And the error message should indicate a decryption failure
-		expectedErrorMessage := "failed to decrypt file: decryption error"
+		// And the error message should indicate a decryption failure with file path
+		expectedFilePath := filepath.Join("/valid/config/path", "secrets.yaml")
+		expectedErrorMessage := fmt.Sprintf("failed to decrypt file %s: decryption error", expectedFilePath)
 		if err.Error() != expectedErrorMessage {
 			t.Fatalf("expected error message to be %v, got %v", expectedErrorMessage, err.Error())
 		}
@@ -158,8 +247,9 @@ func TestSopsSecretsProvider_LoadSecrets(t *testing.T) {
 			t.Fatalf("expected error, got nil")
 		}
 
-		// And the error message should indicate a YAML unmarshal error
-		expectedErrorMessage := "error converting YAML to secrets map: yaml: unmarshal errors: [1:1] string was used where mapping is expected"
+		// And the error message should indicate a YAML unmarshal error with file path
+		expectedFilePath := filepath.Join("/valid/config/path", "secrets.yaml")
+		expectedErrorMessage := fmt.Sprintf("error converting YAML to secrets map from %s: yaml: unmarshal errors: [1:1] string was used where mapping is expected", expectedFilePath)
 		if err.Error() != expectedErrorMessage {
 			t.Fatalf("expected error message to be %v, got %v", expectedErrorMessage, err.Error())
 		}
@@ -369,7 +459,7 @@ func TestSopsSecretsProvider_ParseSecrets(t *testing.T) {
 	})
 }
 
-func TestSopsSecretsProvider_findSecretsFilePath(t *testing.T) {
+func TestSopsSecretsProvider_findSecretsFilePaths(t *testing.T) {
 	setup := func(t *testing.T) (*SopsSecretsProvider, *SecretsTestMocks) {
 		mocks := setupSopsSecretsMocks(t)
 		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Shell)
@@ -377,39 +467,81 @@ func TestSopsSecretsProvider_findSecretsFilePath(t *testing.T) {
 		return provider, mocks
 	}
 
-	t.Run("ReturnsYamlPathWhenYamlExists", func(t *testing.T) {
+	t.Run("ReturnsAllExistingFiles", func(t *testing.T) {
 		provider, mocks := setup(t)
 
-		// Mock Stat to return success for yaml file
+		// Mock Stat to return success for all files
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == filepath.Join("/valid/config/path", "secrets.enc.yaml") {
+			if name == filepath.Join("/valid/config/path", "secrets.yaml") ||
+				name == filepath.Join("/valid/config/path", "secrets.yml") ||
+				name == filepath.Join("/valid/config/path", "secrets.enc.yaml") ||
+				name == filepath.Join("/valid/config/path", "secrets.enc.yml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
 		}
 
-		path := provider.findSecretsFilePath()
-		expectedPath := filepath.Join("/valid/config/path", "secrets.enc.yaml")
-		if path != expectedPath {
-			t.Errorf("Expected path to be %s, got %s", expectedPath, path)
+		paths := provider.findSecretsFilePaths()
+		expectedCount := 4
+		if len(paths) != expectedCount {
+			t.Errorf("Expected %d paths, got %d", expectedCount, len(paths))
+		}
+
+		expectedPaths := map[string]bool{
+			filepath.Join("/valid/config/path", "secrets.yaml"):     true,
+			filepath.Join("/valid/config/path", "secrets.yml"):      true,
+			filepath.Join("/valid/config/path", "secrets.enc.yaml"): true,
+			filepath.Join("/valid/config/path", "secrets.enc.yml"):  true,
+		}
+
+		for _, path := range paths {
+			if !expectedPaths[path] {
+				t.Errorf("Unexpected path: %s", path)
+			}
 		}
 	})
 
-	t.Run("ReturnsYmlPathWhenYamlDoesNotExist", func(t *testing.T) {
+	t.Run("ReturnsOnlyExistingFiles", func(t *testing.T) {
 		provider, mocks := setup(t)
 
-		// Mock Stat to return error for yaml file but success for yml file
+		// Mock Stat to return success only for secrets.yaml and secrets.enc.yaml
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == filepath.Join("/valid/config/path", "secrets.enc.yaml") {
-				return nil, os.ErrNotExist
+			if name == filepath.Join("/valid/config/path", "secrets.yaml") ||
+				name == filepath.Join("/valid/config/path", "secrets.enc.yaml") {
+				return nil, nil
 			}
-			return nil, nil
+			return nil, os.ErrNotExist
 		}
 
-		path := provider.findSecretsFilePath()
-		expectedPath := filepath.Join("/valid/config/path", "secrets.enc.yml")
-		if path != expectedPath {
-			t.Errorf("Expected path to be %s, got %s", expectedPath, path)
+		paths := provider.findSecretsFilePaths()
+		expectedCount := 2
+		if len(paths) != expectedCount {
+			t.Errorf("Expected %d paths, got %d", expectedCount, len(paths))
+		}
+
+		expectedPaths := map[string]bool{
+			filepath.Join("/valid/config/path", "secrets.yaml"):     true,
+			filepath.Join("/valid/config/path", "secrets.enc.yaml"): true,
+		}
+
+		for _, path := range paths {
+			if !expectedPaths[path] {
+				t.Errorf("Unexpected path: %s", path)
+			}
+		}
+	})
+
+	t.Run("ReturnsEmptySliceWhenNoFilesExist", func(t *testing.T) {
+		provider, mocks := setup(t)
+
+		// Mock Stat to return error for all files
+		mocks.Shims.Stat = func(_ string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		paths := provider.findSecretsFilePaths()
+		if len(paths) != 0 {
+			t.Errorf("Expected empty slice when no files exist, got %v", paths)
 		}
 	})
 }
