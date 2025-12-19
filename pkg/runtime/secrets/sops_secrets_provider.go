@@ -2,9 +2,11 @@ package secrets
 
 import (
 	"fmt"
-	"os"
+	"maps"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
 
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -29,8 +31,10 @@ const sopsPattern = `(?i)\${{\s*sops\.\s*([^}\s]*?)\s*}}`
 // This directive suppresses the gosec G101 warning, which is about hardcoded credentials.
 // These are just paths, not secrets.
 const (
-	secretsFileNameYaml = "secrets.enc.yaml"
-	secretsFileNameYml  = "secrets.enc.yml"
+	secretsFileNameYaml    = "secrets.yaml"
+	secretsFileNameYml     = "secrets.yml"
+	secretsFileNameEncYaml = "secrets.enc.yaml"
+	secretsFileNameEncYml  = "secrets.enc.yml"
 )
 
 // =============================================================================
@@ -59,36 +63,43 @@ func NewSopsSecretsProvider(configPath string, shell shell.Shell) *SopsSecretsPr
 // Private Methods
 // =============================================================================
 
-// findSecretsFilePath checks for the existence of the secrets file with either .yaml or .yml extension.
-func (s *SopsSecretsProvider) findSecretsFilePath() string {
-	yamlPath := filepath.Join(s.configPath, secretsFileNameYaml)
-	ymlPath := filepath.Join(s.configPath, secretsFileNameYml)
-
-	if _, err := s.shims.Stat(yamlPath); err == nil {
-		return yamlPath
+// findSecretsFilePaths finds all existing secrets files and returns their paths.
+// Checks for: secrets.yaml, secrets.yml, secrets.enc.yaml, secrets.enc.yml
+// Returns all files that exist, or an empty slice if none exist.
+func (s *SopsSecretsProvider) findSecretsFilePaths() []string {
+	candidates := []string{
+		filepath.Join(s.configPath, secretsFileNameYaml),
+		filepath.Join(s.configPath, secretsFileNameYml),
+		filepath.Join(s.configPath, secretsFileNameEncYaml),
+		filepath.Join(s.configPath, secretsFileNameEncYml),
 	}
-	return ymlPath
+
+	var existingPaths []string
+	for _, path := range candidates {
+		if _, err := s.shims.Stat(path); err == nil {
+			existingPaths = append(existingPaths, path)
+		}
+	}
+	return existingPaths
 }
 
 // =============================================================================
 // Public Methods
 // =============================================================================
 
-// LoadSecrets loads and decrypts the secrets from the SOPS-encrypted file.
+// LoadSecrets loads and decrypts the secrets from all existing SOPS-encrypted files.
+// If secrets are already loaded (unlocked), it returns immediately without re-decrypting.
+// If no secrets files are found, it returns nil (secrets are optional).
+// All existing secrets files are decrypted in parallel and merged together, with later files overriding earlier ones.
+// Returns an error only if a file exists but cannot be decrypted or parsed.
 func (s *SopsSecretsProvider) LoadSecrets() error {
-	secretsFilePath := s.findSecretsFilePath()
-	if _, err := s.shims.Stat(secretsFilePath); os.IsNotExist(err) {
-		return fmt.Errorf("file does not exist: %s", secretsFilePath)
+	if s.unlocked {
+		return nil
 	}
 
-	plaintextBytes, err := s.shims.DecryptFile(secretsFilePath, "yaml")
-	if err != nil {
-		return fmt.Errorf("failed to decrypt file: %w", err)
-	}
-
-	var sopsSecrets map[string]any
-	if err := s.shims.YAMLUnmarshal(plaintextBytes, &sopsSecrets); err != nil {
-		return fmt.Errorf("error converting YAML to secrets map: %w", err)
+	secretsFilePaths := s.findSecretsFilePaths()
+	if len(secretsFilePaths) == 0 {
+		return nil
 	}
 
 	var flatten func(map[string]any, string, map[string]string)
@@ -107,8 +118,63 @@ func (s *SopsSecretsProvider) LoadSecrets() error {
 		}
 	}
 
+	type fileResult struct {
+		index   int
+		secrets map[string]string
+		err     error
+	}
+
+	results := make([]fileResult, len(secretsFilePaths))
+	var wg sync.WaitGroup
+
+	for i, secretsFilePath := range secretsFilePaths {
+		wg.Add(1)
+		go func(idx int, filePath string) {
+			defer wg.Done()
+
+			plaintextBytes, err := s.shims.DecryptFile(filePath, "yaml")
+			if err != nil {
+				results[idx] = fileResult{
+					index: idx,
+					err:   fmt.Errorf("failed to decrypt file %s: %w", filePath, err),
+				}
+				return
+			}
+
+			var sopsSecrets map[string]any
+			if err := s.shims.YAMLUnmarshal(plaintextBytes, &sopsSecrets); err != nil {
+				results[idx] = fileResult{
+					index: idx,
+					err:   fmt.Errorf("error converting YAML to secrets map from %s: %w", filePath, err),
+				}
+				return
+			}
+
+			fileSecrets := make(map[string]string)
+			flatten(sopsSecrets, "", fileSecrets)
+
+			results[idx] = fileResult{
+				index:   idx,
+				secrets: fileSecrets,
+			}
+		}(i, secretsFilePath)
+	}
+
+	wg.Wait()
+
 	secretsMap := make(map[string]string)
-	flatten(sopsSecrets, "", secretsMap)
+
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].index < results[j].index
+	})
+
+	for _, result := range results {
+		if result.err != nil {
+			return result.err
+		}
+
+		maps.Copy(secretsMap, result.secrets)
+	}
 
 	s.secrets = secretsMap
 	s.unlocked = true

@@ -513,6 +513,8 @@ func (rt *Runtime) initializeComponents() error {
 
 // loadSecrets loads secrets from configured secrets providers.
 // It attempts to load secrets from both SOPS and 1Password providers if they are available.
+// If a provider fails to load (e.g., file not found), it continues with other providers.
+// Returns an error only if a provider encounters a non-recoverable error (e.g., decryption failure).
 func (rt *Runtime) loadSecrets() error {
 	providers := []secretsRuntime.SecretsProvider{}
 	if rt.SecretsProviders.Sops != nil {

@@ -2,12 +2,11 @@ package secrets
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 
 	"github.com/1password/onepassword-sdk-go"
-	"github.com/getsops/sops/v3/decrypt"
 	"github.com/goccy/go-yaml"
 )
 
@@ -40,13 +39,26 @@ func NewShims() *Shims {
 	return &Shims{
 		Stat:          os.Stat,
 		YAMLUnmarshal: yaml.Unmarshal,
-		DecryptFile:   decrypt.File,
+		DecryptFile: func(filePath string, format string) ([]byte, error) {
+			cmd := exec.Command("sops", "--decrypt", "--input-type", format, filePath)
+			output, err := cmd.Output()
+			if err != nil {
+				if exitError, ok := err.(*exec.ExitError); ok {
+					if len(exitError.Stderr) > 0 {
+						return nil, fmt.Errorf("sops decryption failed: %s", string(exitError.Stderr))
+					}
+					return nil, fmt.Errorf("sops decryption failed with exit code %d", exitError.ExitCode())
+				}
+				return nil, fmt.Errorf("failed to execute sops: %w", err)
+			}
+			return output, nil
+		},
 		NewOnePasswordClient: func(ctx context.Context, opts ...onepassword.ClientOption) (*onepassword.Client, error) {
 			return onepassword.NewClient(ctx, opts...)
 		},
 		ResolveSecret: func(client *onepassword.Client, ctx context.Context, secretRef string) (string, error) {
 			if client == nil {
-				return "", errors.New("client is nil")
+				return "", fmt.Errorf("client is nil")
 			}
 			return client.Secrets().Resolve(ctx, secretRef)
 		},
