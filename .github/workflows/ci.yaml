@@ -84,9 +84,9 @@ jobs:
           echo "Testing build for version: $VERSION"
           COMMIT_SHA=${{ github.sha }}
           if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
-            GOOS=linux GOARCH=${{ matrix.arch }} go build -ldflags "-X 'github.com/${{ github.repository }}/cmd.version=$VERSION' -X 'github.com/${{ github.repository }}/cmd.commitSHA=$COMMIT_SHA'" -o /dev/null cmd/windsor/main.go
+            GOOS=linux GOARCH=${{ matrix.arch }} go build -ldflags "-s -w -X 'github.com/${{ github.repository }}/cmd.version=$VERSION' -X 'github.com/${{ github.repository }}/cmd.commitSHA=$COMMIT_SHA'" -o /dev/null cmd/windsor/main.go
           elif [ "${{ matrix.os }}" == "macos-latest" ]; then
-            GOOS=darwin GOARCH=${{ matrix.arch }} go build -ldflags "-X 'github.com/${{ github.repository }}/cmd.version=$VERSION' -X 'github.com/${{ github.repository }}/cmd.commitSHA=$COMMIT_SHA'" -o /dev/null cmd/windsor/main.go
+            GOOS=darwin GOARCH=${{ matrix.arch }} go build -ldflags "-s -w -X 'github.com/${{ github.repository }}/cmd.version=$VERSION' -X 'github.com/${{ github.repository }}/cmd.commitSHA=$COMMIT_SHA'" -o /dev/null cmd/windsor/main.go
           fi
 
       - name: Test Build Windsor CLI on Windows
@@ -97,7 +97,7 @@ jobs:
           $env:COMMIT_SHA = "${{ github.sha }}"
           $env:GOOS = "windows"
           $env:GOARCH = "${{ matrix.arch }}"
-          go build -ldflags "-X 'github.com/${{ github.repository }}/cmd.version=$env:VERSION' -X 'github.com/${{ github.repository }}/cmd.commitSHA=$env:COMMIT_SHA'" -o NUL cmd\windsor\main.go
+          go build -ldflags "-s -w -X 'github.com/${{ github.repository }}/cmd.version=$env:VERSION' -X 'github.com/${{ github.repository }}/cmd.commitSHA=$env:COMMIT_SHA'" -o NUL cmd\windsor\main.go
         shell: pwsh
 
   sast-scan:

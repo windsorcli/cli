@@ -17,15 +17,15 @@ tasks:
         platforms: [linux, darwin]
       - cmd: powershell -Command "New-Item -ItemType Directory -Force -Path dist"
         platforms: [windows]
-      - cmd: GOOS=linux GOARCH=amd64 go build -o dist/windsor ./cmd/windsor/main.go
+      - cmd: GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dist/windsor ./cmd/windsor/main.go
         platforms: [linux]
-      - cmd: GOOS=linux GOARCH=arm64 go build -o dist/windsor ./cmd/windsor/main.go
+      - cmd: GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o dist/windsor ./cmd/windsor/main.go
         platforms: [linux]
-      - cmd: GOOS=darwin GOARCH=amd64 go build -o dist/windsor ./cmd/windsor/main.go
+      - cmd: GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o dist/windsor ./cmd/windsor/main.go
         platforms: [darwin]
-      - cmd: GOOS=darwin GOARCH=arm64 go build -o dist/windsor ./cmd/windsor/main.go
+      - cmd: GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o dist/windsor ./cmd/windsor/main.go
         platforms: [darwin]
-      - cmd: GOOS=windows GOARCH=amd64 go build -o dist/windsor.exe ./cmd/windsor/main.go
+      - cmd: GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o dist/windsor.exe ./cmd/windsor/main.go
         platforms: [windows]
 
   clean:
