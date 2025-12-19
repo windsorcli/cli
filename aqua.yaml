@@ -23,13 +23,13 @@ packages:
 - name: lima-vm/lima@v2.0.2
 - name: docker/cli@v27.4.1
 - name: securego/gosec@v2.22.11
-- name: docker/compose@v5.0.0
+- name: docker/compose@v5.0.1
 - name: google/go-jsonnet@v0.21.0
 - name: mikefarah/yq@v4.50.1
 - name: goreleaser/goreleaser@v2.13.1
 - name: helm/helm@v4.0.4
 - name: 1password/cli@v2.30.3
 - name: fluxcd/flux2@v2.7.5
-- name: aws/aws-cli@2.32.19
-- name: twistedpair/google-cloud-sdk@549.0.1
+- name: aws/aws-cli@2.32.20
+- name: twistedpair/google-cloud-sdk@550.0.0
 - name: opentofu/opentofu@v1.11.1

@@ -27,6 +27,7 @@ type InitMocks struct {
 	BlueprintHandler *blueprint.MockBlueprintHandler
 	ToolsManager     *tools.MockToolsManager
 	Runtime          *runtime.Runtime
+	Composer         *composer.Composer
 }
 
 func setupInitTest(t *testing.T, opts ...*SetupOptions) *InitMocks {
@@ -65,6 +66,11 @@ func setupInitTest(t *testing.T, opts ...*SetupOptions) *InitMocks {
 	baseMocks.ToolsManager.InstallFunc = func() error { return nil }
 	baseMocks.ToolsManager.CheckFunc = func() error { return nil }
 
+	// Create composer with mock blueprint handler to prevent loading real blueprints
+	comp := composer.NewComposer(baseMocks.Runtime, &composer.Composer{
+		BlueprintHandler: mockBlueprintHandler,
+	})
+
 	return &InitMocks{
 		ConfigHandler:    baseMocks.ConfigHandler,
 		Shell:            baseMocks,
@@ -72,6 +78,7 @@ func setupInitTest(t *testing.T, opts ...*SetupOptions) *InitMocks {
 		BlueprintHandler: mockBlueprintHandler,
 		ToolsManager:     baseMocks.ToolsManager,
 		Runtime:          baseMocks.Runtime,
+		Composer:         comp,
 	}
 }
 
@@ -107,6 +114,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -124,6 +132,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with reset flag
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		ctx = context.WithValue(ctx, "reset", true)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
@@ -142,6 +151,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with context
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		ctx = context.WithValue(ctx, "contextName", "local")
 		cmd.SetArgs([]string{"test-context"})
 		cmd.SetContext(ctx)
@@ -160,6 +170,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with context and reset
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		ctx = context.WithValue(ctx, "contextName", "local")
 		ctx = context.WithValue(ctx, "reset", true)
 		cmd.SetArgs([]string{"test-context"})
@@ -179,6 +190,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with all flags
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		ctx = context.WithValue(ctx, "contextName", "local")
 		ctx = context.WithValue(ctx, "reset", true)
 		ctx = context.WithValue(ctx, "verbose", true)
@@ -199,6 +211,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with backend flag
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"--backend", "s3"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -216,6 +229,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with VM driver flag
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"--vm-driver", "colima"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -233,6 +247,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with VM CPU flag
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"--vm-cpu", "4"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -250,6 +265,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with VM disk flag
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"--vm-disk", "100"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -267,6 +283,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with VM memory flag
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"--vm-memory", "8192"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -284,6 +301,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with VM arch flag
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"--vm-arch", "x86_64"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -301,6 +319,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with docker flag
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"--docker"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -318,6 +337,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with git livereload flag
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"--git-livereload"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -358,7 +378,8 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with platform flag
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		cmd.SetArgs([]string{"--provider", "local"})
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
+		cmd.SetArgs([]string{"--platform", "aws"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -375,6 +396,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with set flags
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"--set", "cluster.endpoint=https://localhost:6443", "--set", "dns.domain=test.local"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -392,7 +414,8 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with invalid set flag format
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		cmd.SetArgs([]string{"--set", "invalid-format"})
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
+		cmd.SetArgs([]string{"--set", "invalid-format-without-equals"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -774,6 +797,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with local context (should auto-set provider and blueprint)
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"local"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -791,6 +815,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with explicit provider
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"--provider", "aws"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -831,6 +856,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with simple flags
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{
 			"test-context",
 			"--reset",
@@ -854,6 +880,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with deprecated platform flag
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"--platform", "aws"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -871,6 +898,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with both platform and provider flags
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"--platform", "aws", "--provider", "azure"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -888,6 +916,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with platform flag (should override auto-set provider)
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"local", "--platform", "aws"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -905,6 +934,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with context name that matches a provider
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"aws"}) // No explicit provider flag
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -922,6 +952,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with "azure" context name
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"azure"}) // No explicit provider flag
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -939,6 +970,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with "metal" context name
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"metal"}) // No explicit provider flag
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -956,6 +988,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with "local" context name
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"local"}) // No explicit provider flag
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -973,6 +1006,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with explicit provider that differs from context name
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"aws", "--provider", "azure"}) // Context name vs explicit provider
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -990,6 +1024,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with unknown context name
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"unknown-context"}) // Unknown context name
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -1007,6 +1042,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with invalid set flag format
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"--set", "invalid-format-without-equals"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -1034,6 +1070,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -1065,7 +1102,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		cmd.SetArgs([]string{})
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -1095,6 +1132,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command without a context name
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -1123,7 +1161,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		cmd.SetArgs([]string{})
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -1169,6 +1207,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with a context name
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"test-context"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -1226,6 +1265,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command without a context name
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -1265,6 +1305,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with a context name
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"test-context"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -1294,6 +1335,7 @@ func TestInitCmd(t *testing.T) {
 		// When executing the init command with a context name
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"test-context"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()

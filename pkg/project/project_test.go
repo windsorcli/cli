@@ -133,7 +133,12 @@ func setupProjectMocks(t *testing.T, opts ...func(*ProjectTestMocks)) *ProjectTe
 		t.Fatalf("Failed to create context: %v", err)
 	}
 
-	comp := composer.NewComposer(rt)
+	mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
+	mockBlueprintHandler.LoadBlueprintFunc = func(...string) error { return nil }
+	mockBlueprintHandler.WriteFunc = func(overwrite ...bool) error { return nil }
+	comp := composer.NewComposer(rt, &composer.Composer{
+		BlueprintHandler: mockBlueprintHandler,
+	})
 	prov := provisioner.NewProvisioner(rt, comp.BlueprintHandler)
 
 	mocks := &ProjectTestMocks{
@@ -701,7 +706,7 @@ func TestProject_Configure(t *testing.T) {
 func TestProject_Initialize(t *testing.T) {
 	t.Run("SuccessWithoutWorkstation", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
 		}
@@ -720,7 +725,7 @@ func TestProject_Initialize(t *testing.T) {
 			return true
 		}
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
 		}
@@ -755,7 +760,7 @@ func TestProject_Initialize(t *testing.T) {
 			return false
 		}
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
 		}
@@ -801,7 +806,7 @@ func TestProject_Initialize(t *testing.T) {
 			return false
 		}
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
 		}
@@ -835,7 +840,7 @@ func TestProject_Initialize(t *testing.T) {
 
 	t.Run("SuccessWithOverwriteTrue", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
 		}
@@ -854,7 +859,7 @@ func TestProject_Initialize(t *testing.T) {
 			return fmt.Errorf("generate context ID failed")
 		}
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
 		}
@@ -878,7 +883,7 @@ func TestProject_Initialize(t *testing.T) {
 			return fmt.Errorf("save config failed")
 		}
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
 		}
@@ -947,7 +952,7 @@ func TestProject_Initialize(t *testing.T) {
 
 	t.Run("ErrorOnPrepareToolsFailure", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
 		}
@@ -977,7 +982,7 @@ func TestProject_Initialize(t *testing.T) {
 			return true
 		}
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 		if err != nil {
 			t.Fatalf("Failed to create project: %v", err)
 		}
