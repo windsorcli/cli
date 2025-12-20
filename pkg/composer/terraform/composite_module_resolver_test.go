@@ -1,8 +1,6 @@
 package terraform
 
 import (
-	"archive/tar"
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -58,28 +56,8 @@ func TestCompositeModuleResolver_ProcessModules(t *testing.T) {
 		return resolver, mocks
 	}
 
-	t.Run("Success", func(t *testing.T) {
-		// Given a resolver with components of different types
-		resolver, mocks := setup(t)
-		tmpDir := t.TempDir()
-		mocks.Runtime.ProjectRoot = tmpDir
-
-		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{
-				{
-					Path:     "oci-module",
-					Source:   "oci://registry.example.com/module:latest//terraform/oci-module",
-					FullPath: filepath.Join(tmpDir, ".windsor", "contexts", "local", "terraform", "oci-module"),
-				},
-				{
-					Path:     "standard-module",
-					Source:   "git::https://github.com/test/module.git",
-					FullPath: filepath.Join(tmpDir, "terraform", "standard-module"),
-				},
-			}
-		}
-
-		// Mock OCI resolver to succeed with proper artifact data
+	setupOCIMocks := func(t *testing.T, resolver *CompositeModuleResolver, projectRoot string) *artifact.MockArtifact {
+		t.Helper()
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		mockArtifactBuilder.ParseOCIRefFunc = func(ociRef string) (registry, repository, tag string, err error) {
 			if ociRef == "oci://registry.example.com/module:latest" {
@@ -90,43 +68,41 @@ func TestCompositeModuleResolver_ProcessModules(t *testing.T) {
 		mockArtifactBuilder.GetCacheDirFunc = func(registry, repository, tag string) (string, error) {
 			cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
 			extractionKey := strings.ReplaceAll(strings.ReplaceAll(cacheKey, "/", "_"), ":", "_")
-			cacheDir := filepath.Join(tmpDir, ".windsor", "cache", "oci", extractionKey)
+			cacheDir := filepath.Join(projectRoot, ".windsor", "cache", "oci", extractionKey)
 			return cacheDir, nil
 		}
-		mockArtifactBuilder.PullFunc = func(refs []string) (map[string][]byte, error) {
-			artifacts := make(map[string][]byte)
+		mockArtifactBuilder.PullFunc = func(refs []string) (map[string]string, error) {
+			artifacts := make(map[string]string)
 			for _, ref := range refs {
-				// Cache key format is registry/repository:tag (without oci:// prefix)
 				if strings.HasPrefix(ref, "oci://") {
 					cacheKey := strings.TrimPrefix(ref, "oci://")
-					// Create a minimal valid tar archive (OCI artifacts are tar, not tar.gz)
-					var buf bytes.Buffer
-					tarWriter := tar.NewWriter(&buf)
-					content := []byte("resource \"test\" {}")
-					header := &tar.Header{
-						Name: "terraform/oci-module/main.tf",
-						Mode: 0644,
-						Size: int64(len(content)),
-					}
-					if err := tarWriter.WriteHeader(header); err != nil {
-						return nil, err
-					}
-					if _, err := tarWriter.Write(content); err != nil {
-						return nil, err
-					}
-					if err := tarWriter.Close(); err != nil {
-						return nil, err
-					}
-					artifacts[cacheKey] = buf.Bytes()
+					extractionKey := strings.ReplaceAll(strings.ReplaceAll(cacheKey, "/", "_"), ":", "_")
+					cacheDir := filepath.Join(projectRoot, ".windsor", "cache", "oci", extractionKey)
+					artifacts[cacheKey] = cacheDir
 				} else {
-					artifacts[ref] = []byte("mock artifact data")
+					artifacts[ref] = filepath.Join(projectRoot, ".windsor", "cache", "oci", ref)
 				}
 			}
 			return artifacts, nil
 		}
+		mockArtifactBuilder.ExtractModulePathFunc = func(registry, repository, tag, modulePath string) (string, error) {
+			cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+			extractionKey := strings.ReplaceAll(strings.ReplaceAll(cacheKey, "/", "_"), ":", "_")
+			cacheDir := filepath.Join(projectRoot, ".windsor", "cache", "oci", extractionKey)
+			fullModulePath := filepath.Join(cacheDir, modulePath)
+			if err := os.MkdirAll(fullModulePath, 0755); err != nil {
+				return "", err
+			}
+			return fullModulePath, nil
+		}
 		if resolver.ociResolver != nil {
 			resolver.ociResolver.artifactBuilder = mockArtifactBuilder
-			// Override shims for real file operations in OCI resolver
+		}
+		return mockArtifactBuilder
+	}
+
+	setupOCIResolverShims := func(resolver *CompositeModuleResolver) {
+		if resolver.ociResolver != nil {
 			resolver.ociResolver.BaseModuleResolver.shims.Copy = io.Copy
 			resolver.ociResolver.BaseModuleResolver.shims.Create = func(name string) (*os.File, error) {
 				return os.Create(name)
@@ -134,12 +110,57 @@ func TestCompositeModuleResolver_ProcessModules(t *testing.T) {
 			resolver.ociResolver.BaseModuleResolver.shims.MkdirAll = os.MkdirAll
 			resolver.ociResolver.BaseModuleResolver.shims.Stat = os.Stat
 		}
-		
-		// Override shims for standard resolver to avoid file system errors
+	}
+
+	setupStandardResolverShims := func(resolver *CompositeModuleResolver, statFunc func(string) (os.FileInfo, error)) {
 		resolver.standardResolver.shims.MkdirAll = os.MkdirAll
-		resolver.standardResolver.shims.Stat = func(name string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
+		if statFunc != nil {
+			resolver.standardResolver.shims.Stat = statFunc
 		}
+	}
+
+	ociComponent := func(tmpDir string) blueprintv1alpha1.TerraformComponent {
+		return blueprintv1alpha1.TerraformComponent{
+			Path:     "oci-module",
+			Source:   "oci://registry.example.com/module:latest//terraform/oci-module",
+			FullPath: filepath.Join(tmpDir, ".windsor", "contexts", "local", "terraform", "oci-module"),
+		}
+	}
+
+	standardComponent := func(tmpDir string) blueprintv1alpha1.TerraformComponent {
+		return blueprintv1alpha1.TerraformComponent{
+			Path:     "standard-module",
+			Source:   "git::https://github.com/test/module.git",
+			FullPath: filepath.Join(tmpDir, "terraform", "standard-module"),
+		}
+	}
+
+	archiveComponent := func(projectRoot string) blueprintv1alpha1.TerraformComponent {
+		return blueprintv1alpha1.TerraformComponent{
+			Path:     "archive-module",
+			Source:   "file:///invalid/path.tar.gz//terraform/module",
+			FullPath: filepath.Join(projectRoot, "terraform", "archive-module"),
+		}
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a resolver with components of different types
+		resolver, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				ociComponent(tmpDir),
+				standardComponent(tmpDir),
+			}
+		}
+
+		setupOCIMocks(t, resolver, tmpDir)
+		setupOCIResolverShims(resolver)
+		setupStandardResolverShims(resolver, func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		})
 
 		// When processing modules
 		err := resolver.ProcessModules()
@@ -163,9 +184,8 @@ func TestCompositeModuleResolver_ProcessModules(t *testing.T) {
 			}
 		}
 
-		// Mock OCI resolver to fail
 		mockArtifactBuilder := artifact.NewMockArtifact()
-		mockArtifactBuilder.PullFunc = func(refs []string) (map[string][]byte, error) {
+		mockArtifactBuilder.PullFunc = func(refs []string) (map[string]string, error) {
 			return nil, errors.New("OCI pull error")
 		}
 		if resolver.ociResolver != nil {
@@ -187,18 +207,14 @@ func TestCompositeModuleResolver_ProcessModules(t *testing.T) {
 	t.Run("HandlesArchiveResolverError", func(t *testing.T) {
 		// Given a resolver with archive components that fail
 		resolver, mocks := setup(t)
-		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{
-				{
-					Path:     "archive-module",
-					Source:   "file:///invalid/path.tar.gz//terraform/module",
-					FullPath: "/mock/project/terraform/archive-module",
-				},
-			}
-		}
-
 		mocks.Runtime.ProjectRoot = "/mock/project"
 		mocks.Runtime.ConfigRoot = "/mock/config"
+
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				archiveComponent("/mock/project"),
+			}
+		}
 
 		// When processing modules
 		err := resolver.ProcessModules()
@@ -225,7 +241,6 @@ func TestCompositeModuleResolver_ProcessModules(t *testing.T) {
 			}
 		}
 
-		// Mock standard resolver to fail
 		resolver.standardResolver.shims.MkdirAll = func(path string, perm os.FileMode) error {
 			return errors.New("mkdir error")
 		}
@@ -265,10 +280,9 @@ func TestCompositeModuleResolver_ProcessModules(t *testing.T) {
 			}
 		}
 
-		// Mock OCI resolver to succeed
 		mockArtifactBuilder := artifact.NewMockArtifact()
-		mockArtifactBuilder.PullFunc = func(refs []string) (map[string][]byte, error) {
-			return make(map[string][]byte), nil
+		mockArtifactBuilder.PullFunc = func(refs []string) (map[string]string, error) {
+			return make(map[string]string), nil
 		}
 		resolver.ociResolver.artifactBuilder = mockArtifactBuilder
 
@@ -276,9 +290,7 @@ func TestCompositeModuleResolver_ProcessModules(t *testing.T) {
 		err := resolver.ProcessModules()
 
 		// Then it should succeed (or fail on archive/standard, but OCI should be processed first)
-		// The exact error depends on which resolver fails, but OCI should be attempted first
 		if err != nil && !strings.Contains(err.Error(), "failed to process OCI modules") {
-			// If error is not about OCI, it means OCI succeeded and we moved to next resolver
 			if !strings.Contains(err.Error(), "failed to process archive modules") && !strings.Contains(err.Error(), "failed to process standard modules") {
 				t.Errorf("Expected OCI, archive, or standard module processing error, got: %v", err)
 			}
@@ -301,23 +313,23 @@ func TestCompositeModuleResolver_GenerateTfvars(t *testing.T) {
 		tmpDir := t.TempDir()
 		mocks.Runtime.ProjectRoot = tmpDir
 		mocks.Runtime.ContextName = "local"
-		
+
 		moduleDir := filepath.Join(tmpDir, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(moduleDir, 0755); err != nil {
 			t.Fatalf("Failed to create module directory: %v", err)
 		}
-		
+
 		// Create a variables.tf file so GenerateTfvars can find it
 		variablesPath := filepath.Join(moduleDir, "variables.tf")
 		if err := os.WriteFile(variablesPath, []byte(`variable "cluster_name" {}`), 0644); err != nil {
 			t.Fatalf("Failed to write variables.tf: %v", err)
 		}
-		
+
 		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
 			return []blueprintv1alpha1.TerraformComponent{
 				{
-					Path:   "test-module",
-					Source: "git::https://github.com/test/module.git",
+					Path:     "test-module",
+					Source:   "git::https://github.com/test/module.git",
 					FullPath: moduleDir,
 					Inputs: map[string]any{
 						"cluster_name": "test-cluster",
@@ -325,7 +337,7 @@ func TestCompositeModuleResolver_GenerateTfvars(t *testing.T) {
 				},
 			}
 		}
-		
+
 		// Override shims for real file operations
 		resolver.standardResolver.shims.Stat = os.Stat
 		resolver.standardResolver.shims.ReadFile = os.ReadFile
@@ -347,23 +359,23 @@ func TestCompositeModuleResolver_GenerateTfvars(t *testing.T) {
 		tmpDir := t.TempDir()
 		mocks.Runtime.ProjectRoot = tmpDir
 		mocks.Runtime.ContextName = "local"
-		
+
 		moduleDir := filepath.Join(tmpDir, ".windsor", "contexts", "local", "terraform", "test-module")
 		if err := os.MkdirAll(moduleDir, 0755); err != nil {
 			t.Fatalf("Failed to create module directory: %v", err)
 		}
-		
+
 		// Create a variables.tf file so GenerateTfvars can find it
 		variablesPath := filepath.Join(moduleDir, "variables.tf")
 		if err := os.WriteFile(variablesPath, []byte(`variable "cluster_name" {}`), 0644); err != nil {
 			t.Fatalf("Failed to write variables.tf: %v", err)
 		}
-		
+
 		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
 			return []blueprintv1alpha1.TerraformComponent{
 				{
-					Path:   "test-module",
-					Source: "git::https://github.com/test/module.git",
+					Path:     "test-module",
+					Source:   "git::https://github.com/test/module.git",
 					FullPath: moduleDir,
 					Inputs: map[string]any{
 						"cluster_name": "test-cluster",
@@ -371,7 +383,7 @@ func TestCompositeModuleResolver_GenerateTfvars(t *testing.T) {
 				},
 			}
 		}
-		
+
 		// Override shims for real file operations
 		resolver.standardResolver.shims.Stat = os.Stat
 		resolver.standardResolver.shims.ReadFile = os.ReadFile
@@ -416,4 +428,3 @@ func TestCompositeModuleResolver_GenerateTfvars(t *testing.T) {
 		}
 	})
 }
-

@@ -124,7 +124,7 @@ func (r *Composer) Push(registryURL string) (string, error) {
 // It initializes all core resources, processes blueprints, and handles terraform modules
 // for the project. The optional overwrite parameter determines whether existing files
 // should be overwritten during blueprint processing. The optional blueprintURL parameter
-// specifies the blueprint artifact to load (OCI URL or local .tar.gz path). If not provided,
+// specifies the blueprint artifact to load (OCI URL). If not provided,
 // LoadBlueprint will use the default blueprint URL. This is the main deployment method.
 // Returns an error if any initialization or processing step fails.
 func (r *Composer) Generate(overwrite ...bool) error {

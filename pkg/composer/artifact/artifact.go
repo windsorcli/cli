@@ -3,7 +3,6 @@ package artifact
 import (
 	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"errors"
 	"fmt"
 	"io"
@@ -47,7 +46,8 @@ type Artifact interface {
 	Bundle() error
 	Write(outputPath string, tag string) (string, error)
 	Push(registryBase string, repoName string, tag string) error
-	Pull(ociRefs []string) (map[string][]byte, error)
+	Pull(ociRefs []string) (map[string]string, error)
+	ExtractModulePath(registry, repository, tag, modulePath string) (string, error)
 	GetTemplateData(ociRef string) (map[string][]byte, error)
 	ParseOCIRef(ociRef string) (registry, repository, tag string, err error)
 	GetCacheDir(registry, repository, tag string) (string, error)
@@ -124,7 +124,6 @@ type ArtifactBuilder struct {
 	runtime     *runtime.Runtime
 	tarballPath string
 	metadata    BlueprintMetadataInput
-	ociCache    map[string][]byte
 }
 
 // =============================================================================
@@ -136,11 +135,10 @@ type ArtifactBuilder struct {
 // The shell is used for retrieving git provenance and builder information during metadata generation.
 func NewArtifactBuilder(rt *runtime.Runtime) *ArtifactBuilder {
 	builder := &ArtifactBuilder{
-		shims:    NewShims(),
-		files:    make(map[string]FileInfo),
-		ociCache: make(map[string][]byte),
-		shell:    rt.Shell,
-		runtime:  rt,
+		shims:   NewShims(),
+		files:   make(map[string]FileInfo),
+		shell:   rt.Shell,
+		runtime: rt,
 	}
 
 	return builder
@@ -317,13 +315,14 @@ func (a *ArtifactBuilder) Push(registryBase string, repoName string, tag string)
 	return nil
 }
 
-// Pull downloads and extracts OCI artifacts in memory for use by other components.
+// Pull downloads and extracts OCI artifacts to disk cache for use by other components.
 // It takes a slice of OCI references and downloads unique artifacts, returning a map
-// of cached artifacts keyed by their registry/repository:tag identifier.
+// of cache directory paths keyed by their registry/repository:tag identifier.
 // The method provides efficient caching to avoid duplicate downloads of the same artifact.
 // It checks disk cache first, then downloads if needed, and extracts artifacts to disk cache.
-func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
-	ociArtifacts := make(map[string][]byte)
+// Returns cache directory paths instead of binary data.
+func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string]string, error) {
+	ociArtifacts := make(map[string]string)
 
 	noCacheValue, _ := os.LookupEnv("NO_CACHE")
 	noCache := strings.EqualFold(noCacheValue, "true") || noCacheValue == "1"
@@ -348,34 +347,22 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
 
 		cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
 
+		cacheDir, err := a.GetCacheDir(registry, repository, tag)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get cache directory: %w", err)
+		}
+
 		if noCache {
 			artifactsToDownload = append(artifactsToDownload, ref)
 			continue
 		}
 
-		if cachedData, exists := a.ociCache[cacheKey]; exists {
-			ociArtifacts[cacheKey] = cachedData
+		if validateErr := a.validateOCIDiskCache(cacheDir); validateErr == nil {
+			ociArtifacts[cacheKey] = cacheDir
 			continue
-		}
-
-		cacheDir, err := a.GetCacheDir(registry, repository, tag)
-		if err == nil {
-			if validateErr := a.validateOCIDiskCache(cacheDir); validateErr == nil {
-				artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
-				cachedData, readErr := a.shims.ReadFile(artifactTarPath)
-				if readErr != nil {
-					if removeErr := a.shims.RemoveAll(cacheDir); removeErr != nil {
-						return nil, fmt.Errorf("failed to remove corrupted OCI cache directory %s: %w", cacheDir, removeErr)
-					}
-				} else {
-					a.ociCache[cacheKey] = cachedData
-					ociArtifacts[cacheKey] = cachedData
-					continue
-				}
-			} else if !errors.Is(validateErr, os.ErrNotExist) {
-				if removeErr := a.shims.RemoveAll(cacheDir); removeErr != nil {
-					return nil, fmt.Errorf("failed to remove corrupted OCI cache directory %s: %w", cacheDir, removeErr)
-				}
+		} else if !errors.Is(validateErr, os.ErrNotExist) {
+			if removeErr := a.shims.RemoveAll(cacheDir); removeErr != nil {
+				return nil, fmt.Errorf("failed to remove corrupted OCI cache directory %s: %w", cacheDir, removeErr)
 			}
 		}
 
@@ -406,65 +393,53 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string][]byte, error) {
 				return nil, fmt.Errorf("failed to download OCI artifact %s: %w", ref, err)
 			}
 
-			if !noCache {
-				if err := a.extractArtifactToCache(artifactData, registry, repository, tag); err != nil {
-					return nil, fmt.Errorf("failed to extract artifact to cache: %w", err)
-				}
+			cacheDir, err := a.GetCacheDir(registry, repository, tag)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get cache directory: %w", err)
 			}
 
-			a.ociCache[cacheKey] = artifactData
-			ociArtifacts[cacheKey] = artifactData
+			if err := a.extractArtifactToCache(artifactData, cacheDir); err != nil {
+				return nil, fmt.Errorf("failed to extract artifact: %w", err)
+			}
+
+			ociArtifacts[cacheKey] = cacheDir
 		}
 	}
 
 	return ociArtifacts, nil
 }
 
-// GetTemplateData extracts and returns template data from an OCI artifact reference or local .tar.gz file.
-// For OCI references (oci://...), downloads and caches the artifact. For local .tar.gz files, reads from disk.
-// Decompresses the tar.gz payload and returns a map with all files from the _template directory using their relative paths as keys.
+// GetTemplateData extracts and returns template data from an OCI artifact reference.
+// Downloads and caches the artifact, then decompresses the tar.gz payload and returns a map with all files from the _template directory using their relative paths as keys.
 // Files are stored with their relative paths from _template (e.g., "_template/schema.yaml", "_template/blueprint.yaml", "_template/features/base.yaml").
 // All files from _template/ are included - no filtering is performed.
 // The metadata name is extracted and stored in the returned map with the key "_metadata_name".
 // Returns an error on invalid reference, download failure, file read failure, or extraction error.
 func (a *ArtifactBuilder) GetTemplateData(blueprintRef string) (map[string][]byte, error) {
-	var tarData []byte
+	if !strings.HasPrefix(blueprintRef, "oci://") {
+		return nil, fmt.Errorf("invalid blueprint reference: %s (must be oci://...)", blueprintRef)
+	}
 
-	if strings.HasPrefix(blueprintRef, "oci://") {
-		registry, repository, tag, err := a.ParseOCIRef(blueprintRef)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse OCI reference %s: %w", blueprintRef, err)
-		}
+	registry, repository, tag, err := a.ParseOCIRef(blueprintRef)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse OCI reference %s: %w", blueprintRef, err)
+	}
 
-		artifacts, err := a.Pull([]string{blueprintRef})
-		if err != nil {
-			return nil, fmt.Errorf("failed to pull OCI artifact %s: %w", blueprintRef, err)
-		}
+	artifacts, err := a.Pull([]string{blueprintRef})
+	if err != nil {
+		return nil, fmt.Errorf("failed to pull OCI artifact %s: %w", blueprintRef, err)
+	}
 
-		cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
-		var exists bool
-		tarData, exists = artifacts[cacheKey]
-		if !exists {
-			return nil, fmt.Errorf("failed to retrieve artifact data for %s", blueprintRef)
-		}
-	} else if strings.HasSuffix(blueprintRef, ".tar.gz") {
-		compressedData, err := a.shims.ReadFile(blueprintRef)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read local artifact file %s: %w", blueprintRef, err)
-		}
+	cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+	cacheDir, exists := artifacts[cacheKey]
+	if !exists {
+		return nil, fmt.Errorf("failed to retrieve cache directory for %s", blueprintRef)
+	}
 
-		gzipReader, err := gzip.NewReader(bytes.NewReader(compressedData))
-		if err != nil {
-			return nil, fmt.Errorf("failed to create gzip reader for %s: %w", blueprintRef, err)
-		}
-		defer gzipReader.Close()
-
-		tarData, err = a.shims.ReadAll(gzipReader)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decompress artifact file %s: %w", blueprintRef, err)
-		}
-	} else {
-		return nil, fmt.Errorf("invalid blueprint reference: %s (must be oci://... or path to .tar.gz file)", blueprintRef)
+	artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
+	tarData, err := a.shims.ReadFile(artifactTarPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read artifact.tar from cache: %w", err)
 	}
 
 	artifactData := make(map[string][]byte)
@@ -539,8 +514,6 @@ func (a *ArtifactBuilder) GetTemplateData(blueprintRef string) (map[string][]byt
 // incorporated into the artifact. The method supports extensibility by allowing custom
 // handling of different directory structures and types, and skips files in the "terraform"
 // directory based on predefined logic.
-//
-// Returns an error if any file processing or traversal fails.
 func (a *ArtifactBuilder) Bundle() error {
 	processors := []PathProcessor{
 		{
@@ -570,6 +543,37 @@ func (a *ArtifactBuilder) Bundle() error {
 	}
 
 	return a.walkAndProcessFiles(processors)
+}
+
+// ExtractModulePath extracts a specific module path from a cached OCI artifact.
+// It checks if the module path already exists in the cache directory, and if not,
+// extracts it from the cached artifact.tar file. Returns the full path to the extracted module
+// or an error if extraction fails.
+func (a *ArtifactBuilder) ExtractModulePath(registry, repository, tag, modulePath string) (string, error) {
+	cacheDir, err := a.GetCacheDir(registry, repository, tag)
+	if err != nil {
+		return "", fmt.Errorf("failed to get cache directory: %w", err)
+	}
+
+	fullModulePath := filepath.Join(cacheDir, modulePath)
+	if _, err := a.shims.Stat(fullModulePath); err == nil {
+		return fullModulePath, nil
+	}
+
+	artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
+	artifactData, err := a.shims.ReadFile(artifactTarPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read cached artifact.tar: %w", err)
+	}
+
+	reader := a.shims.NewBytesReader(artifactData)
+	tarReader := a.shims.NewTarReader(reader)
+
+	if err := a.extractTarEntries(tarReader, cacheDir); err != nil {
+		return "", fmt.Errorf("failed to extract module path from artifact: %w", err)
+	}
+
+	return fullModulePath, nil
 }
 
 // =============================================================================
@@ -1191,17 +1195,22 @@ func (a *ArtifactBuilder) addFile(path string, content []byte, mode os.FileMode)
 	return nil
 }
 
-// validateOCIDiskCache validates that an extracted OCI artifact cache directory is complete and safe to use.
-// It requires the artifact.tar file to exist (written atomically during extraction) and does not
-// treat metadata.yaml alone as sufficient, which prevents partial extraction states from being mistaken as valid cache hits.
+// validateOCIDiskCache checks that an extracted OCI artifact cache directory is complete and ready for use.
+// It verifies that the cache directory exists and contains a non-empty artifact.tar archive file.
+// Returns an error if validation fails or incomplete extraction is detected.
 func (a *ArtifactBuilder) validateOCIDiskCache(cacheDir string) error {
 	if _, err := a.shims.Stat(cacheDir); err != nil {
 		return err
 	}
 
 	artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
-	if _, err := a.shims.Stat(artifactTarPath); err != nil {
+	info, err := a.shims.Stat(artifactTarPath)
+	if err != nil {
 		return err
+	}
+
+	if info.Size() == 0 {
+		return fmt.Errorf("artifact.tar is empty")
 	}
 
 	return nil
@@ -1227,10 +1236,11 @@ func (a *ArtifactBuilder) validateAndSanitizePath(path string) (string, error) {
 	return filepath.ToSlash(cleanPath), nil
 }
 
-// extractTarEntries extracts all entries from a tar archive to the specified destination directory.
-// It handles directories, files, path validation, permission setting, and executable bit handling for shell scripts.
-// The destination directory must already exist. It skips kustomize/ directories since only terraform modules are needed from the cache.
-// Returns an error if any entry extraction fails.
+// extractTarEntries extracts specific entries from a tar archive into the given destination directory for caching and reuse.
+// Only entries within the "_template/" and "terraform/" directories, as well as the "blueprint.yaml" file, are extracted.
+// Directories and files are handled appropriately, and file permissions are set as specified in the tar headers.
+// The extraction process performs path validation to prevent directory traversal attacks, and the destination directory must preexist.
+// Returns an error if any part of the extraction or validation fails.
 func (a *ArtifactBuilder) extractTarEntries(tarReader TarReader, destDir string) error {
 	for {
 		header, err := tarReader.Next()
@@ -1246,7 +1256,14 @@ func (a *ArtifactBuilder) extractTarEntries(tarReader TarReader, destDir string)
 			return fmt.Errorf("invalid path in tar archive: %w", err)
 		}
 
-		if strings.HasPrefix(sanitizedPath, "kustomize/") {
+		if !strings.HasPrefix(sanitizedPath, "_template/") &&
+			!strings.HasPrefix(sanitizedPath, "terraform/") &&
+			sanitizedPath != "blueprint.yaml" {
+			if header.Typeflag != tar.TypeDir {
+				if _, err := io.Copy(io.Discard, tarReader); err != nil {
+					return fmt.Errorf("failed to skip entry %s: %w", header.Name, err)
+				}
+			}
 			continue
 		}
 
@@ -1299,24 +1316,16 @@ func (a *ArtifactBuilder) extractTarEntries(tarReader TarReader, destDir string)
 	return nil
 }
 
-// extractArtifactToCache extracts the full OCI artifact tar archive to the disk cache keyed by registry, repository, and tag.
-// It unpacks the contents into a dedicated extraction directory under the project root, preserving permissions and handling executables.
-// Extraction is atomic: all files are first unpacked to a temporary directory, then renamed into place on success, which avoids leaving partial state.
-// This approach ensures all artifact files are available for subsequent module and feature resolutions and enables cache reuse.
-// Returns an error if any extraction phase fails or if path validation checks do not pass.
-func (a *ArtifactBuilder) extractArtifactToCache(artifactData []byte, registry, repository, tag string) (err error) {
-	if a.runtime == nil || a.runtime.ProjectRoot == "" {
-		return fmt.Errorf("project root is not set")
-	}
-
+// extractArtifactToCache extracts the entire OCI artifact tar archive into the specified extraction directory.
+// The extraction preserves file permissions and is performed atomically: all files are unpacked to a temporary
+// directory (extractionDir.tmp) and then renamed to extractionDir upon success, preventing partial or inconsistent state.
+// This mechanism ensures all artifact files are present for subsequent resolution steps and enables cache reuse.
+// The extractionDir parameter specifies the target directory for extraction. If any extraction phase fails or path
+// validations do not pass, an error is returned. On error, temporary directories are cleaned up automatically.
+func (a *ArtifactBuilder) extractArtifactToCache(artifactData []byte, extractionDir string) (err error) {
 	reader := a.shims.NewBytesReader(artifactData)
 	tarReader := a.shims.NewTarReader(reader)
 
-	var extractionDir string
-	extractionDir, err = a.GetCacheDir(registry, repository, tag)
-	if err != nil {
-		return fmt.Errorf("failed to get cache directory: %w", err)
-	}
 	tmpExtractionDir := extractionDir + ".tmp"
 
 	defer func() {
@@ -1369,7 +1378,7 @@ func (a *ArtifactBuilder) extractArtifactToCache(artifactData []byte, registry, 
 
 	if _, statErr := a.shims.Stat(extractionDir); statErr == nil {
 		if removeErr := a.shims.RemoveAll(extractionDir); removeErr != nil {
-			err = fmt.Errorf("failed to remove existing extraction directory: %w", removeErr)
+			err = fmt.Errorf("failed to remove existing extraction directory before rename: %w", removeErr)
 			return
 		}
 	}
