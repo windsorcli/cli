@@ -81,8 +81,25 @@ func (s *SecureShell) ExecSilent(command string, args ...string) (string, error)
 }
 
 // ExecSilentWithTimeout executes a command with a timeout and returns the output.
+// If the command takes longer than the timeout, it returns an error.
+// Uses ExecSilent internally but wraps it with a timeout mechanism.
 func (s *SecureShell) ExecSilentWithTimeout(command string, args []string, timeout time.Duration) (string, error) {
-	return s.DefaultShell.ExecSilentWithTimeout(command, args, timeout)
+	type result struct {
+		out string
+		err error
+	}
+	resultChan := make(chan result, 1)
+	go func() {
+		out, err := s.ExecSilent(command, args...)
+		resultChan <- result{out: out, err: err}
+	}()
+
+	select {
+	case res := <-resultChan:
+		return res.out, res.err
+	case <-time.After(timeout):
+		return "", fmt.Errorf("command timed out after %v", timeout)
+	}
 }
 
 // Ensure SecureShell implements the Shell interface
