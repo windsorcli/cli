@@ -92,7 +92,7 @@ func (s *SecureShell) ExecSilentWithTimeout(command string, args []string, timeo
 
 	session, err := clientConn.NewSession()
 	if err != nil {
-		clientConn.Close()
+		_ = clientConn.Close()
 		return "", fmt.Errorf("failed to create SSH session: %w", err)
 	}
 
@@ -116,10 +116,10 @@ func (s *SecureShell) ExecSilentWithTimeout(command string, args []string, timeo
 
 	cleanupFn := func() {
 		sessionCloseOnce.Do(func() {
-			session.Close()
+			_ = session.Close()
 		})
 		connCloseOnce.Do(func() {
-			clientConn.Close()
+			_ = clientConn.Close()
 		})
 	}
 
