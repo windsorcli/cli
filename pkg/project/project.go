@@ -147,7 +147,7 @@ func (p *Project) Configure(flagOverrides map[string]any) error {
 // generates infrastructure, prepares tools, and bootstraps the environment.
 // The overwrite parameter controls whether infrastructure generation should overwrite
 // existing files. The optional blueprintURL parameter specifies the blueprint artifact
-// to load (OCI URL or local .tar.gz path). Returns an error if any step fails.
+// to load (OCI URL). Returns an error if any step fails.
 func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
 	if p.Workstation != nil {
 		if err := p.Workstation.Prepare(); err != nil {

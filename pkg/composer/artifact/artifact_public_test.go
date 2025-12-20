@@ -3039,54 +3039,8 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		}
 	})
 
-	t.Run("SuccessWithTarGzFile", func(t *testing.T) {
-		builder, mocks := setup(t)
-		tmpDir := t.TempDir()
-		tarGzPath := filepath.Join(tmpDir, "test.tar.gz")
 
-		tarData := createTestTarGz(t, map[string][]byte{
-			"metadata.yaml":               []byte("name: test\nversion: v1.0.0\n"),
-			"_template/blueprint.jsonnet": []byte("{ blueprint: 'content' }"),
-		})
-
-		var gzBuf bytes.Buffer
-		gzw := gzip.NewWriter(&gzBuf)
-		if _, err := gzw.Write(tarData); err != nil {
-			t.Fatalf("Failed to write gzip data: %v", err)
-		}
-		if err := gzw.Close(); err != nil {
-			t.Fatalf("Failed to close gzip writer: %v", err)
-		}
-
-		if err := os.WriteFile(tarGzPath, gzBuf.Bytes(), 0644); err != nil {
-			t.Fatalf("Failed to write test tar.gz file: %v", err)
-		}
-
-		// Override YamlUnmarshal to handle BlueprintMetadata (not BlueprintMetadataInput)
-		originalYamlUnmarshal := mocks.Shims.YamlUnmarshal
-		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
-			if metadata, ok := v.(*BlueprintMetadata); ok {
-				metadata.Name = "test"
-				metadata.Version = "v1.0.0"
-				return nil
-			}
-			return originalYamlUnmarshal(data, v)
-		}
-
-		templateData, err := builder.GetTemplateData(tarGzPath)
-
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if templateData == nil {
-			t.Error("Expected template data, got nil")
-		}
-		if _, exists := templateData["_template/blueprint.jsonnet"]; !exists {
-			t.Error("Expected _template/blueprint.jsonnet to be included")
-		}
-	})
-
-	t.Run("ErrorWhenTarGzFileDoesNotExist", func(t *testing.T) {
+	t.Run("ErrorWhenTarGzFileProvided", func(t *testing.T) {
 		builder, _ := setup(t)
 
 		_, err := builder.GetTemplateData("/nonexistent/file.tar.gz")
@@ -3094,62 +3048,11 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "failed to read local artifact file") {
-			t.Errorf("Expected file read error, got %v", err)
+		if !strings.Contains(err.Error(), "invalid blueprint reference") {
+			t.Errorf("Expected invalid blueprint reference error, got %v", err)
 		}
 	})
 
-	t.Run("ErrorWhenTarGzFileIsInvalid", func(t *testing.T) {
-		builder, _ := setup(t)
-		tmpDir := t.TempDir()
-		tarGzPath := filepath.Join(tmpDir, "invalid.tar.gz")
-
-		if err := os.WriteFile(tarGzPath, []byte("not a valid gzip file"), 0644); err != nil {
-			t.Fatalf("Failed to write test file: %v", err)
-		}
-
-		_, err := builder.GetTemplateData(tarGzPath)
-
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to create gzip reader") {
-			t.Errorf("Expected gzip reader error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorWhenGzipReadFails", func(t *testing.T) {
-		builder, mocks := setup(t)
-		tmpDir := t.TempDir()
-		tarGzPath := filepath.Join(tmpDir, "test.tar.gz")
-
-		var gzBuf bytes.Buffer
-		gzw := gzip.NewWriter(&gzBuf)
-		gzw.Write([]byte("test data"))
-		gzw.Close()
-
-		if err := os.WriteFile(tarGzPath, gzBuf.Bytes(), 0644); err != nil {
-			t.Fatalf("Failed to write test file: %v", err)
-		}
-
-		readCallCount := 0
-		mocks.Shims.ReadAll = func(r io.Reader) ([]byte, error) {
-			readCallCount++
-			if readCallCount == 1 {
-				return nil, fmt.Errorf("read error")
-			}
-			return io.ReadAll(r)
-		}
-
-		_, err := builder.GetTemplateData(tarGzPath)
-
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to decompress artifact file") && !strings.Contains(err.Error(), "failed to read tar header") {
-			t.Errorf("Expected decompress or tar read error, got %v", err)
-		}
-	})
 
 }
 
