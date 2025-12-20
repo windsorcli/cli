@@ -81,23 +81,57 @@ func (s *SecureShell) ExecSilent(command string, args ...string) (string, error)
 }
 
 // ExecSilentWithTimeout executes a command with a timeout and returns the output.
-// If the command takes longer than the timeout, it returns an error.
+// If the command takes longer than the timeout, it kills the process and returns an error.
 // Uses ExecSilent internally but wraps it with a timeout mechanism.
 func (s *SecureShell) ExecSilentWithTimeout(command string, args []string, timeout time.Duration) (string, error) {
+	clientConn, err := s.sshClient.Connect()
+	if err != nil {
+		return "", fmt.Errorf("failed to connect to SSH client: %w", err)
+	}
+
+	session, err := clientConn.NewSession()
+	if err != nil {
+		clientConn.Close()
+		return "", fmt.Errorf("failed to create SSH session: %w", err)
+	}
+
+	fullCommand := command
+	if len(args) > 0 {
+		fullCommand += " " + strings.Join(args, " ")
+	}
+
+	var stdoutBuf, stderrBuf bytes.Buffer
+	session.SetStdout(&stdoutBuf)
+	session.SetStderr(&stderrBuf)
+
 	type result struct {
 		out string
 		err error
 	}
 	resultChan := make(chan result, 1)
 	go func() {
-		out, err := s.ExecSilent(command, args...)
-		resultChan <- result{out: out, err: err}
+		defer clientConn.Close()
+		defer session.Close()
+		err := session.Run(fullCommand)
+		if err != nil {
+			resultChan <- result{
+				out: "",
+				err: fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String()),
+			}
+			return
+		}
+		resultChan <- result{
+			out: stdoutBuf.String(),
+			err: nil,
+		}
 	}()
 
 	select {
 	case res := <-resultChan:
 		return res.out, res.err
 	case <-time.After(timeout):
+		session.Close()
+		clientConn.Close()
 		return "", fmt.Errorf("command timed out after %v", timeout)
 	}
 }

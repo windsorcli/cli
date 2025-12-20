@@ -2349,8 +2349,22 @@ func TestShell_ExecSilentWithTimeout(t *testing.T) {
 
 	t.Run("Timeout", func(t *testing.T) {
 		shell, mocks := setup(t)
-		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
-			time.Sleep(100 * time.Millisecond)
+		var startedCmd *exec.Cmd
+		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error {
+			startedCmd = exec.Command("sleep", "0.2")
+			startedCmd.Stdout = cmd.Stdout
+			startedCmd.Stderr = cmd.Stderr
+			if err := startedCmd.Start(); err != nil {
+				return err
+			}
+			cmd.Process = startedCmd.Process
+			return nil
+		}
+		mocks.Shims.CmdWait = func(cmd *exec.Cmd) error {
+			if cmd.Process != nil {
+				_, err := cmd.Process.Wait()
+				return err
+			}
 			return nil
 		}
 
@@ -2365,11 +2379,18 @@ func TestShell_ExecSilentWithTimeout(t *testing.T) {
 		if out != "" {
 			t.Errorf("Expected empty output on timeout, got '%s'", out)
 		}
+		if startedCmd != nil && startedCmd.Process != nil {
+			_ = startedCmd.Process.Kill()
+			_, _ = startedCmd.Process.Wait()
+		}
 	})
 
 	t.Run("Error", func(t *testing.T) {
 		shell, mocks := setup(t)
-		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
+		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error {
+			return nil
+		}
+		mocks.Shims.CmdWait = func(cmd *exec.Cmd) error {
 			return fmt.Errorf("command failed")
 		}
 
@@ -2402,6 +2423,70 @@ func TestShell_ExecSilentWithTimeout(t *testing.T) {
 		}
 		if output != "" {
 			t.Errorf("Expected empty output, got %q", output)
+		}
+	})
+
+	t.Run("VerboseMode", func(t *testing.T) {
+		shell, mocks := setup(t)
+		shell.SetVerbosity(true)
+
+		execCalled := false
+		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
+			execCalled = true
+			return exec.Command("echo", "test")
+		}
+		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error {
+			if cmd.Stdout != nil {
+				if _, err := cmd.Stdout.Write([]byte("test\n")); err != nil {
+					return fmt.Errorf("failed to write to stdout: %v", err)
+				}
+			}
+			return nil
+		}
+		mocks.Shims.CmdWait = func(cmd *exec.Cmd) error {
+			return nil
+		}
+
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+
+		out, err := shell.ExecSilentWithTimeout("test", []string{"arg"}, 5*time.Second)
+
+		w.Close()
+		os.Stdout = oldStdout
+		io.ReadAll(r)
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !execCalled {
+			t.Error("Expected Exec to be called in verbose mode, but it was not")
+		}
+		if out != "test\n" {
+			t.Errorf("Expected output 'test\n', got '%s'", out)
+		}
+	})
+
+	t.Run("ErrorOnStart", func(t *testing.T) {
+		shell, mocks := setup(t)
+		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
+			return exec.Command("echo", "test")
+		}
+		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error {
+			return fmt.Errorf("command start failed")
+		}
+
+		out, err := shell.ExecSilentWithTimeout("test", []string{"arg"}, 5*time.Second)
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "command start failed") {
+			t.Errorf("Expected error to contain 'command start failed', got %v", err)
+		}
+		if out != "" {
+			t.Errorf("Expected empty output, got '%s'", out)
 		}
 	})
 }

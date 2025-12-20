@@ -239,20 +239,54 @@ func (s *DefaultShell) ExecSilent(command string, args ...string) (string, error
 // If the command takes longer than the timeout, it kills the process and returns an error.
 // Uses ExecSilent internally but wraps it with a timeout mechanism.
 func (s *DefaultShell) ExecSilentWithTimeout(command string, args []string, timeout time.Duration) (string, error) {
+	if s.verbose {
+		return s.Exec(command, args...)
+	}
+
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd := s.shims.Command(command, args...)
+	if cmd == nil {
+		return "", fmt.Errorf("failed to create command")
+	}
+
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
+	if cmd.Env == nil {
+		cmd.Env = s.shims.Environ()
+	}
+
+	if err := s.shims.CmdStart(cmd); err != nil {
+		return "", fmt.Errorf("command start failed: %w", err)
+	}
+
 	type result struct {
 		out string
 		err error
 	}
 	resultChan := make(chan result, 1)
 	go func() {
-		out, err := s.ExecSilent(command, args...)
-		resultChan <- result{out: out, err: err}
+		err := s.shims.CmdWait(cmd)
+		if err != nil {
+			resultChan <- result{
+				out: s.scrubString(stdoutBuf.String()),
+				err: fmt.Errorf("command execution failed: %w\n%s", err, s.scrubString(stderrBuf.String())),
+			}
+			return
+		}
+		resultChan <- result{
+			out: s.scrubString(stdoutBuf.String()),
+			err: nil,
+		}
 	}()
 
 	select {
 	case res := <-resultChan:
 		return res.out, res.err
 	case <-time.After(timeout):
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+			_ = s.shims.CmdWait(cmd)
+		}
 		return "", fmt.Errorf("command timed out after %v", timeout)
 	}
 }

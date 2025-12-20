@@ -442,4 +442,30 @@ func TestSecureShell_ExecSilentWithTimeout(t *testing.T) {
 			t.Errorf("Expected empty output, got %q", output)
 		}
 	})
+
+	t.Run("ErrorCreatingSSHSession", func(t *testing.T) {
+		command := "command"
+		args := []string{"arg"}
+
+		// Given a SecureShell instance with session creation failure
+		shell, mocks := setup(t)
+		expectedError := fmt.Errorf("session creation failed")
+		mocks.ClientConn.NewSessionFunc = func() (ssh.Session, error) {
+			return nil, expectedError
+		}
+
+		// When calling ExecSilentWithTimeout
+		output, err := shell.ExecSilentWithTimeout(command, args, 5*time.Second)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error from NewSession, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to create SSH session") {
+			t.Errorf("Expected error to contain 'failed to create SSH session', got %v", err)
+		}
+		if output != "" {
+			t.Errorf("Expected empty output, got %q", output)
+		}
+	})
 }
