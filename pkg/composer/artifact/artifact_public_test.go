@@ -1987,7 +1987,8 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		if !exists {
 			t.Errorf("Expected artifact cache directory, got none")
 		}
-		if !strings.Contains(cacheDir, ".windsor/cache") {
+		normalizedPath := filepath.ToSlash(cacheDir)
+		if !strings.Contains(normalizedPath, ".windsor/cache") {
 			t.Errorf("Expected cache directory path, got %s", cacheDir)
 		}
 	})
