@@ -1224,15 +1224,12 @@ func (a *ArtifactBuilder) validateOCIDiskCache(cacheDir string) error {
 	}
 
 	artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
-	if _, err := a.shims.Stat(artifactTarPath); err != nil {
+	info, err := a.shims.Stat(artifactTarPath)
+	if err != nil {
 		return err
 	}
 
-	data, err := a.shims.ReadFile(artifactTarPath)
-	if err != nil {
-		return fmt.Errorf("failed to read artifact.tar: %w", err)
-	}
-	if len(data) == 0 {
+	if info.Size() == 0 {
 		return fmt.Errorf("artifact.tar is empty")
 	}
 

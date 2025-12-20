@@ -2089,11 +2089,6 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 			t.Error("Expected cache directory path to be returned")
 		}
 
-		// And ReadFile should have been called at least once (to read artifact.tar for validation)
-		if readFileCount < 1 {
-			t.Errorf("Expected at least 1 ReadFile call, got %d", readFileCount)
-		}
-
 		// Cache directory should exist
 		if artifacts1[cacheKey] == "" {
 			t.Error("Expected cache directory path to be returned")
@@ -3277,7 +3272,7 @@ func TestArtifactBuilder_ExtractModulePath(t *testing.T) {
 
 		modulePath := "terraform/test-module"
 		testTarData := createTestTarGz(t, map[string][]byte{
-			"terraform/test-module/main.tf": []byte("resource \"test\" {}"),
+			"terraform/test-module/main.tf":      []byte("resource \"test\" {}"),
 			"terraform/test-module/variables.tf": []byte("variable \"test\" {}"),
 		})
 

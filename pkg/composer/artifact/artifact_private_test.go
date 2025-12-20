@@ -1860,6 +1860,31 @@ func TestArtifactBuilder_validateOCIDiskCache(t *testing.T) {
 			t.Errorf("Expected os.ErrNotExist, got %v", err)
 		}
 	})
+
+	t.Run("ErrorWhenArtifactTarIsEmpty", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		cacheDir := filepath.Join(tmpDir, "cache")
+		artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
+
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache dir: %v", err)
+		}
+		if err := os.WriteFile(artifactTarPath, []byte{}, 0644); err != nil {
+			t.Fatalf("Failed to create empty artifact.tar: %v", err)
+		}
+
+		mocks.Shims.Stat = os.Stat
+
+		err := builder.validateOCIDiskCache(cacheDir)
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "artifact.tar is empty") {
+			t.Errorf("Expected 'artifact.tar is empty' error, got %v", err)
+		}
+	})
 }
 
 func TestArtifactBuilder_validateAndSanitizePath(t *testing.T) {
