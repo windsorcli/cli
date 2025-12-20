@@ -103,7 +103,7 @@ func (t *BaseToolsManager) Check() error {
 		}
 	}
 
-	if t.configHandler.GetBool("secrets.sops.enabled") {
+	if t.configHandler.GetBool("secrets.sops.enabled", false) {
 		if err := t.checkSops(); err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
@@ -118,7 +118,6 @@ func (t *BaseToolsManager) Check() error {
 			return fmt.Errorf("kubelogin check failed: %v", err)
 		}
 	}
-
 	spin.Stop()
 	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
 	return nil
@@ -136,7 +135,10 @@ func (t *BaseToolsManager) checkDocker() error {
 		return fmt.Errorf("docker is not available in the PATH")
 	}
 
-	output, _ := t.shell.ExecSilent("docker", "version", "--format", "{{.Client.Version}}")
+	output, err := t.shell.ExecSilentWithTimeout("docker", []string{"version", "--format", "{{.Client.Version}}"}, 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("docker version check failed: %v", err)
+	}
 	dockerVersion := extractVersion(output)
 	if dockerVersion != "" && compareVersion(dockerVersion, constants.MinimumVersionDocker) < 0 {
 		return fmt.Errorf("docker version %s is below the minimum required version %s", dockerVersion, constants.MinimumVersionDocker)
@@ -144,14 +146,17 @@ func (t *BaseToolsManager) checkDocker() error {
 
 	var dockerComposeVersion string
 
-	// Try to get docker-compose version using different methods
-	output, _ = t.shell.ExecSilent("docker", "compose", "version", "--short")
-	dockerComposeVersion = extractVersion(output)
+	output, err = t.shell.ExecSilentWithTimeout("docker", []string{"compose", "version", "--short"}, 5*time.Second)
+	if err == nil {
+		dockerComposeVersion = extractVersion(output)
+	}
 
 	if dockerComposeVersion == "" {
 		if _, err := execLookPath("docker-compose"); err == nil {
-			output, _ = t.shell.ExecSilent("docker-compose", "version", "--short")
-			dockerComposeVersion = extractVersion(output)
+			output, err = t.shell.ExecSilentWithTimeout("docker-compose", []string{"version", "--short"}, 5*time.Second)
+			if err == nil {
+				dockerComposeVersion = extractVersion(output)
+			}
 		}
 	}
 
@@ -177,7 +182,10 @@ func (t *BaseToolsManager) checkColima() error {
 	if _, err := execLookPath("colima"); err != nil {
 		return fmt.Errorf("colima is not available in the PATH")
 	}
-	output, _ := t.shell.ExecSilent("colima", "version")
+	output, err := t.shell.ExecSilentWithTimeout("colima", []string{"version"}, 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("colima version check failed: %v", err)
+	}
 	colimaVersion := extractVersion(output)
 	if colimaVersion == "" {
 		return fmt.Errorf("failed to extract colima version")
@@ -189,7 +197,10 @@ func (t *BaseToolsManager) checkColima() error {
 	if _, err := execLookPath("limactl"); err != nil {
 		return fmt.Errorf("limactl is not available in the PATH")
 	}
-	output, _ = t.shell.ExecSilent("limactl", "--version")
+	output, err = t.shell.ExecSilentWithTimeout("limactl", []string{"--version"}, 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("limactl version check failed: %v", err)
+	}
 	limactlVersion := extractVersion(output)
 	if limactlVersion == "" {
 		return fmt.Errorf("failed to extract limactl version")
@@ -272,7 +283,10 @@ func (t *BaseToolsManager) checkTerraform() error {
 	if _, err := execLookPath(command); err != nil {
 		return fmt.Errorf("%s is not available in the PATH", command)
 	}
-	output, _ := t.shell.ExecSilent(command, "version")
+	output, err := t.shell.ExecSilentWithTimeout(command, []string{"version"}, 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("%s version check failed: %v", command, err)
+	}
 	terraformVersion := extractVersion(output)
 	if terraformVersion == "" {
 		return fmt.Errorf("failed to extract %s version", command)
@@ -292,9 +306,9 @@ func (t *BaseToolsManager) checkOnePassword() error {
 		return fmt.Errorf("1Password CLI is not available in the PATH")
 	}
 
-	out, err := t.shell.ExecSilent("op", "--version")
+	out, err := t.shell.ExecSilentWithTimeout("op", []string{"--version"}, 5*time.Second)
 	if err != nil {
-		return fmt.Errorf("1Password CLI is not available in the PATH")
+		return fmt.Errorf("1Password CLI is not available in the PATH: %v", err)
 	}
 
 	version := extractVersion(out)
@@ -317,9 +331,9 @@ func (t *BaseToolsManager) checkSops() error {
 		return fmt.Errorf("SOPS CLI is not available in the PATH")
 	}
 
-	out, err := t.shell.ExecSilent("sops", "--version")
+	out, err := t.shell.ExecSilentWithTimeout("sops", []string{"--version"}, 5*time.Second)
 	if err != nil {
-		return fmt.Errorf("SOPS CLI is not available in the PATH")
+		return fmt.Errorf("SOPS CLI is not available in the PATH: %v", err)
 	}
 
 	version := extractVersion(out)
@@ -343,9 +357,9 @@ func (t *BaseToolsManager) checkKubelogin() error {
 		return fmt.Errorf("kubelogin is not available in the PATH")
 	}
 
-	out, err := t.shell.ExecSilent("kubelogin", "--version")
+	out, err := t.shell.ExecSilentWithTimeout("kubelogin", []string{"--version"}, 5*time.Second)
 	if err != nil {
-		return fmt.Errorf("kubelogin is not available in the PATH")
+		return fmt.Errorf("kubelogin is not available in the PATH: %v", err)
 	}
 
 	version := extractVersion(out)

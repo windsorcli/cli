@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/windsorcli/cli/pkg/runtime/shell/ssh"
 )
@@ -79,6 +81,50 @@ func (s *SecureShell) ExecSilent(command string, args ...string) (string, error)
 	return s.Exec(command, args...)
 }
 
+// ExecSilentWithTimeout executes a command with a timeout and returns the output.
+// If the command takes longer than the timeout, it kills the process and returns an error.
+// Uses ExecSilent internally but wraps it with a timeout mechanism.
+func (s *SecureShell) ExecSilentWithTimeout(command string, args []string, timeout time.Duration) (string, error) {
+	clientConn, err := s.sshClient.Connect()
+	if err != nil {
+		return "", fmt.Errorf("failed to connect to SSH client: %w", err)
+	}
+
+	session, err := clientConn.NewSession()
+	if err != nil {
+		_ = clientConn.Close()
+		return "", fmt.Errorf("failed to create SSH session: %w", err)
+	}
+
+	fullCommand := command
+	if len(args) > 0 {
+		fullCommand += " " + strings.Join(args, " ")
+	}
+
+	var stdoutBuf, stderrBuf bytes.Buffer
+	session.SetStdout(&stdoutBuf)
+	session.SetStderr(&stderrBuf)
+
+	var sessionCloseOnce, connCloseOnce sync.Once
+	execFn := func() (string, error) {
+		err := session.Run(fullCommand)
+		if err != nil {
+			return "", fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
+		}
+		return stdoutBuf.String(), nil
+	}
+
+	cleanupFn := func() {
+		sessionCloseOnce.Do(func() {
+			_ = session.Close()
+		})
+		connCloseOnce.Do(func() {
+			_ = clientConn.Close()
+		})
+	}
+
+	return executeWithTimeout(execFn, cleanupFn, timeout)
+}
+
 // Ensure SecureShell implements the Shell interface
 var _ Shell = (*SecureShell)(nil)
-

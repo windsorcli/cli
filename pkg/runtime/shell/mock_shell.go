@@ -2,6 +2,7 @@ package shell
 
 import (
 	"fmt"
+	"time"
 )
 
 // The MockShell is a mock implementation of the Shell interface for testing purposes.
@@ -20,6 +21,7 @@ type MockShell struct {
 	GetProjectRootFunc             func() (string, error)
 	ExecFunc                       func(command string, args ...string) (string, error)
 	ExecSilentFunc                 func(command string, args ...string) (string, error)
+	ExecSilentWithTimeoutFunc      func(command string, args []string, timeout time.Duration) (string, error)
 	ExecProgressFunc               func(message string, command string, args ...string) (string, error)
 	ExecSudoFunc                   func(message string, command string, args ...string) (string, error)
 	InstallHookFunc                func(shellName string) error
@@ -86,6 +88,14 @@ func (s *MockShell) ExecSilent(command string, args ...string) (string, error) {
 		return s.ExecSilentFunc(command, args...)
 	}
 	return "", nil
+}
+
+// ExecSilentWithTimeout calls the custom ExecSilentWithTimeoutFunc if provided, otherwise delegates to ExecSilent.
+func (s *MockShell) ExecSilentWithTimeout(command string, args []string, timeout time.Duration) (string, error) {
+	if s.ExecSilentWithTimeoutFunc != nil {
+		return s.ExecSilentWithTimeoutFunc(command, args, timeout)
+	}
+	return s.ExecSilent(command, args...)
 }
 
 // ExecProgress calls the custom ExecProgressFunc if provided.

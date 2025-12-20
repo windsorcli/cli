@@ -3,6 +3,7 @@ package shell
 import (
 	"fmt"
 	"testing"
+	"time"
 )
 
 // The MockShellTest is a test suite for the MockShell implementation.
@@ -402,6 +403,63 @@ func TestMockShell_ExecSilentNotImplemented(t *testing.T) {
 	if output != "" {
 		t.Errorf("Expected empty output, got %v", output)
 	}
+}
+
+// TestMockShell_ExecSilentWithTimeout tests the ExecSilentWithTimeout method of MockShell
+func TestMockShell_ExecSilentWithTimeout(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mockShell := setupMockShellMocks(t)
+		expectedOutput := "mock output"
+		mockShell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			return expectedOutput, nil
+		}
+
+		output, err := mockShell.ExecSilentWithTimeout("mock-command", []string{"arg1", "arg2"}, 5*time.Second)
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if output != expectedOutput {
+			t.Errorf("Expected output %v, got %v", expectedOutput, output)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		mockShell := setupMockShellMocks(t)
+		expectedError := fmt.Errorf("mock timeout error")
+		mockShell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			return "", expectedError
+		}
+
+		output, err := mockShell.ExecSilentWithTimeout("mock-command", []string{"arg1", "arg2"}, 5*time.Second)
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+		if output != "" {
+			t.Errorf("Expected empty output, got %v", output)
+		}
+	})
+
+	t.Run("DelegatesToExecSilent", func(t *testing.T) {
+		mockShell := setupMockShellMocks(t)
+		expectedOutput := "delegated output"
+		mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			return expectedOutput, nil
+		}
+
+		output, err := mockShell.ExecSilentWithTimeout("mock-command", []string{"arg1", "arg2"}, 5*time.Second)
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if output != expectedOutput {
+			t.Errorf("Expected output %v, got %v", expectedOutput, output)
+		}
+	})
 }
 
 // TestMockShell_ExecProgress tests the ExecProgress method of MockShell
