@@ -6415,7 +6415,7 @@ func TestBaseBlueprintHandler_pullOCISources(t *testing.T) {
 		}
 
 		pullCalled := false
-		mockArtifactBuilder.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
+		mockArtifactBuilder.PullFunc = func(ociRefs []string) (map[string]string, error) {
 			pullCalled = true
 			if len(ociRefs) != 1 || ociRefs[0] != "oci://ghcr.io/test/repo:latest" {
 				t.Errorf("Expected single OCI URL, got: %v", ociRefs)
@@ -6488,7 +6488,7 @@ func TestBaseBlueprintHandler_pullOCISources(t *testing.T) {
 		}
 
 		expectedError := fmt.Errorf("pull error")
-		mockArtifactBuilder.PullFunc = func(ociRefs []string) (map[string][]byte, error) {
+		mockArtifactBuilder.PullFunc = func(ociRefs []string) (map[string]string, error) {
 			return nil, expectedError
 		}
 

@@ -1800,12 +1800,15 @@ func TestArtifactBuilder_validateOCIDiskCache(t *testing.T) {
 		cacheDir := filepath.Join(tmpDir, "cache")
 		artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
 
-		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == cacheDir || name == artifactTarPath {
-				return &mockFileInfo{name: filepath.Base(name), isDir: name == cacheDir}, nil
-			}
-			return nil, os.ErrNotExist
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache dir: %v", err)
 		}
+		if err := os.WriteFile(artifactTarPath, []byte("test data"), 0644); err != nil {
+			t.Fatalf("Failed to create artifact.tar: %v", err)
+		}
+
+		mocks.Shims.Stat = os.Stat
+		mocks.Shims.ReadFile = os.ReadFile
 
 		err := builder.validateOCIDiskCache(cacheDir)
 
@@ -1855,6 +1858,31 @@ func TestArtifactBuilder_validateOCIDiskCache(t *testing.T) {
 		}
 		if !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("Expected os.ErrNotExist, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenArtifactTarIsEmpty", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		cacheDir := filepath.Join(tmpDir, "cache")
+		artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
+
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache dir: %v", err)
+		}
+		if err := os.WriteFile(artifactTarPath, []byte{}, 0644); err != nil {
+			t.Fatalf("Failed to create empty artifact.tar: %v", err)
+		}
+
+		mocks.Shims.Stat = os.Stat
+
+		err := builder.validateOCIDiskCache(cacheDir)
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "artifact.tar is empty") {
+			t.Errorf("Expected 'artifact.tar is empty' error, got %v", err)
 		}
 	})
 }
@@ -2067,7 +2095,7 @@ func TestArtifactBuilder_extractTarEntries(t *testing.T) {
 
 		mockReader := &mockTarReader{
 			nextFunc: func() (*tar.Header, error) {
-				return &tar.Header{Name: "test.txt", Typeflag: tar.TypeReg}, nil
+				return &tar.Header{Name: "terraform/test.txt", Typeflag: tar.TypeReg, Size: 10}, nil
 			},
 		}
 
@@ -2096,20 +2124,30 @@ func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {
 	}
 
 	t.Run("ErrorWhenProjectRootNotSet", func(t *testing.T) {
-		builder, _ := setup(t)
+		builder, mocks := setup(t)
 		builder.runtime = nil
 
 		testTar := createTestTarGzForPrivate(t, map[string][]byte{
 			"terraform/module/main.tf": []byte("resource \"test\" {}"),
 		})
 
-		err := builder.extractArtifactToCache(testTar, "registry", "repo", "tag")
+		tmpDir := t.TempDir()
+		testExtractionDir := filepath.Join(tmpDir, "test-extraction")
+		if err := os.RemoveAll(testExtractionDir); err != nil {
+			t.Fatalf("Failed to clean up test directory: %v", err)
+		}
+
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return fmt.Errorf("mkdir error")
+		}
+
+		err := builder.extractArtifactToCache(testTar, testExtractionDir)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "project root is not set") {
-			t.Errorf("Expected project root error, got %v", err)
+		if err != nil && !strings.Contains(err.Error(), "failed to create temporary extraction directory") && !strings.Contains(err.Error(), "failed to create parent directory") {
+			t.Errorf("Expected extraction directory error, got %v", err)
 		}
 	})
 
@@ -2130,7 +2168,11 @@ func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {
 			"terraform/module/main.tf": []byte("resource \"test\" {}"),
 		})
 
-		err := builder.extractArtifactToCache(testTar, "registry", "repo", "tag")
+		cacheDir, err := builder.GetCacheDir("registry", "repo", "tag")
+		if err != nil {
+			t.Fatalf("Failed to get cache dir: %v", err)
+		}
+		err = builder.extractArtifactToCache(testTar, cacheDir)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -2158,7 +2200,11 @@ func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {
 			"terraform/module/main.tf": []byte("resource \"test\" {}"),
 		})
 
-		err := builder.extractArtifactToCache(testTar, "registry", "repo", "tag")
+		cacheDir, err := builder.GetCacheDir("registry", "repo", "tag")
+		if err != nil {
+			t.Fatalf("Failed to get cache dir: %v", err)
+		}
+		err = builder.extractArtifactToCache(testTar, cacheDir)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -2178,13 +2224,15 @@ func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {
 			"metadata.yaml":            []byte("name: test\nversion: v1.0.0\n"),
 		})
 
-		err := builder.extractArtifactToCache(testTar, "registry", "repo", "tag")
+		cacheDir, err := builder.GetCacheDir("registry", "repo", "tag")
+		if err != nil {
+			t.Fatalf("Failed to get cache dir: %v", err)
+		}
+		err = builder.extractArtifactToCache(testTar, cacheDir)
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-
-		cacheDir, err := builder.GetCacheDir("registry", "repo", "tag")
 		if err != nil {
 			t.Fatalf("Failed to get cache dir: %v", err)
 		}
@@ -2213,7 +2261,11 @@ func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {
 			"terraform/module/main.tf": []byte("resource \"test\" {}"),
 		})
 
-		err := builder.extractArtifactToCache(testTar, "registry", "repo", "tag")
+		cacheDir, err := builder.GetCacheDir("registry", "repo", "tag")
+		if err != nil {
+			t.Fatalf("Failed to get cache dir: %v", err)
+		}
+		err = builder.extractArtifactToCache(testTar, cacheDir)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -2241,7 +2293,11 @@ func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {
 			"terraform/module/main.tf": []byte("resource \"test\" {}"),
 		})
 
-		err := builder.extractArtifactToCache(testTar, "registry", "repo", "tag")
+		cacheDir, err := builder.GetCacheDir("registry", "repo", "tag")
+		if err != nil {
+			t.Fatalf("Failed to get cache dir: %v", err)
+		}
+		err = builder.extractArtifactToCache(testTar, cacheDir)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -2277,7 +2333,7 @@ func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {
 			"terraform/module/main.tf": []byte("resource \"test\" {}"),
 		})
 
-		err = builder.extractArtifactToCache(testTar, "registry", "repo", "tag")
+		err = builder.extractArtifactToCache(testTar, cacheDir)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -2319,7 +2375,7 @@ func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {
 			"terraform/module/main.tf": []byte("resource \"test\" {}"),
 		})
 
-		err = builder.extractArtifactToCache(testTar, "registry", "repo", "tag")
+		err = builder.extractArtifactToCache(testTar, cacheDir)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -2342,7 +2398,11 @@ func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {
 			"terraform/module/main.tf": []byte("resource \"test\" {}"),
 		})
 
-		err := builder.extractArtifactToCache(testTar, "registry", "repo", "tag")
+		cacheDir, err := builder.GetCacheDir("registry", "repo", "tag")
+		if err != nil {
+			t.Fatalf("Failed to get cache dir: %v", err)
+		}
+		err = builder.extractArtifactToCache(testTar, cacheDir)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -2385,7 +2445,7 @@ func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {
 			"terraform/module/main.tf": []byte("resource \"test\" {}"),
 		})
 
-		err = builder.extractArtifactToCache(testTar, "registry", "repo", "tag")
+		err = builder.extractArtifactToCache(testTar, cacheDir)
 
 		if err == nil {
 			t.Error("Expected error, got nil")

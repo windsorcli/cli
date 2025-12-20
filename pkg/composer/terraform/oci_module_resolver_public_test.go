@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -121,15 +122,17 @@ func TestOCIModuleResolver_ProcessModules(t *testing.T) {
 			}
 			return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
 		}
-		mockArtifactBuilder.PullFunc = func(refs []string) (map[string][]byte, error) {
-			artifacts := make(map[string][]byte)
+		mockArtifactBuilder.PullFunc = func(refs []string) (map[string]string, error) {
+			artifacts := make(map[string]string)
 			for _, ref := range refs {
 				// Cache key format is registry/repository:tag (without oci:// prefix)
 				if strings.HasPrefix(ref, "oci://") {
 					cacheKey := strings.TrimPrefix(ref, "oci://")
-					artifacts[cacheKey] = []byte("mock artifact data")
+					extractionKey := strings.ReplaceAll(strings.ReplaceAll(cacheKey, "/", "_"), ":", "_")
+					cacheDir := filepath.Join("/test/project", ".windsor", "cache", "oci", extractionKey)
+					artifacts[cacheKey] = cacheDir
 				} else {
-					artifacts[ref] = []byte("mock artifact data")
+					artifacts[ref] = filepath.Join("/test/project", ".windsor", "cache", "oci", ref)
 				}
 			}
 			return artifacts, nil
@@ -193,7 +196,7 @@ func TestOCIModuleResolver_ProcessModules(t *testing.T) {
 
 		// Mock artifact builder to return error
 		mockArtifactBuilder := artifact.NewMockArtifact()
-		mockArtifactBuilder.PullFunc = func(refs []string) (map[string][]byte, error) {
+		mockArtifactBuilder.PullFunc = func(refs []string) (map[string]string, error) {
 			return nil, errors.New("artifact pull error")
 		}
 		resolver.artifactBuilder = mockArtifactBuilder

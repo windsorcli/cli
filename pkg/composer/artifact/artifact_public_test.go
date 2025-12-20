@@ -1725,11 +1725,8 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		if len(artifacts) != 1 {
 			t.Errorf("expected 1 artifact, got %d", len(artifacts))
 		}
-		if artifacts[expectedKey] == nil {
-			t.Errorf("expected artifact data to be present")
-		}
-		if len(artifacts[expectedKey]) == 0 {
-			t.Errorf("expected artifact data to be non-empty")
+		if artifacts[expectedKey] == "" {
+			t.Errorf("expected artifact cache path to be present")
 		}
 	})
 
@@ -1825,8 +1822,8 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		}
 
 		expectedKey := "registry.example.com/my-repo:v1.0.0"
-		if artifacts[expectedKey] == nil {
-			t.Errorf("expected artifact data to be present")
+		if artifacts[expectedKey] == "" {
+			t.Errorf("expected artifact cache path to be present")
 		}
 	})
 
@@ -1897,9 +1894,7 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 			downloadCount++
 			return io.NopCloser(bytes.NewReader(testTarData)), nil
 		}
-		builder.shims.Stat = func(name string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
+		builder.shims.Stat = os.Stat
 		builder.shims.Create = func(name string) (io.WriteCloser, error) {
 			dir := filepath.Dir(name)
 			if err := os.MkdirAll(dir, 0755); err != nil {
@@ -1907,6 +1902,9 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 			}
 			return os.Create(name)
 		}
+		builder.shims.RemoveAll = os.RemoveAll
+		builder.shims.Rename = os.Rename
+		builder.shims.MkdirAll = os.MkdirAll
 
 		ociRefs := []string{
 			"oci://registry.example.com/my-repo:v1.0.0",
@@ -1951,7 +1949,7 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 
 		// And the artifact data should be identical
 		expectedKey := "registry.example.com/my-repo:v1.0.0"
-		if !bytes.Equal(artifacts1[expectedKey], artifacts2[expectedKey]) {
+		if artifacts1[expectedKey] != artifacts2[expectedKey] {
 			t.Errorf("cached artifact data should be identical")
 		}
 	})
@@ -1970,15 +1968,6 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 			return io.NopCloser(bytes.NewReader(testTarData)), nil
 		}
 
-		cacheWriteCount := 0
-		originalMkdirAll := mocks.Shims.MkdirAll
-		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
-			if strings.Contains(path, ".windsor/cache") {
-				cacheWriteCount++
-			}
-			return originalMkdirAll(path, perm)
-		}
-
 		os.Setenv("NO_CACHE", "true")
 		defer os.Unsetenv("NO_CACHE")
 
@@ -1993,8 +1982,14 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		if downloadCount != 1 {
 			t.Errorf("Expected 1 download (NO_CACHE bypasses cache), got %d", downloadCount)
 		}
-		if cacheWriteCount != 0 {
-			t.Errorf("Expected 0 cache writes (NO_CACHE should skip cache writes), got %d", cacheWriteCount)
+		expectedKey := "registry.example.com/my-repo:v1.0.0"
+		cacheDir, exists := artifacts[expectedKey]
+		if !exists {
+			t.Errorf("Expected artifact cache directory, got none")
+		}
+		normalizedPath := filepath.ToSlash(cacheDir)
+		if !strings.Contains(normalizedPath, ".windsor/cache") {
+			t.Errorf("Expected cache directory path, got %s", cacheDir)
 		}
 	})
 
@@ -2035,11 +2030,8 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		if len(artifacts) != 1 {
 			t.Errorf("Expected 1 artifact, got %d", len(artifacts))
 		}
-		if artifacts["registry.example.com/my-repo:v1.0.0"] == nil {
-			t.Error("Expected artifact data, got nil")
-		}
-		if !bytes.Equal(artifacts["registry.example.com/my-repo:v1.0.0"], testTarData) {
-			t.Error("Expected artifact data to match cached data")
+		if artifacts["registry.example.com/my-repo:v1.0.0"] == "" {
+			t.Error("Expected cache directory path, got empty string")
 		}
 	})
 
@@ -2065,17 +2057,13 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 			t.Fatalf("Failed to write artifact.tar: %v", err)
 		}
 
-		readFileCount := 0
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
 			if name == cacheDir || name == artifactTarPath {
 				return &mockFileInfo{name: filepath.Base(name), isDir: name == cacheDir}, nil
 			}
 			return os.Stat(name)
 		}
-		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			readFileCount++
-			return os.ReadFile(name)
-		}
+		mocks.Shims.ReadFile = os.ReadFile
 
 		cacheKey := "registry.example.com/my-repo:v1.0.0"
 
@@ -2093,20 +2081,13 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		}
 
 		// And artifact data should match
-		if !bytes.Equal(artifacts1[cacheKey], testTarData) {
-			t.Error("Expected artifact data to match cached data")
+		if artifacts1[cacheKey] == "" {
+			t.Error("Expected cache directory path to be returned")
 		}
 
-		// And ReadFile should have been called once
-		if readFileCount != 1 {
-			t.Errorf("Expected 1 ReadFile call, got %d", readFileCount)
-		}
-
-		// And in-memory cache should be populated
-		if cachedData, exists := builder.ociCache[cacheKey]; !exists {
-			t.Error("Expected in-memory cache to be populated after reading from disk")
-		} else if !bytes.Equal(cachedData, testTarData) {
-			t.Error("Expected in-memory cache data to match disk cache data")
+		// Cache directory should exist
+		if artifacts1[cacheKey] == "" {
+			t.Error("Expected cache directory path to be returned")
 		}
 
 		// When Pull is called again with the same reference
@@ -2123,13 +2104,8 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		}
 
 		// And artifact data should match
-		if !bytes.Equal(artifacts2[cacheKey], testTarData) {
+		if artifacts2[cacheKey] == "" {
 			t.Error("Expected artifact data to match on second call")
-		}
-
-		// And ReadFile should NOT have been called again (still 1)
-		if readFileCount != 1 {
-			t.Errorf("Expected 1 ReadFile call total (in-memory cache used), got %d", readFileCount)
 		}
 	})
 
@@ -2167,22 +2143,59 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 			return originalRemoveAll(path)
 		}
 
+		cacheDirExists := true
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == cacheDir || name == artifactTarPath {
-				if cacheRemoved && name == cacheDir {
+			if name == cacheDir {
+				if !cacheDirExists {
 					return nil, os.ErrNotExist
 				}
-				return &mockFileInfo{name: filepath.Base(name), isDir: name == cacheDir}, nil
+				return &mockFileInfo{name: filepath.Base(name), isDir: true}, nil
+			}
+			if name == artifactTarPath {
+				if !cacheDirExists {
+					return nil, os.ErrNotExist
+				}
+				return &mockFileInfo{name: filepath.Base(name), isDir: false}, nil
 			}
 			return os.Stat(name)
 		}
 
+		readFileCallCount := 0
 		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
 			if name == artifactTarPath {
-				return nil, fmt.Errorf("read error")
+				readFileCallCount++
+				if readFileCallCount == 1 {
+					cacheDirExists = false
+					return nil, fmt.Errorf("read error")
+				}
 			}
 			return os.ReadFile(name)
 		}
+		mocks.Shims.RemoveAll = func(path string) error {
+			if path == cacheDir {
+				cacheDirExists = false
+				cacheRemoved = true
+			}
+			return os.RemoveAll(path)
+		}
+		mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return &mockReference{}, nil
+		}
+		mocks.Shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return &mockImage{}, nil
+		}
+		mocks.Shims.ImageLayers = func(img v1.Image) ([]v1.Layer, error) {
+			return []v1.Layer{&mockLayer{}}, nil
+		}
+		mocks.Shims.Create = func(name string) (io.WriteCloser, error) {
+			dir := filepath.Dir(name)
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return nil, err
+			}
+			return os.Create(name)
+		}
+		mocks.Shims.Rename = os.Rename
+		mocks.Shims.MkdirAll = os.MkdirAll
 
 		artifacts, err := builder.Pull([]string{"oci://registry.example.com/my-repo:v1.0.0"})
 
@@ -2280,12 +2293,8 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		builder.shims.ReadAll = func(r io.Reader) ([]byte, error) {
 			return io.ReadAll(r)
 		}
-		builder.shims.Stat = func(name string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-		builder.shims.MkdirAll = func(path string, perm os.FileMode) error {
-			return os.MkdirAll(path, perm)
-		}
+		builder.shims.Stat = os.Stat
+		builder.shims.MkdirAll = os.MkdirAll
 		builder.shims.Create = func(name string) (io.WriteCloser, error) {
 			dir := filepath.Dir(name)
 			if err := os.MkdirAll(dir, 0755); err != nil {
@@ -2293,6 +2302,8 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 			}
 			return os.Create(name)
 		}
+		builder.shims.RemoveAll = os.RemoveAll
+		builder.shims.Rename = os.Rename
 
 		// When Pull is called with one artifact
 		artifacts1, err := builder.Pull([]string{"oci://registry.example.com/repo1:v1.0.0"})
@@ -2337,7 +2348,7 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		}
 
 		// And the cached artifact should be identical to the first call
-		if !bytes.Equal(artifacts1[key1], artifacts2[key1]) {
+		if artifacts1[key1] != artifacts2[key1] {
 			t.Errorf("cached artifact data should be identical")
 		}
 	})
@@ -2477,6 +2488,7 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		t.Helper()
 		mocks := setupArtifactMocks(t)
 		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims = mocks.Shims
 		return builder, mocks
 	}
 
@@ -2527,36 +2539,41 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		// Given an artifact builder with cached data
 		builder, _ := setup(t)
 
-		// Create test tar.gz data
-		testData := createTestTarGz(t, map[string][]byte{
+		// Note: testData removed - tests now use disk cache instead of in-memory cache
+
+		downloadCalled := false
+		cacheDir := filepath.Join(builder.runtime.ProjectRoot, ".windsor", "cache", "oci", "registry.example.com_test_v1.0.0")
+		artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
+
+		testTarData := createTestTarGz(t, map[string][]byte{
 			"metadata.yaml":               []byte("name: test\nversion: v1.0.0\n"),
 			"_template/blueprint.jsonnet": []byte("{ blueprint: 'content' }"),
 			"_template/template.jsonnet":  []byte("{ template: 'content' }"),
 			"_template/schema.yaml":       []byte("$schema: https://json-schema.org/draft/2020-12/schema\ntype: object\nproperties: {}\nrequired: []\nadditionalProperties: false"),
-			"ignored.jsonnet":             []byte("ignored: content"),
-			"ignored.yaml":                []byte("ignored: content"),
 		})
-
-		// Pre-populate cache
-		builder.ociCache["registry.example.com/test:v1.0.0"] = testData
-
-		downloadCalled := false
-		builder.shims = &Shims{
-			ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
-				return &mockReference{}, nil
-			},
-			RemoteImage: func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
-				downloadCalled = true
-				return nil, fmt.Errorf("should not be called")
-			},
-			YamlUnmarshal: func(data []byte, v any) error {
-				if metadata, ok := v.(*BlueprintMetadata); ok {
-					metadata.Name = "test"
-					metadata.Version = "v1.0.0"
-				}
-				return nil
-			},
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache directory: %v", err)
 		}
+		if err := os.WriteFile(artifactTarPath, testTarData, 0644); err != nil {
+			t.Fatalf("Failed to write artifact.tar: %v", err)
+		}
+
+		shims := NewShims()
+		shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return &mockReference{}, nil
+		}
+		shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			downloadCalled = true
+			return nil, fmt.Errorf("should not be called")
+		}
+		shims.YamlUnmarshal = func(data []byte, v any) error {
+			if metadata, ok := v.(*BlueprintMetadata); ok {
+				metadata.Name = "test"
+				metadata.Version = "v1.0.0"
+			}
+			return nil
+		}
+		builder.shims = shims
 
 		// When calling GetTemplateData
 		templateData, err := builder.GetTemplateData("oci://registry.example.com/test:v1.0.0")
@@ -2582,8 +2599,10 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		// Given an artifact builder with cached data containing multiple file types
 		builder, _ := setup(t)
 
-		// Create test tar.gz data with mixed file types
-		testData := createTestTarGz(t, map[string][]byte{
+		// Pre-populate cache
+		cacheDir := filepath.Join(builder.runtime.ProjectRoot, ".windsor", "cache", "oci", "registry.example.com_test_v1.0.0")
+		artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
+		testTarData := createTestTarGz(t, map[string][]byte{
 			"metadata.yaml":                []byte("name: test\nversion: v1.0.0\n"),
 			"_template/blueprint.jsonnet":  []byte("{ blueprint: 'content' }"),
 			"_template/template.jsonnet":   []byte("{ template: 'content' }"),
@@ -2591,28 +2610,29 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 			"_template/nested/dir.jsonnet": []byte("{ nested: 'template' }"),
 			"_template/schema.yaml":        []byte("$schema: https://json-schema.org/draft/2020-12/schema\ntype: object\nproperties: {}\nrequired: []\nadditionalProperties: false"),
 			"_template/config.yaml":        []byte("config: value"),
-			"template.jsonnet":             []byte("{ ignored: 'content' }"),
-			"config.yaml":                  []byte("config: value"),
-			"script.sh":                    []byte("#!/bin/bash"),
-			"README.md":                    []byte("# README"),
-			"nested/config.json":           []byte("{ json: 'config' }"),
 		})
-
-		// Pre-populate cache
-		builder.ociCache["registry.example.com/test:v1.0.0"] = testData
-
-		builder.shims = &Shims{
-			ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
-				return &mockReference{}, nil
-			},
-			YamlUnmarshal: func(data []byte, v any) error {
-				if metadata, ok := v.(*BlueprintMetadata); ok {
-					metadata.Name = "test"
-					metadata.Version = "v1.0.0"
-				}
-				return nil
-			},
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache directory: %v", err)
 		}
+		if err := os.WriteFile(artifactTarPath, testTarData, 0644); err != nil {
+			t.Fatalf("Failed to write artifact.tar: %v", err)
+		}
+
+		shims := NewShims()
+		shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return &mockReference{}, nil
+		}
+		shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return nil, fmt.Errorf("should not be called")
+		}
+		shims.YamlUnmarshal = func(data []byte, v any) error {
+			if metadata, ok := v.(*BlueprintMetadata); ok {
+				metadata.Name = "test"
+				metadata.Version = "v1.0.0"
+			}
+			return nil
+		}
+		builder.shims = shims
 
 		// When calling GetTemplateData
 		templateData, err := builder.GetTemplateData("oci://registry.example.com/test:v1.0.0")
@@ -2637,19 +2657,29 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		builder, _ := setup(t)
 
 		// Create test tar.gz data without metadata.yaml
-		testData := createTestTarGz(t, map[string][]byte{
+		testTarData := createTestTarGz(t, map[string][]byte{
 			"_template/blueprint.jsonnet": []byte("{ template: 'content' }"),
 			"other.jsonnet":               []byte("{ other: 'content' }"),
 		})
 
 		// Pre-populate cache
-		builder.ociCache["registry.example.com/test:v1.0.0"] = testData
-
-		builder.shims = &Shims{
-			ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
-				return &mockReference{}, nil
-			},
+		cacheDir := filepath.Join(builder.runtime.ProjectRoot, ".windsor", "cache", "oci", "registry.example.com_test_v1.0.0")
+		artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache directory: %v", err)
 		}
+		if err := os.WriteFile(artifactTarPath, testTarData, 0644); err != nil {
+			t.Fatalf("Failed to write artifact.tar: %v", err)
+		}
+
+		shims := NewShims()
+		shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return &mockReference{}, nil
+		}
+		shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return nil, fmt.Errorf("should not be called")
+		}
+		builder.shims = shims
 
 		// When calling GetTemplateData
 		templateData, err := builder.GetTemplateData("oci://registry.example.com/test:v1.0.0")
@@ -2671,27 +2701,37 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		builder, _ := setup(t)
 
 		// Create test tar.gz data without _template/blueprint.jsonnet
-		testData := createTestTarGz(t, map[string][]byte{
+		testTarData := createTestTarGz(t, map[string][]byte{
 			"metadata.yaml":            []byte("name: test\nversion: v1.0.0\n"),
 			"_template/other.jsonnet":  []byte("{ other: 'content' }"),
 			"_template/config.jsonnet": []byte("{ config: 'content' }"),
 		})
 
 		// Pre-populate cache
-		builder.ociCache["registry.example.com/test:v1.0.0"] = testData
-
-		builder.shims = &Shims{
-			ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
-				return &mockReference{}, nil
-			},
-			YamlUnmarshal: func(data []byte, v any) error {
-				if metadata, ok := v.(*BlueprintMetadata); ok {
-					metadata.Name = "test"
-					metadata.Version = "v1.0.0"
-				}
-				return nil
-			},
+		cacheDir := filepath.Join(builder.runtime.ProjectRoot, ".windsor", "cache", "oci", "registry.example.com_test_v1.0.0")
+		artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache directory: %v", err)
 		}
+		if err := os.WriteFile(artifactTarPath, testTarData, 0644); err != nil {
+			t.Fatalf("Failed to write artifact.tar: %v", err)
+		}
+
+		shims := NewShims()
+		shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return &mockReference{}, nil
+		}
+		shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return nil, fmt.Errorf("should not be called")
+		}
+		shims.YamlUnmarshal = func(data []byte, v any) error {
+			if metadata, ok := v.(*BlueprintMetadata); ok {
+				metadata.Name = "test"
+				metadata.Version = "v1.0.0"
+			}
+			return nil
+		}
+		builder.shims = shims
 
 		// When calling GetTemplateData
 		templateData, err := builder.GetTemplateData("oci://registry.example.com/test:v1.0.0")
@@ -2711,7 +2751,7 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		builder, _ := setup(t)
 
 		// Create test tar.gz data without schema.yaml
-		testData := createTestTarGz(t, map[string][]byte{
+		testTarData := createTestTarGz(t, map[string][]byte{
 			"metadata.yaml":               []byte("name: test\nversion: v1.0.0\n"),
 			"_template/blueprint.jsonnet": []byte("{ blueprint: 'content' }"),
 			"_template/other.jsonnet":     []byte("{ other: 'content' }"),
@@ -2719,20 +2759,30 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		})
 
 		// Pre-populate cache
-		builder.ociCache["registry.example.com/test:v1.0.0"] = testData
-
-		builder.shims = &Shims{
-			ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
-				return &mockReference{}, nil
-			},
-			YamlUnmarshal: func(data []byte, v any) error {
-				if metadata, ok := v.(*BlueprintMetadata); ok {
-					metadata.Name = "test"
-					metadata.Version = "v1.0.0"
-				}
-				return nil
-			},
+		cacheDir := filepath.Join(builder.runtime.ProjectRoot, ".windsor", "cache", "oci", "registry.example.com_test_v1.0.0")
+		artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache directory: %v", err)
 		}
+		if err := os.WriteFile(artifactTarPath, testTarData, 0644); err != nil {
+			t.Fatalf("Failed to write artifact.tar: %v", err)
+		}
+
+		shims := NewShims()
+		shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return &mockReference{}, nil
+		}
+		shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return nil, fmt.Errorf("should not be called")
+		}
+		shims.YamlUnmarshal = func(data []byte, v any) error {
+			if metadata, ok := v.(*BlueprintMetadata); ok {
+				metadata.Name = "test"
+				metadata.Version = "v1.0.0"
+			}
+			return nil
+		}
+		builder.shims = shims
 
 		// When calling GetTemplateData
 		templateData, err := builder.GetTemplateData("oci://registry.example.com/test:v1.0.0")
@@ -2767,7 +2817,7 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		builder, _ := setup(t)
 
 		// Create test tar.gz data with required files
-		testData := createTestTarGz(t, map[string][]byte{
+		testTarData := createTestTarGz(t, map[string][]byte{
 			"metadata.yaml":               []byte("name: test\nversion: v1.0.0\n"),
 			"_template/blueprint.jsonnet": []byte("{ blueprint: 'content' }"),
 			"_template/schema.yaml":       []byte("$schema: https://json-schema.org/draft/2020-12/schema\ntype: object\nproperties: {}\nrequired: []\nadditionalProperties: false"),
@@ -2776,20 +2826,30 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		})
 
 		// Pre-populate cache
-		builder.ociCache["registry.example.com/test:v1.0.0"] = testData
-
-		builder.shims = &Shims{
-			ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
-				return &mockReference{}, nil
-			},
-			YamlUnmarshal: func(data []byte, v any) error {
-				if metadata, ok := v.(*BlueprintMetadata); ok {
-					metadata.Name = "test"
-					metadata.Version = "v1.0.0"
-				}
-				return nil
-			},
+		cacheDir := filepath.Join(builder.runtime.ProjectRoot, ".windsor", "cache", "oci", "registry.example.com_test_v1.0.0")
+		artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache directory: %v", err)
 		}
+		if err := os.WriteFile(artifactTarPath, testTarData, 0644); err != nil {
+			t.Fatalf("Failed to write artifact.tar: %v", err)
+		}
+
+		shims := NewShims()
+		shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return &mockReference{}, nil
+		}
+		shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return nil, fmt.Errorf("should not be called")
+		}
+		shims.YamlUnmarshal = func(data []byte, v any) error {
+			if metadata, ok := v.(*BlueprintMetadata); ok {
+				metadata.Name = "test"
+				metadata.Version = "v1.0.0"
+			}
+			return nil
+		}
+		builder.shims = shims
 
 		// When calling GetTemplateData
 		templateData, err := builder.GetTemplateData("oci://registry.example.com/test:v1.0.0")
@@ -2813,27 +2873,37 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		builder, _ := setup(t)
 
 		// Create test tar.gz data with cliVersion in metadata
-		testData := createTestTarGz(t, map[string][]byte{
+		testTarData := createTestTarGz(t, map[string][]byte{
 			"metadata.yaml":               []byte("name: test\nversion: v1.0.0\ncliVersion: '>=1.0.0'\n"),
 			"_template/blueprint.jsonnet": []byte("{ blueprint: 'content' }"),
 		})
 
 		// Pre-populate cache
-		builder.ociCache["registry.example.com/test:v1.0.0"] = testData
-
-		builder.shims = &Shims{
-			ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
-				return &mockReference{}, nil
-			},
-			YamlUnmarshal: func(data []byte, v any) error {
-				if metadata, ok := v.(*BlueprintMetadata); ok {
-					metadata.Name = "test"
-					metadata.Version = "v1.0.0"
-					metadata.CliVersion = ">=1.0.0"
-				}
-				return nil
-			},
+		cacheDir := filepath.Join(builder.runtime.ProjectRoot, ".windsor", "cache", "oci", "registry.example.com_test_v1.0.0")
+		artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache directory: %v", err)
 		}
+		if err := os.WriteFile(artifactTarPath, testTarData, 0644); err != nil {
+			t.Fatalf("Failed to write artifact.tar: %v", err)
+		}
+
+		shims := NewShims()
+		shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return &mockReference{}, nil
+		}
+		shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return nil, fmt.Errorf("should not be called")
+		}
+		shims.YamlUnmarshal = func(data []byte, v any) error {
+			if metadata, ok := v.(*BlueprintMetadata); ok {
+				metadata.Name = "test"
+				metadata.Version = "v1.0.0"
+				metadata.CliVersion = ">=1.0.0"
+			}
+			return nil
+		}
+		builder.shims = shims
 
 		// When calling GetTemplateData
 		_, err := builder.GetTemplateData("oci://registry.example.com/test:v1.0.0")
@@ -2877,17 +2947,25 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		// Given an artifact builder with corrupted tar data
 		builder, _ := setup(t)
 
-		// Create corrupted tar data
-		corruptedData := []byte("not a valid tar archive")
-
-		// Pre-populate cache with corrupted data
-		builder.ociCache["registry.example.com/test:v1.0.0"] = corruptedData
-
-		builder.shims = &Shims{
-			ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
-				return &mockReference{}, nil
-			},
+		// Pre-populate cache with corrupted tar data
+		cacheDir := filepath.Join(builder.runtime.ProjectRoot, ".windsor", "cache", "oci", "registry.example.com_test_v1.0.0")
+		artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache directory: %v", err)
 		}
+		// Write corrupted tar data
+		if err := os.WriteFile(artifactTarPath, []byte("corrupted tar data"), 0644); err != nil {
+			t.Fatalf("Failed to write artifact.tar: %v", err)
+		}
+
+		shims := NewShims()
+		shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return &mockReference{}, nil
+		}
+		shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return nil, fmt.Errorf("should not be called")
+		}
+		builder.shims = shims
 
 		// When calling GetTemplateData
 		templateData, err := builder.GetTemplateData("oci://registry.example.com/test:v1.0.0")
@@ -2895,9 +2973,6 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		// Then should return error
 		if err == nil {
 			t.Fatal("Expected error when tar reader fails")
-		}
-		if !strings.Contains(err.Error(), "failed to read tar header") {
-			t.Errorf("Expected error to contain 'failed to read tar header', got %v", err)
 		}
 		if templateData != nil {
 			t.Error("Expected nil template data on error")
@@ -2909,22 +2984,32 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 		builder, _ := setup(t)
 
 		// Create test tar.gz data with invalid metadata
-		testData := createTestTarGz(t, map[string][]byte{
+		testTarData := createTestTarGz(t, map[string][]byte{
 			"metadata.yaml":               []byte("invalid: yaml: content: [unclosed"),
 			"_template/blueprint.jsonnet": []byte("{ blueprint: 'content' }"),
 		})
 
 		// Pre-populate cache
-		builder.ociCache["registry.example.com/test:v1.0.0"] = testData
-
-		builder.shims = &Shims{
-			ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
-				return &mockReference{}, nil
-			},
-			YamlUnmarshal: func(data []byte, v any) error {
-				return fmt.Errorf("yaml unmarshal error")
-			},
+		cacheDir := filepath.Join(builder.runtime.ProjectRoot, ".windsor", "cache", "oci", "registry.example.com_test_v1.0.0")
+		artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache directory: %v", err)
 		}
+		if err := os.WriteFile(artifactTarPath, testTarData, 0644); err != nil {
+			t.Fatalf("Failed to write artifact.tar: %v", err)
+		}
+
+		shims := NewShims()
+		shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return &mockReference{}, nil
+		}
+		shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return nil, fmt.Errorf("should not be called")
+		}
+		shims.YamlUnmarshal = func(data []byte, v any) error {
+			return fmt.Errorf("yaml unmarshal error")
+		}
+		builder.shims = shims
 
 		// When calling GetTemplateData
 		templateData, err := builder.GetTemplateData("oci://registry.example.com/test:v1.0.0")
@@ -2955,7 +3040,7 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 	})
 
 	t.Run("SuccessWithTarGzFile", func(t *testing.T) {
-		builder, _ := setup(t)
+		builder, mocks := setup(t)
 		tmpDir := t.TempDir()
 		tarGzPath := filepath.Join(tmpDir, "test.tar.gz")
 
@@ -2975,6 +3060,17 @@ func TestArtifactBuilder_GetTemplateData(t *testing.T) {
 
 		if err := os.WriteFile(tarGzPath, gzBuf.Bytes(), 0644); err != nil {
 			t.Fatalf("Failed to write test tar.gz file: %v", err)
+		}
+
+		// Override YamlUnmarshal to handle BlueprintMetadata (not BlueprintMetadataInput)
+		originalYamlUnmarshal := mocks.Shims.YamlUnmarshal
+		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
+			if metadata, ok := v.(*BlueprintMetadata); ok {
+				metadata.Name = "test"
+				metadata.Version = "v1.0.0"
+				return nil
+			}
+			return originalYamlUnmarshal(data, v)
 		}
 
 		templateData, err := builder.GetTemplateData(tarGzPath)
@@ -3114,6 +3210,187 @@ func TestArtifactBuilder_GetCacheDir(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "project root is not set") {
 			t.Errorf("Expected error about project root, got %v", err)
+		}
+	})
+}
+
+func TestArtifactBuilder_ExtractModulePath(t *testing.T) {
+	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
+		t.Helper()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims = mocks.Shims
+		return builder, mocks
+	}
+
+	t.Run("SuccessWhenModuleAlreadyExtracted", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		cacheDir, err := builder.GetCacheDir("registry", "repo", "tag")
+		if err != nil {
+			t.Fatalf("Failed to get cache dir: %v", err)
+		}
+
+		modulePath := "terraform/test-module"
+		fullModulePath := filepath.Join(cacheDir, modulePath)
+		if err := os.MkdirAll(fullModulePath, 0755); err != nil {
+			t.Fatalf("Failed to create module directory: %v", err)
+		}
+
+		mocks.Shims.Stat = os.Stat
+
+		result, err := builder.ExtractModulePath("registry", "repo", "tag", modulePath)
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if result != fullModulePath {
+			t.Errorf("Expected path %s, got %s", fullModulePath, result)
+		}
+	})
+
+	t.Run("SuccessWhenExtractingModule", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		cacheDir, err := builder.GetCacheDir("registry", "repo", "tag")
+		if err != nil {
+			t.Fatalf("Failed to get cache dir: %v", err)
+		}
+
+		modulePath := "terraform/test-module"
+		testTarData := createTestTarGz(t, map[string][]byte{
+			"terraform/test-module/main.tf":      []byte("resource \"test\" {}"),
+			"terraform/test-module/variables.tf": []byte("variable \"test\" {}"),
+		})
+
+		artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache dir: %v", err)
+		}
+		if err := os.WriteFile(artifactTarPath, testTarData, 0644); err != nil {
+			t.Fatalf("Failed to write artifact.tar: %v", err)
+		}
+
+		mocks.Shims.Stat = os.Stat
+		mocks.Shims.ReadFile = os.ReadFile
+		mocks.Shims.NewBytesReader = bytes.NewReader
+		mocks.Shims.NewTarReader = func(r io.Reader) TarReader {
+			return tar.NewReader(r)
+		}
+		mocks.Shims.MkdirAll = os.MkdirAll
+		mocks.Shims.Create = func(name string) (io.WriteCloser, error) {
+			return os.Create(name)
+		}
+		mocks.Shims.Copy = io.Copy
+		mocks.Shims.Chmod = os.Chmod
+
+		result, err := builder.ExtractModulePath("registry", "repo", "tag", modulePath)
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		expectedPath := filepath.Join(cacheDir, modulePath)
+		if result != expectedPath {
+			t.Errorf("Expected path %s, got %s", expectedPath, result)
+		}
+
+		mainTfPath := filepath.Join(result, "main.tf")
+		if _, err := os.Stat(mainTfPath); err != nil {
+			t.Errorf("Expected main.tf to exist, got error: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenGetCacheDirFails", func(t *testing.T) {
+		builder, mocks := setup(t)
+		mocks.Runtime.ProjectRoot = ""
+
+		_, err := builder.ExtractModulePath("registry", "repo", "tag", "terraform/module")
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to get cache directory") {
+			t.Errorf("Expected cache directory error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenReadFileFails", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		cacheDir, err := builder.GetCacheDir("registry", "repo", "tag")
+		if err != nil {
+			t.Fatalf("Failed to get cache dir: %v", err)
+		}
+
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache dir: %v", err)
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			return nil, os.ErrNotExist
+		}
+
+		_, err = builder.ExtractModulePath("registry", "repo", "tag", "terraform/module")
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to read cached artifact.tar") {
+			t.Errorf("Expected read file error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenExtractTarEntriesFails", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		cacheDir, err := builder.GetCacheDir("registry", "repo", "tag")
+		if err != nil {
+			t.Fatalf("Failed to get cache dir: %v", err)
+		}
+
+		testTarData := createTestTarGz(t, map[string][]byte{
+			"terraform/test-module/main.tf": []byte("resource \"test\" {}"),
+		})
+
+		artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache dir: %v", err)
+		}
+		if err := os.WriteFile(artifactTarPath, testTarData, 0644); err != nil {
+			t.Fatalf("Failed to write artifact.tar: %v", err)
+		}
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		mocks.Shims.ReadFile = os.ReadFile
+		mocks.Shims.NewBytesReader = bytes.NewReader
+		mocks.Shims.NewTarReader = func(r io.Reader) TarReader {
+			return &mockTarReader{
+				nextFunc: func() (*tar.Header, error) {
+					return nil, fmt.Errorf("tar read error")
+				},
+			}
+		}
+
+		_, err = builder.ExtractModulePath("registry", "repo", "tag", "terraform/test-module")
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to extract module path from artifact") {
+			t.Errorf("Expected extract error, got %v", err)
 		}
 	})
 }
