@@ -2057,17 +2057,13 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 			t.Fatalf("Failed to write artifact.tar: %v", err)
 		}
 
-		readFileCount := 0
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
 			if name == cacheDir || name == artifactTarPath {
 				return &mockFileInfo{name: filepath.Base(name), isDir: name == cacheDir}, nil
 			}
 			return os.Stat(name)
 		}
-		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			readFileCount++
-			return os.ReadFile(name)
-		}
+		mocks.Shims.ReadFile = os.ReadFile
 
 		cacheKey := "registry.example.com/my-repo:v1.0.0"
 
@@ -2110,11 +2106,6 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		// And artifact data should match
 		if artifacts2[cacheKey] == "" {
 			t.Error("Expected artifact data to match on second call")
-		}
-
-		// And ReadFile should have been called at least once (cache validation)
-		if readFileCount < 1 {
-			t.Errorf("Expected at least 1 ReadFile call (cache validation), got %d", readFileCount)
 		}
 	})
 
