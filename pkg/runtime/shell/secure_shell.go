@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/windsorcli/cli/pkg/runtime/shell/ssh"
@@ -104,6 +105,7 @@ func (s *SecureShell) ExecSilentWithTimeout(command string, args []string, timeo
 	session.SetStdout(&stdoutBuf)
 	session.SetStderr(&stderrBuf)
 
+	var sessionCloseOnce, connCloseOnce sync.Once
 	execFn := func() (string, error) {
 		err := session.Run(fullCommand)
 		if err != nil {
@@ -113,8 +115,12 @@ func (s *SecureShell) ExecSilentWithTimeout(command string, args []string, timeo
 	}
 
 	cleanupFn := func() {
-		session.Close()
-		clientConn.Close()
+		sessionCloseOnce.Do(func() {
+			session.Close()
+		})
+		connCloseOnce.Do(func() {
+			clientConn.Close()
+		})
 	}
 
 	return executeWithTimeout(execFn, cleanupFn, timeout)
