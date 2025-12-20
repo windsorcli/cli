@@ -1966,7 +1966,7 @@ func TestArtifactBuilder_extractTarEntries(t *testing.T) {
 			},
 		}
 
-		err := builder.extractTarEntries(mockReader, tmpDir, "")
+		err := builder.extractTarEntries(mockReader, tmpDir)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -1986,7 +1986,7 @@ func TestArtifactBuilder_extractTarEntries(t *testing.T) {
 			},
 		}
 
-		err := builder.extractTarEntries(mockReader, tmpDir, "")
+		err := builder.extractTarEntries(mockReader, tmpDir)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -2011,7 +2011,7 @@ func TestArtifactBuilder_extractTarEntries(t *testing.T) {
 			},
 		}
 
-		err := builder.extractTarEntries(mockReader, tmpDir, "")
+		err := builder.extractTarEntries(mockReader, tmpDir)
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -2048,7 +2048,7 @@ func TestArtifactBuilder_extractTarEntries(t *testing.T) {
 			},
 		}
 
-		err := builder.extractTarEntries(mockReader, destDir, "")
+		err := builder.extractTarEntries(mockReader, destDir)
 
 		if err == nil {
 			t.Error("Expected error for path traversal, got nil")
@@ -2070,11 +2070,11 @@ func TestArtifactBuilder_extractTarEntries(t *testing.T) {
 
 		mockReader := &mockTarReader{
 			nextFunc: func() (*tar.Header, error) {
-				return &tar.Header{Name: "test.txt", Typeflag: tar.TypeReg}, nil
+				return &tar.Header{Name: "terraform/test.txt", Typeflag: tar.TypeReg, Size: 10}, nil
 			},
 		}
 
-		err := builder.extractTarEntries(mockReader, tmpDir, "")
+		err := builder.extractTarEntries(mockReader, tmpDir)
 
 		if err == nil {
 			t.Error("Expected error, got nil")

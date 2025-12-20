@@ -589,7 +589,7 @@ func (a *ArtifactBuilder) ExtractModulePath(registry, repository, tag, modulePat
 	reader := a.shims.NewBytesReader(artifactData)
 	tarReader := a.shims.NewTarReader(reader)
 
-	if err := a.extractTarEntries(tarReader, cacheDir, modulePath); err != nil {
+	if err := a.extractTarEntries(tarReader, cacheDir); err != nil {
 		return "", fmt.Errorf("failed to extract module path from artifact: %w", err)
 	}
 
@@ -1259,16 +1259,12 @@ func (a *ArtifactBuilder) validateAndSanitizePath(path string) (string, error) {
 	return filepath.ToSlash(cleanPath), nil
 }
 
-// extractTarEntries extracts entries from a tar archive to the specified destination directory.
-// It handles directories, files, path validation, and permission setting.
-// The destination directory must already exist. It always skips kustomize/ directories since only terraform modules are needed from the cache.
-// Parameters:
-//   - tarReader: The tar reader to extract from
-//   - destDir: The destination directory for extracted files
-//   - targetPrefix: Optional prefix filter (empty string means no filter, extract all matching entries)
-//
-// Returns an error if any entry extraction fails.
-func (a *ArtifactBuilder) extractTarEntries(tarReader TarReader, destDir string, targetPrefix string) error {
+// extractTarEntries extracts specific entries from a tar archive into the given destination directory for caching and reuse.
+// Only entries within the "_template/" and "terraform/" directories, as well as the "blueprint.yaml" file, are extracted.
+// Directories and files are handled appropriately, and file permissions are set as specified in the tar headers.
+// The extraction process performs path validation to prevent directory traversal attacks, and the destination directory must preexist.
+// Returns an error if any part of the extraction or validation fails.
+func (a *ArtifactBuilder) extractTarEntries(tarReader TarReader, destDir string) error {
 	for {
 		header, err := tarReader.Next()
 		if err == io.EOF {
@@ -1278,16 +1274,19 @@ func (a *ArtifactBuilder) extractTarEntries(tarReader TarReader, destDir string,
 			return fmt.Errorf("failed to read tar header: %w", err)
 		}
 
-		if targetPrefix != "" && !strings.HasPrefix(header.Name, targetPrefix) {
-			continue
-		}
-
 		sanitizedPath, err := a.validateAndSanitizePath(header.Name)
 		if err != nil {
 			return fmt.Errorf("invalid path in tar archive: %w", err)
 		}
 
-		if strings.HasPrefix(sanitizedPath, "kustomize/") {
+		if !strings.HasPrefix(sanitizedPath, "_template/") &&
+			!strings.HasPrefix(sanitizedPath, "terraform/") &&
+			sanitizedPath != "blueprint.yaml" {
+			if header.Typeflag != tar.TypeDir {
+				if _, err := io.Copy(io.Discard, tarReader); err != nil {
+					return fmt.Errorf("failed to skip entry %s: %w", header.Name, err)
+				}
+			}
 			continue
 		}
 
@@ -1374,7 +1373,7 @@ func (a *ArtifactBuilder) extractArtifactToCache(artifactData []byte, extraction
 		return
 	}
 
-	if err = a.extractTarEntries(tarReader, tmpExtractionDir, ""); err != nil {
+	if err = a.extractTarEntries(tarReader, tmpExtractionDir); err != nil {
 		return
 	}
 
