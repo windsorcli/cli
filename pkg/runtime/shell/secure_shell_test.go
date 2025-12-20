@@ -468,4 +468,45 @@ func TestSecureShell_ExecSilentWithTimeout(t *testing.T) {
 			t.Errorf("Expected empty output, got %q", output)
 		}
 	})
+
+	t.Run("TimeoutNoDoubleClose", func(t *testing.T) {
+		command := "slow-command"
+		args := []string{"arg"}
+
+		// Given a SecureShell instance with a slow command
+		shell, mocks := setup(t)
+		closeCallCount := 0
+		mocks.Session.RunFunc = func(cmd string) error {
+			time.Sleep(200 * time.Millisecond)
+			return nil
+		}
+		mocks.Session.CloseFunc = func() error {
+			closeCallCount++
+			return nil
+		}
+		mocks.ClientConn.CloseFunc = func() error {
+			closeCallCount++
+			return nil
+		}
+
+		// When calling ExecSilentWithTimeout with a short timeout
+		output, err := shell.ExecSilentWithTimeout(command, args, 50*time.Millisecond)
+
+		// Then a timeout error should be returned
+		if err == nil {
+			t.Error("Expected timeout error, got nil")
+		}
+		if !strings.Contains(err.Error(), "timed out") {
+			t.Errorf("Expected timeout error, got: %v", err)
+		}
+		if output != "" {
+			t.Errorf("Expected empty output on timeout, got %q", output)
+		}
+		// Wait a bit for goroutine to finish
+		time.Sleep(100 * time.Millisecond)
+		// Both session and connection should be closed exactly once each (total 2)
+		if closeCallCount != 2 {
+			t.Errorf("Expected Close to be called exactly twice (once for session, once for connection), got %d calls", closeCallCount)
+		}
+	})
 }

@@ -104,36 +104,20 @@ func (s *SecureShell) ExecSilentWithTimeout(command string, args []string, timeo
 	session.SetStdout(&stdoutBuf)
 	session.SetStderr(&stderrBuf)
 
-	type result struct {
-		out string
-		err error
-	}
-	resultChan := make(chan result, 1)
-	go func() {
-		defer clientConn.Close()
-		defer session.Close()
+	execFn := func() (string, error) {
 		err := session.Run(fullCommand)
 		if err != nil {
-			resultChan <- result{
-				out: "",
-				err: fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String()),
-			}
-			return
+			return "", fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
 		}
-		resultChan <- result{
-			out: stdoutBuf.String(),
-			err: nil,
-		}
-	}()
+		return stdoutBuf.String(), nil
+	}
 
-	select {
-	case res := <-resultChan:
-		return res.out, res.err
-	case <-time.After(timeout):
+	cleanupFn := func() {
 		session.Close()
 		clientConn.Close()
-		return "", fmt.Errorf("command timed out after %v", timeout)
 	}
+
+	return executeWithTimeout(execFn, cleanupFn, timeout)
 }
 
 // Ensure SecureShell implements the Shell interface

@@ -2489,6 +2489,49 @@ func TestShell_ExecSilentWithTimeout(t *testing.T) {
 			t.Errorf("Expected empty output, got '%s'", out)
 		}
 	})
+
+	t.Run("TimeoutNoDoubleWait", func(t *testing.T) {
+		shell, mocks := setup(t)
+		var startedCmd *exec.Cmd
+		waitCallCount := 0
+		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error {
+			startedCmd = exec.Command("sleep", "0.2")
+			startedCmd.Stdout = cmd.Stdout
+			startedCmd.Stderr = cmd.Stderr
+			if err := startedCmd.Start(); err != nil {
+				return err
+			}
+			cmd.Process = startedCmd.Process
+			return nil
+		}
+		mocks.Shims.CmdWait = func(cmd *exec.Cmd) error {
+			waitCallCount++
+			if cmd.Process != nil {
+				_, err := cmd.Process.Wait()
+				return err
+			}
+			return nil
+		}
+
+		out, err := shell.ExecSilentWithTimeout("test", []string{"arg"}, 50*time.Millisecond)
+
+		if err == nil {
+			t.Error("Expected timeout error, got nil")
+		}
+		if !strings.Contains(err.Error(), "timed out") {
+			t.Errorf("Expected timeout error, got: %v", err)
+		}
+		if out != "" {
+			t.Errorf("Expected empty output on timeout, got '%s'", out)
+		}
+		if waitCallCount != 1 {
+			t.Errorf("Expected Wait to be called exactly once, got %d calls", waitCallCount)
+		}
+		if startedCmd != nil && startedCmd.Process != nil {
+			_ = startedCmd.Process.Kill()
+			_, _ = startedCmd.Process.Wait()
+		}
+	})
 }
 
 func TestShell_ExecProgress(t *testing.T) {

@@ -259,36 +259,28 @@ func (s *DefaultShell) ExecSilentWithTimeout(command string, args []string, time
 		return "", fmt.Errorf("command start failed: %w", err)
 	}
 
-	type result struct {
-		out string
-		err error
+	var waitOnce sync.Once
+	execFn := func() (string, error) {
+		var waitErr error
+		waitOnce.Do(func() {
+			waitErr = s.shims.CmdWait(cmd)
+		})
+		if waitErr != nil {
+			return s.scrubString(stdoutBuf.String()), fmt.Errorf("command execution failed: %w\n%s", waitErr, s.scrubString(stderrBuf.String()))
+		}
+		return s.scrubString(stdoutBuf.String()), nil
 	}
-	resultChan := make(chan result, 1)
-	go func() {
-		err := s.shims.CmdWait(cmd)
-		if err != nil {
-			resultChan <- result{
-				out: s.scrubString(stdoutBuf.String()),
-				err: fmt.Errorf("command execution failed: %w\n%s", err, s.scrubString(stderrBuf.String())),
-			}
-			return
-		}
-		resultChan <- result{
-			out: s.scrubString(stdoutBuf.String()),
-			err: nil,
-		}
-	}()
 
-	select {
-	case res := <-resultChan:
-		return res.out, res.err
-	case <-time.After(timeout):
+	cleanupFn := func() {
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
-			_ = s.shims.CmdWait(cmd)
+			waitOnce.Do(func() {
+				_ = s.shims.CmdWait(cmd)
+			})
 		}
-		return "", fmt.Errorf("command timed out after %v", timeout)
 	}
+
+	return executeWithTimeout(execFn, cleanupFn, timeout)
 }
 
 // ExecProgress is a method of the DefaultShell struct that executes a command with a progress indicator.
@@ -768,6 +760,31 @@ var _ Shell = (*DefaultShell)(nil)
 // =============================================================================
 // Helper Functions
 // =============================================================================
+
+// executeWithTimeout executes a function with a timeout and ensures cleanup happens exactly once.
+// It takes an execution function that returns output and error, a cleanup function to call on timeout,
+// and a timeout duration. Returns the output and error from execution, or a timeout error if the timeout is exceeded.
+func executeWithTimeout(execFn func() (string, error), cleanupFn func(), timeout time.Duration) (string, error) {
+	type result struct {
+		out string
+		err error
+	}
+	resultChan := make(chan result, 1)
+	var cleanupOnce sync.Once
+	go func() {
+		defer cleanupOnce.Do(cleanupFn)
+		out, err := execFn()
+		resultChan <- result{out: out, err: err}
+	}()
+
+	select {
+	case res := <-resultChan:
+		return res.out, res.err
+	case <-time.After(timeout):
+		cleanupOnce.Do(cleanupFn)
+		return "", fmt.Errorf("command timed out after %v", timeout)
+	}
+}
 
 // isClosedPipe returns true if the error is an io.ErrClosedPipe or equivalent
 func isClosedPipe(err error) bool {
