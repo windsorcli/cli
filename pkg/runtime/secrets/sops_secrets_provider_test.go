@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -97,7 +98,8 @@ func TestSopsSecretsProvider_LoadSecrets(t *testing.T) {
 		// Given a SopsSecretsProvider with multiple secrets files
 		provider, mocks := setup(t)
 
-		fileCallCount := 0
+		var fileCallCount int
+		var fileCallCountMu sync.Mutex
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
 			if name == filepath.Join("/valid/config/path", "secrets.yaml") ||
 				name == filepath.Join("/valid/config/path", "secrets.enc.yaml") {
@@ -107,7 +109,9 @@ func TestSopsSecretsProvider_LoadSecrets(t *testing.T) {
 		}
 
 		mocks.Shims.DecryptFile = func(filePath string, format string) ([]byte, error) {
+			fileCallCountMu.Lock()
 			fileCallCount++
+			fileCallCountMu.Unlock()
 			if filePath == filepath.Join("/valid/config/path", "secrets.yaml") {
 				return []byte(`
 key1: value1
@@ -132,8 +136,11 @@ key3: value3
 		}
 
 		// And both files should have been decrypted
-		if fileCallCount != 2 {
-			t.Fatalf("expected DecryptFile to be called 2 times, got %d", fileCallCount)
+		fileCallCountMu.Lock()
+		actualCount := fileCallCount
+		fileCallCountMu.Unlock()
+		if actualCount != 2 {
+			t.Fatalf("expected DecryptFile to be called 2 times, got %d", actualCount)
 		}
 
 		// And secrets from both files should be merged
