@@ -3393,6 +3393,56 @@ func TestArtifactBuilder_ExtractModulePath(t *testing.T) {
 			t.Errorf("Expected extract error, got %v", err)
 		}
 	})
+
+	t.Run("ErrorWhenModulePathDoesNotExistInArtifact", func(t *testing.T) {
+		builder, mocks := setup(t)
+		tmpDir := t.TempDir()
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		cacheDir, err := builder.GetCacheDir("registry", "repo", "tag")
+		if err != nil {
+			t.Fatalf("Failed to get cache dir: %v", err)
+		}
+
+		testTarData := createTestTarGz(t, map[string][]byte{
+			"terraform/other-module/main.tf": []byte("resource \"test\" {}"),
+			"_template/some-file.yaml":       []byte("content"),
+		})
+
+		artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache dir: %v", err)
+		}
+		if err := os.WriteFile(artifactTarPath, testTarData, 0644); err != nil {
+			t.Fatalf("Failed to write artifact.tar: %v", err)
+		}
+
+		mocks.Shims.Stat = os.Stat
+		mocks.Shims.ReadFile = os.ReadFile
+		mocks.Shims.NewBytesReader = bytes.NewReader
+		mocks.Shims.NewTarReader = func(r io.Reader) TarReader {
+			return tar.NewReader(r)
+		}
+		mocks.Shims.MkdirAll = os.MkdirAll
+		mocks.Shims.Create = func(name string) (io.WriteCloser, error) {
+			return os.Create(name)
+		}
+		mocks.Shims.Copy = io.Copy
+		mocks.Shims.Chmod = os.Chmod
+
+		requestedModulePath := "terraform/nonexistent-module"
+		_, err = builder.ExtractModulePath("registry", "repo", "tag", requestedModulePath)
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "does not exist in artifact") {
+			t.Errorf("Expected module path not found error, got %v", err)
+		}
+		if !strings.Contains(err.Error(), requestedModulePath) {
+			t.Errorf("Expected error to mention module path %s, got %v", requestedModulePath, err)
+		}
+	})
 }
 
 // createTestTarGz creates a test tar archive with the given files

@@ -593,6 +593,10 @@ func (a *ArtifactBuilder) ExtractModulePath(registry, repository, tag, modulePat
 		return "", fmt.Errorf("failed to extract module path from artifact: %w", err)
 	}
 
+	if _, err := a.shims.Stat(fullModulePath); err != nil {
+		return "", fmt.Errorf("module path %s does not exist in artifact", modulePath)
+	}
+
 	return fullModulePath, nil
 }
 
