@@ -86,7 +86,7 @@ func TestArchiveModuleResolver_ProcessModules(t *testing.T) {
 		resolver, mocks := setup(t)
 		tmpDir := t.TempDir()
 		archivePath := filepath.Join(tmpDir, "test-archive.tar.gz")
-		createTestArchive(t, archivePath, "terraform/test-module", map[string]string{
+		createTestArchive(t, archivePath, map[string]string{
 			"terraform/test-module/main.tf":      `resource "test" "example" {}`,
 			"terraform/test-module/variables.tf": `variable "test" {}`,
 			"terraform/test-module/outputs.tf":   `output "test" {}`,
@@ -261,7 +261,7 @@ func TestArchiveModuleResolver_extractArchiveModule(t *testing.T) {
 		// Given a resolver and a test archive
 		resolver, _, tmpDir := setup(t)
 		archivePath := filepath.Join(tmpDir, "test-archive.tar.gz")
-		createTestArchive(t, archivePath, "terraform/test-module", map[string]string{
+		createTestArchive(t, archivePath, map[string]string{
 			"terraform/test-module/main.tf": `resource "test" "example" {}`,
 		})
 
@@ -291,7 +291,7 @@ func TestArchiveModuleResolver_extractArchiveModule(t *testing.T) {
 		// Given a resolver and an already extracted module
 		resolver, _, tmpDir := setup(t)
 		archivePath := filepath.Join(tmpDir, "test-archive.tar.gz")
-		createTestArchive(t, archivePath, "terraform/test-module", map[string]string{
+		createTestArchive(t, archivePath, map[string]string{
 			"terraform/test-module/main.tf": `resource "test" "example" {}`,
 		})
 
@@ -420,7 +420,7 @@ func TestArchiveModuleResolver_extractArchiveModule(t *testing.T) {
 		}
 
 		archivePath := filepath.Join(tmpDir, "test-archive.tar.gz")
-		createTestArchive(t, archivePath, "terraform/test-module", map[string]string{
+		createTestArchive(t, archivePath, map[string]string{
 			"terraform/test-module/main.tf": `resource "test" "example" {}`,
 		})
 
@@ -496,7 +496,7 @@ func TestArchiveModuleResolver_extractArchiveModule(t *testing.T) {
 		}
 
 		archivePath := filepath.Join(tmpDir, "test-archive.tar")
-		createTestArchive(t, archivePath, "terraform/test-module", map[string]string{
+		createTestArchive(t, archivePath, map[string]string{
 			"terraform/test-module/main.tf": `resource "test" "example" {}`,
 		})
 
@@ -537,7 +537,7 @@ func TestArchiveModuleResolver_extractArchiveModule(t *testing.T) {
 		}
 
 		archivePath := filepath.Join(tmpDir, "test-archive.tar.gz")
-		createTestArchive(t, archivePath, "terraform/test-module", map[string]string{
+		createTestArchive(t, archivePath, map[string]string{
 			"terraform/test-module/main.tf": `resource "test" "example" {}`,
 		})
 
@@ -636,7 +636,7 @@ func TestArchiveModuleResolver_extractModuleFromArchive(t *testing.T) {
 		// Given a resolver and archive data
 		resolver, _, tmpDir := setup(t)
 		archivePath := filepath.Join(tmpDir, "test-archive.tar.gz")
-		createTestArchive(t, archivePath, "terraform/test-module", map[string]string{
+		createTestArchive(t, archivePath, map[string]string{
 			"terraform/test-module/main.tf":      `resource "test" "example" {}`,
 			"terraform/test-module/variables.tf": `variable "test" {}`,
 		})
@@ -711,7 +711,7 @@ func TestArchiveModuleResolver_extractModuleFromArchive(t *testing.T) {
 		// Given a resolver with tar header read error
 		resolver, _, tmpDir := setup(t)
 		archivePath := filepath.Join(tmpDir, "test-archive.tar.gz")
-		createTestArchive(t, archivePath, "terraform/test-module", map[string]string{
+		createTestArchive(t, archivePath, map[string]string{
 			"terraform/test-module/main.tf": `resource "test" "example" {}`,
 		})
 
@@ -842,7 +842,7 @@ func TestArchiveModuleResolver_extractModuleFromArchive(t *testing.T) {
 		// Given a resolver with directory creation error
 		resolver, _, tmpDir := setup(t)
 		archivePath := filepath.Join(tmpDir, "test-archive.tar.gz")
-		createTestArchive(t, archivePath, "terraform/test-module", map[string]string{
+		createTestArchive(t, archivePath, map[string]string{
 			"terraform/test-module/main.tf": `resource "test" "example" {}`,
 		})
 
@@ -872,7 +872,7 @@ func TestArchiveModuleResolver_extractModuleFromArchive(t *testing.T) {
 		// Given a resolver with file creation error
 		resolver, _, tmpDir := setup(t)
 		archivePath := filepath.Join(tmpDir, "test-archive.tar.gz")
-		createTestArchive(t, archivePath, "terraform/test-module", map[string]string{
+		createTestArchive(t, archivePath, map[string]string{
 			"terraform/test-module/main.tf": `resource "test" "example" {}`,
 		})
 
@@ -902,7 +902,7 @@ func TestArchiveModuleResolver_extractModuleFromArchive(t *testing.T) {
 		// Given a resolver with file copy error
 		resolver, _, tmpDir := setup(t)
 		archivePath := filepath.Join(tmpDir, "test-archive.tar.gz")
-		createTestArchive(t, archivePath, "terraform/test-module", map[string]string{
+		createTestArchive(t, archivePath, map[string]string{
 			"terraform/test-module/main.tf": `resource "test" "example" {}`,
 		})
 
@@ -932,7 +932,7 @@ func TestArchiveModuleResolver_extractModuleFromArchive(t *testing.T) {
 		// Given a resolver with file close error
 		resolver, _, tmpDir := setup(t)
 		archivePath := filepath.Join(tmpDir, "test-archive.tar.gz")
-		createTestArchive(t, archivePath, "terraform/test-module", map[string]string{
+		createTestArchive(t, archivePath, map[string]string{
 			"terraform/test-module/main.tf": `resource "test" "example" {}`,
 		})
 
@@ -983,7 +983,7 @@ func TestArchiveModuleResolver_extractModuleFromArchive(t *testing.T) {
 		// Given a resolver with chmod error
 		resolver, _, tmpDir := setup(t)
 		archivePath := filepath.Join(tmpDir, "test-archive.tar.gz")
-		createTestArchive(t, archivePath, "terraform/test-module", map[string]string{
+		createTestArchive(t, archivePath, map[string]string{
 			"terraform/test-module/main.tf": `resource "test" "example" {}`,
 		})
 
@@ -1152,7 +1152,7 @@ func TestArchiveModuleResolver_processComponent(t *testing.T) {
 		// Given a resolver with FilepathRel error
 		resolver, _, tmpDir := setup(t)
 		archivePath := filepath.Join(tmpDir, "test-archive.tar.gz")
-		createTestArchive(t, archivePath, "terraform/test-module", map[string]string{
+		createTestArchive(t, archivePath, map[string]string{
 			"terraform/test-module/main.tf": `resource "test" "example" {}`,
 		})
 
@@ -1193,7 +1193,7 @@ func TestArchiveModuleResolver_processComponent(t *testing.T) {
 		// Given a resolver with writeShimMainTf error
 		resolver, _, tmpDir := setup(t)
 		archivePath := filepath.Join(tmpDir, "test-archive.tar.gz")
-		createTestArchive(t, archivePath, "terraform/test-module", map[string]string{
+		createTestArchive(t, archivePath, map[string]string{
 			"terraform/test-module/main.tf": `resource "test" "example" {}`,
 		})
 
@@ -1238,7 +1238,7 @@ func TestArchiveModuleResolver_processComponent(t *testing.T) {
 		// Given a resolver with writeShimVariablesTf error
 		resolver, _, tmpDir := setup(t)
 		archivePath := filepath.Join(tmpDir, "test-archive.tar.gz")
-		createTestArchive(t, archivePath, "terraform/test-module", map[string]string{
+		createTestArchive(t, archivePath, map[string]string{
 			"terraform/test-module/main.tf":      `resource "test" "example" {}`,
 			"terraform/test-module/variables.tf": `variable "test" {}`,
 		})
@@ -1285,7 +1285,7 @@ func TestArchiveModuleResolver_processComponent(t *testing.T) {
 		// Given a resolver with writeShimOutputsTf error
 		resolver, _, tmpDir := setup(t)
 		archivePath := filepath.Join(tmpDir, "test-archive.tar.gz")
-		createTestArchive(t, archivePath, "terraform/test-module", map[string]string{
+		createTestArchive(t, archivePath, map[string]string{
 			"terraform/test-module/main.tf":    `resource "test" "example" {}`,
 			"terraform/test-module/outputs.tf": `output "test" {}`,
 		})
@@ -1413,7 +1413,7 @@ func TestArchiveModuleResolver_validateAndSanitizePath(t *testing.T) {
 // =============================================================================
 
 // createTestArchive creates a test tar.gz archive with the specified files
-func createTestArchive(t *testing.T, archivePath, modulePath string, files map[string]string) {
+func createTestArchive(t *testing.T, archivePath string, files map[string]string) {
 	t.Helper()
 
 	file, err := os.Create(archivePath)

@@ -3,7 +3,6 @@ package terraform
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -98,7 +97,7 @@ func (h *OCIModuleResolver) ProcessModules() error {
 // It creates the module directory, extracts the OCI module, computes the relative path,
 // and writes the required shim files (main.tf, variables.tf, outputs.tf) for the component.
 // Returns an error if any step fails.
-func (h *OCIModuleResolver) processComponent(component blueprintv1alpha1.TerraformComponent, ociArtifacts map[string][]byte) error {
+func (h *OCIModuleResolver) processComponent(component blueprintv1alpha1.TerraformComponent, ociArtifacts map[string]string) error {
 	moduleDir := component.FullPath
 	if err := h.shims.MkdirAll(moduleDir, 0755); err != nil {
 		return fmt.Errorf("failed to create module directory: %w", err)
@@ -130,10 +129,10 @@ func (h *OCIModuleResolver) processComponent(component blueprintv1alpha1.Terrafo
 }
 
 // extractOCIModule extracts a specific terraform module from an OCI artifact.
-// It parses the resolved OCI source, determines the cache key, checks for an existing extraction,
-// and if not present, extracts the module from the cached artifact data. Returns the full path
-// to the extracted module or an error if extraction fails.
-func (h *OCIModuleResolver) extractOCIModule(resolvedSource, componentPath string, ociArtifacts map[string][]byte) (string, error) {
+// It parses the resolved OCI source, determines the cache key, and uses the artifact package
+// to extract the module path from the cached artifact. Returns the full path to the extracted module
+// or an error if extraction fails.
+func (h *OCIModuleResolver) extractOCIModule(resolvedSource, componentPath string, ociArtifacts map[string]string) (string, error) {
 	message := fmt.Sprintf("📥 Loading component %s", componentPath)
 
 	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
@@ -163,44 +162,17 @@ func (h *OCIModuleResolver) extractOCIModule(resolvedSource, componentPath strin
 	}
 
 	cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
-
-	projectRoot := h.runtime.ProjectRoot
-	if projectRoot == "" {
-		return "", fmt.Errorf("failed to get project root: project root is empty")
-	}
-
-	cacheDir, err := h.artifactBuilder.GetCacheDir(registry, repository, tag)
-	if err != nil {
-		return "", fmt.Errorf("failed to get cache directory: %w", err)
-	}
-
-	fullModulePath := filepath.Join(cacheDir, modulePath)
-	if _, err := h.shims.Stat(fullModulePath); err == nil {
-		return fullModulePath, nil
-	}
-
-	artifactData, exists := ociArtifacts[cacheKey]
+	_, exists := ociArtifacts[cacheKey]
 	if !exists {
 		return "", fmt.Errorf("OCI artifact %s not found in cache", cacheKey)
 	}
 
-	if err := h.extractModuleFromArtifact(artifactData, modulePath, cacheDir); err != nil {
-		return "", fmt.Errorf("failed to extract module from artifact: %w", err)
+	extractedPath, err := h.artifactBuilder.ExtractModulePath(registry, repository, tag, modulePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to extract module path: %w", err)
 	}
 
-	return fullModulePath, nil
-}
-
-// extractModuleFromArtifact extracts the specified terraform module from the provided artifact data.
-// It unpacks files and directories matching the modulePath from the tar archive into the cache directory,
-// preserving file permissions and handling executable scripts. Returns an error if extraction fails at any step,
-// including directory creation, file writing, or permission setting.
-func (h *OCIModuleResolver) extractModuleFromArtifact(artifactData []byte, modulePath, cacheDir string) error {
-	reader := h.shims.NewBytesReader(artifactData)
-	tarReader := h.shims.NewTarReader(reader)
-	targetPrefix := modulePath
-
-	return h.extractTarEntriesWithFilter(tarReader, cacheDir, targetPrefix)
+	return extractedPath, nil
 }
 
 // =============================================================================
