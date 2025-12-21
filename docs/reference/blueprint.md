@@ -77,24 +77,18 @@ sources:
   - name: oci-source
     url: oci://ghcr.io/windsorcli/core:v0.3.0
     # No ref needed for OCI - version is in the URL
-  - name: archive-source
-    url: file://./archives/modules.tar.gz
-    # file:// URLs point to local tar.gz archives containing terraform modules
-    # The path within the archive (e.g., //terraform/modules) is automatically
-    # constructed from the source's pathPrefix and component path during resolution
 ```
 
 | Field        | Type       | Description                                      |
 |--------------|------------|--------------------------------------------------|
 | `name`       | `string`   | Identifies the source.                           |
-| `url`        | `string`   | The source location. Supports Git URLs, OCI URLs (oci://registry/repo:tag), and file:// URLs for local archives. |
+| `url`        | `string`   | The source location. Supports Git URLs and OCI URLs (oci://registry/repo:tag). |
 | `pathPrefix` | `string`   | Prefix to the source path. Defaults to `terraform` if not specified. |
-| `ref`        | `Reference`| Details the branch, tag, or commit to use. Not needed for OCI URLs with embedded tags or file:// URLs. |
+| `ref`        | `Reference`| Details the branch, tag, or commit to use. Not needed for OCI URLs with embedded tags. |
 | `secretName` | `string`   | The secret for source access.                    |
 
 **Note:** 
 - For OCI sources, the URL should include the tag/version directly (e.g., `oci://registry.example.com/repo:v1.0.0`). The `ref` field is optional for OCI sources when the tag is specified in the URL.
-- For file:// sources, the URL should be the path to a local `.tar.gz` archive file (relative to the blueprint.yaml directory or absolute), e.g., `file://./archives/modules.tar.gz`. The path within the archive (e.g., `terraform/cluster/talos`) is automatically constructed from the source's `pathPrefix` (defaults to `terraform`) and the component's `path` during resolution. The archive is automatically extracted and modules are made available for use in Terraform components.
 
 ### Reference
 A reference to a specific git state or version
