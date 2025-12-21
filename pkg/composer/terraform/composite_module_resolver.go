@@ -9,7 +9,7 @@ import (
 )
 
 // The CompositeModuleResolver is a terraform module resolver that delegates to multiple specialized resolvers.
-// It coordinates OCI, archive, and standard module resolvers, ensuring each component is processed by the appropriate resolver.
+// It coordinates OCI and standard module resolvers, ensuring each component is processed by the appropriate resolver.
 // The CompositeModuleResolver acts as the main orchestrator, routing components to the correct resolver based on source type.
 
 // =============================================================================
@@ -19,7 +19,6 @@ import (
 // CompositeModuleResolver handles terraform modules by delegating to specialized resolvers
 type CompositeModuleResolver struct {
 	ociResolver      *OCIModuleResolver
-	archiveResolver  *ArchiveModuleResolver
 	standardResolver *StandardModuleResolver
 }
 
@@ -31,7 +30,6 @@ type CompositeModuleResolver struct {
 func NewCompositeModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler, artifactBuilder artifact.Artifact) *CompositeModuleResolver {
 	return &CompositeModuleResolver{
 		ociResolver:      NewOCIModuleResolver(rt, blueprintHandler, artifactBuilder),
-		archiveResolver:  NewArchiveModuleResolver(rt, blueprintHandler),
 		standardResolver: NewStandardModuleResolver(rt, blueprintHandler),
 	}
 }
@@ -41,15 +39,11 @@ func NewCompositeModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.
 // =============================================================================
 
 // ProcessModules processes all terraform modules by delegating to the appropriate specialized resolvers.
-// It calls ProcessModules on each resolver in order: OCI, Archive, then Standard.
+// It calls ProcessModules on each resolver in order: OCI, then Standard.
 // Returns an error if any resolver fails.
 func (h *CompositeModuleResolver) ProcessModules() error {
 	if err := h.ociResolver.ProcessModules(); err != nil {
 		return fmt.Errorf("failed to process OCI modules: %w", err)
-	}
-
-	if err := h.archiveResolver.ProcessModules(); err != nil {
-		return fmt.Errorf("failed to process archive modules: %w", err)
 	}
 
 	if err := h.standardResolver.ProcessModules(); err != nil {

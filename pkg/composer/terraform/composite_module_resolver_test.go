@@ -15,7 +15,7 @@ import (
 
 // The CompositeModuleResolverTest is a test suite for the CompositeModuleResolver implementation
 // It provides comprehensive coverage for composite resolver orchestration and delegation
-// The CompositeModuleResolverTest ensures proper coordination between OCI, archive, and standard resolvers
+// The CompositeModuleResolverTest ensures proper coordination between OCI and standard resolvers
 // enabling reliable terraform module resolution across different source types
 
 // =============================================================================
@@ -37,9 +37,6 @@ func TestCompositeModuleResolver_NewCompositeModuleResolver(t *testing.T) {
 		}
 		if resolver.ociResolver == nil {
 			t.Error("Expected ociResolver to be set")
-		}
-		if resolver.archiveResolver == nil {
-			t.Error("Expected archiveResolver to be set")
 		}
 		if resolver.standardResolver == nil {
 			t.Error("Expected standardResolver to be set")
@@ -135,14 +132,6 @@ func TestCompositeModuleResolver_ProcessModules(t *testing.T) {
 		}
 	}
 
-	archiveComponent := func(projectRoot string) blueprintv1alpha1.TerraformComponent {
-		return blueprintv1alpha1.TerraformComponent{
-			Path:     "archive-module",
-			Source:   "file:///invalid/path.tar.gz//terraform/module",
-			FullPath: filepath.Join(projectRoot, "terraform", "archive-module"),
-		}
-	}
-
 	t.Run("Success", func(t *testing.T) {
 		// Given a resolver with components of different types
 		resolver, mocks := setup(t)
@@ -204,30 +193,6 @@ func TestCompositeModuleResolver_ProcessModules(t *testing.T) {
 		}
 	})
 
-	t.Run("HandlesArchiveResolverError", func(t *testing.T) {
-		// Given a resolver with archive components that fail
-		resolver, mocks := setup(t)
-		mocks.Runtime.ProjectRoot = "/mock/project"
-		mocks.Runtime.ConfigRoot = "/mock/config"
-
-		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{
-				archiveComponent("/mock/project"),
-			}
-		}
-
-		// When processing modules
-		err := resolver.ProcessModules()
-
-		// Then it should return an error
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to process archive modules") {
-			t.Errorf("Expected archive module processing error, got: %v", err)
-		}
-	})
-
 	t.Run("HandlesStandardResolverError", func(t *testing.T) {
 		// Given a resolver with standard components that fail
 		resolver, mocks := setup(t)
@@ -268,11 +233,6 @@ func TestCompositeModuleResolver_ProcessModules(t *testing.T) {
 					FullPath: "/mock/project/terraform/oci-module",
 				},
 				{
-					Path:     "archive-module",
-					Source:   "file:///test/archive.tar.gz//terraform/module",
-					FullPath: "/mock/project/terraform/archive-module",
-				},
-				{
 					Path:     "standard-module",
 					Source:   "git::https://github.com/test/module.git",
 					FullPath: "/mock/project/terraform/standard-module",
@@ -289,10 +249,10 @@ func TestCompositeModuleResolver_ProcessModules(t *testing.T) {
 		// When processing modules
 		err := resolver.ProcessModules()
 
-		// Then it should succeed (or fail on archive/standard, but OCI should be processed first)
+		// Then it should succeed (or fail on standard, but OCI should be processed first)
 		if err != nil && !strings.Contains(err.Error(), "failed to process OCI modules") {
-			if !strings.Contains(err.Error(), "failed to process archive modules") && !strings.Contains(err.Error(), "failed to process standard modules") {
-				t.Errorf("Expected OCI, archive, or standard module processing error, got: %v", err)
+			if !strings.Contains(err.Error(), "failed to process standard modules") {
+				t.Errorf("Expected OCI or standard module processing error, got: %v", err)
 			}
 		}
 	})
