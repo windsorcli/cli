@@ -1,6 +1,7 @@
 package config
 
 import (
+	"embed"
 	"fmt"
 	"maps"
 	"path/filepath"
@@ -9,8 +10,12 @@ import (
 	"strings"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
+	v1alpha2config "github.com/windsorcli/cli/api/v1alpha2/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
+
+//go:embed schemas/*.yaml
+var systemSchemasFS embed.FS
 
 // The ConfigHandler is a core component that manages configuration state and context across the application.
 // It provides a unified interface for loading, saving, and accessing configuration data, with support for
@@ -170,6 +175,18 @@ func (c *configHandler) LoadConfig() error {
 		fileData, err := c.shims.ReadFile(rootConfigPath)
 		if err != nil {
 			return fmt.Errorf("error reading root config file: %w", err)
+		}
+
+		var rootConfigMap map[string]any
+		if err := c.shims.YamlUnmarshal(fileData, &rootConfigMap); err != nil {
+			return fmt.Errorf("error unmarshalling root config: %w", err)
+		}
+
+		configVersion, _ := rootConfigMap["version"].(string)
+		if configVersion != "" && configVersion != "v1alpha1" {
+			if err := c.loadAPISchemas(); err != nil {
+				return fmt.Errorf("error loading API schemas: %w", err)
+			}
 		}
 
 		var rootConfig v1alpha1.Config
@@ -759,24 +776,34 @@ func (c *configHandler) IsLoaded() bool {
 	return c.loaded
 }
 
-// LoadSchema loads the schema.yaml file from the specified directory
-// Returns error if schema file doesn't exist or is invalid
+// LoadSchema loads the schema.yaml file from the specified directory.
+// System-level schema plugins (like substitutions) are applied after loading.
+// Returns error if schema file doesn't exist or is invalid.
 func (c *configHandler) LoadSchema(schemaPath string) error {
 	if c.schemaValidator == nil {
 		return fmt.Errorf("schema validator not initialized")
 	}
-	return c.schemaValidator.LoadSchema(schemaPath)
+	if err := c.schemaValidator.LoadSchema(schemaPath); err != nil {
+		return err
+	}
+	c.applySystemSchemaPlugins()
+	return nil
 }
 
 // LoadSchemaFromBytes loads schema directly from byte content.
 // If a schema already exists, the new schema is merged into it with the new schema's properties
 // overriding existing properties with the same name. If no schema exists, it loads the new schema.
+// System-level schema plugins (like substitutions) are applied after loading.
 // Returns error if schema content is invalid.
 func (c *configHandler) LoadSchemaFromBytes(schemaContent []byte) error {
 	if c.schemaValidator == nil {
 		return fmt.Errorf("schema validator not initialized")
 	}
-	return c.schemaValidator.LoadSchemaFromBytes(schemaContent)
+	if err := c.schemaValidator.LoadSchemaFromBytes(schemaContent); err != nil {
+		return err
+	}
+	c.applySystemSchemaPlugins()
+	return nil
 }
 
 // GetContextValues returns a merged configuration map composed of schema defaults and current config data.
@@ -1138,4 +1165,66 @@ func parsePath(path string) []string {
 	}
 
 	return keys
+}
+
+// applySystemSchemaPlugins applies system-level schema plugins to the loaded schema.
+// These plugins load schema definitions from embedded YAML files in schemas/ directory
+// and merge them into the loaded schema. System schemas define features like substitutions
+// that are always available regardless of the blueprint schema definition.
+// This method is extensible - add new schema.yaml files to schemas/ to include additional system schemas.
+func (c *configHandler) applySystemSchemaPlugins() {
+	if c.schemaValidator == nil || c.schemaValidator.Schema == nil {
+		return
+	}
+
+	entries, err := systemSchemasFS.ReadDir("schemas")
+	if err != nil {
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
+			continue
+		}
+
+		schemaPath := filepath.Join("schemas", entry.Name())
+		schemaContent, err := systemSchemasFS.ReadFile(schemaPath)
+		if err != nil {
+			continue
+		}
+
+		if err := c.schemaValidator.LoadSchemaFromBytes(schemaContent); err != nil {
+			continue
+		}
+	}
+}
+
+// loadAPISchemas loads all schema.yaml files from the embedded api/ directory.
+// This is called when the windsor.yaml version is higher than v1alpha1.
+func (c *configHandler) loadAPISchemas() error {
+	if c.schemaValidator == nil {
+		return nil
+	}
+
+	entries, err := v1alpha2config.SchemasFS.ReadDir(".")
+	if err != nil {
+		return nil
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "schema.yaml") {
+			continue
+		}
+
+		schemaContent, err := v1alpha2config.SchemasFS.ReadFile(entry.Name())
+		if err != nil {
+			continue
+		}
+
+		if err := c.LoadSchemaFromBytes(schemaContent); err != nil {
+			return fmt.Errorf("failed to load schema from %s: %w", entry.Name(), err)
+		}
+	}
+
+	return nil
 }

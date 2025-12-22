@@ -1,0 +1,277 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Workstation Configuration Schema
+description: Schema for local development workstation configuration
+type: object
+
+properties:
+  registries:
+    type: object
+    description: Container registry configuration
+    properties:
+      enabled:
+        type: boolean
+        description: Enable or disable registries
+      registries:
+        type: object
+        description: Map of registry names to registry configurations
+        additionalProperties:
+          type: object
+          properties:
+            remote:
+              type: string
+              description: Remote registry URL
+            local:
+              type: string
+              description: Local registry URL
+            hostname:
+              type: string
+              description: Registry hostname
+            hostport:
+              type: integer
+              description: Registry host port
+          additionalProperties: false
+    additionalProperties: false
+
+  git:
+    type: object
+    description: Git configuration
+    properties:
+      livereload:
+        type: object
+        description: Git livereload configuration
+        properties:
+          enabled:
+            type: boolean
+            description: Enable or disable livereload
+          include:
+            type: string
+            description: Include pattern
+          exclude:
+            type: string
+            description: Exclude pattern
+          protect:
+            type: string
+            description: Protect pattern
+          username:
+            type: string
+            description: Git username
+          password:
+            type: string
+            description: Git password
+          webhook_url:
+            type: string
+            description: Webhook URL
+          verify_ssl:
+            type: boolean
+            description: Verify SSL certificates
+          image:
+            type: string
+            description: Container image for livereload
+        additionalProperties: false
+    additionalProperties: false
+
+  vm:
+    type: object
+    description: Virtual machine configuration
+    properties:
+      address:
+        type: string
+        description: VM address
+      arch:
+        type: string
+        description: VM architecture
+      cpu:
+        type: integer
+        description: Number of CPUs
+      disk:
+        type: integer
+        description: Disk size
+      driver:
+        type: string
+        description: VM driver
+      memory:
+        type: integer
+        description: Memory size
+    additionalProperties: false
+
+  cluster:
+    type: object
+    description: Cluster configuration
+    properties:
+      enabled:
+        type: boolean
+        description: Enable or disable cluster
+      driver:
+        type: string
+        description: Cluster driver
+      endpoint:
+        type: string
+        description: Cluster endpoint
+      image:
+        type: string
+        description: Cluster image
+      controlplanes:
+        type: object
+        description: Control plane node group configuration
+        properties:
+          count:
+            type: integer
+            description: Number of control plane nodes
+          cpu:
+            type: integer
+            description: CPUs per control plane node
+          memory:
+            type: integer
+            description: Memory per control plane node
+          image:
+            type: string
+            description: Control plane node image
+          nodes:
+            type: object
+            description: Map of node names to node configurations
+            additionalProperties:
+              type: object
+              properties:
+                hostname:
+                  type: string
+                  description: Node hostname
+                node:
+                  type: string
+                  description: Node identifier
+                endpoint:
+                  type: string
+                  description: Node endpoint
+                image:
+                  type: string
+                  description: Node image
+                hostports:
+                  type: array
+                  items:
+                    type: string
+                  description: Host ports to expose
+              additionalProperties: false
+          hostports:
+            type: array
+            items:
+              type: string
+            description: Host ports to expose
+          volumes:
+            type: array
+            items:
+              type: string
+            description: Volume mounts
+        additionalProperties: false
+      workers:
+        type: object
+        description: Worker node group configuration
+        properties:
+          count:
+            type: integer
+            description: Number of worker nodes
+          cpu:
+            type: integer
+            description: CPUs per worker node
+          memory:
+            type: integer
+            description: Memory per worker node
+          image:
+            type: string
+            description: Worker node image
+          nodes:
+            type: object
+            description: Map of node names to node configurations
+            additionalProperties:
+              type: object
+              properties:
+                hostname:
+                  type: string
+                  description: Node hostname
+                node:
+                  type: string
+                  description: Node identifier
+                endpoint:
+                  type: string
+                  description: Node endpoint
+                image:
+                  type: string
+                  description: Node image
+                hostports:
+                  type: array
+                  items:
+                    type: string
+                  description: Host ports to expose
+              additionalProperties: false
+          hostports:
+            type: array
+            items:
+              type: string
+            description: Host ports to expose
+          volumes:
+            type: array
+            items:
+              type: string
+            description: Volume mounts
+        additionalProperties: false
+    additionalProperties: false
+
+  network:
+    type: object
+    description: Network configuration
+    properties:
+      cidr_block:
+        type: string
+        description: Network CIDR block
+      loadbalancer_ips:
+        type: object
+        description: Load balancer IP range
+        properties:
+          start:
+            type: string
+            description: Start IP address
+          end:
+            type: string
+            description: End IP address
+        additionalProperties: false
+    additionalProperties: false
+
+  dns:
+    type: object
+    description: DNS configuration
+    properties:
+      enabled:
+        type: boolean
+        description: Enable or disable DNS
+      domain:
+        type: string
+        description: DNS domain
+      address:
+        type: string
+        description: DNS server address
+      forward:
+        type: array
+        items:
+          type: string
+        description: Forward DNS servers
+      records:
+        type: array
+        items:
+          type: string
+        description: DNS records
+    additionalProperties: false
+
+  localstack:
+    type: object
+    description: LocalStack configuration
+    properties:
+      enabled:
+        type: boolean
+        description: Enable or disable LocalStack
+      services:
+        type: array
+        items:
+          type: string
+        description: List of AWS services to emulate
+    additionalProperties: false
+
+additionalProperties: false
+
