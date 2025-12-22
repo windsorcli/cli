@@ -1433,13 +1433,21 @@ func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *blue
 
 // collectTemplateDataFromDirectory walks a template directory and collects all files.
 // Returns a map with file paths as keys (prefixed with "_template/") and file contents as values.
+// If the directory does not exist (os.IsNotExist), returns an empty map with no error.
+// If Stat fails for any other reason (e.g., permission denied), returns the error.
 func (b *BaseBlueprintHandler) collectTemplateDataFromDirectory(templateDir string) (map[string][]byte, error) {
 	templateData := make(map[string][]byte)
 
-	if _, err := b.shims.Stat(templateDir); err == nil {
-		if err := b.walkAndCollectTemplates(templateDir, templateDir, templateData); err != nil {
-			return nil, fmt.Errorf("failed to collect templates: %w", err)
+	_, err := b.shims.Stat(templateDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return templateData, nil
 		}
+		return nil, fmt.Errorf("failed to stat template directory: %w", err)
+	}
+
+	if err := b.walkAndCollectTemplates(templateDir, templateDir, templateData); err != nil {
+		return nil, fmt.Errorf("failed to collect templates: %w", err)
 	}
 
 	return templateData, nil

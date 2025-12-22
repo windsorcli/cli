@@ -844,6 +844,43 @@ func TestBlueprintHandler_GetLocalTemplateData(t *testing.T) {
 		}
 	})
 
+	t.Run("ReturnsErrorWhenTemplateDirectoryStatFailsWithPermissionError", func(t *testing.T) {
+		// Given a blueprint handler with template directory that has permission issues
+		handler, _ := setup(t)
+
+		// Mock shims to return permission error when statting template directory
+		if baseHandler, ok := handler.(*BaseBlueprintHandler); ok {
+			permissionError := &os.PathError{
+				Op:   "stat",
+				Path: baseHandler.runtime.TemplateRoot,
+				Err:  fmt.Errorf("permission denied"),
+			}
+			baseHandler.shims.Stat = func(path string) (os.FileInfo, error) {
+				if path == baseHandler.runtime.TemplateRoot {
+					return nil, permissionError
+				}
+				return nil, os.ErrNotExist
+			}
+		}
+
+		// When getting local template data
+		result, err := handler.GetLocalTemplateData()
+
+		// Then error should occur
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "failed to stat template directory") {
+			t.Errorf("Expected error to contain 'failed to stat template directory', got: %v", err)
+		}
+
+		// And result should be nil
+		if result != nil {
+			t.Error("Expected result to be nil on error")
+		}
+	})
+
 	t.Run("ReturnsErrorWhenWalkAndCollectTemplatesFails", func(t *testing.T) {
 		// Given a blueprint handler with template directory that fails to read
 		projectRoot := filepath.Join("mock", "project")
