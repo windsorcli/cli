@@ -768,8 +768,10 @@ func (c *configHandler) LoadSchema(schemaPath string) error {
 	return c.schemaValidator.LoadSchema(schemaPath)
 }
 
-// LoadSchemaFromBytes loads schema directly from byte content
-// Returns error if schema content is invalid
+// LoadSchemaFromBytes loads schema directly from byte content.
+// If a schema already exists, the new schema is merged into it with the new schema's properties
+// overriding existing properties with the same name. If no schema exists, it loads the new schema.
+// Returns error if schema content is invalid.
 func (c *configHandler) LoadSchemaFromBytes(schemaContent []byte) error {
 	if c.schemaValidator == nil {
 		return fmt.Errorf("schema validator not initialized")
