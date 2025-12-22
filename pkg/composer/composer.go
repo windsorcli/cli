@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/composer/terraform"
@@ -152,16 +151,6 @@ func (r *Composer) Generate(overwrite ...bool) error {
 	}
 
 	return nil
-}
-
-// GenerateBlueprint generates and returns the blueprint from the blueprint handler.
-// It initializes the blueprint handler if needed and loads the blueprint data before generating.
-// Returns the generated blueprint or an error if initialization or loading fails.
-func (r *Composer) GenerateBlueprint() (*blueprintv1alpha1.Blueprint, error) {
-	if err := r.BlueprintHandler.LoadBlueprint(); err != nil {
-		return nil, fmt.Errorf("failed to load blueprint data: %w", err)
-	}
-	return r.BlueprintHandler.Generate(), nil
 }
 
 // =============================================================================

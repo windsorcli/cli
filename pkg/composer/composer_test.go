@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/composer/terraform"
@@ -875,72 +874,6 @@ func TestComposer_Generate(t *testing.T) {
 
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Errorf("Expected error to contain %q, got: %v", expectedError, err)
-		}
-	})
-}
-
-func TestComposer_GenerateBlueprint(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given mocks with blueprint handler
-		mocks := setupComposerMocks(t)
-		expectedBlueprint := &blueprintv1alpha1.Blueprint{
-			Kind:       "Blueprint",
-			ApiVersion: "v1alpha1",
-			Metadata: blueprintv1alpha1.Metadata{
-				Name:        "test-blueprint",
-				Description: "Test blueprint",
-			},
-		}
-		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
-			return nil
-		}
-		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
-			return expectedBlueprint
-		}
-		composer := createComposerWithMocks(mocks)
-
-		// When generating blueprint
-		result, err := composer.GenerateBlueprint()
-
-		// Then no error should occur
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		// And result should match expected blueprint
-		if result == nil {
-			t.Fatal("Expected non-nil blueprint")
-		}
-
-		if result.Metadata.Name != expectedBlueprint.Metadata.Name {
-			t.Errorf("Expected blueprint name %s, got %s", expectedBlueprint.Metadata.Name, result.Metadata.Name)
-		}
-	})
-
-	t.Run("ErrorFromLoadBlueprint", func(t *testing.T) {
-		// Given mocks with LoadBlueprint failing
-		mocks := setupComposerMocks(t)
-		expectedError := "load blueprint failed"
-		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
-			return fmt.Errorf("%s", expectedError)
-		}
-		composer := createComposerWithMocks(mocks)
-
-		// When generating blueprint
-		result, err := composer.GenerateBlueprint()
-
-		// Then error should be returned
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Errorf("Expected error to contain %q, got: %v", expectedError, err)
-		}
-
-		// And result should be nil
-		if result != nil {
-			t.Error("Expected nil result on error")
 		}
 	})
 }

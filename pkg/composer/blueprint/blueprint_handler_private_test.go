@@ -237,7 +237,7 @@ func TestBaseBlueprintHandler_walkAndCollectTemplates(t *testing.T) {
 		}
 
 		// When walking and collecting templates
-		err := handler.walkAndCollectTemplates(templateDir, templateData)
+		err := handler.walkAndCollectTemplates(templateDir, templateDir, templateData)
 
 		// Then it should return an error
 		if err == nil {
@@ -271,7 +271,7 @@ func TestBaseBlueprintHandler_walkAndCollectTemplates(t *testing.T) {
 		handler.shims.ReadFile = os.ReadFile
 
 		// When walking and collecting templates
-		err := handler.walkAndCollectTemplates(templateDir, templateData)
+		err := handler.walkAndCollectTemplates(templateDir, templateDir, templateData)
 
 		// Then it should succeed
 		if err != nil {
@@ -322,7 +322,7 @@ func TestBaseBlueprintHandler_walkAndCollectTemplates(t *testing.T) {
 		handler.shims.ReadDir = os.ReadDir
 		handler.shims.ReadFile = os.ReadFile
 
-		err := handler.walkAndCollectTemplates(templateDir, templateData)
+		err := handler.walkAndCollectTemplates(templateDir, templateDir, templateData)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -360,7 +360,7 @@ func TestBaseBlueprintHandler_walkAndCollectTemplates(t *testing.T) {
 			return nil, fmt.Errorf("read file error")
 		}
 
-		err := handler.walkAndCollectTemplates(templateDir, templateData)
+		err := handler.walkAndCollectTemplates(templateDir, templateDir, templateData)
 
 		if err == nil {
 			t.Error("Expected error when ReadFile fails")
@@ -6112,61 +6112,26 @@ func TestBaseBlueprintHandler_resolveBlueprintReference(t *testing.T) {
 		return handler
 	}
 
-	t.Run("HandlesLocalTarGzFile", func(t *testing.T) {
-		handler := setup(t)
-		tmpDir := t.TempDir()
-		handler.runtime.ConfigRoot = tmpDir
-
-		artifactPath := filepath.Join(tmpDir, "test.tar.gz")
-		if err := os.WriteFile(artifactPath, []byte("test"), 0644); err != nil {
-			t.Fatalf("Failed to create test artifact: %v", err)
-		}
-
-		blueprintRef, relPath, isLocal, err := handler.resolveBlueprintReference(artifactPath)
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-		if !isLocal {
-			t.Error("Expected isLocal to be true")
-		}
-		if blueprintRef != artifactPath {
-			t.Errorf("Expected blueprintRef to be '%s', got '%s'", artifactPath, blueprintRef)
-		}
-		if relPath == "" {
-			t.Error("Expected relative path to be set")
-		}
-	})
-
 	t.Run("HandlesOCIReference", func(t *testing.T) {
 		handler := setup(t)
 
-		blueprintRef, relPath, isLocal, err := handler.resolveBlueprintReference("oci://ghcr.io/test/repo:latest")
+		blueprintRef, err := handler.resolveBlueprintReference("oci://ghcr.io/test/repo:latest")
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
-		if isLocal {
-			t.Error("Expected isLocal to be false")
-		}
 		if !strings.HasPrefix(blueprintRef, "oci://") {
 			t.Errorf("Expected blueprintRef to start with 'oci://', got '%s'", blueprintRef)
-		}
-		if relPath != "" {
-			t.Errorf("Expected relative path to be empty, got '%s'", relPath)
 		}
 	})
 
 	t.Run("HandlesDefaultBlueprintURL", func(t *testing.T) {
 		handler := setup(t)
 
-		blueprintRef, _, isLocal, err := handler.resolveBlueprintReference()
+		blueprintRef, err := handler.resolveBlueprintReference()
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
-		}
-		if isLocal {
-			t.Error("Expected isLocal to be false for default URL")
 		}
 		if blueprintRef == "" {
 			t.Error("Expected blueprintRef to be set")
@@ -6176,7 +6141,7 @@ func TestBaseBlueprintHandler_resolveBlueprintReference(t *testing.T) {
 	t.Run("HandlesInvalidOCIReference", func(t *testing.T) {
 		handler := setup(t)
 
-		_, _, _, err := handler.resolveBlueprintReference("invalid://reference")
+		_, err := handler.resolveBlueprintReference("invalid://reference")
 
 		if err == nil {
 			t.Fatal("Expected error for invalid OCI reference")
@@ -6189,7 +6154,7 @@ func TestBaseBlueprintHandler_resolveBlueprintReference(t *testing.T) {
 	t.Run("HandlesParseOCIReferenceError", func(t *testing.T) {
 		handler := setup(t)
 
-		_, _, _, err := handler.resolveBlueprintReference("invalid-oci-reference")
+		_, err := handler.resolveBlueprintReference("invalid-oci-reference")
 
 		if err == nil {
 			t.Fatal("Expected error when ParseOCIReference fails")
@@ -6199,32 +6164,6 @@ func TestBaseBlueprintHandler_resolveBlueprintReference(t *testing.T) {
 		}
 	})
 
-	t.Run("HandlesFilepathAbsError", func(t *testing.T) {
-		handler := setup(t)
-		tmpDir := t.TempDir()
-		handler.runtime.ConfigRoot = tmpDir
-
-		artifactPath := filepath.Join(tmpDir, "test.tar.gz")
-		if err := os.WriteFile(artifactPath, []byte("test"), 0644); err != nil {
-			t.Fatalf("Failed to create test artifact: %v", err)
-		}
-
-		handler.shims.FilepathAbs = func(path string) (string, error) {
-			if strings.Contains(path, "blueprint.yaml") {
-				return "", fmt.Errorf("filepath.Abs error")
-			}
-			return filepath.Abs(path)
-		}
-
-		_, _, _, err := handler.resolveBlueprintReference(artifactPath)
-
-		if err == nil {
-			t.Fatal("Expected error when filepath.Abs fails")
-		}
-		if !strings.Contains(err.Error(), "failed to get absolute path") {
-			t.Errorf("Expected error about getting absolute path, got: %v", err)
-		}
-	})
 }
 
 func TestBaseBlueprintHandler_processOCIArtifact(t *testing.T) {
@@ -6503,271 +6442,6 @@ func TestBaseBlueprintHandler_pullOCISources(t *testing.T) {
 	})
 }
 
-func TestBaseBlueprintHandler_processLocalArtifact(t *testing.T) {
-	setup := func(t *testing.T) (*BaseBlueprintHandler, *BlueprintTestMocks) {
-		t.Helper()
-		mocks := setupBlueprintMocks(t)
-		mockArtifactBuilder := artifact.NewMockArtifact()
-		handler, err := NewBlueprintHandler(mocks.Runtime, mockArtifactBuilder)
-		if err != nil {
-			t.Fatalf("NewBlueprintHandler() failed: %v", err)
-		}
-		handler.shims = mocks.Shims
-		return handler, mocks
-	}
-
-	t.Run("ProcessesLocalArtifactSuccessfully", func(t *testing.T) {
-		handler, mocks := setup(t)
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"test": "value"}, nil
-		}
-		mocks.ConfigHandler.(*config.MockConfigHandler).LoadSchemaFromBytesFunc = func(data []byte) error {
-			return nil
-		}
-
-		templateData := map[string][]byte{
-			"_template/schema.yaml": []byte("schema: test"),
-			"_template/blueprint.yaml": []byte(`kind: Blueprint
-apiVersion: blueprints.windsorcli.dev/v1alpha1
-metadata:
-  name: test`),
-		}
-
-		err := handler.processLocalArtifact(templateData, "../test.tar.gz")
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-		if len(handler.blueprint.Sources) == 0 {
-			t.Error("Expected source to be added")
-		}
-	})
-
-	t.Run("HandlesMissingBlueprintYaml", func(t *testing.T) {
-		handler, _ := setup(t)
-
-		templateData := map[string][]byte{}
-
-		err := handler.processLocalArtifact(templateData, "../test.tar.gz")
-
-		if err == nil {
-			t.Fatal("Expected error when blueprint.yaml is missing")
-		}
-		if !strings.Contains(err.Error(), "blueprint not found") {
-			t.Errorf("Expected error about missing blueprint, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesLoadSchemaError", func(t *testing.T) {
-		handler, mocks := setup(t)
-		expectedError := fmt.Errorf("schema load error")
-		mocks.ConfigHandler.(*config.MockConfigHandler).LoadSchemaFromBytesFunc = func(data []byte) error {
-			return expectedError
-		}
-
-		templateData := map[string][]byte{
-			"_template/schema.yaml": []byte("schema: test"),
-			"_template/blueprint.yaml": []byte(`kind: Blueprint
-apiVersion: blueprints.windsorcli.dev/v1alpha1
-metadata:
-  name: test`),
-		}
-
-		err := handler.processLocalArtifact(templateData, "../test.tar.gz")
-
-		if err == nil {
-			t.Fatal("Expected error when schema load fails")
-		}
-		if !strings.Contains(err.Error(), "failed to load schema") {
-			t.Errorf("Expected error about loading schema, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesGetContextValuesError", func(t *testing.T) {
-		handler, mocks := setup(t)
-		expectedError := fmt.Errorf("context values error")
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
-			return nil, expectedError
-		}
-
-		templateData := map[string][]byte{
-			"_template/blueprint.yaml": []byte(`kind: Blueprint
-apiVersion: blueprints.windsorcli.dev/v1alpha1
-metadata:
-  name: test`),
-		}
-
-		err := handler.processLocalArtifact(templateData, "../test.tar.gz")
-
-		if err == nil {
-			t.Fatal("Expected error when GetContextValues fails")
-		}
-		if !strings.Contains(err.Error(), "failed to load context values") {
-			t.Errorf("Expected error about loading context values, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesMetadataNameFromTemplateData", func(t *testing.T) {
-		handler, mocks := setup(t)
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"test": "value"}, nil
-		}
-		mocks.ConfigHandler.(*config.MockConfigHandler).LoadSchemaFromBytesFunc = func(data []byte) error {
-			return nil
-		}
-
-		templateData := map[string][]byte{
-			"_metadata_name": []byte("custom-artifact"),
-			"_template/blueprint.yaml": []byte(`kind: Blueprint
-apiVersion: blueprints.windsorcli.dev/v1alpha1
-metadata:
-  name: test`),
-		}
-
-		err := handler.processLocalArtifact(templateData, "../test.tar.gz")
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-		if len(handler.blueprint.Sources) == 0 {
-			t.Error("Expected source to be added")
-		}
-		if handler.blueprint.Sources[0].Name != "custom-artifact" {
-			t.Errorf("Expected source name to be 'custom-artifact', got: %s", handler.blueprint.Sources[0].Name)
-		}
-	})
-
-	t.Run("HandlesExistingSourceUpdate", func(t *testing.T) {
-		handler, mocks := setup(t)
-		handler.blueprint.Sources = []blueprintv1alpha1.Source{
-			{Name: "local-artifact", Url: "file://old/path"},
-		}
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"test": "value"}, nil
-		}
-		mocks.ConfigHandler.(*config.MockConfigHandler).LoadSchemaFromBytesFunc = func(data []byte) error {
-			return nil
-		}
-
-		templateData := map[string][]byte{
-			"_template/blueprint.yaml": []byte(`kind: Blueprint
-apiVersion: blueprints.windsorcli.dev/v1alpha1
-metadata:
-  name: test`),
-		}
-
-		err := handler.processLocalArtifact(templateData, "../test.tar.gz")
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-		if len(handler.blueprint.Sources) != 1 {
-			t.Errorf("Expected 1 source, got: %d", len(handler.blueprint.Sources))
-		}
-		if handler.blueprint.Sources[0].Url != "file://../test.tar.gz" {
-			t.Errorf("Expected source URL to be updated, got: %s", handler.blueprint.Sources[0].Url)
-		}
-	})
-
-	t.Run("HandlesComponentsWithExistingSources", func(t *testing.T) {
-		handler, mocks := setup(t)
-		handler.blueprint.TerraformComponents = []blueprintv1alpha1.TerraformComponent{
-			{Path: "test", Source: "existing-source"},
-		}
-		handler.blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
-			{Name: "test", Source: "existing-source"},
-		}
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"test": "value"}, nil
-		}
-		mocks.ConfigHandler.(*config.MockConfigHandler).LoadSchemaFromBytesFunc = func(data []byte) error {
-			return nil
-		}
-
-		templateData := map[string][]byte{
-			"_template/blueprint.yaml": []byte(`kind: Blueprint
-apiVersion: blueprints.windsorcli.dev/v1alpha1
-metadata:
-  name: test`),
-		}
-
-		err := handler.processLocalArtifact(templateData, "../test.tar.gz")
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-		if handler.blueprint.TerraformComponents[0].Source != "existing-source" {
-			t.Errorf("Expected terraform component source to remain 'existing-source', got: %s", handler.blueprint.TerraformComponents[0].Source)
-		}
-		if handler.blueprint.Kustomizations[0].Source != "existing-source" {
-			t.Errorf("Expected kustomization source to remain 'existing-source', got: %s", handler.blueprint.Kustomizations[0].Source)
-		}
-	})
-
-	t.Run("SetsMetadataNameAndDescriptionFromContextName", func(t *testing.T) {
-		handler, mocks := setup(t)
-		handler.runtime.ContextName = "staging"
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"test": "value"}, nil
-		}
-		mocks.ConfigHandler.(*config.MockConfigHandler).LoadSchemaFromBytesFunc = func(data []byte) error {
-			return nil
-		}
-
-		templateData := map[string][]byte{
-			"_template/blueprint.yaml": []byte(`kind: Blueprint
-apiVersion: blueprints.windsorcli.dev/v1alpha1
-metadata:
-  name: template
-  description: Base blueprint template for core services`),
-		}
-
-		err := handler.processLocalArtifact(templateData, "../test.tar.gz")
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-		if handler.blueprint.Metadata.Name != "staging" {
-			t.Errorf("Expected metadata name to be 'staging', got: %s", handler.blueprint.Metadata.Name)
-		}
-		expectedDescription := "Blueprint for staging context"
-		if handler.blueprint.Metadata.Description != expectedDescription {
-			t.Errorf("Expected metadata description to be '%s', got: %s", expectedDescription, handler.blueprint.Metadata.Description)
-		}
-	})
-
-	t.Run("DoesNotSetMetadataWhenContextNameIsEmpty", func(t *testing.T) {
-		handler, mocks := setup(t)
-		handler.runtime.ContextName = ""
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"test": "value"}, nil
-		}
-		mocks.ConfigHandler.(*config.MockConfigHandler).LoadSchemaFromBytesFunc = func(data []byte) error {
-			return nil
-		}
-
-		templateData := map[string][]byte{
-			"_template/blueprint.yaml": []byte(`kind: Blueprint
-apiVersion: blueprints.windsorcli.dev/v1alpha1
-metadata:
-  name: template
-  description: Base blueprint template for core services`),
-		}
-
-		err := handler.processLocalArtifact(templateData, "../test.tar.gz")
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-		if handler.blueprint.Metadata.Name != "template" {
-			t.Errorf("Expected metadata name to remain 'template', got: %s", handler.blueprint.Metadata.Name)
-		}
-		if handler.blueprint.Metadata.Description != "Base blueprint template for core services" {
-			t.Errorf("Expected metadata description to remain unchanged, got: %s", handler.blueprint.Metadata.Description)
-		}
-	})
-}
-
 func TestBaseBlueprintHandler_getSourceRef(t *testing.T) {
 	setup := func(t *testing.T) *BaseBlueprintHandler {
 		t.Helper()
@@ -6996,11 +6670,39 @@ kustomize:
 		}
 
 		mockArtifactBuilder := handler.artifactBuilder.(*artifact.MockArtifact)
-		mockArtifactBuilder.GetTemplateDataFunc = func(url string) (map[string][]byte, error) {
-			if url == "oci://ghcr.io/test/repo:latest" {
-				return templateData, nil
+		cacheDir := t.TempDir()
+		templateDir := filepath.Join(cacheDir, "_template")
+		if err := os.MkdirAll(templateDir, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+		featuresDir := filepath.Join(templateDir, "features")
+		if err := os.MkdirAll(featuresDir, 0755); err != nil {
+			t.Fatalf("Failed to create features directory: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(templateDir, "schema.yaml"), templateData["_template/schema.yaml"], 0644); err != nil {
+			t.Fatalf("Failed to write schema.yaml: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(featuresDir, "base.yaml"), templateData["_template/features/base.yaml"], 0644); err != nil {
+			t.Fatalf("Failed to write base.yaml: %v", err)
+		}
+		metadataYAML := `cliVersion: "1.0.0"
+name: test
+version: "1.0.0"`
+		if err := os.WriteFile(filepath.Join(cacheDir, "metadata.yaml"), []byte(metadataYAML), 0644); err != nil {
+			t.Fatalf("Failed to write metadata.yaml: %v", err)
+		}
+
+		mockArtifactBuilder.PullFunc = func(ociRefs []string) (map[string]string, error) {
+			if len(ociRefs) > 0 && ociRefs[0] == "oci://ghcr.io/test/repo:latest" {
+				return map[string]string{"ghcr.io/test/repo:latest": cacheDir}, nil
 			}
-			return nil, fmt.Errorf("unexpected URL: %s", url)
+			return nil, fmt.Errorf("unexpected URL: %v", ociRefs)
+		}
+		mockArtifactBuilder.ParseOCIRefFunc = func(ociRef string) (string, string, string, error) {
+			if ociRef == "oci://ghcr.io/test/repo:latest" {
+				return "ghcr.io", "test/repo", "latest", nil
+			}
+			return "", "", "", fmt.Errorf("unexpected URL: %s", ociRef)
 		}
 
 		err := handler.processOCISources()
@@ -7089,8 +6791,8 @@ kustomize:
 		}
 
 		mockArtifactBuilder := handler.artifactBuilder.(*artifact.MockArtifact)
-		mockArtifactBuilder.GetTemplateDataFunc = func(url string) (map[string][]byte, error) {
-			t.Error("GetTemplateData should not be called for non-OCI sources")
+		mockArtifactBuilder.PullFunc = func(ociRefs []string) (map[string]string, error) {
+			t.Error("Pull should not be called for non-OCI sources")
 			return nil, nil
 		}
 
@@ -7133,7 +6835,7 @@ kustomize:
 		}
 	})
 
-	t.Run("HandlesGetTemplateDataError", func(t *testing.T) {
+	t.Run("HandlesPullError", func(t *testing.T) {
 		handler, mocks := setup(t)
 		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{}, nil
@@ -7148,19 +6850,19 @@ kustomize:
 			},
 		}
 
-		expectedError := fmt.Errorf("template data error")
+		expectedError := fmt.Errorf("pull error")
 		mockArtifactBuilder := handler.artifactBuilder.(*artifact.MockArtifact)
-		mockArtifactBuilder.GetTemplateDataFunc = func(url string) (map[string][]byte, error) {
+		mockArtifactBuilder.PullFunc = func(ociRefs []string) (map[string]string, error) {
 			return nil, expectedError
 		}
 
 		err := handler.processOCISources()
 
 		if err == nil {
-			t.Fatal("Expected error when GetTemplateData fails")
+			t.Fatal("Expected error when Pull fails")
 		}
-		if !strings.Contains(err.Error(), "failed to get template data from OCI source") {
-			t.Errorf("Expected error about getting template data, got: %v", err)
+		if !strings.Contains(err.Error(), "failed to pull OCI sources") {
+			t.Errorf("Expected error about pulling OCI sources, got: %v", err)
 		}
 	})
 
@@ -7181,8 +6883,25 @@ kustomize:
 		}
 
 		mockArtifactBuilder := handler.artifactBuilder.(*artifact.MockArtifact)
-		mockArtifactBuilder.GetTemplateDataFunc = func(url string) (map[string][]byte, error) {
-			return map[string][]byte{}, nil
+		cacheDir := t.TempDir()
+		templateDir := filepath.Join(cacheDir, "_template")
+		if err := os.MkdirAll(templateDir, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+		metadataYAML := `cliVersion: "1.0.0"
+name: test
+version: "1.0.0"`
+		if err := os.WriteFile(filepath.Join(cacheDir, "metadata.yaml"), []byte(metadataYAML), 0644); err != nil {
+			t.Fatalf("Failed to write metadata.yaml: %v", err)
+		}
+		mockArtifactBuilder.PullFunc = func(ociRefs []string) (map[string]string, error) {
+			return map[string]string{"ghcr.io/test/repo:latest": cacheDir}, nil
+		}
+		mockArtifactBuilder.ParseOCIRefFunc = func(ociRef string) (string, string, string, error) {
+			if ociRef == "oci://ghcr.io/test/repo:latest" {
+				return "ghcr.io", "test/repo", "latest", nil
+			}
+			return "", "", "", fmt.Errorf("unexpected URL: %s", ociRef)
 		}
 
 		err := handler.processOCISources()
@@ -7219,9 +6938,44 @@ kustomize:
 
 		callCount := 0
 		mockArtifactBuilder := handler.artifactBuilder.(*artifact.MockArtifact)
-		mockArtifactBuilder.GetTemplateDataFunc = func(url string) (map[string][]byte, error) {
+		cacheDir1 := t.TempDir()
+		cacheDir2 := t.TempDir()
+		templateDir1 := filepath.Join(cacheDir1, "_template")
+		templateDir2 := filepath.Join(cacheDir2, "_template")
+		if err := os.MkdirAll(templateDir1, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+		if err := os.MkdirAll(templateDir2, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+		metadataYAML := `cliVersion: "1.0.0"
+name: test
+version: "1.0.0"`
+		if err := os.WriteFile(filepath.Join(cacheDir1, "metadata.yaml"), []byte(metadataYAML), 0644); err != nil {
+			t.Fatalf("Failed to write metadata.yaml: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(cacheDir2, "metadata.yaml"), []byte(metadataYAML), 0644); err != nil {
+			t.Fatalf("Failed to write metadata.yaml: %v", err)
+		}
+		mockArtifactBuilder.PullFunc = func(ociRefs []string) (map[string]string, error) {
 			callCount++
-			return map[string][]byte{}, nil
+			result := make(map[string]string)
+			for _, ref := range ociRefs {
+				if ref == "oci://ghcr.io/test/repo1:latest" {
+					result["ghcr.io/test/repo1:latest"] = cacheDir1
+				} else if ref == "oci://ghcr.io/test/repo2:v1.0.0" {
+					result["ghcr.io/test/repo2:v1.0.0"] = cacheDir2
+				}
+			}
+			return result, nil
+		}
+		mockArtifactBuilder.ParseOCIRefFunc = func(ociRef string) (string, string, string, error) {
+			if ociRef == "oci://ghcr.io/test/repo1:latest" {
+				return "ghcr.io", "test/repo1", "latest", nil
+			} else if ociRef == "oci://ghcr.io/test/repo2:v1.0.0" {
+				return "ghcr.io", "test/repo2", "v1.0.0", nil
+			}
+			return "", "", "", fmt.Errorf("unexpected URL: %s", ociRef)
 		}
 
 		err := handler.processOCISources()
@@ -7229,8 +6983,8 @@ kustomize:
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
-		if callCount != 2 {
-			t.Errorf("Expected GetTemplateData to be called 2 times, got: %d", callCount)
+		if callCount != 1 {
+			t.Errorf("Expected Pull to be called 1 time, got: %d", callCount)
 		}
 	})
 
@@ -7257,9 +7011,28 @@ kustomize:
 
 		var calledURL string
 		mockArtifactBuilder := handler.artifactBuilder.(*artifact.MockArtifact)
-		mockArtifactBuilder.GetTemplateDataFunc = func(url string) (map[string][]byte, error) {
-			calledURL = url
-			return map[string][]byte{}, nil
+		cacheDir := t.TempDir()
+		templateDir := filepath.Join(cacheDir, "_template")
+		if err := os.MkdirAll(templateDir, 0755); err != nil {
+			t.Fatalf("Failed to create template directory: %v", err)
+		}
+		metadataYAML := `cliVersion: "1.0.0"
+name: test
+version: "1.0.0"`
+		if err := os.WriteFile(filepath.Join(cacheDir, "metadata.yaml"), []byte(metadataYAML), 0644); err != nil {
+			t.Fatalf("Failed to write metadata.yaml: %v", err)
+		}
+		mockArtifactBuilder.PullFunc = func(ociRefs []string) (map[string]string, error) {
+			if len(ociRefs) > 0 {
+				calledURL = ociRefs[0]
+			}
+			return map[string]string{"ghcr.io/test/repo:v1.0.0": cacheDir}, nil
+		}
+		mockArtifactBuilder.ParseOCIRefFunc = func(ociRef string) (string, string, string, error) {
+			if ociRef == "oci://ghcr.io/test/repo:v1.0.0" {
+				return "ghcr.io", "test/repo", "v1.0.0", nil
+			}
+			return "", "", "", fmt.Errorf("unexpected URL: %s", ociRef)
 		}
 
 		err := handler.processOCISources()

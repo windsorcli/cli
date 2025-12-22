@@ -49,10 +49,7 @@ var downCmd = &cobra.Command{
 		}
 
 		if !skipK8sFlag {
-			blueprint, err := proj.Composer.GenerateBlueprint()
-			if err != nil {
-				return fmt.Errorf("error generating blueprint: %w", err)
-			}
+			blueprint := proj.Composer.BlueprintHandler.Generate()
 			if err := proj.Provisioner.Uninstall(blueprint); err != nil {
 				return fmt.Errorf("error running blueprint cleanup: %w", err)
 			}
@@ -61,10 +58,7 @@ var downCmd = &cobra.Command{
 		}
 
 		if !skipTerraformFlag {
-			blueprint, err := proj.Composer.GenerateBlueprint()
-			if err != nil {
-				return fmt.Errorf("error generating blueprint: %w", err)
-			}
+			blueprint := proj.Composer.BlueprintHandler.Generate()
 			if err := proj.Provisioner.Down(blueprint); err != nil {
 				return fmt.Errorf("error tearing down infrastructure: %w", err)
 			}
