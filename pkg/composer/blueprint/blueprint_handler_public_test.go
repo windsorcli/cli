@@ -4424,20 +4424,6 @@ func TestBaseBlueprintHandler_Generate(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		mockArtifactBuilder1.PullFunc = func(ociRefs []string) (map[string]string, error) {
-			return map[string]string{"ghcr.io/windsorcli/core:latest": "/tmp/cache1"}, nil
-		}
-		mockArtifactBuilder1.ParseOCIRefFunc = func(ociRef string) (string, string, string, error) {
-			return "ghcr.io", "windsorcli/core", "latest", nil
-		}
-
-		mockArtifactBuilder2.PullFunc = func(ociRefs []string) (map[string]string, error) {
-			return map[string]string{"ghcr.io/windsorcli/core:latest": "/tmp/cache2"}, nil
-		}
-		mockArtifactBuilder2.ParseOCIRefFunc = func(ociRef string) (string, string, string, error) {
-			return "ghcr.io", "windsorcli/core", "latest", nil
-		}
-
 		// Create mock cache directories
 		tmpDir1 := t.TempDir()
 		tmpDir2 := t.TempDir()
@@ -4452,40 +4438,63 @@ version: 1.0.0`), 0644)
 name: test-artifact-2
 version: 1.0.0`), 0644)
 
+		mockArtifactBuilder1.PullFunc = func(ociRefs []string) (map[string]string, error) {
+			return map[string]string{"ghcr.io/windsorcli/core:latest": cacheDir1}, nil
+		}
+		mockArtifactBuilder1.ParseOCIRefFunc = func(ociRef string) (string, string, string, error) {
+			return "ghcr.io", "windsorcli/core", "latest", nil
+		}
+
+		mockArtifactBuilder2.PullFunc = func(ociRefs []string) (map[string]string, error) {
+			return map[string]string{"ghcr.io/windsorcli/core:latest": cacheDir2}, nil
+		}
+		mockArtifactBuilder2.ParseOCIRefFunc = func(ociRef string) (string, string, string, error) {
+			return "ghcr.io", "windsorcli/core", "latest", nil
+		}
+
+		normalizedCacheDir1 := filepath.ToSlash(cacheDir1)
+		normalizedCacheDir2 := filepath.ToSlash(cacheDir2)
+
 		handler1.shims.Stat = func(path string) (os.FileInfo, error) {
-			if strings.Contains(path, "cache1") {
-				return &mockFileInfo{name: "cache1", isDir: true}, nil
+			normalizedPath := filepath.ToSlash(path)
+			if strings.Contains(normalizedPath, normalizedCacheDir1) {
+				return os.Stat(path)
 			}
 			return nil, os.ErrNotExist
 		}
 		handler1.shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.Contains(path, "cache1/metadata.yaml") {
-				return os.ReadFile(filepath.Join(cacheDir1, "metadata.yaml"))
+			normalizedPath := filepath.ToSlash(path)
+			if strings.Contains(normalizedPath, normalizedCacheDir1) {
+				return os.ReadFile(path)
 			}
 			return nil, os.ErrNotExist
 		}
 		handler1.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-			if strings.Contains(path, "cache1/_template") {
-				return []os.DirEntry{}, nil
+			normalizedPath := filepath.ToSlash(path)
+			if strings.Contains(normalizedPath, normalizedCacheDir1) {
+				return os.ReadDir(path)
 			}
 			return nil, os.ErrNotExist
 		}
 
 		handler2.shims.Stat = func(path string) (os.FileInfo, error) {
-			if strings.Contains(path, "cache2") {
-				return &mockFileInfo{name: "cache2", isDir: true}, nil
+			normalizedPath := filepath.ToSlash(path)
+			if strings.Contains(normalizedPath, normalizedCacheDir2) {
+				return os.Stat(path)
 			}
 			return nil, os.ErrNotExist
 		}
 		handler2.shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.Contains(path, "cache2/metadata.yaml") {
-				return os.ReadFile(filepath.Join(cacheDir2, "metadata.yaml"))
+			normalizedPath := filepath.ToSlash(path)
+			if strings.Contains(normalizedPath, normalizedCacheDir2) {
+				return os.ReadFile(path)
 			}
 			return nil, os.ErrNotExist
 		}
 		handler2.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-			if strings.Contains(path, "cache2/_template") {
-				return []os.DirEntry{}, nil
+			normalizedPath := filepath.ToSlash(path)
+			if strings.Contains(normalizedPath, normalizedCacheDir2) {
+				return os.ReadDir(path)
 			}
 			return nil, os.ErrNotExist
 		}
@@ -4580,13 +4589,6 @@ version: 1.0.0`), 0644)
 			return nil, os.ErrNotExist
 		}
 
-		mockArtifactBuilder.PullFunc = func(ociRefs []string) (map[string]string, error) {
-			return map[string]string{"ghcr.io/windsorcli/core:latest": "/tmp/cache"}, nil
-		}
-		mockArtifactBuilder.ParseOCIRefFunc = func(ociRef string) (string, string, string, error) {
-			return "ghcr.io", "windsorcli/core", "latest", nil
-		}
-
 		// Create mock cache directory
 		tmpDir := t.TempDir()
 		cacheDir := filepath.Join(tmpDir, "cache")
@@ -4605,26 +4607,33 @@ terraform: []
 kustomize: []`
 		os.WriteFile(filepath.Join(cacheDir, "_template", "blueprint.yaml"), []byte(blueprintYaml), 0644)
 
+		mockArtifactBuilder.PullFunc = func(ociRefs []string) (map[string]string, error) {
+			return map[string]string{"ghcr.io/windsorcli/core:latest": cacheDir}, nil
+		}
+		mockArtifactBuilder.ParseOCIRefFunc = func(ociRef string) (string, string, string, error) {
+			return "ghcr.io", "windsorcli/core", "latest", nil
+		}
+
+		normalizedCacheDir := filepath.ToSlash(cacheDir)
+
 		handler.shims.Stat = func(path string) (os.FileInfo, error) {
-			if strings.Contains(path, "cache") {
-				return &mockFileInfo{name: "cache", isDir: true}, nil
+			normalizedPath := filepath.ToSlash(path)
+			if strings.Contains(normalizedPath, normalizedCacheDir) {
+				return os.Stat(path)
 			}
 			return nil, os.ErrNotExist
 		}
 		handler.shims.ReadFile = func(path string) ([]byte, error) {
-			if strings.Contains(path, "cache/metadata.yaml") {
-				return os.ReadFile(filepath.Join(cacheDir, "metadata.yaml"))
-			}
-			if strings.Contains(path, "cache/_template/blueprint.yaml") {
-				return os.ReadFile(filepath.Join(cacheDir, "_template", "blueprint.yaml"))
+			normalizedPath := filepath.ToSlash(path)
+			if strings.Contains(normalizedPath, normalizedCacheDir) {
+				return os.ReadFile(path)
 			}
 			return nil, os.ErrNotExist
 		}
 		handler.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
-			if strings.Contains(path, "cache/_template") {
-				return []os.DirEntry{
-					&mockDirEntry{name: "blueprint.yaml", isDir: false},
-				}, nil
+			normalizedPath := filepath.ToSlash(path)
+			if strings.Contains(normalizedPath, normalizedCacheDir) {
+				return os.ReadDir(path)
 			}
 			return nil, os.ErrNotExist
 		}
