@@ -406,7 +406,6 @@ func (sv *SchemaValidator) valuesEqual(a, b any) bool {
 	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
 }
 
-
 // mergeSchema merges two schemas, with the overlay schema's properties overriding the base schema's properties.
 // The merge is deep for nested objects, and later schemas take precedence for conflicting properties.
 // Required fields are merged by combining arrays and removing duplicates.

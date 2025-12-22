@@ -3,6 +3,7 @@ package config
 import (
 	"embed"
 	"fmt"
+	"io/fs"
 	"maps"
 	"path/filepath"
 	"reflect"
@@ -1199,31 +1200,39 @@ func (c *configHandler) applySystemSchemaPlugins() {
 	}
 }
 
-// loadAPISchemas loads all schema.yaml files from the embedded api/ directory.
+// loadAPISchemas loads all schema.yaml files from the embedded API schemas.
 // This is called when the windsor.yaml version is higher than v1alpha1.
+// It walks the embedded filesystem to find all schema.yaml files regardless of their nested paths.
 func (c *configHandler) loadAPISchemas() error {
 	if c.schemaValidator == nil {
 		return nil
 	}
 
-	entries, err := v1alpha2config.SchemasFS.ReadDir(".")
-	if err != nil {
-		return nil
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "schema.yaml") {
-			continue
-		}
-
-		schemaContent, err := v1alpha2config.SchemasFS.ReadFile(entry.Name())
+	err := fs.WalkDir(v1alpha2config.SchemasFS, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			continue
+			return err
 		}
 
-		if err := c.LoadSchemaFromBytes(schemaContent); err != nil {
-			return fmt.Errorf("failed to load schema from %s: %w", entry.Name(), err)
+		if d.IsDir() {
+			return nil
 		}
+
+		if d.Name() == "schema.yaml" {
+			schemaContent, err := v1alpha2config.SchemasFS.ReadFile(path)
+			if err != nil {
+				return fmt.Errorf("failed to read schema file %s: %w", path, err)
+			}
+
+			if err := c.LoadSchemaFromBytes(schemaContent); err != nil {
+				return fmt.Errorf("failed to load schema from %s: %w", path, err)
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("error walking API schemas: %w", err)
 	}
 
 	return nil
