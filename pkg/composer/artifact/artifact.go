@@ -3,7 +3,6 @@ package artifact
 import (
 	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"errors"
 	"fmt"
 	"io"
@@ -49,7 +48,6 @@ type Artifact interface {
 	Push(registryBase string, repoName string, tag string) error
 	Pull(ociRefs []string) (map[string]string, error)
 	ExtractModulePath(registry, repository, tag, modulePath string) (string, error)
-	GetTemplateData(ociRef string) (map[string][]byte, error)
 	ParseOCIRef(ociRef string) (registry, repository, tag string, err error)
 	GetCacheDir(registry, repository, tag string) (string, error)
 }
@@ -408,124 +406,6 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string]string, error) {
 	}
 
 	return ociArtifacts, nil
-}
-
-// GetTemplateData extracts and returns template data from an OCI artifact reference or local .tar.gz file.
-// For OCI references (oci://...), downloads and caches the artifact. For local .tar.gz files, reads from disk.
-// Decompresses the tar.gz payload and returns a map with all files from the _template directory using their relative paths as keys.
-// Files are stored with their relative paths from _template (e.g., "_template/schema.yaml", "_template/blueprint.yaml", "_template/features/base.yaml").
-// All files from _template/ are included - no filtering is performed.
-// The metadata name is extracted and stored in the returned map with the key "_metadata_name".
-// Returns an error on invalid reference, download failure, file read failure, or extraction error.
-func (a *ArtifactBuilder) GetTemplateData(blueprintRef string) (map[string][]byte, error) {
-	var tarData []byte
-
-	if strings.HasPrefix(blueprintRef, "oci://") {
-		registry, repository, tag, err := a.ParseOCIRef(blueprintRef)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse OCI reference %s: %w", blueprintRef, err)
-		}
-
-		artifacts, err := a.Pull([]string{blueprintRef})
-		if err != nil {
-			return nil, fmt.Errorf("failed to pull OCI artifact %s: %w", blueprintRef, err)
-		}
-
-		cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
-		cacheDir, exists := artifacts[cacheKey]
-		if !exists {
-			return nil, fmt.Errorf("failed to retrieve cache directory for %s", blueprintRef)
-		}
-
-		artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
-		tarData, err = a.shims.ReadFile(artifactTarPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read artifact.tar from cache: %w", err)
-		}
-	} else if strings.HasSuffix(blueprintRef, ".tar.gz") {
-		compressedData, err := a.shims.ReadFile(blueprintRef)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read local artifact file %s: %w", blueprintRef, err)
-		}
-
-		gzipReader, err := gzip.NewReader(bytes.NewReader(compressedData))
-		if err != nil {
-			return nil, fmt.Errorf("failed to create gzip reader for %s: %w", blueprintRef, err)
-		}
-		defer gzipReader.Close()
-
-		tarData, err = a.shims.ReadAll(gzipReader)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decompress artifact file %s: %w", blueprintRef, err)
-		}
-	} else {
-		return nil, fmt.Errorf("invalid blueprint reference: %s (must be oci://... or path to .tar.gz file)", blueprintRef)
-	}
-
-	artifactData := make(map[string][]byte)
-	tarReader := tar.NewReader(bytes.NewReader(tarData))
-
-	var hasMetadata bool
-	var metadata BlueprintMetadata
-
-	for {
-		header, err := tarReader.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("failed to read tar header: %w", err)
-		}
-		if header.Typeflag != tar.TypeReg {
-			continue
-		}
-		name := filepath.ToSlash(header.Name)
-
-		if name == "metadata.yaml" {
-			hasMetadata = true
-			content, err := io.ReadAll(tarReader)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read metadata.yaml: %w", err)
-			}
-			if err := a.shims.YamlUnmarshal(content, &metadata); err != nil {
-				return nil, fmt.Errorf("failed to parse metadata.yaml: %w", err)
-			}
-			if err := ValidateCliVersion(constants.Version, metadata.CliVersion); err != nil {
-				return nil, err
-			}
-			continue
-		}
-
-		if !strings.HasPrefix(name, "_template/") {
-			continue
-		}
-
-		content, err := io.ReadAll(tarReader)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read file %s: %w", name, err)
-		}
-
-		artifactData[name] = content
-	}
-
-	if !hasMetadata {
-		return nil, fmt.Errorf("OCI artifact missing required metadata.yaml file")
-	}
-
-	if metadata.Name != "" {
-		artifactData["_metadata_name"] = []byte(metadata.Name)
-	}
-	if metadata.Version != "" {
-		artifactData["_metadata_version"] = []byte(metadata.Version)
-	}
-	if metadata.Description != "" {
-		artifactData["_metadata_description"] = []byte(metadata.Description)
-	}
-	if metadata.Author != "" {
-		artifactData["_metadata_author"] = []byte(metadata.Author)
-	}
-
-	return artifactData, nil
 }
 
 // Bundle traverses the project directories and collects all relevant files to be
@@ -1261,7 +1141,7 @@ func (a *ArtifactBuilder) validateAndSanitizePath(path string) (string, error) {
 }
 
 // extractTarEntries extracts specific entries from a tar archive into the given destination directory for caching and reuse.
-// Only entries within the "_template/" and "terraform/" directories, as well as the "blueprint.yaml" file, are extracted.
+// Only entries within the "_template/" and "terraform/" directories, as well as the "metadata.yaml" file, are extracted.
 // Directories and files are handled appropriately, and file permissions are set as specified in the tar headers.
 // The extraction process performs path validation to prevent directory traversal attacks, and the destination directory must preexist.
 // Returns an error if any part of the extraction or validation fails.
@@ -1282,7 +1162,7 @@ func (a *ArtifactBuilder) extractTarEntries(tarReader TarReader, destDir string)
 
 		if !strings.HasPrefix(sanitizedPath, "_template/") &&
 			!strings.HasPrefix(sanitizedPath, "terraform/") &&
-			sanitizedPath != "blueprint.yaml" {
+			sanitizedPath != "metadata.yaml" {
 			if header.Typeflag != tar.TypeDir {
 				if _, err := io.Copy(io.Discard, tarReader); err != nil {
 					return fmt.Errorf("failed to skip entry %s: %w", header.Name, err)

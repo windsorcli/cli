@@ -80,67 +80,97 @@ func NewBlueprintHandler(rt *runtime.Runtime, artifactBuilder artifact.Artifact,
 // LoadBlueprint loads all blueprint data into memory, establishing defaults from either templates
 // or OCI artifacts, then applies any local blueprint.yaml overrides to ensure the correct precedence.
 // All sources are processed and merged into the in-memory runtime state.
-// The optional blueprintURL parameter specifies the blueprint artifact to load (OCI URL or local .tar.gz path).
+// The optional blueprintURL parameter specifies the blueprint artifact to load (OCI URL).
 // If not provided, falls back to the default blueprint URL from constants.
 // Returns an error if any required paths are inaccessible or any loading operation fails.
 func (b *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
+	b.blueprint = *DefaultBlueprint.DeepCopy()
+
+	contextName := b.runtime.ContextName
+	if contextName == "" {
+		contextName = b.runtime.ConfigHandler.GetContext()
+	}
+	if contextName != "" {
+		b.blueprint.Metadata.Name = contextName
+		b.blueprint.Metadata.Description = fmt.Sprintf("Blueprint for %s context", contextName)
+	}
+
 	hasBlueprintURL := len(blueprintURL) > 0 && blueprintURL[0] != ""
-	var isLocalFile bool
+	hasLocalTemplate := false
 
 	if _, err := b.shims.Stat(b.runtime.TemplateRoot); err == nil && !hasBlueprintURL {
 		if err := b.loadBlueprintFromLocalTemplate(); err != nil {
 			return err
 		}
-	} else {
-		blueprintRef, relativeArtifactPath, isLocal, err := b.resolveBlueprintReference(blueprintURL...)
+		hasLocalTemplate = true
+	}
+
+	if !hasLocalTemplate {
+		blueprintRef, err := b.resolveBlueprintReference(blueprintURL...)
 		if err != nil {
 			return err
 		}
-		isLocalFile = isLocal
 
 		configRoot := b.runtime.ConfigRoot
 		blueprintPath := filepath.Join(configRoot, "blueprint.yaml")
-
-		if _, err := b.shims.Stat(blueprintPath); err == nil {
-			if len(blueprintURL) == 0 {
-				if err := b.loadConfig(); err != nil {
-					return fmt.Errorf("failed to load blueprint config: %w", err)
-				}
-				if err := b.processOCISources(); err != nil {
-					return fmt.Errorf("failed to process OCI sources from blueprint: %w", err)
-				}
-				return nil
-			}
-		}
 
 		if b.artifactBuilder == nil {
 			return fmt.Errorf("blueprint.yaml not found at %s and artifact builder not available", blueprintPath)
 		}
 
-		templateData, err := b.artifactBuilder.GetTemplateData(blueprintRef)
+		artifacts, err := b.artifactBuilder.Pull([]string{blueprintRef})
 		if err != nil {
-			return fmt.Errorf("blueprint.yaml not found at %s and failed to get template data from blueprint: %w", blueprintPath, err)
+			return fmt.Errorf("blueprint.yaml not found at %s and failed to pull blueprint: %w", blueprintPath, err)
 		}
 
-		if isLocalFile {
-			if err := b.processLocalArtifact(templateData, relativeArtifactPath); err != nil {
-				return fmt.Errorf("failed to get template data from blueprint: %w", err)
-			}
-		} else {
-			if err := b.processOCIArtifact(templateData, blueprintRef); err != nil {
-				return err
-			}
+		registry, repository, tag, err := b.artifactBuilder.ParseOCIRef(blueprintRef)
+		if err != nil {
+			return fmt.Errorf("failed to parse OCI reference %s: %w", blueprintRef, err)
+		}
+
+		cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+		cacheDir, exists := artifacts[cacheKey]
+		if !exists {
+			return fmt.Errorf("failed to retrieve cache directory for %s", blueprintRef)
+		}
+
+		templateData, err := b.readTemplateDataFromCache(cacheDir)
+		if err != nil {
+			return fmt.Errorf("blueprint.yaml not found at %s and failed to read template data from cache: %w", blueprintPath, err)
+		}
+
+		if err := b.processOCIArtifact(templateData, blueprintRef); err != nil {
+			return err
 		}
 	}
 
-	if err := b.pullOCISources(); err != nil {
+	configRoot := b.runtime.ConfigRoot
+	blueprintPath := filepath.Join(configRoot, "blueprint.yaml")
+	if _, err := b.shims.Stat(blueprintPath); err == nil {
+		if err := b.loadConfig(); err != nil {
+			return fmt.Errorf("failed to load blueprint config: %w", err)
+		}
+		if err := b.processOCISources(); err != nil {
+			return fmt.Errorf("failed to process OCI sources from blueprint: %w", err)
+		}
+		return nil
+	}
+
+	if err := b.processOCISources(); err != nil {
+		return fmt.Errorf("failed to process OCI sources: %w", err)
+	}
+
+	if err := b.loadBlueprintConfigOverrides(); err != nil {
 		return err
 	}
 
-	if !isLocalFile {
-		if err := b.loadBlueprintConfigOverrides(); err != nil {
-			return err
-		}
+	contextName = b.runtime.ContextName
+	if contextName == "" {
+		contextName = b.runtime.ConfigHandler.GetContext()
+	}
+	if contextName != "" {
+		b.blueprint.Metadata.Name = contextName
+		b.blueprint.Metadata.Description = fmt.Sprintf("Blueprint for %s context", contextName)
 	}
 
 	return nil
@@ -376,9 +406,9 @@ func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 		return nil, nil
 	}
 
-	templateData := make(map[string][]byte)
-	if err := b.walkAndCollectTemplates(b.runtime.TemplateRoot, templateData); err != nil {
-		return nil, fmt.Errorf("failed to collect templates: %w", err)
+	templateData, err := b.collectTemplateDataFromDirectory(b.runtime.TemplateRoot)
+	if err != nil {
+		return nil, err
 	}
 
 	metadataPath := filepath.Join(b.runtime.TemplateRoot, "metadata.yaml")
@@ -485,22 +515,33 @@ func (b *BaseBlueprintHandler) loadBlueprintFromLocalTemplate() error {
 	if err != nil {
 		return fmt.Errorf("failed to get local template data: %w", err)
 	}
-	if len(templateData) == 0 {
-		configRoot := b.runtime.ConfigRoot
-		if configRoot == "" {
-			return fmt.Errorf("blueprint.yaml not found at %s", filepath.Join(configRoot, "blueprint.yaml"))
+	if len(templateData) > 0 {
+		if err := b.processArtifactTemplateData(templateData); err != nil {
+			return fmt.Errorf("failed to process local template data: %w", err)
 		}
-		blueprintPath := filepath.Join(configRoot, "blueprint.yaml")
-		if _, err := b.shims.Stat(blueprintPath); err != nil {
-			return fmt.Errorf("blueprint.yaml not found at %s", blueprintPath)
+
+		contextName := b.runtime.ContextName
+		if contextName != "" {
+			b.blueprint.Metadata.Name = contextName
+			b.blueprint.Metadata.Description = fmt.Sprintf("Blueprint for %s context", contextName)
 		}
+		return nil
+	}
+
+	configRoot := b.runtime.ConfigRoot
+	if configRoot == "" {
+		return fmt.Errorf("blueprint.yaml not found at %s", filepath.Join(configRoot, "blueprint.yaml"))
+	}
+	blueprintPath := filepath.Join(configRoot, "blueprint.yaml")
+	if _, err := b.shims.Stat(blueprintPath); err != nil {
+		return fmt.Errorf("blueprint.yaml not found at %s", blueprintPath)
 	}
 	return nil
 }
 
-// resolveBlueprintReference determines the effective blueprint URL and parses it into either a local file path or OCI reference.
-// Returns the blueprint reference, relative artifact path (for local files), whether it's a local file, and any error.
-func (b *BaseBlueprintHandler) resolveBlueprintReference(blueprintURL ...string) (blueprintRef string, relativeArtifactPath string, isLocalFile bool, err error) {
+// resolveBlueprintReference determines the effective blueprint URL and parses it into an OCI reference.
+// Returns the blueprint OCI reference and any error.
+func (b *BaseBlueprintHandler) resolveBlueprintReference(blueprintURL ...string) (blueprintRef string, err error) {
 	var effectiveBlueprintURL string
 	if len(blueprintURL) > 0 && blueprintURL[0] != "" {
 		effectiveBlueprintURL = blueprintURL[0]
@@ -508,41 +549,15 @@ func (b *BaseBlueprintHandler) resolveBlueprintReference(blueprintURL ...string)
 		effectiveBlueprintURL = constants.GetEffectiveBlueprintURL()
 	}
 
-	if strings.HasSuffix(effectiveBlueprintURL, ".tar.gz") {
-		blueprintRef = effectiveBlueprintURL
-		isLocalFile = true
-
-		configRoot := b.runtime.ConfigRoot
-		blueprintYamlPath := filepath.Join(configRoot, "blueprint.yaml")
-
-		artifactAbsPath, err := b.shims.FilepathAbs(blueprintRef)
-		if err != nil {
-			return "", "", false, fmt.Errorf("failed to get absolute path for artifact: %w", err)
-		}
-
-		blueprintYamlAbsPath, err := b.shims.FilepathAbs(blueprintYamlPath)
-		if err != nil {
-			return "", "", false, fmt.Errorf("failed to get absolute path for blueprint.yaml: %w", err)
-		}
-
-		relPath, err := filepath.Rel(filepath.Dir(blueprintYamlAbsPath), artifactAbsPath)
-		if err != nil {
-			return "", "", false, fmt.Errorf("failed to calculate relative path from blueprint.yaml to artifact: %w", err)
-		}
-
-		relativeArtifactPath = filepath.ToSlash(relPath)
-	} else {
-		ociInfo, err := artifact.ParseOCIReference(effectiveBlueprintURL)
-		if err != nil {
-			return "", "", false, fmt.Errorf("failed to parse default blueprint reference: %w", err)
-		}
-		if ociInfo == nil {
-			return "", "", false, fmt.Errorf("invalid default blueprint reference: %s", effectiveBlueprintURL)
-		}
-		blueprintRef = ociInfo.URL
+	ociInfo, err := artifact.ParseOCIReference(effectiveBlueprintURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse blueprint reference: %w", err)
+	}
+	if ociInfo == nil {
+		return "", fmt.Errorf("invalid blueprint reference: %s", effectiveBlueprintURL)
 	}
 
-	return blueprintRef, relativeArtifactPath, isLocalFile, nil
+	return ociInfo.URL, nil
 }
 
 // processOCIArtifact processes blueprint data from an OCI artifact.
@@ -567,8 +582,8 @@ func (b *BaseBlueprintHandler) processOCIArtifact(templateData map[string][]byte
 }
 
 // processArtifactTemplateData processes template data from an artifact by loading schema, building feature template data,
-// setting it on the feature evaluator, and processing features. This common functionality is shared by processOCIArtifact,
-// processLocalArtifact, and processOCISources.
+// setting it on the feature evaluator, and processing features. This common functionality is shared by processOCIArtifact
+// and processOCISources.
 // If sourceName is provided and non-empty, it sets the Source on components and kustomizations from Features that don't have a Source set.
 func (b *BaseBlueprintHandler) processArtifactTemplateData(templateData map[string][]byte, sourceName ...string) error {
 	if schemaData, exists := templateData["_template/schema.yaml"]; exists {
@@ -666,9 +681,9 @@ func (b *BaseBlueprintHandler) pullOCISources() error {
 }
 
 // processOCISources processes all OCI sources listed in the blueprint's Sources section.
-// It extracts Features from each OCI artifact and applies their evaluated Inputs to existing components in the blueprint.
-// This ensures that Features and their Inputs are processed even when a blueprint.yaml already exists.
-// Components are not added from Features; only Inputs are applied to existing components.
+// It extracts Features from each OCI artifact and merges them into the blueprint.
+// If a blueprint.yaml already exists, only Inputs are applied to existing components (applyOnly=true).
+// If no blueprint.yaml exists, components are added from Features (applyOnly=false).
 func (b *BaseBlueprintHandler) processOCISources() error {
 	sources := b.getSources()
 	if len(sources) == 0 {
@@ -679,47 +694,77 @@ func (b *BaseBlueprintHandler) processOCISources() error {
 		return nil
 	}
 
+	var ociURLs []string
 	for _, source := range sources {
-		if !strings.HasPrefix(source.Url, "oci://") {
-			continue
+		if strings.HasPrefix(source.Url, "oci://") {
+			ociURL := b.buildOCIURLWithRef(source)
+			ociURLs = append(ociURLs, ociURL)
 		}
+	}
 
-		ociURL := b.buildOCIURLWithRef(source)
-
-		templateData, err := b.artifactBuilder.GetTemplateData(ociURL)
+	if len(ociURLs) > 0 {
+		artifacts, err := b.artifactBuilder.Pull(ociURLs)
 		if err != nil {
-			return fmt.Errorf("failed to get template data from OCI source %s: %w", ociURL, err)
+			return fmt.Errorf("failed to pull OCI sources: %w", err)
 		}
 
-		if schemaData, exists := templateData["_template/schema.yaml"]; exists {
-			if err := b.runtime.ConfigHandler.LoadSchemaFromBytes(schemaData); err != nil {
-				return fmt.Errorf("failed to load schema from artifact: %w", err)
+		for _, source := range sources {
+			if !strings.HasPrefix(source.Url, "oci://") {
+				continue
 			}
-		}
 
-		config, err := b.runtime.ConfigHandler.GetContextValues()
-		if err != nil {
-			return fmt.Errorf("failed to load context values: %w", err)
-		}
+			ociURL := b.buildOCIURLWithRef(source)
 
-		featureTemplateData := make(map[string][]byte)
-		for k, v := range templateData {
-			if featureKey, ok := strings.CutPrefix(k, "_template/"); ok {
-				if featureKey == "blueprint.yaml" {
-					featureTemplateData["blueprint"] = v
-				} else {
-					featureTemplateData[featureKey] = v
+			registry, repository, tag, err := b.artifactBuilder.ParseOCIRef(ociURL)
+			if err != nil {
+				return fmt.Errorf("failed to parse OCI reference %s: %w", ociURL, err)
+			}
+
+			cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+			cacheDir, exists := artifacts[cacheKey]
+			if !exists {
+				return fmt.Errorf("failed to retrieve cache directory for %s", ociURL)
+			}
+
+			templateData, err := b.readTemplateDataFromCache(cacheDir)
+			if err != nil {
+				return fmt.Errorf("failed to read template data from OCI source %s: %w", ociURL, err)
+			}
+
+			if schemaData, exists := templateData["_template/schema.yaml"]; exists {
+				if err := b.runtime.ConfigHandler.LoadSchemaFromBytes(schemaData); err != nil {
+					return fmt.Errorf("failed to load schema from artifact: %w", err)
 				}
 			}
-		}
-		if blueprintData, exists := templateData["blueprint"]; exists {
-			featureTemplateData["blueprint"] = blueprintData
-		}
 
-		b.featureEvaluator.SetTemplateData(templateData)
+			config, err := b.runtime.ConfigHandler.GetContextValues()
+			if err != nil {
+				return fmt.Errorf("failed to load context values: %w", err)
+			}
 
-		if err := b.processFeatures(featureTemplateData, config, true, source.Name); err != nil {
-			return fmt.Errorf("failed to process OCI source %s: %w", source.Url, err)
+			featureTemplateData := make(map[string][]byte)
+			for k, v := range templateData {
+				if featureKey, ok := strings.CutPrefix(k, "_template/"); ok {
+					if featureKey == "blueprint.yaml" {
+						featureTemplateData["blueprint"] = v
+					} else {
+						featureTemplateData[featureKey] = v
+					}
+				}
+			}
+
+			b.featureEvaluator.SetTemplateData(templateData)
+
+			configRoot := b.runtime.ConfigRoot
+			blueprintPath := filepath.Join(configRoot, "blueprint.yaml")
+			applyOnly := false
+			if _, err := b.shims.Stat(blueprintPath); err == nil {
+				applyOnly = true
+			}
+
+			if err := b.processFeatures(featureTemplateData, config, applyOnly, source.Name); err != nil {
+				return fmt.Errorf("failed to process OCI source %s: %w", source.Url, err)
+			}
 		}
 	}
 
@@ -875,8 +920,9 @@ func (b *BaseBlueprintHandler) getKustomizations() []blueprintv1alpha1.Kustomiza
 
 // walkAndCollectTemplates recursively traverses the specified template directory and collects all files into the
 // templateData map. It adds the contents of each file by a normalized relative path key prefixed with "_template/".
-// Directory entries are processed recursively. Any file or directory traversal errors are returned.
-func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir string, templateData map[string][]byte) error {
+// baseDir is used as the root for calculating relative paths. Directory entries are processed recursively.
+// Any file or directory traversal errors are returned.
+func (b *BaseBlueprintHandler) walkAndCollectTemplates(baseDir, templateDir string, templateData map[string][]byte) error {
 	entries, err := b.shims.ReadDir(templateDir)
 	if err != nil {
 		return fmt.Errorf("failed to read template directory: %w", err)
@@ -886,7 +932,7 @@ func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir string, templ
 		entryPath := filepath.Join(templateDir, entry.Name())
 
 		if entry.IsDir() {
-			if err := b.walkAndCollectTemplates(entryPath, templateData); err != nil {
+			if err := b.walkAndCollectTemplates(baseDir, entryPath, templateData); err != nil {
 				return err
 			}
 		} else {
@@ -895,7 +941,7 @@ func (b *BaseBlueprintHandler) walkAndCollectTemplates(templateDir string, templ
 				return fmt.Errorf("failed to read template file %s: %w", entryPath, err)
 			}
 
-			relPath, err := filepath.Rel(b.runtime.TemplateRoot, entryPath)
+			relPath, err := filepath.Rel(baseDir, entryPath)
 			if err != nil {
 				return fmt.Errorf("failed to calculate relative path for %s: %w", entryPath, err)
 			}
@@ -1385,62 +1431,70 @@ func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *blue
 	return nil
 }
 
-// processLocalArtifact processes blueprint data from a local artifact file.
-// It extracts the blueprint YAML from templateData, sets the Source for components without a Source
-// to a file path relative to blueprint.yaml, and merges the result into the handler's blueprint.
-func (b *BaseBlueprintHandler) processLocalArtifact(templateData map[string][]byte, relativeArtifactPath string) error {
-	metadataName := "local-artifact"
-	if nameBytes, exists := templateData["_metadata_name"]; exists {
-		metadataName = string(nameBytes)
-	}
+// collectTemplateDataFromDirectory walks a template directory and collects all files.
+// Returns a map with file paths as keys (prefixed with "_template/") and file contents as values.
+// If the directory does not exist (os.IsNotExist), returns an empty map with no error.
+// If Stat fails for any other reason (e.g., permission denied), returns the error.
+func (b *BaseBlueprintHandler) collectTemplateDataFromDirectory(templateDir string) (map[string][]byte, error) {
+	templateData := make(map[string][]byte)
 
-	if _, exists := templateData["_template/blueprint.yaml"]; !exists {
-		if _, exists := templateData["blueprint"]; !exists {
-			return fmt.Errorf("blueprint not found in artifact template data")
+	_, err := b.shims.Stat(templateDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return templateData, nil
 		}
+		return nil, fmt.Errorf("failed to stat template directory: %w", err)
 	}
 
-	if err := b.processArtifactTemplateData(templateData); err != nil {
-		return err
+	if err := b.walkAndCollectTemplates(templateDir, templateDir, templateData); err != nil {
+		return nil, fmt.Errorf("failed to collect templates: %w", err)
 	}
 
-	contextName := b.runtime.ContextName
-	if contextName != "" {
-		b.blueprint.Metadata.Name = contextName
-		b.blueprint.Metadata.Description = fmt.Sprintf("Blueprint for %s context", contextName)
+	return templateData, nil
+}
+
+// readTemplateDataFromCache reads template data from a cache directory that has already been extracted.
+// It walks the _template directory and reads metadata.yaml, returning a map with file paths as keys
+// and file contents as values. The metadata name is stored with the key "_metadata_name".
+// Returns an error if the cache directory is invalid or files cannot be read.
+func (b *BaseBlueprintHandler) readTemplateDataFromCache(cacheDir string) (map[string][]byte, error) {
+	templateDir := filepath.Join(cacheDir, "_template")
+	templateData, err := b.collectTemplateDataFromDirectory(templateDir)
+	if err != nil {
+		return nil, err
 	}
 
-	fileSource := blueprintv1alpha1.Source{
-		Name: metadataName,
-		Url:  "file://" + relativeArtifactPath,
-	}
-
-	sourceExists := false
-	for i, source := range b.blueprint.Sources {
-		if source.Name == metadataName {
-			b.blueprint.Sources[i] = fileSource
-			sourceExists = true
-			break
+	metadataPath := filepath.Join(cacheDir, "metadata.yaml")
+	if _, err := b.shims.Stat(metadataPath); err == nil {
+		metadataContent, err := b.shims.ReadFile(metadataPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read metadata.yaml: %w", err)
 		}
-	}
-
-	if !sourceExists {
-		b.blueprint.Sources = append(b.blueprint.Sources, fileSource)
-	}
-
-	for i, component := range b.blueprint.TerraformComponents {
-		if component.Source == "" {
-			b.blueprint.TerraformComponents[i].Source = metadataName
+		var metadata artifact.BlueprintMetadata
+		if err := b.shims.YamlUnmarshal(metadataContent, &metadata); err != nil {
+			return nil, fmt.Errorf("failed to parse metadata.yaml: %w", err)
 		}
-	}
-
-	for i, kustomization := range b.blueprint.Kustomizations {
-		if kustomization.Source == "" {
-			b.blueprint.Kustomizations[i].Source = metadataName
+		if err := artifact.ValidateCliVersion(constants.Version, metadata.CliVersion); err != nil {
+			return nil, err
 		}
+
+		if metadata.Name != "" {
+			templateData["_metadata_name"] = []byte(metadata.Name)
+		}
+		if metadata.Version != "" {
+			templateData["_metadata_version"] = []byte(metadata.Version)
+		}
+		if metadata.Description != "" {
+			templateData["_metadata_description"] = []byte(metadata.Description)
+		}
+		if metadata.Author != "" {
+			templateData["_metadata_author"] = []byte(metadata.Author)
+		}
+	} else {
+		return nil, fmt.Errorf("OCI artifact missing required metadata.yaml file")
 	}
 
-	return nil
+	return templateData, nil
 }
 
 // isValidTerraformRemoteSource checks if the source is a valid Terraform module reference.

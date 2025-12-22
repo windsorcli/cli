@@ -16,7 +16,6 @@ type MockArtifact struct {
 	PushFunc              func(registryBase string, repoName string, tag string) error
 	PullFunc              func(ociRefs []string) (map[string]string, error)
 	ExtractModulePathFunc func(registry, repository, tag, modulePath string) (string, error)
-	GetTemplateDataFunc   func(ociRef string) (map[string][]byte, error)
 	ParseOCIRefFunc       func(ociRef string) (registry, repository, tag string, err error)
 	GetCacheDirFunc       func(registry, repository, tag string) (string, error)
 }
@@ -75,14 +74,6 @@ func (m *MockArtifact) ExtractModulePath(registry, repository, tag, modulePath s
 		return m.ExtractModulePathFunc(registry, repository, tag, modulePath)
 	}
 	return "", nil
-}
-
-// GetTemplateData calls the mock GetTemplateDataFunc if set, otherwise returns empty map and nil error
-func (m *MockArtifact) GetTemplateData(ociRef string) (map[string][]byte, error) {
-	if m.GetTemplateDataFunc != nil {
-		return m.GetTemplateDataFunc(ociRef)
-	}
-	return make(map[string][]byte), nil
 }
 
 // ParseOCIRef calls the mock ParseOCIRefFunc if set, otherwise returns empty strings and nil error

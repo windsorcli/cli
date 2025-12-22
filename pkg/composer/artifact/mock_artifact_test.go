@@ -259,62 +259,8 @@ func TestMockArtifact_Pull(t *testing.T) {
 }
 
 // TestMockArtifact_GetTemplateData tests the GetTemplateData method of MockArtifact
-func TestMockArtifact_GetTemplateData(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given
-		mockArtifact := setupMockArtifactMocks(t)
-		expectedData := map[string][]byte{"test.yaml": []byte("test content")}
-		mockArtifact.GetTemplateDataFunc = func(ociRef string) (map[string][]byte, error) {
-			return expectedData, nil
-		}
-
-		// When getting template data
-		actualData, err := mockArtifact.GetTemplateData("registry.example.com/test-repo:v1.0.0")
-
-		// Then should succeed
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if len(actualData) != len(expectedData) {
-			t.Errorf("Expected data length %d, got %d", len(expectedData), len(actualData))
-		}
-	})
-
-	t.Run("ReturnsErrorWhenGetTemplateDataFuncSet", func(t *testing.T) {
-		// Given
-		mockArtifact := setupMockArtifactMocks(t)
-		expectedError := errors.New("get template data error")
-		mockArtifact.GetTemplateDataFunc = func(ociRef string) (map[string][]byte, error) {
-			return nil, expectedError
-		}
-
-		// When getting template data
-		_, err := mockArtifact.GetTemplateData("registry.example.com/test-repo:v1.0.0")
-
-		// Then should return the error
-		if err != expectedError {
-			t.Errorf("Expected error %v, got %v", expectedError, err)
-		}
-	})
-
-	t.Run("ReturnsDefaultWhenGetTemplateDataFuncNotSet", func(t *testing.T) {
-		// Given
-		mockArtifact := setupMockArtifactMocks(t)
-
-		// When getting template data without func set
-		data, err := mockArtifact.GetTemplateData("registry.example.com/test-repo:v1.0.0")
-
-		// Then should return default values
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if data == nil {
-			t.Error("Expected empty map, got nil")
-		}
-		if len(data) != 0 {
-			t.Errorf("Expected empty map, got map with %d entries", len(data))
-		}
-	})
+func TestMockArtifact_GetTemplateData_Removed(t *testing.T) {
+	t.Skip("GetTemplateData has been removed from MockArtifact")
 }
 
 // TestMockArtifact_ParseOCIRef tests the ParseOCIRef method of MockArtifact
