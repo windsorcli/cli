@@ -1,0 +1,30 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Terraform Configuration Schema
+description: Schema for Terraform configuration
+type: object
+
+properties:
+  enabled:
+    type: boolean
+    description: Enable or disable Terraform functionality
+
+  driver:
+    type: string
+    description: Terraform driver to use
+
+  backend:
+    type: object
+    description: Terraform backend configuration
+    properties:
+      type:
+        type: string
+        description: Backend type
+      prefix:
+        type: string
+        description: Backend prefix
+    required:
+      - type
+    additionalProperties: false
+
+additionalProperties: false
+

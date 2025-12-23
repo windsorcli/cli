@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"maps"
 
 	"github.com/goccy/go-yaml"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -57,21 +58,27 @@ func (sv *SchemaValidator) LoadSchema(schemaPath string) error {
 	return sv.LoadSchemaFromBytes(schemaContent)
 }
 
-// LoadSchemaFromBytes loads schema directly from byte content
-// Returns error if schema content is invalid
+// LoadSchemaFromBytes loads schema directly from byte content.
+// If a schema already exists, the new schema is merged into it with the new schema's properties
+// overriding existing properties with the same name. If no schema exists, it loads the new schema.
+// Returns error if schema content is invalid.
 func (sv *SchemaValidator) LoadSchemaFromBytes(schemaContent []byte) error {
-	var schema map[string]any
-	if err := yaml.Unmarshal(schemaContent, &schema); err != nil {
+	var newSchema map[string]any
+	if err := yaml.Unmarshal(schemaContent, &newSchema); err != nil {
 		return fmt.Errorf("failed to parse schema YAML: %w", err)
 	}
 
-	if err := sv.validateSchemaStructure(schema); err != nil {
+	if err := sv.validateSchemaStructure(newSchema); err != nil {
 		return fmt.Errorf("invalid schema structure: %w", err)
 	}
 
-	sv.injectSubstitutionSchema(&schema)
+	if sv.Schema == nil {
+		sv.Schema = newSchema
+		return nil
+	}
 
-	sv.Schema = schema
+	mergedSchema := sv.mergeSchema(sv.Schema, newSchema)
+	sv.Schema = mergedSchema
 	return nil
 }
 
@@ -399,34 +406,166 @@ func (sv *SchemaValidator) valuesEqual(a, b any) bool {
 	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
 }
 
-// injectSubstitutionSchema injects the substitutions property schema into the provided schema.
-// The substitutions property is always allowed regardless of the schema's additionalProperties setting.
-// This enables users to define kustomization substitutions in values.yaml without schema conflicts.
-func (sv *SchemaValidator) injectSubstitutionSchema(schema *map[string]any) {
-	if schema == nil {
-		return
+// mergeSchema merges two schemas, with the overlay schema's properties overriding the base schema's properties.
+// The merge is deep for nested objects, and later schemas take precedence for conflicting properties.
+// Required fields are merged by combining arrays and removing duplicates.
+func (sv *SchemaValidator) mergeSchema(base, overlay map[string]any) map[string]any {
+	merged := make(map[string]any)
+
+	for k, v := range base {
+		merged[k] = v
 	}
 
-	properties, ok := (*schema)["properties"]
+	for k, v := range overlay {
+		switch k {
+		case "properties":
+			merged[k] = sv.mergeProperties(base["properties"], v)
+		case "required":
+			merged[k] = sv.mergeRequired(base["required"], v)
+		case "items":
+			merged[k] = sv.mergeItemsSchema(base["items"], v)
+		default:
+			merged[k] = v
+		}
+	}
+
+	return merged
+}
+
+// mergeProperties merges two property maps, with overlay properties overriding base properties.
+// Nested object properties are merged recursively.
+func (sv *SchemaValidator) mergeProperties(base, overlay any) map[string]any {
+	merged := make(map[string]any)
+
+	baseProps, ok := base.(map[string]any)
+	if ok {
+		maps.Copy(merged, baseProps)
+	}
+
+	overlayProps, ok := overlay.(map[string]any)
 	if !ok {
-		properties = make(map[string]any)
-		(*schema)["properties"] = properties
+		return merged
 	}
 
-	propertiesMap, ok := properties.(map[string]any)
+	for k, overlayProp := range overlayProps {
+		overlayPropMap, ok := overlayProp.(map[string]any)
+		if !ok {
+			merged[k] = overlayProp
+			continue
+		}
+
+		baseProp, exists := merged[k]
+		if !exists {
+			merged[k] = overlayPropMap
+			continue
+		}
+
+		basePropMap, ok := baseProp.(map[string]any)
+		if !ok {
+			merged[k] = overlayPropMap
+			continue
+		}
+
+		if baseType, ok := basePropMap["type"].(string); ok && baseType == "object" {
+			if overlayType, ok := overlayPropMap["type"].(string); ok && overlayType == "object" {
+				mergedProp := make(map[string]any)
+				for bk, bv := range basePropMap {
+					mergedProp[bk] = bv
+				}
+				for ok, ov := range overlayPropMap {
+					switch ok {
+					case "properties":
+						mergedProp[ok] = sv.mergeProperties(basePropMap["properties"], ov)
+					case "required":
+						mergedProp[ok] = sv.mergeRequired(basePropMap["required"], ov)
+					case "items":
+						mergedProp[ok] = sv.mergeItemsSchema(basePropMap["items"], ov)
+					default:
+						mergedProp[ok] = ov
+					}
+				}
+				merged[k] = mergedProp
+			} else {
+				merged[k] = overlayPropMap
+			}
+		} else {
+			merged[k] = overlayPropMap
+		}
+	}
+
+	return merged
+}
+
+// mergeItemsSchema merges two array item schemas, with overlay properties overriding base properties.
+// If both items are object types, they are merged recursively similar to properties.
+func (sv *SchemaValidator) mergeItemsSchema(base, overlay any) map[string]any {
+	overlayItems, ok := overlay.(map[string]any)
 	if !ok {
-		return
+		if baseItems, ok := base.(map[string]any); ok {
+			return baseItems
+		}
+		return make(map[string]any)
 	}
 
-	propertiesMap["substitutions"] = map[string]any{
-		"type": "object",
-		"additionalProperties": map[string]any{
-			"type": "object",
-			"additionalProperties": map[string]any{
-				"type": "string",
-			},
-		},
+	baseItems, ok := base.(map[string]any)
+	if !ok {
+		return overlayItems
 	}
+
+	baseType, baseIsObject := baseItems["type"].(string)
+	overlayType, overlayIsObject := overlayItems["type"].(string)
+
+	if baseIsObject && baseType == "object" && overlayIsObject && overlayType == "object" {
+		mergedItems := make(map[string]any)
+		for k, v := range baseItems {
+			mergedItems[k] = v
+		}
+		for k, v := range overlayItems {
+			switch k {
+			case "properties":
+				mergedItems[k] = sv.mergeProperties(baseItems["properties"], v)
+			case "required":
+				mergedItems[k] = sv.mergeRequired(baseItems["required"], v)
+			case "items":
+				mergedItems[k] = sv.mergeItemsSchema(baseItems["items"], v)
+			default:
+				mergedItems[k] = v
+			}
+		}
+		return mergedItems
+	}
+
+	return overlayItems
+}
+
+// mergeRequired merges two required field arrays, combining them and removing duplicates.
+func (sv *SchemaValidator) mergeRequired(base, overlay any) []any {
+	requiredMap := make(map[string]bool)
+	var merged []any
+
+	if baseSlice, ok := base.([]any); ok {
+		for _, req := range baseSlice {
+			if reqStr, ok := req.(string); ok {
+				if !requiredMap[reqStr] {
+					requiredMap[reqStr] = true
+					merged = append(merged, req)
+				}
+			}
+		}
+	}
+
+	if overlaySlice, ok := overlay.([]any); ok {
+		for _, req := range overlaySlice {
+			if reqStr, ok := req.(string); ok {
+				if !requiredMap[reqStr] {
+					requiredMap[reqStr] = true
+					merged = append(merged, req)
+				}
+			}
+		}
+	}
+
+	return merged
 }
 
 // validateSchemaStructure checks that the provided schema map conforms to Windsor or JSON Schema requirements.

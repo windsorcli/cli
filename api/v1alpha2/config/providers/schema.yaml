@@ -1,0 +1,64 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Providers Configuration Schema
+description: Schema for cloud provider configurations
+type: object
+
+properties:
+  aws:
+    type: object
+    description: AWS provider configuration
+    properties:
+      enabled:
+        type: boolean
+        description: Enable or disable AWS integration
+      aws_endpoint_url:
+        type: string
+        description: Custom endpoint URL for AWS services
+      aws_profile:
+        type: string
+        description: AWS CLI profile to use for authentication
+      s3_hostname:
+        type: string
+        description: Custom hostname for the S3 service
+      mwaa_endpoint:
+        type: string
+        description: Endpoint for Managed Workflows for Apache Airflow
+    additionalProperties: false
+
+  azure:
+    type: object
+    description: Azure provider configuration
+    properties:
+      enabled:
+        type: boolean
+        description: Enable or disable Azure integration
+      subscription_id:
+        type: string
+        description: Azure subscription identifier
+      tenant_id:
+        type: string
+        description: Azure tenant identifier
+      environment:
+        type: string
+        description: Azure cloud environment (e.g. "public", "usgovernment")
+    additionalProperties: false
+
+  gcp:
+    type: object
+    description: GCP provider configuration
+    properties:
+      enabled:
+        type: boolean
+        description: Enable or disable GCP integration
+      project_id:
+        type: string
+        description: GCP project identifier
+      credentials_path:
+        type: string
+        description: Path to a service account key file
+      quota_project:
+        type: string
+        description: Project to use for quota and billing
+    additionalProperties: false
+
+additionalProperties: false

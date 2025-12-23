@@ -269,6 +269,97 @@ properties:
 		}
 	})
 
+	t.Run("LoadsAPISchemasForV1Alpha2", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+		rootConfig := `version: v1alpha2
+contexts:
+  test-context: {}
+`
+		os.WriteFile(filepath.Join(tmpDir, "windsor.yaml"), []byte(rootConfig), 0644)
+
+		err := handler.LoadConfig()
+
+		if err != nil {
+			t.Fatalf("Expected no error loading config with v1alpha2, got %v", err)
+		}
+
+		configHandler := handler.(*configHandler)
+		if configHandler.schemaValidator == nil {
+			t.Fatal("Expected schema validator to be initialized")
+		}
+
+		if configHandler.schemaValidator.Schema == nil {
+			t.Fatal("Expected API schemas to be loaded for v1alpha2")
+		}
+
+		properties, ok := configHandler.schemaValidator.Schema["properties"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected schema to have properties")
+		}
+
+		hasAWS := false
+		hasOnePassword := false
+		hasTerraformEnabled := false
+		hasWorkstationRegistries := false
+
+		for key := range properties {
+			switch key {
+			case "aws":
+				hasAWS = true
+			case "onepassword":
+				hasOnePassword = true
+			case "enabled":
+				hasTerraformEnabled = true
+			case "registries":
+				hasWorkstationRegistries = true
+			}
+		}
+
+		if !hasAWS {
+			t.Error("Expected AWS provider schema to be loaded (indicating providers schema loaded)")
+		}
+		if !hasOnePassword {
+			t.Error("Expected OnePassword schema to be loaded (indicating secrets schema loaded)")
+		}
+		if !hasTerraformEnabled {
+			t.Error("Expected terraform enabled schema to be loaded (indicating terraform schema loaded)")
+		}
+		if !hasWorkstationRegistries {
+			t.Error("Expected workstation registries schema to be loaded (indicating workstation schema loaded)")
+		}
+	})
+
+	t.Run("DoesNotLoadAPISchemasForV1Alpha1", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+		rootConfig := `version: v1alpha1
+contexts:
+  test-context: {}
+`
+		os.WriteFile(filepath.Join(tmpDir, "windsor.yaml"), []byte(rootConfig), 0644)
+
+		err := handler.LoadConfig()
+
+		if err != nil {
+			t.Fatalf("Expected no error loading config with v1alpha1, got %v", err)
+		}
+
+		configHandler := handler.(*configHandler)
+		if configHandler.schemaValidator != nil && configHandler.schemaValidator.Schema != nil {
+			properties, ok := configHandler.schemaValidator.Schema["properties"].(map[string]any)
+			if ok {
+				if _, hasAWS := properties["aws"]; hasAWS {
+					t.Error("Expected API schemas NOT to be loaded for v1alpha1")
+				}
+			}
+		}
+	})
+
 	t.Run("SetsLoadedFlag", func(t *testing.T) {
 		mocks := setupConfigMocks(t)
 		handler := NewConfigHandler(mocks.Shell)
