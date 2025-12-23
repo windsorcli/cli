@@ -1189,7 +1189,7 @@ func (c *configHandler) applySystemSchemaPlugins() {
 			continue
 		}
 
-		schemaPath := filepath.Join("schemas", entry.Name())
+		schemaPath := "schemas/" + entry.Name()
 		schemaContent, err := systemSchemasFS.ReadFile(schemaPath)
 		if err != nil {
 			continue

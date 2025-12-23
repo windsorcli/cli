@@ -45,4 +45,3 @@ func LoadSchemas(loadSchema func([]byte) error) error {
 
 	return nil
 }
-
