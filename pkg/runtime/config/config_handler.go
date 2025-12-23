@@ -164,7 +164,7 @@ func (c *configHandler) LoadConfig() error {
 	if c.schemaValidator != nil && c.schemaValidator.Schema == nil {
 		schemaPath := filepath.Join(projectRoot, "contexts", "_template", "schema.yaml")
 		if _, err := c.shims.Stat(schemaPath); err == nil {
-			if err := c.schemaValidator.LoadSchema(schemaPath); err != nil {
+			if err := c.LoadSchema(schemaPath); err != nil {
 				return fmt.Errorf("error loading schema: %w", err)
 			}
 		}
