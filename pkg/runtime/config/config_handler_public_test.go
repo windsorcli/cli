@@ -353,7 +353,7 @@ contexts:
 		if configHandler.schemaValidator != nil && configHandler.schemaValidator.Schema != nil {
 			properties, ok := configHandler.schemaValidator.Schema["properties"].(map[string]any)
 			if ok {
-				if _, hasProviders := properties["providers"]; hasProviders {
+				if _, hasAWS := properties["aws"]; hasAWS {
 					t.Error("Expected API schemas NOT to be loaded for v1alpha1")
 				}
 			}
