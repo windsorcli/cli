@@ -71,7 +71,8 @@ func (t *BaseToolsManager) Check() error {
 	spin.Start()
 	defer spin.Stop()
 
-	if t.configHandler.GetBool("docker.enabled") {
+	vmRuntime := t.configHandler.GetString("vm.runtime", "docker")
+	if t.configHandler.GetBool("docker.enabled") && vmRuntime == "docker" {
 		if err := t.checkDocker(); err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
@@ -129,13 +130,14 @@ func (t *BaseToolsManager) Check() error {
 
 // checkDocker ensures Docker and Docker Compose are available in the system's PATH using execLookPath and shell.ExecSilent.
 // It checks for 'docker', 'docker-compose', 'docker-cli-plugin-docker-compose', or 'docker compose'.
+// Only checks CLI availability and version, not daemon connectivity.
 // Returns nil if any are found, else an error indicating Docker Compose is not available in the PATH.
 func (t *BaseToolsManager) checkDocker() error {
 	if _, err := execLookPath("docker"); err != nil {
 		return fmt.Errorf("docker is not available in the PATH")
 	}
 
-	output, err := t.shell.ExecSilentWithTimeout("docker", []string{"version", "--format", "{{.Client.Version}}"}, 5*time.Second)
+	output, err := t.shell.ExecSilentWithTimeout("docker", []string{"--version"}, 5*time.Second)
 	if err != nil {
 		return fmt.Errorf("docker version check failed: %v", err)
 	}

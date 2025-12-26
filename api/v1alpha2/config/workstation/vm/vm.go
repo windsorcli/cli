@@ -8,6 +8,7 @@ type VMConfig struct {
 	Disk    *int    `yaml:"disk,omitempty"`
 	Driver  *string `yaml:"driver,omitempty"`
 	Memory  *int    `yaml:"memory,omitempty"`
+	Runtime *string `yaml:"runtime,omitempty"`
 }
 
 // Merge performs a deep merge of the current VMConfig with another VMConfig.
@@ -32,6 +33,9 @@ func (base *VMConfig) Merge(overlay *VMConfig) {
 	}
 	if overlay.Memory != nil {
 		base.Memory = overlay.Memory
+	}
+	if overlay.Runtime != nil {
+		base.Runtime = overlay.Runtime
 	}
 }
 
@@ -65,6 +69,10 @@ func (c *VMConfig) DeepCopy() *VMConfig {
 	if c.Memory != nil {
 		memoryCopy := *c.Memory
 		copied.Memory = &memoryCopy
+	}
+	if c.Runtime != nil {
+		runtimeCopy := *c.Runtime
+		copied.Runtime = &runtimeCopy
 	}
 
 	return copied

@@ -122,8 +122,9 @@ func (w *Workstation) Prepare() error {
 		w.VirtualMachine = virt.NewColimaVirt(w.Runtime)
 	}
 
+	vmRuntime := w.ConfigHandler.GetString("vm.runtime", "docker")
 	containerRuntimeEnabled := w.ConfigHandler.GetBool("docker.enabled")
-	if containerRuntimeEnabled && w.ContainerRuntime == nil {
+	if containerRuntimeEnabled && vmRuntime == "docker" {
 		w.ContainerRuntime = virt.NewDockerVirt(w.Runtime, w.Services)
 	}
 
@@ -141,9 +142,6 @@ func (w *Workstation) Up() error {
 
 	vmDriver := w.ConfigHandler.GetString("vm.driver")
 	if vmDriver == "colima" && w.VirtualMachine != nil {
-		if err := w.VirtualMachine.WriteConfig(); err != nil {
-			return fmt.Errorf("error writing virtual machine config: %w", err)
-		}
 		if err := w.VirtualMachine.Up(); err != nil {
 			return fmt.Errorf("error running virtual machine Up command: %w", err)
 		}
@@ -156,9 +154,6 @@ func (w *Workstation) Up() error {
 	}
 
 	if w.ContainerRuntime != nil {
-		if err := w.ContainerRuntime.WriteConfig(); err != nil {
-			return fmt.Errorf("failed to write container runtime config: %w", err)
-		}
 		if err := w.ContainerRuntime.Up(); err != nil {
 			return fmt.Errorf("error running container runtime Up command: %w", err)
 		}

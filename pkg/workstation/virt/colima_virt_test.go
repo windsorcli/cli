@@ -504,6 +504,66 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 			t.Error("Expected Network.PreferredRoute to be false")
 		}
 	})
+
+	t.Run("IncusModeConfiguration", func(t *testing.T) {
+		// Given a ColimaVirt with mock components
+		colimaVirt, mocks := setup(t)
+
+		// And vm.runtime is set to incus
+		if err := mocks.ConfigHandler.Set("vm.runtime", "incus"); err != nil {
+			t.Fatalf("Failed to set vm.runtime: %v", err)
+		}
+
+		// And a config capture mechanism
+		var capturedConfig *colimaConfig.Config
+		mocks.Shims.NewYAMLEncoder = func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
+			return &mockYAMLEncoder{
+				encodeFunc: func(v any) error {
+					if cfg, ok := v.(*colimaConfig.Config); ok {
+						capturedConfig = cfg
+					}
+					return nil
+				},
+				closeFunc: func() error {
+					return nil
+				},
+			}
+		}
+
+		// When calling WriteConfig
+		err := colimaVirt.WriteConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And the config should have incus-specific values
+		if capturedConfig == nil {
+			t.Fatal("Expected config to be captured")
+		}
+		if capturedConfig.Runtime != "incus" {
+			t.Errorf("Expected Runtime to be 'incus', got %s", capturedConfig.Runtime)
+		}
+		if capturedConfig.ActivateRuntime == nil {
+			t.Fatal("Expected ActivateRuntime to be set")
+		}
+		if !*capturedConfig.ActivateRuntime {
+			t.Error("Expected ActivateRuntime to be true in incus mode")
+		}
+		if !capturedConfig.NestedVirtualization {
+			t.Error("Expected NestedVirtualization to be true in incus mode")
+		}
+		if !capturedConfig.Network.HostAddresses {
+			t.Error("Expected Network.HostAddresses to be true in incus mode")
+		}
+		if !capturedConfig.Network.Address {
+			t.Error("Expected Network.Address to be true in incus mode")
+		}
+		if capturedConfig.Network.Mode != "bridged" {
+			t.Errorf("Expected Network.Mode to be 'bridged' in incus mode, got %s", capturedConfig.Network.Mode)
+		}
+	})
 }
 
 func TestColimaVirt_Up(t *testing.T) {
@@ -791,8 +851,8 @@ func TestColimaVirt_getDefaultValues(t *testing.T) {
 		if cpu <= 0 {
 			t.Errorf("expected positive CPU count, got %d", cpu)
 		}
-		if disk != 60 {
-			t.Errorf("expected disk size 60GB, got %d", disk)
+		if disk != 100 {
+			t.Errorf("expected disk size 100GB, got %d", disk)
 		}
 		if memory <= 0 {
 			t.Errorf("expected positive memory size, got %d", memory)

@@ -95,11 +95,21 @@ func (b *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 		b.blueprint.Metadata.Description = fmt.Sprintf("Blueprint for %s context", contextName)
 	}
 
+	configRoot := b.runtime.ConfigRoot
+	blueprintPath := filepath.Join(configRoot, "blueprint.yaml")
+	hasContextBlueprint := false
+	if _, err := b.shims.Stat(blueprintPath); err == nil {
+		hasContextBlueprint = true
+		if err := b.loadConfig(); err != nil {
+			return fmt.Errorf("failed to load blueprint config: %w", err)
+		}
+	}
+
 	hasBlueprintURL := len(blueprintURL) > 0 && blueprintURL[0] != ""
 	hasLocalTemplate := false
 
 	if _, err := b.shims.Stat(b.runtime.TemplateRoot); err == nil && !hasBlueprintURL {
-		if err := b.loadBlueprintFromLocalTemplate(); err != nil {
+		if err := b.loadBlueprintFromLocalTemplate(hasContextBlueprint); err != nil {
 			return err
 		}
 		hasLocalTemplate = true
@@ -110,9 +120,6 @@ func (b *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 		if err != nil {
 			return err
 		}
-
-		configRoot := b.runtime.ConfigRoot
-		blueprintPath := filepath.Join(configRoot, "blueprint.yaml")
 
 		if b.artifactBuilder == nil {
 			return fmt.Errorf("blueprint.yaml not found at %s and artifact builder not available", blueprintPath)
@@ -144,12 +151,7 @@ func (b *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 		}
 	}
 
-	configRoot := b.runtime.ConfigRoot
-	blueprintPath := filepath.Join(configRoot, "blueprint.yaml")
-	if _, err := b.shims.Stat(blueprintPath); err == nil {
-		if err := b.loadConfig(); err != nil {
-			return fmt.Errorf("failed to load blueprint config: %w", err)
-		}
+	if hasContextBlueprint {
 		if err := b.processOCISources(); err != nil {
 			return fmt.Errorf("failed to process OCI sources from blueprint: %w", err)
 		}
@@ -448,7 +450,14 @@ func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 		}
 	}
 
-	if err := b.processFeatures(templateData, config, false); err != nil {
+	configRoot := b.runtime.ConfigRoot
+	blueprintPath := filepath.Join(configRoot, "blueprint.yaml")
+	modifyOnly := false
+	if _, err := b.shims.Stat(blueprintPath); err == nil {
+		modifyOnly = true
+	}
+
+	if err := b.processFeatures(templateData, config, modifyOnly); err != nil {
 		return nil, fmt.Errorf("failed to process features: %w", err)
 	}
 
@@ -510,13 +519,14 @@ func (b *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 // =============================================================================
 
 // loadBlueprintFromLocalTemplate loads the blueprint from the local template directory.
-func (b *BaseBlueprintHandler) loadBlueprintFromLocalTemplate() error {
+// If modifyOnly is true, features will only modify existing components in the blueprint.
+func (b *BaseBlueprintHandler) loadBlueprintFromLocalTemplate(modifyOnly bool) error {
 	templateData, err := b.GetLocalTemplateData()
 	if err != nil {
 		return fmt.Errorf("failed to get local template data: %w", err)
 	}
 	if len(templateData) > 0 {
-		if err := b.processArtifactTemplateData(templateData); err != nil {
+		if err := b.processArtifactTemplateData(templateData, modifyOnly); err != nil {
 			return fmt.Errorf("failed to process local template data: %w", err)
 		}
 
@@ -563,7 +573,8 @@ func (b *BaseBlueprintHandler) resolveBlueprintReference(blueprintURL ...string)
 // processOCIArtifact processes blueprint data from an OCI artifact.
 // It loads the schema, gets context values, processes features, and sets the OCI source on components.
 func (b *BaseBlueprintHandler) processOCIArtifact(templateData map[string][]byte, blueprintRef string) error {
-	if err := b.processArtifactTemplateData(templateData); err != nil {
+	modifyOnly := b.configLoaded
+	if err := b.processArtifactTemplateData(templateData, modifyOnly); err != nil {
 		return err
 	}
 
@@ -584,8 +595,9 @@ func (b *BaseBlueprintHandler) processOCIArtifact(templateData map[string][]byte
 // processArtifactTemplateData processes template data from an artifact by loading schema, building feature template data,
 // setting it on the feature evaluator, and processing features. This common functionality is shared by processOCIArtifact
 // and processOCISources.
+// If modifyOnly is true, features will only modify existing components in the blueprint.
 // If sourceName is provided and non-empty, it sets the Source on components and kustomizations from Features that don't have a Source set.
-func (b *BaseBlueprintHandler) processArtifactTemplateData(templateData map[string][]byte, sourceName ...string) error {
+func (b *BaseBlueprintHandler) processArtifactTemplateData(templateData map[string][]byte, modifyOnly bool, sourceName ...string) error {
 	if schemaData, exists := templateData["_template/schema.yaml"]; exists {
 		if err := b.runtime.ConfigHandler.LoadSchemaFromBytes(schemaData); err != nil {
 			return fmt.Errorf("failed to load schema from artifact: %w", err)
@@ -613,7 +625,7 @@ func (b *BaseBlueprintHandler) processArtifactTemplateData(templateData map[stri
 
 	b.featureEvaluator.SetTemplateData(templateData)
 
-	if err := b.processFeatures(featureTemplateData, config, false, sourceName...); err != nil {
+	if err := b.processFeatures(featureTemplateData, config, modifyOnly, sourceName...); err != nil {
 		return fmt.Errorf("failed to process features: %w", err)
 	}
 
@@ -682,8 +694,8 @@ func (b *BaseBlueprintHandler) pullOCISources() error {
 
 // processOCISources processes all OCI sources listed in the blueprint's Sources section.
 // It extracts Features from each OCI artifact and merges them into the blueprint.
-// If a blueprint.yaml already exists, only Inputs are applied to existing components (applyOnly=true).
-// If no blueprint.yaml exists, components are added from Features (applyOnly=false).
+// If a blueprint.yaml already exists, only Inputs are applied to existing components (modifyOnly=true).
+// If no blueprint.yaml exists, components are added from Features (modifyOnly=false).
 func (b *BaseBlueprintHandler) processOCISources() error {
 	sources := b.getSources()
 	if len(sources) == 0 {
@@ -757,12 +769,12 @@ func (b *BaseBlueprintHandler) processOCISources() error {
 
 			configRoot := b.runtime.ConfigRoot
 			blueprintPath := filepath.Join(configRoot, "blueprint.yaml")
-			applyOnly := false
+			modifyOnly := false
 			if _, err := b.shims.Stat(blueprintPath); err == nil {
-				applyOnly = true
+				modifyOnly = true
 			}
 
-			if err := b.processFeatures(featureTemplateData, config, applyOnly, source.Name); err != nil {
+			if err := b.processFeatures(featureTemplateData, config, modifyOnly, source.Name); err != nil {
 				return fmt.Errorf("failed to process OCI source %s: %w", source.Url, err)
 			}
 		}
@@ -835,9 +847,19 @@ func (b *BaseBlueprintHandler) loadConfig() error {
 		return err
 	}
 
-	if err := b.processBlueprintData(yamlData, &b.blueprint); err != nil {
-		return err
+	newBlueprint := &blueprintv1alpha1.Blueprint{}
+	if err := b.shims.YamlUnmarshal(yamlData, newBlueprint); err != nil {
+		return fmt.Errorf("error unmarshalling blueprint data: %w", err)
 	}
+
+	if newBlueprint.Kind == "" {
+		newBlueprint.Kind = "Blueprint"
+	}
+	if newBlueprint.ApiVersion == "" {
+		newBlueprint.ApiVersion = "blueprints.windsorcli.dev/v1alpha1"
+	}
+
+	b.blueprint = *newBlueprint
 
 	b.configLoaded = true
 	return nil
@@ -962,16 +984,16 @@ func (b *BaseBlueprintHandler) walkAndCollectTemplates(baseDir, templateDir stri
 // For each feature whose conditional `When` expression evaluates to true, the function processes its Terraform components and Kustomizations, which may themselves have additional conditional logic.
 // Inputs, substitutions, and patches for each component and kustomization are evaluated and applied according to a merge or replace strategy as specified.
 // If sourceName is provided and non-empty, it sets the Source field on new components and Kustomizations if not already set from the feature definition.
-// If applyOnly is true, features will only apply Inputs and settings to already-existing components in the target blueprint; new resources are not added.
+// If modifyOnly is true, features will only modify existing components in the target blueprint; new components are not added and the template blueprint is not merged.
 // Merges and substitutions are performed in accordance with each merge strategy, ensuring correct accumulation of substitutions for later use.
 // Returns an error if conditional logic fails, unmarshalling fails, or a merge operation encounters an error.
-func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, config map[string]any, applyOnly bool, sourceName ...string) error {
+func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, config map[string]any, modifyOnly bool, sourceName ...string) error {
 	blueprintData, _ := templateData["_template/blueprint.yaml"]
 	if blueprintData == nil {
 		blueprintData, _ = templateData["blueprint"]
 	}
 
-	if blueprintData != nil {
+	if blueprintData != nil && !modifyOnly {
 		newBlueprint := &blueprintv1alpha1.Blueprint{}
 		if err := b.shims.YamlUnmarshal(blueprintData, newBlueprint); err != nil {
 			return fmt.Errorf("error unmarshalling blueprint data: %w", err)
@@ -1011,7 +1033,7 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 	featureSubstitutionsByKustomization := make(map[string]map[string]string)
 
 	targetBlueprint := &b.blueprint
-	if applyOnly {
+	if modifyOnly {
 		featureBlueprint = &blueprintv1alpha1.Blueprint{}
 		targetBlueprint = featureBlueprint
 	}
@@ -1067,6 +1089,12 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 				component.Inputs = nil
 			}
 
+			if modifyOnly {
+				if !b.componentExists(component, sourceName...) {
+					continue
+				}
+			}
+
 			strategy := terraformComponent.Strategy
 			if strategy == "" {
 				strategy = "merge"
@@ -1104,6 +1132,19 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 
 			if len(sourceName) > 0 && sourceName[0] != "" && kustomizationCopy.Source == "" {
 				kustomizationCopy.Source = sourceName[0]
+			}
+
+			if modifyOnly {
+				exists := false
+				for _, existing := range b.blueprint.Kustomizations {
+					if existing.Name == kustomizationCopy.Name {
+						exists = true
+						break
+					}
+				}
+				if !exists {
+					continue
+				}
 			}
 
 			strategy := kustomization.Strategy
@@ -1174,24 +1215,16 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 		}
 	}
 
-	if applyOnly {
+	if modifyOnly {
 		featureComponentsByPath := make(map[string]blueprintv1alpha1.TerraformComponent)
 		for _, c := range featureBlueprint.TerraformComponents {
-			key := c.Path
-			if c.Source != "" {
-				key = c.Source + ":" + c.Path
-			}
+			key := b.componentKey(c, sourceName...)
 			featureComponentsByPath[key] = c
 		}
 
 		for i := range b.blueprint.TerraformComponents {
 			component := &b.blueprint.TerraformComponents[i]
-			key := component.Path
-			if component.Source != "" {
-				key = component.Source + ":" + component.Path
-			} else if len(sourceName) > 0 && sourceName[0] != "" {
-				key = sourceName[0] + ":" + component.Path
-			}
+			key := b.componentKey(*component, sourceName...)
 
 			if featureComp, exists := featureComponentsByPath[key]; exists {
 				if component.Inputs == nil {
@@ -1896,4 +1929,27 @@ func (b *BaseBlueprintHandler) getDevelopmentRepositoryURL() string {
 	}
 
 	return fmt.Sprintf("http://git.%s/git/%s", domain, folder)
+}
+
+// componentKey generates a unique key for a terraform component based on its Path and Source.
+func (b *BaseBlueprintHandler) componentKey(component blueprintv1alpha1.TerraformComponent, sourceName ...string) string {
+	key := component.Path
+	if component.Source != "" {
+		key = component.Source + ":" + component.Path
+	} else if len(sourceName) > 0 && sourceName[0] != "" {
+		key = sourceName[0] + ":" + component.Path
+	}
+	return key
+}
+
+// componentExists checks if a terraform component exists in the blueprint.
+func (b *BaseBlueprintHandler) componentExists(component blueprintv1alpha1.TerraformComponent, sourceName ...string) bool {
+	componentKey := b.componentKey(component, sourceName...)
+	for _, existing := range b.blueprint.TerraformComponents {
+		existingKey := b.componentKey(existing, sourceName...)
+		if existingKey == componentKey {
+			return true
+		}
+	}
+	return false
 }

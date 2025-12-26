@@ -52,6 +52,7 @@ func NewColimaVirt(rt *runtime.Runtime) *ColimaVirt {
 // Up starts the Colima VM and configures its network settings
 // Initializes the VM with the appropriate configuration and waits for it to be ready
 // Sets the VM address in the configuration handler for later use
+// For incus runtime, starts the vmnet daemon and retries getting the address
 // Returns an error if the VM fails to start or if the address cannot be set
 func (v *ColimaVirt) Up() error {
 	info, err := v.startColima()
@@ -59,8 +60,12 @@ func (v *ColimaVirt) Up() error {
 		return fmt.Errorf("failed to start Colima VM: %w", err)
 	}
 
-	if err := v.configHandler.Set("vm.address", info.Address); err != nil {
-		return fmt.Errorf("failed to set VM address in config handler: %w", err)
+	vmAddress := info.Address
+
+	if vmAddress != "" {
+		if err := v.configHandler.Set("vm.address", vmAddress); err != nil {
+			return fmt.Errorf("failed to set VM address in config handler: %w", err)
+		}
 	}
 
 	return nil
@@ -148,12 +153,21 @@ func (v *ColimaVirt) WriteConfig() error {
 		arch = archValue
 	}
 
+	vmRuntime := v.configHandler.GetString("vm.runtime", "docker")
+	runtime := vmRuntime
+	nestedVirtualization := false
+
+	if vmRuntime == "incus" {
+		runtime = "incus"
+		nestedVirtualization = true
+	}
+
 	colimaConfig := &colimaConfig.Config{
 		CPU:      cpu,
 		Disk:     disk,
 		Memory:   float32(memory),
 		Arch:     arch,
-		Runtime:  "docker",
+		Runtime:  runtime,
 		Hostname: hostname,
 		Kubernetes: colimaConfig.Kubernetes{
 			Enabled: false,
@@ -171,20 +185,15 @@ func (v *ColimaVirt) WriteConfig() error {
 		ForwardAgent:         false,
 		VMType:               vmType,
 		VZRosetta:            false,
-		NestedVirtualization: false,
+		NestedVirtualization: nestedVirtualization,
 		MountType:            mountType,
 		MountINotify:         true,
 		CPUType:              "",
-		Provision: []colimaConfig.Provision{
-			{
-				Mode:   "system",
-				Script: "modprobe br_netfilter",
-			},
-		},
-		SSHConfig: true,
-		SSHPort:   0,
-		Mounts:    []colimaConfig.Mount{},
-		Env:       map[string]string{},
+		Provision:            v.getProvisionScripts(),
+		SSHConfig:            true,
+		SSHPort:              0,
+		Mounts:               []colimaConfig.Mount{},
+		Env:                  map[string]string{},
 	}
 
 	homeDir, err := v.BaseVirt.shims.UserHomeDir()
@@ -241,13 +250,13 @@ func (v *ColimaVirt) getArch() string {
 
 // getDefaultValues retrieves the default values for the VM properties
 // Calculates CPU count as half of the system's CPU cores
-// Sets a default disk size of 60GB
+// Sets a default disk size of 100GB
 // Calculates memory as half of the system's total memory, with a fallback to 2GB
 // Generates a hostname based on the context name
 // Returns the calculated values for CPU, disk, memory, hostname, and architecture
 func (v *ColimaVirt) getDefaultValues(context string) (int, int, int, string, string) {
 	cpu := v.BaseVirt.shims.NumCPU() / 2
-	disk := 60 // Disk size in GB
+	disk := 100 // Disk size in GB
 	vmStat, err := v.BaseVirt.shims.VirtualMemory()
 	var memory int
 	if err != nil {
@@ -302,6 +311,7 @@ func (v *ColimaVirt) startColima() (VMInfo, error) {
 
 	var info VMInfo
 	var lastErr error
+	vmRuntime := v.configHandler.GetString("vm.runtime", "docker")
 	for i := range make([]int, testRetryAttempts) {
 		info, err = v.getVMInfo()
 		if err != nil {
@@ -312,13 +322,29 @@ func (v *ColimaVirt) startColima() (VMInfo, error) {
 		if info.Address != "" {
 			return info, nil
 		}
+		if vmRuntime == "incus" {
+			return info, nil
+		}
 		time.Sleep(time.Duration(RETRY_WAIT*(i+1)) * time.Second)
 	}
 
 	if lastErr != nil {
 		return VMInfo{}, lastErr
 	}
+	if vmRuntime == "incus" {
+		return info, nil
+	}
 	return VMInfo{}, fmt.Errorf("Timed out waiting for Colima VM to get an IP address")
+}
+
+// getProvisionScripts returns the provision scripts to run in the Colima VM
+func (v *ColimaVirt) getProvisionScripts() []colimaConfig.Provision {
+	return []colimaConfig.Provision{
+		{
+			Mode:   "system",
+			Script: "modprobe br_netfilter",
+		},
+	}
 }
 
 // =============================================================================
