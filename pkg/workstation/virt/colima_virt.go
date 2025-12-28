@@ -173,15 +173,22 @@ func (v *ColimaVirt) WriteConfig() error {
 			Enabled: false,
 		},
 		ActivateRuntime: ptrBool(true),
-		Network: colimaConfig.Network{
-			Address:         true,
-			DNSResolvers:    []net.IP{},
-			DNSHosts:        map[string]string{},
-			HostAddresses:   false,
-			Mode:            "shared",
-			BridgeInterface: "",
-			PreferredRoute:  false,
-		},
+		Network: func() colimaConfig.Network {
+			network := colimaConfig.Network{
+				Address:         true,
+				DNSResolvers:    []net.IP{},
+				DNSHosts:        map[string]string{},
+				HostAddresses:   false,
+				Mode:            "shared",
+				BridgeInterface: "",
+				PreferredRoute:  false,
+			}
+			if vmRuntime == "incus" {
+				network.HostAddresses = true
+				network.Mode = "bridged"
+			}
+			return network
+		}(),
 		ForwardAgent:         false,
 		VMType:               vmType,
 		VZRosetta:            false,

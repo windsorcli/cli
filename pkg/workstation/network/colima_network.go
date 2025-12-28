@@ -148,12 +148,17 @@ func (n *ColimaNetworkManager) setupForwardingRule(networkCIDR, outputInterface 
 		"-s", hostIP, "-d", networkCIDR, "-j", "ACCEPT",
 	)
 	if err != nil {
-		if _, err := n.secureShell.ExecSilent(
-			"sudo", "iptables", "-t", "filter", "-A", "FORWARD",
-			"-i", "col0", "-o", outputInterface,
-			"-s", hostIP, "-d", networkCIDR, "-j", "ACCEPT",
-		); err != nil {
-			return fmt.Errorf("error setting iptables rule: %w", err)
+		errStr := err.Error()
+		if strings.Contains(errStr, "No chain/target/match") || strings.Contains(errStr, "Bad rule") {
+			if _, err := n.secureShell.ExecSilent(
+				"sudo", "iptables", "-t", "filter", "-A", "FORWARD",
+				"-i", "col0", "-o", outputInterface,
+				"-s", hostIP, "-d", networkCIDR, "-j", "ACCEPT",
+			); err != nil {
+				return fmt.Errorf("error setting iptables rule: %w", err)
+			}
+		} else {
+			return fmt.Errorf("error checking iptables rule: %w", err)
 		}
 	}
 
