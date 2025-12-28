@@ -69,7 +69,7 @@ func TestBaseClusterClient_WaitForNodesHealthy(t *testing.T) {
 		expectedVersion := "v1.0.0"
 
 		// When calling WaitForNodesHealthy
-		err := client.WaitForNodesHealthy(ctx, nodeAddresses, expectedVersion)
+		err := client.WaitForNodesHealthy(ctx, nodeAddresses, expectedVersion, nil)
 
 		// Then it should return not implemented error
 		if err == nil {
@@ -90,7 +90,7 @@ func TestBaseClusterClient_WaitForNodesHealthy(t *testing.T) {
 		expectedVersion := ""
 
 		// When calling WaitForNodesHealthy with empty parameters
-		err := client.WaitForNodesHealthy(ctx, nodeAddresses, expectedVersion)
+		err := client.WaitForNodesHealthy(ctx, nodeAddresses, expectedVersion, nil)
 
 		// Then it should still return not implemented error
 		if err == nil {
@@ -112,7 +112,7 @@ func TestBaseClusterClient_WaitForNodesHealthy(t *testing.T) {
 		expectedVersion := "v1.0.0"
 
 		// When calling WaitForNodesHealthy with cancelled context
-		err := client.WaitForNodesHealthy(ctx, nodeAddresses, expectedVersion)
+		err := client.WaitForNodesHealthy(ctx, nodeAddresses, expectedVersion, nil)
 
 		// Then it should return not implemented error (not context error)
 		if err == nil {

@@ -327,7 +327,7 @@ func TestCheckNodeHealthCmd(t *testing.T) {
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
 		mockClusterClient := cluster.NewMockClusterClient()
-		mockClusterClient.WaitForNodesHealthyFunc = func(ctx stdcontext.Context, nodeAddresses []string, expectedVersion string) error {
+		mockClusterClient.WaitForNodesHealthyFunc = func(ctx stdcontext.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error {
 			return fmt.Errorf("cluster health check failed")
 		}
 
@@ -530,7 +530,7 @@ func TestCheckNodeHealthCmd_ErrorScenarios(t *testing.T) {
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
 		mockClusterClient := cluster.NewMockClusterClient()
-		mockClusterClient.WaitForNodesHealthyFunc = func(ctx stdcontext.Context, nodeAddresses []string, expectedVersion string) error {
+		mockClusterClient.WaitForNodesHealthyFunc = func(ctx stdcontext.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error {
 			return fmt.Errorf("cluster health check failed")
 		}
 

@@ -116,7 +116,7 @@ func TestTalosClusterClient_WaitForNodesHealthy(t *testing.T) {
 		nodeAddresses := []string{"10.0.0.1", "10.0.0.2"}
 		expectedVersion := "1.0.0"
 
-		err := client.WaitForNodesHealthy(ctx, nodeAddresses, expectedVersion)
+		err := client.WaitForNodesHealthy(ctx, nodeAddresses, expectedVersion, nil)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -130,7 +130,7 @@ func TestTalosClusterClient_WaitForNodesHealthy(t *testing.T) {
 		ctx := context.Background()
 		nodeAddresses := []string{"10.0.0.1"}
 
-		err := client.WaitForNodesHealthy(ctx, nodeAddresses, "")
+		err := client.WaitForNodesHealthy(ctx, nodeAddresses, "", nil)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -142,7 +142,7 @@ func TestTalosClusterClient_WaitForNodesHealthy(t *testing.T) {
 		ctx := context.Background()
 		nodeAddresses := []string{"10.0.0.1"}
 
-		err := client.WaitForNodesHealthy(ctx, nodeAddresses, "")
+		err := client.WaitForNodesHealthy(ctx, nodeAddresses, "", nil)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -163,7 +163,7 @@ func TestTalosClusterClient_WaitForNodesHealthy(t *testing.T) {
 		ctx := context.Background()
 		nodeAddresses := []string{"10.0.0.1"}
 
-		err := client.WaitForNodesHealthy(ctx, nodeAddresses, "")
+		err := client.WaitForNodesHealthy(ctx, nodeAddresses, "", nil)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -198,7 +198,7 @@ func TestTalosClusterClient_WaitForNodesHealthy(t *testing.T) {
 		ctx := context.Background()
 		nodeAddresses := []string{"10.0.0.1"}
 
-		err := client.WaitForNodesHealthy(ctx, nodeAddresses, "")
+		err := client.WaitForNodesHealthy(ctx, nodeAddresses, "", nil)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -228,7 +228,7 @@ func TestTalosClusterClient_WaitForNodesHealthy(t *testing.T) {
 		nodeAddresses := []string{"10.0.0.1"}
 		expectedVersion := "1.0.0"
 
-		err := client.WaitForNodesHealthy(ctx, nodeAddresses, expectedVersion)
+		err := client.WaitForNodesHealthy(ctx, nodeAddresses, expectedVersion, nil)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -250,7 +250,7 @@ func TestTalosClusterClient_WaitForNodesHealthy(t *testing.T) {
 		nodeAddresses := []string{"10.0.0.1"}
 		expectedVersion := "1.0.0"
 
-		err := client.WaitForNodesHealthy(ctx, nodeAddresses, expectedVersion)
+		err := client.WaitForNodesHealthy(ctx, nodeAddresses, expectedVersion, nil)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -268,7 +268,7 @@ func TestTalosClusterClient_WaitForNodesHealthy(t *testing.T) {
 		cancel()
 		nodeAddresses := []string{"10.0.0.1"}
 
-		err := client.WaitForNodesHealthy(ctx, nodeAddresses, "")
+		err := client.WaitForNodesHealthy(ctx, nodeAddresses, "", nil)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -290,7 +290,7 @@ func TestTalosClusterClient_WaitForNodesHealthy(t *testing.T) {
 
 		nodeAddresses := []string{"10.0.0.1"}
 
-		err := client.WaitForNodesHealthy(ctx, nodeAddresses, "")
+		err := client.WaitForNodesHealthy(ctx, nodeAddresses, "", nil)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -341,7 +341,7 @@ func TestTalosClusterClient_WaitForNodesHealthy(t *testing.T) {
 		ctx := context.Background()
 		nodeAddresses := []string{"10.0.0.1", "10.0.0.2"}
 
-		err := client.WaitForNodesHealthy(ctx, nodeAddresses, "")
+		err := client.WaitForNodesHealthy(ctx, nodeAddresses, "", nil)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -389,7 +389,7 @@ func TestTalosClusterClient_WaitForNodesHealthy(t *testing.T) {
 		nodeAddresses := []string{"10.0.0.1"}
 		expectedVersion := "1.0.0"
 
-		err := client.WaitForNodesHealthy(ctx, nodeAddresses, expectedVersion)
+		err := client.WaitForNodesHealthy(ctx, nodeAddresses, expectedVersion, nil)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -407,7 +407,7 @@ func TestTalosClusterClient_WaitForNodesHealthy(t *testing.T) {
 		ctx := context.Background()
 		nodeAddresses := []string{}
 
-		err := client.WaitForNodesHealthy(ctx, nodeAddresses, "")
+		err := client.WaitForNodesHealthy(ctx, nodeAddresses, "", nil)
 		if err != nil {
 			t.Errorf("Expected no error for empty node addresses, got %v", err)
 		}
@@ -442,7 +442,7 @@ func TestTalosClusterClient_WaitForNodesHealthy(t *testing.T) {
 		ctx := context.Background()
 		nodeAddresses := []string{"10.0.0.1", "10.0.0.2"}
 
-		err := client.WaitForNodesHealthy(ctx, nodeAddresses, "")
+		err := client.WaitForNodesHealthy(ctx, nodeAddresses, "", nil)
 		if err == nil {
 			t.Error("Expected error when nodes are unhealthy, got nil")
 		}
@@ -475,7 +475,7 @@ func TestTalosClusterClient_WaitForNodesHealthy(t *testing.T) {
 		nodeAddresses := []string{"10.0.0.1", "10.0.0.2"}
 		expectedVersion := "1.0.0"
 
-		err := client.WaitForNodesHealthy(ctx, nodeAddresses, expectedVersion)
+		err := client.WaitForNodesHealthy(ctx, nodeAddresses, expectedVersion, nil)
 		if err == nil {
 			t.Error("Expected error when nodes have version mismatch, got nil")
 		}
@@ -634,7 +634,7 @@ func TestTalosClusterClient_getNodeHealthDetails(t *testing.T) {
 		ctx := context.Background()
 		nodeAddress := "10.0.0.1"
 
-		healthy, healthyServices, unhealthyServices, err := client.getNodeHealthDetails(ctx, nodeAddress)
+		healthy, healthyServices, unhealthyServices, err := client.getNodeHealthDetails(ctx, nodeAddress, nil)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -658,7 +658,7 @@ func TestTalosClusterClient_getNodeHealthDetails(t *testing.T) {
 		ctx := context.Background()
 		nodeAddress := "10.0.0.1"
 
-		_, _, _, err := client.getNodeHealthDetails(ctx, nodeAddress)
+		_, _, _, err := client.getNodeHealthDetails(ctx, nodeAddress, nil)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -697,7 +697,7 @@ func TestTalosClusterClient_getNodeHealthDetails(t *testing.T) {
 		ctx := context.Background()
 		nodeAddress := "10.0.0.1"
 
-		healthy, healthyServices, unhealthyServices, err := client.getNodeHealthDetails(ctx, nodeAddress)
+		healthy, healthyServices, unhealthyServices, err := client.getNodeHealthDetails(ctx, nodeAddress, nil)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -733,7 +733,7 @@ func TestTalosClusterClient_getNodeHealthDetails(t *testing.T) {
 		ctx := context.Background()
 		nodeAddress := "10.0.0.1"
 
-		healthy, healthyServices, unhealthyServices, err := client.getNodeHealthDetails(ctx, nodeAddress)
+		healthy, healthyServices, unhealthyServices, err := client.getNodeHealthDetails(ctx, nodeAddress, nil)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -771,7 +771,7 @@ func TestTalosClusterClient_getNodeHealthDetails(t *testing.T) {
 		ctx := context.Background()
 		nodeAddress := "10.0.0.1"
 
-		healthy, healthyServices, unhealthyServices, err := client.getNodeHealthDetails(ctx, nodeAddress)
+		healthy, healthyServices, unhealthyServices, err := client.getNodeHealthDetails(ctx, nodeAddress, nil)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
