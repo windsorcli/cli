@@ -48,10 +48,11 @@ func NewTalosClusterClient() *TalosClusterClient {
 // It polls each node continuously, checking service health and version status until all nodes
 // meet the criteria or timeout occurs. For each node, it validates that all critical services
 // are running and healthy, and if expectedVersion is provided, verifies the node is running
-// that specific version. The method provides detailed status output for each node during polling,
-// showing healthy/unhealthy services and version information. Returns an error with specific
-// details about which nodes failed health checks or version validation if timeout is reached.
-func (c *TalosClusterClient) WaitForNodesHealthy(ctx context.Context, nodeAddresses []string, expectedVersion string) error {
+// that specific version. Services listed in skipServices are ignored during health checks.
+// The method provides detailed status output for each node during polling, showing healthy/unhealthy
+// services and version information. Returns an error with specific details about which nodes
+// failed health checks or version validation if timeout is reached.
+func (c *TalosClusterClient) WaitForNodesHealthy(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error {
 	if err := c.ensureClient(); err != nil {
 		return fmt.Errorf("failed to initialize Talos client: %w", err)
 	}
@@ -74,7 +75,7 @@ func (c *TalosClusterClient) WaitForNodesHealthy(ctx context.Context, nodeAddres
 			versionMismatchNodes = nil
 
 			for _, nodeAddress := range nodeAddresses {
-				healthy, healthyServices, unhealthyServices, err := c.getNodeHealthDetails(ctx, nodeAddress)
+				healthy, healthyServices, unhealthyServices, err := c.getNodeHealthDetails(ctx, nodeAddress, skipServices)
 				if err != nil {
 					fmt.Printf("Node %s: ERROR - %v\n", nodeAddress, err)
 					allReady = false
@@ -202,14 +203,20 @@ func (c *TalosClusterClient) ensureClient() error {
 // It creates a node-specific context targeting the given node address, then queries
 // the Talos ServiceList API to retrieve all services running on that node. For each
 // service, it checks both the running state and health status to determine if the
-// service is fully operational. Returns the overall node health status, lists of
-// healthy and unhealthy service names, and any error encountered during the API call.
-func (c *TalosClusterClient) getNodeHealthDetails(ctx context.Context, nodeAddress string) (bool, []string, []string, error) {
+// service is fully operational. Services listed in skipServices are excluded from
+// health checks. Returns the overall node health status, lists of healthy and
+// unhealthy service names, and any error encountered during the API call.
+func (c *TalosClusterClient) getNodeHealthDetails(ctx context.Context, nodeAddress string, skipServices []string) (bool, []string, []string, error) {
 	nodeCtx := c.shims.TalosWithNodes(ctx, nodeAddress)
 
 	serviceResp, err := c.shims.TalosServiceList(nodeCtx, c.client)
 	if err != nil {
 		return false, nil, nil, err
+	}
+
+	skipMap := make(map[string]bool)
+	for _, svc := range skipServices {
+		skipMap[svc] = true
 	}
 
 	var healthyServices []string
@@ -219,6 +226,10 @@ func (c *TalosClusterClient) getNodeHealthDetails(ctx context.Context, nodeAddre
 	for _, serviceList := range serviceResp.GetMessages() {
 		for _, service := range serviceList.GetServices() {
 			serviceName := service.GetId()
+
+			if skipMap[serviceName] {
+				continue
+			}
 
 			state := service.GetState()
 			health := service.GetHealth()

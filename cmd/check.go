@@ -12,11 +12,12 @@ import (
 )
 
 var (
-	nodeHealthTimeout time.Duration
-	nodeHealthNodes   []string
-	nodeHealthVersion string
-	k8sEndpoint       string
-	checkNodeReady    bool
+	nodeHealthTimeout      time.Duration
+	nodeHealthNodes        []string
+	nodeHealthVersion      string
+	k8sEndpoint            string
+	checkNodeReady         bool
+	nodeHealthSkipServices []string
 )
 
 var checkCmd = &cobra.Command{
@@ -111,6 +112,7 @@ var checkNodeHealthCmd = &cobra.Command{
 			K8SEndpoint:         k8sEndpointStr,
 			K8SEndpointProvided: k8sEndpoint != "" || checkNodeReady,
 			CheckNodeReady:      checkNodeReady,
+			SkipServices:        nodeHealthSkipServices,
 		}
 
 		if err := prov.CheckNodeHealth(cmd.Context(), options, outputFunc); err != nil {
@@ -132,4 +134,5 @@ func init() {
 	checkNodeHealthCmd.Flags().StringVar(&k8sEndpoint, "k8s-endpoint", "", "Perform Kubernetes API health check (use --k8s-endpoint or --k8s-endpoint=https://endpoint:6443)")
 	checkNodeHealthCmd.Flags().Lookup("k8s-endpoint").NoOptDefVal = "true"
 	checkNodeHealthCmd.Flags().BoolVar(&checkNodeReady, "ready", false, "Check Kubernetes node readiness status")
+	checkNodeHealthCmd.Flags().StringSliceVar(&nodeHealthSkipServices, "skip-services", []string{}, "Service names to ignore during health checks (e.g., dashboard)")
 }

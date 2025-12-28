@@ -17,7 +17,8 @@ import (
 type ClusterClient interface {
 	// WaitForNodesHealthy waits for nodes to be healthy and optionally match a specific version
 	// Polls until all nodes are healthy (and correct version if specified) or timeout
-	WaitForNodesHealthy(ctx context.Context, nodeAddresses []string, expectedVersion string) error
+	// skipServices is a list of service names to ignore during health checks
+	WaitForNodesHealthy(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error
 
 	// Close closes any open connections.
 	Close()
@@ -53,6 +54,6 @@ func (c *BaseClusterClient) Close() {
 }
 
 // WaitForNodesHealthy implements the default polling behavior for node health and version checks
-func (c *BaseClusterClient) WaitForNodesHealthy(ctx context.Context, nodeAddresses []string, expectedVersion string) error {
+func (c *BaseClusterClient) WaitForNodesHealthy(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error {
 	return fmt.Errorf("WaitForNodesHealthy not implemented")
 }

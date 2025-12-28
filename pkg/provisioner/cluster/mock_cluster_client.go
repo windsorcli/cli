@@ -16,7 +16,7 @@ import (
 // MockClusterClient is a mock implementation of the ClusterClient interface
 type MockClusterClient struct {
 	BaseClusterClient
-	WaitForNodesHealthyFunc func(ctx context.Context, nodeAddresses []string, expectedVersion string) error
+	WaitForNodesHealthyFunc func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error
 	CloseFunc               func()
 }
 
@@ -34,9 +34,9 @@ func NewMockClusterClient() *MockClusterClient {
 // =============================================================================
 
 // WaitForNodesHealthy calls the mock WaitForNodesHealthyFunc if set, otherwise returns nil
-func (m *MockClusterClient) WaitForNodesHealthy(ctx context.Context, nodeAddresses []string, expectedVersion string) error {
+func (m *MockClusterClient) WaitForNodesHealthy(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error {
 	if m.WaitForNodesHealthyFunc != nil {
-		return m.WaitForNodesHealthyFunc(ctx, nodeAddresses, expectedVersion)
+		return m.WaitForNodesHealthyFunc(ctx, nodeAddresses, expectedVersion, skipServices)
 	}
 	return nil
 }
