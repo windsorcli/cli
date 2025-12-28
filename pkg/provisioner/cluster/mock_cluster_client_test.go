@@ -15,12 +15,12 @@ func TestMockClusterClient_WaitForNodesHealthy(t *testing.T) {
 		// Given a mock with configured function
 		client := NewMockClusterClient()
 		errVal := fmt.Errorf("err")
-		client.WaitForNodesHealthyFunc = func(ctx context.Context, addresses []string, version string) error {
+		client.WaitForNodesHealthyFunc = func(ctx context.Context, addresses []string, version string, skipServices []string) error {
 			return errVal
 		}
 
 		// When calling WaitForNodesHealthy
-		err := client.WaitForNodesHealthy(context.Background(), []string{"10.0.0.1"}, "v1.0.0")
+		err := client.WaitForNodesHealthy(context.Background(), []string{"10.0.0.1"}, "v1.0.0", nil)
 
 		// Then it should return the expected error
 		if err != errVal {
@@ -33,7 +33,7 @@ func TestMockClusterClient_WaitForNodesHealthy(t *testing.T) {
 		client := NewMockClusterClient()
 
 		// When calling WaitForNodesHealthy
-		err := client.WaitForNodesHealthy(context.Background(), []string{"10.0.0.1"}, "v1.0.0")
+		err := client.WaitForNodesHealthy(context.Background(), []string{"10.0.0.1"}, "v1.0.0", nil)
 
 		// Then it should return nil
 		if err != nil {

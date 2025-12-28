@@ -245,7 +245,7 @@ func (i *Provisioner) CheckNodeHealth(ctx context.Context, options NodeHealthChe
 			}
 			defer cancel()
 
-			if err := i.ClusterClient.WaitForNodesHealthy(checkCtx, options.Nodes, options.Version); err != nil {
+			if err := i.ClusterClient.WaitForNodesHealthy(checkCtx, options.Nodes, options.Version, options.SkipServices); err != nil {
 				if hasK8sCheck {
 					if outputFunc != nil {
 						outputFunc(fmt.Sprintf("Warning: Cluster client failed (%v), continuing with Kubernetes checks\n", err))
@@ -337,6 +337,7 @@ type NodeHealthCheckOptions struct {
 	K8SEndpoint         string
 	K8SEndpointProvided bool
 	CheckNodeReady      bool
+	SkipServices        []string
 }
 
 // Close releases resources held by provisioner components.
