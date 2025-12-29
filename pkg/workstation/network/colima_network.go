@@ -96,10 +96,10 @@ func (n *ColimaNetworkManager) configureDockerForwarding(networkCIDR string) err
 	}
 
 	var dockerBridgeInterface string
-	interfaces := strings.Split(output, "\n")
-	for _, iface := range interfaces {
-		if strings.HasPrefix(iface, "br-") {
-			dockerBridgeInterface = iface
+	for iface := range strings.Split(output, "\n") {
+		name := strings.Split(output, "\n")[iface]
+		if strings.HasPrefix(name, "br-") {
+			dockerBridgeInterface = name
 			break
 		}
 	}
@@ -111,16 +111,17 @@ func (n *ColimaNetworkManager) configureDockerForwarding(networkCIDR string) err
 }
 
 // configureIncusNetwork configures the Incus bridge network with the specified CIDR
-// It calculates the gateway IP (first IP in the CIDR) and sets it on incusbr0
+// It calculates the gateway IP (first IP in the CIDR) and sets it on incusbr0 using the CIDR mask from the config
 func (n *ColimaNetworkManager) configureIncusNetwork(networkCIDR string) error {
 	_, ipNet, err := net.ParseCIDR(networkCIDR)
 	if err != nil {
 		return fmt.Errorf("error parsing network CIDR: %w", err)
 	}
 
+	ones, _ := ipNet.Mask.Size()
 	gatewayIP := incrementIP(ipNet.IP).String()
 	if _, err := n.secureShell.ExecSilent(
-		"incus", "network", "set", "incusbr0", fmt.Sprintf("ipv4.address=%s/24", gatewayIP),
+		"incus", "network", "set", "incusbr0", fmt.Sprintf("ipv4.address=%s/%d", gatewayIP, ones),
 	); err != nil {
 		return fmt.Errorf("error setting incus network address: %w", err)
 	}
