@@ -1045,9 +1045,13 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 
 	for _, feature := range features {
 		if feature.When != "" {
-			matches, err := evaluator.EvaluateExpression(feature.When, config, feature.Path)
+			result, err := evaluator.Evaluate(feature.When, config, feature.Path)
 			if err != nil {
 				return fmt.Errorf("failed to evaluate feature condition '%s': %w", feature.When, err)
+			}
+			matches, ok := result.(bool)
+			if !ok {
+				return fmt.Errorf("feature condition '%s' must evaluate to boolean, got %T", feature.When, result)
 			}
 			if !matches {
 				continue
@@ -1056,9 +1060,13 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 
 		for _, terraformComponent := range feature.TerraformComponents {
 			if terraformComponent.When != "" {
-				matches, err := evaluator.EvaluateExpression(terraformComponent.When, config, feature.Path)
+				result, err := evaluator.Evaluate(terraformComponent.When, config, feature.Path)
 				if err != nil {
 					return fmt.Errorf("failed to evaluate terraform component condition '%s': %w", terraformComponent.When, err)
+				}
+				matches, ok := result.(bool)
+				if !ok {
+					return fmt.Errorf("terraform component condition '%s' must evaluate to boolean, got %T", terraformComponent.When, result)
 				}
 				if !matches {
 					continue
@@ -1121,9 +1129,13 @@ func (b *BaseBlueprintHandler) processFeatures(templateData map[string][]byte, c
 
 		for _, kustomization := range feature.Kustomizations {
 			if kustomization.When != "" {
-				matches, err := evaluator.EvaluateExpression(kustomization.When, config, feature.Path)
+				result, err := evaluator.Evaluate(kustomization.When, config, feature.Path)
 				if err != nil {
 					return fmt.Errorf("failed to evaluate kustomization condition '%s': %w", kustomization.When, err)
+				}
+				matches, ok := result.(bool)
+				if !ok {
+					return fmt.Errorf("kustomization condition '%s' must evaluate to boolean, got %T", kustomization.When, result)
 				}
 				if !matches {
 					continue

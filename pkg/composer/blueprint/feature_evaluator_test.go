@@ -47,14 +47,16 @@ func TestNewFeatureEvaluator(t *testing.T) {
 // Test Public Methods
 // =============================================================================
 
-func TestFeatureEvaluator_EvaluateExpression(t *testing.T) {
+func TestFeatureEvaluator_Evaluate(t *testing.T) {
 	evaluator := setupFeatureEvaluator(t)
+	projectRoot := strings.ReplaceAll(evaluator.runtime.ProjectRoot, "\\", "/")
+	contextPath := "mock-config-root"
 
 	tests := []struct {
 		name        string
 		expression  string
 		config      map[string]any
-		expected    bool
+		expected    any
 		shouldError bool
 	}{
 		{
@@ -162,48 +164,6 @@ func TestFeatureEvaluator_EvaluateExpression(t *testing.T) {
 			config:      map[string]any{"provider": "aws"},
 			shouldError: true,
 		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := evaluator.EvaluateExpression(tt.expression, tt.config, "features/test.yaml")
-
-			if tt.shouldError {
-				if err == nil {
-					t.Errorf("Expected error for expression '%s', got none", tt.expression)
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("Expected no error for expression '%s', got %v", tt.expression, err)
-				return
-			}
-
-			if result != tt.expected {
-				t.Errorf("Expected %v for expression '%s' with config %v, got %v",
-					tt.expected, tt.expression, tt.config, result)
-			}
-		})
-	}
-}
-
-func TestFeatureEvaluator_EvaluateValue(t *testing.T) {
-	evaluator := setupFeatureEvaluator(t)
-
-	tests := []struct {
-		name        string
-		expression  string
-		config      map[string]any
-		expected    any
-		shouldError bool
-	}{
-		{
-			name:        "EmptyExpressionFails",
-			expression:  "",
-			config:      map[string]any{},
-			shouldError: true,
-		},
 		{
 			name:       "StringValue",
 			expression: "provider",
@@ -278,11 +238,35 @@ func TestFeatureEvaluator_EvaluateValue(t *testing.T) {
 			config:      map[string]any{},
 			shouldError: true,
 		},
+		{
+			name:       "ProjectRootVariable",
+			expression: "project_root",
+			config:     map[string]any{},
+			expected:   projectRoot,
+		},
+		{
+			name:       "ContextPathVariable",
+			expression: "context_path",
+			config:     map[string]any{},
+			expected:   contextPath,
+		},
+		{
+			name:       "ProjectRootInStringInterpolation",
+			expression: `project_root + "/config.yaml"`,
+			config:     map[string]any{},
+			expected:   projectRoot + "/config.yaml",
+		},
+		{
+			name:       "ContextPathInStringInterpolation",
+			expression: `context_path + "/blueprint.yaml"`,
+			config:     map[string]any{},
+			expected:   contextPath + "/blueprint.yaml",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := evaluator.EvaluateValue(tt.expression, tt.config, "features/test.yaml")
+			result, err := evaluator.Evaluate(tt.expression, tt.config, "features/test.yaml")
 
 			if tt.shouldError {
 				if err == nil {
@@ -297,8 +281,8 @@ func TestFeatureEvaluator_EvaluateValue(t *testing.T) {
 			}
 
 			if !deepEqual(result, tt.expected) {
-				t.Errorf("Expected %v (type: %T) for expression '%s', got %v (type: %T)",
-					tt.expected, tt.expected, tt.expression, result, result)
+				t.Errorf("Expected %v for expression '%s' with config %v, got %v",
+					tt.expected, tt.expression, tt.config, result)
 			}
 		})
 	}
@@ -906,7 +890,7 @@ func TestFeatureEvaluator_JsonnetFunction(t *testing.T) {
 		config := map[string]any{}
 
 		featurePath := filepath.Join(expectedDir, "test.yaml")
-		result, err := evaluator.EvaluateValue(`jsonnet("config.jsonnet")`, config, featurePath)
+		result, err := evaluator.Evaluate(`jsonnet("config.jsonnet")`, config, featurePath)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -962,7 +946,7 @@ func TestFeatureEvaluator_JsonnetFunction(t *testing.T) {
 		}
 
 		featurePath := filepath.Join(expectedDir, "test.yaml")
-		result, err := evaluator.EvaluateValue(`jsonnet("context-config.jsonnet")`, config, featurePath)
+		result, err := evaluator.Evaluate(`jsonnet("context-config.jsonnet")`, config, featurePath)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1015,7 +999,7 @@ func TestFeatureEvaluator_JsonnetFunction(t *testing.T) {
 		}
 
 		featurePath := filepath.Join(expectedDir, "test.yaml")
-		result, err := evaluator.EvaluateValue(`jsonnet("enriched-config.jsonnet")`, config, featurePath)
+		result, err := evaluator.Evaluate(`jsonnet("enriched-config.jsonnet")`, config, featurePath)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1062,7 +1046,7 @@ func TestFeatureEvaluator_JsonnetFunction(t *testing.T) {
 		config := map[string]any{}
 
 		featurePath := filepath.Join(tmpDir, "contexts", "_template", "features", "test.yaml")
-		result, err := evaluator.EvaluateValue(`jsonnet("configs/nested.jsonnet")`, config, featurePath)
+		result, err := evaluator.Evaluate(`jsonnet("configs/nested.jsonnet")`, config, featurePath)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1090,7 +1074,7 @@ func TestFeatureEvaluator_JsonnetFunction(t *testing.T) {
 		evaluator := NewFeatureEvaluator(rt)
 		config := map[string]any{}
 
-		_, err := evaluator.EvaluateValue(`jsonnet("nonexistent.jsonnet")`, config, "features/test.yaml")
+		_, err := evaluator.Evaluate(`jsonnet("nonexistent.jsonnet")`, config, "features/test.yaml")
 		if err == nil {
 			t.Fatal("Expected error for nonexistent file, got nil")
 		}
@@ -1118,7 +1102,7 @@ func TestFeatureEvaluator_JsonnetFunction(t *testing.T) {
 		evaluator := NewFeatureEvaluator(rt)
 		config := map[string]any{}
 
-		_, err := evaluator.EvaluateValue(`jsonnet("invalid.jsonnet")`, config, "features/test.yaml")
+		_, err := evaluator.Evaluate(`jsonnet("invalid.jsonnet")`, config, "features/test.yaml")
 		if err == nil {
 			t.Fatal("Expected error for invalid jsonnet, got nil")
 		}
@@ -1153,7 +1137,7 @@ func TestFeatureEvaluator_FileFunction(t *testing.T) {
 		evaluator := NewFeatureEvaluator(rt)
 
 		featurePath := filepath.Join(expectedDir, "test.yaml")
-		result, err := evaluator.EvaluateValue(`file("test.txt")`, map[string]any{}, featurePath)
+		result, err := evaluator.Evaluate(`file("test.txt")`, map[string]any{}, featurePath)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1196,7 +1180,7 @@ enabled: true`
 		evaluator := NewFeatureEvaluator(rt)
 
 		featurePath := filepath.Join(expectedDir, "test.yaml")
-		result, err := evaluator.EvaluateValue(`file("config.yaml")`, map[string]any{}, featurePath)
+		result, err := evaluator.Evaluate(`file("config.yaml")`, map[string]any{}, featurePath)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1223,7 +1207,7 @@ enabled: true`
 		}
 		evaluator := NewFeatureEvaluator(rt)
 
-		_, err := evaluator.EvaluateValue(`file("nonexistent.txt")`, map[string]any{}, "features/test.yaml")
+		_, err := evaluator.Evaluate(`file("nonexistent.txt")`, map[string]any{}, "features/test.yaml")
 		if err == nil {
 			t.Fatal("Expected error for nonexistent file, got nil")
 		}
@@ -1355,7 +1339,7 @@ func TestFeatureEvaluator_AbsolutePaths(t *testing.T) {
 		}
 		evaluator := NewFeatureEvaluator(rt)
 
-		result, err := evaluator.EvaluateValue(`jsonnet("`+strings.ReplaceAll(jsonnetPath, "\\", "\\\\")+`")`, map[string]any{}, "features/test.yaml")
+		result, err := evaluator.Evaluate(`jsonnet("`+strings.ReplaceAll(jsonnetPath, "\\", "\\\\")+`")`, map[string]any{}, "features/test.yaml")
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1391,7 +1375,7 @@ func TestFeatureEvaluator_PathResolution(t *testing.T) {
 		}
 		evaluator := NewFeatureEvaluator(rt)
 
-		result, err := evaluator.EvaluateValue(`jsonnet("config.jsonnet")`, map[string]any{}, "")
+		result, err := evaluator.Evaluate(`jsonnet("config.jsonnet")`, map[string]any{}, "")
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1426,7 +1410,7 @@ func TestFeatureEvaluator_PathResolution(t *testing.T) {
 		}
 		evaluator := NewFeatureEvaluator(rt)
 
-		result, err := evaluator.EvaluateValue(`jsonnet("`+strings.ReplaceAll(testFile, "\\", "\\\\")+`")`, map[string]any{}, "features/test.yaml")
+		result, err := evaluator.Evaluate(`jsonnet("`+strings.ReplaceAll(testFile, "\\", "\\\\")+`")`, map[string]any{}, "features/test.yaml")
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1482,7 +1466,7 @@ func TestFeatureEvaluator_PathResolution(t *testing.T) {
 		evaluator := NewFeatureEvaluator(rt)
 
 		featurePath := filepath.Join(featuresDir, "test.yaml")
-		result, err := evaluator.EvaluateValue(`jsonnet("config.jsonnet")`, map[string]any{}, featurePath)
+		result, err := evaluator.Evaluate(`jsonnet("config.jsonnet")`, map[string]any{}, featurePath)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1532,7 +1516,7 @@ func TestFeatureEvaluator_PathResolution(t *testing.T) {
 		evaluator := NewFeatureEvaluator(rt)
 
 		featurePath := filepath.Join(expectedDir, "test.yaml")
-		result, err := evaluator.EvaluateValue(`jsonnet("talos-dev.jsonnet").worker_config_patches`, map[string]any{}, featurePath)
+		result, err := evaluator.Evaluate(`jsonnet("talos-dev.jsonnet").worker_config_patches`, map[string]any{}, featurePath)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1588,7 +1572,7 @@ func TestFeatureEvaluator_PathResolution(t *testing.T) {
 		evaluator := NewFeatureEvaluator(rt)
 
 		featurePath := filepath.Join(expectedDir, "test.yaml")
-		result, err := evaluator.EvaluateValue(`jsonnet("nested.jsonnet").config.nested.deeply.value`, map[string]any{}, featurePath)
+		result, err := evaluator.Evaluate(`jsonnet("nested.jsonnet").config.nested.deeply.value`, map[string]any{}, featurePath)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1630,7 +1614,7 @@ func TestFeatureEvaluator_PathResolution(t *testing.T) {
 		evaluator := NewFeatureEvaluator(rt)
 
 		featurePath := filepath.Join(featuresDir, "test.yaml")
-		result, err := evaluator.EvaluateValue(`jsonnet("../configs/talos-dev.jsonnet").worker_config_patches`, map[string]any{}, featurePath)
+		result, err := evaluator.Evaluate(`jsonnet("../configs/talos-dev.jsonnet").worker_config_patches`, map[string]any{}, featurePath)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v\nFeatureDir: %s\nExpected file: %s", err, featuresDir, filepath.Join(configsDir, "talos-dev.jsonnet"))
 		}
@@ -1669,7 +1653,7 @@ func TestFeatureEvaluator_PathResolution(t *testing.T) {
 		}
 		evaluator := NewFeatureEvaluator(rt)
 
-		result, err := evaluator.EvaluateValue(`jsonnet("`+strings.ReplaceAll(testFile, "\\", "\\\\")+`")`, map[string]any{}, "features/test.yaml")
+		result, err := evaluator.Evaluate(`jsonnet("`+strings.ReplaceAll(testFile, "\\", "\\\\")+`")`, map[string]any{}, "features/test.yaml")
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -2020,7 +2004,7 @@ func TestFeatureEvaluator_buildExprEnvironment(t *testing.T) {
 	evaluator := setupFeatureEvaluator(t)
 
 	t.Run("HandlesJsonnetFunctionWithWrongNumberOfArguments", func(t *testing.T) {
-		_, err := evaluator.EvaluateValue("jsonnet()", map[string]any{}, "")
+		_, err := evaluator.Evaluate("jsonnet()", map[string]any{}, "")
 
 		if err == nil {
 			t.Fatal("Expected error when jsonnet() called with no arguments")
@@ -2031,7 +2015,7 @@ func TestFeatureEvaluator_buildExprEnvironment(t *testing.T) {
 	})
 
 	t.Run("HandlesJsonnetFunctionWithWrongType", func(t *testing.T) {
-		_, err := evaluator.EvaluateValue("jsonnet(123)", map[string]any{}, "")
+		_, err := evaluator.Evaluate("jsonnet(123)", map[string]any{}, "")
 
 		if err == nil {
 			t.Fatal("Expected error when jsonnet() called with non-string")
@@ -2042,7 +2026,7 @@ func TestFeatureEvaluator_buildExprEnvironment(t *testing.T) {
 	})
 
 	t.Run("HandlesFileFunctionWithWrongNumberOfArguments", func(t *testing.T) {
-		_, err := evaluator.EvaluateValue("file()", map[string]any{}, "")
+		_, err := evaluator.Evaluate("file()", map[string]any{}, "")
 
 		if err == nil {
 			t.Fatal("Expected error when file() called with no arguments")
@@ -2053,7 +2037,7 @@ func TestFeatureEvaluator_buildExprEnvironment(t *testing.T) {
 	})
 
 	t.Run("HandlesFileFunctionWithWrongType", func(t *testing.T) {
-		_, err := evaluator.EvaluateValue("file(123)", map[string]any{}, "")
+		_, err := evaluator.Evaluate("file(123)", map[string]any{}, "")
 
 		if err == nil {
 			t.Fatal("Expected error when file() called with non-string")
@@ -2064,7 +2048,7 @@ func TestFeatureEvaluator_buildExprEnvironment(t *testing.T) {
 	})
 
 	t.Run("HandlesSplitFunctionWithWrongNumberOfArguments", func(t *testing.T) {
-		_, err := evaluator.EvaluateValue("split('a')", map[string]any{}, "")
+		_, err := evaluator.Evaluate("split('a')", map[string]any{}, "")
 
 		if err == nil {
 			t.Fatal("Expected error when split() called with 1 argument")
@@ -2075,7 +2059,7 @@ func TestFeatureEvaluator_buildExprEnvironment(t *testing.T) {
 	})
 
 	t.Run("HandlesSplitFunctionWithWrongFirstArgumentType", func(t *testing.T) {
-		_, err := evaluator.EvaluateValue("split(123, ',')", map[string]any{}, "")
+		_, err := evaluator.Evaluate("split(123, ',')", map[string]any{}, "")
 
 		if err == nil {
 			t.Fatal("Expected error when split() called with non-string first argument")
@@ -2086,7 +2070,7 @@ func TestFeatureEvaluator_buildExprEnvironment(t *testing.T) {
 	})
 
 	t.Run("HandlesSplitFunctionWithWrongSecondArgumentType", func(t *testing.T) {
-		_, err := evaluator.EvaluateValue("split('a,b', 123)", map[string]any{}, "")
+		_, err := evaluator.Evaluate("split('a,b', 123)", map[string]any{}, "")
 
 		if err == nil {
 			t.Fatal("Expected error when split() called with non-string second argument")
@@ -2097,7 +2081,7 @@ func TestFeatureEvaluator_buildExprEnvironment(t *testing.T) {
 	})
 
 	t.Run("HandlesSplitFunctionSuccessfully", func(t *testing.T) {
-		result, err := evaluator.EvaluateValue("split('a,b,c', ',')", map[string]any{}, "")
+		result, err := evaluator.Evaluate("split('a,b,c', ',')", map[string]any{}, "")
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
