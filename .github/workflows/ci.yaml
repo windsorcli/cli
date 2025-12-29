@@ -47,7 +47,18 @@ jobs:
           aqua_version: v2.56.1
 
       - name: Install tools
-        run: aqua install
+        run: |
+          for i in {1..5}; do
+            if aqua install; then
+              exit 0
+            fi
+            if [ $i -lt 5 ]; then
+              echo "aqua install failed, retrying in $((i * 2)) seconds..."
+              sleep $((i * 2))
+            fi
+          done
+          echo "aqua install failed after 5 attempts"
+          exit 1
 
       - name: Cache Go Modules (Linux/macOS)
         if: ${{ matrix.os != 'windows-latest' }}
@@ -112,7 +123,18 @@ jobs:
           aqua_version: v2.56.1
 
       - name: Install tools
-        run: aqua install
+        run: |
+          for i in {1..5}; do
+            if aqua install; then
+              exit 0
+            fi
+            if [ $i -lt 5 ]; then
+              echo "aqua install failed, retrying in $((i * 2)) seconds..."
+              sleep $((i * 2))
+            fi
+          done
+          echo "aqua install failed after 5 attempts"
+          exit 1
 
       - name: Cache Go Modules
         uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
