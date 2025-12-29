@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/fluxcd/pkg/apis/kustomize"
+	"github.com/goccy/go-yaml"
 	"github.com/windsorcli/cli/pkg/constants"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func intPtr(i int) *int {
@@ -1800,9 +1800,9 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 	})
 
 	t.Run("WithAllFieldsSet", func(t *testing.T) {
-		interval := metav1.Duration{Duration: 5 * time.Minute}
-		retryInterval := metav1.Duration{Duration: 2 * time.Minute}
-		timeout := metav1.Duration{Duration: 10 * time.Minute}
+		interval := DurationString{Duration: 5 * time.Minute}
+		retryInterval := DurationString{Duration: 2 * time.Minute}
+		timeout := DurationString{Duration: 10 * time.Minute}
 		wait := true
 		force := false
 		prune := true
@@ -2046,7 +2046,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 	})
 
 	t.Run("WithZeroIntervalUsesDefault", func(t *testing.T) {
-		zeroInterval := metav1.Duration{Duration: 0}
+		zeroInterval := DurationString{Duration: 0}
 		kustomization := &Kustomization{
 			Name:     "test-kustomization",
 			Path:     "test/path",
@@ -2274,9 +2274,9 @@ func TestTerraformComponent_GetID(t *testing.T) {
 
 func TestKustomization_DeepCopy(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		interval := metav1.Duration{Duration: 5 * time.Minute}
-		retryInterval := metav1.Duration{Duration: 2 * time.Minute}
-		timeout := metav1.Duration{Duration: 10 * time.Minute}
+		interval := DurationString{Duration: 5 * time.Minute}
+		retryInterval := DurationString{Duration: 2 * time.Minute}
+		timeout := DurationString{Duration: 10 * time.Minute}
 		wait := true
 		force := false
 		prune := true
@@ -2542,6 +2542,84 @@ func TestBlueprint_validateTerraformComponents(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "duplicate") {
 			t.Errorf("Expected error message to contain 'duplicate', got '%s'", err.Error())
+		}
+	})
+}
+
+func TestKustomization_UnmarshalYAML(t *testing.T) {
+	t.Run("UnmarshalsDurationStrings", func(t *testing.T) {
+		yamlData := []byte(`name: test-kustomization
+path: test/path
+interval: 5m
+retryInterval: 2m
+timeout: 10m
+`)
+
+		var k Kustomization
+		err := yaml.Unmarshal(yamlData, &k)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal Kustomization with duration strings: %v", err)
+		}
+
+		if k.Name != "test-kustomization" {
+			t.Errorf("Expected Name 'test-kustomization', got %q", k.Name)
+		}
+		if k.Path != "test/path" {
+			t.Errorf("Expected Path 'test/path', got %q", k.Path)
+		}
+
+		if k.Interval == nil {
+			t.Error("Expected Interval to be set, got nil")
+		} else if k.Interval.Duration != 5*time.Minute {
+			t.Errorf("Expected Interval duration 5m, got %v", k.Interval.Duration)
+		}
+
+		if k.RetryInterval == nil {
+			t.Error("Expected RetryInterval to be set, got nil")
+		} else if k.RetryInterval.Duration != 2*time.Minute {
+			t.Errorf("Expected RetryInterval duration 2m, got %v", k.RetryInterval.Duration)
+		}
+
+		if k.Timeout == nil {
+			t.Error("Expected Timeout to be set, got nil")
+		} else if k.Timeout.Duration != 10*time.Minute {
+			t.Errorf("Expected Timeout duration 10m, got %v", k.Timeout.Duration)
+		}
+	})
+
+	t.Run("UnmarshalsDurationObjects", func(t *testing.T) {
+		yamlData := []byte(`name: test-kustomization
+path: test/path
+interval:
+  duration: 5m0s
+retryInterval:
+  duration: 2m0s
+timeout:
+  duration: 10m0s
+`)
+
+		var k Kustomization
+		err := yaml.Unmarshal(yamlData, &k)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal Kustomization with duration objects: %v", err)
+		}
+
+		if k.Interval == nil {
+			t.Error("Expected Interval to be set, got nil")
+		} else if k.Interval.Duration != 5*time.Minute {
+			t.Errorf("Expected Interval duration 5m, got %v", k.Interval.Duration)
+		}
+
+		if k.RetryInterval == nil {
+			t.Error("Expected RetryInterval to be set, got nil")
+		} else if k.RetryInterval.Duration != 2*time.Minute {
+			t.Errorf("Expected RetryInterval duration 2m, got %v", k.RetryInterval.Duration)
+		}
+
+		if k.Timeout == nil {
+			t.Error("Expected Timeout to be set, got nil")
+		} else if k.Timeout.Duration != 10*time.Minute {
+			t.Errorf("Expected Timeout duration 10m, got %v", k.Timeout.Duration)
 		}
 	})
 }

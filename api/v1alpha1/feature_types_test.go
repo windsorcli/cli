@@ -2,9 +2,9 @@ package v1alpha1
 
 import (
 	"testing"
+	"time"
 
 	"github.com/goccy/go-yaml"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestFeatureDeepCopy(t *testing.T) {
@@ -145,7 +145,7 @@ func TestConditionalKustomizationDeepCopy(t *testing.T) {
 	})
 
 	t.Run("CreatesDeepCopyOfConditionalKustomization", func(t *testing.T) {
-		interval := &metav1.Duration{}
+		interval := &DurationString{}
 		original := &ConditionalKustomization{
 			Kustomization: Kustomization{
 				Name:       "ingress",
@@ -247,6 +247,50 @@ func TestFeatureYAMLTags(t *testing.T) {
 		}
 		if len(out.Kustomizations) != len(feature.Kustomizations) {
 			t.Errorf("Expected %d Kustomizations, got %d after YAML unmarshal", len(feature.Kustomizations), len(out.Kustomizations))
+		}
+	})
+
+	t.Run("FeatureUnmarshalsDurationStrings", func(t *testing.T) {
+		featureYAML := []byte(`kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: test-feature
+  description: Test feature with durations
+kustomize:
+  - name: test-kustomization
+    path: test/path
+    interval: 5m
+    retryInterval: 2m
+    timeout: 10m
+`)
+
+		var feature Feature
+		err := yaml.Unmarshal(featureYAML, &feature)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal Feature with duration strings: %v", err)
+		}
+
+		if len(feature.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(feature.Kustomizations))
+		}
+
+		k := feature.Kustomizations[0]
+		if k.Interval == nil {
+			t.Error("Expected Interval to be set, got nil")
+		} else if k.Interval.Duration != 5*time.Minute {
+			t.Errorf("Expected Interval duration 5m, got %v", k.Interval.Duration)
+		}
+
+		if k.RetryInterval == nil {
+			t.Error("Expected RetryInterval to be set, got nil")
+		} else if k.RetryInterval.Duration != 2*time.Minute {
+			t.Errorf("Expected RetryInterval duration 2m, got %v", k.RetryInterval.Duration)
+		}
+
+		if k.Timeout == nil {
+			t.Error("Expected Timeout to be set, got nil")
+		} else if k.Timeout.Duration != 10*time.Minute {
+			t.Errorf("Expected Timeout duration 10m, got %v", k.Timeout.Duration)
 		}
 	})
 }

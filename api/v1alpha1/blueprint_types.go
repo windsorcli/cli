@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	"github.com/fluxcd/pkg/apis/kustomize"
@@ -17,6 +18,71 @@ import (
 // =============================================================================
 // Types
 // =============================================================================
+
+// DurationString represents a duration that marshals/unmarshals as a string (e.g., "5m").
+// It can be converted to metav1.Duration for use with Kubernetes APIs.
+type DurationString struct {
+	Duration time.Duration
+}
+
+// MarshalYAML implements yaml.Marshaler to write duration as a string.
+func (d *DurationString) MarshalYAML() (any, error) {
+	if d == nil || d.Duration == 0 {
+		return nil, nil
+	}
+	return d.Duration.String(), nil
+}
+
+// UnmarshalYAML implements yaml.Unmarshaler to read duration from a string or object.
+func (d *DurationString) UnmarshalYAML(unmarshal func(any) error) error {
+	var s string
+	if err := unmarshal(&s); err == nil {
+		if s == "" {
+			d.Duration = 0
+			return nil
+		}
+		dur, err := time.ParseDuration(s)
+		if err != nil {
+			return fmt.Errorf("invalid duration %q: %w", s, err)
+		}
+		d.Duration = dur
+		return nil
+	}
+
+	var obj map[string]any
+	if err := unmarshal(&obj); err != nil {
+		return err
+	}
+	if durationStr, ok := obj["duration"].(string); ok {
+		if durationStr == "" {
+			d.Duration = 0
+			return nil
+		}
+		dur, err := time.ParseDuration(durationStr)
+		if err != nil {
+			return fmt.Errorf("invalid duration %q: %w", durationStr, err)
+		}
+		d.Duration = dur
+		return nil
+	}
+	return fmt.Errorf("duration must be a string or an object with a 'duration' field")
+}
+
+// ToMetaV1Duration converts DurationString to *metav1.Duration.
+func (d *DurationString) ToMetaV1Duration() *metav1.Duration {
+	if d == nil || d.Duration == 0 {
+		return nil
+	}
+	return &metav1.Duration{Duration: d.Duration}
+}
+
+// FromMetaV1Duration creates a DurationString from *metav1.Duration.
+func FromMetaV1Duration(d *metav1.Duration) *DurationString {
+	if d == nil || d.Duration == 0 {
+		return nil
+	}
+	return &DurationString{Duration: d.Duration}
+}
 
 // Blueprint is a configuration blueprint for initializing a project.
 type Blueprint struct {
@@ -201,13 +267,13 @@ type Kustomization struct {
 	DependsOn []string `yaml:"dependsOn,omitempty"`
 
 	// Interval for applying the kustomization.
-	Interval *metav1.Duration `yaml:"interval,omitempty"`
+	Interval *DurationString `yaml:"interval,omitempty"`
 
 	// RetryInterval before retrying a failed kustomization.
-	RetryInterval *metav1.Duration `yaml:"retryInterval,omitempty"`
+	RetryInterval *DurationString `yaml:"retryInterval,omitempty"`
 
 	// Timeout for the kustomization to complete.
-	Timeout *metav1.Duration `yaml:"timeout,omitempty"`
+	Timeout *DurationString `yaml:"timeout,omitempty"`
 
 	// Patches to apply to the kustomization.
 	Patches []BlueprintPatch `yaml:"patches,omitempty"`
@@ -587,17 +653,17 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 
 	interval := metav1.Duration{Duration: constants.DefaultFluxKustomizationInterval}
 	if k.Interval != nil && k.Interval.Duration != 0 {
-		interval = *k.Interval
+		interval = metav1.Duration{Duration: k.Interval.Duration}
 	}
 
 	retryInterval := metav1.Duration{Duration: constants.DefaultFluxKustomizationRetryInterval}
 	if k.RetryInterval != nil && k.RetryInterval.Duration != 0 {
-		retryInterval = *k.RetryInterval
+		retryInterval = metav1.Duration{Duration: k.RetryInterval.Duration}
 	}
 
 	timeout := metav1.Duration{Duration: constants.DefaultFluxKustomizationTimeout}
 	if k.Timeout != nil && k.Timeout.Duration != 0 {
-		timeout = *k.Timeout
+		timeout = metav1.Duration{Duration: k.Timeout.Duration}
 	}
 
 	wait := constants.DefaultFluxKustomizationWait
@@ -758,6 +824,10 @@ func (b *Blueprint) strategicMergeTerraformComponent(component TerraformComponen
 // Patches from the provided kustomization are appended to existing patches.
 // Returns an error if a dependency cycle is detected during sorting.
 func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) error {
+	if kustomization.Name == "" {
+		return nil
+	}
+
 	for i, existing := range b.Kustomizations {
 		if existing.Name == kustomization.Name {
 			for _, component := range kustomization.Components {
@@ -779,6 +849,15 @@ func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) err
 			}
 			if kustomization.Destroy != nil {
 				existing.Destroy = kustomization.Destroy
+			}
+			if kustomization.Interval != nil {
+				existing.Interval = kustomization.Interval
+			}
+			if kustomization.RetryInterval != nil {
+				existing.RetryInterval = kustomization.RetryInterval
+			}
+			if kustomization.Timeout != nil {
+				existing.Timeout = kustomization.Timeout
 			}
 			if len(kustomization.Patches) > 0 {
 				existing.Patches = append(existing.Patches, kustomization.Patches...)

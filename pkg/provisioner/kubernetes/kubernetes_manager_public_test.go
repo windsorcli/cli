@@ -357,7 +357,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{
 					Name: "test-kustomization",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: 200 * time.Millisecond,
 					},
 				},
@@ -393,7 +393,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{
 					Name: "test-kustomization",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: 50 * time.Millisecond,
 					},
 				},
@@ -420,7 +420,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{
 					Name: "test-kustomization",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: 50 * time.Millisecond,
 					},
 				},
@@ -460,7 +460,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{
 					Name: "test-kustomization",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: 50 * time.Millisecond,
 					},
 				},
@@ -489,7 +489,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{
 					Name: "test-kustomization",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: 50 * time.Millisecond,
 					},
 				},
@@ -525,7 +525,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{
 					Name: "test-kustomization",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: 50 * time.Millisecond,
 					},
 				},
@@ -561,7 +561,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{
 					Name: "test-kustomization",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: 50 * time.Millisecond,
 					},
 				},
@@ -599,13 +599,13 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{
 					Name: "k1",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: timeout1,
 					},
 				},
 				{
 					Name: "k2",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: timeout2,
 					},
 					DependsOn: []string{"k1"},
