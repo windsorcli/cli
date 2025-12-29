@@ -19,7 +19,6 @@ import (
 
 	"github.com/fluxcd/pkg/apis/kustomize"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // The BlueprintHandler is a core component that manages infrastructure and application configurations
@@ -217,6 +216,9 @@ func (b *BaseBlueprintHandler) Write(overwrite ...bool) error {
 	}
 	for i := range cleanedBlueprint.Kustomizations {
 		cleanedBlueprint.Kustomizations[i].Patches = nil
+		cleanedBlueprint.Kustomizations[i].Interval = nil
+		cleanedBlueprint.Kustomizations[i].RetryInterval = nil
+		cleanedBlueprint.Kustomizations[i].Timeout = nil
 	}
 
 	data, err := b.shims.YamlMarshal(cleanedBlueprint)
@@ -260,13 +262,13 @@ func (b *BaseBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
 			generated.Kustomizations[i].Path = "kustomize/" + strings.ReplaceAll(generated.Kustomizations[i].Path, "\\", "/")
 		}
 		if generated.Kustomizations[i].Interval == nil || generated.Kustomizations[i].Interval.Duration == 0 {
-			generated.Kustomizations[i].Interval = &metav1.Duration{Duration: constants.DefaultFluxKustomizationInterval}
+			generated.Kustomizations[i].Interval = &blueprintv1alpha1.DurationString{Duration: constants.DefaultFluxKustomizationInterval}
 		}
 		if generated.Kustomizations[i].RetryInterval == nil || generated.Kustomizations[i].RetryInterval.Duration == 0 {
-			generated.Kustomizations[i].RetryInterval = &metav1.Duration{Duration: constants.DefaultFluxKustomizationRetryInterval}
+			generated.Kustomizations[i].RetryInterval = &blueprintv1alpha1.DurationString{Duration: constants.DefaultFluxKustomizationRetryInterval}
 		}
 		if generated.Kustomizations[i].Timeout == nil || generated.Kustomizations[i].Timeout.Duration == 0 {
-			generated.Kustomizations[i].Timeout = &metav1.Duration{Duration: constants.DefaultFluxKustomizationTimeout}
+			generated.Kustomizations[i].Timeout = &blueprintv1alpha1.DurationString{Duration: constants.DefaultFluxKustomizationTimeout}
 		}
 		if generated.Kustomizations[i].Wait == nil {
 			defaultWait := constants.DefaultFluxKustomizationWait
@@ -914,13 +916,13 @@ func (b *BaseBlueprintHandler) getKustomizations() []blueprintv1alpha1.Kustomiza
 		}
 
 		if kustomizations[i].Interval == nil || kustomizations[i].Interval.Duration == 0 {
-			kustomizations[i].Interval = &metav1.Duration{Duration: constants.DefaultFluxKustomizationInterval}
+			kustomizations[i].Interval = &blueprintv1alpha1.DurationString{Duration: constants.DefaultFluxKustomizationInterval}
 		}
 		if kustomizations[i].RetryInterval == nil || kustomizations[i].RetryInterval.Duration == 0 {
-			kustomizations[i].RetryInterval = &metav1.Duration{Duration: constants.DefaultFluxKustomizationRetryInterval}
+			kustomizations[i].RetryInterval = &blueprintv1alpha1.DurationString{Duration: constants.DefaultFluxKustomizationRetryInterval}
 		}
 		if kustomizations[i].Timeout == nil || kustomizations[i].Timeout.Duration == 0 {
-			kustomizations[i].Timeout = &metav1.Duration{Duration: constants.DefaultFluxKustomizationTimeout}
+			kustomizations[i].Timeout = &blueprintv1alpha1.DurationString{Duration: constants.DefaultFluxKustomizationTimeout}
 		}
 		if kustomizations[i].Wait == nil {
 			defaultWait := constants.DefaultFluxKustomizationWait

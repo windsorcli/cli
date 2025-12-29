@@ -10,7 +10,6 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
@@ -503,7 +502,7 @@ func TestBaseKubernetesManager_calculateTotalWaitTime(t *testing.T) {
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{
 					Name: "k1",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: customTimeout,
 					},
 				},
@@ -522,7 +521,7 @@ func TestBaseKubernetesManager_calculateTotalWaitTime(t *testing.T) {
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{
 					Name: "k1",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: 0,
 					},
 				},
@@ -544,13 +543,13 @@ func TestBaseKubernetesManager_calculateTotalWaitTime(t *testing.T) {
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{
 					Name: "k1",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: timeout1,
 					},
 				},
 				{
 					Name: "k2",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: timeout2,
 					},
 					DependsOn: []string{"k1"},
@@ -575,27 +574,27 @@ func TestBaseKubernetesManager_calculateTotalWaitTime(t *testing.T) {
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{
 					Name: "k1",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: timeout1,
 					},
 				},
 				{
 					Name: "k2",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: timeout2,
 					},
 					DependsOn: []string{"k1"},
 				},
 				{
 					Name: "k3",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: timeout3,
 					},
 					DependsOn: []string{"k2"},
 				},
 				{
 					Name: "k4",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: timeout4,
 					},
 					DependsOn: []string{"k3"},
@@ -620,26 +619,26 @@ func TestBaseKubernetesManager_calculateTotalWaitTime(t *testing.T) {
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{
 					Name: "k1",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: timeout1,
 					},
 				},
 				{
 					Name: "k2",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: timeout2,
 					},
 					DependsOn: []string{"k1"},
 				},
 				{
 					Name: "k3",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: timeout3,
 					},
 				},
 				{
 					Name: "k4",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: timeout4,
 					},
 					DependsOn: []string{"k3"},
@@ -669,27 +668,27 @@ func TestBaseKubernetesManager_calculateTotalWaitTime(t *testing.T) {
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{
 					Name: "k1",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: timeout1,
 					},
 				},
 				{
 					Name: "k2",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: timeout2,
 					},
 					DependsOn: []string{"k1"},
 				},
 				{
 					Name: "k3",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: timeout3,
 					},
 					DependsOn: []string{"k1"},
 				},
 				{
 					Name: "k4",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: timeout4,
 					},
 					DependsOn: []string{"k2", "k3"},
@@ -719,7 +718,7 @@ func TestBaseKubernetesManager_calculateTotalWaitTime(t *testing.T) {
 				},
 				{
 					Name: "k2",
-					Timeout: &metav1.Duration{
+					Timeout: &blueprintv1alpha1.DurationString{
 						Duration: customTimeout,
 					},
 					DependsOn: []string{"k1"},
