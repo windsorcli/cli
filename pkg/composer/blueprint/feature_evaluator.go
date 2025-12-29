@@ -55,55 +55,37 @@ func (e *FeatureEvaluator) SetTemplateData(templateData map[string][]byte) {
 // Public Methods
 // =============================================================================
 
-// EvaluateExpression evaluates an expression string against the provided configuration data.
-// The expression should use simple comparison syntax supported by expr:
-// - Equality/inequality: ==, !=
-// - Logical operators: &&, ||
-// - Parentheses for grouping: (expression)
-// - Nested object access: provider, observability.enabled, vm.driver
-// The featurePath is used to resolve relative paths in jsonnet() and file() functions.
-// Returns true if the expression evaluates to true, false otherwise.
-func (e *FeatureEvaluator) EvaluateExpression(expression string, config map[string]any, featurePath string) (bool, error) {
-	if expression == "" {
-		return false, fmt.Errorf("expression cannot be empty")
-	}
-
-	program, err := expr.Compile(expression)
-	if err != nil {
-		return false, fmt.Errorf("failed to compile expression '%s': %w", expression, err)
-	}
-
-	result, err := expr.Run(program, config)
-	if err != nil {
-		return false, fmt.Errorf("failed to evaluate expression '%s': %w", expression, err)
-	}
-
-	boolResult, ok := result.(bool)
-	if !ok {
-		return false, fmt.Errorf("expression '%s' must evaluate to boolean, got %T", expression, result)
-	}
-
-	return boolResult, nil
-}
-
-// EvaluateValue evaluates an expression and returns the result as any type.
+// Evaluate evaluates an expression and returns the result as any type.
 // Supports arithmetic, string operations, array construction, and nested object access.
 // Also supports file loading functions: jsonnet("path") and file("path").
 // The featurePath is used to resolve relative paths in jsonnet() and file() functions.
 // Returns the evaluated value or an error if evaluation fails.
-func (e *FeatureEvaluator) EvaluateValue(expression string, config map[string]any, featurePath string) (any, error) {
+func (e *FeatureEvaluator) Evaluate(expression string, config map[string]any, featurePath string) (any, error) {
 	if expression == "" {
 		return nil, fmt.Errorf("expression cannot be empty")
 	}
 
-	env := e.buildExprEnvironment(config, featurePath)
+	enrichedConfig := make(map[string]any)
+	maps.Copy(enrichedConfig, config)
+	if e.runtime != nil {
+		if e.runtime.ProjectRoot != "" {
+			enrichedConfig["project_root"] = strings.ReplaceAll(e.runtime.ProjectRoot, "\\", "/")
+		}
+		if e.runtime.ConfigHandler != nil {
+			if configRoot, err := e.runtime.ConfigHandler.GetConfigRoot(); err == nil {
+				enrichedConfig["context_path"] = strings.ReplaceAll(configRoot, "\\", "/")
+			}
+		}
+	}
+
+	env := e.buildExprEnvironment(enrichedConfig, featurePath)
 
 	program, err := expr.Compile(expression, env...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile expression '%s': %w", expression, err)
 	}
 
-	result, err := expr.Run(program, config)
+	result, err := expr.Run(program, enrichedConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate expression '%s': %w", expression, err)
 	}
@@ -136,9 +118,13 @@ func (e *FeatureEvaluator) EvaluateDefaults(defaults map[string]any, config map[
 // and substitutions for Kustomizations are evaluated and updated; nil values from evaluated inputs are omitted.
 func (e *FeatureEvaluator) ProcessFeature(feature *v1alpha1.Feature, config map[string]any) (*v1alpha1.Feature, error) {
 	if feature.When != "" {
-		matches, err := e.EvaluateExpression(feature.When, config, feature.Path)
+		result, err := e.Evaluate(feature.When, config, feature.Path)
 		if err != nil {
 			return nil, fmt.Errorf("failed to evaluate feature condition '%s': %w", feature.When, err)
+		}
+		matches, ok := result.(bool)
+		if !ok {
+			return nil, fmt.Errorf("feature condition '%s' must evaluate to boolean, got %T", feature.When, result)
 		}
 		if !matches {
 			return nil, nil
@@ -150,9 +136,13 @@ func (e *FeatureEvaluator) ProcessFeature(feature *v1alpha1.Feature, config map[
 	var processedTerraformComponents []v1alpha1.ConditionalTerraformComponent
 	for _, terraformComponent := range processedFeature.TerraformComponents {
 		if terraformComponent.When != "" {
-			matches, err := e.EvaluateExpression(terraformComponent.When, config, feature.Path)
+			result, err := e.Evaluate(terraformComponent.When, config, feature.Path)
 			if err != nil {
 				return nil, fmt.Errorf("failed to evaluate terraform component condition '%s': %w", terraformComponent.When, err)
+			}
+			matches, ok := result.(bool)
+			if !ok {
+				return nil, fmt.Errorf("terraform component condition '%s' must evaluate to boolean, got %T", terraformComponent.When, result)
 			}
 			if !matches {
 				continue
@@ -181,9 +171,13 @@ func (e *FeatureEvaluator) ProcessFeature(feature *v1alpha1.Feature, config map[
 	var processedKustomizations []v1alpha1.ConditionalKustomization
 	for _, kustomization := range processedFeature.Kustomizations {
 		if kustomization.When != "" {
-			matches, err := e.EvaluateExpression(kustomization.When, config, feature.Path)
+			result, err := e.Evaluate(kustomization.When, config, feature.Path)
 			if err != nil {
 				return nil, fmt.Errorf("failed to evaluate kustomization condition '%s': %w", kustomization.When, err)
+			}
+			matches, ok := result.(bool)
+			if !ok {
+				return nil, fmt.Errorf("kustomization condition '%s' must evaluate to boolean, got %T", kustomization.When, result)
 			}
 			if !matches {
 				continue
@@ -336,7 +330,7 @@ func (e *FeatureEvaluator) evaluateDefaultValue(value any, config map[string]any
 	switch v := value.(type) {
 	case string:
 		if expr := e.extractExpression(v); expr != "" {
-			return e.EvaluateValue(expr, config, featurePath)
+			return e.Evaluate(expr, config, featurePath)
 		}
 		if strings.Contains(v, "${") {
 			return e.InterpolateString(v, config, featurePath)
@@ -409,7 +403,7 @@ func (e *FeatureEvaluator) InterpolateString(s string, config map[string]any, fe
 		end += start
 		expr := result[start+2 : end]
 
-		value, err := e.EvaluateValue(expr, config, featurePath)
+		value, err := e.Evaluate(expr, config, featurePath)
 		if err != nil {
 			return "", fmt.Errorf("failed to evaluate expression '${%s}': %w", expr, err)
 		}
