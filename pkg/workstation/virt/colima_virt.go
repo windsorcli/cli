@@ -183,10 +183,6 @@ func (v *ColimaVirt) WriteConfig() error {
 				BridgeInterface: "",
 				PreferredRoute:  false,
 			}
-			if vmRuntime == "incus" {
-				network.HostAddresses = true
-				network.Mode = "bridged"
-			}
 			return network
 		}(),
 		ForwardAgent:         false,
@@ -327,9 +323,6 @@ func (v *ColimaVirt) startColima() (VMInfo, error) {
 			continue
 		}
 		if info.Address != "" {
-			return info, nil
-		}
-		if vmRuntime == "incus" {
 			return info, nil
 		}
 		time.Sleep(time.Duration(RETRY_WAIT*(i+1)) * time.Second)

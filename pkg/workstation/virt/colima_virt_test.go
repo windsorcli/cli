@@ -554,14 +554,11 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		if !capturedConfig.NestedVirtualization {
 			t.Error("Expected NestedVirtualization to be true in incus mode")
 		}
-		if !capturedConfig.Network.HostAddresses {
-			t.Error("Expected Network.HostAddresses to be true in incus mode")
-		}
 		if !capturedConfig.Network.Address {
 			t.Error("Expected Network.Address to be true in incus mode")
 		}
-		if capturedConfig.Network.Mode != "bridged" {
-			t.Errorf("Expected Network.Mode to be 'bridged' in incus mode, got %s", capturedConfig.Network.Mode)
+		if capturedConfig.Network.Mode != "shared" {
+			t.Errorf("Expected Network.Mode to be 'shared' in incus mode, got %s", capturedConfig.Network.Mode)
 		}
 	})
 }
