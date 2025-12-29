@@ -129,38 +129,44 @@ func (t *BaseToolsManager) Check() error {
 
 // checkDocker ensures Docker and Docker Compose are available in the system's PATH using execLookPath and shell.ExecSilent.
 // It checks for 'docker', 'docker-compose', 'docker-cli-plugin-docker-compose', or 'docker compose'.
+// When in Colima mode, skips daemon-dependent checks since the Docker daemon may not be running yet.
 // Returns nil if any are found, else an error indicating Docker Compose is not available in the PATH.
 func (t *BaseToolsManager) checkDocker() error {
 	if _, err := execLookPath("docker"); err != nil {
 		return fmt.Errorf("docker is not available in the PATH")
 	}
 
-	output, err := t.shell.ExecSilentWithTimeout("docker", []string{"version", "--format", "{{.Client.Version}}"}, 5*time.Second)
-	if err != nil {
-		return fmt.Errorf("docker version check failed: %v", err)
-	}
-	dockerVersion := extractVersion(output)
-	if dockerVersion != "" && compareVersion(dockerVersion, constants.MinimumVersionDocker) < 0 {
-		return fmt.Errorf("docker version %s is below the minimum required version %s", dockerVersion, constants.MinimumVersionDocker)
+	isColimaMode := t.configHandler.GetString("vm.driver") == "colima"
+
+	if !isColimaMode {
+		output, err := t.shell.ExecSilentWithTimeout("docker", []string{"version", "--format", "{{.Client.Version}}"}, 5*time.Second)
+		if err != nil {
+			return fmt.Errorf("docker version check failed: %v", err)
+		}
+		dockerVersion := extractVersion(output)
+		if dockerVersion != "" && compareVersion(dockerVersion, constants.MinimumVersionDocker) < 0 {
+			return fmt.Errorf("docker version %s is below the minimum required version %s", dockerVersion, constants.MinimumVersionDocker)
+		}
 	}
 
 	var dockerComposeVersion string
 
-	output, err = t.shell.ExecSilentWithTimeout("docker", []string{"compose", "version", "--short"}, 5*time.Second)
-	if err == nil {
-		dockerComposeVersion = extractVersion(output)
+	if !isColimaMode {
+		output, err := t.shell.ExecSilentWithTimeout("docker", []string{"compose", "version", "--short"}, 5*time.Second)
+		if err == nil {
+			dockerComposeVersion = extractVersion(output)
+		}
 	}
 
 	if dockerComposeVersion == "" {
 		if _, err := execLookPath("docker-compose"); err == nil {
-			output, err = t.shell.ExecSilentWithTimeout("docker-compose", []string{"version", "--short"}, 5*time.Second)
+			output, err := t.shell.ExecSilentWithTimeout("docker-compose", []string{"version", "--short"}, 5*time.Second)
 			if err == nil {
 				dockerComposeVersion = extractVersion(output)
 			}
 		}
 	}
 
-	// Validate the collected docker-compose version
 	if dockerComposeVersion != "" {
 		if compareVersion(dockerComposeVersion, constants.MinimumVersionDockerCompose) >= 0 {
 			return nil

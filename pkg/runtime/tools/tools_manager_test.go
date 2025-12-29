@@ -610,6 +610,37 @@ func TestToolsManager_checkDocker(t *testing.T) {
 			t.Errorf("Expected docker-compose not available error, got %v", err)
 		}
 	})
+
+	t.Run("ColimaModeSkipsDaemonChecks", func(t *testing.T) {
+		// When in Colima mode and docker daemon is not running
+		mocks, toolsManager := setup(t)
+		mocks.ConfigHandler.Set("vm.driver", "colima")
+		daemonCheckCalled := false
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+			if name == "docker" && args[0] == "version" {
+				daemonCheckCalled = true
+				return "", fmt.Errorf("Cannot connect to the Docker daemon")
+			}
+			if name == "docker-compose" && args[0] == "version" {
+				return fmt.Sprintf("docker-compose version %s", constants.MinimumVersionDockerCompose), nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+		execLookPath = func(name string) (string, error) {
+			if name == "docker" || name == "docker-compose" {
+				return "/usr/bin/" + name, nil
+			}
+			return "", fmt.Errorf("not found")
+		}
+		err := toolsManager.checkDocker()
+		// Then no error should be returned and daemon check should be skipped
+		if err != nil {
+			t.Errorf("Expected checkDocker to succeed in Colima mode, but got error: %v", err)
+		}
+		if daemonCheckCalled {
+			t.Errorf("Expected docker daemon check to be skipped in Colima mode, but it was called")
+		}
+	})
 }
 
 // Tests for Colima and Limactl version validation
