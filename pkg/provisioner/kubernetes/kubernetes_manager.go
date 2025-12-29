@@ -780,17 +780,17 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 
 				timeout := metav1.Duration{Duration: 30 * time.Minute}
 				if kustomization.Timeout != nil && kustomization.Timeout.Duration != 0 {
-					timeout = *kustomization.Timeout
+					timeout = metav1.Duration{Duration: kustomization.Timeout.Duration}
 				}
 
 				interval := metav1.Duration{Duration: constants.DefaultFluxKustomizationInterval}
 				if kustomization.Interval != nil && kustomization.Interval.Duration != 0 {
-					interval = *kustomization.Interval
+					interval = metav1.Duration{Duration: kustomization.Interval.Duration}
 				}
 
 				retryInterval := metav1.Duration{Duration: constants.DefaultFluxKustomizationRetryInterval}
 				if kustomization.RetryInterval != nil && kustomization.RetryInterval.Duration != 0 {
-					retryInterval = *kustomization.RetryInterval
+					retryInterval = metav1.Duration{Duration: kustomization.RetryInterval.Duration}
 				}
 
 				wait := true
