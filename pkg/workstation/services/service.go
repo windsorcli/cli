@@ -20,10 +20,21 @@ import (
 // Interfaces
 // =============================================================================
 
+// IncusConfig represents the configuration for an Incus instance
+type IncusConfig struct {
+	Type      string
+	Image     string
+	Config    map[string]string
+	Devices   map[string]map[string]string
+	Profiles  []string
+	Resources map[string]string
+}
+
 // Service is an interface that defines methods for retrieving environment variables
 // and can be implemented for individual providers.
 type Service interface {
 	GetComposeConfig() (*types.Config, error)
+	GetIncusConfig() (*IncusConfig, error)
 	WriteConfig() error
 	SetAddress(address string, portAllocator *PortAllocator) error
 	GetAddress() string
@@ -39,7 +50,7 @@ type Service interface {
 
 // BaseService is a base implementation of the Service interface
 type BaseService struct {
-	runtime      *runtime.Runtime
+	runtime       *runtime.Runtime
 	configHandler config.ConfigHandler
 	shell         shell.Shell
 	address       string
@@ -54,7 +65,7 @@ type BaseService struct {
 // NewBaseService is a constructor for BaseService
 func NewBaseService(rt *runtime.Runtime) *BaseService {
 	return &BaseService{
-		runtime:      rt,
+		runtime:       rt,
 		configHandler: rt.ConfigHandler,
 		shell:         rt.Shell,
 		shims:         NewShims(),
@@ -125,4 +136,9 @@ func (s *BaseService) GetHostname() string {
 	}
 
 	return s.name + "." + tld
+}
+
+// GetIncusConfig returns nil by default. Services that support Incus should override this method.
+func (s *BaseService) GetIncusConfig() (*IncusConfig, error) {
+	return nil, nil
 }

@@ -56,6 +56,16 @@ func (m *MockVirt) WriteConfig() error {
 	return nil
 }
 
+// GetNetworkName returns the network name for the mock VM.
+func (m *MockVirt) GetNetworkName() string {
+	return "mock-network"
+}
+
+// GetIncusRemote returns the Incus remote name for the mock VM.
+func (m *MockVirt) GetIncusRemote() string {
+	return "mock-remote"
+}
+
 // =============================================================================
 // Interface Compliance
 // =============================================================================

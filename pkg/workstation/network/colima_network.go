@@ -46,14 +46,8 @@ func NewColimaNetworkManager(rt *runtime.Runtime, sshClient ssh.Client, secureSh
 // It retrieves network CIDR and guest IP from the config, and configures SSH.
 // For Docker runtime, it identifies the Docker bridge interface and ensures iptables rules are set.
 // For incus runtime, Docker-specific configuration is skipped since incus networking is handled independently.
+// If vm.address is not configured, only SSH configuration is performed (useful for Down operations).
 func (n *ColimaNetworkManager) ConfigureGuest() error {
-	networkCIDR := n.configHandler.GetString("network.cidr_block", constants.DefaultNetworkCIDR)
-
-	guestIP := n.configHandler.GetString("vm.address")
-	if guestIP == "" {
-		return fmt.Errorf("guest IP is not configured")
-	}
-
 	contextName := n.configHandler.GetContext()
 
 	sshConfigOutput, err := n.shell.ExecSilent(
@@ -69,6 +63,13 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 	if err := n.sshClient.SetClientConfigFile(sshConfigOutput, fmt.Sprintf("colima-windsor-%s", contextName)); err != nil {
 		return fmt.Errorf("error setting SSH client config: %w", err)
 	}
+
+	guestIP := n.configHandler.GetString("vm.address")
+	if guestIP == "" {
+		return nil
+	}
+
+	networkCIDR := n.configHandler.GetString("network.cidr_block", constants.DefaultNetworkCIDR)
 
 	vmRuntime := n.configHandler.GetString("vm.runtime", "docker")
 	if vmRuntime == "incus" {
@@ -96,10 +97,9 @@ func (n *ColimaNetworkManager) configureDockerForwarding(networkCIDR string) err
 	}
 
 	var dockerBridgeInterface string
-	for iface := range strings.Split(output, "\n") {
-		name := strings.Split(output, "\n")[iface]
-		if strings.HasPrefix(name, "br-") {
-			dockerBridgeInterface = name
+	for _, iface := range strings.FieldsFunc(output, func(r rune) bool { return r == '\n' }) {
+		if strings.HasPrefix(iface, "br-") {
+			dockerBridgeInterface = iface
 			break
 		}
 	}

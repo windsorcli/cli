@@ -351,6 +351,16 @@ func (v *ColimaVirt) getProvisionScripts() []colimaConfig.Provision {
 // Interface Compliance
 // =============================================================================
 
+// GetNetworkName returns the network name for the Colima VM.
+func (v *ColimaVirt) GetNetworkName() string {
+	return v.configHandler.GetString("network.name", "incusbr0")
+}
+
+// GetIncusRemote returns the Incus remote name for the Colima VM.
+func (v *ColimaVirt) GetIncusRemote() string {
+	return v.configHandler.GetString("incus.remote", "colima-windsor-local")
+}
+
 // Ensure ColimaVirt implements Virt and VirtualMachine
 var _ Virt = (*ColimaVirt)(nil)
 var _ VirtualMachine = (*ColimaVirt)(nil)

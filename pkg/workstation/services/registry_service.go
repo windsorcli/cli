@@ -3,6 +3,7 @@ package services
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -190,6 +191,43 @@ func getBasename(name string) string {
 		return strings.Join(parts[:len(parts)-1], ".")
 	}
 	return name
+}
+
+// GetIncusConfig returns the Incus configuration for the registry service.
+// It configures a registry container with docker cache volume mount and environment variables.
+func (s *RegistryService) GetIncusConfig() (*IncusConfig, error) {
+	contextConfig := s.configHandler.GetConfig()
+	registries := contextConfig.Docker.Registries
+
+	registry, exists := registries[s.name]
+	if !exists {
+		return nil, fmt.Errorf("no registry found with name: %s", s.name)
+	}
+
+	projectRoot := s.runtime.ProjectRoot
+	cacheDir := filepath.Join(projectRoot, ".windsor", ".docker-cache")
+
+	config := make(map[string]string)
+	if registry.Remote != "" {
+		config["environment.REGISTRY_PROXY_REMOTEURL"] = registry.Remote
+	}
+	if registry.Local != "" {
+		config["environment.REGISTRY_PROXY_LOCALURL"] = registry.Local
+	}
+
+	devices := make(map[string]map[string]string)
+	devices["docker-cache"] = map[string]string{
+		"type":   "disk",
+		"source": cacheDir,
+		"path":   "/var/lib/registry",
+	}
+
+	return &IncusConfig{
+		Type:    "container",
+		Image:   "docker:" + constants.RegistryDefaultImage,
+		Config:  config,
+		Devices: devices,
+	}, nil
 }
 
 // Ensure RegistryService implements Service interface

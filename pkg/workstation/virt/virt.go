@@ -64,6 +64,8 @@ type Virt interface {
 // VirtualMachine defines methods for VirtualMachine operations
 type VirtualMachine interface {
 	Virt
+	GetNetworkName() string
+	GetIncusRemote() string
 }
 
 // ContainerRuntime defines methods for container operations

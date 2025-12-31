@@ -123,9 +123,15 @@ func (w *Workstation) Prepare() error {
 	}
 
 	vmRuntime := w.ConfigHandler.GetString("vm.runtime", "docker")
-	containerRuntimeEnabled := w.ConfigHandler.GetBool("docker.enabled")
-	if containerRuntimeEnabled && vmRuntime == "docker" {
-		w.ContainerRuntime = virt.NewDockerVirt(w.Runtime, w.Services)
+	if vmRuntime == "incus" {
+		if w.ContainerRuntime == nil {
+			w.ContainerRuntime = virt.NewIncusVirt(w.Runtime, w.Services, w.VirtualMachine, w.SSHClient)
+		}
+	} else {
+		containerRuntimeEnabled := w.ConfigHandler.GetBool("docker.enabled")
+		if containerRuntimeEnabled && w.ContainerRuntime == nil {
+			w.ContainerRuntime = virt.NewDockerVirt(w.Runtime, w.Services)
+		}
 	}
 
 	return nil
@@ -141,9 +147,20 @@ func (w *Workstation) Up() error {
 	}
 
 	vmDriver := w.ConfigHandler.GetString("vm.driver")
+	vmRuntime := w.ConfigHandler.GetString("vm.runtime", "docker")
+
 	if vmDriver == "colima" && w.VirtualMachine != nil {
+		if err := w.VirtualMachine.WriteConfig(); err != nil {
+			return fmt.Errorf("error writing virtual machine config: %w", err)
+		}
 		if err := w.VirtualMachine.Up(); err != nil {
 			return fmt.Errorf("error running virtual machine Up command: %w", err)
+		}
+	}
+
+	if w.NetworkManager != nil && vmDriver == "colima" && vmRuntime == "incus" {
+		if err := w.NetworkManager.ConfigureGuest(); err != nil {
+			return fmt.Errorf("error configuring guest: %w", err)
 		}
 	}
 
@@ -154,16 +171,21 @@ func (w *Workstation) Up() error {
 	}
 
 	if w.ContainerRuntime != nil {
+		if err := w.ContainerRuntime.WriteConfig(); err != nil {
+			return fmt.Errorf("failed to write container runtime config: %w", err)
+		}
 		if err := w.ContainerRuntime.Up(); err != nil {
 			return fmt.Errorf("error running container runtime Up command: %w", err)
 		}
 	}
 
 	if w.NetworkManager != nil {
-		if vmDriver == "colima" {
+		if vmDriver == "colima" && vmRuntime != "incus" {
 			if err := w.NetworkManager.ConfigureGuest(); err != nil {
 				return fmt.Errorf("error configuring guest: %w", err)
 			}
+		}
+		if vmDriver == "colima" {
 			if err := w.NetworkManager.ConfigureHostRoute(); err != nil {
 				return fmt.Errorf("error configuring host route: %w", err)
 			}
@@ -183,6 +205,15 @@ func (w *Workstation) Up() error {
 // On success, it prints a confirmation message to standard error and returns nil. If any teardown
 // step fails, it returns an error describing the issue.
 func (w *Workstation) Down() error {
+	vmDriver := w.ConfigHandler.GetString("vm.driver")
+	vmRuntime := w.ConfigHandler.GetString("vm.runtime", "docker")
+
+	if w.NetworkManager != nil && vmDriver == "colima" && vmRuntime == "incus" {
+		if err := w.NetworkManager.ConfigureGuest(); err != nil {
+			return fmt.Errorf("error configuring guest: %w", err)
+		}
+	}
+
 	if w.ContainerRuntime != nil {
 		if err := w.ContainerRuntime.Down(); err != nil {
 			return fmt.Errorf("Error running container runtime Down command: %w", err)
@@ -247,25 +278,29 @@ func (w *Workstation) createServices() ([]services.Service, error) {
 		}
 	}
 
-	// Cluster Services
-	clusterDriver := w.ConfigHandler.GetString("cluster.driver", "")
-	switch clusterDriver {
-	case "talos", "omni":
-		controlPlaneCount := w.ConfigHandler.GetInt("cluster.controlplanes.count")
-		workerCount := w.ConfigHandler.GetInt("cluster.workers.count")
+	// Cluster Services - only create Talos services for Docker runtime
+	// For Incus, Talos nodes are created via blueprint/terraform
+	vmRuntime := w.ConfigHandler.GetString("vm.runtime", "docker")
+	if vmRuntime != "incus" {
+		clusterDriver := w.ConfigHandler.GetString("cluster.driver", "")
+		switch clusterDriver {
+		case "talos", "omni":
+			controlPlaneCount := w.ConfigHandler.GetInt("cluster.controlplanes.count")
+			workerCount := w.ConfigHandler.GetInt("cluster.workers.count")
 
-		for i := 1; i <= controlPlaneCount; i++ {
-			service := services.NewTalosService(w.Runtime, "controlplane")
-			serviceName := fmt.Sprintf("controlplane-%d", i)
-			service.SetName(serviceName)
-			serviceList = append(serviceList, service)
-		}
+			for i := 1; i <= controlPlaneCount; i++ {
+				service := services.NewTalosService(w.Runtime, "controlplane")
+				serviceName := fmt.Sprintf("controlplane-%d", i)
+				service.SetName(serviceName)
+				serviceList = append(serviceList, service)
+			}
 
-		for i := 1; i <= workerCount; i++ {
-			service := services.NewTalosService(w.Runtime, "worker")
-			serviceName := fmt.Sprintf("worker-%d", i)
-			service.SetName(serviceName)
-			serviceList = append(serviceList, service)
+			for i := 1; i <= workerCount; i++ {
+				service := services.NewTalosService(w.Runtime, "worker")
+				serviceName := fmt.Sprintf("worker-%d", i)
+				service.SetName(serviceName)
+				serviceList = append(serviceList, service)
+			}
 		}
 	}
 

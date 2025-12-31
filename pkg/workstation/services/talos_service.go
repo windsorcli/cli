@@ -105,22 +105,24 @@ func (s *TalosService) SetAddress(address string, portAllocator *PortAllocator) 
 		return err
 	}
 
-	hostPorts := s.configHandler.GetStringSlice(fmt.Sprintf("cluster.%s.hostports", nodeType), []string{})
+	if s.isLocalhostMode() {
+		hostPorts := s.configHandler.GetStringSlice(fmt.Sprintf("cluster.%s.hostports", nodeType), []string{})
 
-	hostPortsCopy := make([]string, len(hostPorts))
-	copy(hostPortsCopy, hostPorts)
+		hostPortsCopy := make([]string, len(hostPorts))
+		copy(hostPortsCopy, hostPorts)
 
-	for i, hostPortStr := range hostPortsCopy {
-		hostPort, nodePort, protocol, err := validateHostPort(hostPortStr)
-		if err != nil {
-			return err
+		for i, hostPortStr := range hostPortsCopy {
+			hostPort, nodePort, protocol, err := validateHostPort(hostPortStr)
+			if err != nil {
+				return err
+			}
+
+			hostPortsCopy[i] = fmt.Sprintf("%d:%d/%s", hostPort, nodePort, protocol)
 		}
 
-		hostPortsCopy[i] = fmt.Sprintf("%d:%d/%s", hostPort, nodePort, protocol)
-	}
-
-	if err := s.configHandler.Set(fmt.Sprintf("cluster.%s.nodes.%s.hostports", nodeType, s.name), hostPortsCopy); err != nil {
-		return err
+		if err := s.configHandler.Set(fmt.Sprintf("cluster.%s.nodes.%s.hostports", nodeType, s.name), hostPortsCopy); err != nil {
+			return err
+		}
 	}
 
 	return nil

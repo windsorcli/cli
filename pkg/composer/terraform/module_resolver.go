@@ -651,8 +651,23 @@ func convertToCtyValue(value any) cty.Value {
 			return cty.ListValEmpty(cty.DynamicPseudoType)
 		}
 		var ctyList []cty.Value
+		var elementType cty.Type
 		for _, item := range v {
-			ctyList = append(ctyList, convertToCtyValue(item))
+			itemVal := convertToCtyValue(item)
+			ctyList = append(ctyList, itemVal)
+			if !itemVal.IsNull() {
+				if elementType == cty.NilType {
+					elementType = itemVal.Type()
+				} else if !itemVal.Type().Equals(elementType) {
+					elementType = cty.DynamicPseudoType
+				}
+			}
+		}
+		if elementType == cty.NilType {
+			elementType = cty.DynamicPseudoType
+		}
+		if elementType == cty.DynamicPseudoType {
+			return cty.TupleVal(ctyList)
 		}
 		return cty.ListVal(ctyList)
 	case map[string]any:
