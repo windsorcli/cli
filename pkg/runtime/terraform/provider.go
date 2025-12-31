@@ -28,6 +28,7 @@ type TerraformProvider interface {
 	GetTerraformComponent(componentID string) *blueprintv1alpha1.TerraformComponent
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
 	GetOutputs(componentID string) (map[string]any, error)
+	GetTFDataDir(componentID string) (string, error)
 	ClearCache()
 }
 
@@ -317,11 +318,14 @@ func (p *terraformProvider) captureTerraformOutputs(componentID string) (map[str
 	return result, nil
 }
 
-// generateTerraformArgs generates terraform arguments needed for output capture.
-func (p *terraformProvider) generateTerraformArgs(componentID string) (*TerraformArgs, error) {
+// GetTFDataDir calculates the TF_DATA_DIR path for a given component ID.
+// It resolves the component ID to the actual component ID (using GetID if component exists),
+// then constructs the path as ${windsorScratchPath}/.terraform/${componentID}.
+// Returns the path with forward slashes or an error if scratch path lookup fails.
+func (p *terraformProvider) GetTFDataDir(componentID string) (string, error) {
 	windsorScratchPath, err := p.configHandler.GetWindsorScratchPath()
 	if err != nil {
-		return nil, fmt.Errorf("error getting windsor scratch path: %w", err)
+		return "", fmt.Errorf("error getting windsor scratch path: %w", err)
 	}
 
 	components := p.GetTerraformComponents()
@@ -337,7 +341,18 @@ func (p *terraformProvider) generateTerraformArgs(componentID string) (*Terrafor
 		actualComponentID = component.GetID()
 	}
 
-	tfDataDir := filepath.Join(windsorScratchPath, "terraform", actualComponentID, ".terraform")
+	tfDataDir := filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", actualComponentID))
+	return tfDataDir, nil
+}
+
+// generateTerraformArgs constructs the TerraformArgs required for output capture for a specific component.
+// It determines the correct TF_DATA_DIR, computes necessary init arguments such as backend configuration,
+// and returns a populated TerraformArgs object. Returns an error if scratch path lookup fails.
+func (p *terraformProvider) generateTerraformArgs(componentID string) (*TerraformArgs, error) {
+	tfDataDir, err := p.GetTFDataDir(componentID)
+	if err != nil {
+		return nil, err
+	}
 
 	initArgs := []string{}
 	backend := p.configHandler.GetString("terraform.backend.type", "local")

@@ -107,6 +107,13 @@ func setupMockTerraformProvider(mocks *EnvTestMocks) *terraform.MockTerraformPro
 		GetOutputsFunc: func(componentID string) (map[string]any, error) {
 			return map[string]any{}, nil
 		},
+		GetTFDataDirFunc: func(componentID string) (string, error) {
+			windsorScratchPath, err := mocks.ConfigHandler.GetWindsorScratchPath()
+			if err != nil {
+				return "", err
+			}
+			return filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", componentID)), nil
+		},
 		ClearCacheFunc: func() {},
 	}
 }
@@ -1804,6 +1811,9 @@ terraform:
 		mockProvider := setupMockTerraformProvider(mocks)
 		mockProvider.FindRelativeProjectPathFunc = func(directory ...string) (string, error) {
 			return "test/path", nil
+		}
+		mockProvider.GetTFDataDirFunc = func(componentID string) (string, error) {
+			return filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", componentID)), nil
 		}
 		printer.terraformProvider = mockProvider
 

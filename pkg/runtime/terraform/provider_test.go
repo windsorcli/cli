@@ -1509,7 +1509,7 @@ terraform:
 			t.Fatal("Expected args to be generated")
 		}
 
-		expectedTFDataDir := filepath.Join("/test/scratch", "terraform", "test-component", ".terraform")
+		expectedTFDataDir := filepath.ToSlash(filepath.Join("/test/scratch", ".terraform", "test-component"))
 		if args.TFDataDir != expectedTFDataDir {
 			t.Errorf("Expected TFDataDir %s, got %s", expectedTFDataDir, args.TFDataDir)
 		}

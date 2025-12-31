@@ -174,7 +174,10 @@ func (e *TerraformEnvPrinter) GenerateTerraformArgs(projectPath, modulePath stri
 		}
 	}
 
-	tfDataDir := filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", componentID))
+	tfDataDir, err := e.terraformProvider.GetTFDataDir(projectPath)
+	if err != nil {
+		return nil, fmt.Errorf("error getting TF_DATA_DIR: %w", err)
+	}
 	tfPlanPath := filepath.ToSlash(filepath.Join(tfDataDir, "terraform.tfplan"))
 
 	backendConfigArgs, err := e.generateBackendConfigArgs(projectPath, configRoot, false)
