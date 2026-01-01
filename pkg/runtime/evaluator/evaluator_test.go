@@ -1403,7 +1403,8 @@ func TestExpressionEvaluator_resolvePath(t *testing.T) {
 		os.WriteFile(testFile, []byte("content"), 0644)
 
 		// When evaluating file function with absolute path
-		result, err := evaluator.Evaluate(`file("`+testFile+`")`, map[string]any{}, "")
+		escapedPath := strings.ReplaceAll(testFile, "\\", "\\\\")
+		result, err := evaluator.Evaluate(`file("`+escapedPath+`")`, map[string]any{}, "")
 
 		// Then the absolute path should be used
 		if err != nil {
@@ -1596,7 +1597,8 @@ func TestExpressionEvaluator_evaluateFileFunction_EdgeCases(t *testing.T) {
 		featurePath := filepath.Join(templateRoot, "test.yaml")
 
 		// When evaluating file function with absolute path outside template root
-		result, err := evaluator.Evaluate(`file("`+outsideFile+`")`, map[string]any{}, featurePath)
+		escapedPath := strings.ReplaceAll(outsideFile, "\\", "\\\\")
+		result, err := evaluator.Evaluate(`file("`+escapedPath+`")`, map[string]any{}, featurePath)
 
 		// Then it should read from filesystem (fallback skipped because path is outside template root)
 		if err != nil {
