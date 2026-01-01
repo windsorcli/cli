@@ -1047,6 +1047,120 @@ terraform:
 	})
 }
 
+func TestTerraformProvider_GetValue(t *testing.T) {
+	t.Run("ReturnsOutputValueForValidKey", func(t *testing.T) {
+		provider := setupProvider(t)
+
+		expectedOutputs := map[string]any{
+			"output1": "value1",
+			"output2": 42,
+		}
+
+		provider.mu.Lock()
+		provider.cache["test-component"] = expectedOutputs
+		provider.mu.Unlock()
+
+		value, err := provider.GetValue("terraform.test-component.outputs.output1")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if value != "value1" {
+			t.Errorf("Expected 'value1', got %v", value)
+		}
+	})
+
+	t.Run("ReturnsErrorForInvalidKeyFormat", func(t *testing.T) {
+		provider := setupProvider(t)
+
+		_, err := provider.GetValue("invalid.key.format")
+
+		if err == nil {
+			t.Fatal("Expected error for invalid key format, got nil")
+		}
+
+		expectedError := "invalid terraform key format: expected terraform.<componentID>.outputs.<outputKey>"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("Expected error to contain '%s', got %v", expectedError, err)
+		}
+	})
+
+	t.Run("ReturnsErrorForMissingOutputKey", func(t *testing.T) {
+		provider := setupProvider(t)
+
+		expectedOutputs := map[string]any{
+			"output1": "value1",
+		}
+
+		provider.mu.Lock()
+		provider.cache["test-component"] = expectedOutputs
+		provider.mu.Unlock()
+
+		_, err := provider.GetValue("terraform.test-component.outputs.nonexistent")
+
+		if err == nil {
+			t.Fatal("Expected error for nonexistent output key, got nil")
+		}
+
+		expectedError := "output key nonexistent not found for component test-component"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("Expected error to contain '%s', got %v", expectedError, err)
+		}
+	})
+
+	t.Run("HandlesNestedOutputKeys", func(t *testing.T) {
+		provider := setupProvider(t)
+
+		expectedOutputs := map[string]any{
+			"nested.key": "nested-value",
+		}
+
+		provider.mu.Lock()
+		provider.cache["test-component"] = expectedOutputs
+		provider.mu.Unlock()
+
+		value, err := provider.GetValue("terraform.test-component.outputs.nested.key")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if value != "nested-value" {
+			t.Errorf("Expected 'nested-value', got %v", value)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenGetOutputsFails", func(t *testing.T) {
+		provider := setupProvider(t)
+		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+
+		configRoot := "/test/config"
+		mockConfig.GetConfigRootFunc = func() (string, error) {
+			return configRoot, nil
+		}
+
+		provider.Shims.ReadFile = func(path string) ([]byte, error) {
+			return nil, os.ErrNotExist
+		}
+
+		mockShell := provider.shell.(*shell.MockShell)
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/test/project", nil
+		}
+
+		mockConfig.GetContextFunc = func() string {
+			return "default"
+		}
+
+		_, err := provider.GetValue("terraform.nonexistent-component.outputs.key")
+
+		if err == nil {
+			t.Fatal("Expected error when component not found, got nil")
+		}
+	})
+}
+
 func TestTerraformProvider_GetTerraformComponent(t *testing.T) {
 	t.Run("FindsComponentByPath", func(t *testing.T) {
 		provider := setupProvider(t)

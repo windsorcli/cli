@@ -17,6 +17,7 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/env"
 	secretsRuntime "github.com/windsorcli/cli/pkg/runtime/secrets"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
@@ -420,6 +421,8 @@ func (rt *Runtime) initializeEnvPrinters() {
 	}
 	if rt.EnvPrinters.TerraformEnv == nil && rt.ConfigHandler.GetBool("terraform.enabled", false) {
 		rt.initializeToolsManager()
+		terraformProvider := terraform.NewTerraformProvider(rt.ConfigHandler, rt.Shell, rt.ToolsManager)
+		rt.ConfigHandler.RegisterProvider("terraform", terraformProvider.(config.ValueProvider))
 		rt.EnvPrinters.TerraformEnv = env.NewTerraformEnvPrinter(rt.Shell, rt.ConfigHandler, rt.ToolsManager)
 	}
 	if rt.EnvPrinters.WindsorEnv == nil {

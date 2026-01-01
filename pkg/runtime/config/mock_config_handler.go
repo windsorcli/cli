@@ -32,6 +32,7 @@ type MockConfigHandler struct {
 	LoadSchemaFunc            func(schemaPath string) error
 	LoadSchemaFromBytesFunc   func(schemaContent []byte) error
 	GetContextValuesFunc      func() (map[string]any, error)
+	RegisterProviderFunc      func(prefix string, provider ValueProvider)
 }
 
 // =============================================================================
@@ -244,6 +245,13 @@ func (m *MockConfigHandler) GetContextValues() (map[string]any, error) {
 		return m.GetContextValuesFunc()
 	}
 	return nil, fmt.Errorf("GetContextValuesFunc not set")
+}
+
+// RegisterProvider calls the mock RegisterProviderFunc if set, otherwise does nothing
+func (m *MockConfigHandler) RegisterProvider(prefix string, provider ValueProvider) {
+	if m.RegisterProviderFunc != nil {
+		m.RegisterProviderFunc(prefix, provider)
+	}
 }
 
 // Ensure MockConfigHandler implements ConfigHandler
