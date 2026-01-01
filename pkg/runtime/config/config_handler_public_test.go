@@ -1356,6 +1356,43 @@ properties:
 		}
 	})
 
+	t.Run("ConfigValuesTakePrecedenceOverProvider", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+		handler.Set("terraform.enabled", true)
+		handler.Set("terraform.backend.type", "s3")
+		mockProvider := &mockValueProvider{value: "provider-value"}
+		handler.RegisterProvider("terraform", mockProvider)
+
+		enabled := handler.Get("terraform.enabled")
+		if enabled != true {
+			t.Errorf("Expected config value true, got %v", enabled)
+		}
+
+		backendType := handler.Get("terraform.backend.type")
+		if backendType != "s3" {
+			t.Errorf("Expected config value 's3', got %v", backendType)
+		}
+	})
+
+	t.Run("ProviderPatternTakesPrecedenceOverConfig", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+		handler.Set("terraform.backend", map[string]any{"type": "s3"})
+		mockProvider := &mockValueProvider{value: "output-value"}
+		handler.RegisterProvider("terraform", mockProvider)
+
+		outputValue := handler.Get("terraform.backend.outputs.key")
+		if outputValue != "output-value" {
+			t.Errorf("Expected provider value 'output-value' for pattern terraform.<component>.outputs.<key>, got %v", outputValue)
+		}
+
+		backendType := handler.Get("terraform.backend.type")
+		if backendType != "s3" {
+			t.Errorf("Expected config value 's3' for non-pattern key, got %v", backendType)
+		}
+	})
+
 }
 
 func TestConfigHandler_RegisterProvider(t *testing.T) {

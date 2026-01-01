@@ -419,17 +419,30 @@ func (c *configHandler) Get(path string) any {
 	}
 
 	firstKey := pathKeys[0]
-	if provider, exists := c.providers[firstKey]; exists {
-		value, err := provider.GetValue(path)
-		if err != nil {
-			return nil
+	provider, hasProvider := c.providers[firstKey]
+
+	shouldTryProviderFirst := hasProvider && c.isProviderPattern(path, pathKeys, firstKey)
+
+	if shouldTryProviderFirst {
+		providerValue, err := provider.GetValue(path)
+		if err == nil {
+			return providerValue
 		}
-		return value
 	}
 
 	value := getValueByPathFromMap(c.data, pathKeys)
+	if value != nil {
+		return value
+	}
 
-	if value == nil && len(pathKeys) > 0 && c.schemaValidator != nil && c.schemaValidator.Schema != nil {
+	if !shouldTryProviderFirst && hasProvider {
+		providerValue, err := provider.GetValue(path)
+		if err == nil {
+			return providerValue
+		}
+	}
+
+	if len(pathKeys) > 0 && c.schemaValidator != nil && c.schemaValidator.Schema != nil {
 		defaults, err := c.schemaValidator.GetSchemaDefaults()
 		if err == nil && defaults != nil {
 			if topLevelDefault, exists := defaults[pathKeys[0]]; exists {
@@ -447,17 +460,31 @@ func (c *configHandler) Get(path string) any {
 		}
 	}
 
-	return value
+	return nil
 }
 
 // RegisterProvider registers a value provider for the specified prefix.
-// When Get encounters a key starting with the prefix,
-// it will delegate to the registered provider to fetch the value.
+// When Get encounters a key starting with the prefix, it uses pattern matching to determine
+// whether to check the provider first (for provider-specific patterns like terraform.<componentID>.outputs.<outputKey>)
+// or the data map first (for regular config keys). If the provider returns an error, Get falls back
+// to the data map and then to schema defaults.
 func (c *configHandler) RegisterProvider(prefix string, provider ValueProvider) {
 	if c.providers == nil {
 		c.providers = make(map[string]ValueProvider)
 	}
 	c.providers[prefix] = provider
+}
+
+// isProviderPattern checks if a path matches a known provider pattern that should be handled by the provider first.
+// Currently supports: terraform.<componentID>.outputs.<outputKey>
+func (c *configHandler) isProviderPattern(path string, pathKeys []string, prefix string) bool {
+	if prefix != "terraform" {
+		return false
+	}
+	if len(pathKeys) < 4 {
+		return false
+	}
+	return pathKeys[2] == "outputs"
 }
 
 // getValueByPathFromMap returns the value in a nested map[string]any at the location specified by the pathKeys slice.
