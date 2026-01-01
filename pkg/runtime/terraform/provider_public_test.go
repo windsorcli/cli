@@ -2,8 +2,10 @@ package terraform
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -1045,10 +1047,6 @@ terraform:
 	})
 }
 
-// =============================================================================
-// Test Private Methods (via public methods that call them)
-// =============================================================================
-
 func TestTerraformProvider_GetTerraformComponent(t *testing.T) {
 	t.Run("FindsComponentByPath", func(t *testing.T) {
 		provider := setupProvider(t)
@@ -1452,12 +1450,19 @@ func TestTerraformProvider_FindRelativeProjectPath(t *testing.T) {
 }
 
 func TestTerraformProvider_GenerateTerraformArgs(t *testing.T) {
-	t.Run("GeneratesArgsForComponent", func(t *testing.T) {
+	t.Run("GeneratesArgsSuccessfully", func(t *testing.T) {
 		provider := setupProvider(t)
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+		mockShell := provider.shell.(*shell.MockShell)
 
+		configRoot := "/test/config"
+		mockConfig.GetConfigRootFunc = func() (string, error) {
+			return configRoot, nil
+		}
+
+		windsorScratchPath := "/test/scratch"
 		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
-			return "/test/scratch", nil
+			return windsorScratchPath, nil
 		}
 
 		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -1470,91 +1475,12 @@ func TestTerraformProvider_GenerateTerraformArgs(t *testing.T) {
 			return ""
 		}
 
-		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
-			return configRoot, nil
-		}
-
-		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
-kind: Blueprint
-metadata:
-  name: test
-terraform:
-  - path: test/path
-    name: test-component`
-
-		provider.Shims.ReadFile = func(path string) ([]byte, error) {
-			if path == filepath.Join(configRoot, "blueprint.yaml") {
-				return []byte(blueprintYAML), nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		mockShell := provider.shell.(*shell.MockShell)
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/test/project", nil
-		}
-
 		mockConfig.GetContextFunc = func() string {
 			return "default"
 		}
 
-		args, err := provider.generateTerraformArgs("test-component")
-
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		if args == nil {
-			t.Fatal("Expected args to be generated")
-		}
-
-		expectedTFDataDir := filepath.ToSlash(filepath.Join("/test/scratch", ".terraform", "test-component"))
-		if args.TFDataDir != expectedTFDataDir {
-			t.Errorf("Expected TFDataDir %s, got %s", expectedTFDataDir, args.TFDataDir)
-		}
-
-		if len(args.InitArgs) == 0 {
-			t.Error("Expected InitArgs to include backend config")
-		}
-	})
-
-	t.Run("ReturnsErrorWhenScratchPathFails", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-
-		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
-			return "", errors.New("scratch path error")
-		}
-
-		_, err := provider.generateTerraformArgs("test-component")
-
-		if err == nil {
-			t.Fatal("Expected error when scratch path fails")
-		}
-	})
-
-	t.Run("HandlesNoneBackend", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-
-		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
-			return "/test/scratch", nil
-		}
-
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "terraform.backend.type" {
-				return "none"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
-			return configRoot, nil
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/test/project", nil
 		}
 
 		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
@@ -1571,62 +1497,423 @@ terraform:
 			return nil, os.ErrNotExist
 		}
 
+		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		modulePath := filepath.Join("/test/project", "terraform", "test/path")
+		args, err := provider.GenerateTerraformArgs("test/path", modulePath, true)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		expectedTFDataDir := filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", "test/path"))
+		if args.TFDataDir != expectedTFDataDir {
+			t.Errorf("Expected TFDataDir %s, got %s", expectedTFDataDir, args.TFDataDir)
+		}
+
+		if args.ModulePath != modulePath {
+			t.Errorf("Expected ModulePath %s, got %s", modulePath, args.ModulePath)
+		}
+
+		if len(args.InitArgs) == 0 {
+			t.Error("Expected InitArgs to be populated")
+		}
+
+		expectedPlanPath := filepath.ToSlash(filepath.Join(expectedTFDataDir, "terraform.tfplan"))
+		if len(args.PlanArgs) == 0 || !strings.Contains(args.PlanArgs[0], expectedPlanPath) {
+			t.Errorf("Expected PlanArgs to contain plan path, got %v", args.PlanArgs)
+		}
+
+		if len(args.ApplyArgs) == 0 || args.ApplyArgs[len(args.ApplyArgs)-1] != expectedPlanPath {
+			t.Errorf("Expected ApplyArgs to end with plan path, got %v", args.ApplyArgs)
+		}
+	})
+
+	t.Run("IncludesVarFileArgs", func(t *testing.T) {
+		provider := setupProvider(t)
+		mockConfig := provider.configHandler.(*config.MockConfigHandler)
 		mockShell := provider.shell.(*shell.MockShell)
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/test/project", nil
+
+		configRoot := "/test/config"
+		mockConfig.GetConfigRootFunc = func() (string, error) {
+			return configRoot, nil
+		}
+
+		windsorScratchPath := "/test/scratch"
+		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
+			return windsorScratchPath, nil
+		}
+
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "local"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
 		}
 
 		mockConfig.GetContextFunc = func() string {
 			return "default"
 		}
 
-		args, err := provider.generateTerraformArgs("test/path")
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/test/project", nil
+		}
+
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+metadata:
+  name: test
+terraform:
+  - path: test/path`
+
+		provider.Shims.ReadFile = func(path string) ([]byte, error) {
+			if path == filepath.Join(configRoot, "blueprint.yaml") {
+				return []byte(blueprintYAML), nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		tfvarsPath := filepath.Join(configRoot, "terraform", "test/path.tfvars")
+		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+			if filepath.ToSlash(path) == filepath.ToSlash(tfvarsPath) {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		modulePath := filepath.Join("/test/project", "terraform", "test/path")
+		args, err := provider.GenerateTerraformArgs("test/path", modulePath, true)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		if len(args.InitArgs) != 0 {
-			t.Errorf("Expected no InitArgs for none backend, got %d", len(args.InitArgs))
+		foundVarFile := false
+		for _, arg := range args.PlanArgs {
+			if strings.Contains(arg, "test/path.tfvars") {
+				foundVarFile = true
+				break
+			}
 		}
-	})
-}
-
-func TestTerraformProvider_RestoreEnvVar(t *testing.T) {
-	t.Run("RestoresEnvVarWithValue", func(t *testing.T) {
-		provider := setupProvider(t)
-
-		var setKey, setValue string
-		provider.Shims.Setenv = func(key, value string) error {
-			setKey = key
-			setValue = value
-			return nil
-		}
-
-		provider.restoreEnvVar("TEST_VAR", "original-value")
-
-		if setKey != "TEST_VAR" {
-			t.Errorf("Expected to set TEST_VAR, got %s", setKey)
-		}
-
-		if setValue != "original-value" {
-			t.Errorf("Expected to set original-value, got %s", setValue)
+		if !foundVarFile {
+			t.Errorf("Expected PlanArgs to contain var-file for test/path.tfvars, got %v", args.PlanArgs)
 		}
 	})
 
-	t.Run("UnsetsEnvVarWhenEmpty", func(t *testing.T) {
+	t.Run("IncludesParallelismWhenComponentHasIt", func(t *testing.T) {
 		provider := setupProvider(t)
+		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+		mockShell := provider.shell.(*shell.MockShell)
 
-		var unsetKey string
-		provider.Shims.Unsetenv = func(key string) error {
-			unsetKey = key
-			return nil
+		configRoot := "/test/config"
+		mockConfig.GetConfigRootFunc = func() (string, error) {
+			return configRoot, nil
 		}
 
-		provider.restoreEnvVar("TEST_VAR", "")
+		windsorScratchPath := "/test/scratch"
+		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
+			return windsorScratchPath, nil
+		}
 
-		if unsetKey != "TEST_VAR" {
-			t.Errorf("Expected to unset TEST_VAR, got %s", unsetKey)
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "local"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		mockConfig.GetContextFunc = func() string {
+			return "default"
+		}
+
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/test/project", nil
+		}
+
+		parallelism := 5
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+metadata:
+  name: test
+terraform:
+  - path: test/path
+    parallelism: 5`
+
+		provider.Shims.ReadFile = func(path string) ([]byte, error) {
+			if path == filepath.Join(configRoot, "blueprint.yaml") {
+				return []byte(blueprintYAML), nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		modulePath := filepath.Join("/test/project", "terraform", "test/path")
+		args, err := provider.GenerateTerraformArgs("test/path", modulePath, true)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		foundParallelismInApply := false
+		for _, arg := range args.ApplyArgs {
+			if arg == fmt.Sprintf("-parallelism=%d", parallelism) {
+				foundParallelismInApply = true
+				break
+			}
+		}
+		if !foundParallelismInApply {
+			t.Errorf("Expected ApplyArgs to contain -parallelism=%d, got %v", parallelism, args.ApplyArgs)
+		}
+
+		foundParallelismInDestroy := false
+		for _, arg := range args.DestroyArgs {
+			if arg == fmt.Sprintf("-parallelism=%d", parallelism) {
+				foundParallelismInDestroy = true
+				break
+			}
+		}
+		if !foundParallelismInDestroy {
+			t.Errorf("Expected DestroyArgs to contain -parallelism=%d, got %v", parallelism, args.DestroyArgs)
+		}
+	})
+
+	t.Run("IncludesAutoApproveForNonInteractive", func(t *testing.T) {
+		provider := setupProvider(t)
+		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+		mockShell := provider.shell.(*shell.MockShell)
+
+		configRoot := "/test/config"
+		mockConfig.GetConfigRootFunc = func() (string, error) {
+			return configRoot, nil
+		}
+
+		windsorScratchPath := "/test/scratch"
+		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
+			return windsorScratchPath, nil
+		}
+
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "local"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		mockConfig.GetContextFunc = func() string {
+			return "default"
+		}
+
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/test/project", nil
+		}
+
+		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		args, err := provider.GenerateTerraformArgs("test/path", "test/module", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if len(args.DestroyArgs) == 0 || args.DestroyArgs[0] != "-auto-approve" {
+			t.Errorf("Expected DestroyArgs to start with -auto-approve for non-interactive, got %v", args.DestroyArgs)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenConfigRootFails", func(t *testing.T) {
+		provider := setupProvider(t)
+		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+
+		mockConfig.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("config root error")
+		}
+
+		_, err := provider.GenerateTerraformArgs("test/path", "test/module", true)
+
+		if err == nil {
+			t.Error("Expected error when GetConfigRoot fails")
+		}
+		if !strings.Contains(err.Error(), "config root") {
+			t.Errorf("Expected error about config root, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenWindsorScratchPathFails", func(t *testing.T) {
+		provider := setupProvider(t)
+		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+
+		configRoot := "/test/config"
+		mockConfig.GetConfigRootFunc = func() (string, error) {
+			return configRoot, nil
+		}
+
+		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
+			return "", fmt.Errorf("windsor scratch path error")
+		}
+
+		_, err := provider.GenerateTerraformArgs("test/path", "test/module", true)
+
+		if err == nil {
+			t.Error("Expected error when GetWindsorScratchPath fails")
+		}
+		if !strings.Contains(err.Error(), "windsor scratch path") {
+			t.Errorf("Expected error about windsor scratch path, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenStatFails", func(t *testing.T) {
+		provider := setupProvider(t)
+		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+		mockShell := provider.shell.(*shell.MockShell)
+
+		configRoot := "/test/config"
+		mockConfig.GetConfigRootFunc = func() (string, error) {
+			return configRoot, nil
+		}
+
+		windsorScratchPath := "/test/scratch"
+		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
+			return windsorScratchPath, nil
+		}
+
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "local"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		mockConfig.GetContextFunc = func() string {
+			return "default"
+		}
+
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/test/project", nil
+		}
+
+		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, fmt.Errorf("stat error")
+		}
+
+		_, err := provider.GenerateTerraformArgs("test/path", "test/module", true)
+
+		if err == nil {
+			t.Error("Expected error when Stat fails")
+		}
+		if !strings.Contains(err.Error(), "error checking file") {
+			t.Errorf("Expected error about checking file, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenGetTFDataDirFails", func(t *testing.T) {
+		provider := setupProvider(t)
+		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+		mockShell := provider.shell.(*shell.MockShell)
+
+		configRoot := "/test/config"
+		mockConfig.GetConfigRootFunc = func() (string, error) {
+			return configRoot, nil
+		}
+
+		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
+			return "", fmt.Errorf("scratch path error")
+		}
+
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "local"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		mockConfig.GetContextFunc = func() string {
+			return "default"
+		}
+
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/test/project", nil
+		}
+
+		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		_, err := provider.GenerateTerraformArgs("test/path", "test/module", true)
+
+		if err == nil {
+			t.Error("Expected error when GetTFDataDir fails")
+		}
+		if !strings.Contains(err.Error(), "TF_DATA_DIR") && !strings.Contains(err.Error(), "windsor scratch path") {
+			t.Errorf("Expected error about TF_DATA_DIR or windsor scratch path, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenGenerateBackendConfigArgsFails", func(t *testing.T) {
+		provider := setupProvider(t)
+		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+		mockShell := provider.shell.(*shell.MockShell)
+
+		configRoot := "/test/config"
+		mockConfig.GetConfigRootFunc = func() (string, error) {
+			return configRoot, nil
+		}
+
+		windsorScratchPath := "/test/scratch"
+		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
+			return windsorScratchPath, nil
+		}
+
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "invalid"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		mockConfig.GetContextFunc = func() string {
+			return "default"
+		}
+
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/test/project", nil
+		}
+
+		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		_, err := provider.GenerateTerraformArgs("test/path", "test/module", true)
+
+		if err == nil {
+			t.Error("Expected error when GenerateBackendConfigArgs fails")
+		}
+		if !strings.Contains(err.Error(), "backend") {
+			t.Errorf("Expected error about backend, got: %v", err)
 		}
 	})
 }

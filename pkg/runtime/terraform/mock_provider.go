@@ -8,6 +8,7 @@ import (
 type MockTerraformProvider struct {
 	FindRelativeProjectPathFunc func(directory ...string) (string, error)
 	GenerateBackendOverrideFunc func(directory string) error
+	GenerateTerraformArgsFunc   func(componentID, modulePath string, interactive bool) (*TerraformArgs, error)
 	GetTerraformComponentFunc   func(componentID string) *blueprintv1alpha1.TerraformComponent
 	GetTerraformComponentsFunc  func() []blueprintv1alpha1.TerraformComponent
 	GetOutputsFunc              func(componentID string) (map[string]any, error)
@@ -29,6 +30,14 @@ func (m *MockTerraformProvider) GenerateBackendOverride(directory string) error 
 		return m.GenerateBackendOverrideFunc(directory)
 	}
 	return nil
+}
+
+// GenerateTerraformArgs implements TerraformProvider.
+func (m *MockTerraformProvider) GenerateTerraformArgs(componentID, modulePath string, interactive bool) (*TerraformArgs, error) {
+	if m.GenerateTerraformArgsFunc != nil {
+		return m.GenerateTerraformArgsFunc(componentID, modulePath, interactive)
+	}
+	return &TerraformArgs{}, nil
 }
 
 // GetTerraformComponent implements TerraformProvider.
@@ -69,3 +78,6 @@ func (m *MockTerraformProvider) ClearCache() {
 		m.ClearCacheFunc()
 	}
 }
+
+// Ensure MockTerraformProvider implements the TerraformProvider interface
+var _ TerraformProvider = (*MockTerraformProvider)(nil)

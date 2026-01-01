@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/goccy/go-yaml"
 	"github.com/hashicorp/hcl/v2"
@@ -35,6 +36,7 @@ type Shims struct {
 	YamlMarshal    func(any) ([]byte, error)
 	Glob           func(string) ([]string, error)
 	HclParseConfig func([]byte, string, hcl.Pos) (*hclwrite.File, hcl.Diagnostics)
+	Goos           func() string
 }
 
 // =============================================================================
@@ -58,5 +60,6 @@ func NewShims() *Shims {
 		YamlMarshal:    yaml.Marshal,
 		Glob:           filepath.Glob,
 		HclParseConfig: hclwrite.ParseConfig,
+		Goos:           func() string { return runtime.GOOS },
 	}
 }
