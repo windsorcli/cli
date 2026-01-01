@@ -48,6 +48,13 @@ type ConfigHandler interface {
 	LoadSchema(schemaPath string) error
 	LoadSchemaFromBytes(schemaContent []byte) error
 	GetContextValues() (map[string]any, error)
+	RegisterProvider(prefix string, provider ValueProvider)
+}
+
+// ValueProvider defines the interface for dynamic value providers that can resolve
+// configuration keys with special prefixes (e.g., terraform.*, cluster.*).
+type ValueProvider interface {
+	GetValue(key string) (any, error)
 }
 
 const (
@@ -66,6 +73,7 @@ type configHandler struct {
 	schemaValidator *SchemaValidator
 	data            map[string]any
 	defaultConfig   *v1alpha1.Context
+	providers       map[string]ValueProvider
 }
 
 // =============================================================================
@@ -75,9 +83,10 @@ type configHandler struct {
 // NewConfigHandler creates a new ConfigHandler instance with default context configuration.
 func NewConfigHandler(shell shell.Shell) ConfigHandler {
 	handler := &configHandler{
-		shell: shell,
-		shims: NewShims(),
-		data:  make(map[string]any),
+		shell:     shell,
+		shims:     NewShims(),
+		data:      make(map[string]any),
+		providers: make(map[string]ValueProvider),
 	}
 
 	handler.schemaValidator = NewSchemaValidator(shell)
@@ -397,12 +406,27 @@ func (c *configHandler) SetDefault(context v1alpha1.Context) error {
 // Get retrieves the value at the specified configuration path from the internal data map.
 // If the value is not found in the current data, and the schema validator is available,
 // it falls back to returning a default value from the schema for the top-level key or
-// deeper nested keys as appropriate. Returns nil if the path is empty or no value is found.
+// deeper nested keys as appropriate. If the key matches a provider pattern (e.g., terraform.*),
+// it delegates to the appropriate provider. Returns nil if the path is empty or no value is found.
 func (c *configHandler) Get(path string) any {
 	if path == "" {
 		return nil
 	}
+
 	pathKeys := parsePath(path)
+	if len(pathKeys) == 0 {
+		return nil
+	}
+
+	firstKey := pathKeys[0]
+	if provider, exists := c.providers[firstKey]; exists {
+		value, err := provider.GetValue(path)
+		if err != nil {
+			return nil
+		}
+		return value
+	}
+
 	value := getValueByPathFromMap(c.data, pathKeys)
 
 	if value == nil && len(pathKeys) > 0 && c.schemaValidator != nil && c.schemaValidator.Schema != nil {
@@ -424,6 +448,16 @@ func (c *configHandler) Get(path string) any {
 	}
 
 	return value
+}
+
+// RegisterProvider registers a value provider for the specified prefix.
+// When Get encounters a key starting with the prefix,
+// it will delegate to the registered provider to fetch the value.
+func (c *configHandler) RegisterProvider(prefix string, provider ValueProvider) {
+	if c.providers == nil {
+		c.providers = make(map[string]ValueProvider)
+	}
+	c.providers[prefix] = provider
 }
 
 // getValueByPathFromMap returns the value in a nested map[string]any at the location specified by the pathKeys slice.

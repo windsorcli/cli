@@ -19,6 +19,8 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
+var _ config.ValueProvider = (*terraformProvider)(nil)
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -88,8 +90,11 @@ func NewTerraformProvider(
 // Public Methods
 // =============================================================================
 
-// FindRelativeProjectPath locates the Terraform project path by checking the current
-// directory (or provided directory) and its ancestors for Terraform files, returning the relative path if found.
+// FindRelativeProjectPath returns the relative path to a Terraform project from the current
+// working directory or the specified directory. It searches for Terraform files (*.tf) in the
+// provided directory or its ancestors, and resolves the path relative to "terraform" or "contexts"
+// within the directory structure. Returns an empty string if no Terraform files are found, or an error
+// if file system inspection fails.
 func (p *terraformProvider) FindRelativeProjectPath(directory ...string) (string, error) {
 	var currentPath string
 	if len(directory) > 0 {
@@ -136,7 +141,12 @@ func (p *terraformProvider) FindRelativeProjectPath(directory ...string) (string
 	return "", nil
 }
 
-// GenerateBackendOverride creates the backend_override.tf file for the specified directory.
+// GenerateBackendOverride creates or removes the backend_override.tf file for the specified directory
+// based on the configured backend type.
+// If the backend type is 'none', it removes the override file if it exists.
+// Otherwise, it writes a backend_override.tf file with the appropriate backend stanza
+// for local, s3, kubernetes, or azurerm backends. Returns an error for unsupported backend types
+// or if read/write/removal operations fail.
 func (p *terraformProvider) GenerateBackendOverride(directory string) error {
 	backend := p.configHandler.GetString("terraform.backend.type", "local")
 
@@ -365,11 +375,40 @@ func (p *terraformProvider) ClearCache() {
 	p.components = nil
 }
 
+// GetValue implements the config.ValueProvider interface, handling keys in the format
+// terraform.<componentID>.outputs.<outputKey>. It parses the key, extracts the component ID
+// and output key, then fetches the terraform output using the cached GetOutputs method.
+// Returns the output value or an error if the key format is invalid or the output cannot be fetched.
+func (p *terraformProvider) GetValue(key string) (any, error) {
+	parts := strings.Split(key, ".")
+	if len(parts) < 4 || parts[0] != "terraform" || parts[2] != "outputs" {
+		return nil, fmt.Errorf("invalid terraform key format: expected terraform.<componentID>.outputs.<outputKey>, got %s", key)
+	}
+
+	componentID := parts[1]
+	outputKey := strings.Join(parts[3:], ".")
+
+	outputs, err := p.GetOutputs(componentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get outputs for component %s: %w", componentID, err)
+	}
+
+	value, exists := outputs[outputKey]
+	if !exists {
+		return nil, fmt.Errorf("output key %s not found for component %s", outputKey, componentID)
+	}
+
+	return value, nil
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================
 
-// captureTerraformOutputs executes terraform output with proper environment setup for the specified component.
+// captureTerraformOutputs runs 'terraform output -json' for the specified component, after setting up
+// the appropriate environment (TF_DATA_DIR, backend override file). It attempts to initialize the
+// module if output fails at first, cleans up backend overrides, restores environment variables,
+// and returns a map of output values or an empty map on error. Only output 'value' fields are returned.
 func (p *terraformProvider) captureTerraformOutputs(componentID string) (map[string]any, error) {
 	component := p.GetTerraformComponent(componentID)
 	if component == nil {
@@ -446,6 +485,9 @@ func (p *terraformProvider) captureTerraformOutputs(componentID string) (map[str
 }
 
 // loadTerraformComponents loads and parses Terraform components from a blueprint.yaml file.
+// It retrieves the blueprint configuration root, reads the blueprint.yaml file, unmarshals it into
+// a Blueprint struct, and computes the FullPath for each Terraform component based on the presence
+// of a Source field and the resolved project root. Returns the list of TerraformComponents found.
 func (p *terraformProvider) loadTerraformComponents() []blueprintv1alpha1.TerraformComponent {
 	configRoot, err := p.configHandler.GetConfigRoot()
 	if err != nil {
@@ -480,7 +522,11 @@ func (p *terraformProvider) loadTerraformComponents() []blueprintv1alpha1.Terraf
 	return blueprint.TerraformComponents
 }
 
-// resolveModulePath resolves the absolute module path for a terraform component.
+// resolveModulePath returns the absolute path to the Terraform module for the specified component.
+// The path resolution logic prioritizes named components first (using Windsor scratch space), then
+// components with a Source field (also in Windsor scratch space), and finally defaulting to local
+// project directory path resolution if neither is set. Returns the computed absolute path or an error
+// if the required project or context root cannot be determined.
 func (p *terraformProvider) resolveModulePath(component *blueprintv1alpha1.TerraformComponent) (string, error) {
 	if component.Name != "" {
 		windsorScratchPath, err := p.configHandler.GetWindsorScratchPath()

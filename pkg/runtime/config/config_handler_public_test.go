@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1317,6 +1318,94 @@ properties:
 		}
 	})
 
+	t.Run("DelegatesToProvider", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+		mockProvider := &mockValueProvider{value: "provider-value"}
+		handler.RegisterProvider("terraform", mockProvider)
+
+		value := handler.Get("terraform.component.outputs.key")
+
+		if value != "provider-value" {
+			t.Errorf("Expected 'provider-value', got %v", value)
+		}
+	})
+
+	t.Run("ReturnsNilOnProviderError", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+		mockProvider := &mockValueProvider{err: errors.New("provider error")}
+		handler.RegisterProvider("terraform", mockProvider)
+
+		value := handler.Get("terraform.component.outputs.key")
+
+		if value != nil {
+			t.Errorf("Expected nil on provider error, got %v", value)
+		}
+	})
+
+	t.Run("FallsBackToDataMapForNonProviderKeys", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+		handler.LoadConfigString("test: value")
+
+		value := handler.Get("test")
+
+		if value != "value" {
+			t.Errorf("Expected 'value', got %v", value)
+		}
+	})
+
+}
+
+func TestConfigHandler_RegisterProvider(t *testing.T) {
+	t.Run("RegistersProvider", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+		mockProvider := &mockValueProvider{}
+
+		handler.RegisterProvider("test", mockProvider)
+
+		value := handler.Get("test.key")
+		if value != "mock-value" {
+			t.Errorf("Expected 'mock-value', got %v", value)
+		}
+	})
+
+	t.Run("AllowsMultipleProviders", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+		provider1 := &mockValueProvider{value: "value1"}
+		provider2 := &mockValueProvider{value: "value2"}
+
+		handler.RegisterProvider("provider1", provider1)
+		handler.RegisterProvider("provider2", provider2)
+
+		value1 := handler.Get("provider1.key")
+		if value1 != "value1" {
+			t.Errorf("Expected 'value1', got %v", value1)
+		}
+
+		value2 := handler.Get("provider2.key")
+		if value2 != "value2" {
+			t.Errorf("Expected 'value2', got %v", value2)
+		}
+	})
+
+	t.Run("OverwritesExistingProvider", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+		provider1 := &mockValueProvider{value: "value1"}
+		provider2 := &mockValueProvider{value: "value2"}
+
+		handler.RegisterProvider("test", provider1)
+		handler.RegisterProvider("test", provider2)
+
+		value := handler.Get("test.key")
+		if value != "value2" {
+			t.Errorf("Expected 'value2', got %v", value)
+		}
+	})
 }
 
 func TestConfigHandler_GetString(t *testing.T) {
@@ -3037,8 +3126,24 @@ func TestConfigHandler_IsDevMode(t *testing.T) {
 }
 
 // =============================================================================
+// =============================================================================
 // Test Helpers
 // =============================================================================
+
+type mockValueProvider struct {
+	value any
+	err   error
+}
+
+func (m *mockValueProvider) GetValue(key string) (any, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	if m.value != nil {
+		return m.value, nil
+	}
+	return "mock-value", nil
+}
 
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && findSubstring(s, substr)
