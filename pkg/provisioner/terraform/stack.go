@@ -100,33 +100,9 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 			return fmt.Errorf("directory %s does not exist", component.FullPath)
 		}
 
-		terraformEnv := s.getTerraformEnv()
-		if terraformEnv == nil {
-			return fmt.Errorf("terraform environment printer not available")
-		}
-		componentID := component.GetID()
-		terraformArgs, err := terraformEnv.GenerateTerraformArgs(componentID, component.FullPath, false)
+		terraformArgs, err := s.setupTerraformEnvironment(component)
 		if err != nil {
-			return fmt.Errorf("error generating terraform args for %s: %w", componentID, err)
-		}
-
-		tfCliArgsVars := []string{"TF_CLI_ARGS_init", "TF_CLI_ARGS_plan", "TF_CLI_ARGS_apply", "TF_CLI_ARGS_destroy", "TF_CLI_ARGS_import"}
-		for _, envVar := range tfCliArgsVars {
-			if err := s.shims.Unsetenv(envVar); err != nil {
-				return fmt.Errorf("error unsetting %s: %w", envVar, err)
-			}
-		}
-
-		for key, value := range terraformArgs.TerraformVars {
-			if key == "TF_DATA_DIR" || strings.HasPrefix(key, "TF_VAR_") {
-				if err := s.shims.Setenv(key, value); err != nil {
-					return fmt.Errorf("error setting %s: %w", key, err)
-				}
-			}
-		}
-
-		if err := terraformEnv.PostEnvHook(component.FullPath); err != nil {
-			return fmt.Errorf("error creating backend override file for %s: %w", component.Path, err)
+			return err
 		}
 
 		terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
@@ -202,33 +178,9 @@ func (s *TerraformStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 			continue
 		}
 
-		terraformEnv := s.getTerraformEnv()
-		if terraformEnv == nil {
-			return fmt.Errorf("terraform environment printer not available")
-		}
-		componentID := component.GetID()
-		terraformArgs, err := terraformEnv.GenerateTerraformArgs(componentID, component.FullPath, false)
+		terraformArgs, err := s.setupTerraformEnvironment(component)
 		if err != nil {
-			return fmt.Errorf("error generating terraform args for %s: %w", componentID, err)
-		}
-
-		tfCliArgsVars := []string{"TF_CLI_ARGS_init", "TF_CLI_ARGS_plan", "TF_CLI_ARGS_apply", "TF_CLI_ARGS_destroy", "TF_CLI_ARGS_import"}
-		for _, envVar := range tfCliArgsVars {
-			if err := s.shims.Unsetenv(envVar); err != nil {
-				return fmt.Errorf("error unsetting %s: %w", envVar, err)
-			}
-		}
-
-		for key, value := range terraformArgs.TerraformVars {
-			if key == "TF_DATA_DIR" || strings.HasPrefix(key, "TF_VAR_") {
-				if err := s.shims.Setenv(key, value); err != nil {
-					return fmt.Errorf("error setting %s: %w", key, err)
-				}
-			}
-		}
-
-		if err := terraformEnv.PostEnvHook(component.FullPath); err != nil {
-			return fmt.Errorf("error creating backend override file for %s: %w", component.Path, err)
+			return err
 		}
 
 		terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
@@ -380,6 +332,43 @@ func (s *TerraformStack) isOCISource(sourceNameOrURL string, blueprint *blueprin
 		}
 	}
 	return false
+}
+
+// setupTerraformEnvironment configures the Terraform environment for a component.
+// It unsets TF_CLI_ARGS_* environment variables, gets terraform env vars and args,
+// sets TF_DATA_DIR and TF_VAR_* environment variables, and runs the PostEnvHook.
+// Returns the terraform args needed for command construction, or an error.
+func (s *TerraformStack) setupTerraformEnvironment(component blueprintv1alpha1.TerraformComponent) (*envvars.TerraformArgs, error) {
+	terraformEnv := s.getTerraformEnv()
+	if terraformEnv == nil {
+		return nil, fmt.Errorf("terraform environment printer not available")
+	}
+
+	tfCliArgsVars := []string{"TF_CLI_ARGS_init", "TF_CLI_ARGS_plan", "TF_CLI_ARGS_apply", "TF_CLI_ARGS_destroy", "TF_CLI_ARGS_import"}
+	for _, envVar := range tfCliArgsVars {
+		if err := s.shims.Unsetenv(envVar); err != nil {
+			return nil, fmt.Errorf("error unsetting %s: %w", envVar, err)
+		}
+	}
+
+	terraformVars, terraformArgs, err := terraformEnv.GetEnvVarsForPath(component.GetID(), component.FullPath, false)
+	if err != nil {
+		return nil, fmt.Errorf("error getting terraform env vars: %w", err)
+	}
+
+	for key, value := range terraformVars {
+		if key == "TF_DATA_DIR" || strings.HasPrefix(key, "TF_VAR_") {
+			if err := s.shims.Setenv(key, value); err != nil {
+				return nil, fmt.Errorf("error setting %s: %w", key, err)
+			}
+		}
+	}
+
+	if err := terraformEnv.PostEnvHook(component.FullPath); err != nil {
+		return nil, fmt.Errorf("error creating backend override file for %s: %w", component.Path, err)
+	}
+
+	return terraformArgs, nil
 }
 
 // getTerraformEnv returns the terraform environment printer, checking the runtime if not set on the stack.
