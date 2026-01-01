@@ -975,6 +975,11 @@ func TestBaseBlueprintHandler_resolvePatchFromPath(t *testing.T) {
 			ConfigHandler: mockConfigHandler,
 			Shell:         mockShell,
 		}
+		var err error
+		rt, err = runtime.NewRuntime(rt)
+		if err != nil {
+			t.Fatalf("Failed to initialize runtime: %v", err)
+		}
 		handler, err := NewBlueprintHandler(rt, mockArtifactBuilder)
 		if err != nil {
 			t.Fatalf("NewBlueprintHandler() failed: %v", err)
@@ -1268,6 +1273,11 @@ func TestBaseBlueprintHandler_extractTargetFromPatchData(t *testing.T) {
 			ConfigHandler: mockConfigHandler,
 			Shell:         mockShell,
 		}
+		var err error
+		rt, err = runtime.NewRuntime(rt)
+		if err != nil {
+			t.Fatalf("Failed to initialize runtime: %v", err)
+		}
 		handler, err := NewBlueprintHandler(rt, mockArtifactBuilder)
 		if err != nil {
 			t.Fatalf("NewBlueprintHandler() failed: %v", err)
@@ -1433,6 +1443,11 @@ func TestBaseBlueprintHandler_extractTargetFromPatchContent(t *testing.T) {
 			ConfigHandler: mockConfigHandler,
 			Shell:         mockShell,
 		}
+		var err error
+		rt, err = runtime.NewRuntime(rt)
+		if err != nil {
+			t.Fatalf("Failed to initialize runtime: %v", err)
+		}
 		handler, err := NewBlueprintHandler(rt, mockArtifactBuilder)
 		if err != nil {
 			t.Fatalf("NewBlueprintHandler() failed: %v", err)
@@ -1531,6 +1546,11 @@ func TestBaseBlueprintHandler_deepMergeMaps(t *testing.T) {
 		rt := &runtime.Runtime{
 			ConfigHandler: mockConfigHandler,
 			Shell:         mockShell,
+		}
+		var err error
+		rt, err = runtime.NewRuntime(rt)
+		if err != nil {
+			t.Fatalf("Failed to initialize runtime: %v", err)
 		}
 		handler, err := NewBlueprintHandler(rt, mockArtifactBuilder)
 		if err != nil {

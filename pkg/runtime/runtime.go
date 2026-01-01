@@ -15,6 +15,7 @@ import (
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/env"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	secretsRuntime "github.com/windsorcli/cli/pkg/runtime/secrets"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/runtime/terraform"
@@ -44,6 +45,7 @@ type Runtime struct {
 	// Core dependencies
 	ConfigHandler config.ConfigHandler
 	Shell         shell.Shell
+	Evaluator     *evaluator.ExpressionEvaluator
 
 	// SecretsProviders contains providers for Sops and 1Password secrets management
 	SecretsProviders struct {
@@ -95,6 +97,9 @@ func NewRuntime(opts ...*Runtime) (*Runtime, error) {
 		}
 		if overrides.ConfigHandler != nil {
 			rt.ConfigHandler = overrides.ConfigHandler
+		}
+		if overrides.Evaluator != nil {
+			rt.Evaluator = overrides.Evaluator
 		}
 		if overrides.ContextName != "" {
 			rt.ContextName = overrides.ContextName
@@ -184,6 +189,10 @@ func NewRuntime(opts ...*Runtime) (*Runtime, error) {
 	}
 	if rt.TemplateRoot == "" {
 		rt.TemplateRoot = filepath.Join(rt.ProjectRoot, "contexts", "_template")
+	}
+
+	if rt.Evaluator == nil {
+		rt.Evaluator = evaluator.NewExpressionEvaluator(rt.ConfigHandler, rt.ProjectRoot, rt.TemplateRoot)
 	}
 	if rt.WindsorScratchPath == "" {
 		rt.WindsorScratchPath = filepath.Join(rt.ProjectRoot, ".windsor", "contexts", rt.ContextName)
