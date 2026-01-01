@@ -278,19 +278,21 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 
 		foundNewLocation := false
 		foundOldLocation := false
+		newLocationSlash := filepath.ToSlash(newLocation)
+		oldLocationSlash := filepath.ToSlash(oldLocation)
 		for _, arg := range args {
-			if strings.Contains(arg, newLocation) {
+			if strings.Contains(arg, newLocationSlash) {
 				foundNewLocation = true
 			}
-			if strings.Contains(arg, oldLocation) {
+			if strings.Contains(arg, oldLocationSlash) {
 				foundOldLocation = true
 			}
 		}
 		if !foundNewLocation {
-			t.Errorf("Expected args to prefer new location %s, got %v", newLocation, args)
+			t.Errorf("Expected args to prefer new location %s, got %v", newLocationSlash, args)
 		}
 		if foundOldLocation {
-			t.Errorf("Expected args to not include old location %s when new location exists, got %v", oldLocation, args)
+			t.Errorf("Expected args to not include old location %s when new location exists, got %v", oldLocationSlash, args)
 		}
 	})
 
@@ -343,14 +345,15 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		foundOldLocation := false
+		oldLocationSlash := filepath.ToSlash(oldLocation)
 		for _, arg := range args {
-			if strings.Contains(arg, oldLocation) {
+			if strings.Contains(arg, oldLocationSlash) {
 				foundOldLocation = true
 				break
 			}
 		}
 		if !foundOldLocation {
-			t.Errorf("Expected args to fall back to old location %s, got %v", oldLocation, args)
+			t.Errorf("Expected args to fall back to old location %s, got %v", oldLocationSlash, args)
 		}
 	})
 

@@ -74,7 +74,11 @@ func (e *TerraformEnvPrinter) GetEnvVarsForPath(componentID, modulePath string, 
 		return nil, nil, fmt.Errorf("error generating terraform args: %w", err)
 	}
 
-	terraformVars := e.formatTerraformArgsAsEnvVars(terraformArgs)
+	terraformVars, err := e.formatTerraformArgsAsEnvVars(terraformArgs)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	return terraformVars, terraformArgs, nil
 }
 
@@ -138,8 +142,12 @@ func (e *TerraformEnvPrinter) getEmptyEnvVars() map[string]string {
 }
 
 // formatTerraformArgsAsEnvVars formats TerraformArgs into environment variables.
-func (e *TerraformEnvPrinter) formatTerraformArgsAsEnvVars(terraformArgs *TerraformArgs) map[string]string {
-	configRoot, _ := e.configHandler.GetConfigRoot()
+// Returns an error if GetConfigRoot fails, which would result in an empty TF_VAR_context_path.
+func (e *TerraformEnvPrinter) formatTerraformArgsAsEnvVars(terraformArgs *TerraformArgs) (map[string]string, error) {
+	configRoot, err := e.configHandler.GetConfigRoot()
+	if err != nil {
+		return nil, fmt.Errorf("error getting config root: %w", err)
+	}
 
 	terraformVars := make(map[string]string)
 	terraformVars["TF_DATA_DIR"] = terraformArgs.TFDataDir
@@ -158,11 +166,13 @@ func (e *TerraformEnvPrinter) formatTerraformArgsAsEnvVars(terraformArgs *Terraf
 		terraformVars["TF_VAR_os_type"] = "unix"
 	}
 
-	return terraformVars
+	return terraformVars, nil
 }
 
 // formatArgsForEnv formats CLI arguments for use in environment variables.
 // It adds quotes around file paths and values that need them for shell compatibility.
+// Handles Unix absolute paths (/path), relative paths (./path), and Windows drive letter paths
+// (both D:\path and D:/path formats) by detecting drive letters followed by a colon.
 func (e *TerraformEnvPrinter) formatArgsForEnv(args []string) string {
 	formatted := make([]string, len(args))
 	for i, arg := range args {
@@ -179,7 +189,7 @@ func (e *TerraformEnvPrinter) formatArgsForEnv(args []string) string {
 			} else {
 				formatted[i] = arg
 			}
-		} else if (strings.HasPrefix(arg, "/") || strings.HasPrefix(arg, ".")) && !strings.HasPrefix(arg, "-") {
+		} else if !strings.HasPrefix(arg, "-") && (strings.HasPrefix(arg, "/") || strings.HasPrefix(arg, ".") || (len(arg) >= 2 && arg[1] == ':' && ((arg[0] >= 'A' && arg[0] <= 'Z') || (arg[0] >= 'a' && arg[0] <= 'z')))) {
 			formatted[i] = fmt.Sprintf("\"%s\"", arg)
 		} else {
 			formatted[i] = arg

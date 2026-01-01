@@ -1531,7 +1531,10 @@ terraform:
 		if err != nil {
 			t.Fatalf("Error generating args: %v", err)
 		}
-		envVars := printer.formatTerraformArgsAsEnvVars(args)
+		envVars, err := printer.formatTerraformArgsAsEnvVars(args)
+		if err != nil {
+			t.Fatalf("Error formatting terraform args as env vars: %v", err)
+		}
 		planArgs := envVars["TF_CLI_ARGS_plan"]
 		userTfvarsSlash := filepath.ToSlash(userTfvarsPath)
 		autoTfvarsSlash := filepath.ToSlash(autoTfvarsPath)
