@@ -169,10 +169,6 @@ func NewRuntime(opts ...*Runtime) (*Runtime, error) {
 		rt.ConfigHandler = config.NewConfigHandler(rt.Shell)
 	}
 
-	if rt.Evaluator == nil {
-		rt.Evaluator = evaluator.NewExpressionEvaluator(rt.ConfigHandler, rt.ProjectRoot, rt.TemplateRoot)
-	}
-
 	if rt.envVars == nil {
 		rt.envVars = make(map[string]string)
 	}
@@ -193,6 +189,10 @@ func NewRuntime(opts ...*Runtime) (*Runtime, error) {
 	}
 	if rt.TemplateRoot == "" {
 		rt.TemplateRoot = filepath.Join(rt.ProjectRoot, "contexts", "_template")
+	}
+
+	if rt.Evaluator == nil {
+		rt.Evaluator = evaluator.NewExpressionEvaluator(rt.ConfigHandler, rt.ProjectRoot, rt.TemplateRoot)
 	}
 	if rt.WindsorScratchPath == "" {
 		rt.WindsorScratchPath = filepath.Join(rt.ProjectRoot, ".windsor", "contexts", rt.ContextName)

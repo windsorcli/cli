@@ -353,29 +353,35 @@ func (e *ExpressionEvaluator) extractExpression(s string) string {
 // configured, then the Jsonnet is evaluated and the JSON output is unmarshaled.
 // Returns the evaluated value or an error if loading, evaluation, or parsing fails.
 func (e *ExpressionEvaluator) evaluateJsonnetFunction(pathArg string, config map[string]any, featurePath string) (any, error) {
-	path := e.resolvePath(pathArg, featurePath)
-
 	var content []byte
 	var err error
 
 	if e.templateData != nil {
 		content = e.lookupInTemplateData(pathArg, featurePath)
-		if content == nil && e.templateRoot != "" {
-			if relPath, err := filepath.Rel(e.templateRoot, path); err == nil && !strings.HasPrefix(relPath, "..") {
-				relPath = strings.ReplaceAll(relPath, "\\", "/")
-				if data, exists := e.templateData["_template/"+relPath]; exists {
-					content = data
-				} else if data, exists := e.templateData[relPath]; exists {
-					content = data
-				}
-			}
-		}
 	}
 
+	var path string
 	if content == nil {
+		path = e.resolvePath(pathArg, featurePath)
 		content, err = e.Shims.ReadFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read file %s: %w", path, err)
+		}
+	} else {
+		if e.templateRoot != "" && featurePath != "" {
+			featureAbsPath := featurePath
+			if !filepath.IsAbs(featurePath) {
+				featureAbsPath = filepath.Join(e.templateRoot, featurePath)
+			}
+			featureDir := filepath.Dir(featureAbsPath)
+			resolvedAbsPath := filepath.Clean(filepath.Join(featureDir, pathArg))
+			if relPath, err := filepath.Rel(e.templateRoot, resolvedAbsPath); err == nil && !strings.HasPrefix(relPath, "..") {
+				path = filepath.Join(e.templateRoot, relPath)
+			} else {
+				path = resolvedAbsPath
+			}
+		} else {
+			path = e.resolvePath(pathArg, featurePath)
 		}
 	}
 
@@ -560,26 +566,15 @@ func (e *ExpressionEvaluator) buildHelperLibrary() string {
 // to the featurePath or project root as appropriate. Returns the file content as a
 // string or an error if the file cannot be found or read.
 func (e *ExpressionEvaluator) evaluateFileFunction(pathArg string, featurePath string) (any, error) {
-	path := e.resolvePath(pathArg, featurePath)
-
 	var content []byte
 	var err error
 
 	if e.templateData != nil {
 		content = e.lookupInTemplateData(pathArg, featurePath)
-		if content == nil && e.templateRoot != "" {
-			if relPath, err := filepath.Rel(e.templateRoot, path); err == nil && !strings.HasPrefix(relPath, "..") {
-				relPath = strings.ReplaceAll(relPath, "\\", "/")
-				if data, exists := e.templateData["_template/"+relPath]; exists {
-					content = data
-				} else if data, exists := e.templateData[relPath]; exists {
-					content = data
-				}
-			}
-		}
 	}
 
 	if content == nil {
+		path := e.resolvePath(pathArg, featurePath)
 		content, err = e.Shims.ReadFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read file %s: %w", path, err)
@@ -593,7 +588,8 @@ func (e *ExpressionEvaluator) evaluateFileFunction(pathArg string, featurePath s
 // It resolves the path argument relative to the feature file's directory, converting
 // the feature path to a relative path from the template root if available. The resolved
 // path is used to look up the file in template data, checking both with and without
-// the "_template/" prefix. Returns the file content if found, or nil if not present.
+// the "_template/" prefix. For paths that go up directories (../), it ensures the
+// resolved path stays within the template root. Returns the file content if found, or nil if not present.
 func (e *ExpressionEvaluator) lookupInTemplateData(pathArg string, featurePath string) []byte {
 	if e.templateData == nil {
 		return nil
@@ -608,29 +604,30 @@ func (e *ExpressionEvaluator) lookupInTemplateData(pathArg string, featurePath s
 		return nil
 	}
 
-	var featureRelPath string
-	if e.templateRoot != "" {
-		if rel, err := filepath.Rel(e.templateRoot, featurePath); err == nil && !strings.HasPrefix(rel, "..") {
-			featureRelPath = strings.ReplaceAll(rel, "\\", "/")
-		} else {
-			featureRelPath = featurePath
+	if e.templateRoot == "" {
+		return nil
+	}
+
+	featureAbsPath := featurePath
+	if !filepath.IsAbs(featurePath) {
+		featureAbsPath = filepath.Join(e.templateRoot, featurePath)
+	}
+
+	featureDir := filepath.Dir(featureAbsPath)
+	resolvedAbsPath := filepath.Clean(filepath.Join(featureDir, pathArg))
+
+	if relPath, err := filepath.Rel(e.templateRoot, resolvedAbsPath); err == nil && !strings.HasPrefix(relPath, "..") {
+		resolvedRelPath := strings.ReplaceAll(relPath, "\\", "/")
+		if resolvedRelPath == "." {
+			resolvedRelPath = ""
 		}
-	} else {
-		featureRelPath = featurePath
-	}
 
-	featureDir := filepath.Dir(featureRelPath)
-	if featureDir == "." {
-		featureDir = ""
-	}
-	resolvedRelPath := filepath.Clean(filepath.Join(featureDir, pathArg))
-	resolvedRelPath = strings.ReplaceAll(resolvedRelPath, "\\", "/")
-
-	if data, exists := e.templateData["_template/"+resolvedRelPath]; exists {
-		return data
-	}
-	if data, exists := e.templateData[resolvedRelPath]; exists {
-		return data
+		if data, exists := e.templateData["_template/"+resolvedRelPath]; exists {
+			return data
+		}
+		if data, exists := e.templateData[resolvedRelPath]; exists {
+			return data
+		}
 	}
 
 	return nil

@@ -415,6 +415,10 @@ func setupBlueprintMocks(t *testing.T, opts ...func(*BlueprintTestMocks)) *Bluep
 		Shell:         mockShell,
 		ContextName:   "local",
 	}
+	rt, err = runtime.NewRuntime(rt)
+	if err != nil {
+		t.Fatalf("Failed to initialize runtime: %v", err)
+	}
 
 	// Create mocks struct
 	mocks := &BlueprintTestMocks{

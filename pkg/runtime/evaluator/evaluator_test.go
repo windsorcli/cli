@@ -264,6 +264,212 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			t.Errorf("Expected result to be nil, got %v", result)
 		}
 	})
+
+	t.Run("EvaluatesBooleanEqualityExpression", func(t *testing.T) {
+		// Given an evaluator and config with values
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		config := map[string]any{
+			"provider": "aws",
+		}
+
+		// When evaluating an equality expression
+		result, err := evaluator.Evaluate("provider == 'aws'", config, "")
+
+		// Then the result should be true
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result != true {
+			t.Errorf("Expected result to be true, got %v", result)
+		}
+	})
+
+	t.Run("EvaluatesBooleanInequalityExpression", func(t *testing.T) {
+		// Given an evaluator and config with values
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		config := map[string]any{
+			"provider": "aws",
+		}
+
+		// When evaluating an inequality expression
+		result, err := evaluator.Evaluate("provider != 'gcp'", config, "")
+
+		// Then the result should be true
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result != true {
+			t.Errorf("Expected result to be true, got %v", result)
+		}
+	})
+
+	t.Run("EvaluatesLogicalAndExpression", func(t *testing.T) {
+		// Given an evaluator and config with nested values
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		config := map[string]any{
+			"provider": "generic",
+			"observability": map[string]any{
+				"enabled": true,
+			},
+		}
+
+		// When evaluating a logical AND expression
+		result, err := evaluator.Evaluate("provider == 'generic' && observability.enabled == true", config, "")
+
+		// Then the result should be true
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result != true {
+			t.Errorf("Expected result to be true, got %v", result)
+		}
+	})
+
+	t.Run("EvaluatesLogicalOrExpression", func(t *testing.T) {
+		// Given an evaluator and config with values
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		config := map[string]any{
+			"provider": "aws",
+		}
+
+		// When evaluating a logical OR expression
+		result, err := evaluator.Evaluate("provider == 'aws' || provider == 'azure'", config, "")
+
+		// Then the result should be true
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result != true {
+			t.Errorf("Expected result to be true, got %v", result)
+		}
+	})
+
+	t.Run("EvaluatesParenthesesGrouping", func(t *testing.T) {
+		// Given an evaluator and config with nested values
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		config := map[string]any{
+			"provider": "generic",
+			"vm": map[string]any{
+				"driver": "virtualbox",
+			},
+			"loadbalancer": map[string]any{
+				"enabled": false,
+			},
+		}
+
+		// When evaluating an expression with parentheses
+		result, err := evaluator.Evaluate("provider == 'generic' && (vm.driver != 'docker-desktop' || loadbalancer.enabled == true)", config, "")
+
+		// Then the result should be true
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result != true {
+			t.Errorf("Expected result to be true, got %v", result)
+		}
+	})
+
+	t.Run("EvaluatesStringValue", func(t *testing.T) {
+		// Given an evaluator and config with string value
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		config := map[string]any{
+			"provider": "aws",
+		}
+
+		// When evaluating a string value expression
+		result, err := evaluator.Evaluate("provider", config, "")
+
+		// Then the result should be the string value
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result != "aws" {
+			t.Errorf("Expected result to be 'aws', got %v", result)
+		}
+	})
+
+	t.Run("EvaluatesIntegerValue", func(t *testing.T) {
+		// Given an evaluator and config with integer value
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		config := map[string]any{
+			"cluster": map[string]any{
+				"workers": map[string]any{
+					"count": 3,
+				},
+			},
+		}
+
+		// When evaluating an integer value expression
+		result, err := evaluator.Evaluate("cluster.workers.count", config, "")
+
+		// Then the result should be the integer value
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result != 3 {
+			t.Errorf("Expected result to be 3, got %v", result)
+		}
+	})
+
+	t.Run("EvaluatesArrayAccess", func(t *testing.T) {
+		// Given an evaluator and config with array value
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		config := map[string]any{
+			"cluster": map[string]any{
+				"workers": map[string]any{
+					"instance_types": []any{"t3.medium", "t3.large"},
+				},
+			},
+		}
+
+		// When evaluating an array access expression
+		result, err := evaluator.Evaluate("cluster.workers.instance_types", config, "")
+
+		// Then the result should be the array
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		resultArray, ok := result.([]any)
+		if !ok {
+			t.Fatalf("Expected result to be an array, got %T", result)
+		}
+
+		if len(resultArray) != 2 || resultArray[0] != "t3.medium" || resultArray[1] != "t3.large" {
+			t.Errorf("Expected result to be ['t3.medium', 't3.large'], got %v", resultArray)
+		}
+	})
+
+	t.Run("ReturnsNilForUndefinedVariable", func(t *testing.T) {
+		// Given an evaluator and config without the variable
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		config := map[string]any{
+			"cluster": map[string]any{
+				"workers": map[string]any{
+					"count": 3,
+				},
+			},
+		}
+
+		// When evaluating an undefined variable expression
+		result, err := evaluator.Evaluate("cluster.undefined", config, "")
+
+		// Then the result should be nil
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result != nil {
+			t.Errorf("Expected result to be nil, got %v", result)
+		}
+	})
 }
 
 func TestExpressionEvaluator_EvaluateDefaults(t *testing.T) {
