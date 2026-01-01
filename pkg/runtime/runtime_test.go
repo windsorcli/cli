@@ -2063,7 +2063,7 @@ func TestRuntime_PrepareTools(t *testing.T) {
 }
 
 func TestRuntime_GetBuildID(t *testing.T) {
-	t.Run("CreatesNewBuildIDWhenNoneExists", func(t *testing.T) {
+	t.Run("ReturnsEmptyStringWhenNoBuildIDExists", func(t *testing.T) {
 		// Given a runtime with no existing build ID
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
@@ -2074,14 +2074,14 @@ func TestRuntime_GetBuildID(t *testing.T) {
 		// When GetBuildID is called
 		buildID, err := rt.GetBuildID()
 
-		// Then a new build ID should be created
+		// Then an empty string should be returned (read-only behavior)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
 
-		if buildID == "" {
-			t.Error("Expected build ID to be generated")
+		if buildID != "" {
+			t.Errorf("Expected empty string when no build ID exists, got: %s", buildID)
 		}
 	})
 

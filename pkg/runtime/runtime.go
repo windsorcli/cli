@@ -335,8 +335,9 @@ func (rt *Runtime) CheckTools() error {
 }
 
 // GetBuildID retrieves the current build ID from the .windsor/.build-id file.
-// If no build ID exists, a new one is generated, persisted, and returned.
-// Returns the build ID string or an error if retrieval or persistence fails.
+// This is a read-only operation - it never creates a build ID.
+// Returns the build ID string if it exists, or empty string if it doesn't exist.
+// Returns an error only if file read fails (not if file doesn't exist).
 func (rt *Runtime) GetBuildID() (string, error) {
 	projectRoot := rt.ProjectRoot
 
@@ -355,30 +356,16 @@ func (rt *Runtime) GetBuildID() (string, error) {
 
 	buildIDPath := ".windsor/.build-id"
 
-	var buildID string
-
 	if _, err := root.Stat(buildIDPath); os.IsNotExist(err) {
-		buildID = ""
-	} else {
-		data, err := root.ReadFile(buildIDPath)
-		if err != nil {
-			return "", fmt.Errorf("failed to read build ID file: %w", err)
-		}
-		buildID = strings.TrimSpace(string(data))
+		return "", nil
 	}
 
-	if buildID == "" {
-		newBuildID, err := rt.generateBuildID()
-		if err != nil {
-			return "", fmt.Errorf("failed to generate build ID: %w", err)
-		}
-		if err := rt.writeBuildIDToFile(newBuildID); err != nil {
-			return "", fmt.Errorf("failed to set build ID: %w", err)
-		}
-		return newBuildID, nil
+	data, err := root.ReadFile(buildIDPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read build ID file: %w", err)
 	}
 
-	return buildID, nil
+	return strings.TrimSpace(string(data)), nil
 }
 
 // GenerateBuildID generates a new build ID and persists it to the .windsor/.build-id file,
