@@ -45,7 +45,7 @@ type Runtime struct {
 	// Core dependencies
 	ConfigHandler config.ConfigHandler
 	Shell         shell.Shell
-	Evaluator     *evaluator.ExpressionEvaluator
+	Evaluator     evaluator.ExpressionEvaluator
 
 	// SecretsProviders contains providers for Sops and 1Password secrets management
 	SecretsProviders struct {
@@ -67,6 +67,9 @@ type Runtime struct {
 
 	// ToolsManager manages tool installation and configuration
 	ToolsManager tools.ToolsManager
+
+	// TerraformProvider provides Terraform-specific operations
+	TerraformProvider terraform.TerraformProvider
 
 	// envVars stores collected environment variables
 	envVars map[string]string
@@ -417,9 +420,10 @@ func (rt *Runtime) initializeEnvPrinters() {
 	}
 	if rt.EnvPrinters.TerraformEnv == nil && rt.ConfigHandler.GetBool("terraform.enabled", false) {
 		rt.initializeToolsManager()
-		terraformProvider := terraform.NewTerraformProvider(rt.ConfigHandler, rt.Shell, rt.ToolsManager)
-		rt.ConfigHandler.RegisterProvider("terraform", terraformProvider.(config.ValueProvider))
-		rt.EnvPrinters.TerraformEnv = env.NewTerraformEnvPrinter(rt.Shell, rt.ConfigHandler, rt.ToolsManager)
+		if rt.TerraformProvider == nil {
+			rt.TerraformProvider = terraform.NewTerraformProvider(rt.ConfigHandler, rt.Shell, rt.ToolsManager, rt.Evaluator)
+		}
+		rt.EnvPrinters.TerraformEnv = env.NewTerraformEnvPrinter(rt.Shell, rt.ConfigHandler, rt.ToolsManager, rt.TerraformProvider)
 	}
 	if rt.EnvPrinters.WindsorEnv == nil {
 		secretsProviders := []secretsRuntime.SecretsProvider{}
@@ -504,9 +508,14 @@ func (rt *Runtime) getAllEnvPrinters() []env.EnvPrinter {
 }
 
 // initializeComponents initializes all environment-related components required after setup.
-// This method is a placeholder for any future initialization logic that may be needed.
-// Returns nil as components are now fully initialized in their constructors.
+// Initializes TerraformProvider if terraform is enabled. Returns an error if initialization fails.
 func (rt *Runtime) initializeComponents() error {
+	if rt.ConfigHandler != nil && rt.ConfigHandler.GetBool("terraform.enabled", false) {
+		if rt.TerraformProvider == nil {
+			rt.initializeToolsManager()
+			rt.TerraformProvider = terraform.NewTerraformProvider(rt.ConfigHandler, rt.Shell, rt.ToolsManager, rt.Evaluator)
+		}
+	}
 	return nil
 }
 

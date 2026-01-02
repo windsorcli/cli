@@ -14,7 +14,8 @@ import (
 
 func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	t.Run("GeneratesLocalBackendArgs", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
+		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
 
 		configRoot := "/test/config"
@@ -65,7 +66,8 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("GeneratesLocalBackendArgsWithPrefix", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
+		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
 
 		configRoot := "/test/config"
@@ -119,7 +121,8 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("GeneratesLocalBackendArgsForEnvVar", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
+		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
 
 		configRoot := "/test/config"
@@ -169,7 +172,8 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("IncludesBackendTfvars", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
+		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
 
 		configRoot := "/test/config"
@@ -232,7 +236,8 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("PrefersNewBackendTfvarsLocation", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
+		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
 
 		configRoot := "/test/config"
@@ -297,7 +302,8 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("FallsBackToOldBackendTfvarsLocation", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
+		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
 
 		configRoot := "/test/config"
@@ -358,7 +364,8 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("GeneratesS3BackendArgs", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
+		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
 
 		configRoot := "/test/config"
@@ -431,7 +438,8 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("GeneratesKubernetesBackendArgs", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
+		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
 
 		configRoot := "/test/config"
@@ -501,7 +509,8 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("GeneratesKubernetesBackendArgsWithPrefix", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
+		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
 
 		configRoot := "/test/config"
@@ -559,7 +568,8 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("GeneratesAzurermBackendArgs", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
+		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
 
 		configRoot := "/test/config"
@@ -635,7 +645,8 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("ReturnsErrorForUnsupportedBackend", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
+		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
 
 		configRoot := "/test/config"
@@ -664,7 +675,8 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("ReturnsErrorWhenWindsorScratchPathFails", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
+		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
 
 		configRoot := "/test/config"
@@ -697,7 +709,8 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("HandlesProcessBackendConfigError", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
+		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
 
 		configRoot := "/test/config"
@@ -1001,7 +1014,8 @@ func Test_processMap(t *testing.T) {
 
 func TestTerraformProvider_RestoreEnvVar(t *testing.T) {
 	t.Run("RestoresEnvVarWithValue", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
+		provider := mocks.Provider
 
 		var setKey, setValue string
 		provider.Shims.Setenv = func(key, value string) error {
@@ -1022,7 +1036,8 @@ func TestTerraformProvider_RestoreEnvVar(t *testing.T) {
 	})
 
 	t.Run("UnsetsEnvVarWhenEmpty", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
+		provider := mocks.Provider
 
 		var unsetKey string
 		provider.Shims.Unsetenv = func(key string) error {

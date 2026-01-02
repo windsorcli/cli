@@ -73,7 +73,7 @@ func setupTerraformEnvPrinter(t *testing.T, mocks *EnvTestMocks, provider terraf
 // setupMockTerraformProvider creates a mock TerraformProvider with sensible defaults.
 // Individual functions can be overridden by setting them on the returned mock.
 func setupMockTerraformProvider(mocks *EnvTestMocks) *terraform.MockTerraformProvider {
-	realProvider := terraform.NewTerraformProvider(mocks.ConfigHandler, mocks.Shell, mocks.ToolsManager)
+	realProvider := terraform.NewTerraformProvider(mocks.ConfigHandler, mocks.Shell, mocks.ToolsManager, nil)
 
 	// Set up the real provider's Shims to use the test's mocked Stat function
 	// Use reflection to access the exported Shims field on the concrete type
@@ -129,9 +129,6 @@ func setupMockTerraformProvider(mocks *EnvTestMocks) *terraform.MockTerraformPro
 		},
 		GetTerraformComponentsFunc: func() []blueprintv1alpha1.TerraformComponent {
 			return []blueprintv1alpha1.TerraformComponent{}
-		},
-		GetOutputsFunc: func(componentID string) (map[string]any, error) {
-			return map[string]any{}, nil
 		},
 		GetTFDataDirFunc: func(componentID string) (string, error) {
 			windsorScratchPath, err := mocks.ConfigHandler.GetWindsorScratchPath()
@@ -330,11 +327,9 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		mocks := setupTerraformEnvMocks(t, &EnvTestMocks{
 			ConfigHandler: configHandler,
 		})
-		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mocks.ToolsManager)
-		printer.shims = mocks.Shims
-
-		// Create mock provider that returns a project path (so GenerateTerraformArgs is called)
 		mockProvider := setupMockTerraformProvider(mocks)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mocks.ToolsManager, mockProvider)
+		printer.shims = mocks.Shims
 		mockProvider.FindRelativeProjectPathFunc = func(directory ...string) (string, error) {
 			return "project/path", nil
 		}
@@ -368,7 +363,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		}
 
 		// Update the real provider's Shims to use the test's mocked Stat function
-		realProvider := terraform.NewTerraformProvider(mocks.ConfigHandler, mocks.Shell, mocks.ToolsManager)
+		realProvider := terraform.NewTerraformProvider(mocks.ConfigHandler, mocks.Shell, mocks.ToolsManager, nil)
 		rvProvider := reflect.ValueOf(realProvider)
 		if rvProvider.Kind() == reflect.Ptr {
 			shimsField := rvProvider.Elem().FieldByName("Shims")
@@ -666,10 +661,9 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupTerraformEnvMocks(t)
-		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mocks.ToolsManager)
-		printer.shims = mocks.Shims
-
 		mockProvider := setupMockTerraformProvider(mocks)
+		printer := NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mocks.ToolsManager, mockProvider)
+		printer.shims = mocks.Shims
 		mockProvider.GenerateBackendOverrideFunc = func(directory string) error {
 			backend := mocks.ConfigHandler.GetString("terraform.backend.type", "local")
 			var backendConfig string
@@ -1296,7 +1290,7 @@ terraform:
 		}
 		// Override GenerateTerraformArgs to manually construct args with parallelism
 		// since the real provider's GetTerraformComponent loads from blueprint.yaml
-		realProvider := terraform.NewTerraformProvider(mocks.ConfigHandler, mocks.Shell, mocks.ToolsManager)
+		realProvider := terraform.NewTerraformProvider(mocks.ConfigHandler, mocks.Shell, mocks.ToolsManager, nil)
 		rvProvider := reflect.ValueOf(realProvider)
 		if rvProvider.Kind() == reflect.Ptr {
 			shimsField := rvProvider.Elem().FieldByName("Shims")
@@ -1710,7 +1704,7 @@ terraform:
 			return "test/path", nil
 		}
 		// Override GenerateTerraformArgs to manually construct args with parallelism
-		realProvider := terraform.NewTerraformProvider(mocks.ConfigHandler, mocks.Shell, mocks.ToolsManager)
+		realProvider := terraform.NewTerraformProvider(mocks.ConfigHandler, mocks.Shell, mocks.ToolsManager, nil)
 		rvProvider := reflect.ValueOf(realProvider)
 		if rvProvider.Kind() == reflect.Ptr {
 			shimsField := rvProvider.Elem().FieldByName("Shims")

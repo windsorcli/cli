@@ -22,55 +22,38 @@ import (
 // Types
 // =============================================================================
 
-// ExpressionEvaluator provides unified expression evaluation for the Runtime system.
-// It uses the config handler for accessing configuration values and supports
-// dynamic value resolution through the provider system. The evaluator handles
-// expression compilation, evaluation, and string interpolation with support
-// for Jsonnet files and file loading functions.
-type ExpressionEvaluator struct {
+// expressionEvaluator is the concrete implementation of ExpressionEvaluator.
+type expressionEvaluator struct {
 	configHandler config.ConfigHandler
 	projectRoot   string
 	templateRoot  string
 	Shims         *Shims
 	templateData  map[string][]byte
+	helpers       []expr.Option
 }
 
-// JsonnetVM provides an interface for Jsonnet virtual machine operations.
-// It abstracts the underlying Jsonnet VM implementation to enable testing
-// and dependency injection. The interface supports setting external code,
-// configuring importers, and evaluating Jsonnet snippets.
-type JsonnetVM interface {
-	ExtCode(key, val string)
-	Importer(importer jsonnet.Importer)
-	EvaluateAnonymousSnippet(filename, snippet string) (string, error)
+// =============================================================================
+// Interfaces
+// =============================================================================
+
+// ExpressionEvaluator provides unified expression evaluation for the Runtime system.
+// It uses the config handler for accessing configuration values and supports
+// dynamic value resolution through the provider system. The evaluator handles
+// expression compilation, evaluation, and string interpolation with support
+// for Jsonnet files and file loading functions.
+type ExpressionEvaluator interface {
+	HelperRegistrar
+	SetTemplateData(templateData map[string][]byte)
+	Evaluate(expression string, config map[string]any, featurePath string) (any, error)
+	EvaluateDefaults(defaults map[string]any, config map[string]any, featurePath string) (map[string]any, error)
+	InterpolateString(s string, config map[string]any, featurePath string) (string, error)
 }
 
-// realJsonnetVM is the concrete implementation of JsonnetVM that wraps
-// the actual Jsonnet VM from the go-jsonnet library. It provides the
-// real functionality for Jsonnet evaluation in production code.
-type realJsonnetVM struct {
-	vm *jsonnet.VM
-}
-
-// ExtCode sets external code variables for the Jsonnet VM.
-// This allows passing external data into Jsonnet evaluation contexts,
-// enabling Jsonnet code to access runtime values and configuration.
-func (j *realJsonnetVM) ExtCode(key, val string) {
-	j.vm.ExtCode(key, val)
-}
-
-// Importer configures the file importer for the Jsonnet VM.
-// This determines how Jsonnet resolves import statements and file paths,
-// enabling support for relative imports and custom import resolution.
-func (j *realJsonnetVM) Importer(importer jsonnet.Importer) {
-	j.vm.Importer(importer)
-}
-
-// EvaluateAnonymousSnippet evaluates a Jsonnet code snippet as a string.
-// The filename parameter is used for error reporting and import resolution.
-// Returns the evaluated JSON output as a string, or an error if evaluation fails.
-func (j *realJsonnetVM) EvaluateAnonymousSnippet(filename, snippet string) (string, error) {
-	return j.vm.EvaluateAnonymousSnippet(filename, snippet)
+// HelperRegistrar defines the interface for registering custom helpers with the evaluator.
+// This allows providers to extend expression evaluation capabilities without the evaluator
+// needing to know about provider-specific functionality.
+type HelperRegistrar interface {
+	Register(name string, helper func(params ...any) (any, error), signature any)
 }
 
 // =============================================================================
@@ -81,12 +64,13 @@ func (j *realJsonnetVM) EvaluateAnonymousSnippet(filename, snippet string) (stri
 // The configHandler is used for accessing configuration values and provider resolution.
 // The projectRoot and templateRoot paths are used for resolving relative file paths
 // in expressions. Returns a fully initialized evaluator ready for use.
-func NewExpressionEvaluator(configHandler config.ConfigHandler, projectRoot, templateRoot string) *ExpressionEvaluator {
-	return &ExpressionEvaluator{
+func NewExpressionEvaluator(configHandler config.ConfigHandler, projectRoot, templateRoot string) ExpressionEvaluator {
+	return &expressionEvaluator{
 		configHandler: configHandler,
 		projectRoot:   projectRoot,
 		templateRoot:  templateRoot,
 		Shims:         NewShims(),
+		helpers:       []expr.Option{},
 	}
 }
 
@@ -94,8 +78,15 @@ func NewExpressionEvaluator(configHandler config.ConfigHandler, projectRoot, tem
 // This is used when loading blueprints from OCI artifacts where template files
 // are stored in memory rather than on disk. The map keys should use paths
 // relative to the template root, typically prefixed with "_template/".
-func (e *ExpressionEvaluator) SetTemplateData(templateData map[string][]byte) {
+func (e *expressionEvaluator) SetTemplateData(templateData map[string][]byte) {
 	e.templateData = templateData
+}
+
+// Register registers a custom helper with the evaluator.
+// This allows providers to extend expression evaluation capabilities without
+// the evaluator needing to know about provider-specific functionality.
+func (e *expressionEvaluator) Register(name string, helper func(params ...any) (any, error), signature any) {
+	e.helpers = append(e.helpers, expr.Function(name, helper, signature))
 }
 
 // =============================================================================
@@ -108,7 +99,7 @@ func (e *ExpressionEvaluator) SetTemplateData(templateData map[string][]byte) {
 // and file("path") for dynamic content loading. The config map provides values accessible
 // in the expression, and featurePath is used to resolve relative paths in file functions.
 // Returns the evaluated value or an error if compilation or evaluation fails.
-func (e *ExpressionEvaluator) Evaluate(expression string, config map[string]any, featurePath string) (any, error) {
+func (e *expressionEvaluator) Evaluate(expression string, config map[string]any, featurePath string) (any, error) {
 	if expression == "" {
 		return nil, fmt.Errorf("expression cannot be empty")
 	}
@@ -136,7 +127,7 @@ func (e *ExpressionEvaluator) Evaluate(expression string, config map[string]any,
 // other types are preserved. The function handles nested maps and arrays recursively.
 // The featurePath is used for resolving relative paths in file loading functions.
 // Returns a new map with all defaults evaluated, or an error if evaluation fails.
-func (e *ExpressionEvaluator) EvaluateDefaults(defaults map[string]any, config map[string]any, featurePath string) (map[string]any, error) {
+func (e *expressionEvaluator) EvaluateDefaults(defaults map[string]any, config map[string]any, featurePath string) (map[string]any, error) {
 	result := make(map[string]any)
 
 	for key, value := range defaults {
@@ -155,7 +146,7 @@ func (e *ExpressionEvaluator) EvaluateDefaults(defaults map[string]any, config m
 // and replacing it with the result. Complex values like maps and arrays are serialized to YAML.
 // The function handles multiple expressions in a single string and processes them iteratively.
 // Returns the fully interpolated string or an error if any expression evaluation fails.
-func (e *ExpressionEvaluator) InterpolateString(s string, config map[string]any, featurePath string) (string, error) {
+func (e *expressionEvaluator) InterpolateString(s string, config map[string]any, featurePath string) (string, error) {
 	result := s
 
 	for strings.Contains(result, "${") {
@@ -205,7 +196,7 @@ func (e *ExpressionEvaluator) InterpolateString(s string, config map[string]any,
 // if the config handler can provide one. All paths are normalized to use forward slashes
 // for cross-platform consistency. The enriched config is used to make runtime context
 // available in expression evaluation without requiring explicit configuration.
-func (e *ExpressionEvaluator) enrichConfig(config map[string]any) map[string]any {
+func (e *expressionEvaluator) enrichConfig(config map[string]any) map[string]any {
 	enrichedConfig := make(map[string]any)
 	maps.Copy(enrichedConfig, config)
 	if e.projectRoot != "" {
@@ -219,13 +210,16 @@ func (e *ExpressionEvaluator) enrichConfig(config map[string]any) map[string]any
 	return enrichedConfig
 }
 
-// buildExprEnvironment configures the expression evaluation environment with custom functions.
-// It registers three helper functions: jsonnet() for evaluating Jsonnet files, file() for
-// loading raw file content, and split() for string splitting. Each function includes
-// argument validation and type checking. The config and featurePath are captured in closures
-// to provide context for file resolution during expression evaluation.
-func (e *ExpressionEvaluator) buildExprEnvironment(config map[string]any, featurePath string) []expr.Option {
-	return []expr.Option{
+// buildExprEnvironment configures the expression evaluation environment with helper functions.
+// It registers helper functions: jsonnet() for evaluating Jsonnet files, file() for
+// loading raw file content, and split() for string splitting. Helper functions registered
+// via Register() are also included. Each helper includes argument validation and
+// type checking. The config and featurePath are captured in closures to provide context
+// for file resolution during expression evaluation. It also enables AsAny mode to allow
+// dynamic property access.
+func (e *expressionEvaluator) buildExprEnvironment(config map[string]any, featurePath string) []expr.Option {
+	opts := []expr.Option{
+		expr.AsAny(),
 		expr.Function(
 			"jsonnet",
 			func(params ...any) (any, error) {
@@ -278,6 +272,10 @@ func (e *ExpressionEvaluator) buildExprEnvironment(config map[string]any, featur
 			new(func(string, string) []any),
 		),
 	}
+
+	opts = append(opts, e.helpers...)
+
+	return opts
 }
 
 // evaluateDefaultValue recursively evaluates a single default value based on its type.
@@ -285,7 +283,7 @@ func (e *ExpressionEvaluator) buildExprEnvironment(config map[string]any, featur
 // directly, or partial expressions which are interpolated. Map and array types are processed
 // recursively, evaluating each element. Other types are returned unchanged. This enables
 // flexible default value specification with support for dynamic evaluation and nesting.
-func (e *ExpressionEvaluator) evaluateDefaultValue(value any, config map[string]any, featurePath string) (any, error) {
+func (e *expressionEvaluator) evaluateDefaultValue(value any, config map[string]any, featurePath string) (any, error) {
 	switch v := value.(type) {
 	case string:
 		if expr := e.extractExpression(v); expr != "" {
@@ -325,7 +323,7 @@ func (e *ExpressionEvaluator) evaluateDefaultValue(value any, config map[string]
 // at the end of the string. If found, it returns the inner expression content. For partial
 // expressions or strings with other content, it returns an empty string to indicate the
 // value should be treated as interpolation rather than a direct expression.
-func (e *ExpressionEvaluator) extractExpression(s string) string {
+func (e *expressionEvaluator) extractExpression(s string) string {
 	if !strings.Contains(s, "${") {
 		return ""
 	}
@@ -352,7 +350,7 @@ func (e *ExpressionEvaluator) extractExpression(s string) string {
 // passed to the Jsonnet VM as external code. Helper functions and import paths are
 // configured, then the Jsonnet is evaluated and the JSON output is unmarshaled.
 // Returns the evaluated value or an error if loading, evaluation, or parsing fails.
-func (e *ExpressionEvaluator) evaluateJsonnetFunction(pathArg string, config map[string]any, featurePath string) (any, error) {
+func (e *expressionEvaluator) evaluateJsonnetFunction(pathArg string, config map[string]any, featurePath string) (any, error) {
 	var content []byte
 	var err error
 
@@ -423,7 +421,7 @@ func (e *ExpressionEvaluator) evaluateJsonnetFunction(pathArg string, config map
 // the project root directory. These fields provide consistency with main template processing
 // and enable Jsonnet code to access context and project information. Returns a new map
 // with the original config plus the context fields.
-func (e *ExpressionEvaluator) buildContextMap(config map[string]any) map[string]any {
+func (e *expressionEvaluator) buildContextMap(config map[string]any) map[string]any {
 	contextMap := make(map[string]any)
 	maps.Copy(contextMap, config)
 
@@ -444,7 +442,7 @@ func (e *ExpressionEvaluator) buildContextMap(config map[string]any) map[string]
 // type checking and conversion utilities, and data manipulation functions like baseUrl
 // and removeEmptyKeys. These helpers enable safer and more expressive Jsonnet code
 // when working with configuration data and context objects.
-func (e *ExpressionEvaluator) buildHelperLibrary() string {
+func (e *expressionEvaluator) buildHelperLibrary() string {
 	return `{
   get(obj, path, default=null):
     if std.findSubstr(".", path) == [] then
@@ -565,7 +563,7 @@ func (e *ExpressionEvaluator) buildHelperLibrary() string {
 // template data, it reads the file from the filesystem. The path is resolved relative
 // to the featurePath or project root as appropriate. Returns the file content as a
 // string or an error if the file cannot be found or read.
-func (e *ExpressionEvaluator) evaluateFileFunction(pathArg string, featurePath string) (any, error) {
+func (e *expressionEvaluator) evaluateFileFunction(pathArg string, featurePath string) (any, error) {
 	var content []byte
 	var err error
 
@@ -590,7 +588,7 @@ func (e *ExpressionEvaluator) evaluateFileFunction(pathArg string, featurePath s
 // path is used to look up the file in template data, checking both with and without
 // the "_template/" prefix. For paths that go up directories (../), it ensures the
 // resolved path stays within the template root. Returns the file content if found, or nil if not present.
-func (e *ExpressionEvaluator) lookupInTemplateData(pathArg string, featurePath string) []byte {
+func (e *expressionEvaluator) lookupInTemplateData(pathArg string, featurePath string) []byte {
 	if e.templateData == nil {
 		return nil
 	}
@@ -638,7 +636,7 @@ func (e *ExpressionEvaluator) lookupInTemplateData(pathArg string, featurePath s
 // it first tries to resolve relative to the featurePath's directory if provided.
 // Otherwise, it falls back to the project root if set. The result is always an
 // absolute path with normalized separators and cleaned of redundant elements.
-func (e *ExpressionEvaluator) resolvePath(path string, featurePath string) string {
+func (e *expressionEvaluator) resolvePath(path string, featurePath string) string {
 	path = strings.TrimSpace(path)
 
 	if filepath.IsAbs(path) {

@@ -153,47 +153,6 @@ func TestMockTerraformProvider_GetTerraformComponents(t *testing.T) {
 	})
 }
 
-func TestMockTerraformProvider_GetOutputs(t *testing.T) {
-	t.Run("WithFuncSet", func(t *testing.T) {
-		// Given a mock provider with GetOutputsFunc set
-		mock := &MockTerraformProvider{}
-		expectedOutputs := map[string]any{
-			"output1": "value1",
-			"output2": 42,
-		}
-		mock.GetOutputsFunc = func(componentID string) (map[string]any, error) {
-			return expectedOutputs, nil
-		}
-
-		// When GetOutputs is called
-		outputs, err := mock.GetOutputs("test/path")
-
-		// Then the expected outputs should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got = %v", err)
-		}
-		if len(outputs) != len(expectedOutputs) {
-			t.Errorf("Expected %d outputs, got = %d", len(expectedOutputs), len(outputs))
-		}
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock provider with no GetOutputsFunc set
-		mock := &MockTerraformProvider{}
-
-		// When GetOutputs is called
-		outputs, err := mock.GetOutputs("test/path")
-
-		// Then empty map and no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got = %v", err)
-		}
-		if len(outputs) != 0 {
-			t.Errorf("Expected empty map, got = %d outputs", len(outputs))
-		}
-	})
-}
-
 func TestMockTerraformProvider_ClearCache(t *testing.T) {
 	t.Run("WithFuncSet", func(t *testing.T) {
 		// Given a mock provider with ClearCacheFunc set

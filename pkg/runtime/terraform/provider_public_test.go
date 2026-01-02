@@ -10,6 +10,7 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
@@ -18,8 +19,29 @@ import (
 // Test Setup
 // =============================================================================
 
-func setupProvider(t *testing.T) *terraformProvider {
+type Mocks struct {
+	Provider      *terraformProvider
+	ConfigHandler *config.MockConfigHandler
+	Shell         *shell.MockShell
+	ToolsManager  *tools.MockToolsManager
+	Evaluator     evaluator.ExpressionEvaluator
+}
+
+type SetupOptions struct {
+	BlueprintYAML string
+	BackendType   string
+	Evaluator     evaluator.ExpressionEvaluator
+}
+
+func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	t.Helper()
+
+	options := &SetupOptions{
+		BackendType: "none",
+	}
+	if len(opts) > 0 && opts[0] != nil {
+		options = opts[0]
+	}
 
 	configHandler := config.NewMockConfigHandler()
 	mockShell := shell.NewMockShell()
@@ -29,8 +51,76 @@ func setupProvider(t *testing.T) *terraformProvider {
 		return "", errors.New("ExecSilent not mocked in test")
 	}
 
-	provider := NewTerraformProvider(configHandler, mockShell, toolsManager)
-	return provider.(*terraformProvider)
+	configRoot := "/test/config"
+	configHandler.GetConfigRootFunc = func() (string, error) {
+		return configRoot, nil
+	}
+
+	mockShell.GetProjectRootFunc = func() (string, error) {
+		return "/test/project", nil
+	}
+
+	configHandler.GetWindsorScratchPathFunc = func() (string, error) {
+		return "/test/scratch", nil
+	}
+
+	configHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		if key == "terraform.backend.type" {
+			return options.BackendType
+		}
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return ""
+	}
+
+	configHandler.GetContextFunc = func() string {
+		return "default"
+	}
+
+	toolsManager.GetTerraformCommandFunc = func() string {
+		return "terraform"
+	}
+
+	provider := NewTerraformProvider(configHandler, mockShell, toolsManager, options.Evaluator)
+	concreteProvider := provider.(*terraformProvider)
+
+	if options.BlueprintYAML != "" {
+		concreteProvider.Shims.ReadFile = func(path string) ([]byte, error) {
+			if path == filepath.Join(configRoot, "blueprint.yaml") {
+				return []byte(options.BlueprintYAML), nil
+			}
+			return nil, os.ErrNotExist
+		}
+	}
+
+	concreteProvider.Shims.Getenv = func(key string) string {
+		return ""
+	}
+
+	concreteProvider.Shims.Setenv = func(key, value string) error {
+		return nil
+	}
+
+	concreteProvider.Shims.Stat = func(path string) (os.FileInfo, error) {
+		return nil, os.ErrNotExist
+	}
+
+	concreteProvider.Shims.Remove = func(path string) error {
+		return nil
+	}
+
+	concreteProvider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		return nil
+	}
+
+	return &Mocks{
+		Provider:      concreteProvider,
+		ConfigHandler: configHandler,
+		Shell:         mockShell,
+		ToolsManager:  toolsManager,
+		Evaluator:     options.Evaluator,
+	}
 }
 
 // =============================================================================
@@ -39,22 +129,85 @@ func setupProvider(t *testing.T) *terraformProvider {
 
 func TestNewTerraformProvider(t *testing.T) {
 	t.Run("CreatesProviderWithEmptyCache", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
+
+		if mocks.Provider == nil {
+			t.Fatal("Expected provider to be created")
+		}
+
+		if mocks.Provider.cache == nil {
+			t.Error("Expected cache to be initialized")
+		}
+
+		if len(mocks.Provider.cache) != 0 {
+			t.Errorf("Expected empty cache, got %d entries", len(mocks.Provider.cache))
+		}
+
+		if mocks.Provider.Shims == nil {
+			t.Error("Expected shims to be initialized")
+		}
+	})
+
+	t.Run("CallsRegisterWhenEvaluatorProvided", func(t *testing.T) {
+		configHandler := config.NewMockConfigHandler()
+		mockShell := shell.NewMockShell()
+		toolsManager := tools.NewMockToolsManager()
+		mockEvaluator := evaluator.NewMockExpressionEvaluator()
+		registerCalled := false
+		registerName := ""
+		mockEvaluator.RegisterFunc = func(name string, helper func(params ...any) (any, error), signature any) {
+			registerCalled = true
+			registerName = name
+		}
+
+		provider := NewTerraformProvider(configHandler, mockShell, toolsManager, mockEvaluator)
 
 		if provider == nil {
 			t.Fatal("Expected provider to be created")
 		}
 
-		if provider.cache == nil {
-			t.Error("Expected cache to be initialized")
+		if !registerCalled {
+			t.Error("Expected Register to be called on evaluator")
 		}
 
-		if len(provider.cache) != 0 {
-			t.Errorf("Expected empty cache, got %d entries", len(provider.cache))
+		if registerName != "terraform_output" {
+			t.Errorf("Expected Register to be called with name 'terraform_output', got %s", registerName)
+		}
+	})
+
+	t.Run("RegistersHelperWhenEvaluatorProvided", func(t *testing.T) {
+		configHandler := config.NewMockConfigHandler()
+		mockShell := shell.NewMockShell()
+		toolsManager := tools.NewMockToolsManager()
+		testEvaluator := evaluator.NewExpressionEvaluator(configHandler, "/test/project", "/test/template")
+
+		provider := NewTerraformProvider(configHandler, mockShell, toolsManager, testEvaluator)
+		concreteProvider := provider.(*terraformProvider)
+
+		if provider == nil {
+			t.Fatal("Expected provider to be created")
 		}
 
-		if provider.Shims == nil {
-			t.Error("Expected shims to be initialized")
+		concreteProvider.mu.Lock()
+		concreteProvider.cache["test-component"] = map[string]any{"test-key": "test-value"}
+		concreteProvider.mu.Unlock()
+
+		result, err := testEvaluator.Evaluate(`terraform_output("test-component", "test-key")`, map[string]any{}, "")
+
+		if err != nil {
+			t.Fatalf("Expected helper to be registered and callable, got error: %v", err)
+		}
+
+		if result != "test-value" {
+			t.Errorf("Expected helper to return 'test-value', got %v", result)
+		}
+	})
+
+	t.Run("DoesNotRegisterHelperWhenEvaluatorIsNil", func(t *testing.T) {
+		mocks := setupMocks(t)
+
+		if mocks.Provider == nil {
+			t.Fatal("Expected provider to be created")
 		}
 	})
 }
@@ -65,21 +218,21 @@ func TestNewTerraformProvider(t *testing.T) {
 
 func TestTerraformProvider_ClearCache(t *testing.T) {
 	t.Run("ClearsAllCachedOutputsAndComponents", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
 
-		provider.mu.Lock()
-		provider.cache["component1"] = map[string]any{"output1": "value1"}
-		provider.cache["component2"] = map[string]any{"output2": "value2"}
-		provider.components = []blueprintv1alpha1.TerraformComponent{{Path: "test"}}
-		provider.mu.Unlock()
+		mocks.Provider.mu.Lock()
+		mocks.Provider.cache["component1"] = map[string]any{"output1": "value1"}
+		mocks.Provider.cache["component2"] = map[string]any{"output2": "value2"}
+		mocks.Provider.components = []blueprintv1alpha1.TerraformComponent{{Path: "test"}}
+		mocks.Provider.mu.Unlock()
 
-		provider.ClearCache()
+		mocks.Provider.ClearCache()
 
-		if len(provider.cache) != 0 {
-			t.Errorf("Expected cache to be empty after ClearCache, got %d entries", len(provider.cache))
+		if len(mocks.Provider.cache) != 0 {
+			t.Errorf("Expected cache to be empty after ClearCache, got %d entries", len(mocks.Provider.cache))
 		}
 
-		if provider.components != nil {
+		if mocks.Provider.components != nil {
 			t.Error("Expected components to be cleared after ClearCache")
 		}
 	})
@@ -87,17 +240,17 @@ func TestTerraformProvider_ClearCache(t *testing.T) {
 
 func TestTerraformProvider_GetTerraformComponents(t *testing.T) {
 	t.Run("ReturnsCachedComponents", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
 
 		expectedComponents := []blueprintv1alpha1.TerraformComponent{
 			{Path: "test/path"},
 		}
 
-		provider.mu.Lock()
-		provider.components = expectedComponents
-		provider.mu.Unlock()
+		mocks.Provider.mu.Lock()
+		mocks.Provider.components = expectedComponents
+		mocks.Provider.mu.Unlock()
 
-		components := provider.GetTerraformComponents()
+		components := mocks.Provider.GetTerraformComponents()
 
 		if len(components) != len(expectedComponents) {
 			t.Errorf("Expected %d components, got %d", len(expectedComponents), len(components))
@@ -109,15 +262,6 @@ func TestTerraformProvider_GetTerraformComponents(t *testing.T) {
 	})
 
 	t.Run("LoadsComponentsFromBlueprint", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-		mockShell := provider.shell.(*shell.MockShell)
-
-		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
-			return configRoot, nil
-		}
-
 		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
 kind: Blueprint
 metadata:
@@ -126,22 +270,9 @@ terraform:
   - path: test/path
     name: test-component`
 
-		provider.Shims.ReadFile = func(path string) ([]byte, error) {
-			if path == filepath.Join(configRoot, "blueprint.yaml") {
-				return []byte(blueprintYAML), nil
-			}
-			return nil, os.ErrNotExist
-		}
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML})
 
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/test/project", nil
-		}
-
-		mockConfig.GetContextFunc = func() string {
-			return "default"
-		}
-
-		components := provider.GetTerraformComponents()
+		components := mocks.Provider.GetTerraformComponents()
 
 		if len(components) != 1 {
 			t.Fatalf("Expected 1 component, got %d", len(components))
@@ -157,14 +288,13 @@ terraform:
 	})
 
 	t.Run("HandlesMissingConfigRoot", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+		mocks := setupMocks(t)
 
-		mockConfig.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", errors.New("config root not found")
 		}
 
-		components := provider.GetTerraformComponents()
+		components := mocks.Provider.GetTerraformComponents()
 
 		if len(components) != 0 {
 			t.Errorf("Expected empty components on error, got %d", len(components))
@@ -172,19 +302,13 @@ terraform:
 	})
 
 	t.Run("HandlesMissingBlueprintFile", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+		mocks := setupMocks(t)
 
-		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
-			return configRoot, nil
-		}
-
-		provider.Shims.ReadFile = func(path string) ([]byte, error) {
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) {
 			return nil, os.ErrNotExist
 		}
 
-		components := provider.GetTerraformComponents()
+		components := mocks.Provider.GetTerraformComponents()
 
 		if len(components) != 0 {
 			t.Errorf("Expected empty components on file error, got %d", len(components))
@@ -192,22 +316,17 @@ terraform:
 	})
 
 	t.Run("HandlesInvalidYAML", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+		mocks := setupMocks(t)
 
 		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
-			return configRoot, nil
-		}
-
-		provider.Shims.ReadFile = func(path string) ([]byte, error) {
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) {
 			if path == filepath.Join(configRoot, "blueprint.yaml") {
 				return []byte("invalid: yaml: [unclosed"), nil
 			}
 			return nil, os.ErrNotExist
 		}
 
-		components := provider.GetTerraformComponents()
+		components := mocks.Provider.GetTerraformComponents()
 
 		if len(components) != 0 {
 			t.Errorf("Expected empty components on YAML error, got %d", len(components))
@@ -215,15 +334,6 @@ terraform:
 	})
 
 	t.Run("SetsFullPathForSourcedComponents", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-		mockShell := provider.shell.(*shell.MockShell)
-
-		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
-			return configRoot, nil
-		}
-
 		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
 kind: Blueprint
 metadata:
@@ -232,22 +342,9 @@ terraform:
   - path: test/path
     source: config`
 
-		provider.Shims.ReadFile = func(path string) ([]byte, error) {
-			if path == filepath.Join(configRoot, "blueprint.yaml") {
-				return []byte(blueprintYAML), nil
-			}
-			return nil, os.ErrNotExist
-		}
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML})
 
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/test/project", nil
-		}
-
-		mockConfig.GetContextFunc = func() string {
-			return "default"
-		}
-
-		components := provider.GetTerraformComponents()
+		components := mocks.Provider.GetTerraformComponents()
 
 		expectedPath := filepath.Join("/test/project", ".windsor", "contexts", "default", "terraform", "test/path")
 		if components[0].FullPath != expectedPath {
@@ -256,15 +353,6 @@ terraform:
 	})
 
 	t.Run("SetsFullPathForLocalComponents", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-		mockShell := provider.shell.(*shell.MockShell)
-
-		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
-			return configRoot, nil
-		}
-
 		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
 kind: Blueprint
 metadata:
@@ -272,18 +360,9 @@ metadata:
 terraform:
   - path: test/path`
 
-		provider.Shims.ReadFile = func(path string) ([]byte, error) {
-			if path == filepath.Join(configRoot, "blueprint.yaml") {
-				return []byte(blueprintYAML), nil
-			}
-			return nil, os.ErrNotExist
-		}
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML})
 
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/test/project", nil
-		}
-
-		components := provider.GetTerraformComponents()
+		components := mocks.Provider.GetTerraformComponents()
 
 		expectedPath := filepath.Join("/test/project", "terraform", "test/path")
 		if components[0].FullPath != expectedPath {
@@ -294,28 +373,17 @@ terraform:
 
 func TestTerraformProvider_GenerateBackendOverride(t *testing.T) {
 	t.Run("CreatesLocalBackendOverride", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "terraform.backend.type" {
-				return "local"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
+		mocks := setupMocks(t, &SetupOptions{BackendType: "local"})
 
 		var writtenPath string
 		var writtenData []byte
-		provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		mocks.Provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			writtenPath = path
 			writtenData = data
 			return nil
 		}
 
-		err := provider.GenerateBackendOverride("/test/dir")
+		err := mocks.Provider.GenerateBackendOverride("/test/dir")
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -333,24 +401,13 @@ func TestTerraformProvider_GenerateBackendOverride(t *testing.T) {
 	})
 
 	t.Run("CreatesS3BackendOverride", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+		mocks := setupMocks(t, &SetupOptions{BackendType: "s3"})
 
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "terraform.backend.type" {
-				return "s3"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		mocks.Provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			return nil
 		}
 
-		err := provider.GenerateBackendOverride("/test/dir")
+		err := mocks.Provider.GenerateBackendOverride("/test/dir")
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -358,24 +415,13 @@ func TestTerraformProvider_GenerateBackendOverride(t *testing.T) {
 	})
 
 	t.Run("CreatesKubernetesBackendOverride", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+		mocks := setupMocks(t, &SetupOptions{BackendType: "kubernetes"})
 
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "terraform.backend.type" {
-				return "kubernetes"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		mocks.Provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			return nil
 		}
 
-		err := provider.GenerateBackendOverride("/test/dir")
+		err := mocks.Provider.GenerateBackendOverride("/test/dir")
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -383,24 +429,13 @@ func TestTerraformProvider_GenerateBackendOverride(t *testing.T) {
 	})
 
 	t.Run("CreatesAzurermBackendOverride", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+		mocks := setupMocks(t, &SetupOptions{BackendType: "azurerm"})
 
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "terraform.backend.type" {
-				return "azurerm"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		mocks.Provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			return nil
 		}
 
-		err := provider.GenerateBackendOverride("/test/dir")
+		err := mocks.Provider.GenerateBackendOverride("/test/dir")
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -408,29 +443,18 @@ func TestTerraformProvider_GenerateBackendOverride(t *testing.T) {
 	})
 
 	t.Run("RemovesBackendOverrideForNone", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "terraform.backend.type" {
-				return "none"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
 
 		var removedPath string
-		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+		mocks.Provider.Shims.Stat = func(path string) (os.FileInfo, error) {
 			return nil, nil
 		}
-		provider.Shims.Remove = func(path string) error {
+		mocks.Provider.Shims.Remove = func(path string) error {
 			removedPath = path
 			return nil
 		}
 
-		err := provider.GenerateBackendOverride("/test/dir")
+		err := mocks.Provider.GenerateBackendOverride("/test/dir")
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -443,10 +467,9 @@ func TestTerraformProvider_GenerateBackendOverride(t *testing.T) {
 	})
 
 	t.Run("HandlesUnsupportedBackend", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+		mocks := setupMocks(t)
 
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "terraform.backend.type" {
 				return "unsupported"
 			}
@@ -456,7 +479,7 @@ func TestTerraformProvider_GenerateBackendOverride(t *testing.T) {
 			return ""
 		}
 
-		err := provider.GenerateBackendOverride("/test/dir")
+		err := mocks.Provider.GenerateBackendOverride("/test/dir")
 
 		if err == nil {
 			t.Fatal("Expected error for unsupported backend")
@@ -468,24 +491,13 @@ func TestTerraformProvider_GenerateBackendOverride(t *testing.T) {
 	})
 
 	t.Run("HandlesWriteFileError", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+		mocks := setupMocks(t, &SetupOptions{BackendType: "local"})
 
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "terraform.backend.type" {
-				return "local"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		mocks.Provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			return errors.New("write failed")
 		}
 
-		err := provider.GenerateBackendOverride("/test/dir")
+		err := mocks.Provider.GenerateBackendOverride("/test/dir")
 
 		if err == nil {
 			t.Fatal("Expected error on write failure")
@@ -493,27 +505,16 @@ func TestTerraformProvider_GenerateBackendOverride(t *testing.T) {
 	})
 
 	t.Run("HandlesRemoveError", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
 
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "terraform.backend.type" {
-				return "none"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+		mocks.Provider.Shims.Stat = func(path string) (os.FileInfo, error) {
 			return nil, nil
 		}
-		provider.Shims.Remove = func(path string) error {
+		mocks.Provider.Shims.Remove = func(path string) error {
 			return errors.New("remove failed")
 		}
 
-		err := provider.GenerateBackendOverride("/test/dir")
+		err := mocks.Provider.GenerateBackendOverride("/test/dir")
 
 		if err == nil {
 			t.Fatal("Expected error on remove failure")
@@ -523,75 +524,65 @@ func TestTerraformProvider_GenerateBackendOverride(t *testing.T) {
 
 func TestTerraformProvider_GetOutputs(t *testing.T) {
 	t.Run("ReturnsCachedOutputs", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
 
 		expectedOutputs := map[string]any{
 			"output1": "value1",
 			"output2": 42,
 		}
 
-		provider.mu.Lock()
-		provider.cache["test-component"] = expectedOutputs
-		provider.mu.Unlock()
+		mocks.Provider.mu.Lock()
+		mocks.Provider.cache["test-component"] = expectedOutputs
+		mocks.Provider.mu.Unlock()
 
-		outputs, err := provider.GetOutputs("test-component")
-
+		output1, err := mocks.Provider.getOutput("test-component", "output1")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-
-		if len(outputs) != len(expectedOutputs) {
-			t.Errorf("Expected %d outputs, got %d", len(expectedOutputs), len(outputs))
+		if output1 != expectedOutputs["output1"] {
+			t.Errorf("Expected output1 to be 'value1', got %v", output1)
 		}
 
-		if outputs["output1"] != expectedOutputs["output1"] {
-			t.Errorf("Expected output1 to be 'value1', got %v", outputs["output1"])
+		output2, err := mocks.Provider.getOutput("test-component", "output2")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
 		}
-
-		if outputs["output2"] != expectedOutputs["output2"] {
-			t.Errorf("Expected output2 to be 42, got %v", outputs["output2"])
+		if output2 != expectedOutputs["output2"] {
+			t.Errorf("Expected output2 to be 42, got %v", output2)
 		}
 	})
 
 	t.Run("CachesOutputsAfterFirstCall", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
 
 		expectedOutputs := map[string]any{
 			"output1": "value1",
 		}
 
-		provider.mu.Lock()
-		provider.cache["test-component"] = expectedOutputs
-		provider.mu.Unlock()
+		mocks.Provider.mu.Lock()
+		mocks.Provider.cache["test-component"] = expectedOutputs
+		mocks.Provider.mu.Unlock()
 
-		outputs1, err1 := provider.GetOutputs("test-component")
+		output1, err1 := mocks.Provider.getOutput("test-component", "output1")
 		if err1 != nil {
 			t.Fatalf("Expected no error on first call, got %v", err1)
 		}
 
-		outputs2, err2 := provider.GetOutputs("test-component")
+		output2, err2 := mocks.Provider.getOutput("test-component", "output1")
 		if err2 != nil {
 			t.Fatalf("Expected no error on second call, got %v", err2)
 		}
 
-		if outputs1["output1"] != outputs2["output1"] {
+		if output1 != output2 {
 			t.Error("Expected both calls to return same cached value")
 		}
 
-		if len(provider.cache) != 1 {
-			t.Errorf("Expected cache to have 1 entry, got %d", len(provider.cache))
+		if len(mocks.Provider.cache) != 1 {
+			t.Errorf("Expected cache to have 1 entry, got %d", len(mocks.Provider.cache))
 		}
 	})
 
 	t.Run("ReturnsEmptyMapWhenComponentNotFound", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-
-		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
-			return configRoot, nil
-		}
-
 		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
 kind: Blueprint
 metadata:
@@ -599,43 +590,16 @@ metadata:
 terraform:
   - path: other/path`
 
-		provider.Shims.ReadFile = func(path string) ([]byte, error) {
-			if path == filepath.Join(configRoot, "blueprint.yaml") {
-				return []byte(blueprintYAML), nil
-			}
-			return nil, os.ErrNotExist
-		}
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML})
 
-		mockShell := provider.shell.(*shell.MockShell)
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/test/project", nil
-		}
+		_, err := mocks.Provider.getOutput("nonexistent-component", "any-key")
 
-		mockConfig.GetContextFunc = func() string {
-			return "default"
-		}
-
-		outputs, err := provider.GetOutputs("nonexistent-component")
-
-		if err != nil {
-			t.Fatalf("Expected no error for nonexistent component, got %v", err)
-		}
-
-		if len(outputs) != 0 {
-			t.Errorf("Expected empty outputs for nonexistent component, got %d", len(outputs))
+		if err == nil {
+			t.Error("Expected error for nonexistent component")
 		}
 	})
 
 	t.Run("CapturesOutputsFromTerraform", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-		mockShell := provider.shell.(*shell.MockShell)
-
-		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
-			return configRoot, nil
-		}
-
 		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
 kind: Blueprint
 metadata:
@@ -644,79 +608,33 @@ terraform:
   - path: test/path
     name: test-component`
 
-		provider.Shims.ReadFile = func(path string) ([]byte, error) {
-			if path == filepath.Join(configRoot, "blueprint.yaml") {
-				return []byte(blueprintYAML), nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/test/project", nil
-		}
-
-		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
-			return "/test/scratch", nil
-		}
-
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "terraform.backend.type" {
-				return "none"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		mockConfig.GetContextFunc = func() string {
-			return "default"
-		}
-
-		provider.Shims.Getenv = func(key string) string {
-			return ""
-		}
-
-		provider.Shims.Setenv = func(key, value string) error {
-			return nil
-		}
-
-		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-
-		provider.Shims.Remove = func(path string) error {
-			return nil
-		}
-
-		provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
-			return nil
-		}
-
-		mockToolsManager := provider.toolsManager.(*tools.MockToolsManager)
-		mockToolsManager.GetTerraformCommandFunc = func() string {
-			return "terraform"
-		}
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local"})
 
 		execCallCount := 0
-		mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			execCallCount++
-			if command == "terraform" && len(args) >= 2 && args[1] == "output" {
-				return `{"output1": {"value": "val1"}, "output2": {"value": 42}}`, nil
+			if command == "terraform" && len(args) >= 2 {
+				if args[1] == "output" {
+					return `{"output1": {"value": "val1"}, "output2": {"value": 42}}`, nil
+				}
+				if args[1] == "init" {
+					return "", nil
+				}
 			}
-			if command == "terraform" && len(args) >= 2 && args[1] == "init" {
-				return "", nil
-			}
-			return "", errors.New("unexpected command")
+			return "", nil
 		}
 
-		components := provider.GetTerraformComponents()
+		components := mocks.Provider.GetTerraformComponents()
 		if len(components) == 0 {
 			t.Fatal("Expected components to be loaded from blueprint")
 		}
 
-		outputs, err := provider.GetOutputs("test-component")
+		output1, err := mocks.Provider.getOutput("test-component", "output1")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
 
+		output2, err := mocks.Provider.getOutput("test-component", "output2")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -725,29 +643,16 @@ terraform:
 			t.Errorf("Expected ExecSilent to be called (components found: %d)", len(components))
 		}
 
-		if len(outputs) != 2 {
-			t.Errorf("Expected 2 outputs, got %d (execCallCount: %d, components: %d)", len(outputs), execCallCount, len(components))
+		if output1 != "val1" {
+			t.Errorf("Expected output1 to be 'val1', got %v", output1)
 		}
 
-		if outputs["output1"] != "val1" {
-			t.Errorf("Expected output1 to be 'val1', got %v", outputs["output1"])
-		}
-
-		if outputs["output2"] != float64(42) {
-			t.Errorf("Expected output2 to be 42, got %v", outputs["output2"])
+		if output2 != float64(42) {
+			t.Errorf("Expected output2 to be 42, got %v", output2)
 		}
 	})
 
 	t.Run("HandlesEmptyTerraformOutput", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-		mockShell := provider.shell.(*shell.MockShell)
-
-		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
-			return configRoot, nil
-		}
-
 		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
 kind: Blueprint
 metadata:
@@ -756,80 +661,23 @@ terraform:
   - path: test/path
     name: test-component`
 
-		provider.Shims.ReadFile = func(path string) ([]byte, error) {
-			if path == filepath.Join(configRoot, "blueprint.yaml") {
-				return []byte(blueprintYAML), nil
-			}
-			return nil, os.ErrNotExist
-		}
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local"})
 
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/test/project", nil
-		}
-
-		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
-			return "/test/scratch", nil
-		}
-
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "terraform.backend.type" {
-				return "local"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		mockConfig.GetContextFunc = func() string {
-			return "default"
-		}
-
-		provider.Shims.Getenv = func(key string) string {
-			return ""
-		}
-
-		provider.Shims.Setenv = func(key, value string) error {
-			return nil
-		}
-
-		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-
-		mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if len(args) > 1 && args[1] == "output" {
 				return "{}", nil
 			}
 			return "", nil
 		}
 
-		mockToolsManager := provider.toolsManager.(*tools.MockToolsManager)
-		mockToolsManager.GetTerraformCommandFunc = func() string {
-			return "terraform"
-		}
+		_, err := mocks.Provider.getOutput("test-component", "any-key")
 
-		outputs, err := provider.GetOutputs("test-component")
-
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		if len(outputs) != 0 {
-			t.Errorf("Expected empty outputs, got %d", len(outputs))
+		if err == nil {
+			t.Error("Expected error for empty outputs")
 		}
 	})
 
 	t.Run("HandlesTerraformInitFallback", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-		mockShell := provider.shell.(*shell.MockShell)
-
-		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
-			return configRoot, nil
-		}
-
 		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
 kind: Blueprint
 metadata:
@@ -838,58 +686,10 @@ terraform:
   - path: test/path
     name: test-component`
 
-		provider.Shims.ReadFile = func(path string) ([]byte, error) {
-			if path == filepath.Join(configRoot, "blueprint.yaml") {
-				return []byte(blueprintYAML), nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/test/project", nil
-		}
-
-		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
-			return "/test/scratch", nil
-		}
-
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "terraform.backend.type" {
-				return "local"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		mockConfig.GetContextFunc = func() string {
-			return "default"
-		}
-
-		provider.Shims.Getenv = func(key string) string {
-			return ""
-		}
-
-		provider.Shims.Setenv = func(key, value string) error {
-			return nil
-		}
-
-		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-
-		provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
-			return nil
-		}
-
-		mockToolsManager := provider.toolsManager.(*tools.MockToolsManager)
-		mockToolsManager.GetTerraformCommandFunc = func() string {
-			return "terraform"
-		}
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local"})
 
 		outputCallCount := 0
-		mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "terraform" && len(args) >= 2 && args[1] == "output" {
 				outputCallCount++
 				if outputCallCount == 1 {
@@ -903,27 +703,17 @@ terraform:
 			return "", nil
 		}
 
-		outputs, err := provider.GetOutputs("test-component")
-
+		output, err := mocks.Provider.getOutput("test-component", "output1")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		if len(outputs) != 1 {
-			t.Errorf("Expected 1 output, got %d (outputCallCount: %d)", len(outputs), outputCallCount)
+		if output != "val1" {
+			t.Errorf("Expected output to be 'val1', got %v (outputCallCount: %d)", output, outputCallCount)
 		}
 	})
 
 	t.Run("HandlesSetenvError", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-		mockShell := provider.shell.(*shell.MockShell)
-
-		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
-			return configRoot, nil
-		}
-
 		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
 kind: Blueprint
 metadata:
@@ -932,64 +722,20 @@ terraform:
   - path: test/path
     name: test-component`
 
-		provider.Shims.ReadFile = func(path string) ([]byte, error) {
-			if path == filepath.Join(configRoot, "blueprint.yaml") {
-				return []byte(blueprintYAML), nil
-			}
-			return nil, os.ErrNotExist
-		}
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local"})
 
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/test/project", nil
-		}
-
-		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
-			return "/test/scratch", nil
-		}
-
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "terraform.backend.type" {
-				return "local"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		mockConfig.GetContextFunc = func() string {
-			return "default"
-		}
-
-		provider.Shims.Getenv = func(key string) string {
-			return ""
-		}
-
-		provider.Shims.Setenv = func(key, value string) error {
+		mocks.Provider.Shims.Setenv = func(key, value string) error {
 			return errors.New("setenv failed")
 		}
 
-		outputs, err := provider.GetOutputs("test-component")
+		_, err := mocks.Provider.getOutput("test-component", "any-key")
 
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		if len(outputs) != 0 {
-			t.Errorf("Expected empty outputs when setenv fails, got %d", len(outputs))
+		if err == nil {
+			t.Error("Expected error when setenv fails")
 		}
 	})
 
 	t.Run("HandlesBackendOverrideError", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-		mockShell := provider.shell.(*shell.MockShell)
-
-		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
-			return configRoot, nil
-		}
-
 		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
 kind: Blueprint
 metadata:
@@ -998,177 +744,139 @@ terraform:
   - path: test/path
     name: test-component`
 
-		provider.Shims.ReadFile = func(path string) ([]byte, error) {
-			if path == filepath.Join(configRoot, "blueprint.yaml") {
-				return []byte(blueprintYAML), nil
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "unsupported"})
+
+		_, err := mocks.Provider.getOutput("test-component", "any-key")
+
+		if err == nil {
+			t.Error("Expected error when backend override fails")
+		}
+	})
+
+	t.Run("HandlesCacheRaceCondition", func(t *testing.T) {
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+metadata:
+  name: test
+terraform:
+  - path: test/path
+    name: test-component`
+
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local"})
+
+		callCount := 0
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			callCount++
+			if callCount == 1 {
+				mocks.Provider.mu.Lock()
+				mocks.Provider.cache["test-component"] = map[string]any{"output1": "cached-value"}
+				mocks.Provider.mu.Unlock()
 			}
-			return nil, os.ErrNotExist
-		}
-
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/test/project", nil
-		}
-
-		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
-			return "/test/scratch", nil
-		}
-
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "terraform.backend.type" {
-				return "unsupported"
+			if command == "terraform" && len(args) >= 2 && args[1] == "output" {
+				return `{"output1": {"value": "val1"}}`, nil
 			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
+			if command == "terraform" && len(args) >= 2 && args[1] == "init" {
+				return "", nil
 			}
-			return ""
+			return "", nil
 		}
 
-		mockConfig.GetContextFunc = func() string {
-			return "default"
-		}
-
-		provider.Shims.Getenv = func(key string) string {
-			return ""
-		}
-
-		provider.Shims.Setenv = func(key, value string) error {
-			return nil
-		}
-
-		outputs, err := provider.GetOutputs("test-component")
-
+		output, err := mocks.Provider.getOutput("test-component", "output1")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		if len(outputs) != 0 {
-			t.Errorf("Expected empty outputs when backend override fails, got %d", len(outputs))
-		}
-	})
-}
-
-func TestTerraformProvider_GetValue(t *testing.T) {
-	t.Run("ReturnsOutputValueForValidKey", func(t *testing.T) {
-		provider := setupProvider(t)
-
-		expectedOutputs := map[string]any{
-			"output1": "value1",
-			"output2": 42,
-		}
-
-		provider.mu.Lock()
-		provider.cache["test-component"] = expectedOutputs
-		provider.mu.Unlock()
-
-		value, err := provider.GetValue("terraform.test-component.outputs.output1")
-
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		if value != "value1" {
-			t.Errorf("Expected 'value1', got %v", value)
+		if output != "cached-value" {
+			t.Errorf("Expected cached value, got %v", output)
 		}
 	})
 
-	t.Run("ReturnsErrorForInvalidKeyFormat", func(t *testing.T) {
-		provider := setupProvider(t)
+	t.Run("HandlesJsonUnmarshalError", func(t *testing.T) {
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+metadata:
+  name: test
+terraform:
+  - path: test/path
+    name: test-component`
 
-		_, err := provider.GetValue("invalid.key.format")
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML})
 
+		mocks.Provider.Shims.JsonUnmarshal = func(data []byte, v any) error {
+			return errors.New("json unmarshal error")
+		}
+
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 2 && args[1] == "output" {
+				return `{"output1": {"value": "val1"}}`, nil
+			}
+			return "", nil
+		}
+
+		_, err := mocks.Provider.getOutput("test-component", "output1")
 		if err == nil {
-			t.Fatal("Expected error for invalid key format, got nil")
-		}
-
-		expectedError := "invalid terraform key format: expected terraform.<componentID>.outputs.<outputKey>"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Errorf("Expected error to contain '%s', got %v", expectedError, err)
+			t.Error("Expected error when JsonUnmarshal fails")
 		}
 	})
 
-	t.Run("ReturnsErrorForMissingOutputKey", func(t *testing.T) {
-		provider := setupProvider(t)
+	t.Run("HandlesOutputsWithoutValueField", func(t *testing.T) {
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+metadata:
+  name: test
+terraform:
+  - path: test/path
+    name: test-component`
 
-		expectedOutputs := map[string]any{
-			"output1": "value1",
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML})
+
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 2 && args[1] == "output" {
+				return `{"output1": {"sensitive": true}}`, nil
+			}
+			return "", nil
 		}
 
-		provider.mu.Lock()
-		provider.cache["test-component"] = expectedOutputs
-		provider.mu.Unlock()
-
-		_, err := provider.GetValue("terraform.test-component.outputs.nonexistent")
-
+		_, err := mocks.Provider.getOutput("test-component", "output1")
 		if err == nil {
-			t.Fatal("Expected error for nonexistent output key, got nil")
-		}
-
-		expectedError := "output key nonexistent not found for component test-component"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Errorf("Expected error to contain '%s', got %v", expectedError, err)
+			t.Error("Expected error when output has no value field")
 		}
 	})
 
-	t.Run("HandlesNestedOutputKeys", func(t *testing.T) {
-		provider := setupProvider(t)
+	t.Run("HandlesOutputsWithNonMapValue", func(t *testing.T) {
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+metadata:
+  name: test
+terraform:
+  - path: test/path
+    name: test-component`
 
-		expectedOutputs := map[string]any{
-			"nested.key": "nested-value",
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML})
+
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 2 && args[1] == "output" {
+				return `{"output1": "not-a-map"}`, nil
+			}
+			return "", nil
 		}
 
-		provider.mu.Lock()
-		provider.cache["test-component"] = expectedOutputs
-		provider.mu.Unlock()
-
-		value, err := provider.GetValue("terraform.test-component.outputs.nested.key")
-
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		if value != "nested-value" {
-			t.Errorf("Expected 'nested-value', got %v", value)
-		}
-	})
-
-	t.Run("ReturnsErrorWhenGetOutputsFails", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-
-		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
-			return configRoot, nil
-		}
-
-		provider.Shims.ReadFile = func(path string) ([]byte, error) {
-			return nil, os.ErrNotExist
-		}
-
-		mockShell := provider.shell.(*shell.MockShell)
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/test/project", nil
-		}
-
-		mockConfig.GetContextFunc = func() string {
-			return "default"
-		}
-
-		_, err := provider.GetValue("terraform.nonexistent-component.outputs.key")
-
+		_, err := mocks.Provider.getOutput("test-component", "output1")
 		if err == nil {
-			t.Fatal("Expected error when component not found, got nil")
+			t.Error("Expected error when output value is not a map")
 		}
 	})
 }
 
 func TestTerraformProvider_GetTerraformComponent(t *testing.T) {
 	t.Run("FindsComponentByPath", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-		mockShell := provider.shell.(*shell.MockShell)
+		mocks := setupMocks(t)
+
+		// Use mocks.ConfigHandler directly
+		// Use mocks.Shell directly
 
 		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return configRoot, nil
 		}
 
@@ -1179,22 +887,22 @@ metadata:
 terraform:
   - path: test/path`
 
-		provider.Shims.ReadFile = func(path string) ([]byte, error) {
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) {
 			if path == filepath.Join(configRoot, "blueprint.yaml") {
 				return []byte(blueprintYAML), nil
 			}
 			return nil, os.ErrNotExist
 		}
 
-		mockShell.GetProjectRootFunc = func() (string, error) {
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/test/project", nil
 		}
 
-		mockConfig.GetContextFunc = func() string {
+		mocks.ConfigHandler.GetContextFunc = func() string {
 			return "default"
 		}
 
-		component := provider.GetTerraformComponent("test/path")
+		component := mocks.Provider.GetTerraformComponent("test/path")
 
 		if component == nil {
 			t.Fatal("Expected component to be found")
@@ -1206,12 +914,13 @@ terraform:
 	})
 
 	t.Run("FindsComponentByName", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-		mockShell := provider.shell.(*shell.MockShell)
+		mocks := setupMocks(t)
+
+		// Use mocks.ConfigHandler directly
+		// Use mocks.Shell directly
 
 		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return configRoot, nil
 		}
 
@@ -1223,22 +932,22 @@ terraform:
   - path: test/path
     name: test-component`
 
-		provider.Shims.ReadFile = func(path string) ([]byte, error) {
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) {
 			if path == filepath.Join(configRoot, "blueprint.yaml") {
 				return []byte(blueprintYAML), nil
 			}
 			return nil, os.ErrNotExist
 		}
 
-		mockShell.GetProjectRootFunc = func() (string, error) {
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/test/project", nil
 		}
 
-		mockConfig.GetContextFunc = func() string {
+		mocks.ConfigHandler.GetContextFunc = func() string {
 			return "default"
 		}
 
-		component := provider.GetTerraformComponent("test-component")
+		component := mocks.Provider.GetTerraformComponent("test-component")
 
 		if component == nil {
 			t.Fatal("Expected component to be found")
@@ -1250,12 +959,13 @@ terraform:
 	})
 
 	t.Run("ReturnsNilWhenComponentNotFound", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-		mockShell := provider.shell.(*shell.MockShell)
+		mocks := setupMocks(t)
+
+		// Use mocks.ConfigHandler directly
+		// Use mocks.Shell directly
 
 		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return configRoot, nil
 		}
 
@@ -1266,22 +976,22 @@ metadata:
 terraform:
   - path: test/path`
 
-		provider.Shims.ReadFile = func(path string) ([]byte, error) {
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) {
 			if path == filepath.Join(configRoot, "blueprint.yaml") {
 				return []byte(blueprintYAML), nil
 			}
 			return nil, os.ErrNotExist
 		}
 
-		mockShell.GetProjectRootFunc = func() (string, error) {
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/test/project", nil
 		}
 
-		mockConfig.GetContextFunc = func() string {
+		mocks.ConfigHandler.GetContextFunc = func() string {
 			return "default"
 		}
 
-		component := provider.GetTerraformComponent("nonexistent")
+		component := mocks.Provider.GetTerraformComponent("nonexistent")
 
 		if component != nil {
 			t.Error("Expected component to be nil when not found")
@@ -1291,10 +1001,11 @@ terraform:
 
 func TestTerraformProvider_ResolveModulePath(t *testing.T) {
 	t.Run("ResolvesPathForComponentWithName", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+		mocks := setupMocks(t)
 
-		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
+		// Use mocks.ConfigHandler directly
+
+		mocks.ConfigHandler.GetWindsorScratchPathFunc = func() (string, error) {
 			return "/test/scratch", nil
 		}
 
@@ -1302,7 +1013,7 @@ func TestTerraformProvider_ResolveModulePath(t *testing.T) {
 			Name: "test-component",
 		}
 
-		path, err := provider.resolveModulePath(component)
+		path, err := mocks.Provider.resolveModulePath(component)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -1315,10 +1026,11 @@ func TestTerraformProvider_ResolveModulePath(t *testing.T) {
 	})
 
 	t.Run("ResolvesPathForComponentWithSource", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+		mocks := setupMocks(t)
 
-		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
+		// Use mocks.ConfigHandler directly
+
+		mocks.ConfigHandler.GetWindsorScratchPathFunc = func() (string, error) {
 			return "/test/scratch", nil
 		}
 
@@ -1327,7 +1039,7 @@ func TestTerraformProvider_ResolveModulePath(t *testing.T) {
 			Source: "config",
 		}
 
-		path, err := provider.resolveModulePath(component)
+		path, err := mocks.Provider.resolveModulePath(component)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -1340,10 +1052,11 @@ func TestTerraformProvider_ResolveModulePath(t *testing.T) {
 	})
 
 	t.Run("ResolvesPathForLocalComponent", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockShell := provider.shell.(*shell.MockShell)
+		mocks := setupMocks(t)
 
-		mockShell.GetProjectRootFunc = func() (string, error) {
+		// Use mocks.Shell directly
+
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/test/project", nil
 		}
 
@@ -1351,7 +1064,7 @@ func TestTerraformProvider_ResolveModulePath(t *testing.T) {
 			Path: "test/path",
 		}
 
-		path, err := provider.resolveModulePath(component)
+		path, err := mocks.Provider.resolveModulePath(component)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -1364,10 +1077,11 @@ func TestTerraformProvider_ResolveModulePath(t *testing.T) {
 	})
 
 	t.Run("ReturnsErrorWhenScratchPathFails", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+		mocks := setupMocks(t)
 
-		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
+		// Use mocks.ConfigHandler directly
+
+		mocks.ConfigHandler.GetWindsorScratchPathFunc = func() (string, error) {
 			return "", errors.New("scratch path error")
 		}
 
@@ -1375,7 +1089,7 @@ func TestTerraformProvider_ResolveModulePath(t *testing.T) {
 			Name: "test-component",
 		}
 
-		_, err := provider.resolveModulePath(component)
+		_, err := mocks.Provider.resolveModulePath(component)
 
 		if err == nil {
 			t.Fatal("Expected error when scratch path fails")
@@ -1383,10 +1097,11 @@ func TestTerraformProvider_ResolveModulePath(t *testing.T) {
 	})
 
 	t.Run("ReturnsErrorWhenProjectRootFails", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockShell := provider.shell.(*shell.MockShell)
+		mocks := setupMocks(t)
 
-		mockShell.GetProjectRootFunc = func() (string, error) {
+		// Use mocks.Shell directly
+
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "", errors.New("project root error")
 		}
 
@@ -1394,7 +1109,7 @@ func TestTerraformProvider_ResolveModulePath(t *testing.T) {
 			Path: "test/path",
 		}
 
-		_, err := provider.resolveModulePath(component)
+		_, err := mocks.Provider.resolveModulePath(component)
 
 		if err == nil {
 			t.Fatal("Expected error when project root fails")
@@ -1404,21 +1119,21 @@ func TestTerraformProvider_ResolveModulePath(t *testing.T) {
 
 func TestTerraformProvider_FindRelativeProjectPath(t *testing.T) {
 	t.Run("FindsProjectPathInTerraformDirectory", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
 
 		testPath := filepath.Join("/test", "project", "terraform", "component", "subdir")
-		provider.Shims.Getwd = func() (string, error) {
+		mocks.Provider.Shims.Getwd = func() (string, error) {
 			return testPath, nil
 		}
 
-		provider.Shims.Glob = func(pattern string) ([]string, error) {
+		mocks.Provider.Shims.Glob = func(pattern string) ([]string, error) {
 			if pattern == filepath.Join(testPath, "*.tf") {
 				return []string{filepath.Join(testPath, "main.tf")}, nil
 			}
 			return nil, nil
 		}
 
-		path, err := provider.FindRelativeProjectPath()
+		path, err := mocks.Provider.FindRelativeProjectPath()
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -1431,21 +1146,21 @@ func TestTerraformProvider_FindRelativeProjectPath(t *testing.T) {
 	})
 
 	t.Run("FindsProjectPathInContextsDirectory", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
 
 		testPath := filepath.Join("/test", "project", ".windsor", "contexts", "local", "terraform", "component")
-		provider.Shims.Getwd = func() (string, error) {
+		mocks.Provider.Shims.Getwd = func() (string, error) {
 			return testPath, nil
 		}
 
-		provider.Shims.Glob = func(pattern string) ([]string, error) {
+		mocks.Provider.Shims.Glob = func(pattern string) ([]string, error) {
 			if pattern == filepath.Join(testPath, "*.tf") {
 				return []string{filepath.Join(testPath, "main.tf")}, nil
 			}
 			return nil, nil
 		}
 
-		path, err := provider.FindRelativeProjectPath()
+		path, err := mocks.Provider.FindRelativeProjectPath()
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -1458,18 +1173,18 @@ func TestTerraformProvider_FindRelativeProjectPath(t *testing.T) {
 	})
 
 	t.Run("ReturnsEmptyWhenNoTerraformFiles", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
 
 		testPath := "/test/path"
-		provider.Shims.Getwd = func() (string, error) {
+		mocks.Provider.Shims.Getwd = func() (string, error) {
 			return testPath, nil
 		}
 
-		provider.Shims.Glob = func(pattern string) ([]string, error) {
+		mocks.Provider.Shims.Glob = func(pattern string) ([]string, error) {
 			return nil, nil
 		}
 
-		path, err := provider.FindRelativeProjectPath()
+		path, err := mocks.Provider.FindRelativeProjectPath()
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -1481,13 +1196,13 @@ func TestTerraformProvider_FindRelativeProjectPath(t *testing.T) {
 	})
 
 	t.Run("ReturnsErrorWhenGetwdFails", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
 
-		provider.Shims.Getwd = func() (string, error) {
+		mocks.Provider.Shims.Getwd = func() (string, error) {
 			return "", errors.New("getwd failed")
 		}
 
-		_, err := provider.FindRelativeProjectPath()
+		_, err := mocks.Provider.FindRelativeProjectPath()
 
 		if err == nil {
 			t.Fatal("Expected error when Getwd fails")
@@ -1495,18 +1210,18 @@ func TestTerraformProvider_FindRelativeProjectPath(t *testing.T) {
 	})
 
 	t.Run("ReturnsErrorWhenGlobFails", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
 
 		testPath := "/test/path"
-		provider.Shims.Getwd = func() (string, error) {
+		mocks.Provider.Shims.Getwd = func() (string, error) {
 			return testPath, nil
 		}
 
-		provider.Shims.Glob = func(pattern string) ([]string, error) {
+		mocks.Provider.Shims.Glob = func(pattern string) ([]string, error) {
 			return nil, errors.New("glob failed")
 		}
 
-		_, err := provider.FindRelativeProjectPath()
+		_, err := mocks.Provider.FindRelativeProjectPath()
 
 		if err == nil {
 			t.Fatal("Expected error when Glob fails")
@@ -1514,17 +1229,17 @@ func TestTerraformProvider_FindRelativeProjectPath(t *testing.T) {
 	})
 
 	t.Run("AcceptsDirectoryParameter", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
 
 		testPath := filepath.Join("/test", "project", "terraform", "component")
-		provider.Shims.Glob = func(pattern string) ([]string, error) {
+		mocks.Provider.Shims.Glob = func(pattern string) ([]string, error) {
 			if pattern == filepath.Join(testPath, "*.tf") {
 				return []string{filepath.Join(testPath, "main.tf")}, nil
 			}
 			return nil, nil
 		}
 
-		path, err := provider.FindRelativeProjectPath(testPath)
+		path, err := mocks.Provider.FindRelativeProjectPath(testPath)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -1537,21 +1252,21 @@ func TestTerraformProvider_FindRelativeProjectPath(t *testing.T) {
 	})
 
 	t.Run("ReturnsEmptyWhenNoTerraformOrContextsDirectory", func(t *testing.T) {
-		provider := setupProvider(t)
+		mocks := setupMocks(t)
 
 		testPath := filepath.Join("/test", "random", "path", "with", "tf", "files")
-		provider.Shims.Getwd = func() (string, error) {
+		mocks.Provider.Shims.Getwd = func() (string, error) {
 			return testPath, nil
 		}
 
-		provider.Shims.Glob = func(pattern string) ([]string, error) {
+		mocks.Provider.Shims.Glob = func(pattern string) ([]string, error) {
 			if pattern == filepath.Join(testPath, "*.tf") {
 				return []string{filepath.Join(testPath, "main.tf")}, nil
 			}
 			return nil, nil
 		}
 
-		path, err := provider.FindRelativeProjectPath()
+		path, err := mocks.Provider.FindRelativeProjectPath()
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -1565,21 +1280,22 @@ func TestTerraformProvider_FindRelativeProjectPath(t *testing.T) {
 
 func TestTerraformProvider_GenerateTerraformArgs(t *testing.T) {
 	t.Run("GeneratesArgsSuccessfully", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-		mockShell := provider.shell.(*shell.MockShell)
+		mocks := setupMocks(t)
+
+		// Use mocks.ConfigHandler directly
+		// Use mocks.Shell directly
 
 		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return configRoot, nil
 		}
 
 		windsorScratchPath := "/test/scratch"
-		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
+		mocks.ConfigHandler.GetWindsorScratchPathFunc = func() (string, error) {
 			return windsorScratchPath, nil
 		}
 
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "terraform.backend.type" {
 				return "local"
 			}
@@ -1589,11 +1305,11 @@ func TestTerraformProvider_GenerateTerraformArgs(t *testing.T) {
 			return ""
 		}
 
-		mockConfig.GetContextFunc = func() string {
+		mocks.ConfigHandler.GetContextFunc = func() string {
 			return "default"
 		}
 
-		mockShell.GetProjectRootFunc = func() (string, error) {
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/test/project", nil
 		}
 
@@ -1604,19 +1320,19 @@ metadata:
 terraform:
   - path: test/path`
 
-		provider.Shims.ReadFile = func(path string) ([]byte, error) {
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) {
 			if path == filepath.Join(configRoot, "blueprint.yaml") {
 				return []byte(blueprintYAML), nil
 			}
 			return nil, os.ErrNotExist
 		}
 
-		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+		mocks.Provider.Shims.Stat = func(path string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
 
 		modulePath := filepath.Join("/test/project", "terraform", "test/path")
-		args, err := provider.GenerateTerraformArgs("test/path", modulePath, true)
+		args, err := mocks.Provider.GenerateTerraformArgs("test/path", modulePath, true)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -1646,21 +1362,22 @@ terraform:
 	})
 
 	t.Run("IncludesVarFileArgs", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-		mockShell := provider.shell.(*shell.MockShell)
+		mocks := setupMocks(t)
+
+		// Use mocks.ConfigHandler directly
+		// Use mocks.Shell directly
 
 		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return configRoot, nil
 		}
 
 		windsorScratchPath := "/test/scratch"
-		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
+		mocks.ConfigHandler.GetWindsorScratchPathFunc = func() (string, error) {
 			return windsorScratchPath, nil
 		}
 
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "terraform.backend.type" {
 				return "local"
 			}
@@ -1670,11 +1387,11 @@ terraform:
 			return ""
 		}
 
-		mockConfig.GetContextFunc = func() string {
+		mocks.ConfigHandler.GetContextFunc = func() string {
 			return "default"
 		}
 
-		mockShell.GetProjectRootFunc = func() (string, error) {
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/test/project", nil
 		}
 
@@ -1685,7 +1402,7 @@ metadata:
 terraform:
   - path: test/path`
 
-		provider.Shims.ReadFile = func(path string) ([]byte, error) {
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) {
 			if path == filepath.Join(configRoot, "blueprint.yaml") {
 				return []byte(blueprintYAML), nil
 			}
@@ -1693,7 +1410,7 @@ terraform:
 		}
 
 		tfvarsPath := filepath.Join(configRoot, "terraform", "test/path.tfvars")
-		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+		mocks.Provider.Shims.Stat = func(path string) (os.FileInfo, error) {
 			if filepath.ToSlash(path) == filepath.ToSlash(tfvarsPath) {
 				return nil, nil
 			}
@@ -1701,7 +1418,7 @@ terraform:
 		}
 
 		modulePath := filepath.Join("/test/project", "terraform", "test/path")
-		args, err := provider.GenerateTerraformArgs("test/path", modulePath, true)
+		args, err := mocks.Provider.GenerateTerraformArgs("test/path", modulePath, true)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -1720,21 +1437,22 @@ terraform:
 	})
 
 	t.Run("IncludesParallelismWhenComponentHasIt", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-		mockShell := provider.shell.(*shell.MockShell)
+		mocks := setupMocks(t)
+
+		// Use mocks.ConfigHandler directly
+		// Use mocks.Shell directly
 
 		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return configRoot, nil
 		}
 
 		windsorScratchPath := "/test/scratch"
-		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
+		mocks.ConfigHandler.GetWindsorScratchPathFunc = func() (string, error) {
 			return windsorScratchPath, nil
 		}
 
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "terraform.backend.type" {
 				return "local"
 			}
@@ -1744,11 +1462,11 @@ terraform:
 			return ""
 		}
 
-		mockConfig.GetContextFunc = func() string {
+		mocks.ConfigHandler.GetContextFunc = func() string {
 			return "default"
 		}
 
-		mockShell.GetProjectRootFunc = func() (string, error) {
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/test/project", nil
 		}
 
@@ -1761,19 +1479,19 @@ terraform:
   - path: test/path
     parallelism: 5`
 
-		provider.Shims.ReadFile = func(path string) ([]byte, error) {
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) {
 			if path == filepath.Join(configRoot, "blueprint.yaml") {
 				return []byte(blueprintYAML), nil
 			}
 			return nil, os.ErrNotExist
 		}
 
-		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+		mocks.Provider.Shims.Stat = func(path string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
 
 		modulePath := filepath.Join("/test/project", "terraform", "test/path")
-		args, err := provider.GenerateTerraformArgs("test/path", modulePath, true)
+		args, err := mocks.Provider.GenerateTerraformArgs("test/path", modulePath, true)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -1803,21 +1521,22 @@ terraform:
 	})
 
 	t.Run("IncludesAutoApproveForNonInteractive", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-		mockShell := provider.shell.(*shell.MockShell)
+		mocks := setupMocks(t)
+
+		// Use mocks.ConfigHandler directly
+		// Use mocks.Shell directly
 
 		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return configRoot, nil
 		}
 
 		windsorScratchPath := "/test/scratch"
-		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
+		mocks.ConfigHandler.GetWindsorScratchPathFunc = func() (string, error) {
 			return windsorScratchPath, nil
 		}
 
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "terraform.backend.type" {
 				return "local"
 			}
@@ -1827,19 +1546,19 @@ terraform:
 			return ""
 		}
 
-		mockConfig.GetContextFunc = func() string {
+		mocks.ConfigHandler.GetContextFunc = func() string {
 			return "default"
 		}
 
-		mockShell.GetProjectRootFunc = func() (string, error) {
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/test/project", nil
 		}
 
-		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+		mocks.Provider.Shims.Stat = func(path string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
 
-		args, err := provider.GenerateTerraformArgs("test/path", "test/module", false)
+		args, err := mocks.Provider.GenerateTerraformArgs("test/path", "test/module", false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -1851,14 +1570,15 @@ terraform:
 	})
 
 	t.Run("ReturnsErrorWhenConfigRootFails", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+		mocks := setupMocks(t)
 
-		mockConfig.GetConfigRootFunc = func() (string, error) {
+		// Use mocks.ConfigHandler directly
+
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("config root error")
 		}
 
-		_, err := provider.GenerateTerraformArgs("test/path", "test/module", true)
+		_, err := mocks.Provider.GenerateTerraformArgs("test/path", "test/module", true)
 
 		if err == nil {
 			t.Error("Expected error when GetConfigRoot fails")
@@ -1869,19 +1589,20 @@ terraform:
 	})
 
 	t.Run("ReturnsErrorWhenWindsorScratchPathFails", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+		mocks := setupMocks(t)
+
+		// Use mocks.ConfigHandler directly
 
 		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return configRoot, nil
 		}
 
-		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
+		mocks.ConfigHandler.GetWindsorScratchPathFunc = func() (string, error) {
 			return "", fmt.Errorf("windsor scratch path error")
 		}
 
-		_, err := provider.GenerateTerraformArgs("test/path", "test/module", true)
+		_, err := mocks.Provider.GenerateTerraformArgs("test/path", "test/module", true)
 
 		if err == nil {
 			t.Error("Expected error when GetWindsorScratchPath fails")
@@ -1892,21 +1613,22 @@ terraform:
 	})
 
 	t.Run("ReturnsErrorWhenStatFails", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-		mockShell := provider.shell.(*shell.MockShell)
+		mocks := setupMocks(t)
+
+		// Use mocks.ConfigHandler directly
+		// Use mocks.Shell directly
 
 		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return configRoot, nil
 		}
 
 		windsorScratchPath := "/test/scratch"
-		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
+		mocks.ConfigHandler.GetWindsorScratchPathFunc = func() (string, error) {
 			return windsorScratchPath, nil
 		}
 
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "terraform.backend.type" {
 				return "local"
 			}
@@ -1916,19 +1638,19 @@ terraform:
 			return ""
 		}
 
-		mockConfig.GetContextFunc = func() string {
+		mocks.ConfigHandler.GetContextFunc = func() string {
 			return "default"
 		}
 
-		mockShell.GetProjectRootFunc = func() (string, error) {
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/test/project", nil
 		}
 
-		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+		mocks.Provider.Shims.Stat = func(path string) (os.FileInfo, error) {
 			return nil, fmt.Errorf("stat error")
 		}
 
-		_, err := provider.GenerateTerraformArgs("test/path", "test/module", true)
+		_, err := mocks.Provider.GenerateTerraformArgs("test/path", "test/module", true)
 
 		if err == nil {
 			t.Error("Expected error when Stat fails")
@@ -1939,20 +1661,21 @@ terraform:
 	})
 
 	t.Run("ReturnsErrorWhenGetTFDataDirFails", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-		mockShell := provider.shell.(*shell.MockShell)
+		mocks := setupMocks(t)
+
+		// Use mocks.ConfigHandler directly
+		// Use mocks.Shell directly
 
 		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return configRoot, nil
 		}
 
-		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
+		mocks.ConfigHandler.GetWindsorScratchPathFunc = func() (string, error) {
 			return "", fmt.Errorf("scratch path error")
 		}
 
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "terraform.backend.type" {
 				return "local"
 			}
@@ -1962,19 +1685,19 @@ terraform:
 			return ""
 		}
 
-		mockConfig.GetContextFunc = func() string {
+		mocks.ConfigHandler.GetContextFunc = func() string {
 			return "default"
 		}
 
-		mockShell.GetProjectRootFunc = func() (string, error) {
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/test/project", nil
 		}
 
-		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+		mocks.Provider.Shims.Stat = func(path string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
 
-		_, err := provider.GenerateTerraformArgs("test/path", "test/module", true)
+		_, err := mocks.Provider.GenerateTerraformArgs("test/path", "test/module", true)
 
 		if err == nil {
 			t.Error("Expected error when GetTFDataDir fails")
@@ -1985,21 +1708,22 @@ terraform:
 	})
 
 	t.Run("ReturnsErrorWhenGenerateBackendConfigArgsFails", func(t *testing.T) {
-		provider := setupProvider(t)
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-		mockShell := provider.shell.(*shell.MockShell)
+		mocks := setupMocks(t)
+
+		// Use mocks.ConfigHandler directly
+		// Use mocks.Shell directly
 
 		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return configRoot, nil
 		}
 
 		windsorScratchPath := "/test/scratch"
-		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
+		mocks.ConfigHandler.GetWindsorScratchPathFunc = func() (string, error) {
 			return windsorScratchPath, nil
 		}
 
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "terraform.backend.type" {
 				return "invalid"
 			}
@@ -2009,19 +1733,19 @@ terraform:
 			return ""
 		}
 
-		mockConfig.GetContextFunc = func() string {
+		mocks.ConfigHandler.GetContextFunc = func() string {
 			return "default"
 		}
 
-		mockShell.GetProjectRootFunc = func() (string, error) {
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/test/project", nil
 		}
 
-		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+		mocks.Provider.Shims.Stat = func(path string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
 
-		_, err := provider.GenerateTerraformArgs("test/path", "test/module", true)
+		_, err := mocks.Provider.GenerateTerraformArgs("test/path", "test/module", true)
 
 		if err == nil {
 			t.Error("Expected error when GenerateBackendConfigArgs fails")
