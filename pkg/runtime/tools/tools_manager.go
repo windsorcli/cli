@@ -71,7 +71,8 @@ func (t *BaseToolsManager) Check() error {
 	spin.Start()
 	defer spin.Stop()
 
-	if t.configHandler.GetBool("docker.enabled") {
+	vmRuntime := t.configHandler.GetString("vm.runtime", "docker")
+	if t.configHandler.GetBool("docker.enabled") && vmRuntime == "docker" {
 		if err := t.checkDocker(); err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
@@ -139,7 +140,7 @@ func (t *BaseToolsManager) checkDocker() error {
 	isColimaMode := t.configHandler.GetString("vm.driver") == "colima"
 
 	if !isColimaMode {
-		output, err := t.shell.ExecSilentWithTimeout("docker", []string{"version", "--format", "{{.Client.Version}}"}, 5*time.Second)
+		output, err := t.shell.ExecSilentWithTimeout("docker", []string{"--version"}, 5*time.Second)
 		if err != nil {
 			return fmt.Errorf("docker version check failed: %v", err)
 		}

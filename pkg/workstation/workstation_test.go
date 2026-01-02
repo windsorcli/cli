@@ -451,16 +451,8 @@ func TestWorkstation_Up(t *testing.T) {
 		// Given a workstation with a virtual machine configured and a tracking flag for Up() calls
 		mocks := setupWorkstationMocks(t)
 		vmUpCalled := false
-		vmWriteConfigCalled := false
-		callOrder := []string{}
-		mocks.VirtualMachine.WriteConfigFunc = func() error {
-			vmWriteConfigCalled = true
-			callOrder = append(callOrder, "WriteConfig")
-			return nil
-		}
 		mocks.VirtualMachine.UpFunc = func(verbose ...bool) error {
 			vmUpCalled = true
-			callOrder = append(callOrder, "Up")
 			return nil
 		}
 		mocks.ConfigHandler.Set("vm.driver", "colima")
@@ -481,17 +473,9 @@ func TestWorkstation_Up(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
-		// And VirtualMachine.WriteConfig() should be called
-		if !vmWriteConfigCalled {
-			t.Error("Expected VirtualMachine.WriteConfig to be called")
-		}
 		// And VirtualMachine.Up() should be called
 		if !vmUpCalled {
 			t.Error("Expected VirtualMachine.Up to be called")
-		}
-		// And WriteConfig should be called before Up
-		if len(callOrder) != 2 || callOrder[0] != "WriteConfig" || callOrder[1] != "Up" {
-			t.Errorf("Expected WriteConfig to be called before Up, got call order: %v", callOrder)
 		}
 	})
 
@@ -609,41 +593,10 @@ func TestWorkstation_Up(t *testing.T) {
 		}
 	})
 
-	t.Run("VirtualMachineWriteConfigError", func(t *testing.T) {
-		// Given a workstation with a virtual machine that will fail when writing config
-		mocks := setupWorkstationMocks(t)
-		mocks.VirtualMachine.WriteConfigFunc = func() error {
-			return fmt.Errorf("VM config write failed")
-		}
-		mocks.ConfigHandler.Set("vm.driver", "colima")
-		workstation, err := NewWorkstation(mocks.Runtime, &Workstation{
-			VirtualMachine:   mocks.VirtualMachine,
-			ContainerRuntime: mocks.ContainerRuntime,
-			NetworkManager:   mocks.NetworkManager,
-			Services:         convertToServiceSlice(mocks.Services),
-		})
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
-
-		// When calling Up() to start the workstation
-		err = workstation.Up()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error writing virtual machine config") {
-			t.Errorf("Expected error about writing VM config, got: %v", err)
-		}
-	})
 
 	t.Run("VirtualMachineUpError", func(t *testing.T) {
 		// Given a workstation with a virtual machine that will fail when starting
 		mocks := setupWorkstationMocks(t)
-		mocks.VirtualMachine.WriteConfigFunc = func() error {
-			return nil
-		}
 		mocks.VirtualMachine.UpFunc = func(verbose ...bool) error {
 			return fmt.Errorf("VM start failed")
 		}

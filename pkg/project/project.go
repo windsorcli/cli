@@ -153,6 +153,11 @@ func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
 		if err := p.Workstation.Prepare(); err != nil {
 			return fmt.Errorf("failed to prepare workstation: %w", err)
 		}
+		if p.Workstation.VirtualMachine != nil {
+			if err := p.Workstation.VirtualMachine.WriteConfig(); err != nil {
+				return fmt.Errorf("failed to write virtual machine config: %w", err)
+			}
+		}
 		if p.Workstation.ContainerRuntime != nil {
 			if err := p.Workstation.ContainerRuntime.WriteConfig(); err != nil {
 				return fmt.Errorf("failed to write container runtime config: %w", err)

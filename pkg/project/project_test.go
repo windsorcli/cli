@@ -779,8 +779,18 @@ func TestProject_Initialize(t *testing.T) {
 			writeConfigCalled = true
 			return nil
 		}
+		mockNetworkManager := network.NewMockNetworkManager()
+		mockNetworkManager.AssignIPsFunc = func(services []services.Service) error {
+			return nil
+		}
 		proj.Workstation.ContainerRuntime = mockContainerRuntime
-		proj.Workstation.NetworkManager = nil
+		proj.Workstation.NetworkManager = mockNetworkManager
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.runtime" {
+				return "incus"
+			}
+			return ""
+		}
 
 		err = proj.Initialize(false)
 
@@ -823,8 +833,18 @@ func TestProject_Initialize(t *testing.T) {
 		mockContainerRuntime.WriteConfigFunc = func() error {
 			return fmt.Errorf("write config failed")
 		}
+		mockNetworkManager := network.NewMockNetworkManager()
+		mockNetworkManager.AssignIPsFunc = func(services []services.Service) error {
+			return nil
+		}
 		proj.Workstation.ContainerRuntime = mockContainerRuntime
-		proj.Workstation.NetworkManager = nil
+		proj.Workstation.NetworkManager = mockNetworkManager
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.runtime" {
+				return "incus"
+			}
+			return ""
+		}
 
 		err = proj.Initialize(false)
 

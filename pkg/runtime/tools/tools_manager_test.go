@@ -64,6 +64,8 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	shell := sh.NewMockShell()
 	shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 		switch {
+		case name == "docker" && len(args) >= 1 && args[0] == "--version":
+			return fmt.Sprintf("Docker version %s", constants.MinimumVersionDocker), nil
 		case name == "docker" && len(args) >= 2 && args[0] == "version" && args[1] == "--format":
 			return fmt.Sprintf("%s", constants.MinimumVersionDocker), nil
 		case name == "docker" && args[0] == "version":
@@ -236,7 +238,7 @@ func TestToolsManager_Check(t *testing.T) {
 		mocks, toolsManager := setup(t, defaultConfig)
 		// Given all tools are available with correct versions
 		toolVersions := map[string][]string{
-			"docker":         {"version", "--format"},
+			"docker":         {"--version"},
 			"docker-compose": {"version"},
 			"colima":         {"version"},
 			"limactl":        {"--version"},
@@ -514,7 +516,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 		// When docker version is below minimum required version
 		mocks, toolsManager := setup(t)
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
-			if name == "docker" && args[0] == "version" {
+			if name == "docker" && len(args) >= 1 && args[0] == "--version" {
 				return "Docker version 1.0.0", nil
 			}
 			return "", fmt.Errorf("command not found")
@@ -530,7 +532,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 		// When docker compose is available as a standalone command
 		mocks, toolsManager := setup(t)
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
-			if name == "docker" && args[0] == "version" {
+			if name == "docker" && len(args) >= 1 && args[0] == "--version" {
 				return "Docker version 25.0.0", nil
 			}
 			if name == "docker" && args[0] == "compose" {
@@ -552,7 +554,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 		// When docker compose version is below minimum required version
 		mocks, toolsManager := setup(t)
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
-			if name == "docker" && args[0] == "version" {
+			if name == "docker" && len(args) >= 1 && args[0] == "--version" {
 				return "Docker version 25.0.0", nil
 			}
 			if name == "docker" && args[0] == "compose" {
@@ -571,7 +573,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 		// When docker compose is available as a plugin
 		mocks, toolsManager := setup(t)
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
-			if name == "docker" && args[0] == "version" {
+			if name == "docker" && len(args) >= 1 && args[0] == "--version" {
 				return "Docker version 25.0.0", nil
 			}
 			return "", fmt.Errorf("command not found")
@@ -593,7 +595,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 		// When neither docker compose nor its plugin are available
 		mocks, toolsManager := setup(t)
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
-			if name == "docker" && args[0] == "version" {
+			if name == "docker" && len(args) >= 1 && args[0] == "--version" {
 				return "Docker version 25.0.0", nil
 			}
 			return "", fmt.Errorf("command not found")

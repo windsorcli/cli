@@ -44,8 +44,8 @@ func NewColimaNetworkManager(rt *runtime.Runtime, sshClient ssh.Client, secureSh
 
 // ConfigureGuest sets up forwarding of guest traffic to the container network.
 // It retrieves network CIDR and guest IP from the config, and configures SSH.
-// It identifies the Docker bridge interface and ensures iptables rules are set.
-// If the rule doesn't exist, it adds a new one to allow traffic forwarding.
+// For Docker runtime, it identifies the Docker bridge interface and ensures iptables rules are set.
+// For incus runtime, Docker-specific configuration is skipped since incus networking is handled independently.
 func (n *ColimaNetworkManager) ConfigureGuest() error {
 	networkCIDR := n.configHandler.GetString("network.cidr_block", constants.DefaultNetworkCIDR)
 
@@ -70,6 +70,23 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 		return fmt.Errorf("error setting SSH client config: %w", err)
 	}
 
+	vmRuntime := n.configHandler.GetString("vm.runtime", "docker")
+	if vmRuntime == "incus" {
+		if err := n.configureIncusNetwork(networkCIDR); err != nil {
+			return fmt.Errorf("error configuring incus network: %w", err)
+		}
+		return n.setupForwardingRule(networkCIDR, "incusbr0")
+	}
+	return n.configureDockerForwarding(networkCIDR)
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// configureDockerForwarding sets up iptables forwarding from col0 to the Docker bridge interface
+// It identifies the Docker bridge interface and configures forwarding rules
+func (n *ColimaNetworkManager) configureDockerForwarding(networkCIDR string) error {
 	output, err := n.secureShell.ExecSilent(
 		"ls",
 		"/sys/class/net",
@@ -79,10 +96,10 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 	}
 
 	var dockerBridgeInterface string
-	interfaces := strings.Split(output, "\n")
-	for _, iface := range interfaces {
-		if strings.HasPrefix(iface, "br-") {
-			dockerBridgeInterface = iface
+	for iface := range strings.Split(output, "\n") {
+		name := strings.Split(output, "\n")[iface]
+		if strings.HasPrefix(name, "br-") {
+			dockerBridgeInterface = name
 			break
 		}
 	}
@@ -90,21 +107,53 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 		return fmt.Errorf("error: no docker bridge interface found")
 	}
 
+	return n.setupForwardingRule(networkCIDR, dockerBridgeInterface)
+}
+
+// configureIncusNetwork configures the Incus bridge network with the specified CIDR
+// It calculates the gateway IP (first IP in the CIDR) and sets it on incusbr0 using the CIDR mask from the config
+func (n *ColimaNetworkManager) configureIncusNetwork(networkCIDR string) error {
+	_, ipNet, err := net.ParseCIDR(networkCIDR)
+	if err != nil {
+		return fmt.Errorf("error parsing network CIDR: %w", err)
+	}
+
+	ones, _ := ipNet.Mask.Size()
+	gatewayIP := incrementIP(ipNet.IP).String()
+	if _, err := n.secureShell.ExecSilent(
+		"incus", "network", "set", "incusbr0", fmt.Sprintf("ipv4.address=%s/%d", gatewayIP, ones),
+	); err != nil {
+		return fmt.Errorf("error setting incus network address: %w", err)
+	}
+
+	return nil
+}
+
+// setupForwardingRule sets up iptables forwarding from col0 to the specified output interface
+// It enables IP forwarding and adds the necessary iptables rule
+func (n *ColimaNetworkManager) setupForwardingRule(networkCIDR, outputInterface string) error {
 	hostIP, err := n.getHostIP()
 	if err != nil {
 		return fmt.Errorf("error getting host IP: %w", err)
 	}
 
+	if _, err := n.secureShell.ExecSilent(
+		"sudo", "sysctl", "-w", "net.ipv4.ip_forward=1",
+	); err != nil {
+		return fmt.Errorf("error enabling IP forwarding in VM: %w", err)
+	}
+
 	_, err = n.secureShell.ExecSilent(
 		"sudo", "iptables", "-t", "filter", "-C", "FORWARD",
-		"-i", "col0", "-o", dockerBridgeInterface,
+		"-i", "col0", "-o", outputInterface,
 		"-s", hostIP, "-d", networkCIDR, "-j", "ACCEPT",
 	)
 	if err != nil {
-		if strings.Contains(err.Error(), "Bad rule") {
+		errStr := err.Error()
+		if strings.Contains(errStr, "No chain/target/match") || strings.Contains(errStr, "Bad rule") {
 			if _, err := n.secureShell.ExecSilent(
 				"sudo", "iptables", "-t", "filter", "-A", "FORWARD",
-				"-i", "col0", "-o", dockerBridgeInterface,
+				"-i", "col0", "-o", outputInterface,
 				"-s", hostIP, "-d", networkCIDR, "-j", "ACCEPT",
 			); err != nil {
 				return fmt.Errorf("error setting iptables rule: %w", err)
@@ -116,10 +165,6 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 
 	return nil
 }
-
-// =============================================================================
-// Private Methods
-// =============================================================================
 
 // getHostIP retrieves the host IP address that shares the same subnet as the guest IP address.
 // It first obtains and validates the guest IP from the configuration. Then, it iterates over the network interfaces
