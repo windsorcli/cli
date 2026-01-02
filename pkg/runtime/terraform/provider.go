@@ -15,11 +15,10 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
-
-var _ config.ValueProvider = (*terraformProvider)(nil)
 
 // =============================================================================
 // Types
@@ -62,7 +61,6 @@ type TerraformProvider interface {
 	GenerateTerraformArgs(componentID, modulePath string, interactive bool) (*TerraformArgs, error)
 	GetTerraformComponent(componentID string) *blueprintv1alpha1.TerraformComponent
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
-	GetOutputs(componentID string) (map[string]any, error)
 	GetTFDataDir(componentID string) (string, error)
 	ClearCache()
 }
@@ -71,19 +69,26 @@ type TerraformProvider interface {
 // Constructor
 // =============================================================================
 
-// NewTerraformProvider creates a new TerraformProvider instance.
+// NewTerraformProvider creates a new TerraformProvider instance and registers its helper functions with the evaluator.
 func NewTerraformProvider(
 	configHandler config.ConfigHandler,
 	shell shell.Shell,
 	toolsManager tools.ToolsManager,
+	evaluator evaluator.ExpressionEvaluator,
 ) TerraformProvider {
-	return &terraformProvider{
+	provider := &terraformProvider{
 		configHandler: configHandler,
 		shell:         shell,
 		toolsManager:  toolsManager,
 		Shims:         NewShims(),
 		cache:         make(map[string]map[string]any),
 	}
+
+	if evaluator != nil {
+		provider.registerTerraformOutputHelper(evaluator)
+	}
+
+	return provider
 }
 
 // =============================================================================
@@ -321,32 +326,6 @@ func (p *terraformProvider) GetTerraformComponents() []blueprintv1alpha1.Terrafo
 	return p.components
 }
 
-// GetOutputs fetches all outputs for a terraform component, using cache if available.
-// Returns a map of output keys to values, or an error if outputs cannot be fetched.
-func (p *terraformProvider) GetOutputs(componentID string) (map[string]any, error) {
-	p.mu.RLock()
-	if cached, exists := p.cache[componentID]; exists {
-		p.mu.RUnlock()
-		return cached, nil
-	}
-	p.mu.RUnlock()
-
-	outputs, err := p.captureTerraformOutputs(componentID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to capture outputs for component '%s': %w", componentID, err)
-	}
-
-	p.mu.Lock()
-	if cached, exists := p.cache[componentID]; exists {
-		p.mu.Unlock()
-		return cached, nil
-	}
-	p.cache[componentID] = outputs
-	p.mu.Unlock()
-
-	return outputs, nil
-}
-
 // GetTFDataDir calculates the TF_DATA_DIR path for a given component ID.
 // It resolves the component ID to the actual component ID (using GetID if component exists),
 // then constructs the path as ${windsorScratchPath}/.terraform/${componentID}.
@@ -375,35 +354,66 @@ func (p *terraformProvider) ClearCache() {
 	p.components = nil
 }
 
-// GetValue implements the config.ValueProvider interface, handling keys in the format
-// terraform.<componentID>.outputs.<outputKey>. It parses the key, extracts the component ID
-// and output key, then fetches the terraform output using the cached GetOutputs method.
-// Returns the output value or an error if the key format is invalid or the output cannot be fetched.
-func (p *terraformProvider) GetValue(key string) (any, error) {
-	parts := strings.Split(key, ".")
-	if len(parts) < 4 || parts[0] != "terraform" || parts[2] != "outputs" {
-		return nil, fmt.Errorf("invalid terraform key format: expected terraform.<componentID>.outputs.<outputKey>, got %s", key)
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// registerTerraformOutputHelper registers the terraform_output helper function with the evaluator.
+func (p *terraformProvider) registerTerraformOutputHelper(evaluator evaluator.ExpressionEvaluator) {
+	evaluator.Register("terraform_output", func(params ...any) (any, error) {
+		if len(params) != 2 {
+			return nil, fmt.Errorf("terraform_output() requires exactly 2 arguments (component, key), got %d", len(params))
+		}
+		component, ok := params[0].(string)
+		if !ok {
+			return nil, fmt.Errorf("terraform_output() component must be a string, got %T", params[0])
+		}
+		key, ok := params[1].(string)
+		if !ok {
+			return nil, fmt.Errorf("terraform_output() key must be a string, got %T", params[1])
+		}
+		return p.getOutput(component, key)
+	}, new(func(string, string) any))
+}
+
+// getOutput fetches a single output value for a terraform component by key.
+// Returns the output value or an error if the component or key is not found.
+func (p *terraformProvider) getOutput(componentID, key string) (any, error) {
+	p.mu.RLock()
+	if cached, exists := p.cache[componentID]; exists {
+		p.mu.RUnlock()
+		value, exists := cached[key]
+		if !exists {
+			return nil, fmt.Errorf("output key '%s' not found for component '%s'", key, componentID)
+		}
+		return value, nil
 	}
+	p.mu.RUnlock()
 
-	componentID := parts[1]
-	outputKey := strings.Join(parts[3:], ".")
-
-	outputs, err := p.GetOutputs(componentID)
+	outputs, err := p.captureTerraformOutputs(componentID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get outputs for component %s: %w", componentID, err)
+		return nil, fmt.Errorf("failed to capture outputs for component '%s': %w", componentID, err)
 	}
 
-	value, exists := outputs[outputKey]
+	p.mu.Lock()
+	if cached, exists := p.cache[componentID]; exists {
+		p.mu.Unlock()
+		value, exists := cached[key]
+		if !exists {
+			return nil, fmt.Errorf("output key '%s' not found for component '%s'", key, componentID)
+		}
+		return value, nil
+	}
+	p.cache[componentID] = outputs
+	p.mu.Unlock()
+
+	value, exists := outputs[key]
 	if !exists {
-		return nil, fmt.Errorf("output key %s not found for component %s", outputKey, componentID)
+		return nil, fmt.Errorf("output key '%s' not found for component '%s'", key, componentID)
 	}
 
 	return value, nil
 }
-
-// =============================================================================
-// Private Methods
-// =============================================================================
 
 // captureTerraformOutputs runs 'terraform output -json' for the specified component, after setting up
 // the appropriate environment (TF_DATA_DIR, backend override file). It attempts to initialize the

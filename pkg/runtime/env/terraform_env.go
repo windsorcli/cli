@@ -36,11 +36,11 @@ type TerraformEnvPrinter struct {
 // =============================================================================
 
 // NewTerraformEnvPrinter creates a new TerraformEnvPrinter instance
-func NewTerraformEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler, toolsManager tools.ToolsManager) *TerraformEnvPrinter {
+func NewTerraformEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler, toolsManager tools.ToolsManager, terraformProvider terraform.TerraformProvider) *TerraformEnvPrinter {
 	return &TerraformEnvPrinter{
 		BaseEnvPrinter:    *NewBaseEnvPrinter(shell, configHandler),
 		toolsManager:      toolsManager,
-		terraformProvider: terraform.NewTerraformProvider(configHandler, shell, toolsManager),
+		terraformProvider: terraformProvider,
 	}
 }
 
