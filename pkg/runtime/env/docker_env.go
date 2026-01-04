@@ -192,5 +192,9 @@ func (e *DockerEnvPrinter) getRegistryURL() (string, error) {
 	return "", nil
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure DockerEnvPrinter implements the EnvPrinter interface
 var _ EnvPrinter = (*DockerEnvPrinter)(nil)

@@ -164,5 +164,9 @@ func (n *ColimaNetworkManager) getHostIP() (string, error) {
 	return "", fmt.Errorf("failed to find host IP in the same subnet as guest IP")
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure ColimaNetworkManager implements NetworkManager
 var _ NetworkManager = (*ColimaNetworkManager)(nil)

@@ -944,9 +944,6 @@ func (c *configHandler) GenerateContextID() error {
 	return c.Set("id", id)
 }
 
-// Ensure configHandler implements ConfigHandler
-var _ ConfigHandler = (*configHandler)(nil)
-
 // =============================================================================
 // Private Methods
 // =============================================================================
@@ -1261,3 +1258,10 @@ func (c *configHandler) applySystemSchemaPlugins() {
 		}
 	}
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
+// Ensure configHandler implements ConfigHandler
+var _ ConfigHandler = (*configHandler)(nil)

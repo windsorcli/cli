@@ -175,9 +175,6 @@ func (v *DockerVirt) WriteConfig() error {
 	return nil
 }
 
-// Ensure DockerVirt implements ContainerRuntime
-var _ ContainerRuntime = (*DockerVirt)(nil)
-
 // =============================================================================
 // Private Methods
 // =============================================================================
@@ -351,3 +348,10 @@ func (v *DockerVirt) supportsDockerEngineV28Plus() bool {
 	majorVersion := parts[0]
 	return majorVersion >= "28"
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
+// Ensure DockerVirt implements ContainerRuntime
+var _ ContainerRuntime = (*DockerVirt)(nil)

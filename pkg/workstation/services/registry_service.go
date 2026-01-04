@@ -192,5 +192,9 @@ func getBasename(name string) string {
 	return name
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure RegistryService implements Service interface
 var _ Service = (*RegistryService)(nil)

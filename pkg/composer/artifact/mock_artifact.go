@@ -92,5 +92,9 @@ func (m *MockArtifact) GetCacheDir(registry, repository, tag string) (string, er
 	return "", nil
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure MockArtifact implements Artifact interface
 var _ Artifact = (*MockArtifact)(nil)

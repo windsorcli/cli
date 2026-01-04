@@ -70,5 +70,9 @@ func (m *MockTerraformProvider) ClearCache() {
 	}
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure MockTerraformProvider implements the TerraformProvider interface
 var _ TerraformProvider = (*MockTerraformProvider)(nil)

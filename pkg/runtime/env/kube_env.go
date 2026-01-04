@@ -188,5 +188,9 @@ var queryPersistentVolumeClaims = func(kubeConfigPath string) (*corev1.Persisten
 	return pvcs, nil
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure KubeEnvPrinter implements the EnvPrinter interface
 var _ EnvPrinter = (*KubeEnvPrinter)(nil)

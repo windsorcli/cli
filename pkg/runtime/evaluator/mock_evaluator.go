@@ -72,5 +72,9 @@ func (m *MockExpressionEvaluator) InterpolateString(s string, config map[string]
 	return s, nil
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure MockExpressionEvaluator implements ExpressionEvaluator.
 var _ ExpressionEvaluator = (*MockExpressionEvaluator)(nil)

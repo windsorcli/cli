@@ -68,3 +68,10 @@ func (p *RealNetworkInterfaceProvider) Interfaces() ([]net.Interface, error) {
 func (p *RealNetworkInterfaceProvider) InterfaceAddrs(iface net.Interface) ([]net.Addr, error) {
 	return iface.Addrs()
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
+// Ensure RealNetworkInterfaceProvider implements the NetworkInterfaceProvider interface
+var _ NetworkInterfaceProvider = (*RealNetworkInterfaceProvider)(nil)

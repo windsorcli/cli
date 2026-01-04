@@ -84,3 +84,9 @@ func NewShims() *Shims {
 	}
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
+// Ensure realJsonnetVM implements the JsonnetVM interface
+var _ JsonnetVM = (*realJsonnetVM)(nil)

@@ -71,5 +71,9 @@ func (m *MockSecretsProvider) Unlock() error {
 	return nil
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure MockSecretsProvider implements SecretsProvider
 var _ SecretsProvider = (*MockSecretsProvider)(nil)

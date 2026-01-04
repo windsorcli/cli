@@ -129,4 +129,8 @@ func (w *BaseBlueprintWriter) cleanTransientFields(blueprint *blueprintv1alpha1.
 	return cleaned
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 var _ BlueprintWriter = (*BaseBlueprintWriter)(nil)

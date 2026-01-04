@@ -218,5 +218,9 @@ func (s *SopsSecretsProvider) ParseSecrets(input string) (string, error) {
 	return result, nil
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure SopsSecretsProvider implements the SecretsProvider interface
 var _ SecretsProvider = (*SopsSecretsProvider)(nil)

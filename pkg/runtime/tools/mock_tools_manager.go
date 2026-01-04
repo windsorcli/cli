@@ -53,5 +53,9 @@ func (m *MockToolsManager) GetTerraformCommand() string {
 	return "terraform"
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure MockToolsManager implements ToolsManager.
 var _ ToolsManager = (*MockToolsManager)(nil)

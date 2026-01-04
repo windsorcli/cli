@@ -1336,5 +1336,9 @@ func (a *ArtifactBuilder) downloadOCIArtifact(registry, repository, tag string) 
 	return data, nil
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure ArtifactBuilder implements Artifact interface
 var _ Artifact = (*ArtifactBuilder)(nil)
