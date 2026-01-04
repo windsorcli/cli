@@ -46,6 +46,14 @@ type ConditionalTerraformComponent struct {
 	// If "remove", the component's non-index fields (everything except Path and Source) are removed from the
 	// matching existing component. Remove operations are always applied last after all merge/replace operations.
 	Strategy string `yaml:"strategy,omitempty"`
+
+	// Priority determines the order in which components are processed when multiple features target the same component.
+	// Higher priority values are processed later and override lower priority components. Default is 0.
+	// When priorities are equal, strategy priority is used (remove > replace > merge).
+	// When both priority and strategy are equal, components are merged, removals are accumulated, or replace wins.
+	// For replace operations with equal priority and strategy, the last processed feature (alphabetically by name) wins.
+	// Set different priorities to make ordering explicit and avoid dependency on feature name ordering.
+	Priority int `yaml:"priority,omitempty"`
 }
 
 // ConditionalKustomization extends Kustomization with conditional logic support.
@@ -63,6 +71,14 @@ type ConditionalKustomization struct {
 	// If "remove", the kustomization's non-index fields (everything except Name) are removed from the
 	// matching existing kustomization. Remove operations are always applied last after all merge/replace operations.
 	Strategy string `yaml:"strategy,omitempty"`
+
+	// Priority determines the order in which kustomizations are processed when multiple features target the same kustomization.
+	// Higher priority values are processed later and override lower priority kustomizations. Default is 0.
+	// When priorities are equal, strategy priority is used (remove > replace > merge).
+	// When both priority and strategy are equal, kustomizations are merged, removals are accumulated, or replace wins.
+	// For replace operations with equal priority and strategy, the last processed feature (alphabetically by name) wins.
+	// Set different priorities to make ordering explicit and avoid dependency on feature name ordering.
+	Priority int `yaml:"priority,omitempty"`
 }
 
 // DeepCopy creates a deep copy of the Feature object.
@@ -107,6 +123,7 @@ func (c *ConditionalTerraformComponent) DeepCopy() *ConditionalTerraformComponen
 		TerraformComponent: *c.TerraformComponent.DeepCopy(),
 		When:               c.When,
 		Strategy:           c.Strategy,
+		Priority:           c.Priority,
 	}
 }
 
@@ -120,5 +137,6 @@ func (c *ConditionalKustomization) DeepCopy() *ConditionalKustomization {
 		Kustomization: *c.Kustomization.DeepCopy(),
 		When:          c.When,
 		Strategy:      c.Strategy,
+		Priority:      c.Priority,
 	}
 }
