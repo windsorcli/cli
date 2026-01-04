@@ -374,3 +374,77 @@ func TestMockExpressionEvaluator_InterpolateString(t *testing.T) {
 	})
 }
 
+// TestMockExpressionEvaluator_EvaluateValue tests the EvaluateValue method of MockExpressionEvaluator
+func TestMockExpressionEvaluator_EvaluateValue(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock evaluator with EvaluateValueFunc set
+		mockEvaluator := setupMockEvaluatorMocks(t)
+		expectedResult := 42
+		expectedString := "${value}"
+		expectedConfig := map[string]any{
+			"value": 42,
+		}
+		expectedFeaturePath := "/test/feature.yaml"
+		mockEvaluator.EvaluateValueFunc = func(s string, config map[string]any, featurePath string) (any, error) {
+			if s != expectedString {
+				t.Errorf("Expected string %s, got %s", expectedString, s)
+			}
+			if featurePath != expectedFeaturePath {
+				t.Errorf("Expected featurePath %s, got %s", expectedFeaturePath, featurePath)
+			}
+			return expectedResult, nil
+		}
+
+		// When EvaluateValue is called
+		result, err := mockEvaluator.EvaluateValue(expectedString, expectedConfig, expectedFeaturePath)
+
+		// Then no error should be returned and the result should match
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if result != expectedResult {
+			t.Errorf("Expected result %v, got %v", expectedResult, result)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		// Given a mock evaluator with EvaluateValueFunc set to return an error
+		mockEvaluator := setupMockEvaluatorMocks(t)
+		expectedError := errors.New("evaluation value error")
+		mockEvaluator.EvaluateValueFunc = func(s string, config map[string]any, featurePath string) (any, error) {
+			return nil, expectedError
+		}
+
+		// When EvaluateValue is called
+		result, err := mockEvaluator.EvaluateValue("test", map[string]any{}, "")
+
+		// Then the expected error should be returned and result should be nil
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+		if result != nil {
+			t.Errorf("Expected nil result, got %v", result)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock evaluator without EvaluateValueFunc set
+		mockEvaluator := setupMockEvaluatorMocks(t)
+		expectedString := "test string"
+
+		// When EvaluateValue is called
+		result, err := mockEvaluator.EvaluateValue(expectedString, map[string]any{}, "")
+
+		// Then no error should be returned and result should be the input string (default implementation)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if result != expectedString {
+			t.Errorf("Expected result %s, got %v", expectedString, result)
+		}
+	})
+}
+

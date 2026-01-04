@@ -9,6 +9,7 @@ type MockExpressionEvaluator struct {
 	RegisterFunc          func(name string, helper func(params ...any) (any, error), signature any)
 	EvaluateFunc          func(expression string, config map[string]any, featurePath string) (any, error)
 	EvaluateDefaultsFunc  func(defaults map[string]any, config map[string]any, featurePath string) (map[string]any, error)
+	EvaluateValueFunc     func(s string, config map[string]any, featurePath string) (any, error)
 	InterpolateStringFunc func(s string, config map[string]any, featurePath string) (string, error)
 }
 
@@ -53,6 +54,14 @@ func (m *MockExpressionEvaluator) EvaluateDefaults(defaults map[string]any, conf
 		return m.EvaluateDefaultsFunc(defaults, config, featurePath)
 	}
 	return make(map[string]any), nil
+}
+
+// EvaluateValue calls the mock EvaluateValueFunc if set, otherwise returns the input string, nil.
+func (m *MockExpressionEvaluator) EvaluateValue(s string, config map[string]any, featurePath string) (any, error) {
+	if m.EvaluateValueFunc != nil {
+		return m.EvaluateValueFunc(s, config, featurePath)
+	}
+	return s, nil
 }
 
 // InterpolateString calls the mock InterpolateStringFunc if set, otherwise returns the input string, nil.

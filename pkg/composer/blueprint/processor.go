@@ -24,7 +24,7 @@ type BlueprintProcessor interface {
 // BaseBlueprintProcessor provides the default implementation of the BlueprintProcessor interface.
 type BaseBlueprintProcessor struct {
 	runtime   *runtime.Runtime
-	evaluator *evaluator.ExpressionEvaluator
+	evaluator evaluator.ExpressionEvaluator
 }
 
 // =============================================================================

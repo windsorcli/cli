@@ -46,6 +46,7 @@ type ExpressionEvaluator interface {
 	SetTemplateData(templateData map[string][]byte)
 	Evaluate(expression string, config map[string]any, featurePath string) (any, error)
 	EvaluateDefaults(defaults map[string]any, config map[string]any, featurePath string) (map[string]any, error)
+	EvaluateValue(s string, config map[string]any, featurePath string) (any, error)
 	InterpolateString(s string, config map[string]any, featurePath string) (string, error)
 }
 
